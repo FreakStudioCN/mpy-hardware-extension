@@ -1,0 +1,27 @@
+# Tooling state
+.gstack/
+.claude/scheduled_tasks.lock
+.claude/local/
+.claude/projects/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
