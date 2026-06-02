@@ -54,6 +54,72 @@ test("session controller routes ask_user to the webview and feeds the answer bac
   assert.equal(result.terminal, "generated");
 });
 
+test("session controller records UI prompts, confirmations, artifacts, and terminal state", async () => {
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => {},
+    confirmTool: async () => true,
+    recorderFactory: (traceId: string) => ({
+      record: async (event: any) => void recorded.push({ traceId, ...event }),
+    }),
+    loop: async ({ onEvent, askUser, confirmTool }) => {
+      const answer = await askUser("Which output should it use?");
+      onEvent({ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1", answer } });
+      onEvent({ type: "code_updated", code: "print('MPYHW_READY')" });
+      onEvent({ type: "serial_output", lines: ["MPYHW_READY"] });
+      await confirmTool({ name: "write_main_py", input: { path: "main.py" } });
+      return { terminal: "success" };
+    },
+  });
+
+  const started = controller.start({ intent: "build companion", boardId: "esp32-s3-devkitc-1" });
+  const prompt = recorded.find((event) => event.type === "ui_prompt");
+  assert.ok(prompt, "expected ui_prompt event");
+  controller.resolvePrompt(prompt.promptId, "OLED");
+  await started;
+
+  assert.deepEqual(recorded.map((event) => event.type), [
+    "session_started",
+    "user_message",
+    "ui_prompt",
+    "ui_prompt_answer",
+    "artifact",
+    "artifact",
+    "serial_output",
+    "confirmation",
+    "session_finished",
+  ]);
+  assert.equal(recorded[0].intent, "build companion");
+  assert.equal(recorded[1].intent, "build companion");
+  assert.equal(recorded[3].answer, "OLED");
+  assert.equal(recorded[4].kind, "manifest");
+  assert.equal(recorded[5].code, "print('MPYHW_READY')");
+  assert.deepEqual(recorded[7].tool, { name: "write_main_py", input: { path: "main.py" } });
+  assert.equal(recorded[8].terminal, "success");
+});
+
+test("session controller carries agent state into the next user message", async () => {
+  const statesSeen: any[] = [];
+  const returnedStates = [
+    { traceId: "session", intent: "first", boardId: "esp32-s3-devkitc-1", messages: [{ role: "user", content: "first" }] },
+    { traceId: "session", intent: "first", boardId: "esp32-s3-devkitc-1", messages: [{ role: "user", content: "first" }, { role: "user", content: "second" }] },
+  ];
+  const controller = new SessionController({
+    postMessage: () => {},
+    confirmTool: async () => true,
+    loop: async (input) => {
+      statesSeen.push(input.state);
+      return { terminal: "awaiting_user", state: returnedStates[statesSeen.length - 1] };
+    },
+  });
+
+  await controller.start({ intent: "first", boardId: "esp32-s3-devkitc-1" });
+  await controller.start({ intent: "second", boardId: "esp32-s3-devkitc-1" });
+
+  assert.equal(statesSeen[0], undefined);
+  assert.deepEqual(statesSeen[1], returnedStates[0]);
+});
+
 test("session controller cancel unblocks a pending ask_user with a null answer", async () => {
   let captured: string | null = "unset";
   const controller = new SessionController({

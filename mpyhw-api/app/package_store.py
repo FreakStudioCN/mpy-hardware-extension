@@ -187,15 +187,30 @@ def normalize_record(raw: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+# Keyword -> capability inference for ingested packages whose JSON carries no
+# explicit capabilities list. Substring match against name + description. Keeps
+# the original four capabilities and extends to the rest of the upypi catalog.
+CAPABILITY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("temperature_sensing", ("temp", "aht20", "aht21", "dht", "bmp280", "bme280", "ds18b20", "ds18x20", "thermo")),
+    ("humidity_sensing", ("humid", "aht20", "aht21", "dht", "bme280")),
+    ("pressure_sensing", ("pressure", "bmp280", "bme280", "barometer")),
+    ("display_text", ("oled", "ssd1306", "display", "lcd", "menu", "screen")),
+    ("digital_output", ("led", "relay", "neopixel", "ws2812", "pixel", "piranha")),
+    ("motion_sensing", ("mpu6050", "pir", "motion", "gyro", "accel", "imu", "mpu9250")),
+    ("distance_sensing", ("ultrasonic", "hcsr04", "hc-sr04", "distance", "rcwl", "tof", "vl53")),
+    ("color_sensing", ("tcs34725", "color")),
+    ("analog_input", ("adc", "ads1115", "ads1015", "analog")),
+    ("servo_control", ("servo",)),
+    ("touch_sensing", ("mpr121", "touch", "capacitive")),
+    ("gas_sensing", ("gas", "co2", "mq2", "mq135", "voc")),
+    ("timekeeping", ("rtc", "ds1307", "ds1302", "ds3231")),
+]
+
+
 def infer_capabilities(raw: dict[str, Any]) -> list[str]:
     text = " ".join(str(raw.get(key, "")) for key in ("name", "description")).lower()
     capabilities: list[str] = []
-    if "temp" in text or "aht20" in text:
-        capabilities.append("temperature_sensing")
-    if "humid" in text or "aht20" in text:
-        capabilities.append("humidity_sensing")
-    if "oled" in text or "ssd1306" in text or "display" in text:
-        capabilities.append("display_text")
-    if "led" in text:
-        capabilities.append("digital_output")
+    for capability, keywords in CAPABILITY_KEYWORDS:
+        if capability not in capabilities and any(keyword in text for keyword in keywords):
+            capabilities.append(capability)
     return capabilities

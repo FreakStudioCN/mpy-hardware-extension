@@ -4,7 +4,7 @@ import { auditCode } from "./audit-code.ts";
 import { validateManifest } from "./manifest-schema.ts";
 import { CANONICAL_TOOLS } from "./tool-registry.ts";
 import { dispatchTool } from "./tool-dispatch.ts";
-import { parseSseEvents } from "./sse-client.ts";
+import { createLlmClient } from "./llm-client.ts";
 import { createSessionState } from "./session-state.ts";
 import { runAgentLoop } from "./agent-loop.ts";
 
@@ -27,32 +27,48 @@ type LoopDeps = {
   apiBaseUrl?: string;
   fetchImpl?: typeof fetch;
   shim?: any;
+  // Backstop for a black-holed request (server alive, never responds). Default
+  // 90s; set low in tests.
+  requestTimeoutMs?: number;
+  // Resolves the session JWT for the metered /v1/llm/messages calls. Undefined in
+  // headless/test contexts; the calls then go out without an Authorization header.
+  getAuthToken?: () => Promise<string | undefined>;
 };
 
 type LoopInput = {
   intent: string;
   boardId: string;
   traceId?: string;
+  state?: any;
+  recorder?: { record(event: Record<string, any>): Promise<void> };
   onEvent?: (event: any) => void;
   confirmTool?: (tool: any) => Promise<boolean>;
-  askUser?: (question: string) => Promise<string | null>;
-  signal?: { aborted: boolean };
+  askUser?: (question: string, options?: string[]) => Promise<string | null>;
+  signal?: AbortSignal;
   availableBoards?: Array<{ board_id: string; display_name?: string }>;
 };
 
-// Opening turn: tell the agent whether the board is already chosen (use it, don't
-// ask) or unchosen (recommend one from the catalog, then confirm via ask_user).
-// This is what makes the agent recommend hardware instead of blindly asking.
+// Opening turn: requirement-first. Make the agent confirm WHAT to build before
+// picking hardware; then handle the board (use the chosen one / auto-adopt the
+// only one / recommend-and-confirm among several). Every clarification goes
+// through the ask_user tool so the user gets a real, answerable prompt.
 function buildOpening(input: LoopInput): string {
+  const boards = input.availableBoards ?? [];
   const boardKnown = input.boardId && input.boardId !== "auto";
+  const parts = [
+    input.intent,
+    "",
+    "[First make sure you understand the request. If the goal or the core behaviour is unclear, or it could be built more than one way, call the ask_user tool to clarify what device to build and what it should do BEFORE selecting hardware or generating code. Always ask via the ask_user tool, never as plain assistant text.]",
+  ];
   if (boardKnown) {
-    return `${input.intent}\n\n[Target board already selected by the user: ${input.boardId}. Use this board and pass this board_id to query_board_profile. Do NOT ask the user which board to use.]`;
+    parts.push(`[Target board already selected by the user: ${input.boardId}. Use this board and pass this board_id to query_board_profile. Do NOT ask the user which board to use.]`);
+  } else if (boards.length === 1) {
+    parts.push(`[Only one board is currently supported: ${boards[0].board_id}. Use it (pass this board_id to query_board_profile) and briefly tell the user which board you are targeting; do not make them choose.]`);
+  } else if (boards.length > 1) {
+    const list = boards.map((b) => `${b.board_id}${b.display_name ? ` (${b.display_name})` : ""}`).join(", ");
+    parts.push(`[The user has NOT chosen a board. Supported boards: ${list}. Once the requirement is clear, recommend the single most suitable board and briefly say why, then call ask_user to confirm before continuing. Use the confirmed board_id for query_board_profile and codegen.]`);
   }
-  if (input.availableBoards?.length) {
-    const list = input.availableBoards.map((b) => `${b.board_id}${b.display_name ? ` (${b.display_name})` : ""}`).join(", ");
-    return `${input.intent}\n\n[The user has NOT chosen a board. Supported boards: ${list}. Recommend the single most suitable board for this request and briefly say why, then call ask_user to confirm before continuing. Use the confirmed board_id for query_board_profile and codegen.]`;
-  }
-  return input.intent;
+  return parts.join("\n");
 }
 
 // LLMs often wrap code in ```python fences despite instructions; unwrap them.
@@ -68,21 +84,43 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
   const apiBaseUrl = (deps.apiBaseUrl ?? process.env.MPYHW_API_BASE ?? "http://127.0.0.1:8787").replace(/\/$/, "");
   const fetchImpl = deps.fetchImpl ?? fetch;
   const shim = deps.shim;
+  const requestTimeoutMs = deps.requestTimeoutMs ?? 90_000;
   const tools = CANONICAL_TOOLS.map((name) => ({ name }));
+
+  // Wrap a fetch so a black-holed request (server alive, never responds) can't
+  // hang the loop forever. The init still carries input.signal for real
+  // cancellation; this only guarantees the promise settles.
+  const fetchWithTimeout = ((url: any, init?: any) =>
+    new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("request_timeout")), requestTimeoutMs);
+      fetchImpl(url, init).then(
+        (response) => { clearTimeout(timer); resolve(response); },
+        (error) => { clearTimeout(timer); reject(error); },
+      );
+    })
+  ) as typeof fetch;
+  const llmClient = createLlmClient({ apiBaseUrl, fetchImpl: fetchWithTimeout, getAuthToken: deps.getAuthToken });
 
   return async function agentBackedLoop(input: LoopInput) {
     const onEvent = input.onEvent ?? (() => {});
-    const apiClient = new ApiClient(apiBaseUrl, fetchImpl);
-    const boardClient = new BoardClient(apiBaseUrl, fetchImpl);
+    const apiClient = new ApiClient(apiBaseUrl, fetchWithTimeout);
+    const boardClient = new BoardClient(apiBaseUrl, fetchWithTimeout);
 
-    const state = createSessionState({ traceId: input.traceId ?? "session", intent: input.intent, boardId: input.boardId });
-    state.messages.push({ role: "user", content: buildOpening(input) });
-
-    let board: any;
-    const driverContexts: any[] = [];
+    const state = input.state ?? createSessionState({ traceId: input.traceId ?? "session", intent: input.intent, boardId: input.boardId });
+    state.messages.push({ role: "user", content: input.state ? input.intent : buildOpening(input) });
+    if (input.state) {
+      // Continuing a prior conversation: keep the history and derived hardware
+      // context (board, driverContexts), but reset the per-message loop-control
+      // signals. Otherwise the stale success marker / turn & repair counters from
+      // the previous request would immediately terminate (or starve) this one.
+      state.lastRuntimeMarker = undefined;
+      state.turnSeq = 0;
+      state.repairRound = 0;
+      state.textOnlyTurns = 0;
+    }
 
     function contextsForCodegen(manifest: any) {
-      const contexts = [...driverContexts];
+      const contexts = [...state.driverContexts];
       const capabilities = manifest?.capabilities ?? [];
       if (capabilities.includes("digital_output") && !contexts.some((context) => context.package?.name === "machine_pin_led")) {
         contexts.push(LED_BUILTIN_CONTEXT);
@@ -98,28 +136,20 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
         "You are a MicroPython hardware codegen assistant. Output ONLY a complete main.py — no markdown fences, no prose.\n" +
         "Rules: import only modules on the board profile or the provided driver import_names; use the given constructors; " +
         "print 'MPYHW_READY' once at startup, then run a main loop that prints structured status lines; wrap the loop body in try/except.\n\n" +
-        `Board profile:\n${JSON.stringify(board ?? { board_id: manifest?.board_id ?? input.boardId })}\n\n` +
+        `Board profile:\n${JSON.stringify(state.board ?? { board_id: manifest?.board_id ?? input.boardId })}\n\n` +
         `Resolved driver contexts:\n${JSON.stringify(contexts)}\n\n` +
         `Hardware manifest (pins already allocated):\n${JSON.stringify(manifest)}\n\n` +
         `Original hardware request: ${input.intent}`;
-      let response: any;
+      const messages = [{ role: "user", content: user }];
+      await input.recorder?.record({ type: "llm_request", kind: "codegen", messages, tools: [] });
       try {
-        response = await fetchImpl(`${apiBaseUrl}/v1/llm/messages`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messages: [{ role: "user", content: user }], tools: [] }),
-          signal: input.signal,
-        });
+        const code = stripCodeFences((await llmClient.collectText({ messages, tools: [] }, input.signal)).trim());
+        await input.recorder?.record({ type: "llm_response", kind: "codegen", text: code });
+        return code ? { ok: true as const, code } : { ok: false as const, error: "codegen_empty" };
       } catch {
+        await input.recorder?.record({ type: "llm_error", kind: "codegen", error: "codegen_upstream_unavailable" });
         return { ok: false as const, error: "codegen_upstream_unavailable" };
       }
-      if (!response.ok) return { ok: false as const, error: "codegen_upstream_error" };
-      let code = "";
-      for (const ev of parseSseEvents(await response.text())) {
-        if (ev.type === "text_delta") code += ev.text;
-      }
-      code = stripCodeFences(code).trim();
-      return code ? { ok: true as const, code } : { ok: false as const, error: "codegen_empty" };
     }
 
     const executors = {
@@ -127,21 +157,21 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
         const result = await apiClient.executePackageTool(name, toolInput);
         if (name === "get_package_context" && result.ok) {
           const { ok, ...context } = result;
-          driverContexts.push(context);
+          state.driverContexts.push(context);
         }
         return result;
       },
       local: async (name: string, toolInput: any) => {
         if (name === "query_board_profile") {
           try {
-            board = await boardClient.getBoardProfile(toolInput.board_id ?? input.boardId);
-            return { ok: true, ...board };
+            state.board = await boardClient.getBoardProfile(toolInput.board_id ?? input.boardId);
+            return { ok: true, ...state.board };
           } catch (error: any) {
             return { ok: false, error_kind: error.code ?? "board_profile_failed" };
           }
         }
         if (name === "propose_manifest") {
-          const validation = validateManifest(toolInput.manifest, board);
+          const validation = validateManifest(toolInput.manifest, state.board);
           if (!validation.valid) {
             return { ok: false, error_kind: "manifest_invalid", errors: validation.errors };
           }
@@ -155,19 +185,22 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           const contexts = contextsForCodegen(toolInput.manifest);
           const generated = await generateCodeViaLlm(toolInput.manifest, contexts);
           if (!generated.ok) return { ok: false, error_kind: "codegen_failed", error: generated.error };
+          // Surface the manifest that produced this code so the wiring view renders,
+          // even when the agent skipped (or never validated) a propose_manifest call.
+          onEvent({ type: "manifest_updated", manifest: toolInput.manifest });
           onEvent({ type: "code_updated", code: generated.code });
           return { ok: true, path: toolInput.target_path ?? "main.py", code: generated.code };
         }
         if (name === "audit_code") {
-          if (!board) {
+          if (!state.board) {
             return { ok: false, error_kind: "audit_unavailable", message: "board profile not loaded" };
           }
-          const audit = auditCode(toolInput.content, { board, driverContexts: contextsForCodegen({ capabilities: ["digital_output"] }) });
+          const audit = auditCode(toolInput.content, { board: state.board, driverContexts: contextsForCodegen({ capabilities: ["digital_output"] }) });
           return audit.ok ? { ok: true } : { ok: false, error_kind: "audit_failed", disallowed_imports: audit.disallowed_imports };
         }
         if (name === "load_skill") {
           try {
-            const response = await fetchImpl(`${apiBaseUrl}/v1/skills/${encodeURIComponent(toolInput.skill)}`);
+            const response = await fetchWithTimeout(`${apiBaseUrl}/v1/skills/${encodeURIComponent(toolInput.skill)}`);
             if (!response.ok) {
               return { ok: false, error_kind: "skill_not_found" };
             }
@@ -223,7 +256,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           // pauses here until the user answers. Falls back to a null answer for
           // headless contexts (tests / no UI).
           if (typeof input.askUser === "function") {
-            const answer = await input.askUser(toolInput.question);
+            const answer = await input.askUser(toolInput.question, toolInput.options);
             return answer == null
               ? { ok: true, answer: null, note: "ask_user_unanswered" }
               : { ok: true, answer };
@@ -235,23 +268,9 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     };
 
     const sseClient = async () => {
-      const response = await fetchImpl(`${apiBaseUrl}/v1/llm/messages`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: state.messages, tools }),
-        signal: input.signal,
-      });
-      if (!response.ok) {
-        let detail = "llm_upstream_error";
-        try {
-          const body = await response.json();
-          detail = body?.detail?.error ?? body?.error ?? detail;
-        } catch {
-          // non-JSON error body; keep generic detail
-        }
-        throw new Error(detail);
-      }
-      return parseSseEvents(await response.text());
+      const body = { messages: state.messages, tools };
+      await input.recorder?.record({ type: "llm_request", kind: "agent", messages: cloneJson(state.messages), tools: cloneJson(tools) });
+      return llmClient.streamMessages(body, input.signal);
     };
 
     const dispatch = async (tool: any) => {
@@ -270,15 +289,22 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       sseClient,
       signal: input.signal,
       dispatchTool: dispatch,
+      recorder: input.recorder,
       onEvent: (event: any) => {
         if (event.type === "text_delta" && event.text.trim()) {
           onEvent({ type: "trace", text: event.text });
         } else if (event.type === "tool_use_complete") {
           onEvent({ type: "trace", text: `→ ${event.name}` });
+        } else if (event.type === "credits") {
+          onEvent({ kind: "credits", balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt });
         }
       },
     });
     onEvent({ type: "trace", text: `Agent session finished: ${result.terminal}` });
     return { terminal: result.terminal, state };
   };
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
 }

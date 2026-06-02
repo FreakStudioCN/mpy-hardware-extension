@@ -1,4 +1,20 @@
-# 03 — mpyhw-vscode Spec
+de# 03 — mpyhw-vscode Spec
+
+## Current implementation note (2026-06-02)
+
+This spec still contains historical snippets about Anthropic pass-through,
+`<not_hardware>` client handling, and quota polling. Current extension behavior:
+
+- The extension calls a small LLM client (`src/core/llm-client.ts`) for
+  `/v1/llm/messages`; auth headers are centralized there.
+- LLM SSE is consumed incrementally with `streamSseEvents()` over
+  `ReadableStream`. The main agent loop accepts async event sources and no
+  longer needs to wait for the whole response body.
+- Codegen nested LLM calls use the same LLM client and stream collector.
+- Credit display reads `GET /v1/credits`; `/v1/quota` is obsolete.
+- The current backend is DeepSeek/OpenAI-compatible by default and adapts to the
+  client event shape; do not assume raw Anthropic event semantics for provider
+  behavior, prompt cache, or tool-call edge cases.
 
 > 仓库：`mpyhw-vscode`（VS Code Extension + 内嵌 Python shim + **agent loop**）
 > 适用版本：v0.2.0
@@ -121,7 +137,7 @@ flowchart LR
 | 代码 diff | `monaco-editor` 嵌入 WebView | 150 |
 | 串口流 | `xterm.js` 嵌入 WebView | 100 |
 | Agent trace 抽屉 | `<vscode-collapsible>` 内放 JSON viewer | 100 |
-| 配额显示 | 每 30 秒拉一次 `GET /v1/quota` | 50 |
+| Credits display | Poll `GET /v1/credits` | 50 |
 | Confirm 对话框（shim IO tool requires_user_confirm） | `vscode.window.showInformationMessage` | 40 |
 | Ask-user 对话框（agent 发起的 ask_user） | WebView 内嵌问答组件 | 80 |
 

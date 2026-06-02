@@ -9,6 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 router = APIRouter()
 
 
+def _safe_content_path(base: Path, name: str, suffix: str) -> Path:
+    root = base.resolve()
+    path = (base / f"{name}{suffix}").resolve()
+    if not path.is_relative_to(root):
+        raise HTTPException(status_code=404, detail={"error": "content_not_found"})
+    return path
+
+
 @router.get("/v1/boards")
 def boards():
     entries = []
@@ -31,7 +39,7 @@ def boards():
 
 @router.get("/v1/boards/{board_id}")
 def board(board_id: str):
-    path = ROOT / "content" / "boards" / f"{board_id}.json"
+    path = _safe_content_path(ROOT / "content" / "boards", board_id, ".json")
     if not path.exists():
         raise HTTPException(status_code=404, detail={"error": "board_not_found"})
     return json.loads(path.read_text(encoding="utf-8"))
@@ -53,7 +61,7 @@ def skills():
 
 @router.get("/v1/skills/{name}")
 def skill(name: str):
-    path = ROOT / "content" / "skills" / "existing" / f"{name}.md"
+    path = _safe_content_path(ROOT / "content" / "skills" / "existing", name, ".md")
     if not path.exists():
         raise HTTPException(status_code=404, detail={"error": "skill_not_found"})
     body = path.read_text(encoding="utf-8")

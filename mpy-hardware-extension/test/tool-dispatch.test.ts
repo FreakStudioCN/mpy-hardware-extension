@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { CANONICAL_TOOLS } from "../src/core/tool-registry.ts";
+import { CANONICAL_TOOLS, routeForTool } from "../src/core/tool-registry.ts";
 import { dispatchTool } from "../src/core/tool-dispatch.ts";
+
+const contract = JSON.parse(readFileSync(new URL("../../contracts/canonical_tools.json", import.meta.url), "utf-8"));
 
 test("every canonical tool routes to exactly one executor", async () => {
   const seen: string[] = [];
@@ -29,4 +32,23 @@ test("unknown tool returns structured observation instead of throwing", async ()
 
   assert.equal(result.ok, false);
   assert.equal(result.error_kind, "UnknownToolError");
+});
+
+test("client canonical tools match the shared contract exactly", () => {
+  const contractNames = contract.map((tool: any) => tool.name);
+
+  assert.deepEqual(CANONICAL_TOOLS, contractNames);
+});
+
+test("client implements every shared contract executor hint", () => {
+  const routeByHint: Record<string, string> = {
+    local: "local",
+    "api-proxy": "api",
+    shim: "shim",
+    "ui-prompt": "ui",
+  };
+
+  for (const tool of contract) {
+    assert.equal(routeForTool(tool.name), routeByHint[tool.executor_hint], tool.name);
+  }
 });

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webviewCspSource} 'unsafe-inline'; script-src ${webviewCspSource} 'unsafe-inline';">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MPY Hardware</title>
+    <title>Blockless</title>
     <style>
       /* VS Code Dark+ sidebar — ported from the Forge design reference.
          Only the .panel (header/quota/tabs/content/composer) is reproduced;
@@ -123,6 +123,11 @@
       .ask-send { flex: 0 0 auto; background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 0 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--ui); }
       .ask-send:hover:not(:disabled) { background: var(--accent-hover); }
       .ask-send:disabled { background: #3a3a3c; color: #8a8a8a; cursor: default; }
+      .ask-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .ask-opt { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: var(--ui); }
+      .ask-opt:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); }
+      .ask-opt.chosen { background: var(--accent); color: #fff; border-color: var(--accent); }
+      .ask-opt:disabled { opacity: .5; cursor: default; }
       .ask-answer { margin-top: 6px; font-size: 12px; color: #7ee08a; font-family: var(--mono); }
 
       /* code tab */
@@ -216,15 +221,14 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="M9.5 6V3M14.5 6V3M9.5 21v-3M14.5 21v-3M6 9.5H3M6 14.5H3M21 9.5h-3M21 14.5h-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           </div>
           <div class="ph-text">
-            <div class="ph-title">MPY Hardware</div>
-            <select class="ph-device" id="device"><option value="">Loading devices…</option></select>
+            <div class="ph-title">Blockless</div>
           </div>
           <div class="ph-grow"></div>
         </div>
         <div class="quota hidden" id="quota">
-          <div class="quota-top"><span>Daily sessions</span><span class="num"><b id="qUsed">0</b> / <span id="qLimit">5</span></span></div>
+          <div class="quota-top"><span>Credits</span><span class="num"><b id="qUsed">0</b></span></div>
           <div class="quota-bar"><div class="quota-fill" id="qFill" style="width:0%"></div></div>
-          <div class="quota-warn" id="qWarn">Running low on sessions today.</div>
+          <div class="quota-warn" id="qWarn">Running low on credits today.</div>
         </div>
       </div>
 
@@ -281,33 +285,11 @@
       const $ = (id) => document.getElementById(id);
 
       // ----- device list (from API, never hardcoded) -----
-      function savedBoard() { try { return (vscode.getState() || {}).board || null; } catch { return null; } }
-      function selectedBoard() { const el = $("device"); return el && el.value ? el.value : null; }
-      function populateBoards(boards) {
-        const el = $("device");
-        el.innerHTML = "";
-        if (!boards || !boards.length) {
-          const o = document.createElement("option"); o.value = ""; o.textContent = "No device — start the API to load boards";
-          el.appendChild(o); el.disabled = true; updateGenerateEnabled(); return;
-        }
-        el.disabled = false;
-        // Recommend-first: default to letting the AI pick the board.
-        const auto = document.createElement("option");
-        auto.value = "auto";
-        auto.textContent = "✨ Let AI recommend a board";
-        el.appendChild(auto);
-        for (const b of boards) {
-          const o = document.createElement("option");
-          o.value = b.board_id;
-          o.textContent = b.display_name ? (b.manufacturer ? b.display_name + " · " + b.manufacturer : b.display_name) : b.board_id;
-          el.appendChild(o);
-        }
-        const want = savedBoard();
-        el.value = (want && boards.some((b) => b.board_id === want)) ? want : "auto";
-        updateGenerateEnabled();
-      }
+      // Board selection happens in the conversation (the agent recommends and
+      // confirms via ask_user), not a header dropdown. Start is gated only by
+      // quota; the board is decided in chat.
       function updateGenerateEnabled() {
-        $("generate").disabled = (!running && (!selectedBoard() || quotaExhausted));
+        $("generate").disabled = (!running && quotaExhausted);
       }
 
       // ----- Python highlighter (ported from the design's highlight.js) -----
@@ -369,6 +351,21 @@
         w.classList.toggle("error", kind === "error");
         if (kind === "error") w.classList.remove("thinking");
       }
+      // ----- liveness heartbeat -----
+      // The spinner alone only says "the session hasn't ended". During a long,
+      // silent LLM call (e.g. codegen) that's indistinguishable from a hang, so
+      // surface elapsed time and how long since the last sign of activity.
+      let runStartAt = 0, lastActivityAt = 0, heartbeatTimer = null, awaitingUser = false;
+      function markActivity() { lastActivityAt = Date.now(); }
+      function fmtSecs(ms) { return Math.round(ms / 1000) + "s"; }
+      function tickHeartbeat() {
+        if (!running || awaitingUser) return;
+        const now = Date.now();
+        const idle = now - lastActivityAt;
+        let text = "Generating… " + fmtSecs(now - runStartAt);
+        if (idle > 15000) text += " · 已 " + fmtSecs(idle) + " 无新动作";
+        setStatus(text);
+      }
       function setRunning(on) {
         running = on;
         const btn = $("generate");
@@ -377,29 +374,27 @@
         const w = $("statusWrap");
         w.classList.toggle("thinking", on);
         if (on) w.classList.remove("error");
+        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+        if (on) {
+          awaitingUser = false;
+          runStartAt = lastActivityAt = Date.now();
+          heartbeatTimer = setInterval(tickHeartbeat, 1000);
+        }
         updateGenerateEnabled();
       }
       $("generate").addEventListener("click", () => {
         if (running) { vscode.postMessage({ type: "cancel_session" }); setStatus("Stopping…"); return; }
         const intent = $("intent").value.trim();
         if (!intent) return;
-        const board = selectedBoard();
-        if (!board) { setStatus("Select a device first"); return; }
-        // reset views for a fresh run
-        $("activity").innerHTML = ""; $("activityEmpty").classList.add("hidden"); currentThink = null;
-        $("code").innerHTML = ""; $("codeFilled").classList.add("hidden"); $("codeEmpty").classList.remove("hidden");
-        $("serial").innerHTML = ""; $("serialFilled").classList.add("hidden"); $("serialEmpty").classList.remove("hidden");
-        $("serialHead").classList.remove("live");
-        $("wiring").innerHTML = ""; $("wiringEmpty").classList.remove("hidden");
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
+        currentThink = null;
+        addUserMessage(intent);
+        $("intent").value = "";
+        $("intent").style.height = "auto";
         setTab("activity"); setRunning(true); setStatus("Generating…");
-        vscode.postMessage({ type: "start_session", intent, boardId: board });
-      });
-      $("device").addEventListener("change", () => {
-        const cur = (() => { try { return vscode.getState() || {}; } catch { return {}; } })();
-        vscode.setState({ ...cur, board: selectedBoard() });
-        updateGenerateEnabled();
+        // boardId "auto": the agent recommends a board and confirms it in chat.
+        vscode.postMessage({ type: "start_session", intent, boardId: "auto" });
       });
       const ta = $("intent");
       ta.addEventListener("focus", () => $("composerBox").classList.add("focused"));
@@ -417,6 +412,16 @@
       }
       const ICONS = { thinking: "💭", skill: "📖", tool: "🔧", result: "✓", error: "✕" };
       let currentThink = null; // open thinking card's text node, or null
+      function addUserMessage(text) {
+        $("activityEmpty").classList.add("hidden");
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">›</div><div class="ev-main"><div class="ev-label"><span class="kind">user</span></div><div class="ev-sum"></div></div></div></div>';
+        card.querySelector(".ev-sum").textContent = text;
+        $("activity").appendChild(card);
+        const w = $("activity").parentElement;
+        w.scrollTop = w.scrollHeight;
+      }
       function addActivity(ev) {
         const text = (ev && typeof ev.text === "string") ? ev.text : JSON.stringify(ev);
         if (!text) return;
@@ -455,7 +460,7 @@
       }
 
       // ----- ask_user (interactive prompt; pauses the agent until answered) -----
-      function addAskPrompt(promptId, question) {
+      function addAskPrompt(promptId, question, options) {
         currentThink = null;
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -466,22 +471,38 @@
           '<div class="ev-ico skill">❓</div>' +
           '<div class="ev-main"><div class="ev-label"><span class="kind">question</span></div>' +
           '<div class="ev-sum ask-q"></div>' +
+          '<div class="ask-options"></div>' +
           '<div class="ask-row"><input class="ask-input" type="text" placeholder="Type your answer…"><button class="ask-send">Send</button></div>' +
           "</div></div></div>";
         card.querySelector(".ask-q").textContent = question;
         const input = card.querySelector(".ask-input");
         const send = card.querySelector(".ask-send");
-        const submit = () => {
-          const answer = input.value.trim();
-          if (!answer) return;
+        let answered = false;
+        const submit = (raw) => {
+          const answer = String(raw == null ? "" : raw).trim();
+          if (!answer || answered) return;
+          answered = true;
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer });
           input.disabled = true; send.disabled = true; send.textContent = "Sent";
+          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; if (b.textContent === answer) b.classList.add("chosen"); });
           const a = document.createElement("div"); a.className = "ask-answer"; a.textContent = "→ " + answer;
           card.querySelector(".ev-main").appendChild(a);
+          awaitingUser = false; markActivity();
           setStatus("Generating…");
         };
-        send.addEventListener("click", submit);
-        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+        // Choices presented in the conversation render as clickable options; the
+        // text box stays for a free-form answer.
+        const optHost = card.querySelector(".ask-options");
+        if (Array.isArray(options) && options.length) {
+          for (const opt of options) {
+            const b = document.createElement("button");
+            b.className = "ask-opt"; b.type = "button"; b.textContent = String(opt);
+            b.addEventListener("click", () => submit(opt));
+            optHost.appendChild(b);
+          }
+        }
+        send.addEventListener("click", () => submit(input.value));
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(input.value); } });
         $("activity").appendChild(card);
         $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
         setTimeout(() => input.focus(), 0);
@@ -595,31 +616,36 @@
       }
       function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
-      // ----- quota -----
-      function setQuota(used, limit) {
-        $("qUsed").textContent = used; $("qLimit").textContent = limit;
-        const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+      // ----- credits -----
+      function setCredits(balance, dailyGrant) {
+        $("qUsed").textContent = balance;
+        const max = dailyGrant > 0 ? dailyGrant : balance;
+        const pct = max > 0 ? Math.min(100, Math.round((balance / max) * 100)) : 0;
         $("qFill").style.width = pct + "%";
         const q = $("quota"); q.classList.remove("hidden", "low", "exhausted");
-        if (used >= limit) q.classList.add("exhausted");
-        else if (limit - used <= 3) q.classList.add("low");
-        quotaExhausted = used >= limit;
+        if (balance <= 0) q.classList.add("exhausted");
+        else if (balance <= Math.max(1, Math.round(max * 0.2))) q.classList.add("low");
+        quotaExhausted = balance <= 0;
         updateGenerateEnabled();
       }
 
       // ----- host messages (protocol unchanged) -----
       window.addEventListener("message", (event) => {
         const msg = event.data;
-        if (msg.type === "session_event" && msg.event && msg.event.kind === "quota") {
-          setQuota(msg.event.used, msg.event.limit);
+        if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
+          setCredits(msg.event.balance, msg.event.dailyGrant);
         }
-        if (msg.type === "boards") populateBoards(msg.boards);
-        if (msg.type === "trace_event") addActivity(msg.event);
-        if (msg.type === "ui_prompt_needed") addAskPrompt(msg.promptId, msg.question);
-        if (msg.type === "code_updated") { renderCode(msg.code); if (activeTab === "activity") setTab("code"); }
-        if (msg.type === "manifest_updated") renderWiring(msg.manifest);
-        if (msg.type === "serial_output") addSerial(msg.lines);
-        if (msg.type === "session_error") { addActivity({ text: msg.error }); setStatus(msg.error, "error"); }
+        if (msg.type === "trace_event") { markActivity(); addActivity(msg.event); }
+        if (msg.type === "ui_prompt_needed") { awaitingUser = true; addAskPrompt(msg.promptId, msg.question, msg.options); }
+        if (msg.type === "code_updated") { markActivity(); renderCode(msg.code); if (activeTab === "activity") setTab("code"); }
+        if (msg.type === "manifest_updated") { markActivity(); renderWiring(msg.manifest); }
+        if (msg.type === "serial_output") { markActivity(); addSerial(msg.lines); }
+        if (msg.type === "session_error") {
+          const FRIENDLY_ERR = { out_of_credits: "Out of credits — resets at midnight UTC", sign_in_required: "Sign in with GitHub to start" };
+          const text = FRIENDLY_ERR[msg.error] || msg.error;
+          if (msg.error === "out_of_credits") { quotaExhausted = true; $("quota").classList.add("exhausted"); updateGenerateEnabled(); }
+          addActivity({ text }); setStatus(text, "error");
+        }
         if (msg.type === "session_done") {
           setRunning(false);
           currentThink = null;
@@ -629,15 +655,17 @@
           const ok = t === "generated" || t === "success";
           const FRIENDLY = {
             generated: "Done", success: "Done", cancelled: "Stopped",
+            awaiting_user: "Waiting for your reply",
             max_turns: "Stopped (max turns)",
             repair_exhausted: "Couldn't get it working", session_error: "Error",
           };
-          setStatus(FRIENDLY[t] || t, (!ok && t !== "cancelled") ? "error" : null);
-          if (!ok && t !== "cancelled") addActivity({ text: "Session ended: " + (FRIENDLY[t] || t) });
+          const isError = !ok && t !== "cancelled" && t !== "awaiting_user";
+          setStatus(FRIENDLY[t] || t, isError ? "error" : null);
+          if (isError) addActivity({ text: "Session ended: " + (FRIENDLY[t] || t) });
         }
       });
 
-      // Pull the real device list + quota from the extension host on load.
+      // Pull the real device list + credit balance from the extension host on load.
       vscode.postMessage({ type: "request_boards" });
     </script>
   </body>

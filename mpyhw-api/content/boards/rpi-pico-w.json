@@ -1,0 +1,20 @@
+{
+  "board_id": "rpi-pico-w",
+  "display_name": "Raspberry Pi Pico W",
+  "manufacturer": "Raspberry Pi",
+  "pin_capabilities": {
+    "GPIO4": ["gpio_in", "gpio_out", "i2c_sda"],
+    "GPIO5": ["gpio_in", "gpio_out", "i2c_scl"],
+    "GPIO15": ["gpio_out", "led_anode"],
+    "GPIO0": ["uart_tx"],
+    "GPIO1": ["uart_rx"]
+  },
+  "pin_recommendations": {
+    "i2c_sda": "GPIO4",
+    "i2c_scl": "GPIO5",
+    "led_default": "GPIO15"
+  },
+  "forbidden_pins": ["GPIO23", "GPIO24", "GPIO25", "GPIO29"],
+  "available_modules": ["machine", "time", "math", "json", "rp2"],
+  "voltage_notes": "3.3V logic only. The onboard LED is on the CYW43 wireless chip (Pin('LED')), not a GPIO; GPIO15 is recommended for a wired external LED."
+}

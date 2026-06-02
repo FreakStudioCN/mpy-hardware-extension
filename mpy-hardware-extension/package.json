@@ -2,7 +2,7 @@
   "name": "mpy-hardware-extension",
   "version": "0.2.0",
   "publisher": "mpyhw",
-  "displayName": "MPY Hardware",
+  "displayName": "Blockless",
   "description": "MicroPython hardware agent MVP.",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
       "activitybar": [
         {
           "id": "mpyhw",
-          "title": "MPY Hardware",
+          "title": "Blockless",
           "icon": "media/icon.svg"
         }
       ]
@@ -25,7 +25,7 @@
       "mpyhw": [
         {
           "id": "mpyhw.panel",
-          "name": "MPY Hardware",
+          "name": "Blockless",
           "type": "webview"
         }
       ]
@@ -33,11 +33,11 @@
     "commands": [
       {
         "command": "mpyhw.openPanel",
-        "title": "MPY Hardware: Open Panel"
+        "title": "Blockless: Open Panel"
       }
     ],
     "configuration": {
-      "title": "MPY Hardware",
+      "title": "Blockless",
       "properties": {
         "mpyhw.pythonPath": {
           "type": "string",
@@ -61,6 +61,8 @@
     "smoke:extension": "npm test && npm run typecheck && npm run build && npm run package"
   },
   "devDependencies": {
-    "esbuild": "^0.28.0"
+    "@types/node": "^25.9.1",
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.3"
   }
 }

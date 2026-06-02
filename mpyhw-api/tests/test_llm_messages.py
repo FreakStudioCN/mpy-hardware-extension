@@ -1,11 +1,22 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.auth import get_current_user
 from app.main import app
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _bypass_auth():
+    # These tests exercise the LLM translation/whitelist logic, not auth. Override
+    # the auth dependency with a fixed user so the credit pre-flight has a balance.
+    app.dependency_overrides[get_current_user] = lambda: {"id": "test-user", "login": "tester", "email": None}
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 def test_llm_messages_rejects_noncanonical_tool():
@@ -42,6 +53,36 @@ def test_llm_messages_stub_stream_for_local_non_hardware_tests(monkeypatch):
     assert response.headers["content-type"].startswith("text/event-stream")
     assert "content_block_delta" in response.text
     assert "<not_hardware>" not in response.text
+
+
+def test_llm_messages_uses_selected_provider(monkeypatch):
+    class FakeProvider:
+        name = "fake"
+
+        def ensure_configured(self):
+            return None
+
+        def open_stream(self, body):
+            assert body["messages"][0]["content"] == "blink an ESP32 LED"
+            return ["raw"]
+
+        def translate_stream(self, upstream, meter=None):
+            assert upstream == ["raw"]
+            yield 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fake-provider"}}\n\n'
+            if meter is not None:
+                yield 'data: {"type":"credits","remaining":50,"daily_grant":50,"resets_at":"2026-06-03T00:00:00+00:00"}\n\n'
+            yield 'data: {"type":"message_stop"}\n\n'
+
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setattr("app.routes_llm.get_llm_provider", lambda: FakeProvider())
+
+    response = client.post(
+        "/v1/llm/messages",
+        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": []},
+    )
+
+    assert response.status_code == 200
+    assert "fake-provider" in response.text
 
 
 def _sse_bytes(*chunks: dict) -> list[bytes]:
@@ -261,6 +302,16 @@ def test_llm_tool_capabilities_come_from_package_store(monkeypatch):
 
     assert capability_enum == ["analog_input", "temperature_sensing"]
     assert "temperature_sensing, humidity_sensing, digital_output, display_text" not in routes_llm.SYSTEM_PROMPT
+
+
+def test_system_prompt_clarifies_ambiguous_intent_instead_of_refusing():
+    from app import routes_llm
+
+    # Ambiguous / seemingly-non-hardware requests should be clarified via ask_user,
+    # not refused; the removed <not_hardware> refusal must not reappear.
+    assert "ask_user" in routes_llm.SYSTEM_PROMPT
+    assert "do NOT refuse" in routes_llm.SYSTEM_PROMPT
+    assert "<not_hardware>" not in routes_llm.SYSTEM_PROMPT
 
 
 def test_llm_local_tools_expose_parameter_schemas():

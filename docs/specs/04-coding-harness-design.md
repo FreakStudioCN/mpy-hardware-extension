@@ -1,5 +1,22 @@
 # 04 — Coding Harness Design
 
+## Current implementation note (2026-06-02)
+
+The active harness shape is client-side agent loop plus server-side provider
+adapter:
+
+- `mpyhw-api` currently defaults to DeepSeek/OpenAI-compatible chat completions
+  and translates provider streaming chunks into the client-facing event shape.
+- Raw Anthropic pass-through, Anthropic prompt-cache assumptions, and the
+  `<not_hardware>` middleware design below are historical target text.
+- Auth, credits, API-key custody, provider selection, and canonical tool
+  whitelist validation are the current server-side control boundaries.
+- `runAgentLoop()` now supports async SSE event sources, and the extension's
+  LLM client streams `ReadableStream` chunks instead of waiting for
+  `response.text()`.
+- `agent-backed-loop.ts` still owns orchestration, but LLM request/auth/SSE
+  mechanics are factored into `src/core/llm-client.ts`.
+
 > 仓库：`mpyhw-vscode`（**agent loop 跑在客户端 TS 内**）+ `mpyhw-api`（薄代理）
 > 适用版本：v0.2.0
 > 读者：所有跟 LLM / agent 相关的开发；建议先读 [`00-architecture-overview.md`](00-architecture-overview.md) 和 [`03-mpyhw-vscode-spec.md`](03-mpyhw-vscode-spec.md)

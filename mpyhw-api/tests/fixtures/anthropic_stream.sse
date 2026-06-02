@@ -1,0 +1,12 @@
+data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Let me check the board. "}}
+
+data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Profiling now."}}
+
+data: {"type": "content_block_start", "content_block": {"type": "tool_use", "id": "call_1", "name": "query_board_profile"}}
+
+data: {"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": "{\"board_id\":\"esp32-s3-devkitc-1\"}"}}
+
+data: {"type": "content_block_stop"}
+
+data: {"type": "message_stop"}
+

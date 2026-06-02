@@ -1,0 +1,41 @@
+{
+  "import_names": [
+    "tcs34725_color"
+  ],
+  "constructors": [
+    "TCS34725(i2c)"
+  ],
+  "read_methods": [
+    "active",
+    "gain",
+    "html_hex",
+    "html_rgb",
+    "integration_time",
+    "interrupt",
+    "read",
+    "sensor_id",
+    "threshold"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tcs34725_color_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "tcs34725_color.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

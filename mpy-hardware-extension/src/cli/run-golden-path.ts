@@ -13,7 +13,7 @@ const result = await runPipeline({
   boardClient: new BoardClient(baseUrl),
 });
 
-if (!result.ok) {
+if (!result.ok || !result.files) {
   console.error(result);
   process.exit(1);
 }

@@ -11,7 +11,9 @@ def parse_scan_output(output: str) -> list[str]:
     ports: list[str] = []
     for line in output.splitlines():
         first = line.split(maxsplit=1)[0] if line.split() else ""
-        if first.startswith("COM") or first.startswith("/dev/tty."):
+        # COM* (Windows), /dev/tty* (Linux ttyUSB/ttyACM + macOS tty.*),
+        # /dev/cu.* (macOS callout device mpremote sometimes lists).
+        if first.startswith(("COM", "/dev/tty", "/dev/cu.")):
             ports.append(first)
     return ports
 
@@ -98,7 +100,7 @@ class Shim:
 
     def _run(self, command: list[str]):
         self.commands.append(command)
-        return self.runner(command)
+        return self.runner(command, capture_output=True, text=True)
 
 
 # ---------- stdio JSON-RPC server (entry point the VS Code extension spawns) ----------
@@ -177,8 +179,8 @@ def _respond(message):
     sys.stdout.flush()
 
 
-def main():
-    shim = Shim()
+def main(shim=None):
+    shim = shim or Shim()
     for line in sys.stdin:
         line = line.strip()
         if not line:

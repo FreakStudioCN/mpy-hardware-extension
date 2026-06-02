@@ -69,23 +69,23 @@ test("webview defaults to the LLM agent loop and forwards its terminal", async (
     ViewColumn: { One: 1 },
     window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
   };
-  // The loop posts to /v1/llm/messages; here the LLM only ever emits plain text
-  // (no tool calls, no serial marker), so the loop makes no progress and the
-  // panel must forward the loop's terminal (max_turns) back to the webview.
+  // The LLM replies with plain text and no tool call (e.g. asking the user to
+  // clarify). The loop must hand back after one turn, and the panel must forward
+  // the awaiting_user terminal to the webview rather than spinning to max_turns.
   const fetchImpl = (async (url: string) => {
     assert.match(url, /\/v1\/llm\/messages$/);
     const sse = [
-      JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "Here is some prose." } }),
+      JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "What should the device do?" } }),
       JSON.stringify({ type: "message_stop" }),
     ].map((data) => `data: ${data}`).join("\n\n");
     return { ok: true, status: 200, text: async () => sse } as unknown as Response;
   }) as unknown as typeof fetch;
 
   createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
-  await handler?.({ type: "start_session", intent: "blink an led", boardId: "esp32-s3-devkitc-1" });
+  await handler?.({ type: "start_session", intent: "build an ai companion", boardId: "esp32-s3-devkitc-1" });
 
   assert.equal(posted.at(-1).type, "session_done");
-  assert.equal(posted.at(-1).terminal, "max_turns");
+  assert.equal(posted.at(-1).terminal, "awaiting_user");
 });
 
 test("view provider wires the same session controller into a docked webview view", async () => {

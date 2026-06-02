@@ -10,11 +10,13 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from app import credit_store
+from app.auth import get_current_user
 from app.package_store import PackageStore
-from app.tool_registry import CANONICAL_TOOL_NAMES
+from app.tool_registry import CANONICAL_TOOL_INPUT_SCHEMAS, CANONICAL_TOOL_NAMES
 
 
 router = APIRouter()
@@ -23,118 +25,59 @@ ROOT = Path(__file__).resolve().parents[1]
 SYSTEM_PROMPT = """You are a MicroPython hardware coding agent.
 Stay inside this product path: intent -> capabilities -> API-backed Package Intelligence -> driver context -> manifest -> code -> audit -> shim loop -> runtime observation.
 Use only capabilities exposed by Package Intelligence tool schemas.
-Do not invent package APIs. Fetch package context before generating code. Prefer resolve_package_candidates over independent package searches when the user intent is known."""
-
-TOOL_PARAMETERS: dict[str, dict[str, Any]] = {
-    "query_board_profile": {
-        "type": "object",
-        "properties": {"board_id": {"type": "string", "description": "Board id, for example esp32-s3-devkitc-1."}},
-        "required": ["board_id"],
-        "additionalProperties": False,
-    },
-    "search_packages": {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string"},
-            "capabilities": {"type": "array", "items": {"type": "string"}},
-            "board_id": {"type": "string"},
-        },
-        "required": ["query", "capabilities", "board_id"],
-        "additionalProperties": False,
-    },
-    "resolve_package_candidates": {
-        "type": "object",
-        "properties": {
-            "intent": {"type": "string"},
-            "capabilities": {"type": "array", "items": {"type": "string"}},
-            "board_id": {"type": "string"},
-        },
-        "required": ["intent", "capabilities", "board_id"],
-        "additionalProperties": False,
-    },
-    "get_package_context": {
-        "type": "object",
-        "properties": {"name": {"type": "string"}, "version": {"type": "string"}},
-        "required": ["name", "version"],
-        "additionalProperties": False,
-    },
-    "scan_device": {"type": "object", "properties": {}, "additionalProperties": False},
-    "install_package": {
-        "type": "object",
-        "properties": {"package_json_url": {"type": "string"}, "port": {"type": "string"}},
-        "required": ["package_json_url", "port"],
-        "additionalProperties": False,
-    },
-    "write_main_py": {
-        "type": "object",
-        "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-        "required": ["path", "content"],
-        "additionalProperties": False,
-    },
-    "flash_and_run": {
-        "type": "object",
-        "properties": {"port": {"type": "string"}, "path": {"type": "string"}},
-        "required": ["port", "path"],
-        "additionalProperties": False,
-    },
-    "read_serial_until": {
-        "type": "object",
-        "properties": {"port": {"type": "string"}, "markers": {"type": "array", "items": {"type": "string"}}},
-        "required": ["port", "markers"],
-        "additionalProperties": False,
-    },
-    "load_skill": {
-        "type": "object",
-        "properties": {"skill": {"type": "string"}},
-        "required": ["skill"],
-        "additionalProperties": False,
-    },
-    "propose_manifest": {
-        "type": "object",
-        "properties": {"manifest": {"type": "object"}},
-        "required": ["manifest"],
-        "additionalProperties": False,
-    },
-    "generate_code": {
-        "type": "object",
-        "properties": {"manifest": {"type": "object"}, "target_path": {"type": "string"}},
-        "required": ["manifest", "target_path"],
-        "additionalProperties": False,
-    },
-    "audit_code": {
-        "type": "object",
-        "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-        "required": ["path", "content"],
-        "additionalProperties": False,
-    },
-    "ask_user": {
-        "type": "object",
-        "properties": {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}}},
-        "required": ["question"],
-        "additionalProperties": False,
-    },
-}
-
+Do not invent package APIs. Fetch package context before generating code. Prefer resolve_package_candidates over independent package searches when the user intent is known.
+Understand the request before touching hardware: confirm what device to build and its core behaviour first. If a request is ambiguous or does not obviously map to hardware, do NOT refuse. Many requests CAN be hardware (e.g. an "AI companion" may be a desk robot or screen-faced device with sensors and sound). Clarify what physical device the user wants and what it should do (sensors, display, motors, sound, touch), then continue the workflow. Only decline after clarifying if the request truly involves no microcontroller or device at all.
+Whenever you need the user to choose, confirm, or answer anything, you MUST call the ask_user tool. NEVER ask a question only in plain assistant text: the user cannot reply to plain text, so a text-only question ends the turn with no answer and stalls the session."""
 
 @router.post("/v1/llm/messages")
-async def llm_messages(request: Request):
+async def llm_messages(request: Request, user: dict = Depends(get_current_user)):
     body = await request.json()
     rejected = _noncanonical_tools(body.get("tools", []))
     if rejected:
         raise HTTPException(status_code=403, detail={"error": "tool_not_whitelisted", "rejected": rejected})
 
-    if os.getenv("MPYHW_LLM_STUB") == "1":
-        return StreamingResponse(_stub_sse(), media_type="text/event-stream")
+    # Pre-flight credit check. Stub mode has no paid upstream call, so it reports
+    # the balance without reserving. Real upstream turns reserve one credit before
+    # spending tokens; final metering debits any additional usage.
+    state = credit_store.ensure_daily_grant(user, credit_store.DAILY_GRANT)
+    if state["balance"] <= 0:
+        raise HTTPException(
+            status_code=402,
+            detail={"error": "out_of_credits", "balance": 0, "resets_at": state["resets_at"]},
+        )
 
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail={"error": "llm_upstream_not_configured"})
+    if os.getenv("MPYHW_LLM_STUB") == "1":
+        return StreamingResponse(
+            _stub_sse(lambda _tokens: {"remaining": state["balance"], "daily_grant": state["daily_grant"], "resets_at": state["resets_at"]}),
+            media_type="text/event-stream",
+        )
+
+    provider = get_llm_provider()
+    provider.ensure_configured()
+
+    reserved_remaining = credit_store.reserve(user, 1)
+    if reserved_remaining is None:
+        raise HTTPException(
+            status_code=402,
+            detail={"error": "out_of_credits", "balance": 0, "resets_at": state["resets_at"]},
+        )
+
+    def meter(total_tokens: int) -> dict:
+        charged = credit_store.credits_for_tokens(total_tokens)
+        if charged == 0:
+            remaining = credit_store.refund(user, 1)
+        elif charged > 1:
+            remaining = credit_store.debit(user, charged - 1)
+        else:
+            remaining = credit_store.debit(user, 0)
+        return {"remaining": remaining, "daily_grant": state["daily_grant"], "resets_at": state["resets_at"]}
 
     try:
-        upstream = await to_thread(_open_deepseek_stream, body, api_key)
+        upstream = await to_thread(provider.open_stream, body)
     except UpstreamError as error:
+        credit_store.refund(user, 1)
         raise HTTPException(status_code=502, detail={"error": "llm_upstream_error", "status": error.status})
-    return StreamingResponse(_translate_deepseek_stream(upstream), media_type="text/event-stream")
+    return StreamingResponse(provider.translate_stream(upstream, meter), media_type="text/event-stream")
 
 
 def _noncanonical_tools(tools: Iterable[dict[str, Any]]) -> list[str]:
@@ -146,16 +89,13 @@ def _noncanonical_tools(tools: Iterable[dict[str, Any]]) -> list[str]:
     return rejected
 
 
-def _stub_sse():
-    events = [
-        {
-            "type": "content_block_delta",
-            "delta": {"type": "text_delta", "text": "Hardware intent accepted."},
-        },
-        {"type": "message_stop"},
-    ]
-    for event in events:
-        yield _sse(event)
+def _stub_sse(meter=None):
+    yield _sse({"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hardware intent accepted."}})
+    # Stub makes no real LLM call, so it costs 0 tokens (debit 0); still report the
+    # current balance so the client UI updates.
+    if meter is not None:
+        yield _sse({"type": "credits", **meter(0)})
+    yield _sse({"type": "message_stop"})
 
 
 def _sse(event: dict[str, Any]) -> str:
@@ -167,6 +107,27 @@ class UpstreamError(Exception):
         self.status = status
 
 
+class DeepSeekProvider:
+    name = "deepseek"
+
+    def ensure_configured(self) -> None:
+        if not os.getenv("DEEPSEEK_API_KEY"):
+            raise HTTPException(status_code=503, detail={"error": "llm_upstream_not_configured"})
+
+    def open_stream(self, body: dict[str, Any]):
+        return _open_deepseek_stream(body, os.environ["DEEPSEEK_API_KEY"])
+
+    def translate_stream(self, upstream: Iterable[bytes], meter=None):
+        return _translate_deepseek_stream(upstream, meter)
+
+
+def get_llm_provider():
+    provider = os.getenv("MPYHW_LLM_PROVIDER", "deepseek").lower()
+    if provider == "deepseek":
+        return DeepSeekProvider()
+    raise HTTPException(status_code=503, detail={"error": "llm_provider_not_supported", "provider": provider})
+
+
 def _open_deepseek_stream(body: dict[str, Any], api_key: str):
     base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
     model = os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro")
@@ -175,6 +136,8 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str):
         "messages": _deepseek_messages(body),
         "temperature": 0.2,
         "stream": True,
+        # Ask DeepSeek for a final usage chunk so we can token-meter the turn.
+        "stream_options": {"include_usage": True},
     }
     tools = _deepseek_tools(body.get("tools", []))
     if tools:
@@ -197,7 +160,7 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str):
         raise UpstreamError(0)
 
 
-def _translate_deepseek_stream(upstream: Iterable[bytes]):
+def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
     """Translate DeepSeek/OpenAI streaming chunks into Anthropic SSE events.
 
     Text deltas stream live. Tool calls are buffered per index and flushed as
@@ -205,9 +168,15 @@ def _translate_deepseek_stream(upstream: Iterable[bytes]):
     or a name that arrives in a later fragment cannot corrupt the single-tool
     client parser. A mid-stream upstream failure emits an `error` event (which the
     client maps to stream_error) instead of a silently truncated stream.
+
+    On clean completion, the final `usage` chunk is metered: `meter(total_tokens)`
+    reconciles the request-start reservation and a `credits` event carrying the
+    remaining balance is emitted just before message_stop. An interrupted stream
+    keeps the one-credit reservation as the minimum paid-call cost.
     """
     tool_calls: dict[int, dict[str, Any]] = {}
     order: list[int] = []
+    usage_total = 0
     try:
         try:
             for raw_line in upstream:
@@ -221,6 +190,9 @@ def _translate_deepseek_stream(upstream: Iterable[bytes]):
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
                     continue
+                usage = chunk.get("usage")
+                if usage:
+                    usage_total = usage.get("total_tokens", usage_total)
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
@@ -254,6 +226,8 @@ def _translate_deepseek_stream(upstream: Iterable[bytes]):
                 if entry["arguments"]:
                     yield _sse({"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": entry["arguments"]}})
                 yield _sse({"type": "content_block_stop"})
+            if meter is not None:
+                yield _sse({"type": "credits", **meter(usage_total)})
             yield _sse({"type": "message_stop"})
         except (OSError, http.client.HTTPException):
             yield _sse({"type": "error", "error": {"message": "upstream_stream_interrupted"}})
@@ -367,7 +341,7 @@ def _deepseek_tools(tools: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         name = tool.get("name")
         if name not in CANONICAL_TOOL_NAMES:
             continue
-        parameters = json.loads(json.dumps(TOOL_PARAMETERS.get(name, {"type": "object", "additionalProperties": False})))
+        parameters = json.loads(json.dumps(CANONICAL_TOOL_INPUT_SCHEMAS.get(name, {"type": "object", "additionalProperties": False})))
         if capability_schema is not None and name in {"search_packages", "resolve_package_candidates"}:
             parameters["properties"]["capabilities"] = capability_schema
         if skill_schema is not None and name == "load_skill":

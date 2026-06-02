@@ -1,19 +1,6 @@
-export const CANONICAL_TOOLS = [
-  "query_board_profile",
-  "search_packages",
-  "resolve_package_candidates",
-  "get_package_context",
-  "propose_manifest",
-  "generate_code",
-  "audit_code",
-  "load_skill",
-  "ask_user",
-  "scan_device",
-  "install_package",
-  "flash_and_run",
-  "read_serial_until",
-  "write_main_py",
-] as const;
+import canonicalToolContract from "../../../contracts/canonical_tools.json" with { type: "json" };
+
+export const CANONICAL_TOOLS = canonicalToolContract.map((tool) => tool.name);
 
 const ROUTES: Record<string, "local" | "api" | "shim" | "ui"> = {
   query_board_profile: "local",

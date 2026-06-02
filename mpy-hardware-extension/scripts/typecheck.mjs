@@ -1,22 +1,15 @@
-import { readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-const files = [...walk("src"), ...walk("test")].filter((file) => file.endsWith(".ts"));
-for (const file of files) {
-  const result = spawnSync(process.execPath, ["--no-warnings", "--experimental-strip-types", "--check", file], { stdio: "inherit" });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
+const tsc = process.platform === "win32"
+  ? join("node_modules", ".bin", "tsc.cmd")
+  : join("node_modules", ".bin", "tsc");
+
+if (!existsSync(tsc)) {
+  console.error("TypeScript compiler not installed. Run npm install.");
+  process.exit(1);
 }
 
-function* walk(dir) {
-  for (const entry of readdirSync(dir)) {
-    const path = join(dir, entry);
-    if (statSync(path).isDirectory()) {
-      yield* walk(path);
-    } else {
-      yield path;
-    }
-  }
-}
+const result = spawnSync(tsc, ["--noEmit", "--project", "tsconfig.typecheck.json"], { stdio: "inherit", shell: process.platform === "win32" });
+process.exit(result.status ?? 1);

@@ -1,0 +1,207 @@
+[
+  {
+    "name": "query_board_profile",
+    "executor_hint": "local",
+    "requires_user_confirm": false,
+    "description": "Fetch the selected board profile before proposing pins or code.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "board_id": {
+          "type": "string",
+          "description": "Board id, for example esp32-s3-devkitc-1."
+        }
+      },
+      "required": ["board_id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "search_packages",
+    "executor_hint": "api-proxy",
+    "requires_user_confirm": false,
+    "description": "Search MicroPython packages by query, capabilities, and board.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string" },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "board_id": { "type": "string" }
+      },
+      "required": ["query", "capabilities", "board_id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "resolve_package_candidates",
+    "executor_hint": "api-proxy",
+    "requires_user_confirm": false,
+    "description": "Resolve package candidates for a hardware intent and inferred capabilities.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "intent": { "type": "string" },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "board_id": { "type": "string" }
+      },
+      "required": ["intent", "capabilities", "board_id"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_package_context",
+    "executor_hint": "api-proxy",
+    "requires_user_confirm": false,
+    "description": "Fetch machine-readable driver context for a resolved package.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      },
+      "required": ["name", "version"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "propose_manifest",
+    "executor_hint": "local",
+    "requires_user_confirm": false,
+    "description": "Propose a hardware manifest with selected board, packages, pins, logic, and wiring.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "manifest": { "type": "object" }
+      },
+      "required": ["manifest"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "generate_code",
+    "executor_hint": "local",
+    "requires_user_confirm": false,
+    "description": "Generate MicroPython project code from a validated hardware manifest.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "manifest": { "type": "object" },
+        "target_path": { "type": "string" }
+      },
+      "required": ["manifest", "target_path"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "audit_code",
+    "executor_hint": "local",
+    "requires_user_confirm": false,
+    "description": "Audit generated MicroPython code before writing or flashing it.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "required": ["path", "content"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "load_skill",
+    "executor_hint": "local",
+    "requires_user_confirm": false,
+    "description": "Load a MicroPython hardware skill body by name.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "skill": { "type": "string" }
+      },
+      "required": ["skill"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "ask_user",
+    "executor_hint": "ui-prompt",
+    "requires_user_confirm": false,
+    "description": "Ask the user a question through the interactive UI.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "question": { "type": "string" },
+        "options": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["question"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "scan_device",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Scan for connected MicroPython devices.",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "install_package",
+    "executor_hint": "shim",
+    "requires_user_confirm": true,
+    "description": "Install a resolved MicroPython package onto the selected device.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "package_json_url": { "type": "string" }
+      },
+      "required": ["package_json_url"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "flash_and_run",
+    "executor_hint": "shim",
+    "requires_user_confirm": true,
+    "description": "Reset or run the generated program on the selected MicroPython device.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "read_serial_until",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Read serial output until expected marker strings are observed.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "markers": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["markers"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "write_main_py",
+    "executor_hint": "shim",
+    "requires_user_confirm": true,
+    "description": "Write generated main.py content to the selected MicroPython device.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "required": ["path", "content"],
+      "additionalProperties": false
+    }
+  }
+]

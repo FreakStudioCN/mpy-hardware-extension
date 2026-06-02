@@ -1,0 +1,40 @@
+{
+  "import_names": [
+    "ssd1306"
+  ],
+  "constructors": [
+    "SSD1306_I2C(i2c)"
+  ],
+  "read_methods": [
+    "contrast",
+    "init_display",
+    "invert",
+    "poweroff",
+    "poweron",
+    "show",
+    "write_cmd",
+    "write_data"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ssd1306_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "ssd1306.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

@@ -91,22 +91,7 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
     child = spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env });
     proc = new ShimProcess({ write: (line: string) => child.stdin.write(line) });
 
-    let buffer = "";
-    child.stdout.on("data", (data: Buffer) => {
-      buffer += data.toString();
-      let nl: number;
-      while ((nl = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-        if (line.trim()) {
-          try {
-            proc!.handleStdoutLine(line);
-          } catch {
-            // ignore non-JSON noise on stdout
-          }
-        }
-      }
-    });
+    child.stdout.on("data", (data: Buffer) => proc!.feed(data.toString()));
     child.stderr.on("data", (data: Buffer) => proc!.handleStderr(data.toString()));
     child.on("exit", (code: number) => {
       proc!.handleExit(code ?? -1);

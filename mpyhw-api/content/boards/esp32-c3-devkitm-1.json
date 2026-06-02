@@ -1,0 +1,20 @@
+{
+  "board_id": "esp32-c3-devkitm-1",
+  "display_name": "ESP32-C3 DevKitM-1",
+  "manufacturer": "Espressif",
+  "pin_capabilities": {
+    "GPIO5": ["gpio_in", "gpio_out", "i2c_sda"],
+    "GPIO6": ["gpio_in", "gpio_out", "i2c_scl"],
+    "GPIO10": ["gpio_out", "led_anode"],
+    "GPIO21": ["uart_tx"],
+    "GPIO20": ["uart_rx"]
+  },
+  "pin_recommendations": {
+    "i2c_sda": "GPIO5",
+    "i2c_scl": "GPIO6",
+    "led_default": "GPIO10"
+  },
+  "forbidden_pins": ["GPIO8", "GPIO9", "GPIO18", "GPIO19"],
+  "available_modules": ["machine", "time", "math", "json"],
+  "voltage_notes": "3.3V logic only. GPIO8/GPIO9 are strapping pins and GPIO18/19 are USB; the onboard RGB LED on GPIO8 is a WS2812, so GPIO10 is recommended for a wired LED."
+}

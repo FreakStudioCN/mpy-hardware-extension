@@ -1,5 +1,25 @@
 # 00 — Architecture Overview
 
+## Current implementation note (2026-06-02)
+
+This file still contains historical Anthropic-pass-through wording below. The
+current implementation is:
+
+- `mpyhw-api` is a provider-adapter LLM proxy. The default provider is
+  DeepSeek/OpenAI-compatible chat completions selected through
+  `MPYHW_LLM_PROVIDER=deepseek`; it is not a raw Anthropic Messages
+  pass-through.
+- The API translates provider chunks into the client-facing Anthropic-shaped
+  SSE events used by the extension.
+- Auth and credits are enforced server-side on `POST /v1/llm/messages`.
+  `/v1/quota` has been removed; `/v1/credits` is the display endpoint.
+- The old `<not_hardware>` intent-gate/prompt-cache assumptions are not the
+  current safety boundary. Current server boundaries are auth, metered credits,
+  API-key custody, provider configuration, and canonical tool whitelist checks.
+- The client now consumes LLM SSE with `ReadableStream` via `streamSseEvents()`,
+  so token/event streaming is architectural, not post-hoc `response.text()`
+  parsing.
+
 > 项目：**mpy-hardware-extension**（一句话生硬件 / MicroPython 硬件扩展）
 > 适用版本：v0.2.0 MVP
 > 读者：全员入门必读

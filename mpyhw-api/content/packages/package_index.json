@@ -46,5 +46,700 @@
     "support_level": "generatable",
     "cached": true,
     "driver_context_ref": "driver_context/graftsense_aht20-1.0.0.json"
+  },
+  {
+    "name": "SimpleOLEDMenu",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to SimpleOLEDMenu",
+    "author": "leeqingshui",
+    "license": "",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "menu.py",
+        "github:FreakStudioCN/micropython-embedded/middleware/display/SimpleOLEDMenu/code/menu.py"
+      ],
+      [
+        "pcf8575.py",
+        "github:FreakStudioCN/micropython-embedded/middleware/display/SimpleOLEDMenu/code/pcf8575.py"
+      ],
+      [
+        "SSD1306.py",
+        "github:FreakStudioCN/micropython-embedded/middleware/display/SimpleOLEDMenu/code/SSD1306.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/SimpleOLEDMenu/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "display_text",
+      "digital_output"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "led_single_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control LED single driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "led_single_power.py",
+        "code/led_single_power.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/led_single_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_output"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "pcf8574_led_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control PCF8574 LED driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "led_bar.py",
+        "code/led_bar.py"
+      ],
+      [
+        "pcf8574.py",
+        "code/pcf8574.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/pcf8574_led_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_output"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "piranha_led_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control piranha_led driver",
+    "author": "leeqingshui",
+    "license": "",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "piranha_led.py",
+        "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/piranha_led_drive/code/piranha_led.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/piranha_led_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_output",
+      "motion_sensing"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "relay_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control relay driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "relay.py",
+        "code/relay.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/relay_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_output"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "iic_bus_16_servo_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control IIC bus 16 servo driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "bus_servo.py",
+        "code/bus_servo.py"
+      ],
+      [
+        "pca9685.py",
+        "code/pca9685.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/iic_bus_16_servo_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "servo_control"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "serial_servo_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control serial servo driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "serial_servo.py",
+        "code/serial_servo.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/serial_servo_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "servo_control"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "DMA_ADC",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to DMA_ADC",
+    "author": "leeqingshui",
+    "license": "",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "dma_adc_trans.py",
+        "github:FreakStudioCN/micropython-embedded/port_peripherals/rp2/DMA_ADC/code/dma_adc_trans.py"
+      ],
+      [
+        "dma_uart_tx.py",
+        "github:FreakStudioCN/micropython-embedded/port_peripherals/rp2/DMA_ADC/code/dma_uart_tx.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/DMA_ADC/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "analog_input"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "DMA_ADC_RP2040",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to DMA_ADC",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "rp2040",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "dma_adc_trans.py",
+        "code/dma_adc_trans.py"
+      ],
+      [
+        "dma_uart_tx.py",
+        "code/dma_uart_tx.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/DMA_ADC_RP2040/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "analog_input"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "dht11_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control DHT11 driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "dht11.py",
+        "code/dht11.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/dht11_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "ssd1306_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control SSD1306 driver",
+    "author": "stlehmann",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "ssd1306.py",
+        "code/ssd1306.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/ssd1306_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "display_text"
+    ],
+    "support_level": "generatable",
+    "cached": true,
+    "driver_context_ref": "driver_context/ssd1306_driver-1.0.0.json"
+  },
+  {
+    "name": "PioNeoPixel",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to PioNeoPixel",
+    "author": "leeqingshui",
+    "license": "",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "ws2812_driver.py",
+        "github:FreakStudioCN/micropython-embedded/port_peripherals/rp2/PioNeoPixel/code/ws2812_driver.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/PioNeoPixel/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_output"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "PioNeoPixel_RP2040",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to PioNeoPixel",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "rp2040",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "ws2812_driver.py",
+        "code/ws2812_driver.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/PioNeoPixel_RP2040/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_output"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "neopixel_matrix",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control neopixel_matrix",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "neopixel_matrix.py",
+        "code/neopixel_matrix.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/neopixel_matrix/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_output"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "neopixel_matrix_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control NeoPixel matrix driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "neopixel_matrix.py",
+        "code/neopixel_matrix.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/neopixel_matrix_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_output"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "mpu6050_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control MPU6050 driver",
+    "author": "Lezgend",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "mpu6050.py",
+        "code/mpu6050.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/mpu6050_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true,
+    "driver_context_ref": "driver_context/mpu6050_driver-1.0.0.json"
+  },
+  {
+    "name": "bmp280",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "BMP280 temperature and pressure sensor driver for MicroPython",
+    "author": "leezisheng",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [
+      [
+        "https://upypi.net/pkgs/ws61_driver/1.0.0",
+        "latest"
+      ]
+    ],
+    "urls": [
+      [
+        "bmp280.py",
+        "code/bmp280.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/bmp280/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "temperature_sensing",
+      "pressure_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true,
+    "driver_context_ref": "driver_context/bmp280-1.0.0.json"
+  },
+  {
+    "name": "bmp280_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control BMP280 driver",
+    "author": "robert-hh",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "bmp280_float.py",
+        "code/bmp280_float.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/bmp280_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "temperature_sensing",
+      "pressure_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true,
+    "driver_context_ref": "driver_context/bmp280_driver-1.0.0.json"
+  },
+  {
+    "name": "pir_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control PIR sensors",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "pir_sensor.py",
+        "code/pir_sensor.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/pir_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "jedm_gas_meas",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control JEDM Gas Meas sensor",
+    "author": "leeqingshui",
+    "license": "",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "jedm_gas_meas.py",
+        "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/jedm_gas_meas/code/jedm_gas_meas.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/jedm_gas_meas/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "gas_sensing"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "tcs34725_color_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control TCS34725 color sensors",
+    "author": "adafruit",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "tcs34725_color.py",
+        "code/tcs34725_color.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/tcs34725_color_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "color_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true,
+    "driver_context_ref": "driver_context/tcs34725_color_driver-1.0.0.json"
+  },
+  {
+    "name": "ds18b20_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control DS18B20 driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "ds18x20.py",
+        "code/ds18x20.py"
+      ],
+      [
+        "onewire.py",
+        "code/onewire.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/ds18b20_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "temperature_sensing"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "ds1307_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control DS1307 driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "ds1307.py",
+        "code/ds1307.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/ds1307_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "timekeeping"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "ds1302_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control ds1302 driver",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "ds1302.py",
+        "code/ds1302.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/ds1302_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "timekeeping"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "ads1115_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control ADS1115 sensors",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "ads1115.py",
+        "code/ads1115.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/ads1115_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "analog_input"
+    ],
+    "support_level": "generatable",
+    "cached": true,
+    "driver_context_ref": "driver_context/ads1115_driver-1.0.0.json"
+  },
+  {
+    "name": "mpr121",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control MPR121 capacitive touch keypad",
+    "author": "Mike Causer",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "mpr121.py",
+        "code/mpr121.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/mpr121/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "touch_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true,
+    "driver_context_ref": "driver_context/mpr121-1.0.0.json"
   }
 ]

@@ -25,3 +25,18 @@ test("shim stderr and crash become diagnostic events", () => {
 
   assert.deepEqual(events, [{ type: "stderr", message: "bad serial" }, { type: "shim_crash", code: 1 }]);
 });
+
+test("shim crash rejects pending requests", async () => {
+  const shim = new ShimProcess({ write: () => undefined });
+  const pending = shim.request("device.scan", {});
+
+  shim.handleExit(1);
+
+  await assert.rejects(
+    Promise.race([
+      pending,
+      new Promise((resolve) => setTimeout(() => resolve("still pending"), 20)),
+    ]),
+    /shim exited/,
+  );
+});

@@ -1,0 +1,39 @@
+{
+  "import_names": [
+    "mpr121"
+  ],
+  "constructors": [
+    "MPR121(i2c)"
+  ],
+  "read_methods": [
+    "baseline_data",
+    "deinit",
+    "filtered_data",
+    "is_touched",
+    "reset",
+    "set_thresholds",
+    "touched"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mpr121/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "mpr121.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

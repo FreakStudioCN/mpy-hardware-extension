@@ -1,0 +1,39 @@
+{
+  "import_names": [
+    "ads1115"
+  ],
+  "constructors": [
+    "ADS1115(i2c)"
+  ],
+  "read_methods": [
+    "alert_read",
+    "alert_start",
+    "conversion_start",
+    "raw_to_v",
+    "read",
+    "read_rev",
+    "set_conv"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ads1115_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "ads1115.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

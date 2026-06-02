@@ -1,9 +1,42 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from app.main import app
 
 
 client = TestClient(app)
+
+
+def test_store_tolerates_partial_index_records(tmp_path, monkeypatch):
+    # An ingested package_index row missing fields (support_level, capabilities,
+    # package_json_url, source) must be normalized on load, not crash index()/
+    # search() with a KeyError.
+    from app import package_store
+
+    pkg = tmp_path / "content" / "packages"
+    pkg.mkdir(parents=True)
+    (pkg / "curated-driver-contexts.json").write_text(
+        json.dumps([
+            {"name": "aht20_driver", "version": "1.0.0", "source": "curated",
+             "package_json_url": "u", "capabilities": ["temperature_sensing"], "support_level": "verified"},
+        ]),
+        encoding="utf-8",
+    )
+    (pkg / "package_index.json").write_text(
+        json.dumps([{"name": "partial_pkg", "version": "0.1.0"}]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(package_store, "ROOT", tmp_path)
+
+    store = package_store.PackageStore.default()
+
+    assert store.index()["total_packages"] == 2
+    hits = store.search("", ["temperature_sensing"])
+    assert any(hit["name"] == "aht20_driver" for hit in hits)
+    partial = next(record for record in store.records if record["name"] == "partial_pkg")
+    assert partial["support_level"] == "discoverable"
+    assert partial["capabilities"] == []
 
 
 def test_temperature_resolve_selects_aht20():

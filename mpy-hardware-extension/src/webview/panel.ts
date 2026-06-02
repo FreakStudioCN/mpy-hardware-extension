@@ -6,13 +6,15 @@ import { PackageClient } from "../core/package-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { createAgentBackedLoop } from "../core/agent-backed-loop.ts";
 import { createDeviceShim } from "../extension/device-shim.ts";
+import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
+import { createGithubAuth } from "../extension/github-auth.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template" };
 
 // Open the UI as an editor-area tab. Kept for the mpyhw.openPanel command and
 // existing tests; the docked sidebar uses createViewProvider below.
 export function createPanel(vscode: any, extensionUri: any, deps: PanelDeps = {}) {
-  const panel = vscode.window.createWebviewPanel("mpyhw", "MPY Hardware", vscode.ViewColumn.One, { enableScripts: true });
+  const panel = vscode.window.createWebviewPanel("mpyhw", "Blockless", vscode.ViewColumn.One, { enableScripts: true });
   wireWebview(vscode, panel.webview, extensionUri, deps);
   return panel;
 }
@@ -38,6 +40,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
+  const auth = createGithubAuth({ vscode, apiBaseUrl, fetchImpl });
+  const workspaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
   let availableBoards: any[] = [];
   const controller = new SessionController({
     postMessage: (message) => webview.postMessage(message),
@@ -45,7 +49,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const choice = await vscode.window.showWarningMessage(`Allow ${tool.name}?`, "Allow", "Cancel");
       return choice === "Allow";
     },
-    loop: createLoop({ ...deps, shim }),
+    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false) }),
+    recorderFactory: workspaceFolder ? (traceId) => new JsonlSessionRecorder({ workspaceFolder, traceId }) : undefined,
   });
   webview.onDidReceiveMessage(async (message: any) => {
     if (message.type === "request_boards") {
@@ -59,15 +64,32 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         webview.postMessage({ type: "boards", boards: [] });
       }
-      try {
-        const qr = await fetchImpl(`${apiBaseUrl}/v1/quota`, { headers: { "x-quota-used": "0" } });
-        const q: any = await qr.json();
-        webview.postMessage({ type: "session_event", event: { kind: "quota", used: q.used, limit: q.limit } });
-      } catch {
-        // quota unavailable — webview leaves the bar hidden
+      // Credit balance for the bar. Only meaningful once signed in; silent auth
+      // never prompts, so a signed-out user just leaves the bar hidden.
+      if (vscode.authentication) {
+        try {
+          const jwt = await auth.getToken(false);
+          if (jwt) {
+            const cr = await fetchImpl(`${apiBaseUrl}/v1/credits`, { headers: { authorization: `Bearer ${jwt}` } });
+            const c: any = await cr.json();
+            webview.postMessage({ type: "session_event", event: { kind: "credits", balance: c.balance, dailyGrant: c.daily_grant, resetsAt: c.resets_at } });
+          }
+        } catch {
+          // credits unavailable — webview leaves the bar hidden
+        }
       }
     }
     if (message.type === "start_session") {
+      // Login up front: a real VS Code host must have a GitHub session before the
+      // metered loop runs. Headless/test hosts (no vscode.authentication) skip this.
+      if (vscode.authentication) {
+        const jwt = await auth.getToken(true);
+        if (!jwt) {
+          webview.postMessage({ type: "session_error", error: "sign_in_required" });
+          webview.postMessage({ type: "session_done", terminal: "session_error" });
+          return;
+        }
+      }
       await controller.start({ intent: message.intent, boardId: message.boardId, availableBoards });
     }
     if (message.type === "ui_prompt_response") {
@@ -82,7 +104,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
 
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template" }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined> }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);
@@ -116,9 +138,9 @@ function createApiPipelineLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof f
       packageClient: new PackageClient(apiBaseUrl, fetchImpl),
       boardClient: new BoardClient(apiBaseUrl, fetchImpl),
     });
-    if (!result.ok) {
+    if (!result.ok || !result.files) {
       input.onEvent({ type: "trace", text: `API pipeline failed: ${result.error}` });
-      return { terminal: result.error };
+      return { terminal: result.error ?? "pipeline_failed" };
     }
     input.onEvent({ type: "manifest_updated", manifest: result.manifest });
     input.onEvent({ type: "code_updated", code: result.files["main.py"] });

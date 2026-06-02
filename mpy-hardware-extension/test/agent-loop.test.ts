@@ -57,8 +57,64 @@ test("unknown tool observation lets loop continue", async () => {
   assert.equal(toolResult.content[0].tool_use_id, "1");
 });
 
+test("records assistant text, tool use, and complete tool result observations", async () => {
+  const recorded: any[] = [];
+  await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted([
+      [
+        { type: "text_delta", text: "Checking packages." },
+        { type: "tool_use_complete", id: "1", name: "search_packages", input: { query: "oled", capabilities: ["display_text"] } },
+        { type: "message_stop" },
+      ],
+      [{ type: "message_stop" }],
+    ]),
+    dispatchTool: async () => ({ ok: true, results: [{ name: "ssd1306_driver", version: "1.0.0" }] }),
+    recorder: { record: async (event: any) => void recorded.push(event) },
+  });
+
+  assert.deepEqual(recorded.map((event) => event.type), ["assistant_text", "tool_use", "tool_result"]);
+  assert.equal(recorded[0].text, "Checking packages.");
+  assert.deepEqual(recorded[1].input, { query: "oled", capabilities: ["display_text"] });
+  assert.deepEqual(recorded[2].observation.output.results, [{ name: "ssd1306_driver", version: "1.0.0" }]);
+});
+
+test("two consecutive text-only turns end as awaiting_user (one nudge first)", async () => {
+  // The model keeps replying in plain text with no tool call. The loop nudges once,
+  // then hands back to the user — never re-querying forever toward max_turns.
+  let turns = 0;
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: async () => (turns++, [{ type: "text_delta", text: "Could you tell me what device you want to build?" }, { type: "message_stop" }]),
+    dispatchTool: async () => ({ ok: true }),
+  });
+
+  assert.equal(result.terminal, "awaiting_user");
+  assert.equal(turns, 2);
+  // The single nudge was appended after the first tool-less turn.
+  assert.equal(result.state.messages.filter((m: any) => m.role === "user" && typeof m.content === "string").length, 1);
+});
+
+test("a tool-less narration followed by a tool call resets the counter and continues", async () => {
+  // A chatty mid-build narration (no tool call) must not abandon the build: the
+  // nudge gives the model another turn, it calls a tool, and the run completes.
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted([
+      [{ type: "text_delta", text: "Let me allocate the pins first." }, { type: "message_stop" }],
+      [{ type: "tool_use_complete", id: "1", name: "read_serial_until", input: {} }, { type: "message_stop" }],
+    ]),
+    dispatchTool: async () => ({ ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"] }),
+  });
+
+  assert.equal(result.terminal, "success");
+  assert.equal(result.state.textOnlyTurns, 0);
+});
+
 test("max turns and repair exhaustion are deterministic", async () => {
-  const max = await runAgentLoop({ state: baseState(), sseClient: scripted(Array.from({ length: 21 }, () => [{ type: "message_stop" }])), dispatchTool: async () => ({ ok: true }) });
+  // max_turns is reached by turns that keep calling tools but never hit the
+  // success marker or repair exhaustion (a tool-less turn now ends as awaiting_user).
+  const max = await runAgentLoop({ state: baseState(), sseClient: scripted(Array.from({ length: 21 }, (_, i) => [{ type: "tool_use_complete", id: String(i), name: "search_packages", input: {} }, { type: "message_stop" }])), dispatchTool: async () => ({ ok: true }) });
   const repair = await runAgentLoop({
     state: baseState(),
     sseClient: scripted(Array.from({ length: 4 }, (_, index) => [{ type: "tool_use_complete", id: String(index), name: "flash_and_run", input: {} }, { type: "message_stop" }])),
@@ -89,8 +145,24 @@ test("stream_error terminates as interrupted", async () => {
   assert.equal(result.terminal, "sse_stream_interrupted");
 });
 
+test("agent loop consumes async streaming events", async () => {
+  const state = baseState();
+  async function* events() {
+    yield { type: "tool_use_complete", id: "serial", name: "read_serial_until", input: {} };
+    yield { type: "message_stop" };
+  }
+
+  const result = await runAgentLoop({
+    state,
+    sseClient: async () => events(),
+    dispatchTool: async () => ({ ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2"] }),
+  });
+
+  assert.equal(result.terminal, "success");
+});
+
 function baseState() {
-  return { traceId: "t1", intent: "x", boardId: "esp32-s3-devkitc-1", turnSeq: 0, repairRound: 0, loadedSkills: [], messages: [] };
+  return { traceId: "t1", intent: "x", boardId: "esp32-s3-devkitc-1", turnSeq: 0, repairRound: 0, textOnlyTurns: 0, loadedSkills: [], messages: [] };
 }
 
 function scripted(turns: any[][]) {
