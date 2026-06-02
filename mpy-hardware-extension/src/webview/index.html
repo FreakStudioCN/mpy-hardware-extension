@@ -413,6 +413,9 @@
       $("copyCode").addEventListener("click", () => { if (lastCode) navigator.clipboard?.writeText(lastCode); });
 
       // ----- Activity -----
+      function isInternalActivity(text) {
+        return /^ask_user:/.test(text) || /^Agent session /.test(text) || /^→\s*\w+/.test(text);
+      }
       function classifyActivity(text) {
         if (/^→/.test(text)) return "tool";
         if (/fail|error|crash|exhaust/i.test(text)) return "error";
@@ -420,7 +423,7 @@
         if (/loaded skill|skill:/i.test(text)) return "skill";
         return "thinking";
       }
-      const ICONS = { thinking: "💭", skill: "📖", tool: "🔧", result: "✓", error: "✕" };
+      const ICONS = { thinking: "•", skill: "•", tool: "•", result: "•", error: "•" };
       let currentThink = null; // open thinking card's text node, or null
       // Render a safe subset of markdown (headings, bullets, ordered lists, bold,
       // inline code, paragraphs). HTML is escaped first, so LLM output cannot
@@ -452,7 +455,7 @@
         $("activityEmpty").classList.add("hidden");
         const card = document.createElement("div");
         card.className = "ev fade-in";
-        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">›</div><div class="ev-main"><div class="ev-label"><span class="kind">user</span></div><div class="ev-sum"></div></div></div></div>';
+        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind">user</span></div><div class="ev-sum"></div></div></div></div>';
         card.querySelector(".ev-sum").textContent = text;
         $("activity").appendChild(card);
         const w = $("activity").parentElement;
@@ -461,6 +464,7 @@
       function addActivity(ev) {
         const text = (ev && typeof ev.text === "string") ? ev.text : JSON.stringify(ev);
         if (!text) return;
+        if (isInternalActivity(text)) return;
         $("activityEmpty").classList.add("hidden");
         const kind = classifyActivity(text);
         const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
@@ -471,7 +475,7 @@
           if (currentThink) { currentThink.textContent += text; scroll(); return; }
           const card = document.createElement("div");
           card.className = "ev fade-in";
-          card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico thinking">💭</div><div class="ev-main"><div class="ev-think"></div></div></div></div>';
+          card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico thinking">•</div><div class="ev-main"><div class="ev-think"></div></div></div></div>';
           currentThink = card.querySelector(".ev-think");
           currentThink.textContent = text;
           $("activity").appendChild(card);
@@ -504,7 +508,7 @@
         const card = document.createElement("div");
         card.className = "ev fade-in";
         card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
-          '<div class="ev-ico skill">❓</div>' +
+          '<div class="ev-ico skill">•</div>' +
           '<div class="ev-main"><div class="ev-label"><span class="kind">question</span></div>' +
           '<div class="ev-sum ask-q"></div>' +
           '<div class="ask-options"></div>' +
@@ -521,7 +525,7 @@
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer });
           input.disabled = true; send.disabled = true; send.textContent = "Sent";
           card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; if (b.textContent === answer) b.classList.add("chosen"); });
-          const a = document.createElement("div"); a.className = "ask-answer"; a.textContent = "→ " + answer;
+          const a = document.createElement("div"); a.className = "ask-answer"; a.textContent = "• " + answer;
           card.querySelector(".ev-main").appendChild(a);
           awaitingUser = false; markActivity();
           setStatus("Generating…");
@@ -554,9 +558,9 @@
         const card = document.createElement("div");
         card.className = "ev fade-in";
         card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
-          '<div class="ev-ico skill">📋</div>' +
+          '<div class="ev-ico skill">•</div>' +
           '<div class="ev-main"><div class="ev-label"><span class="kind">plan</span></div>' +
-          '<div class="ev-sum">确认后开始生成代码与接线图</div>' +
+          '<div class="ev-sum">确认硬件选型后开始生成代码与接线图</div>' +
           '<ul class="plan-list"></ul>' +
           '<div class="plan-cost"></div>' +
           '<div class="ask-options"><button class="ask-opt plan-go" type="button">确认生成</button><button class="ask-opt plan-cancel" type="button">取消</button></div>' +
@@ -566,7 +570,6 @@
         if (Array.isArray(plan.capabilities) && plan.capabilities.length) rows.push(["功能", plan.capabilities.join("、")]);
         if (Array.isArray(plan.packages) && plan.packages.length) rows.push(["驱动包", plan.packages.join("、")]);
         if (Array.isArray(plan.wiring) && plan.wiring.length) rows.push(["接线", plan.wiring.map((w) => `${w.role}→${w.pin}`).join("，")]);
-        if (plan.logic && Object.keys(plan.logic).length) rows.push(["行为", Object.entries(plan.logic).map(([k, v]) => `${k}=${v}`).join("，")]);
         const list = card.querySelector(".plan-list");
         for (const [label, value] of rows) {
           const li = document.createElement("li");
@@ -758,6 +761,9 @@
         if (msg.type === "code_updated") { markActivity(); renderCode(msg.code); if (activeTab === "activity") setTab("code"); }
         if (msg.type === "manifest_updated") { markActivity(); renderWiring(msg.manifest); }
         if (msg.type === "serial_output") { markActivity(); addSerial(msg.lines); }
+        if (msg.type === "device_selected") { markActivity(); addActivity({ type: "trace", text: "Device selected: " + msg.port }); }
+        if (msg.type === "files_written") { markActivity(); addActivity({ type: "trace", text: "Generated files written: " + (msg.paths || []).join(", ") }); }
+        if (msg.type === "files_write_failed") { markActivity(); addActivity({ type: "trace", text: "Generated files not written: " + msg.error }); }
         if (msg.type === "session_error") {
           const FRIENDLY_ERR = {
             out_of_credits: "Out of credits — resets at midnight UTC",

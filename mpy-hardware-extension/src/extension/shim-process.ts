@@ -1,6 +1,6 @@
 export class ShimProcess {
   nextId = 1;
-  pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
+  pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }>();
   transport: { write: (line: string) => void; onEvent?: (event: any) => void };
   private buffer = "";
 
@@ -8,10 +8,19 @@ export class ShimProcess {
     this.transport = transport;
   }
 
-  request(method: string, params: any) {
+  request(method: string, params: any, timeoutMs = 30_000) {
     const id = this.nextId++;
     this.transport.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
+    return new Promise((resolve, reject) => {
+      const pending = { resolve, reject } as { resolve: (value: any) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> };
+      if (timeoutMs > 0) {
+        pending.timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error("shim_request_timeout"));
+        }, timeoutMs);
+      }
+      this.pending.set(id, pending);
+    });
   }
 
   // Accumulate raw stdout chunks and dispatch each complete newline-delimited
@@ -39,6 +48,7 @@ export class ShimProcess {
     const pending = this.pending.get(message.id);
     if (!pending) return;
     this.pending.delete(message.id);
+    if (pending.timer) clearTimeout(pending.timer);
     if (message.error) {
       pending.reject(new Error(message.error.message ?? "shim_error"));
     } else {
@@ -54,6 +64,7 @@ export class ShimProcess {
     this.transport.onEvent?.({ type: "shim_crash", code });
     const error = new Error(`shim exited with code ${code}`);
     for (const pending of this.pending.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pending.clear();

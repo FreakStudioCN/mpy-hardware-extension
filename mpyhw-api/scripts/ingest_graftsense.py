@@ -8,7 +8,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.package_store import normalize_record
+from app.package_store import normalize_record, safe_context_filename
 from scripts.normalize_driver_context import extract_driver_context
 
 
@@ -25,7 +25,7 @@ def ingest_fixture_dir(fixture_dir: str | Path, output_dir: str | Path) -> dict[
     source = (fixture_dir / "aht20-source.py").read_text(encoding="utf-8")
     context = extract_driver_context(package, readme, source)
     context.pop("support_level", None)
-    context_name = f"{package['name']}-{package['version']}.json"
+    context_name = safe_context_filename(package["name"], package["version"])
     (output_dir / "driver_context" / context_name).write_text(json.dumps(context, indent=2), encoding="utf-8")
     record = normalize_record({
         **package,

@@ -30,6 +30,97 @@ test("session controller streams loop events and requires confirmation for hardw
   ]);
 });
 
+test("session controller rejects a concurrent start while a run is in flight", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let loopStarts = 0;
+  const controller = new SessionController({
+    postMessage: () => {},
+    confirmTool: async () => true,
+    loop: async () => { loopStarts += 1; await gate; return { terminal: "success" }; },
+  });
+
+  const first = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  const second = controller.start({ intent: "b", boardId: "esp32-s3-devkitc-1" });
+  await Promise.resolve();
+  const startsWhileConcurrent = loopStarts;
+
+  release();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(startsWhileConcurrent, 1, "a concurrent start must not launch a second loop");
+  assert.equal(secondResult.terminal, "session_busy");
+  assert.equal(firstResult.terminal, "success");
+});
+
+test("session controller writes generated files after code and manifest are available", async () => {
+  const written: any[] = [];
+  const messages: any[] = [];
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    confirmTool: async () => true,
+    writeFiles: async (files) => {
+      written.push(files);
+      return { ok: true, paths: ["C:/project/main.py", "C:/project/manifest.json"] };
+    },
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1" } });
+      onEvent({ type: "code_updated", code: "print('MPYHW_READY')" });
+      return { terminal: "generated" };
+    },
+  });
+
+  await controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
+
+  assert.deepEqual(written, [{ "main.py": "print('MPYHW_READY')", "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1" }, null, 2) }]);
+  assert.deepEqual(messages.find((message) => message.type === "files_written"), { type: "files_written", paths: ["C:/project/main.py", "C:/project/manifest.json"] });
+});
+
+test("session controller accumulates multi-file projects by path and writes them all", async () => {
+  const written: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => {},
+    confirmTool: async () => true,
+    writeFiles: async (files) => {
+      written.push(files);
+      return { ok: true, paths: Object.keys(files) };
+    },
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1" } });
+      onEvent({ type: "code_updated", code: "from lib.aht20 import AHT20\nprint('MPYHW_READY')", path: "main.py" });
+      onEvent({ type: "code_updated", code: "class AHT20:\n    pass", path: "lib/aht20.py" });
+      return { terminal: "generated" };
+    },
+  });
+
+  await controller.start({ intent: "thermometer", boardId: "esp32-s3-devkitc-1" });
+
+  assert.deepEqual(written, [{
+    "main.py": "from lib.aht20 import AHT20\nprint('MPYHW_READY')",
+    "lib/aht20.py": "class AHT20:\n    pass",
+    "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1" }, null, 2),
+  }]);
+});
+
+test("session controller reports generated file write failures without changing terminal state", async () => {
+  const messages: any[] = [];
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    confirmTool: async () => true,
+    writeFiles: async () => ({ ok: false, error_kind: "overwrite_rejected" }),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1" } });
+      onEvent({ type: "code_updated", code: "print('MPYHW_READY')" });
+      return { terminal: "generated" };
+    },
+  });
+
+  const result = await controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
+
+  assert.equal(result.terminal, "generated");
+  assert.deepEqual(messages.find((message) => message.type === "files_write_failed"), { type: "files_write_failed", error: "overwrite_rejected" });
+});
+
 test("session controller routes ask_user to the webview and feeds the answer back", async () => {
   const messages: any[] = [];
   let captured: string | null = "unset";

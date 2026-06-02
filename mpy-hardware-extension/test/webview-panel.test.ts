@@ -21,7 +21,7 @@ test("webview start_session runs API-backed pipeline and renders generated outpu
     ViewColumn: { One: 1 },
     window: {
       createWebviewPanel: () => panel,
-      showWarningMessage: async () => "Cancel",
+      showWarningMessage: async (message: string) => message.startsWith("Overwrite ") ? "Overwrite" : "Cancel",
     },
   };
   const fetchImpl = async (url: string, init?: RequestInit) => {
@@ -45,11 +45,12 @@ test("webview start_session runs API-backed pipeline and renders generated outpu
 
   assert.match(panel.webview.html, /id="intent"/);
   assert.deepEqual(requested, [
+    "http://api.test/v1/tools",
     "http://api.test/v1/packages/resolve",
     "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context",
     "http://api.test/v1/boards/esp32-s3-devkitc-1",
   ]);
-  assert.deepEqual(posted.map((message) => message.type), ["trace_event", "manifest_updated", "code_updated", "trace_event", "session_done"]);
+  assert.deepEqual(posted.map((message) => message.type), ["trace_event", "manifest_updated", "code_updated", "trace_event", "files_written", "session_done"]);
   assert.equal(posted.at(-1).terminal, "generated");
   assert.match(posted.find((message) => message.type === "code_updated").code, /MPYHW_READY/);
 });
@@ -86,6 +87,69 @@ test("webview defaults to the LLM agent loop and forwards its terminal", async (
 
   assert.equal(posted.at(-1).type, "session_done");
   assert.equal(posted.at(-1).terminal, "awaiting_user");
+});
+
+test("webview blocks sessions when the remote tool registry mismatches the shared contract", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    if (url === "http://api.test/v1/tools") {
+      return jsonResponse({ tools: [{ name: "other_tool" }] });
+    }
+    throw new Error(`unexpected URL ${url}`);
+  }) as unknown as typeof fetch;
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+  await handler?.({ type: "start_session", intent: "blink an led", boardId: "esp32-s3-devkitc-1" });
+
+  assert.deepEqual(posted, [
+    { type: "session_error", error: "tool_registry_mismatch" },
+    { type: "session_done", terminal: "session_error" },
+  ]);
+});
+
+test("webview lets the user choose a device port when multiple devices are connected", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const selectedPorts: Array<string | null> = [];
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const shim = {
+    scan: async () => ["COM7", "COM8"],
+    setPort: (port: string | null) => selectedPorts.push(port),
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: {
+      createWebviewPanel: () => panel,
+      showQuickPick: async (items: string[]) => items[1],
+      showWarningMessage: async () => "Cancel",
+    },
+  };
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); }, shim });
+  await handler?.({ type: "select_device" });
+
+  assert.deepEqual(selectedPorts, ["COM8"]);
+  assert.deepEqual(posted.find((message) => message.type === "device_selected"), { type: "device_selected", port: "COM8" });
 });
 
 test("view provider wires the same session controller into a docked webview view", async () => {

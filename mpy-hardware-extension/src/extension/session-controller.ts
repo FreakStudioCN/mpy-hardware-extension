@@ -6,6 +6,7 @@ export class SessionController {
     confirmTool: (tool: any) => Promise<boolean>;
     loop: (input: any) => Promise<any>;
     recorderFactory?: (traceId: string) => SessionRecorder;
+    writeFiles?: (files: Record<string, string>) => Promise<any>;
   };
 
   // Pending ask_user prompts: promptId -> resolve fn. The loop awaits askUser();
@@ -18,12 +19,24 @@ export class SessionController {
   private traceId: string | null = null;
   private recorder: SessionRecorder | undefined;
   private recordedStart = false;
+  private latestManifest: any = undefined;
+  // Generated files accumulated by path across generate_code calls. A single-file
+  // project leaves this as { "main.py": ... }; a multi-file project collects each
+  // target_path the agent generates. Written to the workspace alongside manifest.json.
+  private latestFiles: Record<string, string> = {};
 
-  constructor(deps: { postMessage: (message: any) => void; confirmTool: (tool: any) => Promise<boolean>; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder }) {
+  constructor(deps: { postMessage: (message: any) => void; confirmTool: (tool: any) => Promise<boolean>; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any> }) {
     this.deps = deps;
   }
 
   async start(input: { intent: string; boardId: string; availableBoards?: any[] }) {
+    // Single in-flight run per controller: a concurrent start would clobber the
+    // shared abort controller, files, and conversation state of the running one
+    // (and cancel() would then abort the wrong run). Reject re-entry instead.
+    if (this.abort) {
+      this.deps.postMessage({ type: "session_busy" });
+      return { terminal: "session_busy" };
+    }
     if (this.boardId !== null && this.boardId !== input.boardId) {
       this.state = undefined;
       this.traceId = null;
@@ -42,6 +55,8 @@ export class SessionController {
       this.record({ type: "session_started", intent: input.intent, boardId: input.boardId, availableBoards: input.availableBoards ?? [] });
     }
     this.record({ type: "user_message", intent: input.intent, boardId: input.boardId });
+    this.latestManifest = undefined;
+    this.latestFiles = {};
     this.abort = new AbortController();
     try {
       const result = await this.deps.loop({
@@ -65,6 +80,7 @@ export class SessionController {
         signal: this.abort.signal,
       });
       if (result.state) this.state = result.state;
+      await this.writeArtifactsIfReady();
       await this.record({ type: "session_finished", terminal: result.terminal, state: result.state });
       this.deps.postMessage({ type: "session_done", terminal: result.terminal });
       return result;
@@ -133,11 +149,13 @@ export class SessionController {
 
   postEvent(event: any) {
     if (event.type === "manifest_updated") {
+      this.latestManifest = event.manifest;
       this.record({ type: "artifact", kind: "manifest", manifest: event.manifest });
       this.deps.postMessage({ type: "manifest_updated", manifest: event.manifest });
       return;
     }
     if (event.type === "code_updated") {
+      this.latestFiles[event.path ?? "main.py"] = event.code;
       this.record({ type: "artifact", kind: "code", code: event.code });
       this.deps.postMessage({ type: "code_updated", code: event.code });
       return;
@@ -158,6 +176,22 @@ export class SessionController {
 
   private record(event: Record<string, any>) {
     return this.recorder?.record(event) ?? Promise.resolve();
+  }
+
+  private async writeArtifactsIfReady() {
+    if (!this.deps.writeFiles || Object.keys(this.latestFiles).length === 0 || !this.latestManifest) return;
+    const result = await this.deps.writeFiles({
+      ...this.latestFiles,
+      "manifest.json": JSON.stringify(this.latestManifest, null, 2),
+    });
+    if (result?.ok === false) {
+      await this.record({ type: "files_write_failed", error: result.error_kind ?? "write_failed" });
+      this.deps.postMessage({ type: "files_write_failed", error: result.error_kind ?? "write_failed" });
+      return;
+    }
+    const paths = result?.paths ?? [];
+    await this.record({ type: "files_written", paths });
+    this.deps.postMessage({ type: "files_written", paths });
   }
 }
 

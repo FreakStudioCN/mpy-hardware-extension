@@ -190,6 +190,77 @@ test("a continued session reuses the board profile and driver contexts without r
   assert.match(codegenBodyPhase2!, /aht20/);
 });
 
+test("load_skill persists the skill body into later agent and codegen requests", async () => {
+  let turnIndex = 0;
+  const agentRequestBodies: any[] = [];
+  const codegenRequestBodies: any[] = [];
+  const turns = [
+    { name: "load_skill", input: { skill: "upy-gen-main" } },
+    { name: "generate_code", input: { manifest: MANIFEST, target_path: "main.py" } },
+  ];
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/skills")) {
+      return jsonResponse({ skills: [{ name: "upy-gen-main", description: "Generate MicroPython main.py" }] });
+    }
+    if (url.endsWith("/v1/skills/upy-gen-main")) {
+      return { ok: true, status: 200, text: async () => "# upy-gen-main\nAlways print MPYHW_READY." } as unknown as Response;
+    }
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        codegenRequestBodies.push(body);
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('MPYHW_READY')\n" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      agentRequestBodies.push(body);
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const state = { traceId: "session", intent: "x", boardId: "esp32-s3-devkitc-1", turnSeq: 0, repairRound: 0, textOnlyTurns: 0, loadedSkills: [], messages: [], board: BOARD, driverContexts: [AHT20_CONTEXT] };
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  const result = await loop({ intent: "use the main.py conventions", boardId: "esp32-s3-devkitc-1", state });
+
+  assert.deepEqual(result.state.loadedSkills, ["upy-gen-main"]);
+  assert.match(JSON.stringify(agentRequestBodies[0].messages), /AVAILABLE SKILLS/);
+  assert.match(JSON.stringify(agentRequestBodies[1].messages), /Always print MPYHW_READY/);
+  assert.match(JSON.stringify(codegenRequestBodies[0].messages), /Always print MPYHW_READY/);
+});
+
+test("loading an already loaded skill is a noop and does not fetch the body again", async () => {
+  let skillBodyFetches = 0;
+  let turnIndex = 0;
+  const turns = [
+    { name: "load_skill", input: { skill: "upy-gen-main" } },
+    { name: "load_skill", input: { skill: "upy-gen-main" } },
+  ];
+  const fetchImpl = (async (url: string) => {
+    if (url.endsWith("/v1/skills")) {
+      return jsonResponse({ skills: [{ name: "upy-gen-main", description: "Generate MicroPython main.py" }] });
+    }
+    if (url.endsWith("/v1/skills/upy-gen-main")) {
+      skillBodyFetches += 1;
+      return { ok: true, status: 200, text: async () => "# upy-gen-main" } as unknown as Response;
+    }
+    if (url.endsWith("/v1/llm/messages")) {
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  const result = await loop({ intent: "x", boardId: "esp32-s3-devkitc-1" });
+
+  assert.deepEqual(result.state.loadedSkills, ["upy-gen-main"]);
+  assert.equal(skillBodyFetches, 1);
+});
+
 test("a serial read that never sees its markers drives repair exhaustion, not max_turns", async () => {
   // shim.serialReadUntil reports {ok:false} (device timeout / wrong output). The
   // executor must surface error_kind:"runtime_error" so repairRound increments
@@ -279,6 +350,138 @@ test("generate_code uses grounded LLM generation (one path) and strips code fenc
   assert.doesNotMatch(code.code, /```/);
 });
 
+test("generate_code routes a non-main target_path to module-rules codegen and tags the event path", async () => {
+  let mainTurns = 0;
+  const events: any[] = [];
+  let codegenPrompt = "";
+  const manifest = {
+    board_id: "esp32-s3-devkitc-1",
+    capabilities: ["temperature_sensing"],
+    pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6" },
+    wiring: [{ role: "i2c_sda", pin: "GPIO5" }, { role: "i2c_scl", pin: "GPIO6" }],
+  };
+  const turns = [{ name: "generate_code", input: { manifest, target_path: "lib/aht20.py" } }];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        codegenPrompt = body.messages?.[0]?.content ?? "";
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "class AHT20:\n    pass\n" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "thermometer", boardId: "esp32-s3-devkitc-1", onEvent: (e: any) => events.push(e), confirmTool: async () => true });
+
+  const code = events.find((e) => e.type === "code_updated");
+  assert.ok(code, "expected code_updated");
+  assert.equal(code.path, "lib/aht20.py");
+  assert.match(codegenPrompt, /complete contents of lib\/aht20\.py/);
+  assert.match(codegenPrompt, /importable module/);
+  assert.doesNotMatch(codegenPrompt, /MPYHW_READY/);
+});
+
+test("read_workspace_file dispatches to the injected host reader (and reports unavailable without one)", async () => {
+  const mkFetch = (turns: any[]) => {
+    let i = 0;
+    return (async (url: string) => {
+      if (url.endsWith("/v1/llm/messages")) {
+        const turn = turns[i++];
+        return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  };
+
+  const reads: string[] = [];
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([{ name: "read_workspace_file", input: { path: "lib/aht20.py" } }]),
+    readWorkspaceFile: async (path: string) => { reads.push(path); return { ok: true, content: "class AHT20: pass" }; },
+  });
+  await loop({ intent: "read a file", boardId: "esp32-s3-devkitc-1", confirmTool: async () => true });
+  assert.deepEqual(reads, ["lib/aht20.py"], "reader called with the requested path");
+
+  // No reader injected (headless): the tool reports workspace_unavailable and the loop still finishes.
+  const observations: any[] = [];
+  const loop2 = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([{ name: "read_workspace_file", input: { path: "lib/aht20.py" } }]),
+  });
+  const result = await loop2({
+    intent: "read a file",
+    boardId: "esp32-s3-devkitc-1",
+    confirmTool: async () => true,
+    recorder: { record: async (e: any) => { observations.push(e); } },
+  });
+  assert.ok(result, "loop finishes without a workspace reader");
+  assert.ok(
+    observations.some((e) => JSON.stringify(e).includes("workspace_unavailable")),
+    "missing reader surfaces workspace_unavailable",
+  );
+});
+
+test("write_main_py deploys additional generated files (multi-file project) to the device", async () => {
+  let mainTurns = 0;
+  let codegenCall = 0;
+  let mainWritten = "";
+  const deviceWrites: any[] = [];
+  const manifest = {
+    board_id: "esp32-s3-devkitc-1",
+    capabilities: ["temperature_sensing"],
+    pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6" },
+    wiring: [{ role: "i2c_sda", pin: "GPIO5" }],
+  };
+  const turns = [
+    { name: "generate_code", input: { manifest, target_path: "main.py" } },
+    { name: "generate_code", input: { manifest, target_path: "lib/aht20.py" } },
+    { name: "write_main_py", input: { path: "main.py", content: "print('MPYHW_READY')" } },
+  ];
+  const codegenBodies = ["print('MPYHW_READY')", "class AHT20:\n    pass"];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const text = codegenBodies[codegenCall++] ?? "";
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const shim = {
+    scan: async () => ["COM3"],
+    installPackage: async () => {},
+    writeMainPy: async (content: string) => { mainWritten = content; },
+    writeDeviceFile: async (path: string, code: string) => { deviceWrites.push({ path, code }); },
+    flashAndRun: async () => {},
+    serialReadUntil: async () => ({ ok: true, lines: [] }),
+  };
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await loop({ intent: "thermometer", boardId: "esp32-s3-devkitc-1", confirmTool: async () => true });
+
+  assert.equal(mainWritten, "print('MPYHW_READY')");
+  // main.py is written via writeMainPy; only the extra lib/ module goes via writeDeviceFile.
+  assert.deepEqual(deviceWrites, [{ path: "lib/aht20.py", code: "class AHT20:\n    pass" }]);
+});
+
 test("generate_code emits manifest_updated so the wiring view renders even without a prior propose_manifest", async () => {
   // Reproduces the wiring-never-appears bug: when the agent goes straight to
   // generate_code (propose_manifest never validated), the wiring panel listens
@@ -316,6 +519,42 @@ test("generate_code emits manifest_updated so the wiring view renders even witho
   const manifestEvent = events.find((e) => e.type === "manifest_updated");
   assert.ok(manifestEvent, "expected manifest_updated from generate_code so wiring can render");
   assert.deepEqual(manifestEvent.manifest, manifest);
+});
+
+test("agent-backed loop keeps internal tool names out of user-facing trace events", async () => {
+  let mainTurns = 0;
+  const events: any[] = [];
+  const manifest = {
+    board_id: "esp32-s3-devkitc-1",
+    capabilities: ["temperature_sensing", "humidity_sensing", "display_text"],
+    packages: [{ name: "aht20_driver" }, { name: "ssd1306" }],
+    wiring: [{ role: "i2c_sda", pin: "GPIO5" }, { role: "i2c_scl", pin: "GPIO6" }],
+    logic: "Read AHT20 sensor temperature and humidity every 2 seconds, display on SSD1306 OLED.",
+  };
+  const turns = [{ name: "generate_code", input: { manifest, target_path: "main.py" } }];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('MPYHW_READY')" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((data) => `data: ${data}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "thermometer with OLED", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e), confirmPlan: async () => true });
+
+  const traceText = events.filter((event) => event.type === "trace").map((event) => event.text).join("\n");
+  assert.doesNotMatch(traceText, /Agent session/);
+  assert.doesNotMatch(traceText, /generate_code/);
 });
 
 test("opening turn tells the agent to recommend a board when none is chosen", async () => {

@@ -1,6 +1,15 @@
 import json
+import re
 from pathlib import Path
 from typing import Any
+
+
+def safe_context_filename(name: str, version: str) -> str:
+    """Filesystem-safe driver-context filename built from an (untrusted upstream)
+    package name/version. Path separators and other unexpected characters collapse
+    to '_' so a malicious name can't traverse out of the driver_context/ dir."""
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", f"{name}-{version}")
+    return f"{slug}.json"
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,6 +74,9 @@ class PackageStore:
         }
 
     def search(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10) -> list[dict[str, Any]]:
+        return [_public_hit(hit) for hit in self._ranked(query, capabilities, limit)]
+
+    def _ranked(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10) -> list[dict[str, Any]]:
         capabilities = capabilities or []
         stop_words = {"the", "and", "when", "with", "over", "turn", "on", "off", "read", "show", "is"}
         terms = {term for term in query.lower().replace("_", " ").split() if len(term) >= 3 and term not in stop_words}
@@ -88,11 +100,17 @@ class PackageStore:
 
     def resolve(self, intent: str, capabilities: list[str], board_id: str) -> dict[str, Any]:
         primary_capabilities = primary_resolution_capabilities(capabilities)
-        candidates = self.search(intent, primary_capabilities, limit=10)
+        candidates = self._ranked(intent, primary_capabilities, limit=10)
+        family = board_family(board_id)
+        for candidate in candidates:
+            candidate["score"] += board_match_weight(candidate.get("chips", "all"), family)
+            if family and str(candidate.get("chips", "all")).lower() not in {"", "all"} and family in str(candidate.get("chips", "")).lower():
+                candidate["reason"] = "board_family_match"
+        candidates = sorted(candidates, key=lambda hit: (-hit["score"], -hit["confidence"], hit["name"]))
         selected = candidates[0] if candidates else None
         return {
-            "candidates": candidates,
-            "selected": selected,
+            "candidates": [_public_hit(candidate) for candidate in candidates],
+            "selected": _public_hit(selected) if selected else None,
             "needs_user_choice": selected is None,
             "questions": [] if selected else ["No package candidate matched the requested capabilities."],
         }
@@ -106,8 +124,11 @@ class PackageStore:
             raise KeyError("package_not_found")
         context = record.get("driver_context")
         if not context and record.get("driver_context_ref"):
-            context_path = ROOT / "content" / "packages" / record["driver_context_ref"]
-            if context_path.exists():
+            base = (ROOT / "content" / "packages").resolve()
+            context_path = (base / record["driver_context_ref"]).resolve()
+            # Contain the ref to content/packages: a traversing ref (e.g. from a
+            # poisoned ingest) must not read files outside the package tree.
+            if context_path.is_relative_to(base) and context_path.exists():
                 context = json.loads(context_path.read_text(encoding="utf-8"))
         if not context:
             raise ValueError("driver_context_missing")
@@ -133,6 +154,12 @@ class PackageStore:
         }
 
 
+def _public_hit(hit: dict[str, Any]) -> dict[str, Any]:
+    """Strip internal-only fields (e.g. the confidence ranking score) from a
+    search/resolve hit before it crosses the API boundary."""
+    return {key: value for key, value in hit.items() if key not in INTERNAL_FIELDS}
+
+
 def support_weight(level: str) -> float:
     return {
         "verified": 4.0,
@@ -148,6 +175,23 @@ def primary_resolution_capabilities(capabilities: list[str]) -> list[str]:
     if sensing:
         return sensing
     return capabilities
+
+
+def board_family(board_id: str) -> str:
+    value = (board_id or "").lower()
+    for family in ("esp32", "rp2040", "pico"):
+        if family in value:
+            return "rp2040" if family == "pico" else family
+    return ""
+
+
+def board_match_weight(chips: str, family: str) -> float:
+    chip_text = str(chips or "all").lower()
+    if not family or chip_text in {"", "all"}:
+        return 0.0
+    if family in chip_text:
+        return 2.0
+    return -5.0
 
 
 def _with_defaults(raw: dict[str, Any]) -> dict[str, Any] | None:

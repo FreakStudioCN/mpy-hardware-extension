@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 
 import { ShimProcess } from "./shim-process.ts";
+import { normalizeGeneratedArtifactPath } from "./workspace-writer.ts";
 
 // Adapter the agent loop's `shim` expects (scan / installPackage / writeMainPy /
 // flashAndRun / serialReadUntil), implemented over a JSON-RPC `request` to the
@@ -36,10 +37,11 @@ export class DeviceShim {
     await this.ensure();
     if (this.port) return this.port;
     const r = await this.rpc("device.scan", {});
-    const first = (r?.devices ?? [])[0]?.port;
-    if (!first) throw new Error("device_unavailable");
-    this.port = first;
-    return first;
+    const ports = (r?.devices ?? []).map((d: any) => d.port).filter(Boolean);
+    if (ports.length === 0) throw new Error("device_unavailable");
+    if (ports.length > 1) throw new Error("device_selection_required");
+    this.port = ports[0];
+    return ports[0];
   }
 
   async installPackage(url: string): Promise<void> {
@@ -51,6 +53,17 @@ export class DeviceShim {
   async writeMainPy(content: string): Promise<void> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.write_main_py", { code: content, port });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "write_failed");
+  }
+
+  // Write a generated project file to an arbitrary device path (mirroring its
+  // workspace-relative path); the shim creates parent dirs. Used to deploy lib/
+  // modules of a multi-file project alongside main.py.
+  async writeDeviceFile(path: string, content: string): Promise<void> {
+    const port = await this.ensurePort();
+    const safePath = normalizeGeneratedArtifactPath(path, { allowMain: false, allowManifest: false, allowLib: true });
+    if (!safePath) throw new Error("invalid_generated_path");
+    const r = await this.rpc("device.write_device_file", { path: safePath, code: content, port });
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "write_failed");
   }
 
@@ -93,11 +106,25 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
 
     child.stdout.on("data", (data: Buffer) => proc!.feed(data.toString()));
     child.stderr.on("data", (data: Buffer) => proc!.handleStderr(data.toString()));
-    child.on("exit", (code: number) => {
-      proc!.handleExit(code ?? -1);
-      proc = null;
-      child = null;
-      starting = null;
+    await new Promise<void>((resolve, reject) => {
+      let spawned = false;
+      child.once("spawn", () => {
+        spawned = true;
+        resolve();
+      });
+      child.once("error", (error: Error) => {
+        proc = null;
+        child = null;
+        starting = null;
+        reject(new Error(`shim_start_failed: ${error.message}`));
+      });
+      child.on("exit", (code: number) => {
+        proc?.handleExit(code ?? -1);
+        proc = null;
+        child = null;
+        starting = null;
+        if (!spawned) reject(new Error(`shim exited with code ${code ?? -1}`));
+      });
     });
   }
 
@@ -131,20 +158,24 @@ function ensureVenv(python: string, vscode: any): string {
     ? join(venvDir, "Scripts", "python.exe")
     : join(venvDir, "bin", "python");
   if (!existsSync(venvPython)) {
-    spawnSync(python, ["-m", "venv", venvDir], { stdio: "ignore" });
+    const result = spawnSync(python, ["-m", "venv", venvDir], { stdio: "ignore", timeout: 30_000 });
+    if (result.error || result.status !== 0) throw new Error("python_venv_failed");
   }
   if (!canRun(venvPython, ["-m", "mpremote", "version"])) {
     const indexUrl = vscode?.workspace?.getConfiguration?.("mpyhw")?.get?.("pipIndexUrl");
     const args = ["-m", "pip", "install", "--upgrade", "mpremote", "pyserial"];
     if (indexUrl) args.push("--index-url", indexUrl);
-    spawnSync(venvPython, args, { stdio: "ignore" });
+    const result = spawnSync(venvPython, args, { stdio: "ignore", timeout: 120_000 });
+    if (result.error || result.status !== 0 || !canRun(venvPython, ["-m", "mpremote", "version"])) {
+      throw new Error("shim_dependency_install_failed");
+    }
   }
   return venvPython;
 }
 
 function canRun(command: string, args: string[]): boolean {
   try {
-    const r = spawnSync(command, args, { stdio: "ignore" });
+    const r = spawnSync(command, args, { stdio: "ignore", timeout: 15_000 });
     return r.status === 0;
   } catch {
     return false;

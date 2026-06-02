@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  extension:
+    name: extension (node + cross-process)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mpy-hardware-extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The shim round-trip and the agent-loop<->API e2e spawn real Python; install
+      # the API deps so they RUN. MPYHW_REQUIRE_CONTRACT_TESTS makes a missing
+      # interpreter/golden a HARD FAILURE instead of a silent skip.
+      - name: Install API deps (for the e2e smoke test)
+        run: pip install -r ../mpyhw-api/requirements.txt
+      - run: npm ci
+      - run: npm run build
+      - name: Test
+        run: npm test
+        env:
+          MPYHW_REQUIRE_CONTRACT_TESTS: "1"
+
+  api:
+    name: api + device-shim (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install API deps
+        run: pip install -r mpyhw-api/requirements.txt
+      - name: Test API
+        run: python -m pytest
+        working-directory: mpyhw-api
+      - name: Install device-shim deps
+        run: pip install -r mpy-hardware-extension/python/shim/requirements.txt
+      - name: Test device shim
+        run: python -m pytest
+        working-directory: mpy-hardware-extension/python/shim

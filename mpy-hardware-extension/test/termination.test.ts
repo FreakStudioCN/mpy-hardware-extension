@@ -5,12 +5,27 @@ import { createSessionState } from "../src/core/session-state.ts";
 import { normalizeObservation, toToolResultBlock } from "../src/core/observations.ts";
 import { shouldTerminate } from "../src/core/termination.ts";
 
-test("session state starts with deterministic fields", () => {
+test("session state starts with a fully deterministic initial shape", () => {
   const state = createSessionState({ traceId: "t1", intent: "read temperature", boardId: "esp32-s3-devkitc-1" });
 
-  assert.equal(state.turnSeq, 0);
-  assert.equal(state.repairRound, 0);
-  assert.deepEqual(state.loadedSkills, []);
+  // Pin the whole contract other code relies on across multi-turn continuation,
+  // not just the counters — a regressed default (e.g. runtimeVerified=true) or a
+  // dropped field initializer must fail here.
+  assert.deepEqual(state, {
+    traceId: "t1",
+    intent: "read temperature",
+    boardId: "esp32-s3-devkitc-1",
+    turnSeq: 0,
+    repairRound: 0,
+    textOnlyTurns: 0,
+    loadedSkills: [],
+    skillBodies: {},
+    messages: [],
+    lastRuntimeMarker: undefined,
+    runtimeVerified: false,
+    board: undefined,
+    driverContexts: [],
+  });
 });
 
 test("serial observations are truncated to tail content", () => {

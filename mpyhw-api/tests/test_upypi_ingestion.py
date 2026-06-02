@@ -9,6 +9,16 @@ from scripts.ingest_upypi import ingest_fixture_dir, normalize_upypi_package
 FIXTURES = Path(__file__).parent / "fixtures" / "package_sources" / "upypi"
 
 
+def test_safe_context_filename_strips_path_separators():
+    from app.package_store import safe_context_filename
+
+    out = safe_context_filename("../../../evil", "1.0")
+    assert "/" not in out and "\\" not in out
+    assert out.endswith(".json")
+    # benign names are preserved verbatim (existing curated refs must not change)
+    assert safe_context_filename("aht20_driver", "1.0.0") == "aht20_driver-1.0.0.json"
+
+
 def test_upypi_package_json_normalizes_required_fields():
     raw = json.loads((FIXTURES / "aht20-package.json").read_text(encoding="utf-8"))
 

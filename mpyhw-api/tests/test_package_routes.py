@@ -1,11 +1,53 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
 
 client = TestClient(app)
+
+
+def test_driver_context_ref_cannot_escape_packages_dir(tmp_path, monkeypatch):
+    # A driver_context_ref that traverses outside content/packages (e.g. from a
+    # poisoned ingest) must NOT read the out-of-tree file; it's treated as missing.
+    from app import package_store
+
+    pkg = tmp_path / "content" / "packages"
+    (pkg / "driver_context").mkdir(parents=True)
+    secret = tmp_path / "secret.json"
+    secret.write_text(json.dumps({"SECRET": "leak"}), encoding="utf-8")
+    monkeypatch.setattr(package_store, "ROOT", tmp_path)
+
+    store = package_store.PackageStore([
+        {"name": "evil", "version": "1.0", "source": "curated", "package_json_url": "",
+         "capabilities": [], "support_level": "generatable", "driver_context_ref": "../../secret.json"},
+    ])
+
+    with pytest.raises(ValueError):
+        store.get_driver_context("evil", "1.0")
+
+
+def test_search_and_resolve_do_not_leak_internal_confidence(tmp_path, monkeypatch):
+    from app import package_store
+
+    pkg = tmp_path / "content" / "packages"
+    pkg.mkdir(parents=True)
+    (pkg / "curated-driver-contexts.json").write_text(
+        json.dumps([
+            {"name": "aht20_driver", "version": "1.0.0", "source": "curated", "package_json_url": "u",
+             "capabilities": ["temperature_sensing"], "support_level": "verified", "confidence": 0.9},
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(package_store, "ROOT", tmp_path)
+    store = package_store.PackageStore.default()
+
+    hit = store.search("temperature", ["temperature_sensing"])[0]
+    assert "confidence" not in hit
+    candidate = store.resolve("read temperature", ["temperature_sensing"], "esp32")["selected"]
+    assert "confidence" not in candidate
 
 
 def test_store_tolerates_partial_index_records(tmp_path, monkeypatch):
@@ -53,6 +95,47 @@ def test_temperature_resolve_selects_aht20():
     body = response.json()
     assert body["selected"]["name"] == "aht20_driver"
     assert body["selected"]["support_level"] == "generatable"
+
+
+def test_resolve_prefers_board_family_specific_candidates(tmp_path, monkeypatch):
+    from app import package_store
+
+    pkg = tmp_path / "content" / "packages"
+    pkg.mkdir(parents=True)
+    records = [
+        {
+            "name": "generic_temp",
+            "version": "1.0.0",
+            "source": "curated",
+            "package_json_url": "https://example/generic.json",
+            "capabilities": ["temperature_sensing"],
+            "support_level": "generatable",
+            "chips": "all",
+            "confidence": 0.9,
+            "driver_context": {"import_names": ["generic"], "constructors": [], "read_properties": ["temperature"]},
+        },
+        {
+            "name": "esp32_temp",
+            "version": "1.0.0",
+            "source": "curated",
+            "package_json_url": "https://example/esp32.json",
+            "capabilities": ["temperature_sensing"],
+            "support_level": "generatable",
+            "chips": "esp32",
+            "confidence": 0.7,
+            "driver_context": {"import_names": ["esp32_temp"], "constructors": [], "read_properties": ["temperature"]},
+        },
+    ]
+    (pkg / "curated-driver-contexts.json").write_text(json.dumps(records), encoding="utf-8")
+    monkeypatch.setattr(package_store, "ROOT", tmp_path)
+
+    result = package_store.PackageStore.default().resolve(
+        "read temperature",
+        ["temperature_sensing"],
+        "esp32-s3-devkitc-1",
+    )
+
+    assert result["selected"]["name"] == "esp32_temp"
 
 
 def test_digital_output_resolve_selects_builtin_led():

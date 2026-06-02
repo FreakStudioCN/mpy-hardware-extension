@@ -21,14 +21,19 @@ test("api client preserves driver_context_missing", async () => {
   assert.equal(observation.error_kind, "driver_context_missing");
 });
 
-test("tool registry mismatch produces warning and sse interruption is structured", async () => {
+test("tool registry mismatch produces a warning", async () => {
   const mismatch = new ApiClient("http://api.test", async () => jsonResponse({ tools: [{ name: "other_tool" }] }));
-  const interrupted = new ApiClient("http://api.test", async () => {
-    throw new Error("stream interrupted");
-  });
 
   assert.equal((await mismatch.checkToolRegistry(["query_board_profile"])).warning, "tool_registry_mismatch");
-  assert.equal((await interrupted.openSse()).error_kind, "sse_stream_interrupted");
+});
+
+test("tool registry mismatch is detected when the backend exposes an extra tool", async () => {
+  // The local set is a subset of the remote set: a names-only, one-directional
+  // check would miss this. The backend declaring a tool the extension can't route
+  // is still a contract drift.
+  const drift = new ApiClient("http://api.test", async () => jsonResponse({ tools: [{ name: "query_board_profile" }, { name: "reboot_device" }] }));
+
+  assert.equal((await drift.checkToolRegistry(["query_board_profile"])).warning, "tool_registry_mismatch");
 });
 
 test("a non-JSON error body produces a coded error instead of an uncaught SyntaxError", async () => {

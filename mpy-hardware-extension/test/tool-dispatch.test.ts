@@ -20,11 +20,9 @@ test("every canonical tool routes to exactly one executor", async () => {
     await dispatchTool({ name: tool, input: {} }, executors);
   }
 
+  // Exactly one executor fired per tool. The specific tool->executor mapping is
+  // covered exhaustively by the contract-driven routeForTool test below.
   assert.equal(seen.length, CANONICAL_TOOLS.length);
-  assert.ok(seen.includes("api:search_packages"));
-  assert.ok(seen.includes("shim:read_serial_until"));
-  assert.ok(seen.includes("ui:ask_user"));
-  assert.ok(seen.includes("local:generate_code"));
 });
 
 test("unknown tool returns structured observation instead of throwing", async () => {

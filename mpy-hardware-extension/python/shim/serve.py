@@ -43,13 +43,24 @@ class Shim:
 
     def install_package(self, port: str, package_json_url: str):
         self._run(["mpremote", "connect", port, "resume", "fs", "mkdir", ":/lib"])
-        result = self._run(["mpremote", "connect", port, "resume", "mip", "install", package_json_url])
+        result = self._run(["mpremote", "connect", port, "resume", "mip", "install", package_json_url], timeout=120)
         if result.returncode != 0:
             return {"ok": False, "error": map_install_error(result.stderr)}
         return {"ok": True}
 
     def write_main_py(self, port: str, local_main_py: str):
         return self._run(["mpremote", "connect", port, "resume", "fs", "cp", local_main_py, ":main.py"])
+
+    def write_device_file(self, port: str, remote_path: str, local_path: str):
+        # Create parent dirs on the device (fs mkdir is not recursive and errors if
+        # the dir exists; mkdir each segment best-effort and ignore those failures),
+        # then copy the file to its mirror path.
+        parts = remote_path.strip("/").split("/")
+        cumulative = ""
+        for segment in parts[:-1]:
+            cumulative = f"{cumulative}/{segment}" if cumulative else segment
+            self._run(["mpremote", "connect", port, "resume", "fs", "mkdir", f":{cumulative}"])
+        return self._run(["mpremote", "connect", port, "resume", "fs", "cp", local_path, f":{remote_path}"])
 
     def flash_and_run(self, port: str, local_main_py: str):
         return self._run(["mpremote", "connect", port, "resume", "run", local_main_py])
@@ -98,9 +109,9 @@ class Shim:
             return {"ok": False, "error": "timeout", "lines": matched}
         return {"ok": True, "lines": matched}
 
-    def _run(self, command: list[str]):
+    def _run(self, command: list[str], timeout: float = 30):
         self.commands.append(command)
-        return self.runner(command, capture_output=True, text=True)
+        return self.runner(command, capture_output=True, text=True, timeout=timeout)
 
 
 # ---------- stdio JSON-RPC server (entry point the VS Code extension spawns) ----------
@@ -139,6 +150,22 @@ def _health_check():
     }
 
 
+def _write_code_to_device(code, run):
+    # Shared by device.write_main_py / device.write_device_file: stage the code in
+    # a temp file, hand it to `run(tmp_path)`, map the mpremote result to a status.
+    fd, tmp = tempfile.mkstemp(suffix=".py")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(code or "")
+        r = run(tmp)
+        if getattr(r, "returncode", 0) != 0:
+            return {"status": "error", "error_kind": map_install_error(getattr(r, "stderr", "") or ""), "message": (getattr(r, "stderr", "") or "").strip()}
+        return {"status": "ok"}
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def _dispatch(shim, method, params):
     if method == "device.scan":
         return {"status": "ok", "devices": [{"port": p} for p in shim.scan()]}
@@ -147,17 +174,9 @@ def _dispatch(shim, method, params):
     if method == "device.list_files":
         return _list_files(params["port"])
     if method == "device.write_main_py":
-        fd, tmp = tempfile.mkstemp(suffix=".py")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(params.get("code", ""))
-            r = shim.write_main_py(params["port"], tmp)
-            if getattr(r, "returncode", 0) != 0:
-                return {"status": "error", "error_kind": map_install_error(getattr(r, "stderr", "") or ""), "message": (getattr(r, "stderr", "") or "").strip()}
-            return {"status": "ok"}
-        finally:
-            if os.path.exists(tmp):
-                os.remove(tmp)
+        return _write_code_to_device(params.get("code", ""), lambda tmp: shim.write_main_py(params["port"], tmp))
+    if method == "device.write_device_file":
+        return _write_code_to_device(params.get("code", ""), lambda tmp: shim.write_device_file(params["port"], params["path"], tmp))
     if method == "device.flash_and_run":
         # Soft reset so the freshly-written main.py autoruns (non-blocking for
         # infinite loops); device.serial_read_until captures the output.
@@ -179,8 +198,19 @@ def _respond(message):
     sys.stdout.flush()
 
 
+def _ensure_utf8_io(stream):
+    """Force a text stream to UTF-8. The extension writes JSON-RPC as UTF-8 over
+    the pipe; on Windows the shim would otherwise decode stdin with the locale
+    codepage (e.g. gbk) and silently corrupt any non-ASCII code/path/url."""
+    reconfigure = getattr(stream, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8")
+
+
 def main(shim=None):
     shim = shim or Shim()
+    _ensure_utf8_io(sys.stdin)
+    _ensure_utf8_io(sys.stdout)
     for line in sys.stdin:
         line = line.strip()
         if not line:

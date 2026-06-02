@@ -23,5 +23,4 @@ test("extracts humidity from golden phrase", () => {
 
 test("extracts product demo capabilities from Chinese intent", () => {
   assert.deepEqual(extractCapabilities("超过30度亮红灯"), ["temperature_sensing", "digital_output"]);
-  assert.deepEqual(extractCapabilities("瓒呰繃30搴︿寒绾㈢伅"), ["temperature_sensing", "digital_output"]);
 });

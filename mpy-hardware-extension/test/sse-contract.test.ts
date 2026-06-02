@@ -13,7 +13,13 @@ import { parseSseEvents } from "../src/core/sse-client.ts";
 const here = dirname(fileURLToPath(import.meta.url));
 const goldenPath = join(here, "..", "..", "mpyhw-api", "tests", "fixtures", "anthropic_stream.sse");
 
-test("client parseSseEvents consumes the server's real Anthropic SSE golden", { skip: existsSync(goldenPath) ? false : "golden missing; run REGEN=1 pytest test_sse_contract.py" }, () => {
+// Locally, skip if the golden hasn't been generated. In CI (MPYHW_REQUIRE_CONTRACT_TESTS=1)
+// a missing golden is a HARD FAILURE so this cross-component contract can't silently no-op.
+const skipReason = existsSync(goldenPath)
+  ? false
+  : (process.env.MPYHW_REQUIRE_CONTRACT_TESTS ? false : "golden missing; run REGEN=1 pytest test_sse_contract.py");
+
+test("client parseSseEvents consumes the server's real Anthropic SSE golden", { skip: skipReason }, () => {
   const events = parseSseEvents(readFileSync(goldenPath, "utf-8"));
 
   assert.deepEqual(events, [

@@ -8,6 +8,7 @@ const ROUTES: Record<string, "local" | "api" | "shim" | "ui"> = {
   audit_code: "local",
   load_skill: "local",
   generate_code: "local",
+  read_workspace_file: "local",
   search_packages: "api",
   resolve_package_candidates: "api",
   get_package_context: "api",

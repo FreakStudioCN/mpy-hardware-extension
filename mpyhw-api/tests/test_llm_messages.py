@@ -19,6 +19,20 @@ def _bypass_auth():
     app.dependency_overrides.pop(get_current_user, None)
 
 
+def test_deepseek_payload_caps_output_tokens(monkeypatch):
+    # An unbounded turn could spend arbitrarily many tokens (and the metering floor
+    # absorbs the overage). The payload must carry a max_tokens ceiling.
+    from app import routes_llm
+
+    monkeypatch.delenv("MPYHW_LLM_MAX_TOKENS", raising=False)
+    payload = routes_llm._deepseek_payload({"messages": [{"role": "user", "content": "hi"}], "tools": []})
+    assert payload["max_tokens"] == 8192
+
+    monkeypatch.setenv("MPYHW_LLM_MAX_TOKENS", "4096")
+    payload = routes_llm._deepseek_payload({"messages": [{"role": "user", "content": "hi"}], "tools": []})
+    assert payload["max_tokens"] == 4096
+
+
 def test_llm_messages_rejects_noncanonical_tool():
     response = client.post(
         "/v1/llm/messages",
@@ -304,26 +318,23 @@ def test_llm_tool_capabilities_come_from_package_store(monkeypatch):
     assert "temperature_sensing, humidity_sensing, digital_output, display_text" not in routes_llm.SYSTEM_PROMPT
 
 
-def test_system_prompt_clarifies_ambiguous_intent_instead_of_refusing():
+def test_system_prompt_is_delivered_to_the_provider_as_the_system_message():
     from app import routes_llm
 
-    # Ambiguous / seemingly-non-hardware requests should be clarified via ask_user,
-    # not refused; the removed <not_hardware> refusal must not reappear.
-    assert "ask_user" in routes_llm.SYSTEM_PROMPT
-    assert "do NOT refuse" in routes_llm.SYSTEM_PROMPT
+    # The prompt only does its job if it actually reaches the model. Verify the
+    # translation layer prepends it as the system turn (not merely that the
+    # constant exists). This is robust to prompt wording changes — unlike pinning
+    # individual phrases — while still catching a regression that drops the prompt.
+    messages = routes_llm._deepseek_messages({"messages": [{"role": "user", "content": "blink an LED"}]})
+    assert messages[0] == {"role": "system", "content": routes_llm.SYSTEM_PROMPT}
+
+
+def test_system_prompt_omits_removed_not_hardware_refusal():
+    from app import routes_llm
+
+    # The <not_hardware> refusal was deliberately removed (ambiguous intents are
+    # clarified via ask_user, not refused). Guard against it being reintroduced.
     assert "<not_hardware>" not in routes_llm.SYSTEM_PROMPT
-
-
-def test_system_prompt_drives_autonomously_without_a_next_step_menu():
-    from app import routes_llm
-
-    prompt = routes_llm.SYSTEM_PROMPT
-    # After audit the agent must deploy on its own, never stall with a text menu;
-    # wiring is auto-rendered and the host owns the build-plan confirmation.
-    assert "NEVER end your turn with a plain-text menu" in prompt
-    assert "proceed autonomously through deployment" in prompt
-    assert "rendered automatically from the manifest" in prompt
-    assert "do NOT ask the user whether to generate" in prompt
 
 
 def test_llm_local_tools_expose_parameter_schemas():

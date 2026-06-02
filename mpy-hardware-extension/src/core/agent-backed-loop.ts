@@ -7,6 +7,7 @@ import { dispatchTool } from "./tool-dispatch.ts";
 import { createLlmClient } from "./llm-client.ts";
 import { createSessionState } from "./session-state.ts";
 import { runAgentLoop } from "./agent-loop.ts";
+import { SkillCatalog } from "./skill-catalog.ts";
 
 // Drivers the LLM never fetches as a package (the LED is a builtin), but which
 // generate_code still needs as a context. Mirrors the auto-add in pipeline.ts.
@@ -33,6 +34,10 @@ type LoopDeps = {
   // Resolves the session JWT for the metered /v1/llm/messages calls. Undefined in
   // headless/test contexts; the calls then go out without an Authorization header.
   getAuthToken?: () => Promise<string | undefined>;
+  skillCatalog?: SkillCatalog;
+  // Reads a file from the user's workspace for the read_workspace_file tool. The
+  // host enforces path containment to the workspace root. Absent in headless/test.
+  readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
 };
 
 type LoopInput = {
@@ -62,6 +67,7 @@ function buildOpening(input: LoopInput): string {
     input.intent,
     "",
     "[First make sure you understand the request. If the goal or the core behaviour is unclear, or it could be built more than one way, call the ask_user tool to clarify what device to build and what it should do BEFORE selecting hardware or generating code. Always ask via the ask_user tool, never as plain assistant text.]",
+    "[Structure the code to fit the project. A simple project can be a single main.py. For a more complex one, split it into main.py (the runnable entry) plus importable modules under lib/ — call generate_code once per file, passing each file's target_path (e.g. lib/sensor.py). Keep it only as complex as the project needs.]",
   ];
   if (boardKnown) {
     parts.push(`[Target board already selected by the user: ${input.boardId}. Use this board and pass this board_id to query_board_profile. Do NOT ask the user which board to use.]`);
@@ -86,7 +92,6 @@ export type BuildPlan = {
   capabilities: string[];
   packages: string[];
   wiring: Array<{ role: string; pin: string }>;
-  logic: Record<string, any>;
   estimate: number;
 };
 
@@ -108,9 +113,27 @@ function buildPlan(manifest: any, intent: string): BuildPlan {
     capabilities: manifest?.capabilities ?? [],
     packages: (manifest?.packages ?? []).map((p: any) => (typeof p === "string" ? p : p?.name)).filter(Boolean),
     wiring: Array.isArray(manifest?.wiring) ? manifest.wiring : [],
-    logic: manifest?.logic ?? {},
     estimate: estimateCredits(manifest),
   };
+}
+
+function userVisibleToolPhase(toolName: string): string | null {
+  const phases: Record<string, string> = {
+    query_board_profile: "读取开发板资料",
+    search_packages: "查找可用驱动",
+    get_package_context: "读取驱动资料",
+    propose_manifest: "准备接线方案",
+    generate_code: "生成代码",
+    audit_code: "检查代码",
+    install_package: "安装驱动包",
+    write_main_py: "写入设备",
+    flash_and_run: "运行设备",
+    read_serial_until: "读取串口输出",
+    load_skill: "加载硬件规则",
+    read_workspace_file: "读取工作区文件",
+    scan_device: "扫描设备",
+  };
+  return phases[toolName] ?? null;
 }
 
 // Real ReAct loop: the LLM (DeepSeek, via /v1/llm/messages) drives
@@ -136,6 +159,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     })
   ) as typeof fetch;
   const llmClient = createLlmClient({ apiBaseUrl, fetchImpl: fetchWithTimeout, getAuthToken: deps.getAuthToken });
+  const skillCatalog = deps.skillCatalog ?? new SkillCatalog(apiBaseUrl, fetchWithTimeout);
 
   return async function agentBackedLoop(input: LoopInput) {
     const onEvent = input.onEvent ?? (() => {});
@@ -143,6 +167,12 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     const boardClient = new BoardClient(apiBaseUrl, fetchWithTimeout);
 
     const state = input.state ?? createSessionState({ traceId: input.traceId ?? "session", intent: input.intent, boardId: input.boardId });
+    state.loadedSkills ??= [];
+    state.skillBodies ??= {};
+    state.driverContexts ??= [];
+    // Generated project files by path (main.py + any lib/ modules), so the device
+    // deploy can push the whole set without the model re-sending file contents.
+    state.files ??= {};
     state.messages.push({ role: "user", content: input.state ? input.intent : buildOpening(input) });
     if (input.state) {
       // Continuing a prior conversation: keep the history and derived hardware
@@ -150,6 +180,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       // signals. Otherwise the stale success marker / turn & repair counters from
       // the previous request would immediately terminate (or starve) this one.
       state.lastRuntimeMarker = undefined;
+      state.runtimeVerified = false;
       state.turnSeq = 0;
       state.repairRound = 0;
       state.textOnlyTurns = 0;
@@ -167,11 +198,19 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     // LLM-driven codegen for any board/part combo the deterministic template
     // can't handle. A nested, tool-free /v1/llm/messages call grounded on the
     // board profile + resolved driver contexts so it isn't hardcoded to one part.
-    async function generateCodeViaLlm(manifest: any, contexts: any[]) {
+    async function generateCodeViaLlm(manifest: any, contexts: any[], targetPath = "main.py") {
+      const loadedSkillText = renderLoadedSkillBodies(state);
+      // Target-aware so multi-file projects work: main.py is the runnable entry
+      // (the deploy loop watches for MPYHW_READY); any other path is an importable
+      // module. Single-file projects (the default) keep the original main.py rules.
+      const isEntry = targetPath === "main.py";
+      const fileRules = isEntry
+        ? "print 'MPYHW_READY' once at startup, then run a main loop that prints structured status lines; wrap the loop body in try/except."
+        : "produce a focused, importable module consistent with the manifest and the entry main.py; define classes/functions only, with no top-level side effects.";
       const user =
-        "You are a MicroPython hardware codegen assistant. Output ONLY a complete main.py — no markdown fences, no prose.\n" +
-        "Rules: import only modules on the board profile or the provided driver import_names; use the given constructors; " +
-        "print 'MPYHW_READY' once at startup, then run a main loop that prints structured status lines; wrap the loop body in try/except.\n\n" +
+        `You are a MicroPython hardware codegen assistant. Output ONLY the complete contents of ${targetPath} — no markdown fences, no prose.\n` +
+        `Rules: import only modules on the board profile or the provided driver import_names; use the given constructors; ${fileRules}\n\n` +
+        (loadedSkillText ? `Loaded MicroPython skills:\n${loadedSkillText}\n\n` : "") +
         `Board profile:\n${JSON.stringify(state.board ?? { board_id: manifest?.board_id ?? input.boardId })}\n\n` +
         `Resolved driver contexts:\n${JSON.stringify(contexts)}\n\n` +
         `Hardware manifest (pins already allocated):\n${JSON.stringify(manifest)}\n\n` +
@@ -231,11 +270,13 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           // One path: grounded LLM generation for every part. No per-sensor
           // special-casing. (The deterministic template lives only in the
           // offline MPYHW_LOOP=template pipeline.)
+          const targetPath = toolInput.target_path ?? "main.py";
           const contexts = contextsForCodegen(toolInput.manifest);
-          const generated = await generateCodeViaLlm(toolInput.manifest, contexts);
+          const generated = await generateCodeViaLlm(toolInput.manifest, contexts, targetPath);
           if (!generated.ok) return { ok: false, error_kind: "codegen_failed", error: generated.error };
-          onEvent({ type: "code_updated", code: generated.code });
-          return { ok: true, path: toolInput.target_path ?? "main.py", code: generated.code };
+          state.files[targetPath] = generated.code;
+          onEvent({ type: "code_updated", code: generated.code, path: targetPath });
+          return { ok: true, path: targetPath, code: generated.code };
         }
         if (name === "audit_code") {
           if (!state.board) {
@@ -245,15 +286,23 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           return audit.ok ? { ok: true } : { ok: false, error_kind: "audit_failed", disallowed_imports: audit.disallowed_imports };
         }
         if (name === "load_skill") {
-          try {
-            const response = await fetchWithTimeout(`${apiBaseUrl}/v1/skills/${encodeURIComponent(toolInput.skill)}`);
-            if (!response.ok) {
-              return { ok: false, error_kind: "skill_not_found" };
-            }
-            return { ok: true, skill: toolInput.skill, body: await response.text() };
-          } catch {
-            return { ok: false, error_kind: "upstream_unavailable" };
+          const skillName = String(toolInput.skill ?? "");
+          if (state.loadedSkills.includes(skillName)) {
+            return { ok: true, skill: skillName, loaded: true, noop: true };
           }
+          const body = await skillCatalog.fetchBody(skillName);
+          if (body == null) return { ok: false, error_kind: "skill_not_found" };
+          state.loadedSkills.push(skillName);
+          state.skillBodies[skillName] = body;
+          return { ok: true, skill: skillName, loaded: true };
+        }
+        if (name === "read_workspace_file") {
+          // The host (extension) owns the read + path containment to the workspace
+          // root; the loop just forwards the requested path. Absent in headless/test.
+          if (typeof deps.readWorkspaceFile !== "function") {
+            return { ok: false, error_kind: "workspace_unavailable" };
+          }
+          return await deps.readWorkspaceFile(String(toolInput.path ?? ""));
         }
         return { ok: false, error_kind: "UnknownToolError" };
       },
@@ -271,6 +320,14 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           }
           if (name === "write_main_py") {
             await shim.writeMainPy(toolInput.content);
+            // Deploy any additional generated project files (lib/ modules) to the
+            // device at their mirror paths. Content comes from the accumulated set,
+            // not re-sent by the model. Single-file projects have none → no-op.
+            if (typeof shim.writeDeviceFile === "function") {
+              for (const [filePath, code] of Object.entries(state.files ?? {})) {
+                if (filePath !== "main.py") await shim.writeDeviceFile(filePath, String(code));
+              }
+            }
             return { ok: true };
           }
           if (name === "flash_and_run") {
@@ -297,7 +354,6 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       },
       ui: async (name: string, toolInput: any) => {
         if (name === "ask_user") {
-          onEvent({ type: "trace", text: `ask_user: ${toolInput.question}` });
           // Wired to the webview when an askUser callback is provided; the loop
           // pauses here until the user answers. Falls back to a null answer for
           // headless contexts (tests / no UI).
@@ -314,8 +370,9 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     };
 
     const sseClient = async () => {
-      const body = { messages: state.messages, tools };
-      await input.recorder?.record({ type: "llm_request", kind: "agent", messages: cloneJson(state.messages), tools: cloneJson(tools) });
+      const messages = await requestMessages(state, skillCatalog);
+      const body = { messages, tools };
+      await input.recorder?.record({ type: "llm_request", kind: "agent", messages: cloneJson(messages), tools: cloneJson(tools) });
       return llmClient.streamMessages(body, input.signal);
     };
 
@@ -329,7 +386,6 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       return dispatchTool(tool, executors);
     };
 
-    onEvent({ type: "trace", text: `Agent session started: ${input.intent}` });
     const result = await runAgentLoop({
       state,
       sseClient,
@@ -340,15 +396,32 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
         if (event.type === "text_delta" && event.text.trim()) {
           onEvent({ type: "trace", text: event.text });
         } else if (event.type === "tool_use_complete") {
-          onEvent({ type: "trace", text: `→ ${event.name}` });
+          const phase = userVisibleToolPhase(event.name);
+          if (phase) onEvent({ type: "trace", text: phase });
         } else if (event.type === "credits") {
           onEvent({ kind: "credits", balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt });
         }
       },
     });
-    onEvent({ type: "trace", text: `Agent session finished: ${result.terminal}` });
     return { terminal: result.terminal, state };
   };
+}
+
+async function requestMessages(state: any, skillCatalog: SkillCatalog) {
+  const contextParts: string[] = [];
+  const catalog = await skillCatalog.renderCatalog();
+  if (catalog) contextParts.push(catalog);
+  const loaded = renderLoadedSkillBodies(state);
+  if (loaded) contextParts.push(`LOADED SKILLS:\n${loaded}`);
+  if (!contextParts.length) return state.messages;
+  return [{ role: "user", content: contextParts.join("\n\n") }, ...state.messages];
+}
+
+function renderLoadedSkillBodies(state: any): string {
+  return (state.loadedSkills ?? [])
+    .map((name: string) => state.skillBodies?.[name] ? `# ${name}\n${state.skillBodies[name]}` : "")
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function cloneJson<T>(value: T): T {

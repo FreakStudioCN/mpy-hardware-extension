@@ -203,5 +203,19 @@
       "required": ["path", "content"],
       "additionalProperties": false
     }
+  },
+  {
+    "name": "read_workspace_file",
+    "executor_hint": "local",
+    "requires_user_confirm": false,
+    "description": "Read a file from the user's project workspace (path relative to the workspace root) to inform code generation or normalization.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "description": "Workspace-relative path, for example lib/aht20.py." }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    }
   }
 ]

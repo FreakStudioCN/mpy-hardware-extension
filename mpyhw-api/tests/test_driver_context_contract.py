@@ -7,7 +7,10 @@ from app.package_store import PackageStore
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_aht20_source_evidence_hash_is_stable():
+def test_aht20_evidence_fixture_is_unmodified_tripwire():
+    # NOTE: this is a DATA-FIXTURE integrity tripwire, not behavior coverage. It
+    # exercises no app code — it only catches the evidence source being edited
+    # without regenerating SHA256SUMS. Behavior is covered by the tests below.
     evidence = ROOT / "content" / "packages" / "evidence" / "aht20-driver-source.py"
     sums = ROOT / "content" / "packages" / "evidence" / "SHA256SUMS"
     expected = sums.read_text(encoding="utf-8").split()[0]

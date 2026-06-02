@@ -21,3 +21,20 @@ test("audit rejects imports outside board modules and driver context", () => {
   assert.equal(result.ok, false);
   assert.deepEqual(result.disallowed_imports, ["socket"]);
 });
+
+test("audit flags dynamic import / exec / eval that bypass static import checks", () => {
+  for (const code of ["os = __import__('os')", "exec('import socket')", "eval('open(\"/etc\")')"]) {
+    const result = auditCode(code, { board: { available_modules: ["machine", "time"] }, driverContexts: [] });
+    assert.equal(result.ok, false, `should reject: ${code}`);
+  }
+});
+
+test("audit detects a disallowed import hidden after a semicolon", () => {
+  const result = auditCode("x = 1; import socket\n", {
+    board: { available_modules: ["machine"] },
+    driverContexts: [],
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.disallowed_imports, ["socket"]);
+});

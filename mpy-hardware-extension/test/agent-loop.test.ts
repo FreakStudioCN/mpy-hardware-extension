@@ -21,6 +21,30 @@ test("happy path terminates success only after serial marker observation", async
   assert.deepEqual(calls, ["search_packages", "read_serial_until"]);
 });
 
+test("successful serial observation terminates success without temperature markers", async () => {
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted([
+      [{ type: "tool_use_complete", id: "1", name: "read_serial_until", input: {} }, { type: "message_stop" }],
+      [{ type: "tool_use_complete", id: "2", name: "search_packages", input: {} }, { type: "message_stop" }],
+    ]),
+    dispatchTool: async () => ({ ok: true, lines: ["MPYHW_READY", "OLED_OK"] }),
+  });
+
+  assert.equal(result.terminal, "success");
+  assert.equal(result.state.turnSeq, 1);
+});
+
+test("successful serial observation with no lines terminates success", async () => {
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted([[{ type: "tool_use_complete", id: "1", name: "read_serial_until", input: {} }, { type: "message_stop" }]]),
+    dispatchTool: async () => ({ ok: true, lines: [] }),
+  });
+
+  assert.equal(result.terminal, "success");
+});
+
 test("a failed device observation (error_kind) counts toward repair exhaustion", async () => {
   // A read_serial_until that fails carries error_kind: "runtime_error"; the loop
   // must increment repairRound on each so it terminates as repair_exhausted
@@ -29,6 +53,19 @@ test("a failed device observation (error_kind) counts toward repair exhaustion",
     state: baseState(),
     sseClient: scripted(Array.from({ length: 5 }, (_, i) => [{ type: "tool_use_complete", id: String(i), name: "read_serial_until", input: {} }, { type: "message_stop" }])),
     dispatchTool: async () => ({ ok: false, error_kind: "runtime_error", error: "serial_read_timeout", lines: [] }),
+  });
+
+  assert.equal(result.terminal, "repair_exhausted");
+});
+
+test("a failed serial read whose last line contains TEMP_C= is not graded success", async () => {
+  // Device printed one reading then hung: the read fails (runtime_error) but its
+  // last buffered line still contains the success marker. This must NOT terminate
+  // as success — it's a runtime failure that should repair-exhaust.
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted(Array.from({ length: 5 }, (_, i) => [{ type: "tool_use_complete", id: String(i), name: "read_serial_until", input: {} }, { type: "message_stop" }])),
+    dispatchTool: async () => ({ ok: false, error_kind: "runtime_error", error: "serial_read_timeout", lines: ["MPYHW_READY", "TEMP_C=24.0"] }),
   });
 
   assert.equal(result.terminal, "repair_exhausted");

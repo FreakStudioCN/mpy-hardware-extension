@@ -1,5 +1,5 @@
-export function shouldTerminate(state: { turnSeq: number; repairRound: number; lastRuntimeMarker?: string }) {
-  if (state.lastRuntimeMarker?.includes("TEMP_C=")) {
+export function shouldTerminate(state: { turnSeq: number; repairRound: number; lastRuntimeMarker?: string; runtimeVerified?: boolean }) {
+  if (state.runtimeVerified || state.lastRuntimeMarker?.includes("TEMP_C=")) {
     return { done: true, reason: "success" };
   }
   if (state.repairRound >= 3) {

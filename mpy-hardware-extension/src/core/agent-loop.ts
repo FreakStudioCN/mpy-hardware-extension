@@ -51,8 +51,15 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
         if (observation.error_kind === "runtime_error") {
           state.repairRound += 1;
         }
-        if (Array.isArray(observation.output?.lines)) {
+        // Only a SUCCESSFUL read establishes a runtime marker. A failed read
+        // (timeout) can still carry buffered lines whose tail happens to contain
+        // the success marker; recording it would falsely grade the failure as
+        // success in shouldTerminate.
+        if (observation.ok && Array.isArray(observation.output?.lines)) {
           state.lastRuntimeMarker = observation.output.lines.at(-1);
+        }
+        if (event.name === "read_serial_until" && observation.ok) {
+          state.runtimeVerified = true;
         }
       }
       if (event.type === "message_stop") {

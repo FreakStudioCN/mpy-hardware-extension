@@ -31,18 +31,13 @@ export class ApiClient {
 
   async checkToolRegistry(localTools: string[]) {
     const body = await this.request("/v1/tools");
-    const remote = new Set((body.tools ?? []).map((tool: any) => tool.name));
-    const mismatch = localTools.some((tool) => !remote.has(tool));
+    const remote = new Set<string>((body.tools ?? []).map((tool: any) => tool.name));
+    const local = new Set(localTools);
+    // Compare both directions: a tool the backend declares but the extension can't
+    // route is drift too, not just a local tool the backend is missing.
+    const mismatch = local.size !== remote.size
+      || [...local].some((tool) => !remote.has(tool));
     return mismatch ? { warning: "tool_registry_mismatch" } : { ok: true };
-  }
-
-  async openSse() {
-    try {
-      await this.fetchImpl(`${this.baseUrl}/v1/llm/messages`, { method: "POST" });
-      return { ok: true };
-    } catch {
-      return { ok: false, error_kind: "sse_stream_interrupted" };
-    }
   }
 
   async request(path: string, init?: RequestInit) {

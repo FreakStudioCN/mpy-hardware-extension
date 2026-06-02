@@ -40,3 +40,18 @@ test("shim crash rejects pending requests", async () => {
     /shim exited/,
   );
 });
+
+test("shim request rejects on timeout and clears the pending request", async () => {
+  const shim = new ShimProcess({ write: () => undefined });
+
+  await assert.rejects(() => shim.request("device.scan", {}, 5), /shim_request_timeout/);
+  assert.equal(shim.pending.size, 0);
+});
+
+test("late shim response after timeout is ignored", async () => {
+  const shim = new ShimProcess({ write: () => undefined });
+
+  await assert.rejects(() => shim.request("device.scan", {}, 5), /shim_request_timeout/);
+  assert.doesNotThrow(() => shim.handleStdoutLine(JSON.stringify({ id: 1, result: { devices: [] } })));
+  assert.equal(shim.pending.size, 0);
+});

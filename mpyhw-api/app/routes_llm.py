@@ -130,21 +130,28 @@ def get_llm_provider():
     raise HTTPException(status_code=503, detail={"error": "llm_provider_not_supported", "provider": provider})
 
 
-def _open_deepseek_stream(body: dict[str, Any], api_key: str):
-    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
-    model = os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro")
+def _deepseek_payload(body: dict[str, Any]) -> dict[str, Any]:
     payload = {
-        "model": model,
+        "model": os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
         "messages": _deepseek_messages(body),
         "temperature": 0.2,
         "stream": True,
         # Ask DeepSeek for a final usage chunk so we can token-meter the turn.
         "stream_options": {"include_usage": True},
+        # Bound a single turn's output so an unbounded generation can't run up an
+        # arbitrary token bill (the credit floor would otherwise absorb the overage).
+        "max_tokens": int(os.getenv("MPYHW_LLM_MAX_TOKENS", "8192")),
     }
     tools = _deepseek_tools(body.get("tools", []))
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
+    return payload
+
+
+def _open_deepseek_stream(body: dict[str, Any], api_key: str):
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    payload = _deepseek_payload(body)
     request = urllib.request.Request(
         f"{base_url}/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),

@@ -11,7 +11,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.package_store import normalize_record
+from app.package_store import normalize_record, safe_context_filename
 from scripts.normalize_driver_context import extract_driver_context
 
 UPYPI_BASE = "https://upypi.net"
@@ -132,7 +132,7 @@ def ingest_live(output_dir: str | Path, terms: list[str] | None = None, get_json
         module_name = Path(url_files[0]).stem if url_files else name
         context = extract_driver_context({**pkg, "package_json_url": package_json_url}, pkg.get("description", ""), source, module_name=module_name)
         if context.get("constructors") and context.get("bus"):
-            context_name = f"{name}-{version}.json"
+            context_name = safe_context_filename(name, version)
             (output_dir / "driver_context" / context_name).write_text(json.dumps(context, indent=2), encoding="utf-8")
             record["driver_context_ref"] = f"driver_context/{context_name}"
             record["support_level"] = context.get("support_level", record["support_level"])

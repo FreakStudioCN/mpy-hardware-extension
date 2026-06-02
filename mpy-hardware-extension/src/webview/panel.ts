@@ -1,13 +1,18 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
 
 import { SessionController } from "../extension/session-controller.ts";
 import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
+import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { createAgentBackedLoop } from "../core/agent-backed-loop.ts";
 import { createDeviceShim } from "../extension/device-shim.ts";
 import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
+import { CANONICAL_TOOLS } from "../core/tool-registry.ts";
+import { writeGeneratedFiles } from "../extension/workspace-writer.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void };
 
@@ -49,8 +54,19 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const choice = await vscode.window.showWarningMessage(`Allow ${tool.name}?`, "Allow", "Cancel");
       return choice === "Allow";
     },
-    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false) }),
+    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(workspaceFolder) }),
     recorderFactory: workspaceFolder ? (traceId) => new JsonlSessionRecorder({ workspaceFolder, traceId }) : undefined,
+    writeFiles: async (files) => writeGeneratedFiles({
+      workspaceFolder,
+      generatedRoot: workspaceFolder ? undefined : join(process.cwd(), ".mpyhw", "generated"),
+      files,
+      exists: async (path) => existsSync(path),
+      writeFile: async (path, content) => {
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, content, "utf-8");
+      },
+      confirmOverwrite: async (path) => (await vscode.window.showWarningMessage(`Overwrite ${path}?`, "Overwrite", "Cancel")) === "Overwrite",
+    }),
   });
   webview.onDidReceiveMessage(async (message: any) => {
     if (message.type === "request_boards") {
@@ -80,6 +96,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
     }
     if (message.type === "start_session") {
+      const registry = await checkToolRegistry(apiBaseUrl, fetchImpl);
+      if (registry.warning === "tool_registry_mismatch") {
+        webview.postMessage({ type: "session_error", error: "tool_registry_mismatch" });
+        webview.postMessage({ type: "session_done", terminal: "session_error" });
+        return;
+      }
       // Login up front: a real VS Code host must have a GitHub session before the
       // metered loop runs. Headless/test hosts (no vscode.authentication) skip this.
       if (vscode.authentication) {
@@ -92,6 +114,21 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       await controller.start({ intent: message.intent, boardId: message.boardId, availableBoards });
     }
+    if (message.type === "select_device") {
+      try {
+        const ports = await shim.scan();
+        if (!ports.length) {
+          webview.postMessage({ type: "session_error", error: "device_unavailable" });
+          return;
+        }
+        const port = ports.length === 1 ? ports[0] : await vscode.window.showQuickPick?.(ports, { placeHolder: "Select MicroPython device" });
+        if (!port) return;
+        shim.setPort?.(port);
+        webview.postMessage({ type: "device_selected", port });
+      } catch (error: any) {
+        webview.postMessage({ type: "session_error", error: error?.message ?? "device_scan_failed" });
+      }
+    }
     if (message.type === "ui_prompt_response") {
       controller.resolvePrompt(message.promptId, message.answer);
     }
@@ -102,14 +139,42 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   });
 }
 
+async function checkToolRegistry(apiBaseUrl: string, fetchImpl: typeof fetch) {
+  try {
+    return await new ApiClient(apiBaseUrl, fetchImpl).checkToolRegistry(CANONICAL_TOOLS);
+  } catch {
+    return { ok: true };
+  }
+}
+
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined> }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }> }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);
   }
   return createAgentBackedLoop(deps);
+}
+
+// read_workspace_file backing: reads a workspace-relative file, refusing any path
+// that escapes the workspace root (path containment is the host's responsibility,
+// mirroring the future run_host_tool design). Returns undefined reader when there
+// is no workspace folder, so the loop reports workspace_unavailable.
+function makeWorkspaceReader(workspaceFolder?: string) {
+  if (!workspaceFolder) return undefined;
+  const root = resolve(workspaceFolder);
+  return async (relPath: string) => {
+    const target = resolve(root, relPath);
+    if (target !== root && !target.startsWith(root + sep)) {
+      return { ok: false as const, error_kind: "path_outside_workspace" };
+    }
+    try {
+      return { ok: true as const, content: readFileSync(target, "utf-8") };
+    } catch {
+      return { ok: false as const, error_kind: "file_not_found" };
+    }
+  };
 }
 
 function readWebviewHtml(): string {
