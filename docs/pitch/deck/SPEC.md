@@ -60,6 +60,26 @@ Both share: the same data, the same architecture, the same team, the same Cursor
 
 ---
 
+## 2.1 v8–v12 incremental decisions (2026-05-26)
+
+| Decision | Locked value | Source / why |
+|---|---|---|
+| **v8 deck alignment** | Both decks align to `docs/specs/` v0.2 — VS Code MVP + client-side ReAct agent + mpyhw-api thin proxy | user 2026-05-26 ("对齐 v0.2 specs") |
+| **v9 CN audience** | **Competition / pitch-contest deck** (路演 / 大学生创业大赛 / 互联网+ / 挑战杯 / 创青春). NOT for fundraising. ASK + use-of-funds removed. | user 2026-05-26 ("暂时去参加比赛的 不是去融资的") |
+| **v9 Slide 4 rewrite** | Use Schematik $4.6M / Lightspeed / Sam-Beek-shorted-his-house as falsification case, then 3 structural problems (data sparsity / loop break / hardware blindness). No more register-level deep tech. | user 2026-05-26 ("别扯寄存器 可以说美国融资 5m 的 schematik 明显幻觉") |
+| **v10 CEO bio (FACT CORRECTION)** | CEO = USC + former Moorcubes CTO + Qiji Trampoline S26 + "Future Stars". **NOT** "MicroPython core contributor" — that framing was wrong from v1 through v9. | user 2026-05-26 ("创人是搞错了") + memory `team_correct_bios.md` |
+| **v10 CTO bio (FACT CORRECTION)** | CTO = **creator of MicroPython's only package management tool (uPyPI)** + 5 issued patents + 4-year lab project lead + operates青木之道科技 + 13.6M+ developer-platform views. **No tech stack list** (STM32/RTOS/OpenCV bullet removed). | user 2026-05-26 ("CTO是 micropython唯一 包管理工具 创始人。CTO介绍不要写技术栈") |
+| **v10 CN narrative pivot** | CN deck switches from "out-go-global" → **"装作国内扎根、不出海、供给全国"**. EN keeps global / international expansion narrative. | user 2026-05-26 ("装作我们不出海 要在国内扎根 供给全国的样子。这些都不要改英文的") |
+| **v10 CN cultural hooks** | Embed OpenAI Operator + 全民 vibe coding in CN-S2 / S5 / S6 as agent-era anchor. CN only. | user 2026-05-26 ("故事里可以联系 OPC 和全民 vibecoding") |
+| **v11 EN compression** | Apply Uber 2008 seed deck style: ≤6 bullets per slide · ≤15 words per bullet · total body word count ~900 (vs ~2500 in v7.1). Drop all unauditable claims. Use single auditable anchors only. | user 2026-05-26 ("英文的字太多了…要先学uber seed round的pitch deck") |
+| **v11 unauditable claims dropped** | ❌ `50M+ people bought` (composite double-count) · `~90% never shipped` (no source) · `100 dreamers` (rhetorical) · `5M devs × 1% = 50K buyers` (speculative) · AI smart toys $9.7B / AI plush $842M / Global STEM $39B (speculative TAMs) | user 2026-05-26 (audit + Uber logic) |
+| **v11 EN auditable anchors retained** | ✅ 60M Raspberry Pi shipped (RPi PLC FY24) · 30M Arduino IDE downloads (Arduino 2024) · KS Hardware Top 5 $3.46–6.67M (SendFromChina) · KS Tech $706M / 35,512 projects (Tubefilter) | source verification done in v11 |
+| **v11 EN-S10 3-scenario outcomes** | Replace TAM theater with Uber-style best / realistic / floor scenarios | borrowed from Uber 2008 Slide 20 |
+| **v12 EN US-market logic thread** | EN-S3 / S5 / S10 / S13 must explicitly bridge to US market (US K-12 STEM enrollment NCES · Adafruit/SparkFun/Hackster as US channels · KS = US platform · Year 1 = US-first, 2028 international). Was missing in v11 — global stats with no US bridge for a US VC pitch. | user 2026-05-26 ("是那个和美国市场的联系呢 你没有逻辑啊") |
+| **AI × Git versioning** | Out of scope for deck. Save for later spec. | user 2026-05-26 ("不进 deck") |
+
+---
+
 ## 3. US VC red lines (per memory)
 
 - ❌ Don't pitch China / Shenzhen as advantage. Use functional descriptions, not geographic markers.

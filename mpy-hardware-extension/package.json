@@ -1,0 +1,66 @@
+{
+  "name": "mpy-hardware-extension",
+  "version": "0.2.0",
+  "publisher": "mpyhw",
+  "displayName": "MPY Hardware",
+  "description": "MicroPython hardware agent MVP.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./dist/extension/activate.cjs",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mpyhw",
+          "title": "MPY Hardware",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "mpyhw": [
+        {
+          "id": "mpyhw.panel",
+          "name": "MPY Hardware",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "mpyhw.openPanel",
+        "title": "MPY Hardware: Open Panel"
+      }
+    ],
+    "configuration": {
+      "title": "MPY Hardware",
+      "properties": {
+        "mpyhw.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a Python 3.10+ interpreter used to create the device shim venv. Leave blank to auto-detect (python3 / python)."
+        },
+        "mpyhw.pipIndexUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Custom pip index URL for installing the shim's mpremote/pyserial (e.g. a mirror). Leave blank for the default index."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --no-warnings --experimental-strip-types test/all.test.ts",
+    "typecheck": "node scripts/typecheck.mjs",
+    "golden": "node --no-warnings --experimental-strip-types src/cli/run-golden-path.ts",
+    "build": "node scripts/build-extension.mjs",
+    "package": "npm run build && node scripts/package-extension.mjs",
+    "smoke:extension": "npm test && npm run typecheck && npm run build && npm run package"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}

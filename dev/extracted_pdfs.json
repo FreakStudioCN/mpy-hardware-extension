@@ -1,0 +1,124 @@
+{
+  "Thonny-uPyPi 包管理插件需求规格说明书.pdf": [
+    {
+      "page": 1,
+      "text": "Thonny-uPyPi\u0001包管理插件需求规格说明书\u0001\n⼀、⽂档概述\u0001\n1.1\u0001⽂档⽬的\u0001\n本⽂档定义了\u0001Thonny-uPyPi\u0001包管理插件\u0001的功能需求、⾮功能需求与开发规范，⽤于指导插件的设\n计、开发与验收，实现\u0001Thonny\u0001与\u0001uPyPi（MicroPython\u0001包仓库）的⽆缝集成。\u0001\n1.2\u0001背景与⽬标\u0001\nuPyPi\u0001是类\u0001PyPI\u0001的\u0001MicroPython\u0001包仓库，提供包上传、搜索、下载与分发能⼒：https://upypi.net/\u0001"
+    },
+    {
+      "page": 2,
+      "text": "源代码地址：https://github.com/FreakStudioCN/upypi\u0001\n需要开发\u0001Thonny\u0001第三⽅插件，让开发者在\u0001Thonny\u0001内即可搜索、浏览\u0001uPyPi\u0001包，并⼀键通过\u0001\n\u0001安装到开发板，提升\u0001MicroPython\u0001开发效率：\u0001\nmpremote\n• 适⽤于\u0001Thonny\u0001较新版本\u0001\n• 适⽤于所有⽀持\u0001MicroPython\u0001的开发板（通过\u0001 \u0001连接）\u0001\nmpremote\n• 遵循\u0001Thonny\u0001插件开发规范（ \u0001命名空间、 \u0001⼊⼝函数）\u0001\nthonnycontrib load_plugin"
+    },
+    {
+      "page": 3,
+      "text": "⼆、核⼼功能需求\u0001\n2.1\u0001插件⼊⼝与界⾯\u0001\n• ⼊⼝展⽰：在\u0001Thonny\u0001主界⾯新增「uPyPi\u0001包管理」菜单\u0001/\u0001⾯板⼊⼝（可在「⼯具」菜单或侧边栏\n展⽰），⽀持打开\u0001/\u0001关闭插件⾯板。\u0001\n• 界⾯布局：\u0001\n◦ 顶部：搜索框\u0001+\u0001搜索按钮\u0001\n◦ 中部：搜索结果列表（⽀持分⻚\u0001/\u0001滚动）\u0001\n◦ 底部：安装⽇志\u0001/\u0001状态提⽰区\u0001\n2.2\u0001包搜索功能\u0001\n1. 搜索触发：⽤⼾输⼊包名关键词，点击搜索按钮或按回⻋键，发起搜索请求。\u0001\n2. API\u0001调⽤：\u0001\n◦ 调⽤\u0001uPyPi\u0001搜索接⼝： 关键词 \u0001\nGET https://upypi.net/api/search?q={ }\n◦ 接⼝响应格式：JSON，包含\u0001 （搜索关键词）和\u0001 （结果数组），每个结果\nquery results\n项包含\u0001 （包名）和\u0001 （包详情地址，格式为\u0001 包\nname url https://upypi.net/pkgs/{\n名 版本号 ）\u0001\n}/{ }/\n◦ ⽀持模糊搜索：接⼝会⾃动匹配包含关键词的包名，返回所有相关结果\u0001\n3. 结果展⽰：\u0001\n◦ 核⼼信息展⽰：\u0001\n▪ 包名：直接从搜索结果的\u0001 \u0001字段获取\u0001\nname\n▪ 最新版本号、作者、简短描述：通过包详情接⼝（拼接\u0001 \u0001+\u0001 ）获取并\nurl package.json\n展⽰\u0001\n▪ 上传时间：若\u0001uPyPi\u0001接⼝\u0001/\u0001包详情中提供该字段则展⽰，否则显⽰\u0001“暂⽆”\u0001\n◦ 状态提⽰：\u0001\n▪ 空结果提⽰：当\u0001 \u0001数组为空时，显⽰「未找到匹配的包，请尝试其他关键词」\u0001\nresults\n▪ 搜索错误提⽰：当接⼝请求失败（如⽹络错误、服务端异常）时，显⽰「搜索失败，请检查\n⽹络后重试」\u0001\n▪ 加载中提⽰：搜索请求发起后，显⽰加载动画或「正在搜索…」提⽰，提升交互体验\u0001\n2.3\u0001包下载与安装功能\u0001\n• 下载操作：\u0001"
+    },
+    {
+      "page": 4,
+      "text": "◦ 点击「下载」按钮，获取\u0001uPyPi\u0001包的下载链接（如\u0001 包\nhttps://upypi.net/pkgs/{\n名 版本号 ）\u0001\n}/{ }/\n◦ 下载包⽂件（ \u0001或\u0001 \u0001格式）到本地临时⽬录或\u0001Thonny\u0001项⽬⽬录\u0001\n.py .mpy\n• 安装操作：\u0001\n◦ 点击「安装到开发板」按钮，调⽤\u0001 \u0001命令将包⽂件上传到开发板的\u0001 \u0001⽬录\u0001\nmpremote /lib\n◦ 命令⽰例： 本地包路径 包名 \u0001\nmpremote cp { } :/lib/{ }.py\n• 状态反馈：\u0001\n◦ 实时显⽰下载\u0001/\u0001安装进度\u0001\n◦ 安装成功\u0001/\u0001失败提⽰（弹窗或底部⽇志区）\u0001\n◦ 失败时展⽰具体错误信息（如\u0001 \u0001未安装、开发板未连接）\u0001\nmpremote\n三、接⼝与依赖设计\u0001\n3.1\u0001uPyPi\u0001API\u0001依赖\u0001\n• 搜索接⼝： \u0001\nGET https://upypi.net/api/search?q={query}\n◦ 响应格式：JSON，包含\u0001 、 字段\u0001\nname url\n代码块\u0001\n1 (mp_env) (base) leeqingshui@leeqingshui-VMware-Virtual-\nPlatform:~/MicroPythonOS$ curl https://upypi.net/api/search?q=ds18b20\n2 {\"query\":\"ds18b20\",\"results\":\n[{\"name\":\"ds18b20_driver\",\"url\":\"https://upypi.net/pkgs/ds18b20_driver/1.0.0\"}]\n}\n3 (mp_env) (base) leeqingshui@leeqingshui-VMware-Virtual-\nPlatform:~/MicroPythonOS$ curl https://upypi.net/api/search?q=ds1\n4 {\"query\":\"ds1\",\"results\":\n[{\"name\":\"ads1115_driver\",\"url\":\"https://upypi.net/pkgs/ads1115_driver/1.0.0\"},\n{\"name\":\"ds1232_driver\",\"url\":\"https://upypi.net/pkgs/ds1232_driver/1.0.0\"},\n{\"name\":\"ds1302_driver\",\"url\":\"https://upypi.net/pkgs/ds1302_driver/1.0.0\"},\n{\"name\":\"ds1307_driver\",\"url\":\"https://upypi.net/pkgs/ds1307_driver/1.0.0\"},\n{\"name\":\"ds18b20_driver\",\"url\":\"https://upypi.net/pkgs/ds18b20_driver/1.0.0\"}]}\n5 (mp_env) (base) leeqingshui@leeqingshui-VMware-Virtual-\nPlatform:~/MicroPythonOS$\n• 包详情接⼝： 包名 版本号 \u0001\nGET https://upypi.net/pkgs/{ }/{ }/package.json"
+    },
+    {
+      "page": 5,
+      "text": "◦ 响应格式：直接返回该版本包的\u0001 \u0001⽂件，JSON\u0001结构包含以下核⼼字段：\u0001\npackage.json\n代码块\u0001\n1 (mp_env) (base) leeqingshui@leeqingshui-VMware-Virtual-\nPlatform:~/MicroPythonOS$ curl\nhttps://upypi.net/pkgs/ds18b20_driver/1.0.0/package.json\n2 {\n3 \"name\": \"ds18b20_driver\",\n4 \"version\": \"1.0.0\",\n5 \"description\": \"A MicroPython library to control DS18B20 driver\",\n6 \"author\": \"leeqingshui\",\n7 \"license\": \"MIT\",\n8 \"chips\": \"all\",\n9 \"fw\": \"all\",\n10 \"_comments\": {\n11 \"chips\": \"该包⽀持运⾏的芯⽚型号，all表⽰⽆芯⽚限制\","
+    },
+    {
+      "page": 6,
+      "text": "12 \"fw\": \"该包依赖的特定固件如ulab、lvgl,all表⽰⽆固件依赖\"\n13 },\n14 \"urls\": [\n15 [\n16 \"ds18x20.py\",\n17 \"code/ds18x20.py\"\n18 ],\n19 [\n20 \"onewire.py\",\n21 \"code/onewire.py\"\n22 ]\n23 ]\n24 }\n3.2\u0001Thonny\u0001插件\u0001API\u0001依赖\u0001\n• ⼊⼝函数： ，⽤于注册插件到\u0001Thonny\u0001\nload_plugin()\n• ⼯作台接⼝： ，⽤于创建⾯板、添加菜单\u0001\nget_workbench()\n• 进程调⽤接⼝：⽤于执⾏\u0001 \u0001命令并获取输出\u0001\nmpremote\n3.3\u0001外部⼯具依赖\u0001\n• ：必须已安装并配置到系统\u0001PATH，⽤于开发板通信\u0001\nmpremote\n• Python\u00013.8+：Thonny\u0001内置\u0001Python\u0001环境需满⾜版本要求\u0001\n四、开发规范\u0001\n• 包名： （以\u0001 \u0001开头，符合\u0001Thonny\u0001插件命名规范）\u0001\nthonny-upypi-manager thonny-\n• 打包格式： （ ），便于上传到\u0001PyPI\u0001\nwheel .whl\n• / \u0001中声明依赖： 、 （⽤于\u0001API\u0001调⽤）\u0001\nsetup.py pyproject.toml mpremote requests\n• 声明⽀持的\u0001Thonny\u0001版本范围： \u0001\n>=3.0,<5.0\n五、验收标准\u0001\n• 功能验收：\u0001\n◦ 插件能正常在\u0001Thonny\u0001中加载，⼊⼝可⻅\u0001\n◦ 搜索功能能正确返回\u0001uPyPi\u0001上的包信息\u0001\n◦ 能正常下载包并通过\u0001 \u0001安装到开发板\u0001\nmpremote\n◦ 错误场景（⽆⽹络、开发板未连接）能正确提⽰\u0001"
+    },
+    {
+      "page": 7,
+      "text": "• 兼容性验收：\u0001\n◦ 在\u0001Windows/macOS/Linux\u0001下均能正常运⾏\u0001\n版本记录\u0001\n版本号 修改⼈员 时间 内容\u0001\nv1.0\u0001 李⼦圣 2026/03/1 初始化⽂档。\u0001\n3\u0001\nv1.1\u0001 李⼦圣 2026/03/1 修改2.2包搜索功能。\u0001\n3\u0001\n\u0001 \u0001 \u0001 \u0001\n\u0001 \u0001 \u0001 \u0001\n相关参考\u0001"
+    },
+    {
+      "page": 8,
+      "text": "https://thonny.org/#plugins\u0001\nhttps://github.com/thonny/thonny/wiki/Plugins\u0001\nhttps://github.com/FreakStudioCN/upypi\u0001"
+    }
+  ],
+  "Thonny中Mpy包管理器插件的安装和使用.pdf": [
+    {
+      "page": 1,
+      "text": "Thonny中Mpy包管理器插件的安装和使⽤\u0001\n零、前⾔\u0001\n在\u0001MicroPython\u0001的开发过程中，第三⽅驱动库是实现传感器交互、通信协议、界⾯控制等功能的核⼼\n依赖。为了给开发者提供⼀个集中、规范的包分享平台，我们团队维护了uPyPi\u0001仓库——\u0001⽬前这⾥已\n经收录了\u0001173\u0001个各类\u0001MicroPython\u0001包，覆盖传感器驱动、通信模块、⼈机交互等多个场景，解决了⼤\n家\u0001“找包难、找包乱”\u0001的问题。\u0001\n不过⽬前，⼤多数开发者使⽤\u0001uPyPi\u0001包的⽅式，还是需要从仓库⻚⾯复制\nmpremote mip\n命令，再⼿动粘贴到终端执⾏安装。这个过程不仅要处理串⼝连接、命令格式，还得⾃⼰排\ninstall\n查依赖问题，对新⼿⾮常不友好，也拉低了开发效率。\u0001"
+    },
+    {
+      "page": 2,
+      "text": "为了彻底解决这个痛点，我们开发了thonny-upypi-manager这个\u0001Thonny\u0001IDE\u0001插件\u0001——\u0001它把\u0001uPyPi\u0001\n仓库的包管理功能直接集成到了\u0001Thonny\u0001⾥，不⽤再打开⽹⻚复制命令，也不⽤⼿动处理依赖，在\u0001\nIDE\u0001内就能完成从搜索、查看、缓存到⼀键安装的全流程。\u0001\n⼀、插件介绍\u0001\n是我们专为\u0001Thonny\u0001IDE\u0001打造的第三⽅插件，核⼼作⽤是对接我们团队\nthonny-upypi-manager\n维护的uPyPi（MicroPython\u0001⻛格包仓库），实现\u0001MicroPython\u0001包的全流程可视化管理，适配\u0001\nThonny\u00014.1.7\u0001及以上版本。\u0001"
+    },
+    {
+      "page": 3,
+      "text": "简单来说，它就是\u0001uPyPi\u0001仓库的\u0001“Thonny\u0001客⼾端”，让你不⽤再切换⽹⻚、复制终端命令，在\u0001IDE\u0001\n⾥就能搞定所有包管理操作。\u0001\n源代码地址：https://github.com/FreakStudioCN/thonny-upypi-manager\u0001\nGithub\n它的功能覆盖了包管理的全流程，能解决开发中的多个痛点：\u0001\n• ✅\u0001包搜索与元数据查看：直接在\u0001Thonny\u0001内搜索\u0001uPyPi\u0001上的所有包，还能查看每个包的\n信息（版本、作者、依赖项），不⽤再切换到⽹⻚端查询。\u0001\npackage.json\n• ✅\u0001本地缓存管理：⽀持多⽂件包的本地缓存，下载过的包会⾃动存到本地，重复使⽤时⽆需重新\n下载。\u0001\n• ✅\u0001⼀键安装到开发板：通过 ⼯具，直接把包安装到连接的\u0001MicroPython\u0001开发板\nmpremote\n的 ⽬录，省去⼿动复制⽂件的步骤。\u0001\n/lib\n• ✅\u0001⾃动依赖处理：会读取包的 中 字段，在安装主包前⾃动安装所有依赖\npackage.json deps\n项，不⽤再⼿动挨个找依赖。\u0001\n• ✅\u0001错误友好提⽰：遇到⽹络不通、 未配置、开发板未连接等问题时，会给出清晰的提\nmpremote\n⽰，帮你快速定位和解决问题。\u0001"
+    },
+    {
+      "page": 4,
+      "text": "地址：https://pypi.org/project/thonny-upypi-manager/\u0001\nPyPI\n这个插件的源码由\u0001Freak\u0001嵌⼊式⼯作室维护，托管在\u0001GitHub\u0001仓库中，⽬前是\u0001Thonny\u0001端最便捷的\u0001\nMicroPython\u0001包管理⼯具之⼀，后续也会持续更新维护，优化功能和兼容性。\u0001\n⼆、插件安装\u0001\n在安装插件之前，我们⾸先需要安装Python的基本环境，这⾥我们推荐使⽤ 环境管理\nminiconda\n器：\u0001"
+    },
+    {
+      "page": 5,
+      "text": "详细教程可看：https://blog.csdn.net/ming12131342/article/details/140233867\u0001\n插件提供了两种安装⽅式：从\u0001PyPI\u0001在线安装（适合⽹络环境正常的情况，简单快捷）和从本地⽂件安\n装（适合⽹络受限的情况，提前下载好安装包），你可以根据⾃⼰的情况选择其中⼀种。\u0001\n⾸先启动\u0001Thonny\u0001IDE，点击顶部菜单栏的【⼯具】，选择【管理插件...】（部分版本翻译为\u0001“管理软\n件包”），即可打开插件管理窗⼝。\u0001"
+    },
+    {
+      "page": 6,
+      "text": "2.1\u0001从PyPI安装\u0001\n这是最推荐的安装⽅式，全程仅需⼏步操作，⽆需⼿动处理⽂件：\u0001\n在插件管理窗⼝的搜索框中，输⼊插件名 ，点击右侧的【在\u0001PyPI\u0001上搜\nthonny-upypi-manager\n索】按钮，稍等⽚刻就能看到搜索结果。\u0001\n注意，有时候由于⽹络问题，会导致搜索不到，隔⼏分钟以后再次搜索就可以，如果还是不⾏，本地\n安装！\u0001"
+    },
+    {
+      "page": 7,
+      "text": "在搜索结果列表中找到 ，点击后会显⽰插件的详细信息（版本、作者、\nthonny-upypi-manager\n依赖要求等），此时点击窗⼝下⽅的【安装】按钮，即可⾃动完成下载和安装。\u0001\n安装完成后，插件管理窗⼝的左侧列表会出现 ，此时必须关闭并重新打\nthonny_upypi_manager\n开\u0001Thonny，插件才能正常⽣效。\u0001"
+    },
+    {
+      "page": 9,
+      "text": "重启后，你会在\u0001Thonny\u0001的⼯具栏看到插件的专属图标，说明安装成功。\u0001\n2.2\u0001从本地⽂件中安装\u0001\n如果你的电脑⽹络受限，⽆法直接从\u0001PyPI\u0001下载，可以选择提前下载安装包，通过本地⽂件安装：\u0001\n⾸先，到【附件-本地安装包】中下载 ⽂件：\u0001\n.whl\n• 主安装包： （稳定版，优先使⽤）\u0001\nthonny_upypi_manager-0.1.1-py3-none-any.whl\n• 备⽤包： （源码包，⽤于特殊场景）\u0001\nthonny_upypi_manager-0.1.1.tar.gz"
+    },
+    {
+      "page": 10,
+      "text": "打开\u0001Thonny\u0001的【⼯具】→【管理插件...】，在窗⼝右侧的选项区中，找到【从本地⽂件中安装】，点\n击对应的链接打开⽂件选择窗⼝。\u0001"
+    },
+    {
+      "page": 11,
+      "text": "安装完成后，同样需要关闭并重新启动\u0001Thonny，插件才会加载⽣效，重启后即可在⼯具栏看到插件图\n标。\u0001\n重启之后，再次点击：\u0001"
+    },
+    {
+      "page": 12,
+      "text": "2.3\u0001安装注意事项\u0001\n• 必须重启\u0001Thonny：安装、升级或卸载插件后，都需要重启\u0001Thonny，修改才能⽣效。\u0001\n• mpremote 前置准备：插件安装完成后，需确保电脑已安装 ⼯具（MicroPython\u0001官\nmpremote\n⽅串⼝⼯具），并配置到系统环境变量中，否则⽆法将包安装到开发板上。可通过命令⾏输⼊\n验证配置是否成功。\u0001\nmpremote --version\n• 依赖⾃动处理：插件依赖 ，Thonny\u0001的插件管理会⾃动安装该依赖，⽆需⼿动\nrequests>=2.0\n操作。\u0001\n三、插件使⽤\u0001\n前⾯我们已经完成了插件的安装，接下来就跟着步骤，⼀步步上⼿⽤它来管理\u0001MicroPython\u0001包。整个\n过程⾮常简单，只需要⼏步就能完成包的搜索、下载和安装，⽽且全程不⽤⼿动复制⽂件，省⼼⼜⾼\n效。\u0001\n3.1\u0001打开插件管理界⾯\u0001\n重启\u0001Thonny\u0001后，你会在顶部⼯具栏看到⼀个新的插件图标（就是红圈标注的那个图标），点击它就\n能打开\u0001uPyPi\u0001Package\u0001Manager\u0001⾯板，⾯板会固定在\u0001IDE\u0001的侧边，⽅便后续操作。\u0001"
+    },
+    {
+      "page": 13,
+      "text": "3.2\u0001设备连接\u0001\n在开始使⽤前，有两个准备步骤⼀定要做好，不然很容易出现安装失败的问题：\u0001\n把你的\u0001MicroPython\u0001开发板（⽐如\u0001ESP32、ESP8266）⽤\u0001USB\u0001线连接到电脑，插件会⾃动识别串⼝\n设备，设备下拉框⾥会显⽰对应的\u0001COM\u0001端⼝号（⽐如⽰例中的\u0001COM55）。如果没识别到设备，点击\n旁边的「Refresh\u0001Boards」按钮刷新⼀下，就能看到连接的设备了。\u0001\n注意，使⽤该插件时候，Thonny的终端不能连接设备！\u0001"
+    },
+    {
+      "page": 14,
+      "text": "这是新⼿最容易踩的坑：使⽤插件安装包时，Thonny\u0001的终端不能连接开发板！\u0001串⼝设备同⼀时间只\n能被⼀个程序占⽤，如果终端正在连接设备，插件就⽆法通过 和设备通信，会直接报错。\u0001\nmpremote\n解决⽅法很简单：看\u0001Thonny\u0001右下⻆的解释器选择，把它从\u0001“MicroPython（连接设备的状态）”\u0001切\n到\u0001“本地\u0001Python3”，确保终端处于未连接状态，再继续后续操作。\u0001\n3.3\u0001包搜索和下载/安装\u0001\n准备⼯作完成后，就可以开始找你需要的包了：\u0001\n1. 在⾯板上⽅的搜索框中输⼊包名，⽐如⽰例中的温度传感器驱动 ；\u0001\nds18B20\n2. 点击右侧的「Search」按钮，下⽅的列表就会显⽰匹配的所有包，包括包名、版本、作者和功能描\n述，⽅便你确认是不是⾃⼰需要的包。\u0001"
+    },
+    {
+      "page": 15,
+      "text": "找到需要的包后，插件提供了两种处理⽅式，你可以根据⾃⼰的需求选择：\u0001"
+    },
+    {
+      "page": 16,
+      "text": "• 下载到本地查看源码（Download\u0001Package）：如果你想先看看包的源码，或者后续要对驱动进⾏\n修改，可以点击「Download\u0001Package」按钮。包会被下载到本地缓存⽬录，你可以在电脑上直接\n查看和编辑代码，再⼿动传到开发板上。\u0001\n• ⼀键安装到开发板（Install\u0001To\u0001Device）：这是最推荐的⽅式，全程⾃动化：点击「Install\u0001To\u0001\nDevice」后，插件会⾃动完成以下操作：\u0001\n◦ 下载包⽂件（包括多⽂件包的所有⽂件）；\u0001\n◦ ⾃动读取 中的依赖，先安装所有依赖库；\u0001\npackage.json\n◦ 通过 ⼯具，把所有⽂件上传到开发板的 ⽬录中。整个过程不⽤你⼿动操作\nmpremote /lib\n任何⼀步，⾮常省⼼。\u0001\n也⽀持模糊搜索：\u0001"
+    },
+    {
+      "page": 17,
+      "text": "插件⽀持模糊搜索，就算你记不清完整包名，只输⼊关键词也能找到相关的包。⽐如只输⼊\u0001\n“ ”，就能看到所有和\u0001 \u0001系列传感器相关的驱动包，不⽤死记硬背包名，找包更轻松。\u0001\nds DS\n3.4\u0001查看安装⽇志与验证结果\u0001\n安装过程中，下⽅的「Log」区域会实时显⽰操作进度，你可以通过⽇志了解当前状态：\u0001\n• ⽐如看到 「Downloading\u0001files」等信息，说明插件正在正常⼯作；\u0001\nSearching: ds18B20"
+    },
+    {
+      "page": 18,
+      "text": "• 当出现 这样的提⽰时，就说明包已经成功安装\nInstalled xxx to /lib on the device\n到开发板上了。\u0001\n如果⽇志内容太多，影响查看新的信息，可以点击「Clear\u0001Log」按钮清空⽇志，⽅便后续操作。\u0001\n安装完成后，把\u0001Thonny\u0001的解释器切回\u0001MicroPython，打开开发板的⽂件系统，就能在 ⽬录⾥\n/lib\n看到刚安装的包⽂件了，这时候就可以直接在代码⾥ 使⽤了。\u0001\nimport\n附件-本地安装包\u0001\nthonny_upypi_manager-0.1.1-py3-\nnone-any.whl\n17.05KB\nthonny_upypi_manager-\n0.1.1.tar.gz\n18.00KB"
+    },
+    {
+      "page": 19,
+      "text": "版本记录\u0001\n版本号 修订时间 修改⼈ 修改内容\nv1.0\u0001 2026-04-27\u0001 lee⼆勇\u0001 初始化版本。\nv1.2\u0001 2026-04-28\u0001 lee⼆勇\u0001 补充了\u0001miniconda\u0001的安装。\u0001\n\u0001 \u0001 \u0001 \u0001\n\u0001 \u0001 \u0001 \u0001\n\u0001 \u0001 \u0001 \u0001\n\u0001 \u0001 \u0001 \u0001"
+    }
+  ],
+  "一句话生硬件-相关资料文档.pdf": [
+    {
+      "page": 1,
+      "text": "⼀句话⽣硬件-相关资料⽂档\u0001\nupypi\u0001API接⼝和thonny-upypi-manager包管理插件\u0001\n查看：\u0001 Thonny-uPyPi\u0001包管理插件需求规格说明书\u0001\nthonny-upypi-manager包管理插件代码如下：\u0001\nthonny-upypi-manager-main.rar\n60.33KB\n使⽤可看：\u0001\nThonny中Mpy包管理器插件的安装和使⽤\u0001\nskill相关仓库\u0001\nhttps://github.com/FreakStudioCN/MicroPython_Skills\u0001"
+    },
+    {
+      "page": 2,
+      "text": "mpremote调试相关\u0001\n看skill:https://github.com/FreakStudioCN/MicroPython_Skills\u0001\n和仓库：\nhttps://github.com/micropython/micropython/blob/master/tools/mpremote/README.md\u0001"
+    },
+    {
+      "page": 3,
+      "text": "CI/CD\u0001⾃动同步流程-相关⼦模块\u0001\nhttps://github.com/MicroPythonOS/MicroPythonOS\u0001\nhttps://github.com/lvgl-micropython/lvgl_micropython\u0001\nhttps://github.com/micropython/micropython\u0001\nhttps://github.com/espressif/esptool\u0001\nhttps://github.com/FreakStudioCN/upypi\u0001"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "aht20_driver",
+  "version": "1.0.0",
+  "description": "AHT20 temperature humidity driver",
+  "author": "Fixture",
+  "license": "MIT",
+  "chips": "all",
+  "fw": "all",
+  "deps": [],
+  "urls": [["aht20.py", "aht20.py"]],
+  "package_json_url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json"
+}

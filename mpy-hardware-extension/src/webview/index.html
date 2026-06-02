@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webviewCspSource} 'unsafe-inline'; script-src ${webviewCspSource} 'unsafe-inline';">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MPY Hardware</title>
+    <style>
+      /* VS Code Dark+ sidebar — ported from the Forge design reference.
+         Only the .panel (header/quota/tabs/content/composer) is reproduced;
+         the prototype's faux VS Code window chrome is dropped — this webview
+         IS the sidebar. */
+      :root {
+        --vsc-sidebar: #181818;
+        --vsc-sidebar-2: #1f1f1f;
+        --vsc-input: #2a2a2b;
+        --vsc-input-border: #3c3c40;
+        --vsc-hover: #2a2d2e;
+        --vsc-card: #202022;
+        --vsc-card-border: #2c2c2e;
+        --vsc-border: #2b2b2b;
+        --vsc-border-soft: #ffffff14;
+        --fg: #cccccc;
+        --fg-bright: #ffffff;
+        --fg-muted: #9d9d9d;
+        --fg-dim: #6e6e6e;
+        --accent: #0e7aff;
+        --accent-hover: #2b8bff;
+        --green: #3fb950;
+        --yellow: #d3a50a;
+        --red: #f14c4c;
+        --cyan: #4ec9b0;
+        --tok-comment: #6a9955;
+        --tok-string: #ce9178;
+        --tok-num: #b5cea8;
+        --tok-kw: #569cd6;
+        --tok-fn: #dcdcaa;
+        --tok-const: #569cd6;
+        --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+        --ui: -apple-system, "Segoe UI", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--vsc-sidebar); color: var(--fg);
+        font-family: var(--ui); font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+      }
+      .panel { height: 100vh; display: flex; flex-direction: column; min-height: 0; }
+
+      /* header */
+      .panel-head { flex: 0 0 auto; padding: 10px 12px 8px; border-bottom: 1px solid var(--vsc-border); }
+      .ph-row { display: flex; align-items: center; gap: 8px; }
+      .ph-logo {
+        width: 22px; height: 22px; border-radius: 6px; flex: 0 0 auto;
+        background: linear-gradient(135deg, var(--accent), #0a5ed0);
+        display: flex; align-items: center; justify-content: center; color: #fff;
+      }
+      .ph-text { min-width: 0; }
+      .ph-title { font-size: 13px; font-weight: 600; color: var(--fg-bright); letter-spacing: .1px; }
+      .ph-device { margin-top: 3px; max-width: 100%; background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 5px; padding: 2px 6px; font-family: var(--ui); font-size: 11px; outline: none; }
+      .ph-device:focus { border-color: var(--accent); }
+      .ph-grow { flex: 1; }
+
+      /* quota */
+      .quota { margin-top: 10px; }
+      .quota-top { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--fg-muted); }
+      .quota-top .num { font-family: var(--mono); color: var(--fg); }
+      .quota-top .num b { color: var(--fg-bright); font-weight: 600; }
+      .quota-bar { height: 4px; border-radius: 3px; background: #ffffff14; margin-top: 5px; overflow: hidden; }
+      .quota-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width .5s ease, background .3s; }
+      .quota.low .quota-fill { background: var(--yellow); }
+      .quota.exhausted .quota-fill { background: var(--red); }
+      .quota-warn { margin-top: 7px; font-size: 11px; display: none; align-items: center; gap: 6px;
+        color: var(--yellow); background: #d3a50a14; border: 1px solid #d3a50a33; padding: 5px 8px; border-radius: 6px; }
+      .quota.low .quota-warn, .quota.exhausted .quota-warn { display: flex; }
+      .quota.exhausted .quota-warn { color: #ff7b72; background: #f14c4c14; border-color: #f14c4c33; }
+
+      /* tabs */
+      .tabs { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--vsc-border); padding: 0 6px; gap: 2px; }
+      .tab { position: relative; padding: 9px 11px 8px; font-size: 12px; color: var(--fg-muted);
+        background: transparent; border: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;
+        border-bottom: 2px solid transparent; margin-bottom: -1px; font-family: var(--ui); }
+      .tab:hover { color: var(--fg); }
+      .tab.active { color: var(--fg-bright); border-bottom-color: var(--accent); }
+      .tab .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+        box-shadow: 0 0 0 0 #3fb95066; animation: pulse 1.6s infinite; }
+      .tab .newdot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+      @keyframes pulse { 0%{box-shadow:0 0 0 0 #3fb95066;} 70%{box-shadow:0 0 0 6px #3fb95000;} 100%{box-shadow:0 0 0 0 #3fb95000;} }
+
+      .tabwrap { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+      .tabwrap::-webkit-scrollbar { width: 10px; }
+      .tabwrap::-webkit-scrollbar-thumb { background: #ffffff1a; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+      .tabwrap::-webkit-scrollbar-thumb:hover { background: #ffffff33; background-clip: padding-box; }
+      .hidden { display: none !important; }
+
+      .empty { padding: 40px 22px; text-align: center; color: var(--fg-dim); }
+      .empty h4 { color: var(--fg-muted); font-size: 13px; font-weight: 600; margin: 0 0 5px; }
+      .empty p { font-size: 12px; line-height: 1.5; margin: 0; }
+
+      /* activity (card style) */
+      .activity { padding: 10px 12px 18px; }
+      .ev { margin-bottom: 7px; }
+      .ev-card { border: 1px solid var(--vsc-card-border); background: var(--vsc-card); border-radius: 8px; overflow: hidden; }
+      .ev-head { display: flex; align-items: flex-start; gap: 9px; padding: 9px 10px; }
+      .ev-ico { width: 22px; height: 22px; border-radius: 6px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+      .ev-ico.thinking { background: #569cd622; color: #9cc7f0; }
+      .ev-ico.skill { background: #a371f722; color: #c4a6fb; }
+      .ev-ico.tool { background: #4ec9b022; color: #74d6c2; }
+      .ev-ico.result { background: #3fb95022; color: #7ee08a; }
+      .ev-ico.error { background: #f14c4c22; color: #ff9a9a; }
+      .ev-main { flex: 1; min-width: 0; }
+      .ev-label { font-size: 12.5px; color: var(--fg-bright); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+      .ev-label .kind { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--fg-dim); font-weight: 600; }
+      .ev-tool { font-family: var(--mono); font-size: 12px; color: var(--cyan); }
+      .ev-think { font-size: 12.5px; color: #b9b9b9; line-height: 1.55; font-style: italic; }
+      .ev-sum { font-size: 12px; color: var(--fg-muted); margin-top: 3px; line-height: 1.45; }
+      .ev-sum.is-error { color: #ff9a9a; }
+      .ev-card.ask { border-color: #a371f733; }
+      .ask-row { display: flex; gap: 6px; margin-top: 8px; }
+      .ask-input { flex: 1; min-width: 0; background: var(--vsc-input); border: 1px solid var(--vsc-input-border); color: var(--fg); border-radius: 6px; padding: 5px 8px; font-family: var(--ui); font-size: 12px; outline: none; }
+      .ask-input:focus { border-color: var(--accent); }
+      .ask-send { flex: 0 0 auto; background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 0 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--ui); }
+      .ask-send:hover:not(:disabled) { background: var(--accent-hover); }
+      .ask-send:disabled { background: #3a3a3c; color: #8a8a8a; cursor: default; }
+      .ask-answer { margin-top: 6px; font-size: 12px; color: #7ee08a; font-family: var(--mono); }
+
+      /* code tab */
+      .code-head, .serial-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+        border-bottom: 1px solid var(--vsc-border); font-size: 11.5px; color: var(--fg-muted);
+        position: sticky; top: 0; background: var(--vsc-sidebar); z-index: 2; }
+      .code-head .file { font-family: var(--mono); color: var(--fg); display: flex; align-items: center; gap: 6px; }
+      .code-head .grow { flex: 1; }
+      .code-act { background: transparent; border: 0; color: var(--fg-muted); cursor: pointer; font-size: 11px; padding: 3px 7px; border-radius: 5px; font-family: var(--ui); }
+      .code-act:hover { background: var(--vsc-hover); color: var(--fg); }
+      .code-block { font-family: var(--mono); font-size: 12px; line-height: 18px; padding: 8px 0 24px; }
+      .code-row { display: flex; }
+      .code-row:hover { background: #ffffff07; }
+      .code-gut { width: 42px; flex: 0 0 42px; text-align: right; padding-right: 14px; color: #5a5a5a; user-select: none; }
+      .code-src { white-space: pre; padding-right: 14px; color: #d4d4d4; }
+      .tok-comment { color: var(--tok-comment); } .tok-string { color: var(--tok-string); }
+      .tok-num { color: var(--tok-num); } .tok-kw { color: var(--tok-kw); }
+      .tok-fn { color: var(--tok-fn); } .tok-const { color: var(--tok-const); }
+
+      /* serial tab */
+      .serial-head .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-dim); }
+      .serial-head.live .dot { background: var(--green); box-shadow: 0 0 6px #3fb950; }
+      .serial-head .baud { margin-left: auto; font-family: var(--mono); color: var(--fg-dim); }
+      .serial-body { font-family: var(--mono); font-size: 12px; line-height: 1.65; padding: 8px 12px 24px; }
+      .serial-line { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-word; }
+      .serial-line .txt { color: #cfcfcf; }
+      .serial-line.boot .txt { color: #9d9d9d; }
+      .serial-line.i2c .txt { color: var(--cyan); }
+      .serial-line.alert .txt { color: #e6c07b; }
+      .serial-line.ok .txt { color: #7ee08a; }
+
+      /* wiring tab — component cards */
+      .wiring { padding: 11px 12px 22px; }
+      .wire-board { font-size: 11px; color: var(--fg-dim); margin-bottom: 11px; display: flex; align-items: center; gap: 7px; }
+      .wire-board b { color: var(--fg); font-weight: 600; }
+      .chip-board { font-family: var(--mono); font-size: 10.5px; color: var(--accent); background: #0e7aff1a; border: 1px solid #0e7aff33; padding: 2px 7px; border-radius: 5px; margin-left: auto; }
+      .comp-card { border: 1px solid var(--vsc-card-border); background: var(--vsc-card); border-radius: 9px; margin-bottom: 9px; overflow: hidden; }
+      .comp-top { display: flex; align-items: center; gap: 10px; padding: 10px 11px; }
+      .comp-ico { width: 30px; height: 30px; border-radius: 8px; background: #ffffff0d; display: flex; align-items: center; justify-content: center; color: var(--accent); flex: 0 0 auto; }
+      .comp-meta { flex: 1; min-width: 0; }
+      .comp-name { font-size: 12.5px; font-weight: 600; color: var(--fg-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .comp-part { font-size: 11px; color: var(--fg-muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .comp-driver { margin-left: auto; flex: 0 0 auto; font-family: var(--mono); font-size: 10px; color: var(--fg-dim); text-align: right; white-space: nowrap; }
+      .comp-pins { border-top: 1px solid var(--vsc-border-soft); padding: 6px 11px 9px; }
+      .pin-row { display: flex; align-items: center; gap: 9px; padding: 4px 0; }
+      .pin-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+      .pin-dot.signal { background: var(--accent); }
+      .pin-dot.power { background: var(--red); }
+      .pin-dot.ground { background: #6e6e6e; }
+      .pin-sig { font-size: 12px; color: var(--fg); flex: 1; }
+      .pin-to { font-family: var(--mono); font-size: 10.5px; color: var(--fg-dim); }
+      .pin-badge { font-family: var(--mono); font-size: 11px; color: var(--fg-bright); background: #ffffff12; border: 1px solid var(--vsc-border-soft); padding: 1px 7px; border-radius: 5px; min-width: 46px; text-align: center; }
+      .pin-badge.power { color: #ff9a9a; background: #f14c4c14; border-color: #f14c4c33; }
+      .pin-badge.ground { color: #b0b0b0; }
+      .wire-note { font-size: 11px; color: var(--yellow); background: #d3a50a14; border: 1px solid #d3a50a33; padding: 6px 9px; border-radius: 6px; margin-top: 4px; }
+
+      /* composer */
+      .composer { flex: 0 0 auto; border-top: 1px solid var(--vsc-border); padding: 10px 12px 12px; }
+      .composer-box { border: 1px solid var(--vsc-input-border); background: var(--vsc-input); border-radius: 9px; padding: 9px 10px 8px; transition: border-color .15s, box-shadow .15s; }
+      .composer-box.focused { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+      .composer-box.disabled { opacity: .55; }
+      .composer textarea { width: 100%; border: 0; background: transparent; color: var(--fg); resize: none;
+        font-family: var(--ui); font-size: 13px; line-height: 1.5; outline: none; min-height: 38px; max-height: 120px; }
+      .composer textarea::placeholder { color: var(--fg-dim); }
+      .composer-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+      .composer-bar .ctx { font-size: 11px; color: var(--fg-dim); display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
+      .composer-bar .ctx .spin { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 50%; border: 1.5px solid #ffffff26; border-top-color: var(--accent); display: none; }
+      .composer-bar .ctx.thinking { color: var(--accent); }
+      .composer-bar .ctx.thinking .spin { display: inline-block; animation: spin .7s linear infinite; }
+      .composer-bar .ctx.error { color: var(--red); }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .composer-bar .grow { flex: 1; }
+      .gen-btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 13px;
+        border: 0; border-radius: 7px; background: var(--accent); color: #fff; font-size: 12.5px; font-weight: 600;
+        cursor: pointer; font-family: var(--ui); transition: background .15s; }
+      .gen-btn:hover:not(:disabled) { background: var(--accent-hover); }
+      .gen-btn:disabled { background: #3a3a3c; color: #8a8a8a; cursor: not-allowed; }
+      .gen-btn.stop { background: #5a2b2b; color: #ffb3b3; }
+      .gen-btn.stop:hover { background: #6e3434; }
+
+      .fade-in { animation: fadeIn .28s ease both; }
+      @keyframes fadeIn { from { transform: translateY(5px); } to { transform: none; } }
+      @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .composer-bar .ctx.thinking .spin { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <div class="panel-head">
+        <div class="ph-row">
+          <div class="ph-logo">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2"/><path d="M9.5 6V3M14.5 6V3M9.5 21v-3M14.5 21v-3M6 9.5H3M6 14.5H3M21 9.5h-3M21 14.5h-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+          <div class="ph-text">
+            <div class="ph-title">MPY Hardware</div>
+            <select class="ph-device" id="device"><option value="">Loading devices…</option></select>
+          </div>
+          <div class="ph-grow"></div>
+        </div>
+        <div class="quota hidden" id="quota">
+          <div class="quota-top"><span>Daily sessions</span><span class="num"><b id="qUsed">0</b> / <span id="qLimit">5</span></span></div>
+          <div class="quota-bar"><div class="quota-fill" id="qFill" style="width:0%"></div></div>
+          <div class="quota-warn" id="qWarn">Running low on sessions today.</div>
+        </div>
+      </div>
+
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-tab="activity">Activity</button>
+        <button class="tab" data-tab="code">Code</button>
+        <button class="tab" data-tab="serial">Serial</button>
+        <button class="tab" data-tab="wiring">Wiring</button>
+      </div>
+
+      <div class="tabwrap">
+        <!-- Activity -->
+        <div class="view" data-view="activity">
+          <div class="activity" id="activity"></div>
+          <div class="empty" id="activityEmpty"><h4>Ready</h4><p>Describe what your device should do, then press Generate.</p></div>
+        </div>
+        <!-- Code -->
+        <div class="view hidden" data-view="code">
+          <div id="codeFilled" class="hidden">
+            <div class="code-head"><span class="file">main.py</span><span class="grow"></span><button class="code-act" id="copyCode">Copy</button></div>
+            <div class="code-block" id="code"></div>
+          </div>
+          <div class="empty" id="codeEmpty"><h4>No code yet</h4><p>Generated MicroPython will appear here.</p></div>
+        </div>
+        <!-- Serial -->
+        <div class="view hidden" data-view="serial">
+          <div id="serialFilled" class="hidden">
+            <div class="serial-head" id="serialHead"><span class="dot"></span><span>Serial monitor</span><span class="baud">115200</span></div>
+            <div class="serial-body" id="serial"></div>
+          </div>
+          <div class="empty" id="serialEmpty"><h4>No output</h4><p>Device output streams here after flashing.</p></div>
+        </div>
+        <!-- Wiring -->
+        <div class="view hidden" data-view="wiring">
+          <div id="wiring"></div>
+          <div class="empty" id="wiringEmpty"><h4>No wiring yet</h4><p>After codegen, the hardware layout maps to friendly signals and pins here.</p></div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="composer-box" id="composerBox">
+          <textarea id="intent" placeholder="描述你的设备要做什么…（例如：温度超过 30 度时亮红灯）" rows="1"></textarea>
+          <div class="composer-bar">
+            <span class="ctx" id="statusWrap"><span class="spin"></span><span id="status">Ready</span></span>
+            <span class="grow"></span>
+            <button class="gen-btn" id="generate">Generate</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const vscode = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : { postMessage: (m) => console.log(m), getState: () => null, setState: () => {} };
+      const $ = (id) => document.getElementById(id);
+
+      // ----- device list (from API, never hardcoded) -----
+      function savedBoard() { try { return (vscode.getState() || {}).board || null; } catch { return null; } }
+      function selectedBoard() { const el = $("device"); return el && el.value ? el.value : null; }
+      function populateBoards(boards) {
+        const el = $("device");
+        el.innerHTML = "";
+        if (!boards || !boards.length) {
+          const o = document.createElement("option"); o.value = ""; o.textContent = "No device — start the API to load boards";
+          el.appendChild(o); el.disabled = true; updateGenerateEnabled(); return;
+        }
+        el.disabled = false;
+        // Recommend-first: default to letting the AI pick the board.
+        const auto = document.createElement("option");
+        auto.value = "auto";
+        auto.textContent = "✨ Let AI recommend a board";
+        el.appendChild(auto);
+        for (const b of boards) {
+          const o = document.createElement("option");
+          o.value = b.board_id;
+          o.textContent = b.display_name ? (b.manufacturer ? b.display_name + " · " + b.manufacturer : b.display_name) : b.board_id;
+          el.appendChild(o);
+        }
+        const want = savedBoard();
+        el.value = (want && boards.some((b) => b.board_id === want)) ? want : "auto";
+        updateGenerateEnabled();
+      }
+      function updateGenerateEnabled() {
+        $("generate").disabled = (!running && (!selectedBoard() || quotaExhausted));
+      }
+
+      // ----- Python highlighter (ported from the design's highlight.js) -----
+      const KW = new Set(["from","import","as","def","return","if","else","elif","while","for","in","not","and","or","class","with","try","except","finally","pass","break","continue","global","nonlocal","lambda","yield","raise","assert","del","is","await","async"]);
+      const CONSTS = new Set(["None","True","False","self"]);
+      const RE = /(#[^\n]*)|("""[\s\S]*?"""|'''[\s\S]*?''')|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(\b\d[\d_]*\.?\d*\b)|([A-Za-z_][A-Za-z0-9_]*)(?=\s*\()|([A-Za-z_][A-Za-z0-9_]*)/g;
+      function tokenize(code) {
+        const out = []; let last = 0, m; RE.lastIndex = 0;
+        while ((m = RE.exec(code)) !== null) {
+          if (m.index > last) out.push({ text: code.slice(last, m.index), cls: "" });
+          if (m[1]) out.push({ text: m[1], cls: "tok-comment" });
+          else if (m[2] || m[3]) out.push({ text: m[2] || m[3], cls: "tok-string" });
+          else if (m[4]) out.push({ text: m[4], cls: "tok-num" });
+          else { const w = m[5] || m[6];
+            const cls = KW.has(w) ? "tok-kw" : CONSTS.has(w) ? "tok-const" : (m[5] ? "tok-fn" : "");
+            out.push({ text: w, cls }); }
+          last = RE.lastIndex;
+        }
+        if (last < code.length) out.push({ text: code.slice(last), cls: "" });
+        return out;
+      }
+      function highlightLines(code) {
+        const lines = [[]];
+        for (const t of tokenize(code)) {
+          const parts = t.text.split("\n");
+          for (let i = 0; i < parts.length; i++) {
+            if (i > 0) lines.push([]);
+            if (parts[i] !== "") lines[lines.length - 1].push({ text: parts[i], cls: t.cls });
+          }
+        }
+        return lines;
+      }
+
+      // ----- tab state -----
+      let activeTab = "activity";
+      let running = false;
+      let quotaExhausted = false;
+      function setTab(name) {
+        activeTab = name;
+        document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+        document.querySelectorAll(".view").forEach((v) => v.classList.toggle("hidden", v.dataset.view !== name));
+        const tabBtn = document.querySelector('.tab[data-tab="' + name + '"]');
+        const dot = tabBtn && tabBtn.querySelector(".newdot");
+        if (dot) dot.remove();
+      }
+      function markNew(name) {
+        if (activeTab === name) return;
+        const tabBtn = document.querySelector('.tab[data-tab="' + name + '"]');
+        if (tabBtn && !tabBtn.querySelector(".newdot") && !tabBtn.querySelector(".pulse")) {
+          const d = document.createElement("span"); d.className = "newdot"; tabBtn.appendChild(d);
+        }
+      }
+      document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
+
+      // ----- status / composer -----
+      function setStatus(text, kind) {
+        $("status").textContent = text;
+        const w = $("statusWrap");
+        w.classList.toggle("error", kind === "error");
+        if (kind === "error") w.classList.remove("thinking");
+      }
+      function setRunning(on) {
+        running = on;
+        const btn = $("generate");
+        btn.textContent = on ? "Stop" : "Generate";
+        btn.classList.toggle("stop", on);
+        const w = $("statusWrap");
+        w.classList.toggle("thinking", on);
+        if (on) w.classList.remove("error");
+        updateGenerateEnabled();
+      }
+      $("generate").addEventListener("click", () => {
+        if (running) { vscode.postMessage({ type: "cancel_session" }); setStatus("Stopping…"); return; }
+        const intent = $("intent").value.trim();
+        if (!intent) return;
+        const board = selectedBoard();
+        if (!board) { setStatus("Select a device first"); return; }
+        // reset views for a fresh run
+        $("activity").innerHTML = ""; $("activityEmpty").classList.add("hidden"); currentThink = null;
+        $("code").innerHTML = ""; $("codeFilled").classList.add("hidden"); $("codeEmpty").classList.remove("hidden");
+        $("serial").innerHTML = ""; $("serialFilled").classList.add("hidden"); $("serialEmpty").classList.remove("hidden");
+        $("serialHead").classList.remove("live");
+        $("wiring").innerHTML = ""; $("wiringEmpty").classList.remove("hidden");
+        document.querySelectorAll(".newdot").forEach((d) => d.remove());
+        document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
+        setTab("activity"); setRunning(true); setStatus("Generating…");
+        vscode.postMessage({ type: "start_session", intent, boardId: board });
+      });
+      $("device").addEventListener("change", () => {
+        const cur = (() => { try { return vscode.getState() || {}; } catch { return {}; } })();
+        vscode.setState({ ...cur, board: selectedBoard() });
+        updateGenerateEnabled();
+      });
+      const ta = $("intent");
+      ta.addEventListener("focus", () => $("composerBox").classList.add("focused"));
+      ta.addEventListener("blur", () => $("composerBox").classList.remove("focused"));
+      ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; });
+      $("copyCode").addEventListener("click", () => { if (lastCode) navigator.clipboard?.writeText(lastCode); });
+
+      // ----- Activity -----
+      function classifyActivity(text) {
+        if (/^→/.test(text)) return "tool";
+        if (/fail|error|crash|exhaust/i.test(text)) return "error";
+        if (/generated|finished|done|success|ready|complete/i.test(text)) return "result";
+        if (/loaded skill|skill:/i.test(text)) return "skill";
+        return "thinking";
+      }
+      const ICONS = { thinking: "💭", skill: "📖", tool: "🔧", result: "✓", error: "✕" };
+      let currentThink = null; // open thinking card's text node, or null
+      function addActivity(ev) {
+        const text = (ev && typeof ev.text === "string") ? ev.text : JSON.stringify(ev);
+        if (!text) return;
+        $("activityEmpty").classList.add("hidden");
+        const kind = classifyActivity(text);
+        const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
+        // The agent streams thinking token-by-token (each delta is its own
+        // trace_event). Coalesce consecutive thinking deltas into one growing
+        // card instead of a new card per token.
+        if (kind === "thinking") {
+          if (currentThink) { currentThink.textContent += text; scroll(); return; }
+          const card = document.createElement("div");
+          card.className = "ev fade-in";
+          card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico thinking">💭</div><div class="ev-main"><div class="ev-think"></div></div></div></div>';
+          currentThink = card.querySelector(".ev-think");
+          currentThink.textContent = text;
+          $("activity").appendChild(card);
+          scroll();
+          return;
+        }
+        currentThink = null; // any non-thinking event closes the open stream
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        const ico = '<div class="ev-ico ' + kind + '">' + ICONS[kind] + "</div>";
+        if (kind === "tool") {
+          card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main"><div class="ev-label"><span class="kind">tool</span><span class="ev-tool"></span></div></div></div></div>';
+          card.querySelector(".ev-tool").textContent = text.replace(/^→\s*/, "");
+        } else {
+          const cls = kind === "error" ? " is-error" : "";
+          const label = kind === "result" ? "result" : kind === "skill" ? "skill" : "error";
+          card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main"><div class="ev-label"><span class="kind">' + label + '</span></div><div class="ev-sum' + cls + '"></div></div></div></div>';
+          card.querySelector(".ev-sum").textContent = text;
+        }
+        $("activity").appendChild(card);
+        scroll();
+      }
+
+      // ----- ask_user (interactive prompt; pauses the agent until answered) -----
+      function addAskPrompt(promptId, question) {
+        currentThink = null;
+        $("activityEmpty").classList.add("hidden");
+        setTab("activity");
+        setStatus("Waiting for your answer…");
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
+          '<div class="ev-ico skill">❓</div>' +
+          '<div class="ev-main"><div class="ev-label"><span class="kind">question</span></div>' +
+          '<div class="ev-sum ask-q"></div>' +
+          '<div class="ask-row"><input class="ask-input" type="text" placeholder="Type your answer…"><button class="ask-send">Send</button></div>' +
+          "</div></div></div>";
+        card.querySelector(".ask-q").textContent = question;
+        const input = card.querySelector(".ask-input");
+        const send = card.querySelector(".ask-send");
+        const submit = () => {
+          const answer = input.value.trim();
+          if (!answer) return;
+          vscode.postMessage({ type: "ui_prompt_response", promptId, answer });
+          input.disabled = true; send.disabled = true; send.textContent = "Sent";
+          const a = document.createElement("div"); a.className = "ask-answer"; a.textContent = "→ " + answer;
+          card.querySelector(".ev-main").appendChild(a);
+          setStatus("Generating…");
+        };
+        send.addEventListener("click", submit);
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+        $("activity").appendChild(card);
+        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
+        setTimeout(() => input.focus(), 0);
+      }
+
+      // ----- Code -----
+      let lastCode = "";
+      function renderCode(code) {
+        lastCode = code;
+        $("codeEmpty").classList.add("hidden");
+        $("codeFilled").classList.remove("hidden");
+        const host = $("code"); host.innerHTML = "";
+        highlightLines(code.replace(/\n$/, "")).forEach((toks, i) => {
+          const row = document.createElement("div"); row.className = "code-row";
+          const gut = document.createElement("div"); gut.className = "code-gut"; gut.textContent = String(i + 1);
+          const src = document.createElement("div"); src.className = "code-src";
+          toks.forEach((t) => { const s = document.createElement("span"); if (t.cls) s.className = t.cls; s.textContent = t.text; src.appendChild(s); });
+          row.append(gut, src); host.appendChild(row);
+        });
+        markNew("code");
+      }
+
+      // ----- Serial -----
+      function serialClass(line) {
+        if (/^MPY:|MicroPython|\[boot\]/.test(line)) return "boot";
+        if (/\bi2c\b|0x[0-9a-f]{2}|SSD1306|AHT|found/i.test(line)) return "i2c";
+        if (/alert|warn|>|threshold|ON\b/i.test(line)) return "alert";
+        if (/ok|complete|ready|MPYHW_READY/i.test(line)) return "ok";
+        return "";
+      }
+      function addSerial(lines) {
+        $("serialEmpty").classList.add("hidden");
+        $("serialFilled").classList.remove("hidden");
+        $("serialHead").classList.add("live");
+        const host = $("serial");
+        (lines || []).forEach((line) => {
+          const row = document.createElement("div"); row.className = "serial-line " + serialClass(line);
+          const txt = document.createElement("span"); txt.className = "txt"; txt.textContent = line;
+          row.appendChild(txt); host.appendChild(row);
+        });
+        host.parentElement.scrollTop = host.parentElement.scrollHeight;
+        markNew("serial");
+        // live pulse on the Serial tab
+        const tabBtn = document.querySelector('.tab[data-tab="serial"]');
+        if (tabBtn && !tabBtn.querySelector(".pulse")) { const p = document.createElement("span"); p.className = "pulse"; tabBtn.appendChild(p); }
+      }
+
+      // ----- Wiring (maps internal manifest → friendly component cards) -----
+      const ROLE_MAP = {
+        i2c_sda:    { signal: "Data (SDA)",   comp: "i2c", kind: "signal" },
+        i2c_scl:    { signal: "Clock (SCL)",  comp: "i2c", kind: "signal" },
+        i2c_power:  { signal: "Power 3V3",    comp: "i2c", kind: "power" },
+        i2c_gnd:    { signal: "Ground",       comp: "i2c", kind: "ground" },
+        led_anode:  { signal: "Anode (+)",    comp: "led", kind: "signal" },
+        led_cathode:{ signal: "Cathode (–)",  comp: "led", kind: "ground" },
+        button:     { signal: "Switch leg",   comp: "btn", kind: "signal" },
+        button_gnd: { signal: "Ground",       comp: "btn", kind: "ground" },
+      };
+      const COMPONENTS = {
+        i2c: { name: "I²C Sensor", part: "I²C bus device" },
+        led: { name: "Status LED", part: "5mm + current-limit resistor" },
+        btn: { name: "Button", part: "Momentary tactile" },
+        other: { name: "Peripheral", part: "" },
+      };
+      function humanize(role) { return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()); }
+      function classifyRole(role) {
+        if (/gnd|ground|cathode/i.test(role)) return "ground";
+        if (/3v3|vcc|vbus|vsys|power|5v/i.test(role)) return "power";
+        return "signal";
+      }
+      function buildComponents(manifest) {
+        const wiring = (manifest && manifest.wiring) || [];
+        const byComp = {};
+        for (const w of wiring) {
+          const map = ROLE_MAP[w.role] || { signal: humanize(w.role), comp: "other", kind: classifyRole(w.role) };
+          (byComp[map.comp] = byComp[map.comp] || []).push({ signal: map.signal, kind: map.kind, pin: w.pin });
+        }
+        return Object.keys(byComp).map((k) => ({ key: k, ...(COMPONENTS[k] || COMPONENTS.other), pins: byComp[k] }));
+      }
+      function driverFor(comp, manifest) {
+        const refs = (manifest && manifest.driver_context_refs) || [];
+        if (comp.key === "led") return "GPIO out";
+        const ref = refs.find((r) => !/machine_pin_led/.test(r));
+        return ref ? ref.split("@")[0] : "";
+      }
+      function renderWiring(manifest) {
+        const comps = buildComponents(manifest);
+        const host = $("wiring");
+        if (!comps.length) { $("wiringEmpty").classList.remove("hidden"); host.innerHTML = ""; return; }
+        $("wiringEmpty").classList.add("hidden");
+        const boardName = (manifest && manifest.board_id) ? manifest.board_id : "Target board";
+        let html = '<div class="wiring"><div class="wire-board">' +
+          "<span><b>" + esc(boardName) + "</b> · " + comps.length + " component" + (comps.length > 1 ? "s" : "") + "</span></div>";
+        for (const c of comps) {
+          const drv = driverFor(c, manifest);
+          html += '<div class="comp-card fade-in"><div class="comp-top">' +
+            '<div class="comp-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2"/></svg></div>' +
+            '<div class="comp-meta"><div class="comp-name">' + esc(c.name) + '</div><div class="comp-part">' + esc(c.part) + "</div></div>" +
+            (drv ? '<div class="comp-driver">' + esc(drv) + "</div>" : "") + "</div><div class=\"comp-pins\">";
+          for (const p of c.pins) {
+            const badgeCls = "pin-badge" + (p.kind === "power" ? " power" : p.kind === "ground" ? " ground" : "");
+            html += '<div class="pin-row"><span class="pin-dot ' + p.kind + '"></span>' +
+              '<span class="pin-sig">' + esc(p.signal) + '</span><span class="' + badgeCls + '">' + esc(p.pin) + "</span></div>";
+          }
+          html += "</div></div>";
+        }
+        if (comps.some((c) => c.key === "led")) html += '<div class="wire-note">⚠ LED needs a current-limiting resistor (≈220–330Ω).</div>';
+        html += "</div>";
+        host.innerHTML = html;
+        markNew("wiring");
+      }
+      function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+      // ----- quota -----
+      function setQuota(used, limit) {
+        $("qUsed").textContent = used; $("qLimit").textContent = limit;
+        const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+        $("qFill").style.width = pct + "%";
+        const q = $("quota"); q.classList.remove("hidden", "low", "exhausted");
+        if (used >= limit) q.classList.add("exhausted");
+        else if (limit - used <= 3) q.classList.add("low");
+        quotaExhausted = used >= limit;
+        updateGenerateEnabled();
+      }
+
+      // ----- host messages (protocol unchanged) -----
+      window.addEventListener("message", (event) => {
+        const msg = event.data;
+        if (msg.type === "session_event" && msg.event && msg.event.kind === "quota") {
+          setQuota(msg.event.used, msg.event.limit);
+        }
+        if (msg.type === "boards") populateBoards(msg.boards);
+        if (msg.type === "trace_event") addActivity(msg.event);
+        if (msg.type === "ui_prompt_needed") addAskPrompt(msg.promptId, msg.question);
+        if (msg.type === "code_updated") { renderCode(msg.code); if (activeTab === "activity") setTab("code"); }
+        if (msg.type === "manifest_updated") renderWiring(msg.manifest);
+        if (msg.type === "serial_output") addSerial(msg.lines);
+        if (msg.type === "session_error") { addActivity({ text: msg.error }); setStatus(msg.error, "error"); }
+        if (msg.type === "session_done") {
+          setRunning(false);
+          currentThink = null;
+          $("serialHead").classList.remove("live");
+          document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
+          const t = String(msg.terminal);
+          const ok = t === "generated" || t === "success";
+          const FRIENDLY = {
+            generated: "Done", success: "Done", cancelled: "Stopped",
+            max_turns: "Stopped (max turns)",
+            repair_exhausted: "Couldn't get it working", session_error: "Error",
+          };
+          setStatus(FRIENDLY[t] || t, (!ok && t !== "cancelled") ? "error" : null);
+          if (!ok && t !== "cancelled") addActivity({ text: "Session ended: " + (FRIENDLY[t] || t) });
+        }
+      });
+
+      // Pull the real device list + quota from the extension host on load.
+      vscode.postMessage({ type: "request_boards" });
+    </script>
+  </body>
+</html>

@@ -3,6 +3,7 @@
 .claude/scheduled_tasks.lock
 .claude/local/
 .claude/projects/
+.superpowers/
 
 # Python
 __pycache__/
@@ -21,7 +22,15 @@ desktop.ini
 .idea/
 *.swp
 
+# Node
+node_modules/
+
 # Build artifacts
 dist/
 build/
 *.egg-info/
+dev/.pdf-export/
+
+# Runtime / debug artifacts
+*.log
+mpy-hardware-extension/tmp/

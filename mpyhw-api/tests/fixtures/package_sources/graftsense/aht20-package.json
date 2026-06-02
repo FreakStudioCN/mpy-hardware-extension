@@ -1,0 +1,8 @@
+{
+  "name": "graftsense_aht20",
+  "version": "1.0.0",
+  "description": "GraftSense AHT20 package",
+  "author": "GraftSense",
+  "license": "MIT",
+  "package_json_url": "https://graftsense.example/aht20/package.json"
+}

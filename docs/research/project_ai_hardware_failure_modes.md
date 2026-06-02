@@ -24,7 +24,7 @@ deepresearch 跑完后，5 个失败模式锁定如下 ——
 | 失败模式 | 我们的解 |
 |---|---|
 | **#1 API/寄存器幻觉** | LLM 写 Python 比写 C 准 10–100×（训练语料分布）；模块封装让 AI 不需要碰寄存器 |
-| **#2 包版本漂移 / 不存在的包** | uPyPI 173 个真包 + HTTP 检索；不存在的包不会被返回；版本由我们 freeze |
+| **#2 包版本漂移 / 不存在的包** | Package Intelligence 聚合 uPyPI/GraftSense/curated 的 200+ 真实包/驱动；不存在的包不会被返回；版本由我们 freeze |
 | **#3 物理破坏风险** | 主动模块预先验证电气边界（5V/3.3V 我们处理）；AI 永远不选引脚 |
 | **#4 MCU SDK 碎片化** | 标准化 ESP32-C3 + MicroPython 单栈；一套寄存器一套 runtime |
 | **#5 compile-flash 闭环断裂** | MicroPython REPL 热加载 < 1 秒；Python 异常可捕获自修复，AI 写错不杀设备 |

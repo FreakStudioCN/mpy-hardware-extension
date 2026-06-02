@@ -9,11 +9,11 @@
 我们正在构建一个 端 - 云 - AI 协同 的开发范式：
 - 终端（运行 uPyOS 的 D-Shell 或同类设备）作为应用承载与交互入口；
 - 主动式模块（ESP32-C3 等）作为即插即用的感知/执行单元，通过蓝牙广播自身能力；
-- 云端 AI Skill（基于 Claude Code）将用户的自然语言需求自动转化为基于 uPyOS 框架和 uPyPI 驱动的完整项目代码。
+- 云端 AI Skill（基于 Claude Code）将用户的自然语言需求自动转化为基于 uPyOS 框架和 Package Intelligence 驱动上下文的完整项目代码。
 这套系统大幅降低了嵌入式开发门槛——普通人不需要知道传感器型号、I2C 地址、引脚定义，甚至不需要知道什么是 MicroPython，只需一句话描述想要的场景，AI 就能自动完成从需求拆分、驱动匹配到代码生成的全流程。
 一、我们是谁
 我们是全球首个聚焦 MCU 场景的 MicroPython 全栈生态基础设施服务商，核心构建四大核心壁垒：
-- 一站式 MicroPython 驱动包仓库upypi：已完成 150 + 款电子模块全流程开发，为开发者提供标准化驱动库；
+- 一站式 MicroPython 包/驱动生态（uPyPI + GraftSense + curated recipes）：已完成或可索引 200+ 款真实包/驱动，为开发者提供标准化驱动上下文；
 - 轻量级类安卓嵌入式操作系统uPyOS+应用分发商城：基于 MicroPython+LVGL 构建的低算力 MCU 图形系统，支持类手机 UI、应用商城式安装更新，核心价值是作为硬件流量入口—— 让创客开发的 AI 语音助手、IoT 终端等应用，普通人拿到设备就能一键安装体验，打破 “创客作品只能自己玩” 的壁垒；
 我们立志打造智能硬件开发领域的 “安卓生态”，让零基础开发者也能快速完成硬件开发，成为连接芯片、厂商、开发者与终端用户的核心枢纽。
 二、技术核心架构
@@ -25,11 +25,12 @@ uPyOS 基于 MicroPython 和 LVGL，在仅几百 KB 的 RAM 上实现了：
 - 跨 MCU 兼容：同一套 .py 应用可运行在 ESP32、ESP32-S3、RP2040 等不同芯片上。
 抽象类比：如果把嵌入式开发比作驾驶，传统方式是你需要会修发动机、换轮胎、调悬挂才能上路；uPyOS 是给你一辆带方向盘和油门的自动挡汽车——你只需要关心去哪里。
 
-uPyPI 是一个中心化的 MicroPython 驱动仓库，目前已收录 173+ 驱动包，涵盖温湿度、气压、IMU、显示屏、音频编解码等主流器件。它提供了简单的 HTTP API：
-- GET /search?q=温度 → 返回相关驱动包列表及下载地址。
-- GET /pkg/aht20 → 返回包的 manifest（作者、版本、依赖、引脚建议）。
-AI Skill 通过该 API 自动获取最适合的驱动，而不是“幻觉”出一个不存在的函数名。
-抽象类比：传统开发中，找驱动像去跳蚤市场翻垃圾；uPyPI 像标准化的电商平台，搜索即得，一键下单（安装）。
+Package Intelligence 层聚合 uPyPI、GraftSense 和 curated recipes 中的 MicroPython 包/驱动，覆盖温湿度、气压、IMU、显示屏、音频编解码等主流器件。它提供产品级 API：
+- GET /v1/packages/search?q=温度 → 返回相关包候选、能力标签和置信等级。
+- POST /v1/packages/resolve → 根据意图、能力和开发板约束选择候选包。
+- GET /v1/packages/context/{name} → 返回 driver context（作者、版本、依赖、import、构造函数、读写方法、总线、已知问题）。
+AI Skill 通过 driver context 自动使用最合适的真实驱动，而不是“幻觉”出一个不存在的函数名。
+抽象类比：传统开发中，找驱动像去跳蚤市场翻垃圾；Package Intelligence 像标准化的电商平台，搜索即得，一键下单（安装）。
 2.2 AI Skill 详细设计：一句话 → 可运行代码
 [Image]
 2.3 Skill 的核心能力模块
@@ -40,7 +41,7 @@ Skill 生成的 main.py 框架：
 ```Python
 from upyos import Activity
 import lvgl as lv
-from drivers import AHT20, BH1750, VibrationMotor  # 自动从 uPyPI 匹配
+from drivers import AHT20, BH1750, VibrationMotor  # 自动从 driver context 匹配
 import asyncio
 
 class EnvMonitorActivity(Activity):
@@ -103,7 +104,7 @@ class EnvMonitorActivity(Activity):
 ┌─────────────────────────────────────────────────────────┐
 │  AI 层：Claude Code Skill                               │
 │  - 需求拆分 & 确认                                       │
-│  - 查询 uPyPI 驱动库（173+ 包）                          │
+│  - 查询 Package Intelligence（200+ 包/驱动）              │
 │  - 生成 uPyOS 应用代码（Activity + UI + 模块通信）       │
 └─────────────────────────────────────────────────────────┘
                           │
@@ -127,7 +128,7 @@ class EnvMonitorActivity(Activity):
 - 应用是独立的 .py 或 .mpy 文件，存放在文件系统 /apps/ 目录。
 - 系统启动器扫描该目录，动态导入并显示图标。
 - 应用可以独立更新、删除，互不影响。
-- 依赖的驱动包从 uPyPI 按需下载，自动安装。
+- 依赖的驱动包由 Package Intelligence 解析后按需下载，自动安装。
 类比：C SDK 的设备就像功能手机，出厂时功能就焊死了；uPyOS 设备就像智能手机，随时从应用商店下载新 App。
 3.3 主动模块：让 AI 只需关心“业务逻辑”，而非“寄存器”
 对于多传感器组合的场景，如果每个模块的通信协议都不同，AI 生成的代码会极其臃肿且易错。我们的主动模块将所有传感器封装成独立的小主机（ESP32-C3 + 传感器），对外只暴露统一的数据接口：

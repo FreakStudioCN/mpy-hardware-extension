@@ -27,7 +27,7 @@ originSessionId: 94649df4-53c7-4cb7-b1bc-d396c60dfe85
 | 维度 | Schematik | 我们 |
 |---|---|---|
 | AI 输出物 | C / Arduino 代码 + PCB 图 + BoM | MicroPython 代码 + 模块组合方案 |
-| 驱动来源 | LLM 脑补 Arduino 库 | uPyPI 173 个真包，HTTP 检索 |
+| 驱动来源 | LLM 脑补 Arduino 库 | Package Intelligence 聚合 200+ 真实包/驱动和 driver context |
 | Runtime | C 编译 → flash（≥ 30 秒/次） | MicroPython REPL → 热加载（< 1 秒） |
 | 错误恢复 | C hardfault → brick | Python 异常 → 可捕获 / 自修复 |
 | 硬件抽象 | LLM 自选传感器 + 引脚 | 主动模块 BLE 自描述，AI 不选引脚 |

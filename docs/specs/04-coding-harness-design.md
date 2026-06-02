@@ -19,8 +19,23 @@
 | 1 | **失败成本物理化** | 通用 agent 错了 `git revert`；我们错了可能烧坏传感器或板子 → 必须有 deterministic 的 safety_audit 关卡，**LLM 永远不能直接控制 GPIO 输出** |
 | 2 | **执行反馈延迟且窄** | 通用 agent stderr 立即；我们靠串口 100ms–2s 延迟，可能断连 → 串口必须作 first-class state，状态机要明确"等待 observation" |
 | 3 | **物理接线不可观测** | LLM 假设的 pin 可能跟用户实际接的不一样 → manifest 必须把"用户真接了什么"作为 input，agent 必须经 `ask_user` tool 收集 |
-| 4 | **运行时不能补包** | MicroPython 固件模块在 flash 时固化，`import` 缺包就崩 → 生成代码前必须经 `audit_code` 校验所有 import 都在 board profile 的 `available_modules` 里 |
+| 4 | **运行时不能补包** | MicroPython 固件模块在 flash 时固化，`import` 缺包就崩 → 生成代码前必须经 `audit_code` 校验所有 import 都在 `board.available_modules + resolved_driver_context.import_names` 里 |
 | 5 | **迭代慢（6–23s/轮）** | 通用 agent < 1s/轮；我们一轮要 mpremote 上传 + 等 boot + 等 5s 串口 → 所有可静态发现的错必须前置拦截，不能依赖"烧上去看" |
+
+### 1.1 硬件支持的抽象关系
+
+Agent 不直接从用户句子跳到某个传感器型号。它必须按这条链工作：
+
+`intent → capabilities → package candidates → driver context → manifest → code → runtime observation`
+
+- **capability**：抽象能力，如 `temperature_sensing`、`display_text`、`motor_actuation`，不绑定包名。
+- **package candidates**：来自 uPyPi / GraftSense / curated recipes 的真实 MicroPython 包。
+- **driver context**：机器可读的用法摘要，包括 import、构造函数、读写方法/属性、总线、pin roles、install URL、deps、known issues、support level、evidence refs。
+- **manifest**：本次项目的确定方案，引用具体 package 和 wiring。
+
+这层抽象解决“不能只支持几个硬件”的问题：v0.2 golden path 可以只验 AHT20/DS18B20/LED，但 agent 的工作流必须能搜索和尝试整个 package index。区别只在支持等级：`discoverable`、`installable`、`generatable`、`verified`、`experimental`。
+
+Package Intelligence 的 canonical 实现在 `mpyhw-api`。客户端的 `search_packages` / `resolve_package_candidates` / `get_package_context` handler 是 thin HTTP wrapper；不得在客户端重写 package ranking、metadata normalization、driver-context extraction。这样 curated seed records、uPyPi ingestion、GraftSense ingestion、verified recipes 共用同一个 store 和同一套 support-level 规则。
 
 **架构差异（与通用 coding agent 一致的部分）**：
 - **Agent loop 在客户端**：跟 Cursor / Cline / Continue / Aider / Claude Code 一致；不再像 V2 那样把 agent 推到后端。
@@ -198,7 +213,7 @@ interface SessionState {
 
 ---
 
-## 4. Tool Registry — 13 个内置 Tool（按 executor 分类）
+## 4. Tool Registry — 14 个内置 Tool（按 executor 分类）
 
 ### 4.1 总览
 
@@ -209,8 +224,9 @@ interface SessionState {
 | `audit_code` | **local** | 跑 TS regex/AST 扫 banned API | 否 | 10ms |
 | `load_skill` | **local** | 加 skill body 到 session.loadedSkills，下轮 system 见 | 否 | <1ms |
 | `generate_code` | **local (nested SSE)** | 嵌套 SSE 子流调 `/v1/llm/messages` + 本地 safety_audit | 否 | 3–8s |
-| `search_upypi` | **api-proxy** | 调 `POST /v1/upypi/search` | 否 | 200ms |
-| `get_package_metadata` | **api-proxy** | 调 `POST /v1/upypi/metadata` | 否 | 200ms |
+| `search_packages` | **api-proxy** | 调 `POST /v1/packages/search`，按关键词/能力/总线找真实包 | 否 | 200ms |
+| `resolve_package_candidates` | **api-proxy** | 调 `POST /v1/packages/resolve`，从 intent + capabilities + board 排序候选 | 否 | 200-500ms |
+| `get_package_context` | **api-proxy** | 调 `GET /v1/packages/{name}/{version}/driver-context`，拿 import/API/bus/deps/known issues | 否 | 200ms |
 | `scan_device` | **shim** | 调 stdio `device.scan` | 否 | 500ms |
 | `install_package` | **shim** | 调 stdio `device.install_package`（V3.1.2 新增；先 mkdir /lib 再 mip install；自动递归 deps）| **是** (batch confirm) | 3–10s |
 | `flash_and_run` | **shim** | 调 stdio `device.flash_and_run` | **是** | 3–10s |
@@ -234,18 +250,18 @@ interface SessionState {
 
 ### 4.3 单个 Tool 完整 schema 示例
 
-跟 Anthropic Messages API 的 `tools` 参数完全兼容（客户端把这 12 个 schema 发到 `/v1/llm/messages` 的 `tools` 字段）：
+跟 Anthropic Messages API 的 `tools` 参数完全兼容（客户端把这 14 个 schema 发到 `/v1/llm/messages` 的 `tools` 字段）：
 
 ```json
 {
-  "name": "search_upypi",
-  "description": "Search MicroPython package registry uPyPi by keyword. Use this to find drivers for sensors/peripherals the user mentioned.",
+  "name": "search_packages",
+  "description": "Search MicroPython package registry by keyword, capability, bus, and board. Use this to find real drivers before selecting concrete hardware packages.",
   "input_schema": {
     "type": "object",
     "properties": {
       "query": {
         "type": "string",
-        "description": "Keyword like sensor name or chip name, e.g. 'aht20', 'bme280', 'ssd1306'"
+        "description": "Keyword like capability, sensor name, or chip name, e.g. 'temperature i2c', 'bme280', 'ssd1306'"
       }
     },
     "required": ["query"]
@@ -259,7 +275,7 @@ Observation：
 {
   "status": "ok",
   "results": [
-    {"name": "aht20_driver", "url": "https://upypi.net/pkgs/aht20_driver/1.0.0"}
+    {"name": "aht20_driver", "version": "1.0.0", "package_json_url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json", "support_level": "verified", "score": 0.94}
   ],
   "total": 1,
   "cached": true
@@ -274,6 +290,12 @@ handler: async (args, session) => {
   const vr = manifestValidator.validate(args.manifest, cachedBoardProfile);
   if (!vr.ok) return { status: "error", error_kind: "invalid_manifest", errors: vr.errors };
 
+  const driverContexts = args.driver_contexts ?? session.resolvedDriverContexts;
+  if (!driverContexts?.length) {
+    return { status: "error", error_kind: "driver_context_missing",
+             hint: "call get_package_context before generate_code" };
+  }
+
   // 拉 code_generation_guide skill body
   const skillBody = await skillCatalog.fetchBody("code-generation-guide");
 
@@ -283,6 +305,7 @@ handler: async (args, session) => {
     system: [
       { type: "text", text: skillBody },
       { type: "text", text: boardProfileBrief(session.boardId) },
+      { type: "text", text: `Driver contexts:\n${JSON.stringify(driverContexts)}` },
     ],
     messages: [{ role: "user",
                  content: `Generate main.py for this manifest:\n${JSON.stringify(args.manifest)}` }],
@@ -299,7 +322,10 @@ handler: async (args, session) => {
   }
 
   // 立即过 audit
-  const ar = safetyAudit.audit(code);
+  const ar = safetyAudit.audit(code, {
+    boardProfile: cachedBoardProfile,
+    driverContexts,
+  });
   if (!ar.passed) {
     return { status: "error", error_kind: "banned_api", banned: ar.banned_calls,
              hint: "remove these calls and try again" };
@@ -310,6 +336,8 @@ handler: async (args, session) => {
 ```
 
 **注意子流也走 server middleware**：server 在子流的第一个 turn 也会注入 intent gate。但子流的 user message 是「生成 main.py 给这个 manifest」，明显是硬件 context，LLM 不会触发 not_hardware。
+
+`generate_code` 必须使用 driver context 里的 `import_names`、`constructors`、`read_methods` / `read_properties` 和 examples。driver context 不足时返回 `driver_context_missing` 或 `driver_context_not_generatable`，不能让 LLM 凭记忆补 driver API。
 
 ### 4.5 Tool `ask_user`
 
@@ -367,10 +395,11 @@ Required fields:
 
 Steps you should take:
 1. query_board_profile to know available pins and modules
-2. search_upypi for each peripheral type to find driver packages
-3. get_package_metadata for the top candidate to confirm pin requirements
-4. If user didn't say which pin they wired sensors to, call ask_user
-5. propose_manifest to validate; iterate on errors
+2. infer required capabilities from the user intent
+3. resolve_package_candidates for each capability group to find real driver packages
+4. get_package_context for selected packages before using imports, constructors, methods, or pin roles
+5. If user didn't say which pin they wired sensors to, call ask_user
+6. propose_manifest to validate; iterate on errors
 ```
 
 ### 5.3 内置 Skill 清单
@@ -388,7 +417,7 @@ Tool use rules:
 - Call ONE tool at a time when possible, then wait for the observation before deciding next.
 - Tools execute on different "executors":
   - local: instant (board profile lookup, manifest validation, audit, skill loading)
-  - api-proxy: ~200ms (uPyPi search/metadata)
+  - api-proxy: ~200-500ms (package search/resolve/context)
   - nested-LLM: 3-8s (generate_code, opens a focused sub-stream)
   - shim: 0.5-10s (physical IO via local mpremote / pyserial)
   - ui-prompt: depends on user (ask_user)
@@ -402,9 +431,12 @@ Tool use rules:
 #### Task skills（在 catalog，按需 load，server 托管）
 
 - `manifest_resolution_guide` — V3.1.2 含**依赖解析行为**（合并自 dependency_resolution_guide）+ **pin_recommendations 用法**
-- `code_generation_guide` — V3.1.2 含**调试点规范**（try/except + print marker）+ **接线表输出指令** + **install_package 顺序提示**（在 flash 前装包）
+- `package_resolution_guide` — 从 intent 推 capabilities，调用 `search_packages` / `resolve_package_candidates` / `get_package_context`，按 support level 决定默认候选或询问用户
+- `code_generation_guide` — V3.1.2 含**调试点规范**（try/except + print marker）+ **接线表输出指令** + **install_package 顺序提示**（在 flash 前装包）；必须使用 driver context 里的 import/API，不能凭空编驱动方法
 - `serial_diagnosis_guide`
 - `git_commit_guide` — V3.1.2 新增；嵌套 SSE 调用专用，生成 conventional commit message（feat:/fix:/refactor:/chore:）
+
+`FreakStudioCN/MicroPython_Skills` 是 skill 内容的种子库，不是运行时依赖。v0.2 需要把其中 driver normalization、main/test 生成、mpremote file/device/live session、upy-project 的经验拆成上面的 task/recovery skills；真正运行时仍只通过本 spec 的 14 个 tool 调度。
 
 #### Recovery skills（在 catalog，LLM 看 observation 自己决定 load，server 托管）
 
@@ -661,7 +693,7 @@ function serializeObs(obs: object, toolName: string): string {
 | 6 | Repair 无穷 | flash 失败后反复重生成 | 全局 round counter max=3 |
 | 7 | 滥用 / 非硬件 intent | 用户写"帮我写网站" | server middleware 注入 intent gate（client 无法绕） |
 | 8 | LLM 幻觉 pin | LLM 选了 `GPIO_FAKE` | `manifest_validator.ts` 强制关卡，`propose_manifest` 返回 ForbiddenPinError |
-| 9 | 包版本漂移 | uPyPi 包升级 API 变了 | `get_package_metadata` 锁定精确版本，manifest 写 pinned version |
+| 9 | 包版本漂移 | 包升级 API 变了 | `get_package_context` 锁定精确版本，manifest 写 pinned version |
 | 10 | 串口断连 | 烧录中拔了 USB | shim 返回 `DeviceDisconnected`，作 observation；LLM 看到自然 `load_skill("device_disconnected_recovery")` |
 | 11 | I2C 扫不到地址 | 接线错 / 用户买错传感器 | `read_serial_until` 含特定模式 → LLM `load_skill("i2c_not_found_recovery")` 后 `ask_user` |
 | 12 | 跨语言 intent（用户中英混） | "make ESP32 灯亮" | LLM inline gate 多语言原生支持 |
@@ -672,9 +704,10 @@ function serializeObs(obs: object, toolName: string): string {
 | 17 | LLM 输出非 JSON | response 格式坏 | Anthropic SDK 自带 retry；超过 3 次 → terminal `api_error` |
 | 18 | Confirm 弹窗用户关掉 VS Code | 用户烦了直接关 | `await waitForUserConfirm()` 在 ext deactivate 时 reject → session abort，保留 messages 下次启动可继续 |
 | **19** | **Git 仓库脏**（用户外部改文件未 commit） | 用户在 VS Code 外部用别的编辑器改了文件，没 commit 就启动 agent | 扩展启动 `git status` 检测 → 弹窗 "检测到未提交改动，是否先 commit？" → 走自动 commit flow（详 spec 03 §5-tris） |
-| **20** | **install_package 失败** | uPyPi 包 chip 不兼容、网络断、包不存在 | shim 返回 `{status:"error", error_kind:"incompatible_chip"\|"network"\|"port_busy"}`；observation 给 LLM → LLM 看错误自然换包或 `ask_user` |
-| **21** | **串口被外部进程占用** | Thonny 在跑、另一个 mpyhw-vscode 窗口已经占 port | shim 拿 lock 后探测 `mpremote exec "pass"` 失败 → 返回 `{status:"error", error_kind:"port_busy"}` + ext 弹窗指引关闭占用方（详 spec 03 §4.4 + §4-bis.4） |
-| **22** | **LLM 编出不在 pin_capabilities 的 role** | manifest 含 `{pin:"GPIO2", role:"spi_mosi"}` 但 board profile 的 `pin_capabilities["GPIO2"]` 不含 spi_mosi | `manifest_validator.ts` 强制拒绝；returns `error_kind="capability_violation"` + 列出该 pin 实际 capabilities → LLM 自然 load `pin_error_recovery` |
+| **20** | **install_package 失败** | 包 chip 不兼容、网络断、包不存在、mpremote 非分类错误 | shim 返回 `{status:"error", error_kind:"package_not_found"\|"incompatible_chip"\|"network"\|"port_busy"\|"mpremote_error"}`；observation 给 LLM → LLM 看错误自然换包或 `ask_user` |
+| **21** | **driver context 缺失** | 包能搜到但 README/examples 不足，无法确定 import/API | `get_package_context` 返回 `driver_context_missing`；agent 降级为 experimental，必须 `ask_user` 或换 verified/generatable 候选 |
+| **22** | **串口被外部进程占用** | Thonny 在跑、另一个 mpyhw-vscode 窗口已经占 port | shim 拿 lock 后探测 `mpremote exec "pass"` 失败 → 返回 `{status:"error", error_kind:"port_busy"}` + ext 弹窗指引关闭占用方（详 spec 03 §4.4 + §4-bis.4） |
+| **23** | **LLM 编出不在 pin_capabilities 的 role** | manifest 含 `{pin:"GPIO2", role:"spi_mosi"}` 但 board profile 的 `pin_capabilities["GPIO2"]` 不含 spi_mosi | `manifest_validator.ts` 强制拒绝；returns `error_kind="capability_violation"` + 列出该 pin 实际 capabilities → LLM 自然 load `pin_error_recovery` |
 
 ---
 
@@ -744,15 +777,15 @@ UI 抽屉显示完整 agent trace（每个 turn 的 SSE event stream + tool disp
 =========== 主 SSE 流 #1 (turn 1) ===========
 
 [client] context_builder.build() →
-  system parts: [Foundational×3, board profile, catalog (含 8 skill 概要)]
+  system parts: [Foundational×3, board profile, package index summary, catalog (含 8 skill 概要)]
   messages: [{role:"user", content:"超过 30 度亮红灯"}]
-  tools: [12 canonical schemas]
+  tools: [14 canonical schemas]
 
 [client] POST /v1/llm/messages stream=true
   body: {sessionId:"8f3a...", system, messages, tools}
 
 [api middleware]
-  tool_whitelist OK (12 tools 全在 canonical)
+  tool_whitelist OK (14 tools 全在 canonical)
   intent_gate: messages.length==1 → inject INTENT_GATE_PROMPT 到 system[0]
   proxy → Anthropic Messages API stream=true
 
@@ -777,23 +810,29 @@ UI 抽屉显示完整 agent trace（每个 turn 的 SSE event stream + tool disp
 [client] POST /v1/llm/messages
 [api middleware] messages.length > 1 → 不注入 intent_gate
 [api → client SSE]
-  thinking: "需要温度传感器搜 uPyPi"
-  tool_use: search_upypi(query="temperature humidity i2c")
+  thinking: "需要把温湿度需求解析成能力，再从包目录找候选"
+  tool_use: resolve_package_candidates(intent="超过 30 度亮红灯",
+                                      capabilities=["temperature_sensing", "digital_output"],
+                                      board_id="esp32-s3-devkitc-1")
   message_stop
 
-[client] dispatch search_upypi (api-proxy) → POST /v1/upypi/search → obs
-        {results:[{name:"aht20_driver", url:"https://upypi.net/pkgs/aht20_driver/1.0.0"}],
-         cached:false}
-        // 实测 q="temperature humidity i2c" → 仅 aht20_driver 命中
-        // V3.1.2 调研：sht30 不在 uPyPi，bme280 可能未上线
+[client] dispatch resolve_package_candidates (api-proxy) → POST /v1/packages/resolve → obs
+        {selected:{name:"aht20_driver", version:"1.0.0",
+                   package_json_url:"https://upypi.net/pkgs/aht20_driver/1.0.0/package.json",
+                   support_level:"verified", score:0.94},
+         needs_user_choice:false}
 
 =========== 主 SSE 流 #3 (turn 3) ===========
 
 [client → api → Anthropic]
-  thinking: "AHT20 常用。看 metadata。"
-  tool_use: get_package_metadata(name="aht20_driver", version="1.0.0")
+  thinking: "先拿 driver context，避免编错 import 或方法名。"
+  tool_use: get_package_context(name="aht20_driver", version="1.0.0")
 
-[client] dispatch (api-proxy) → POST /v1/upypi/metadata → obs
+[client] dispatch (api-proxy) → GET /v1/packages/aht20_driver/1.0.0/driver-context → obs
+        {import_names:["aht20"], constructors:["AHT20(i2c)"],
+         read_methods:["read_temperature()", "read_humidity()"],
+         bus:["i2c"], pin_roles:["i2c_sda", "i2c_scl"],
+         confidence:0.91}
 
 =========== 主 SSE 流 #4 (turn 4) ===========
 
@@ -808,7 +847,7 @@ UI 抽屉显示完整 agent trace（每个 turn 的 SSE event stream + tool disp
 =========== 主 SSE 流 #5 (turn 5) ===========
 
 [client context_builder]
-  system parts: [Foundational×3, board profile,
+  system parts: [Foundational×3, board profile, package index summary,
                  manifest-resolution-guide body,   ← 新增
                  catalog]
 
@@ -854,7 +893,7 @@ UI 抽屉显示完整 agent trace（每个 turn 的 SSE event stream + tool disp
     message_stop
 
   [client] code = "拼接完整代码"
-  [client] safetyAudit.audit(code) → {passed: true}
+  [client] safetyAudit.audit(code, {boardProfile, driverContexts}) → {passed: true}
   [client] return {status:"ok", code, audit}
   --- 嵌套流结束 ---
 
@@ -892,7 +931,7 @@ UI 抽屉显示完整 agent trace（每个 turn 的 SSE event stream + tool disp
 =========== 主 SSE 流 #11 (turn 11) ===========
 
 [Anthropic SSE] tool_use: read_serial_until(pattern="LED=", timeout_sec=8)
-[client] dispatch (shim) → obs {lines:["READY","TEMP=28.4 LED=OFF","TEMP=28.6 LED=OFF"]}
+[client] dispatch (shim) → obs {lines:["MPYHW_READY","TEMP_C=28.4 LED=OFF","TEMP_C=28.6 LED=OFF"]}
 
 =========== 主 SSE 流 #12 (turn 12) ===========
 

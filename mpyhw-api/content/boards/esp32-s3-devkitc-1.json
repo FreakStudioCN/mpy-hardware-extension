@@ -1,0 +1,20 @@
+{
+  "board_id": "esp32-s3-devkitc-1",
+  "display_name": "ESP32-S3 DevKitC-1",
+  "manufacturer": "Espressif",
+  "pin_capabilities": {
+    "GPIO2": ["gpio_out", "led_anode"],
+    "GPIO5": ["gpio_in", "gpio_out", "i2c_sda"],
+    "GPIO6": ["gpio_in", "gpio_out", "i2c_scl"],
+    "GPIO43": ["uart_tx"],
+    "GPIO44": ["uart_rx"]
+  },
+  "pin_recommendations": {
+    "i2c_sda": "GPIO5",
+    "i2c_scl": "GPIO6",
+    "led_default": "GPIO2"
+  },
+  "forbidden_pins": ["GPIO19", "GPIO20"],
+  "available_modules": ["machine", "time", "math", "json"],
+  "voltage_notes": "Use 3.3V logic only. Do not connect 5V sensor signals directly to GPIO."
+}

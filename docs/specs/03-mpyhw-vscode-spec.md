@@ -58,10 +58,10 @@ flowchart LR
 - **WebView ↔ Ext**：postMessage（UI 事件 + agent state 推送）
 - **Ext ↔ api**：HTTPS，三类调用
   - `POST /v1/llm/messages`（SSE 长流，主要数据通道）
-  - `GET /v1/skills` / `GET /v1/boards` / `GET /v1/tools`（启动时拉缓存，之后偶尔重拉）
-  - `POST /v1/upypi/*`（agent loop 中 tool dispatch 时调）
+  - `GET /v1/skills` / `GET /v1/boards` / `GET /v1/tools` / `GET /v1/packages/index`（启动时拉缓存，之后偶尔重拉）
+  - `/v1/packages/*`（agent loop 中 package tool dispatch 时调）
   - `POST /v1/telemetry`（trace event 推送）
-- **Ext ↔ shim**：stdio JSON-RPC 2.0，6 个 IO method
+- **Ext ↔ shim**：stdio JSON-RPC 2.0，7 个 IO method
 - **shim ↔ 板子**：mpremote subprocess + pyserial
 
 ---
@@ -90,7 +90,7 @@ flowchart LR
 │ ┌─ 当前进度 ─────────────────────────┐ │
 │ │ 💭 我先查板子配置...                │ │  ← thinking 流式
 │ │ 🔧 query_board_profile (local) ✓   │ │
-│ │ 🔧 search_upypi (api-proxy) ✓      │ │
+│ │ 🔧 search_packages (api-proxy) ✓   │ │
 │ │ 📖 loaded skill: manifest-resolu.. │ │
 │ │ ❓ 请问温湿度传感器接哪个 pin？...   │ │
 │ └─────────────────────────────────────┘ │
@@ -101,9 +101,9 @@ flowchart LR
 │ └─────────────────────────────────────┘ │
 │                                         │
 │ ┌─ 串口输出 ────────────────────────┐ │
-│ │ READY                              │ │  ← xterm.js
-│ │ TEMP=28.3 LED=OFF                  │ │
-│ │ TEMP=31.2 LED=ON                   │ │
+│ │ MPYHW_READY                        │ │  ← xterm.js
+│ │ TEMP_C=28.3 LED=OFF                │ │
+│ │ TEMP_C=31.2 LED=ON                 │ │
 │ └─────────────────────────────────────┘ │
 │                                         │
 │ [▾] 开发者模式：agent trace             │
@@ -256,6 +256,7 @@ mpyhw-vscode/
       loop.ts
       tool_registry.ts
       skill_catalog.ts
+      package_catalog.ts
       manifest_validator.ts
       safety_audit.ts
       context_builder.ts
@@ -311,7 +312,7 @@ mpyhw-vscode/
 # args: {"url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json",
 #        "port": "COM3", "timeout_sec": 60}
 # returns: {"status": "ok", "stdout": "...", "stderr": "", "duration_ms": 4520}
-# or:      {"status": "error", "error_kind": "incompatible_chip" | "network" | "port_busy", ...}
+# or:      {"status": "error", "error_kind": "package_not_found" | "incompatible_chip" | "network" | "port_busy" | "mpremote_error", ...}
 #
 # 内部步骤:
 #   1. 拿 per-port lock + 文件锁 ~/.mpyhw/locks/{port}.lock
@@ -325,7 +326,7 @@ mpyhw-vscode/
 #### `device.serial_read_until`
 ```python
 # args: {"port": "COM3", "pattern": "LED=", "timeout_sec": 8}
-# returns: {"status": "ok", "lines": ["READY", "TEMP=28.4 LED=OFF"]}
+# returns: {"status": "ok", "lines": ["MPYHW_READY", "TEMP_C=28.4 LED=OFF"]}
 # or:      {"status": "timeout", "tail": "..."}
 ```
 
@@ -409,14 +410,15 @@ mpyhw-vscode/
 | 模块 | 职责 | 行数预算 |
 |---|---|---|
 | `loop.ts` | ReAct 主循环 + SSE 消费 + tool dispatch 调度 + repair counter + max_turns | 150 |
-| `tool_registry.ts` | **13** 个 tool 的 handler 映射 + executor 分类（local / api-proxy / shim / ui-prompt）+ requires_user_confirm 配置 + **batch confirm 合并**（同一轮多个 install_package 合并对话框） | 120 |
+| `tool_registry.ts` | **14** 个 tool 的 handler 映射 + executor 分类（local / api-proxy / shim / ui-prompt）+ requires_user_confirm 配置 + **batch confirm 合并**（同一轮多个 install_package 合并对话框） | 130 |
 | `skill_catalog.ts` | 启动时拉 `/v1/skills` 缓存到 workspace state；维护 `session.loadedSkills` set；提供 catalog 渲染 + skill body lookup | 80 |
+| `package_catalog.ts` | 启动时拉 `/v1/packages/index` 摘要缓存到 workspace state；提供 package search/resolve/context API wrapper 和 support level 解释 | 80 |
 | `manifest_validator.ts` | zod schema for `HardwareManifest` + 跑 pin 合法性 + **pin_capabilities 守门**（V3.1.2 Q5：拒绝不在 board profile capabilities map 里的 pin/role）+ 限流电阻校验 | 100 |
 | `safety_audit.ts` | TS regex/简单 AST 扫 banned API（`machine.mem`、`socket.*`、`exec`、`eval`、`__import__`、`os.system` 等） | 50 |
-| `context_builder.ts` | 组装 messages + system parts（Foundational bundled + board profile cached + skill catalog + loaded skill bodies）+ 加 `cache_control: ephemeral` markers | 50 |
+| `context_builder.ts` | 组装 messages + system parts（Foundational bundled + board profile cached + package index summary + skill catalog + loaded skill bodies）+ 加 `cache_control: ephemeral` markers | 60 |
 | `sse_client.ts` | 调 `POST /v1/llm/messages` + 消费 SSE 流 + 解析 event chunks + 抛 typed events 给 loop.ts | 80 |
 
-总：约 **610 行**（含注释 +/- 10%）。
+总：约 **700 行**（含注释 +/- 10%）。
 
 ### 5.2 `loop.ts` 主循环伪代码
 
@@ -440,7 +442,7 @@ async function runSession(intent: string, boardId: string,
     }
 
     // 1. 组装 context
-    const systemParts = contextBuilder.build(session, cachedBoardProfile, cachedSkillCatalog);
+    const systemParts = contextBuilder.build(session, cachedBoardProfile, cachedPackageIndexSummary, cachedSkillCatalog);
     const tools = toolRegistry.toAnthropicSchemas();
 
     // 2. 开 SSE 流
@@ -592,12 +594,28 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "search_upypi",
-    description: "...",
+    name: "search_packages",
+    description: "Search MicroPython package registry by keyword/capability/bus/board. Use before selecting concrete hardware drivers.",
     input_schema: { /* ... */ },
     executor: "api-proxy",
     requires_user_confirm: false,
-    apiPath: "/v1/upypi/search",
+    apiPath: "/v1/packages/search",
+  },
+  {
+    name: "resolve_package_candidates",
+    description: "Resolve package candidates from intent + capabilities + board, returning ranked choices and whether the user must choose.",
+    input_schema: { /* intent, capabilities, board_id, constraints */ },
+    executor: "api-proxy",
+    requires_user_confirm: false,
+    apiPath: "/v1/packages/resolve",
+  },
+  {
+    name: "get_package_context",
+    description: "Fetch machine-readable driver context for one package version before generating imports, constructors, reads, or install steps.",
+    input_schema: { /* name, version */ },
+    executor: "api-proxy",
+    requires_user_confirm: false,
+    apiPath: "/v1/packages/{name}/{version}/driver-context",
   },
   {
     name: "propose_manifest",
@@ -618,11 +636,16 @@ const TOOLS: ToolDef[] = [
     handler: async (args, session) => {
       // 嵌套 SSE 子流
       const skillBody = await skillCatalog.fetchBody("code-generation-guide");
+      const driverContexts = args.driver_contexts ?? session.resolvedDriverContexts;
+      if (!driverContexts?.length) {
+        return { status: "error", error_kind: "driver_context_missing" };
+      }
       const subStream = sseClient.postLlmMessages({
-        sessionId: session.traceId,
+        sessionId: session.traceId + "/sub-generate",
         system: [
           { type: "text", text: skillBody },
           { type: "text", text: boardProfileBrief(session.boardId) },
+          { type: "text", text: `Driver contexts:\n${JSON.stringify(driverContexts)}` },
         ],
         messages: [{ role: "user",
                      // 明显硬件措辞 → 避免 intent gate self-reject（V3.1.2 Q6）
@@ -631,7 +654,10 @@ const TOOLS: ToolDef[] = [
         max_tokens: 4096,
       });
       const code = await consumeStreamToText(subStream);
-      const audit = safetyAudit.audit(code);
+      const audit = safetyAudit.audit(code, {
+        boardProfile: cachedBoardProfile,
+        driverContexts,
+      });
       if (!audit.passed) {
         return { status: "error", error_kind: "banned_api", banned: audit.banned_calls };
       }
@@ -644,7 +670,10 @@ const TOOLS: ToolDef[] = [
     input_schema: { /* ... */ },
     executor: "local",
     requires_user_confirm: false,
-    handler: async (args) => safetyAudit.audit(args.code),
+    handler: async (args, session) => safetyAudit.audit(args.code, {
+      boardProfile: cachedBoardProfile,
+      driverContexts: args.driver_contexts ?? session.resolvedDriverContexts,
+    }),
   },
   {
     name: "load_skill",
@@ -678,8 +707,8 @@ const TOOLS: ToolDef[] = [
     shimMethod: "device.scan",
   },
   {
-    name: "install_package",   // V3.1.2 新增 (13/13)
-    description: "Install a uPyPi driver package onto the device /lib via mpremote mip install. Call this BEFORE flash_and_run if main.py imports the driver. Auto-recurses deps.",
+    name: "install_package",
+    description: "Install a resolved MicroPython driver package onto the device /lib via mpremote mip install. Call this BEFORE flash_and_run if main.py imports the driver. Auto-recurses deps.",
     input_schema: { /* url, port */ },
     executor: "shim",
     requires_user_confirm: true,  // batch confirm: 多个连续 install_package 合并对话框
@@ -927,7 +956,7 @@ async function generateCommitMessage(diff: string): Promise<string> {
 
 ## 5-quad. 项目模板库（V3.1.2 新增）
 
-prd §模块9 列为核心。v0.2 内置 3 个模板打包到扩展，**不**走 server。
+prd §模块9 列为核心。v0.2 内置 3 个 intent 模板打包到扩展，**不**走 server。模板是新手入口，不是硬件支持白名单；具体传感器/显示/执行器仍由 `resolve_package_candidates` 从 package index 里选择。
 
 ### 5-quad.1 目录结构
 
@@ -981,7 +1010,7 @@ mpyhw-vscode/
 └──────────────────────────────────────────┘
 ```
 
-选模板 → intent 文本框预填 `default_intent` + board picker 选 `recommended_board_id` + 显示推荐传感器 / 引脚。用户可直接编辑后点"开始生成"。
+选模板 → intent 文本框预填 `default_intent` + board picker 选 `recommended_board_id` + 显示推荐能力 / 引脚。用户可直接编辑后点"开始生成"；agent 后续再把能力解析成具体 package / driver context。
 
 ### 5-quad.4 行数预算
 
@@ -1156,10 +1185,10 @@ V3 的副产品：客户端 agent loop + 本地 shim 让大部分操作可离线
 | 读串口 / 看板子打印 | ✓（纯本地 shim） |
 | 看已经生成过的代码（cached in workspace） | ✓ |
 | **开新 session（intent → code）** | ❌（必联网调 LLM） |
-| 查 cached board profile | ✓（启动时已拉缓存） |
-| Cache 失效后重拉 skill / board / tool | ❌（必联网） |
+| 查 cached board profile / package index summary | ✓（启动时已拉缓存） |
+| Cache 失效后重拉 skill / board / tool / package index | ❌（必联网） |
 
-启动时 cache miss + 离线：UI 显示「无法初始化：需联网拉取 skill 库」。
+启动时 cache miss + 离线：UI 显示「无法初始化：需联网拉取 skill / board / package 基础内容」。
 
 ---
 
@@ -1171,12 +1200,12 @@ V3 的副产品：客户端 agent loop + 本地 shim 让大部分操作可离线
 - 装的是 Python 3.9 → 弹窗指引升级或在 settings 配 `pythonPath`
 - 在输入框写 "超过 30 度亮红灯"，点开始 → 用户看到流式 thinking token（"我先查"、"板子配置"...）实时出现
 - agent 调 `query_board_profile`（local）→ 进度流显示 "query_board_profile (local) ✓"，几乎瞬时
-- agent 调 `search_upypi`（api-proxy）→ 进度流显示 "search_upypi (api-proxy) ✓"，约 200ms
+- agent 调 `search_packages` / `resolve_package_candidates` / `get_package_context`（api-proxy）→ 进度流显示 package resolution 进度，约 200-500ms
 - agent 调 `load_skill("manifest-resolution-guide")`（local）→ 进度流显示 "loaded skill: manifest-resolution-guide"，下一轮 LLM 看到 skill body
 - agent 调 `generate_code`（local 嵌套 SSE）→ 进度流显示嵌套子流 thinking token；约 5-8s
 - 代码预览出现 main.py
 - agent 调 `flash_and_run`（shim, requires_user_confirm=true）→ 弹确认对话框 → 用户 approve → 调 shim → 板子烧录成功
-- 串口流出现 `READY` / `TEMP=...` / `LED=ON`
+- 串口流出现 `MPYHW_READY` / `TEMP_C=...` / `LED=ON`
 - 输入 "帮我写一个 Python 爬虫" → SSE 流第一个 text block 含 `<not_hardware>` → UI 显示拒绝提示
 - 开发者模式 ON → 抽屉显示完整 agent trace（每个 turn 的 thinking + tool dispatch + observation 全 JSON）
 - 点 device picker 兜底界面的「运行健康检查」 → 弹窗显示 `device.health_check` 输出文本（可一键复制）
@@ -1186,12 +1215,12 @@ V3 的副产品：客户端 agent loop + 本地 shim 让大部分操作可离线
 - 攻击者改 client 把 tools 字段塞入 `web_search` → server 返回 403 tool_not_whitelisted
 - **V3.1.2 新增验收**：
   - **A1**：agent 调 `install_package(url, port=COM3)` → shim 跑 `mpremote mip install` → device `/lib/aht20.py` 存在
-  - **A2**：generated main.py 含 `try/except` + `print("READY")` + 主循环 `print("TEMP=... LED=...")` 结构化 marker
+  - **A2**：generated main.py 含 `try/except` + `print("MPYHW_READY")` + 主循环 `print("TEMP_C=... LED=...")` 结构化 marker
   - **B1**：扩展激活后 `git status` 看到自动 init；跑完 demo session → `git log --oneline` 至少 3 条 conventional commits（feat:/chore:）
   - **B2**：final_answer 末尾含接线表（如 `# SDA=GPIO5, SCL=GPIO6, LED=GPIO2`）
   - **B3**：首次打开 panel → 3 个模板卡片显示；点"温度阈值 LED" → intent 框预填 + board 选 ESP32-S3
   - **F3**：另开 mpyhw-vscode 窗口拿同 port → 文件锁阻断 + UI 弹窗 "{占用进程} 正在用 COM3"；Thonny 占用 → `port_busy` 错误
-  - **F4**：demo intent "温度超 30 度亮红灯" → `search_upypi(temperature)` 拿到 `aht20_driver`（实测存在）
+  - **F4**：demo intent "温度超 30 度亮红灯" → `resolve_package_candidates(capabilities=["temperature_sensing"])` 返回高置信候选（如 `aht20_driver` 或 `ds18b20_driver`），再经 `get_package_context` 拿到 import/API 后生成代码
   - **Q5**：LLM 编出 manifest 含 `{role: "spi_mosi", pin: "GPIO2"}` 但 `GPIO2` capabilities 没 spi_mosi → `propose_manifest` 拒绝
   - **install_package batch confirm**：agent 一轮内调 3 次 install_package（3 个传感器） → ext 合并成单一对话框 `"Install these packages to COM3: aht20_driver, ds18b20_driver, ssd1306"`
 

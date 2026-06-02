@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>说一句话，造出能跑的硬件 - 中文比赛版 v22</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap" />
+<style>
+/* ===========================================
+   VIEWPORT FITTING: MANDATORY BASE STYLES
+   Include this ENTIRE file in every presentation.
+   These styles ensure slides fit exactly in the viewport.
+   =========================================== */
+html, body {
+    height: 100%;
+    overflow-x: hidden;
+}
+html {
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+}
+.slide {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+.slide-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-height: 100%;
+    overflow: hidden;
+    padding: var(--slide-padding);
+}
+:root {
+    --title-size: clamp(1.5rem, 5vw, 4rem);
+    --h2-size: clamp(1.25rem, 3.5vw, 2.5rem);
+    --h3-size: clamp(1rem, 2.5vw, 1.75rem);
+    --body-size: clamp(0.75rem, 1.5vw, 1.125rem);
+    --small-size: clamp(0.65rem, 1vw, 0.875rem);
+    --slide-padding: clamp(1rem, 4vw, 4rem);
+    --content-gap: clamp(0.5rem, 2vw, 2rem);
+    --element-gap: clamp(0.25rem, 1vw, 1rem);
+}
+.card, .container, .content-box {
+    max-width: min(90vw, 1000px);
+    max-height: min(80vh, 700px);
+}
+.feature-list, .bullet-list {
+    gap: clamp(0.4rem, 1vh, 1rem);
+}
+.feature-list li, .bullet-list li {
+    font-size: var(--body-size);
+    line-height: 1.4;
+}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+    gap: clamp(0.5rem, 1.5vw, 1rem);
+}
+img, .image-container {
+    max-width: 100%;
+    max-height: min(50vh, 400px);
+    object-fit: contain;
+}
+@media (max-height: 700px) {
+    :root {
+        --slide-padding: clamp(0.75rem, 3vw, 2rem);
+        --content-gap: clamp(0.4rem, 1.5vw, 1rem);
+        --title-size: clamp(1.25rem, 4.5vw, 2.5rem);
+        --h2-size: clamp(1rem, 3vw, 1.75rem);
+    }
+}
+@media (max-height: 600px) {
+    :root {
+        --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem);
+        --content-gap: clamp(0.3rem, 1vw, 0.75rem);
+        --title-size: clamp(1.1rem, 4vw, 2rem);
+        --body-size: clamp(0.7rem, 1.2vw, 0.95rem);
+    }
+    .nav-dots, .keyboard-hint, .decorative { display: none; }
+}
+@media (max-height: 500px) {
+    :root {
+        --slide-padding: clamp(0.4rem, 2vw, 1rem);
+        --title-size: clamp(1rem, 3.5vw, 1.5rem);
+        --h2-size: clamp(0.9rem, 2.5vw, 1.25rem);
+        --body-size: clamp(0.65rem, 1vw, 0.85rem);
+    }
+}
+@media (max-width: 600px) {
+    :root { --title-size: clamp(1.25rem, 7vw, 2.5rem); }
+    .grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.2s !important;
+    }
+    html { scroll-behavior: auto; }
+}
+
+/* === DECK THEME === */
+:root {
+  --bg: #080a0e;
+  --ink: #f7f8fb;
+  --muted: #a9b0bd;
+  --dim: #6f7787;
+  --panel: rgba(255,255,255,.045);
+  --panel-strong: rgba(255,255,255,.082);
+  --line: rgba(255,255,255,.13);
+  --line-soft: rgba(255,255,255,.075);
+  --blue: #6f82ff;
+  --cyan: #46d4c5;
+  --gold: #f5b84b;
+  --green: #56d889;
+  --red: #ff7777;
+  --slide-padding: clamp(20px, 3.8vw, 56px);
+  --title-size: clamp(58px, 7.4vw, 118px);
+  --h2-size: clamp(32px, 4.6vw, 66px);
+  --h3-size: clamp(21px, 2.15vw, 33px);
+  --body-size: clamp(16px, 1.48vw, 24px);
+  --small-size: clamp(13px, 1vw, 16px);
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --sans: "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at 16% 14%, rgba(111,130,255,.18), transparent 32%),
+    radial-gradient(circle at 82% 78%, rgba(70,212,197,.12), transparent 30%),
+    linear-gradient(180deg, #080a0e, #0d1017 48%, #07090d);
+  color: var(--ink);
+  font-family: var(--sans);
+  line-height: 1.36;
+}
+.slide::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(90deg, rgba(0,0,0,.82), transparent 86%);
+}
+.slide::after {
+  content: "";
+  position: absolute;
+  left: var(--slide-padding);
+  right: var(--slide-padding);
+  bottom: calc(var(--slide-padding) * .6);
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255,255,255,.18), transparent);
+}
+.content {
+  position: relative;
+  z-index: 1;
+  width: min(1260px, calc(100vw - var(--slide-padding) * 2));
+  max-height: calc(100dvh - var(--slide-padding) * 2);
+  margin: 0 auto;
+}
+.eyebrow, .seal, .foot {
+  position: absolute;
+  z-index: 3;
+  color: var(--dim);
+  font: 800 var(--small-size)/1 var(--mono);
+  letter-spacing: .05em;
+}
+.eyebrow {
+  top: calc(var(--slide-padding) * .62);
+  left: var(--slide-padding);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.eyebrow span:first-child { color: var(--blue); }
+.eyebrow i {
+  width: 42px;
+  height: 1px;
+  background: var(--line);
+  display: block;
+}
+.seal {
+  top: calc(var(--slide-padding) * .62);
+  right: var(--slide-padding);
+}
+.foot {
+  left: var(--slide-padding);
+  right: var(--slide-padding);
+  bottom: calc(var(--slide-padding) * .26);
+  line-height: 1.35;
+  font-weight: 600;
+}
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: var(--title-size); line-height: 1.04; letter-spacing: 0; max-width: 12ch; }
+h2 { font-size: var(--h2-size); line-height: 1.12; letter-spacing: 0; max-width: 19ch; }
+h3 { font-size: var(--h3-size); line-height: 1.22; }
+p, li, td, th { font-size: var(--body-size); }
+.lead {
+  margin-top: clamp(20px, 2.4vw, 38px);
+  max-width: 58ch;
+  color: var(--muted);
+  font-size: clamp(22px, 1.95vw, 33px);
+}
+.accent { color: var(--blue); }
+.cyan { color: var(--cyan); }
+.gold { color: var(--gold); }
+.green { color: var(--green); }
+.muted { color: var(--muted); }
+.compact { font-size: clamp(15px, 1.26vw, 21px); }
+
+/* === NAVIGATION === */
+.progress {
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 20;
+  height: 3px;
+  width: 0;
+  background: linear-gradient(90deg, var(--blue), var(--cyan), var(--gold));
+}
+.nav-dots {
+  position: fixed;
+  z-index: 20;
+  right: clamp(14px, 1.4vw, 22px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.nav-dots button {
+  width: 7px;
+  height: 7px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.24);
+  cursor: pointer;
+  padding: 0;
+}
+.nav-dots button.active { background: var(--blue); transform: scale(1.7); }
+
+/* === COMPONENTS === */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: clamp(30px, 4.6vw, 70px);
+}
+.tag {
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  border-radius: 999px;
+  color: var(--muted);
+  padding: 8px 14px;
+  font-size: var(--small-size);
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: .95fr 1.05fr;
+  gap: clamp(22px, 3.5vw, 56px);
+  align-items: center;
+}
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(14px, 1.5vw, 22px);
+  margin-top: clamp(22px, 3.2vw, 44px);
+}
+.grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: clamp(12px, 1.4vw, 20px);
+  margin-top: clamp(22px, 3vw, 40px);
+}
+.card {
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+  border-radius: 8px;
+  padding: clamp(15px, 1.8vw, 26px);
+  max-width: none;
+  max-height: none;
+}
+.card .num {
+  color: var(--blue);
+  font: 900 clamp(16px, 1.8vw, 25px)/1 var(--mono);
+  margin-bottom: 12px;
+}
+.card h3 { margin-bottom: 8px; }
+.card p, .card li { color: var(--muted); font-size: clamp(15px, 1.24vw, 20px); }
+.quote {
+  margin-top: clamp(18px, 2.4vw, 34px);
+  border-left: 3px solid var(--gold);
+  padding-left: 18px;
+  color: var(--ink);
+  font-size: clamp(21px, 2.05vw, 34px);
+  line-height: 1.32;
+}
+.bullets {
+  list-style: none;
+  padding: 0;
+  margin: clamp(20px, 3vw, 42px) 0 0;
+  display: grid;
+  gap: clamp(10px, 1.4vw, 20px);
+}
+.bullets li {
+  position: relative;
+  padding-left: 24px;
+  color: var(--muted);
+}
+.bullets li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: .62em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+.bullets strong { color: var(--ink); }
+.big-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.035);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: clamp(20px, 3vw, 42px);
+}
+.big-table th, .big-table td {
+  text-align: left;
+  border-bottom: 1px solid var(--line-soft);
+  padding: clamp(10px, 1.05vw, 15px);
+  vertical-align: top;
+}
+.big-table th {
+  color: var(--dim);
+  font: 800 var(--small-size)/1.2 var(--mono);
+  letter-spacing: .05em;
+}
+.big-table td { color: var(--muted); font-size: clamp(15px, 1.22vw, 20px); }
+.big-table td:first-child { color: var(--ink); font-weight: 800; }
+.big-table tr:last-child td { border-bottom: 0; }
+.highlight-row td { background: rgba(111,130,255,.13); }
+.dense-table th, .dense-table td {
+  padding: clamp(7px, .78vw, 11px);
+}
+.dense-table td {
+  font-size: clamp(13px, 1.04vw, 17px);
+}
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: clamp(12px, 1.4vw, 20px);
+  margin-top: clamp(24px, 3.2vw, 44px);
+}
+.stat {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: clamp(14px, 1.8vw, 26px);
+  background: var(--panel);
+}
+.stat .value {
+  font: 900 clamp(30px, 4vw, 66px)/1 var(--sans);
+  color: var(--gold);
+}
+.stat .label {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: clamp(14px, 1.08vw, 18px);
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+  margin-top: clamp(22px, 3.2vw, 44px);
+}
+.step {
+  min-height: clamp(115px, 16vh, 170px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: clamp(12px, 1.3vw, 20px);
+  position: relative;
+}
+.step:not(:last-child)::after {
+  content: ">";
+  position: absolute;
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--blue);
+  font: 900 18px/1 var(--mono);
+}
+.step b {
+  display: block;
+  color: var(--blue);
+  font: 900 clamp(15px, 1.6vw, 23px)/1 var(--mono);
+  margin-bottom: 12px;
+}
+.step p {
+  color: var(--muted);
+  font-size: clamp(13px, 1vw, 17px);
+}
+.stack {
+  display: grid;
+  gap: 10px;
+  margin-top: clamp(22px, 3vw, 40px);
+}
+.layer {
+  display: grid;
+  grid-template-columns: 1.05fr 1.15fr 1.2fr;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: clamp(10px, 1.25vw, 16px);
+}
+.layer b { color: var(--ink); font-size: clamp(16px, 1.34vw, 22px); }
+.layer span { color: var(--muted); font-size: clamp(14px, 1.08vw, 18px); }
+.layer code {
+  color: var(--cyan);
+  font: 800 clamp(12px, .96vw, 16px)/1.2 var(--mono);
+  white-space: normal;
+}
+.evidence {
+  border: 1px solid rgba(245,184,75,.42);
+  background: rgba(245,184,75,.08);
+  border-radius: 8px;
+  padding: clamp(18px, 2.2vw, 34px);
+}
+.evidence .k {
+  color: var(--gold);
+  font: 900 clamp(48px, 5.4vw, 90px)/1 var(--sans);
+}
+.evidence p {
+  margin-top: 12px;
+  color: var(--ink);
+  font-size: clamp(17px, 1.5vw, 24px);
+}
+.image-card {
+  border: 1px solid var(--line);
+  background: #10141c;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.image-card img {
+  display: block;
+  width: 100%;
+  height: min(42vh, 370px);
+  object-fit: cover;
+}
+.image-caption {
+  padding: 12px 16px;
+  color: var(--muted);
+  font-size: var(--small-size);
+  border-top: 1px solid var(--line-soft);
+}
+.world-map {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: clamp(14px, 1.8vw, 28px);
+  align-items: stretch;
+  margin-top: clamp(22px, 3vw, 40px);
+}
+.world-map .side {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: clamp(16px, 1.8vw, 26px);
+}
+.world-map .side h3 { margin-bottom: 14px; color: var(--gold); }
+.world-map .arrow {
+  align-self: center;
+  color: var(--blue);
+  font: 900 clamp(24px, 3vw, 44px)/1 var(--mono);
+}
+.source-pill {
+  margin-top: clamp(16px, 2vw, 28px);
+  display: inline-block;
+  border: 1px solid rgba(70,212,197,.35);
+  background: rgba(70,212,197,.08);
+  color: var(--cyan);
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: clamp(12px, 1vw, 16px);
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 980px) {
+  .grid2, .grid3, .grid4, .stat-row, .world-map { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr 1fr; }
+  .step:not(:last-child)::after, .world-map .arrow { display: none; }
+  .nav-dots { display: none; }
+  .layer { grid-template-columns: 1fr; }
+}
+@media (max-height: 760px) {
+  :root {
+    --h2-size: clamp(26px, 3.55vw, 44px);
+    --body-size: clamp(13px, 1.2vw, 18px);
+  }
+  .quote { font-size: clamp(17px, 1.55vw, 24px); margin-top: 14px; }
+  .big-table th, .big-table td { padding: 8px 10px; }
+  .card { padding: 14px 16px; }
+  .grid3, .grid4, .stat-row, .steps, .stack, .world-map { margin-top: 16px; }
+}
+@media print {
+  @page { size: 16in 9in; margin: 0; }
+  html, body { width: 16in; }
+  .slide { width: 16in; height: 9in; min-height: 9in; page-break-after: always; }
+  .nav-dots, .progress { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="progress"></div>
+<nav class="nav-dots" aria-label="slide navigation"></nav>
+
+<section class="slide cover" data-title="封面">
+  <div class="eyebrow"><span>01 / 14</span><i></i><span>封面</span></div>
+  <div class="seal">中文比赛版 · v22</div>
+  <div class="slide-content"><div class="content">
+    <h1><span class="accent">说一句话，</span><br />造出能跑的硬件。</h1>
+    <p class="lead">软件有 Cursor / Lovable。硬件也应该有一个同样低门槛的创作入口。</p>
+    <div class="tags">
+      <span class="tag">AI 原生硬件创作入口</span>
+      <span class="tag">Package Intelligence + MicroPython + mpremote</span>
+      <span class="tag">FabLab 认证路径 × 中国供应链</span>
+    </div>
+  </div></div>
+</section>
+
+<section class="slide" data-title="时代变化">
+  <div class="eyebrow"><span>02 / 14</span><i></i><span>时代变化</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>AI 已经开始接管数字世界，但<span class="accent">物理世界还停在手工拼装阶段。</span></h2>
+    <table class="big-table">
+      <tr><th>数字世界</th><th>已发生的变化</th></tr>
+      <tr><td>写代码</td><td>从补全，到 agent 自己改多文件、跑任务、修错误</td></tr>
+      <tr><td>做网页 / app</td><td>从手写页面，到一句话生成原型和完整页面</td></tr>
+      <tr><td>做图像 / 视频</td><td>从工具操作，到自然语言生成资产</td></tr>
+      <tr class="highlight-row"><td>做硬件</td><td>仍然要选型、接线、找库、烧录、看串口</td></tr>
+    </table>
+    <p class="quote">AI 真正进入物理世界，必须能把想法变成可运行的设备。</p>
+  </div></div>
+</section>
+
+<section class="slide" data-title="用户痛点">
+  <div class="eyebrow"><span>03 / 14</span><i></i><span>用户痛点</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>创作者不是没有想法，是卡在<span class="gold">硬件落地链路</span>。</h2>
+    <div class="grid4">
+      <div class="card"><div class="num">01</div><h3>选型难</h3><p>ESP32 / Arduino / STM32、传感器、执行器、通信方式，选择太多。</p></div>
+      <div class="card"><div class="num">02</div><h3>接线难</h3><p>I2C / SPI / UART / ADC、电压、引脚复用，任何一步错都跑不起来。</p></div>
+      <div class="card"><div class="num">03</div><h3>驱动难</h3><p>资料分散在 GitHub、厂商 PDF、论坛和示例代码里。</p></div>
+      <div class="card"><div class="num">04</div><h3>调试难</h3><p>串口日志、供电、接线、固件版本混在一起，新手很快放弃。</p></div>
+    </div>
+    <p class="quote">门槛不在“想象力”，而在“把东西真的跑起来”。</p>
+  </div></div>
+</section>
+
+<section class="slide" data-title="为什么难">
+  <div class="eyebrow"><span>04 / 14</span><i></i><span>为什么难</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>普通软件 agent 到了硬件现场会失效，因为它缺三样东西。</h2>
+    <table class="big-table">
+      <tr><th>缺口</th><th>具体表现</th><th>后果</th></tr>
+      <tr><td>真实驱动知识</td><td>MCU、传感器、库版本、固件能力高度碎片化</td><td>LLM 容易幻觉 API 和安装方式</td></tr>
+      <tr><td>本地执行权限</td><td>烧录、串口、文件上传必须访问用户电脑和开发板</td><td>纯网页 demo 很难形成闭环</td></tr>
+      <tr><td>硬件状态感知</td><td>模块不会主动告诉系统“我是谁、能做什么、接在哪”</td><td>AI 只能猜引脚、猜协议、猜错误原因</td></tr>
+    </table>
+    <p class="quote">核心不是“让 AI 写一段代码”，而是给 AI 一套硬件运行系统。</p>
+  </div></div>
+</section>
+
+<section class="slide" data-title="生态证据">
+  <div class="eyebrow"><span>05 / 14</span><i></i><span>生态证据</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>硬件创作生态足够大，工具链复杂度也在继续上升。</h2>
+    <div class="stat-row">
+      <div class="stat"><div class="value">1,198</div><div class="label">Arduino Library Manager 2024 年新增贡献库</div></div>
+      <div class="stat"><div class="value">7,669</div><div class="label">Arduino Library Manager 贡献库总数</div></div>
+      <div class="stat"><div class="value">$4.6M</div><div class="label">Schematik 2026 年 pre-seed 融资</div></div>
+      <div class="stat"><div class="value">$1.95B</div><div class="label">Kickstarter Technology 累计 pledges</div></div>
+    </div>
+    <p class="quote">生态越大，库和设备越多，新手越需要一个能把链路串起来的入口。</p>
+  </div></div>
+  <div class="foot">公开资料：Arduino Open Source Report 2024；Schematik 官方公告；Kickstarter Stats</div>
+</section>
+
+<section class="slide" data-title="真实数据流">
+  <div class="eyebrow"><span>06 / 14</span><i></i><span>真实数据流</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>“一句话造硬件”不是聊天框，而是一条<span class="accent">工程流水线</span>。</h2>
+    <div class="steps">
+      <div class="step"><b>01</b><p>用户说需求：温湿度监测，超过阈值亮灯并显示数值。</p></div>
+      <div class="step"><b>02</b><p>获得硬件画像：绑定设备、I2C 扫描、勾选模块或自然语言描述。</p></div>
+      <div class="step"><b>03</b><p>能力匹配：显示、传感、通信、执行器等 hardware_tags。</p></div>
+      <div class="step"><b>04</b><p>关联 Package Intelligence：读取 package.json、README、driver context、依赖和芯片/固件要求。</p></div>
+      <div class="step"><b>05</b><p>生成 MicroPython 项目：代码、驱动、资源、配置一起生成。</p></div>
+      <div class="step"><b>06</b><p>打包 .mpk，写入 MANIFEST.JSON，可下载、推送或发布。</p></div>
+      <div class="step"><b>07</b><p>mpremote 本地运行，读取串口输出并自动修复。</p></div>
+    </div>
+    <p class="quote">一句话只是入口，壁垒在硬件画像、驱动检索、应用打包、本地运行和反馈修复。</p>
+  </div></div>
+</section>
+
+<section class="slide" data-title="技术栈">
+  <div class="eyebrow"><span>07 / 14</span><i></i><span>技术栈</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>我们不是聊天框，而是一套 <span class="cyan">AI 原生硬件开发栈</span>。</h2>
+    <div class="stack">
+      <div class="layer"><b>Agent / Skill 层</b><span>把自然语言拆成硬件任务和执行步骤</span><code>项目生成 · 错误修复 · Arduino/PDF 驱动转换 · 测试生成</code></div>
+      <div class="layer"><b>知识与包层</b><span>让 AI 用真实驱动，不靠瞎猜</span><code>Package Intelligence · uPyPI/GraftSense · driver context · deps · chips/fw 标签</code></div>
+      <div class="layer"><b>本地执行层</b><span>让 AI 能真的碰到开发板</span><code>Thonny 插件 · VS Code 插件 · mpremote run/exec/fs · 串口日志</code></div>
+      <div class="layer"><b>应用运行层</b><span>让项目可安装、可升级、可回滚</span><code>uPyOS 0.9.0 · LVGL · D-Shell · .mpk · MANIFEST.JSON</code></div>
+      <div class="layer"><b>设备画像层</b><span>让系统知道真实硬件能力</span><code>device_fingerprint · device_profiles · hardware_tags · modules 注册表</code></div>
+      <div class="layer"><b>模块交付层</b><span>让方案从 demo 变成套件</span><code>GraftSense · GraftPort · Dev Kit · 生产 SOP</code></div>
+    </div>
+  </div></div>
+</section>
+
+<section class="slide" data-title="Package Intelligence">
+  <div class="eyebrow"><span>08 / 14</span><i></i><span>Package Intelligence / IDE</span></div>
+  <div class="slide-content"><div class="content">
+    <div class="grid2">
+      <div>
+        <h2>Package Intelligence 解决“找包难、找包乱”，IDE 插件把包管理放进真实工作流。</h2>
+        <ul class="bullets">
+          <li><strong>200+ 个 MicroPython 包/驱动</strong>，覆盖传感器驱动、通信模块、人机交互等场景。</li>
+          <li>包详情包含版本、作者、license、芯片支持、固件依赖、文件列表等机器可读信息。</li>
+          <li>Thonny 内搜索、查看元数据、下载缓存，并通过 <strong>mpremote</strong> 安装到开发板 <strong>/lib</strong>。</li>
+          <li>处理多文件包、依赖、网络失败、mpremote 未配置、开发板未连接等错误场景。</li>
+        </ul>
+      </div>
+      <div class="evidence">
+        <div class="k">200+</div>
+        <p>真实 MicroPython 包，不是模型幻觉出来的驱动名。</p>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<section class="slide" data-title="运行闭环">
+  <div class="eyebrow"><span>09 / 14</span><i></i><span>运行闭环</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>MicroPython + mpremote 更适合 AI 反复试错。</h2>
+    <table class="big-table">
+      <tr><th>闭环环节</th><th>传统 Arduino / C 路径</th><th>我们的 MicroPython 路径</th></tr>
+      <tr><td>写代码</td><td>.ino 隐式规则、多文件拼接、C/C++ 依赖复杂</td><td>Python 结构清晰，AI 更容易生成和修复</td></tr>
+      <tr><td>安装依赖</td><td>手动找库、复制代码、处理版本冲突</td><td>包搜索 + IDE 内安装 + 依赖自动处理</td></tr>
+      <tr><td>运行反馈</td><td>编译、烧录、串口监视器分散，改一次等一次</td><td>mpremote run / exec / fs，上传、运行、读日志在一条链路</td></tr>
+      <tr><td>自动修复</td><td>用户自己看串口和资料</td><td>agent 读取错误输出后改代码、重跑、再验证</td></tr>
+    </table>
+    <p class="quote">硬件 AI 的关键差异不是“生成第一版代码”，而是把设备反馈纳入 agent 循环。</p>
+  </div></div>
+</section>
+
+<section class="slide" data-title="uPyOS 系统架构">
+  <div class="eyebrow"><span>10 / 14</span><i></i><span>uPyOS / uPyStore</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>把一次性代码，变成 MCU 上可安装、可推荐、可分发的应用。</h2>
+    <table class="big-table dense-table">
+      <tr><th>组件</th><th>具体设计</th><th>价值</th></tr>
+      <tr><td>uPyOS 0.9.0</td><td>MicroPython + LVGL，运行于 ESP32 / ESP32-S3 等 MCU</td><td>桌面启动器、应用安装卸载、系统设置、WiFi 管理</td></tr>
+      <tr><td>D-Shell</td><td>搭载 uPyOS 的硬件终端设备</td><td>类比 Android 手机，是 uPyOS 的主要运行载体</td></tr>
+      <tr><td>.mpk</td><td>uPyOS 应用安装包，本质是固定结构压缩包</td><td>对标 APK，让硬件应用可以安装、更新、分发</td></tr>
+      <tr><td>MANIFEST.JSON</td><td>声明应用名称、版本、入口、发布者等</td><td>对标 Android 清单文件，保证应用可被系统识别</td></tr>
+      <tr><td>app_index.json</td><td>设备端商城静态入口，字段结构必须稳定</td><td>出厂设备依赖它拉取应用索引，不能破坏兼容</td></tr>
+    </table>
+    <p class="quote compact">V2 继续接入 device_fingerprint、device_profiles、hardware_tags、modules 注册表，实现硬件画像、能力匹配、推荐、语义搜索和 AI 生成 .mpk。</p>
+  </div></div>
+</section>
+
+<section class="slide" data-title="竞品差异">
+  <div class="eyebrow"><span>11 / 14</span><i></i><span>竞品差异</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>赛道被验证，但谁能跑通真实设备还没有定型。</h2>
+    <table class="big-table">
+      <tr><th>维度</th><th>Schematik / 网页类 AI 硬件工具</th><th>我们</th></tr>
+      <tr><td>输出物</td><td>代码、接线图、物料清单、教程</td><td>可运行 MicroPython 项目 + 模块组合 + 本地烧录调试</td></tr>
+      <tr><td>驱动来源</td><td>依赖模型生成或公开示例</td><td>Package Intelligence、真实包、README、package.json、driver context</td></tr>
+      <tr><td>执行闭环</td><td>多数停在生成和说明</td><td>mpremote 连接开发板，读取串口，自动修复</td></tr>
+      <tr><td>硬件抽象</td><td>AI 选择元器件和引脚</td><td>主动模块自描述，系统读取能力后再生成方案</td></tr>
+      <tr><td>交付路径</td><td>用户仍要采购、焊接、调试</td><td>模块、套件、小批量生产 SOP 接上供应链</td></tr>
+    </table>
+  </div></div>
+  <div class="foot">公开资料：Schematik 官方融资公告与产品介绍</div>
+</section>
+
+<section class="slide" data-title="FabLab 认证路径">
+  <div class="eyebrow"><span>12 / 14</span><i></i><span>FabLab 路径</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>FabLab 不是一句“国际资源”，而是一条材料里写清楚的落地路径。</h2>
+    <table class="big-table dense-table">
+      <tr><th>资源</th><th>材料支持的事实</th><th>对项目的意义</th></tr>
+      <tr><td>FabLab 国际体系</td><td>由 MIT 比特与原子研究中心发起，是全球创客教育与数字制造网络</td><td>可引入课程体系、技术文档、国际项目和创客社区资源</td></tr>
+      <tr><td>申请运营资质</td><td>核心成员已完成 FabLab 官方认证课程，具备申请并运营 FabLab 节点的资质</td><td>不是泛泛合作想象，而是具备节点申报和运营能力</td></tr>
+      <tr><td>联合高校落地</td><td>材料提出可依托中北大学，联合申请设立 FabLab 认证节点</td><td>可进入高校新工科、实训、竞赛和创客空间</td></tr>
+      <tr><td>中国供应链</td><td>ESP32、传感器模块、PCB、SMT、小批量制造响应快</td><td>FabLab 做教育和原型验证，中国供应链做套件与产品交付</td></tr>
+    </table>
+    <div class="source-pill">公开资料说明全球影响力；自有材料说明接入路径：认证课程、申请运营资质、联合高校申请。</div>
+  </div></div>
+  <div class="foot">公开资料：Fab Foundation；MIT News, 2023；自有材料：FabLab 认证节点合作方案</div>
+</section>
+
+<section class="slide" data-title="GraftSense 交付体系">
+  <div class="eyebrow"><span>13 / 14</span><i></i><span>GraftSense 交付</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>我们不是只有软件栈，也有模块、扩展板、套件和小批量生产 SOP。</h2>
+    <table class="big-table dense-table">
+      <tr><th>交付层</th><th>材料里的具体内容</th><th>说明什么能力</th></tr>
+      <tr><td>GraftSense</td><td>系列传感器模块，硬件设计规范基于 Grove；已有 RCWL-9623 超声波模块模板</td><td>有真实模块产品线，不是只做软件 demo</td></tr>
+      <tr><td>GraftPort</td><td>扩展板设计规范、成本和采购单</td><td>能把多个模块标准化接入开发板和教学场景</td></tr>
+      <tr><td>Dev Kit</td><td>套件盒子、成本采购表、定价表、宣传单</td><td>能面向教育、比赛、课程做成套交付</td></tr>
+      <tr><td>生产 SOP</td><td>设计、验证、驱动、文档、小批量生产、商品页、推广、进度管理</td><td>从原型到商品页和小批量生产都有流程</td></tr>
+    </table>
+    <p class="quote compact">商业闭环不是“卖一个 AI 软件”：IDE / Skill 生成项目，uPyStore 分发应用，GraftSense/Port/Dev Kit 让项目买得到、拼得上、交付得出去。</p>
+  </div></div>
+</section>
+
+<section class="slide vision" data-title="愿景">
+  <div class="eyebrow"><span>14 / 14</span><i></i><span>愿景</span></div>
+  <div class="slide-content"><div class="content">
+    <h2>未来每个智能设备，都可以被<span class="accent">“说”</span>出来。</h2>
+    <p class="lead">我们要做的不是又一个代码生成器，而是下一代硬件创作入口。</p>
+    <div class="grid3">
+      <div class="card"><h3>AI 理解意图</h3><p>把自然语言拆成硬件任务、模块需求和运行步骤。</p></div>
+      <div class="card"><h3>生态提供能力</h3><p>Package Intelligence、uPyOS、uPyStore 和主动模块让项目可检索、可安装、可复用。</p></div>
+      <div class="card"><h3>供应链完成交付</h3><p>从 demo 到套件、课程和小批量产品。</p></div>
+    </div>
+    <p class="quote">一句话，从想法到能跑、能复用、能交付的硬件。</p>
+  </div></div>
+</section>
+
+<script>
+const slides = Array.from(document.querySelectorAll(".slide"));
+const nav = document.querySelector(".nav-dots");
+const progress = document.querySelector(".progress");
+slides.forEach((slide, i) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.setAttribute("aria-label", `跳到第 ${i + 1} 页：${slide.dataset.title}`);
+  button.addEventListener("click", () => slides[i].scrollIntoView({ behavior: "smooth" }));
+  nav.appendChild(button);
+});
+function setActive(index) {
+  progress.style.width = `${((index + 1) / slides.length) * 100}%`;
+  nav.querySelectorAll("button").forEach((button, i) => button.classList.toggle("active", i === index));
+}
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => {
+    if (entry.isIntersecting && entry.intersectionRatio >= 0.55) {
+      setActive(slides.indexOf(entry.target));
+    }
+  });
+}, { threshold: [0.55] });
+slides.forEach(slide => observer.observe(slide));
+setActive(0);
+document.addEventListener("keydown", (event) => {
+  const current = Math.max(0, Math.round(window.scrollY / window.innerHeight));
+  if (["ArrowDown", "PageDown", " "].includes(event.key)) {
+    event.preventDefault();
+    slides[Math.min(slides.length - 1, current + 1)].scrollIntoView({ behavior: "smooth" });
+  }
+  if (["ArrowUp", "PageUp"].includes(event.key)) {
+    event.preventDefault();
+    slides[Math.max(0, current - 1)].scrollIntoView({ behavior: "smooth" });
+  }
+});
+</script>
+</body>
+</html>

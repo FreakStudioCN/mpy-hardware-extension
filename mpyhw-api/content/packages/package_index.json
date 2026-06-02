@@ -1,0 +1,50 @@
+[
+  {
+    "name": "aht20_driver",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "AHT20 temperature humidity driver",
+    "author": "Fixture",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "aht20.py",
+        "aht20.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "support_level": "installable",
+    "cached": true
+  },
+  {
+    "name": "graftsense_aht20",
+    "version": "1.0.0",
+    "source": "graftsense",
+    "description": "GraftSense AHT20 package",
+    "author": "GraftSense",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [],
+    "package_json_url": "https://graftsense.example/aht20/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true,
+    "driver_context_ref": "driver_context/graftsense_aht20-1.0.0.json"
+  }
+]

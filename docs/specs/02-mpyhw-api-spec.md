@@ -1,6 +1,6 @@
 # 02 — mpyhw-api Spec
 
-> 仓库：`mpyhw-api`（FastAPI 后端，**LLM 薄代理 + content 仓库 + 配额 + 防滥用**）
+> 仓库：`mpyhw-api`（FastAPI 后端，**LLM 薄代理 + content 仓库 + Package Intelligence + 配额 + 防滥用**）
 > 适用版本：v0.2.0
 > 读者：后端开发；建议先读 [`00-architecture-overview.md`](00-architecture-overview.md)
 
@@ -12,8 +12,8 @@
 
 具体职责：
 - **LLM 代理**：透传 Anthropic Messages API + SSE 流式 + middleware 强制注入 intent gate + tool 白名单校验
-- **Content 静态托管**：skill markdown 文件、board profile JSON、canonical tool registry JSON
-- **uPyPi 代理**：搜索 + metadata 查询（缓存 + analytics）
+- **Content 静态托管**：skill markdown 文件、board profile JSON、canonical tool registry JSON、package index、driver context
+- **Package Intelligence**：聚合 uPyPi / GraftSense package metadata、README、examples、源码线索，提供包搜索、候选解析、驱动用法上下文（缓存 + analytics）。这是 package search / resolve / driver-context 的 canonical 实现；客户端只调用 `/v1/packages/*`，不重写排序、归一化或 driver-context extraction。
 - **配额 + 防滥用 + 观察性**
 - **Telemetry 接收**：client 推 trace event → Sentry breadcrumb
 
@@ -22,6 +22,7 @@
 - 不持有 manifest schema / validator（搬到客户端 TS zod）
 - 不存储用户代码（仅 hash 日志用于调试）
 - 不直接和开发板/串口打交道（那是 `mpyhw-vscode` 内嵌的 `python/shim/` 在用户机器上做的事）
+- 不在请求路径里实时爬外部 package source；uPyPi/GraftSense 通过 ingestion 或缓存进入 normalized package store，请求 handler 只查本地 store/cache
 
 **架构契约**：endpoint 设计 IDE-agnostic（HTTP + JSON + SSE）。v0.2 只有 VS Code 一个客户端实现，但 API 不假设客户端身份。
 
@@ -37,12 +38,15 @@
 | `GET`  | `/v1/boards` | 返回内置 board 列表 |
 | `GET`  | `/v1/boards/{board_id}` | 返回单个 board profile JSON |
 | `GET`  | `/v1/tools` | 返回 canonical tool registry（client 校对自己副本一致性） |
-| `POST` | `/v1/upypi/search` | 代理 uPyPi 包搜索（Redis 缓存） |
-| `POST` | `/v1/upypi/metadata` | 代理 uPyPi 包 metadata 查询（Redis 缓存） |
+| `GET`  | `/v1/packages/index` | 返回 package index 摘要和版本（uPyPi + GraftSense 聚合） |
+| `POST` | `/v1/packages/search` | 按关键词/能力/芯片/总线搜索 MicroPython 包（Redis 缓存） |
+| `POST` | `/v1/packages/resolve` | 从用户 intent + capabilities + board 解析候选包并排序 |
+| `GET`  | `/v1/packages/{name}/{version}` | 返回标准化 package metadata |
+| `GET`  | `/v1/packages/{name}/{version}/readme` | 返回 README / examples 摘要（用于人类 UI 和 LLM context） |
+| `GET`  | `/v1/packages/{name}/{version}/driver-context` | 返回机器可读驱动用法上下文（import、API、bus、deps、known issues、support level） |
 | `POST` | `/v1/telemetry` | 客户端推 trace event（转 Sentry breadcrumb） |
 | `GET`  | `/v1/quota` | 查 session 剩余额度 |
 | `GET`  | `/v1/health` | 健康检查（供 monitoring） |
-| ~~`GET`~~  | ~~`/v1/upypi/index`~~ | **v0.3 预留**：批量包索引代理（upypi.net `/packages.json` 全 204 包），v0.2 不实现 |
 
 **已删除的 endpoint**（与 V2 spec 的差异）：
 - `~~POST /v1/agent/turn~~`：agent loop 搬客户端，不需要服务端 turn endpoint
@@ -229,7 +233,7 @@ class BoardSummary(BaseModel):
 
 ```python
 class ToolRegistryResponse(BaseModel):
-    version: str                          # v0.2 13 个 tool 的 schema hash
+    version: str                          # v0.2 14 个 tool 的 schema hash
     tools: list[CanonicalTool]
 
 class CanonicalTool(BaseModel):
@@ -242,49 +246,94 @@ class CanonicalTool(BaseModel):
 
 `tools` 字段中的 schema 跟 Anthropic Messages API 完全兼容。Client 把这些 tool 的 schema 透传到 `/v1/llm/messages` 的 `tools` 字段。
 
-### 3.6 `POST /v1/upypi/search`
+### 3.6 Package endpoints
 
 ```python
-class UpypiSearchRequest(BaseModel):
-    query: str
-
-class UpypiSearchResponse(BaseModel):
-    results: list[UpypiHit]
+class PackageIndexResponse(BaseModel):
+    version: str                          # package index hash / build id
+    generated_at: datetime
+    sources: list[PackageSourceSummary]   # upypi / graftsense / curated
+    total_packages: int
+    support_level_counts: dict[str, int]  # discoverable/installable/generatable/verified/experimental
     cached: bool
 
-class UpypiHit(BaseModel):
+class PackageSourceSummary(BaseModel):
+    source: Literal["upypi", "graftsense", "curated"]
+    package_count: int
+    last_synced_at: datetime
+
+class PackageSearchRequest(BaseModel):
+    query: str
+    capabilities: list[str] = []          # e.g. ["temperature_sensing", "display_text"]
+    board_id: str | None = None
+    bus: Literal["i2c", "spi", "onewire", "uart", "gpio", "pwm"] | None = None
+    limit: int = 10
+
+class PackageSearchResponse(BaseModel):
+    results: list[PackageHit]
+    cached: bool
+
+class PackageHit(BaseModel):
     name: str
-    url: str
+    version: str
+    source: Literal["upypi", "graftsense", "curated"]
+    package_json_url: str
     description: str | None
-```
+    capabilities: list[str]
+    chips: str
+    fw: str
+    support_level: Literal["discoverable", "installable", "generatable", "verified", "experimental"]
+    score: float
+    reason: str
 
-Redis 缓存（key = sha256(query)），TTL 1 小时。
-
-### 3.7 `POST /v1/upypi/metadata`
-
-```python
-class UpypiMetadataRequest(BaseModel):
+class PackageRecord(BaseModel):
     name: str
     version: str
-
-class UpypiMetadataResponse(BaseModel):
-    name: str
-    version: str
+    source: Literal["upypi", "graftsense", "curated"]
     description: str
     author: str
-    license: str                                # F1: 实测有，V3 漏了
+    license: str
     chips: str                                  # 字符串值（"all" 或具体型号），不是 list
     fw: str                                     # 字符串值，不是 list
     deps: list[str]                             # 总在；空数组可能；不 optional
     urls: list[tuple[str, str]]                 # [[filename, path], ...]
+    package_json_url: str
+    readme_url: str | None
+    repository_url: str | None
+    capabilities: list[str]
+    support_level: Literal["discoverable", "installable", "generatable", "verified", "experimental"]
     cached: bool
+
+class DriverContextResponse(BaseModel):
+    package: PackageRecord
+    import_names: list[str]
+    constructors: list[str]                     # e.g. ["AHT20(i2c)"]
+    read_methods: list[str]                     # e.g. ["read_temperature()", "read_humidity()"]
+    read_properties: list[str]                   # e.g. ["temperature", "relative_humidity"] when driver uses properties
+    bus: list[Literal["i2c", "spi", "onewire", "uart", "gpio", "pwm"]]
+    pin_roles: list[str]                        # e.g. ["i2c_sda", "i2c_scl"]
+    install: dict                               # {method:"mpremote mip install", url:"...package.json"}
+    examples: list[str]                         # short snippets, not full source dumps
+    known_issues: list[str]
+    evidence_refs: list[dict]                    # [{type:"package_json"|"readme"|"example"|"source"|"hardware_smoke", url/path/hash, excerpt_hash}]
+    confidence: float
+
+class PackageResolveRequest(BaseModel):
+    intent: str
+    capabilities: list[str]
+    board_id: str
+    constraints: dict = {}                      # bus/pins/chip/vendor/user preference
+
+class PackageResolveResponse(BaseModel):
+    candidates: list[PackageHit]
+    selected: PackageHit | None
+    needs_user_choice: bool
+    questions: list[str]
 ```
 
-Schema 已对照 upypi.net 实测响应（如 `https://upypi.net/pkgs/ds18b20_driver/1.0.0/package.json`）。
+Redis 缓存：search/resolve TTL 1 小时；metadata/readme/driver-context TTL 24 小时。失败时不缓存负结果。Package endpoints 的外部来源是 uPyPi API、GraftSense package.json/README/examples、以及少量 curated verified recipes；client 不直接依赖某一个上游站点的字段形状。请求 handler 读取 normalized package store/cache，不在用户请求中同步爬外部源。
 
-Redis 缓存 TTL 24 小时。
-
-### 3.8 `POST /v1/telemetry`
+### 3.7 `POST /v1/telemetry`
 
 ```python
 class TelemetryEvent(BaseModel):
@@ -300,7 +349,7 @@ class TelemetryRequest(BaseModel):
 
 Response: `204 No Content`。Server 转 Sentry breadcrumb，**不存** payload 内容（隐私），仅记元数据。
 
-### 3.9 `GET /v1/quota`
+### 3.8 `GET /v1/quota`
 
 ```python
 # Header: X-Session-Id: <uuid>
@@ -311,7 +360,7 @@ class QuotaResponse(BaseModel):
     reset_at: datetime                     # 当日 UTC 0 点
 ```
 
-注意：v0.2 不再有"每 session turn 上限"——agent loop 在客户端，server 不知道 turn 数。配额只算"启动 session 次数"（即调 `/v1/llm/messages` 的第一轮请求次数）。
+注意：v0.2 不再有"每 session turn 上限"——agent loop 在客户端，server 不知道 turn 数。配额只算"启动 session 次数"——即当日某 IP **首次**见到某个 root session_id（`session_id.split("/sub")[0]`，剥掉 `/sub-*` 后缀）时扣 1；同 session 的续轮和所有嵌套子流（`generate_code` / git commit msg，session_id 带 `/sub-` 后缀）都不扣（详 §6.3）。
 
 ---
 
@@ -325,7 +374,7 @@ mpyhw-api/
     skills.py                         # GET /v1/skills, /v1/skills/{name}  ~80 行
     boards.py                         # GET /v1/boards, /v1/boards/{id}    ~60 行
     tools.py                          # GET /v1/tools                       ~30 行
-    upypi.py                          # POST /v1/upypi/{search,metadata}    ~100 行
+    packages.py                       # GET/POST /v1/packages/*             ~160 行
     telemetry.py                      # POST /v1/telemetry                  ~40 行
     quota.py                          # GET /v1/quota                       ~30 行
     health.py                         # GET /v1/health                      ~10 行
@@ -356,12 +405,16 @@ mpyhw-api/
       esp32-s3-devkitc-1.json
       raspberry-pi-pico-w.json
       esp32-c3-devkitc.json
+    packages/
+      package_index.json              # uPyPi + GraftSense 聚合索引快照
+      driver_context/
+        aht20_driver-1.0.0.json       # 机器可读驱动用法上下文；非完整源码
     canonical_tools.json              # canonical tool registry (single source of truth)
   config.py                           # env vars, settings
   storage.py                          # Redis client + quota counters       ~80 行
 ```
 
-总后端代码量预算：约 **600 行**（不含 content 文件 + 测试）。比 V2 的 1900 行后端代码大幅缩水。
+总后端代码量预算：约 **700 行**（不含 content 文件 + 测试）。比 V2 的 1900 行后端代码大幅缩水；增加的部分只做 package content 聚合，不跑 agent。
 
 ---
 
@@ -378,8 +431,9 @@ fastapi 路由 routes.llm_messages
    ├─ middleware.rate_limit       # slowapi 30/min/IP
    ├─ middleware.body_size_check  # < 100KB
    ├─ middleware.user_tier        # IP / BYOK identify
-   ├─ middleware.quota            # 若是首轮 (messages.length == 1) 扣 session 配额
-   │                                若是后续轮 (messages.length > 1) 不扣（同 session）
+   ├─ middleware.quota            # root_session = session_id.split("/sub")[0]
+   │                                当日该 IP 首次见到此 root_session → 扣 1 session 配额
+   │                                续轮 (messages.length > 1) / 嵌套子流 (session_id 带 /sub-) → 不扣
    ├─ middleware.tool_whitelist:
    │      校验 request.tools 全部 .name in canonical_registry
    │      不匹配 → return 403 tool_not_whitelisted
@@ -432,7 +486,11 @@ gate, just begin your normal agent reasoning.
 
 **嵌套 SSE 调用的处理**（V3.1.2 澄清）：
 
-`/v1/llm/messages` middleware 不区分主流和嵌套子流。**任何 `messages.length == 1` 的请求**都会注入 intent gate。这意味着 client 在嵌套调用（如 `generate_code` 子流、git commit msg 子流）里发的 user message 必须用**明显硬件措辞**让 LLM 一眼判断是硬件 context，否则 LLM 会拒绝。
+`/v1/llm/messages` middleware **在 intent gate 上**不区分主流和嵌套子流。**任何 `messages.length == 1` 的请求**都会注入 intent gate。这意味着 client 在嵌套调用（如 `generate_code` 子流、git commit msg 子流）里发的 user message 必须用**明显硬件措辞**让 LLM 一眼判断是硬件 context，否则 LLM 会拒绝。
+
+**为什么 intent gate 对子流也注入（不按 root session 跳过）**：intent gate 是不可绕的安全边界。若让 `/sub-` 后缀跳过 gate，攻击者只需把主流请求的 `session_id` 伪造成 `xxx/sub-evil` 就能绕过滥用拦截、借我们的 token 干非硬件活。所以 gate 认 `messages.length == 1`（子流照样注入），用"硬件措辞"对冲子流自我拒绝。
+
+**与配额的区别**：配额**按 root session 去重**（见 §6.3），子流**不扣**费；intent gate **不去重**，每个 `messages.length == 1`（含子流）都注入。两者用不同的判定，互不影响。
 
 正确写法示例（client 端）：
 
@@ -451,14 +509,15 @@ gate, just begin your normal agent reasoning.
 ### 5.3 Tool 白名单校验细节
 
 ```python
-# canonical_tools.json 列 13 个 tool 的 name
+# canonical_tools.json 列 14 个 tool 的 name
 CANONICAL_TOOL_NAMES = {
-    "query_board_profile", "search_upypi", "get_package_metadata",
+    "query_board_profile", "search_packages", "resolve_package_candidates",
+    "get_package_context",
     "propose_manifest", "generate_code", "audit_code", "load_skill",
     "ask_user", "scan_device", "install_package", "flash_and_run",
     "read_serial_until", "write_main_py",
 }
-# v0.2 = 13 个；v0.3 计划加 generate_test
+# v0.2 = 14 个；v0.3 计划加 generate_test
 # git_commit 不在白名单 —— git 是 ext-internal hook，不让 LLM 主动调
 
 async def tool_whitelist_middleware(req: LLMMessagesRequest):
@@ -508,10 +567,14 @@ async def stream_with_abuse_peek(anthropic_stream, ip_hash: str):
 
 ### 6.3 配额扣减规则
 
-- 每个 session 的**首轮**`/v1/llm/messages` 请求扣 1 个 session 配额
-- 同 session 的后续轮（messages.length > 1）不扣
+- 配额按 **root session** 去重：`root_session = session_id.split("/sub")[0]`
+- 当日某 IP **首次**见到一个 root_session → 扣 1 个 session 配额（Redis 实现：`SADD quota:seen:{ip}:{date} {root_session}` 返回 1 才 `INCR` 计数）
+- 同 session 的后续轮（`messages.length > 1`，同 root_session）→ 不扣
+- **嵌套子流**（`generate_code` 子流、git commit msg 子流，session_id 带 `/sub-` 后缀）→ root_session 已计过 → **不扣**
 - BYOK 不扣（但仍走 middleware）
 - abuse counter 触发当日配额清零
+
+> **修正（vs 旧设计）**：旧版按 `messages.length == 1` 扣费，但嵌套子流的 `messages` 也是全新数组（length==1），会被误判成新 session——单次完整 demo（主流首轮 + generate_code 子流 + git commit 子流）会被扣 **3 次**配额，匿名用户日限 5 跑一次就掉 3。改为按 root session 去重后，一次 demo 只扣 1 次。intent gate 不受此影响（见 §5.2：它仍对每个 `messages.length == 1` 注入，含子流，是不可绕的安全边界）。
 
 ### 6.4 滥用惩罚
 
@@ -544,18 +607,24 @@ Client 启动 → `GET /v1/tools` → 比对客户端打包的 schema → 如果
 
 具体：发 `/v1/llm/messages` 时，client 只用自己打包的 tool schema（不会用从 server 拉的新 schema 调老的 handler）。Server 的 `GET /v1/tools` 主要给客户端做"我是不是该升级"的提示。
 
-### 7.4 uPyPi 代理细节
+### 7.4 Package Intelligence 细节
 
 - HTTP client：`httpx`
-- 缓存：Redis（key = `upypi:search:{sha256(query)}` 或 `upypi:meta:{name}:{version}`）
-- TTL：搜索 1 小时；metadata 24 小时
+- 上游来源：uPyPi search/package.json、GraftSense driver repo 的 `package.json` / README / examples、curated verified recipes
+- canonical ownership：`mpyhw-api/app/package_store.py` 是 search/resolve/driver-context 的唯一运行时实现；客户端只保留 thin HTTP client 和 typed response parsing
+- ingestion model：外部来源先归一化成 package index + driver-context records，再供 endpoint 查询；请求 handler 不直接访问外部网络
+- 缓存：Redis（key = `pkg:search:{sha256(query)}` / `pkg:meta:{name}:{version}` / `pkg:ctx:{name}:{version}`）
+- TTL：search/resolve 1 小时；metadata/readme/driver-context 24 小时
 - 失败时不缓存（不存负结果）
-- 透传上游错误码
-- **实测数据点**（V3.1.2 调研）：
-  - `q=aht20` → 1 个 hit (`aht20_driver`) ✓
-  - `q=ds18b20` → 1 个 hit (`ds18b20_driver`) ✓
-  - `q=sht30` → **空数组**（uPyPi 上没有 SHT30 包）—— v0.2 demo 候选锁定 AHT20 或 DS18B20
-  - upypi.net 当前 204 个包；`GET /packages.json` 全索引 endpoint 存在（v0.3 代理）
+- 上游错误不直接泄露给 LLM；统一成 `{status:"error", error_kind:"upstream_unavailable" | "package_not_found" | "driver_context_missing"}`
+- v0.2 要求：
+  - package index 能覆盖 uPyPi + GraftSense 已公开包，而不是只列 demo 硬件
+  - 每个包至少有 `discoverable` support level；metadata/mip URL 完整则升到 `installable`
+  - README/examples 能抽取 import/API/bus/pin_roles 则升到 `generatable`
+  - `verified` 必须同时满足：driver context 有 evidence_refs，contract test 证明 import/constructor/read method 或 property 与真实包一致，且 golden path 真机/可靠 CI 跑通过
+  - driver context 不足时，agent 必须 ask_user 或降级为 experimental，不允许凭空编驱动 API
+
+Driver-context contract tests 是 Package Intelligence 的发布门禁：任何记录若标为 `verified`，必须能追溯到 package.json、README/example/source 或 hardware smoke evidence；否则只能是 `generatable` 或更低等级。
 
 ---
 
@@ -620,7 +689,7 @@ Client 启动 → `GET /v1/tools` → 比对客户端打包的 schema → 如果
 
 [client] context_builder 组装 system + tools
 [client] POST /v1/llm/messages stream=true
-   │ body: {model, messages:[{role:"user",content:"..."}], system:[...], tools:[11 项]}
+   │ body: {model, messages:[{role:"user",content:"..."}], system:[...], tools:[14 项]}
    ▼
 [api middleware chain] tool whitelist OK → intent_gate inject → fast_path miss
 [api → anthropic] stream
@@ -676,20 +745,23 @@ Client 启动 → `GET /v1/tools` → 比对客户端打包的 schema → 如果
 - `POST /v1/llm/messages`（"帮我写爬虫" intent）→ 200 SSE 流，第一个 text block 以 `<not_hardware>` 开头；abuse counter +1
 - 同 IP 一日 3 次 not_hardware 触发 → 第 4 次 `/v1/llm/messages` 返回 429
 - `POST /v1/llm/messages` tools 含 `{name: "web_search"}` → 返回 403 `tool_not_whitelisted`
-- 同 IP 一日 6 次首轮请求 → 第 6 次返回 429 quota_exceeded
+- 同 IP 一日启动 6 个不同 session（6 个不同 root session_id 各自首轮）→ 第 6 个返回 429 quota_exceeded
+- 一次 session 内的 `generate_code` / git commit 嵌套子流（session_id 带 `/sub-`）→ **不**额外扣配额；一次完整 demo（含两个子流）只扣 1 次 session 配额
 - BYOK 用户跑 100 个 session → 全部成功，无 429
 - 请求 body 200KB → 返回 413
 - 1 分钟内 31 次请求同 IP → 第 31 次返回 429 rate_limit
 - `GET /v1/skills` → 返回完整 catalog；If-None-Match 命中 → 304
 - `GET /v1/boards/esp32-s3-devkitc-1` → 返回完整 board profile JSON
-- `GET /v1/tools` → 返回 13 个 canonical tool 的 schema
-- `POST /v1/upypi/search query="aht20"` → 返回含 `aht20_driver` 的 results；二次同请求 `cached: true`
+- `GET /v1/tools` → 返回 14 个 canonical tool 的 schema
+- `GET /v1/packages/index` → 返回 uPyPi + GraftSense 聚合索引版本、来源计数、support_level_counts
+- `POST /v1/packages/search query="temperature humidity i2c"` → 返回候选包 results（含 `support_level`、`score`、`reason`）；二次同请求 `cached: true`
+- `POST /v1/packages/resolve`（intent + capabilities + board）→ 返回排序候选；无高置信候选时 `needs_user_choice: true`
+- `GET /v1/packages/ds18b20_driver/1.0.0` → 返回的 JSON 含 `license`、`author`、`chips`（字符串）、`fw`（字符串）、`deps`（数组，可空）、`urls`（双元素数组）、`support_level`
+- `GET /v1/packages/ds18b20_driver/1.0.0/driver-context` → 返回 import/API/bus/install/known_issues/confidence；缺失时返回 `driver_context_missing`
 - `POST /v1/telemetry` 推 10 个 event → 204
 - `GET /v1/quota` → 返回当前用户层级 + 已用 + 上限
 - Client 完全 patch 掉打包的扩展代码（reverse engineer）后仍然**无法**让 mpyhw-api 跳过 intent gate（因为是 server 注入）
 - Client 把 `tools` 改成 `[{name:"exec_arbitrary"}]` 发到 `/v1/llm/messages` → 403（无法借我们 token 跑非硬件 LLM call）
-- `POST /v1/upypi/search query="sht30"` → 返回 `{results: [], cached: false/true}`（实测 uPyPi 上无 sht30）
-- `POST /v1/upypi/metadata name="ds18b20_driver" version="1.0.0"` → 返回的 JSON 含 `license`、`author`、`chips`（字符串）、`fw`（字符串）、`deps`（数组，可空）、`urls`（双元素数组）
 - 嵌套 SSE 调用（用户 message 含明显硬件措辞如 "Generate MicroPython main.py..."）→ 不触发 not_hardware 自我拒绝
 - 嵌套 SSE 调用 system 含 skill body + cache_control → Anthropic prompt cache hit 在 `usage.cache_read_input_tokens` 显示
 
