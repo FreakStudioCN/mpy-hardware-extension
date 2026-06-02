@@ -35,3 +35,5 @@ dev/.pdf-export/
 # Runtime / debug artifacts
 *.log
 mpy-hardware-extension/tmp/
+.mpyhw/
+mpyhw-api/credits.db

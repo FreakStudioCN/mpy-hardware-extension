@@ -120,6 +120,41 @@ test("view provider wires the same session controller into a docked webview view
   assert.equal(posted.at(-1).terminal, "generated");
 });
 
+test("webview reports backend GitHub auth exchange failures", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const view = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      options: undefined as any,
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    authentication: {
+      getSession: async () => ({ accessToken: "gho-token" }),
+    },
+    window: { showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = async (url: string) => {
+    if (url === "http://api.test/v1/auth/github") {
+      return jsonResponse({ detail: { error: "github_auth_failed", status: 401 } }, 401);
+    }
+    throw new Error(`unexpected URL ${url}`);
+  };
+
+  const provider = createViewProvider(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+  provider.resolveWebviewView(view);
+  await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+
+  assert.deepEqual(posted, [
+    { type: "session_error", error: "github_token_exchange_failed" },
+    { type: "session_done", terminal: "session_error" },
+  ]);
+});
+
 function jsonResponse(body: unknown, status = 200) {
   return {
     ok: status >= 200 && status < 300,

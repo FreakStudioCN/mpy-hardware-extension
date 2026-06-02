@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createAgentBackedLoop } from "../src/core/agent-backed-loop.ts";
+import { createAgentBackedLoop, estimateCredits } from "../src/core/agent-backed-loop.ts";
 
 const MANIFEST = {
   board_id: "esp32-s3-devkitc-1",

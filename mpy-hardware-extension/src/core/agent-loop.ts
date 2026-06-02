@@ -75,18 +75,10 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
       return { terminal: "sse_stream_interrupted", state };
     }
     if (toolUses.length === 0) {
-      // The model produced a plain text reply with no tool call. That usually means
-      // it is talking to the user (answering, clarifying, declining), but it can also
-      // be a chatty model narrating mid-build. Give it exactly one nudge to continue
-      // before yielding, so a single narration line doesn't abandon the build — yet we
-      // never spin to max_turns. (A real ask_user is a tool call, so it never lands here.)
-      state.textOnlyTurns += 1;
-      if (state.textOnlyTurns >= 2) {
-        return { terminal: "awaiting_user", state };
-      }
-      state.messages.push({ role: "user", content: "Continue by calling a tool, or call ask_user if you need input from the user." });
-    } else {
-      state.textOnlyTurns = 0;
+      // No tool call = the model handed the turn back to the user (final summary,
+      // answer, or decline). End here; the user can continue with a new message.
+      // (A real ask_user is a tool call, so it never lands here.)
+      return { terminal: "awaiting_user", state };
     }
   }
 }

@@ -54,6 +54,55 @@ test("session controller routes ask_user to the webview and feeds the answer bac
   assert.equal(result.terminal, "generated");
 });
 
+test("session controller routes confirmPlan to the webview as plan_needed and resolves the choice", async () => {
+  const messages: any[] = [];
+  let confirmed: boolean | "unset" = "unset";
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    confirmTool: async () => true,
+    loop: async ({ confirmPlan }) => {
+      confirmed = await confirmPlan({ intent: "blink", estimate: 3, capabilities: ["digital_output"], wiring: [] });
+      return { terminal: "generated" };
+    },
+  });
+
+  const started = controller.start({ intent: "x", boardId: "b" });
+  const plan = messages.find((m) => m.type === "plan_needed");
+  assert.ok(plan, "expected a plan_needed message");
+  assert.equal(plan.plan.estimate, 3);
+
+  controller.resolvePrompt(plan.promptId, "confirm");
+  await started;
+  assert.equal(confirmed, true);
+});
+
+test("session controller confirmPlan resolves false on cancel and on session cancel", async () => {
+  // explicit "cancel" answer
+  let a: boolean | "unset" = "unset";
+  const c1 = new SessionController({
+    postMessage: () => {},
+    confirmTool: async () => true,
+    loop: async ({ confirmPlan }) => { a = await confirmPlan({ estimate: 2 }); return { terminal: "generated" }; },
+  });
+  const s1 = c1.start({ intent: "x", boardId: "b" });
+  // resolve the pending plan prompt with cancel
+  c1.resolvePrompt("plan-1", "cancel");
+  await s1;
+  assert.equal(a, false);
+
+  // session cancel unblocks a pending plan as false
+  let b: boolean | "unset" = "unset";
+  const c2 = new SessionController({
+    postMessage: () => {},
+    confirmTool: async () => true,
+    loop: async ({ confirmPlan, signal }) => { b = await confirmPlan({ estimate: 2 }); return { terminal: signal?.aborted ? "cancelled" : "generated" }; },
+  });
+  const s2 = c2.start({ intent: "x", boardId: "b" });
+  c2.cancel();
+  await s2;
+  assert.equal(b, false);
+});
+
 test("session controller records UI prompts, confirmations, artifacts, and terminal state", async () => {
   const recorded: any[] = [];
   const controller = new SessionController({

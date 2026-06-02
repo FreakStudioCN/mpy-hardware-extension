@@ -40,7 +40,7 @@ npm run build                        # esbuild 打包到 dist/extension/activate
 
 ### 3. 使用
 
-1. 在活动栏点 **MPY Hardware** 图标打开侧边面板。
+1. 在活动栏点 **Blockless** 图标打开侧边面板。
 2. 确认 API 已在跑——否则设备下拉框显示 “No device — start the API to load boards”,Generate 按钮会一直灰着。
 3. 选一块板子(如 ESP32-S3 DevKitC-1),在输入框描述设备要做什么(中英文皆可),点 **Generate**。
 4. 在 Activity / Code / Serial / Wiring 四个标签里看生成过程与结果。agent 思考时状态栏会有蓝色转圈动画;出错则变红色静止文字。

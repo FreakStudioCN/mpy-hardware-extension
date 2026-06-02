@@ -113,9 +113,15 @@
       .ev-label { font-size: 12.5px; color: var(--fg-bright); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
       .ev-label .kind { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--fg-dim); font-weight: 600; }
       .ev-tool { font-family: var(--mono); font-size: 12px; color: var(--cyan); }
-      .ev-think { font-size: 12.5px; color: #b9b9b9; line-height: 1.55; font-style: italic; }
-      .ev-sum { font-size: 12px; color: var(--fg-muted); margin-top: 3px; line-height: 1.45; }
+      .ev-think { font-size: 12.5px; color: #b9b9b9; line-height: 1.55; font-style: italic; white-space: pre-wrap; word-break: break-word; }
+      .ev-sum { font-size: 12px; color: var(--fg-muted); margin-top: 3px; line-height: 1.45; word-break: break-word; }
       .ev-sum.is-error { color: #ff9a9a; }
+      .ev-sum > div { margin: 3px 0; }
+      .ev-sum .md-h { font-weight: 600; color: var(--fg-bright); margin: 7px 0 2px; }
+      .ev-sum ul, .ev-sum ol { margin: 3px 0; padding-left: 18px; }
+      .ev-sum li { margin: 1px 0; }
+      .ev-sum strong { color: var(--fg-bright); font-weight: 600; }
+      .ev-sum code { font-family: var(--mono); font-size: 11px; background: rgba(255,255,255,0.06); padding: 0 3px; border-radius: 3px; }
       .ev-card.ask { border-color: #a371f733; }
       .ask-row { display: flex; gap: 6px; margin-top: 8px; }
       .ask-input { flex: 1; min-width: 0; background: var(--vsc-input); border: 1px solid var(--vsc-input-border); color: var(--fg); border-radius: 6px; padding: 5px 8px; font-family: var(--ui); font-size: 12px; outline: none; }
@@ -125,6 +131,10 @@
       .ask-send:disabled { background: #3a3a3c; color: #8a8a8a; cursor: default; }
       .ask-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
       .ask-opt { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: var(--ui); }
+      .plan-list { margin: 8px 0 0; padding-left: 16px; font-size: 12px; line-height: 1.6; }
+      .plan-k { color: var(--fg-muted); }
+      .plan-cost { margin-top: 8px; font-size: 12px; font-weight: 600; }
+      .ask-opt.plan-go { background: var(--accent, #2f6feb); color: #fff; border-color: transparent; }
       .ask-opt:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); }
       .ask-opt.chosen { background: var(--accent); color: #fff; border-color: var(--accent); }
       .ask-opt:disabled { opacity: .5; cursor: default; }
@@ -412,6 +422,32 @@
       }
       const ICONS = { thinking: "💭", skill: "📖", tool: "🔧", result: "✓", error: "✕" };
       let currentThink = null; // open thinking card's text node, or null
+      // Render a safe subset of markdown (headings, bullets, ordered lists, bold,
+      // inline code, paragraphs). HTML is escaped first, so LLM output cannot
+      // inject markup — the regexes only re-introduce our own tags.
+      function escapeHtml(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function mdInline(s) {
+        return s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+                .replace(/`([^`]+)`/g, "<code>$1</code>");
+      }
+      function renderMarkdown(src) {
+        const out = []; let list = null;
+        const close = () => { if (list) { out.push("</" + list + ">"); list = null; } };
+        const open = (tag) => { if (list !== tag) { close(); out.push("<" + tag + ">"); list = tag; } };
+        for (const raw of escapeHtml(src).split("\n")) {
+          const t = raw.trim();
+          if (!t) { close(); continue; }
+          let m;
+          if (m = t.match(/^#{1,6}\s+(.*)$/)) { close(); out.push('<div class="md-h">' + mdInline(m[1]) + "</div>"); continue; }
+          if (m = t.match(/^\d+\.\s+(.*)$/)) { open("ol"); out.push("<li>" + mdInline(m[1]) + "</li>"); continue; }
+          if (m = t.match(/^[-*](?!\*)\s*(.+)$/)) { open("ul"); out.push("<li>" + mdInline(m[1]) + "</li>"); continue; }
+          close(); out.push("<div>" + mdInline(t) + "</div>");
+        }
+        close();
+        return out.join("");
+      }
       function addUserMessage(text) {
         $("activityEmpty").classList.add("hidden");
         const card = document.createElement("div");
@@ -453,7 +489,7 @@
           const cls = kind === "error" ? " is-error" : "";
           const label = kind === "result" ? "result" : kind === "skill" ? "skill" : "error";
           card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main"><div class="ev-label"><span class="kind">' + label + '</span></div><div class="ev-sum' + cls + '"></div></div></div></div>';
-          card.querySelector(".ev-sum").textContent = text;
+          card.querySelector(".ev-sum").innerHTML = renderMarkdown(text);
         }
         $("activity").appendChild(card);
         scroll();
@@ -506,6 +542,55 @@
         $("activity").appendChild(card);
         $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
         setTimeout(() => input.focus(), 0);
+      }
+
+      // ----- build plan (confirmation gate before codegen spends credits) -----
+      function addPlanPrompt(promptId, plan) {
+        plan = plan || {};
+        currentThink = null;
+        $("activityEmpty").classList.add("hidden");
+        setTab("activity");
+        setStatus("Review the plan…");
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
+          '<div class="ev-ico skill">📋</div>' +
+          '<div class="ev-main"><div class="ev-label"><span class="kind">plan</span></div>' +
+          '<div class="ev-sum">确认后开始生成代码与接线图</div>' +
+          '<ul class="plan-list"></ul>' +
+          '<div class="plan-cost"></div>' +
+          '<div class="ask-options"><button class="ask-opt plan-go" type="button">确认生成</button><button class="ask-opt plan-cancel" type="button">取消</button></div>' +
+          "</div></div></div>";
+        const rows = [];
+        if (plan.boardId) rows.push(["设备", plan.boardId]);
+        if (Array.isArray(plan.capabilities) && plan.capabilities.length) rows.push(["功能", plan.capabilities.join("、")]);
+        if (Array.isArray(plan.packages) && plan.packages.length) rows.push(["驱动包", plan.packages.join("、")]);
+        if (Array.isArray(plan.wiring) && plan.wiring.length) rows.push(["接线", plan.wiring.map((w) => `${w.role}→${w.pin}`).join("，")]);
+        if (plan.logic && Object.keys(plan.logic).length) rows.push(["行为", Object.entries(plan.logic).map(([k, v]) => `${k}=${v}`).join("，")]);
+        const list = card.querySelector(".plan-list");
+        for (const [label, value] of rows) {
+          const li = document.createElement("li");
+          const b = document.createElement("span"); b.className = "plan-k"; b.textContent = label + "：";
+          li.appendChild(b); li.appendChild(document.createTextNode(value));
+          list.appendChild(li);
+        }
+        const remaining = parseInt($("qUsed").textContent, 10);
+        const est = Number(plan.estimate) || 0;
+        card.querySelector(".plan-cost").textContent =
+          `预计消耗 ~${est} credits` + (Number.isFinite(remaining) ? `（剩余 ${remaining}）` : "");
+        let answered = false;
+        const reply = (answer) => {
+          if (answered) return;
+          answered = true;
+          vscode.postMessage({ type: "ui_prompt_response", promptId, answer });
+          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; });
+          awaitingUser = false; markActivity();
+          setStatus(answer === "confirm" ? "Generating…" : "Cancelled");
+        };
+        card.querySelector(".plan-go").addEventListener("click", () => reply("confirm"));
+        card.querySelector(".plan-cancel").addEventListener("click", () => reply("cancel"));
+        $("activity").appendChild(card);
+        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
       }
 
       // ----- Code -----
@@ -573,14 +658,44 @@
         if (/3v3|vcc|vbus|vsys|power|5v/i.test(role)) return "power";
         return "signal";
       }
+      // Friendly labels for bus connection pins in the rich (LLM) wiring shape.
+      const BUS_SIGNAL = { sda: "Data (SDA)", scl: "Clock (SCL)", mosi: "Data (MOSI)", miso: "Data (MISO)",
+        sck: "Clock (SCK)", cs: "Chip select (CS)", tx: "TX", rx: "RX", power: "Power 3V3", vcc: "Power 3V3", gnd: "Ground" };
+      // The offline pipeline emits a flat [{role,pin}] array; the live LLM emits a
+      // richer bus-keyed object ({ i2c: { sda, scl, devices:[{address,label}] } }),
+      // which can show several devices sharing one bus. Render both shapes.
       function buildComponents(manifest) {
-        const wiring = (manifest && manifest.wiring) || [];
-        const byComp = {};
-        for (const w of wiring) {
-          const map = ROLE_MAP[w.role] || { signal: humanize(w.role), comp: "other", kind: classifyRole(w.role) };
-          (byComp[map.comp] = byComp[map.comp] || []).push({ signal: map.signal, kind: map.kind, pin: w.pin });
+        const wiring = manifest && manifest.wiring;
+        if (Array.isArray(wiring)) {
+          const byComp = {};
+          for (const w of wiring) {
+            const map = ROLE_MAP[w.role] || { signal: humanize(w.role), comp: "other", kind: classifyRole(w.role) };
+            (byComp[map.comp] = byComp[map.comp] || []).push({ signal: map.signal, kind: map.kind, pin: w.pin });
+          }
+          return Object.keys(byComp).map((k) => ({ key: k, ...(COMPONENTS[k] || COMPONENTS.other), pins: byComp[k] }));
         }
-        return Object.keys(byComp).map((k) => ({ key: k, ...(COMPONENTS[k] || COMPONENTS.other), pins: byComp[k] }));
+        if (wiring && typeof wiring === "object") {
+          const comps = [];
+          for (const [bus, spec] of Object.entries(wiring)) {
+            if (!spec || typeof spec !== "object") continue;
+            const pins = [];
+            for (const [k, v] of Object.entries(spec)) {
+              if (k === "devices" || v == null || typeof v === "object") continue;
+              pins.push({ signal: BUS_SIGNAL[k.toLowerCase()] || humanize(k), kind: classifyRole(k), pin: String(v) });
+            }
+            const busLabel = bus.toUpperCase();
+            const devices = Array.isArray(spec.devices) ? spec.devices : [];
+            if (devices.length) {
+              for (const d of devices) {
+                comps.push({ key: bus, name: (d && d.label) || (busLabel + " device"), part: (d && d.address) ? (busLabel + " · " + d.address) : (busLabel + " bus"), pins });
+              }
+            } else {
+              comps.push({ key: bus, name: busLabel + " bus", part: "", pins });
+            }
+          }
+          return comps;
+        }
+        return [];
       }
       function driverFor(comp, manifest) {
         const refs = (manifest && manifest.driver_context_refs) || [];
@@ -589,7 +704,9 @@
         return ref ? ref.split("@")[0] : "";
       }
       function renderWiring(manifest) {
-        const comps = buildComponents(manifest);
+        let comps;
+        try { comps = buildComponents(manifest); }
+        catch (e) { console.error("renderWiring: unrecognized manifest.wiring shape", e); comps = []; }
         const host = $("wiring");
         if (!comps.length) { $("wiringEmpty").classList.remove("hidden"); host.innerHTML = ""; return; }
         $("wiringEmpty").classList.add("hidden");
@@ -637,11 +754,21 @@
         }
         if (msg.type === "trace_event") { markActivity(); addActivity(msg.event); }
         if (msg.type === "ui_prompt_needed") { awaitingUser = true; addAskPrompt(msg.promptId, msg.question, msg.options); }
+        if (msg.type === "plan_needed") { awaitingUser = true; addPlanPrompt(msg.promptId, msg.plan); }
         if (msg.type === "code_updated") { markActivity(); renderCode(msg.code); if (activeTab === "activity") setTab("code"); }
         if (msg.type === "manifest_updated") { markActivity(); renderWiring(msg.manifest); }
         if (msg.type === "serial_output") { markActivity(); addSerial(msg.lines); }
         if (msg.type === "session_error") {
-          const FRIENDLY_ERR = { out_of_credits: "Out of credits — resets at midnight UTC", sign_in_required: "Sign in with GitHub to start" };
+          const FRIENDLY_ERR = {
+            out_of_credits: "Out of credits — resets at midnight UTC",
+            sign_in_required: "Sign in with GitHub to start",
+            auth_provider_unavailable: "VS Code GitHub auth is unavailable",
+            github_session_failed: "GitHub sign-in did not complete in VS Code",
+            github_session_unavailable: "Sign in with GitHub to start",
+            github_token_exchange_failed: "GitHub sign-in reached the API, but token exchange failed",
+            github_token_exchange_unreachable: "Cannot reach the auth API",
+            github_token_missing: "Auth API returned no session token",
+          };
           const text = FRIENDLY_ERR[msg.error] || msg.error;
           if (msg.error === "out_of_credits") { quotaExhausted = true; $("quota").classList.add("exhausted"); updateGenerateEnabled(); }
           addActivity({ text }); setStatus(text, "error");

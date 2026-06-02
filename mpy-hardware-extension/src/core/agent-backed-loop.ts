@@ -44,6 +44,9 @@ type LoopInput = {
   onEvent?: (event: any) => void;
   confirmTool?: (tool: any) => Promise<boolean>;
   askUser?: (question: string, options?: string[]) => Promise<string | null>;
+  // Build-plan gate: the host shows the requirements + credit estimate and resolves
+  // true to proceed with codegen, false to cancel. Undefined (headless/test) = proceed.
+  confirmPlan?: (plan: BuildPlan) => Promise<boolean>;
   signal?: AbortSignal;
   availableBoards?: Array<{ board_id: string; display_name?: string }>;
 };
@@ -75,6 +78,39 @@ function buildOpening(input: LoopInput): string {
 function stripCodeFences(text: string): string {
   const fenced = text.match(/```(?:python|py)?\s*([\s\S]*?)```/i);
   return fenced ? fenced[1] : text;
+}
+
+export type BuildPlan = {
+  intent: string;
+  boardId?: string;
+  capabilities: string[];
+  packages: string[];
+  wiring: Array<{ role: string; pin: string }>;
+  logic: Record<string, any>;
+  estimate: number;
+};
+
+// Rough, deterministic credit estimate for the build (codegen + audit + deploy).
+// The exact token count is unknown before generation, so this is a ballpark the
+// user can sanity-check at the plan gate: a base for codegen+audit plus one per
+// driver package. 1 credit = 10k tokens.
+export function estimateCredits(manifest: any): number {
+  const packages = Array.isArray(manifest?.packages) ? manifest.packages.length : 0;
+  return 2 + packages;
+}
+
+// Human-readable build plan derived deterministically from the manifest + intent.
+// Drives the host's plan card; no LLM call.
+function buildPlan(manifest: any, intent: string): BuildPlan {
+  return {
+    intent,
+    boardId: manifest?.board_id,
+    capabilities: manifest?.capabilities ?? [],
+    packages: (manifest?.packages ?? []).map((p: any) => (typeof p === "string" ? p : p?.name)).filter(Boolean),
+    wiring: Array.isArray(manifest?.wiring) ? manifest.wiring : [],
+    logic: manifest?.logic ?? {},
+    estimate: estimateCredits(manifest),
+  };
 }
 
 // Real ReAct loop: the LLM (DeepSeek, via /v1/llm/messages) drives
@@ -179,15 +215,25 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           return { ok: true, manifest: toolInput.manifest };
         }
         if (name === "generate_code") {
+          // Surface the manifest first so the wiring view renders as part of the
+          // plan the user reviews — before any (paid) codegen runs. Also covers the
+          // case where the agent skipped (or never validated) a propose_manifest call.
+          onEvent({ type: "manifest_updated", manifest: toolInput.manifest });
+          // Plan gate (deterministic, once per session): show requirements + a rough
+          // credit estimate and wait for confirmation before spending on codegen.
+          // Repair-loop regenerations keep planConfirmed=true and skip the prompt.
+          if (!state.planConfirmed) {
+            const plan = buildPlan(toolInput.manifest, input.intent);
+            const approved = typeof input.confirmPlan === "function" ? await input.confirmPlan(plan) : true;
+            if (!approved) return { ok: false, error_kind: "user_cancelled" };
+            state.planConfirmed = true;
+          }
           // One path: grounded LLM generation for every part. No per-sensor
           // special-casing. (The deterministic template lives only in the
           // offline MPYHW_LOOP=template pipeline.)
           const contexts = contextsForCodegen(toolInput.manifest);
           const generated = await generateCodeViaLlm(toolInput.manifest, contexts);
           if (!generated.ok) return { ok: false, error_kind: "codegen_failed", error: generated.error };
-          // Surface the manifest that produced this code so the wiring view renders,
-          // even when the agent skipped (or never validated) a propose_manifest call.
-          onEvent({ type: "manifest_updated", manifest: toolInput.manifest });
           onEvent({ type: "code_updated", code: generated.code });
           return { ok: true, path: toolInput.target_path ?? "main.py", code: generated.code };
         }

@@ -9,7 +9,7 @@ import { createDeviceShim } from "../extension/device-shim.ts";
 import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
 
-type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template" };
+type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void };
 
 // Open the UI as an editor-area tab. Kept for the mpyhw.openPanel command and
 // existing tests; the docked sidebar uses createViewProvider below.
@@ -40,7 +40,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
-  const auth = createGithubAuth({ vscode, apiBaseUrl, fetchImpl });
+  const auth = createGithubAuth({ vscode, apiBaseUrl, fetchImpl, log: deps.log });
   const workspaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
   let availableBoards: any[] = [];
   const controller = new SessionController({
@@ -85,7 +85,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       if (vscode.authentication) {
         const jwt = await auth.getToken(true);
         if (!jwt) {
-          webview.postMessage({ type: "session_error", error: "sign_in_required" });
+          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
           webview.postMessage({ type: "session_done", terminal: "session_error" });
           return;
         }

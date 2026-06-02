@@ -314,6 +314,18 @@ def test_system_prompt_clarifies_ambiguous_intent_instead_of_refusing():
     assert "<not_hardware>" not in routes_llm.SYSTEM_PROMPT
 
 
+def test_system_prompt_drives_autonomously_without_a_next_step_menu():
+    from app import routes_llm
+
+    prompt = routes_llm.SYSTEM_PROMPT
+    # After audit the agent must deploy on its own, never stall with a text menu;
+    # wiring is auto-rendered and the host owns the build-plan confirmation.
+    assert "NEVER end your turn with a plain-text menu" in prompt
+    assert "proceed autonomously through deployment" in prompt
+    assert "rendered automatically from the manifest" in prompt
+    assert "do NOT ask the user whether to generate" in prompt
+
+
 def test_llm_local_tools_expose_parameter_schemas():
     from app import routes_llm
 

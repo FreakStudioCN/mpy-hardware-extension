@@ -79,9 +79,11 @@ test("records assistant text, tool use, and complete tool result observations", 
   assert.deepEqual(recorded[2].observation.output.results, [{ name: "ssd1306_driver", version: "1.0.0" }]);
 });
 
-test("two consecutive text-only turns end as awaiting_user (one nudge first)", async () => {
-  // The model keeps replying in plain text with no tool call. The loop nudges once,
-  // then hands back to the user — never re-querying forever toward max_turns.
+test("a text-only turn ends immediately as awaiting_user with no nudge", async () => {
+  // A turn with no tool call is the model handing control back to the user (a
+  // final summary, an answer, or a clarification). The loop ends right there —
+  // it never nudges the model into another turn (which used to make it re-ask
+  // "what do you want to do next" via ask_user after a finished build).
   let turns = 0;
   const result = await runAgentLoop({
     state: baseState(),
@@ -90,25 +92,27 @@ test("two consecutive text-only turns end as awaiting_user (one nudge first)", a
   });
 
   assert.equal(result.terminal, "awaiting_user");
-  assert.equal(turns, 2);
-  // The single nudge was appended after the first tool-less turn.
-  assert.equal(result.state.messages.filter((m: any) => m.role === "user" && typeof m.content === "string").length, 1);
+  assert.equal(turns, 1);
+  // No nudge message was appended — the only user-role string message would be a nudge.
+  assert.equal(result.state.messages.filter((m: any) => m.role === "user" && typeof m.content === "string").length, 0);
 });
 
-test("a tool-less narration followed by a tool call resets the counter and continues", async () => {
-  // A chatty mid-build narration (no tool call) must not abandon the build: the
-  // nudge gives the model another turn, it calls a tool, and the run completes.
+test("a tool-less narration ends the turn without reaching the next turn", async () => {
+  // Accepted tradeoff: a chatty mid-build narration (text, no tool call) ends the
+  // turn instead of being nudged onward. The second scripted turn is never reached.
+  let dispatched = 0;
   const result = await runAgentLoop({
     state: baseState(),
     sseClient: scripted([
       [{ type: "text_delta", text: "Let me allocate the pins first." }, { type: "message_stop" }],
       [{ type: "tool_use_complete", id: "1", name: "read_serial_until", input: {} }, { type: "message_stop" }],
     ]),
-    dispatchTool: async () => ({ ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"] }),
+    dispatchTool: async () => (dispatched++, { ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"] }),
   });
 
-  assert.equal(result.terminal, "success");
-  assert.equal(result.state.textOnlyTurns, 0);
+  assert.equal(result.terminal, "awaiting_user");
+  // The second (tool-calling) turn is never reached, so no tool is dispatched.
+  assert.equal(dispatched, 0);
 });
 
 test("max turns and repair exhaustion are deterministic", async () => {

@@ -60,6 +60,7 @@ export class SessionController {
           return allowed;
         },
         askUser: (question: string, options?: string[]) => this.askUser(question, options),
+        confirmPlan: (plan: any) => this.confirmPlan(plan),
         recorder: this.recorder,
         signal: this.abort.signal,
       });
@@ -96,6 +97,19 @@ export class SessionController {
       this.pendingPrompts.set(promptId, resolve);
       this.record({ type: "ui_prompt", promptId, question, options });
       this.deps.postMessage({ type: "ui_prompt_needed", promptId, question, options });
+    });
+  }
+
+  // Build-plan gate: show the requirements + credit estimate and resolve true when
+  // the user confirms. Reuses the pendingPrompts round-trip (webview replies via the
+  // same ui_prompt_response with answer "confirm"/"cancel"); a cancelled/finished
+  // session resolves it false through cancelPrompts.
+  confirmPlan(plan: any): Promise<boolean> {
+    const promptId = `plan-${++this.promptSeq}`;
+    return new Promise<boolean>((resolve) => {
+      this.pendingPrompts.set(promptId, (answer) => resolve(answer === "confirm"));
+      this.record({ type: "plan_proposed", promptId, plan });
+      this.deps.postMessage({ type: "plan_needed", promptId, plan });
     });
   }
 
