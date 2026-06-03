@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to the same ref supersedes in-flight runs — don't burn minutes on stale commits.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   extension:
     name: extension (node + cross-process)
@@ -12,17 +17,38 @@ jobs:
     defaults:
       run:
         working-directory: mpy-hardware-extension
+    # The e2e smoke test spawns the real API, which now requires Postgres.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mpyhw_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mpyhw_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mpyhw_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: mpy-hardware-extension/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: mpyhw-api/requirements.txt
       # The shim round-trip and the agent-loop<->API e2e spawn real Python; install
       # the API deps so they RUN. MPYHW_REQUIRE_CONTRACT_TESTS makes a missing
-      # interpreter/golden a HARD FAILURE instead of a silent skip.
+      # interpreter/golden/DB a HARD FAILURE instead of a silent skip.
       - name: Install API deps (for the e2e smoke test)
         run: pip install -r ../mpyhw-api/requirements.txt
       - run: npm ci
@@ -35,11 +61,31 @@ jobs:
   api:
     name: api + device-shim (pytest)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mpyhw_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mpyhw_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mpyhw_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            mpyhw-api/requirements.txt
+            mpy-hardware-extension/python/shim/requirements.txt
       - name: Install API deps
         run: pip install -r mpyhw-api/requirements.txt
       - name: Test API

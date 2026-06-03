@@ -148,14 +148,34 @@
       .code-head .grow { flex: 1; }
       .code-act { background: transparent; border: 0; color: var(--fg-muted); cursor: pointer; font-size: 11px; padding: 3px 7px; border-radius: 5px; font-family: var(--ui); }
       .code-act:hover { background: var(--vsc-hover); color: var(--fg); }
-      .code-block { font-family: var(--mono); font-size: 12px; line-height: 18px; padding: 8px 0 24px; }
+      .code-block { font-family: var(--mono); font-size: 12px; line-height: 18px; padding: 8px 0 12px; }
       .code-row { display: flex; }
       .code-row:hover { background: #ffffff07; }
-      .code-gut { width: 42px; flex: 0 0 42px; text-align: right; padding-right: 14px; color: #5a5a5a; user-select: none; }
+      /* line-number gutter stays pinned while the code scrolls horizontally (editor-like) */
+      .code-gut { position: sticky; left: 0; z-index: 1; background: var(--vsc-card); width: 42px; flex: 0 0 42px; text-align: right; padding-right: 14px; color: #5a5a5a; user-select: none; }
       .code-src { white-space: pre; padding-right: 14px; color: #d4d4d4; }
       .tok-comment { color: var(--tok-comment); } .tok-string { color: var(--tok-string); }
       .tok-num { color: var(--tok-num); } .tok-kw { color: var(--tok-kw); }
       .tok-fn { color: var(--tok-fn); } .tok-const { color: var(--tok-const); }
+      /* code card in the activity feed (Claude Code / Cursor style: header + copy,
+         horizontal scroll with a clean thin scrollbar, no wrapping) */
+      .code-card-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--vsc-border-soft); background: #ffffff05; }
+      .code-file { display: flex; align-items: center; gap: 6px; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--fg); }
+      .code-file svg { flex: 0 0 auto; color: var(--fg-dim); }
+      .code-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .code-copy { margin-left: auto; flex: 0 0 auto; background: transparent; border: 1px solid var(--vsc-input-border); color: var(--fg-muted); cursor: pointer; font-size: 11px; padding: 2px 9px; border-radius: 5px; font-family: var(--ui); }
+      .code-copy:hover { background: var(--vsc-hover); color: var(--fg-bright); border-color: var(--accent); }
+      .code-copy.done { color: var(--green); border-color: #3fb95055; }
+      .ev-code { overflow: hidden; background: transparent; }
+      .ev-code .code-block, .code-pre { max-height: 320px; overflow: auto; }
+      .code-pre { margin: 0; padding: 8px 12px; font-family: var(--mono);
+        font-size: 12px; line-height: 18px; color: #d4d4d4; white-space: pre; }
+      .ev-code .code-block::-webkit-scrollbar, .code-pre::-webkit-scrollbar { width: 10px; height: 10px; }
+      .ev-code .code-block::-webkit-scrollbar-thumb, .code-pre::-webkit-scrollbar-thumb { background: #ffffff1a; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+      .ev-code .code-block::-webkit-scrollbar-thumb:hover, .code-pre::-webkit-scrollbar-thumb:hover { background: #ffffff33; background-clip: padding-box; }
+      .ev-code .code-block::-webkit-scrollbar-corner, .code-pre::-webkit-scrollbar-corner { background: transparent; }
+      /* in-feed "working" spinner — immediate feedback during a silent LLM call */
+      .feed-spin { width: 13px; height: 13px; flex: 0 0 auto; border-radius: 50%; border: 1.6px solid #ffffff26; border-top-color: var(--accent); animation: spin .7s linear infinite; }
 
       /* serial tab */
       .serial-head .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-dim); }
@@ -220,7 +240,7 @@
 
       .fade-in { animation: fadeIn .28s ease both; }
       @keyframes fadeIn { from { transform: translateY(5px); } to { transform: none; } }
-      @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .composer-bar .ctx.thinking .spin { animation: none; } }
+      @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .composer-bar .ctx.thinking .spin { animation: none; } .feed-spin { animation: none; } }
     </style>
   </head>
   <body>
@@ -244,7 +264,6 @@
 
       <div class="tabs" id="tabs">
         <button class="tab active" data-tab="activity">Activity</button>
-        <button class="tab" data-tab="code">Code</button>
         <button class="tab" data-tab="serial">Serial</button>
         <button class="tab" data-tab="wiring">Wiring</button>
       </div>
@@ -254,14 +273,6 @@
         <div class="view" data-view="activity">
           <div class="activity" id="activity"></div>
           <div class="empty" id="activityEmpty"><h4>Ready</h4><p>Describe what your device should do, then press Generate.</p></div>
-        </div>
-        <!-- Code -->
-        <div class="view hidden" data-view="code">
-          <div id="codeFilled" class="hidden">
-            <div class="code-head"><span class="file">main.py</span><span class="grow"></span><button class="code-act" id="copyCode">Copy</button></div>
-            <div class="code-block" id="code"></div>
-          </div>
-          <div class="empty" id="codeEmpty"><h4>No code yet</h4><p>Generated MicroPython will appear here.</p></div>
         </div>
         <!-- Serial -->
         <div class="view hidden" data-view="serial">
@@ -364,17 +375,28 @@
       // ----- liveness heartbeat -----
       // The spinner alone only says "the session hasn't ended". During a long,
       // silent LLM call (e.g. codegen) that's indistinguishable from a hang, so
-      // surface elapsed time and how long since the last sign of activity.
-      let runStartAt = 0, lastActivityAt = 0, heartbeatTimer = null, awaitingUser = false;
-      function markActivity() { lastActivityAt = Date.now(); }
+      // show *what* the agent is doing plus a per-second active-work timer — that
+      // moving timer + spinner is the "still alive" signal (Claude-Code style).
+      // User-facing phase labels the agent emits (mirror of userVisibleToolPhase
+      // in core/agent-backed-loop.ts — keep in sync; unknown phases fall back to
+      // the generic "thinking" label, so any drift just degrades gracefully).
+      const PHASE_LABELS = new Set([
+        "读取开发板资料", "查找可用驱动", "读取驱动资料", "准备接线方案", "生成代码",
+        "检查代码", "安装驱动包", "写入设备", "运行设备", "读取串口输出",
+        "加载硬件规则", "读取工作区文件", "扫描设备",
+      ]);
+      // Active-work accounting: time spent waiting for the user (ask_user / plan /
+      // deploy) must NOT inflate the timer. activeMs accumulates completed segments;
+      // segStart marks the open segment (0 while paused).
+      let activeMs = 0, segStart = 0, currentPhase = null, heartbeatTimer = null, awaitingUser = false;
+      function activeElapsed() { return activeMs + (segStart ? Date.now() - segStart : 0); }
+      function markActivity() { if (!segStart) segStart = Date.now(); } // resumes after a pause
+      function pauseTimer() { if (segStart) { activeMs += Date.now() - segStart; segStart = 0; } }
       function fmtSecs(ms) { return Math.round(ms / 1000) + "s"; }
       function tickHeartbeat() {
         if (!running || awaitingUser) return;
-        const now = Date.now();
-        const idle = now - lastActivityAt;
-        let text = "Generating… " + fmtSecs(now - runStartAt);
-        if (idle > 15000) text += " · 已 " + fmtSecs(idle) + " 无新动作";
-        setStatus(text);
+        setStatus((currentPhase || "thinking") + "… " + fmtSecs(activeElapsed()));
+        if (pendingCard) pendingCard.querySelector(".pending-label").textContent = pendingLabel + " " + fmtSecs(activeElapsed());
       }
       function setRunning(on) {
         running = on;
@@ -387,7 +409,7 @@
         if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
         if (on) {
           awaitingUser = false;
-          runStartAt = lastActivityAt = Date.now();
+          activeMs = 0; segStart = Date.now(); currentPhase = null;
           heartbeatTimer = setInterval(tickHeartbeat, 1000);
         }
         updateGenerateEnabled();
@@ -402,7 +424,7 @@
         addUserMessage(intent);
         $("intent").value = "";
         $("intent").style.height = "auto";
-        setTab("activity"); setRunning(true); setStatus("Generating…");
+        setTab("activity"); setRunning(true); setStatus("thinking…");
         // boardId "auto": the agent recommends a board and confirms it in chat.
         vscode.postMessage({ type: "start_session", intent, boardId: "auto" });
       });
@@ -410,7 +432,6 @@
       ta.addEventListener("focus", () => $("composerBox").classList.add("focused"));
       ta.addEventListener("blur", () => $("composerBox").classList.remove("focused"));
       ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; });
-      $("copyCode").addEventListener("click", () => { if (lastCode) navigator.clipboard?.writeText(lastCode); });
 
       // ----- Activity -----
       function isInternalActivity(text) {
@@ -425,6 +446,25 @@
       }
       const ICONS = { thinking: "•", skill: "•", tool: "•", result: "•", error: "•" };
       let currentThink = null; // open thinking card's text node, or null
+      let currentCode = null;  // open streaming code card { pre, host, path }, or null
+      // In-feed "working" indicator. After a user action (confirm plan / answer) the
+      // next visible event is the LLM's first token, which can be seconds away — an
+      // empty feed reads as a hang. setPending drops an immediate spinner card; the
+      // heartbeat ticks its label, and any real content clears it.
+      let pendingCard = null, pendingLabel = "";
+      function setPending(label) {
+        pendingLabel = label;
+        if (!pendingCard) {
+          $("activityEmpty").classList.add("hidden");
+          pendingCard = document.createElement("div");
+          pendingCard.className = "ev fade-in feed-pending";
+          pendingCard.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico thinking"><span class="feed-spin"></span></div><div class="ev-main"><div class="ev-think pending-label"></div></div></div></div>';
+          $("activity").appendChild(pendingCard);
+        }
+        pendingCard.querySelector(".pending-label").textContent = label;
+        const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
+      }
+      function clearPending() { if (pendingCard) { pendingCard.remove(); pendingCard = null; } }
       // Render a safe subset of markdown (headings, bullets, ordered lists, bold,
       // inline code, paragraphs). HTML is escaped first, so LLM output cannot
       // inject markup — the regexes only re-introduce our own tags.
@@ -465,6 +505,7 @@
         const text = (ev && typeof ev.text === "string") ? ev.text : JSON.stringify(ev);
         if (!text) return;
         if (isInternalActivity(text)) return;
+        clearPending();
         $("activityEmpty").classList.add("hidden");
         const kind = classifyActivity(text);
         const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
@@ -502,6 +543,7 @@
       // ----- ask_user (interactive prompt; pauses the agent until answered) -----
       function addAskPrompt(promptId, question, options) {
         currentThink = null;
+        clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
         setStatus("Waiting for your answer…");
@@ -514,7 +556,7 @@
           '<div class="ask-options"></div>' +
           '<div class="ask-row"><input class="ask-input" type="text" placeholder="Type your answer…"><button class="ask-send">Send</button></div>' +
           "</div></div></div>";
-        card.querySelector(".ask-q").textContent = question;
+        card.querySelector(".ask-q").innerHTML = renderMarkdown(question);
         const input = card.querySelector(".ask-input");
         const send = card.querySelector(".ask-send");
         let answered = false;
@@ -528,7 +570,8 @@
           const a = document.createElement("div"); a.className = "ask-answer"; a.textContent = "• " + answer;
           card.querySelector(".ev-main").appendChild(a);
           awaitingUser = false; markActivity();
-          setStatus("Generating…");
+          setStatus("thinking…");
+          setPending("thinking…");
         };
         // Choices presented in the conversation render as clickable options; the
         // text box stays for a free-form answer.
@@ -552,6 +595,7 @@
       function addPlanPrompt(promptId, plan) {
         plan = plan || {};
         currentThink = null;
+        clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
         setStatus("Review the plan…");
@@ -577,10 +621,16 @@
           li.appendChild(b); li.appendChild(document.createTextNode(value));
           list.appendChild(li);
         }
+        // Honest cost framing: this is the estimate for THIS build step only, shown
+        // alongside what the session has already consumed and what's left — so "~N
+        // credits" isn't misread as the whole session's cost.
         const remaining = parseInt($("qUsed").textContent, 10);
         const est = Number(plan.estimate) || 0;
-        card.querySelector(".plan-cost").textContent =
-          `预计消耗 ~${est} credits` + (Number.isFinite(remaining) ? `（剩余 ${remaining}）` : "");
+        const used = (lastDailyGrant > 0 && Number.isFinite(remaining)) ? lastDailyGrant - remaining : null;
+        let costText = `本步预计 ~${est} credits`;
+        if (used != null) costText += `｜本次会话已用 ${used}`;
+        if (Number.isFinite(remaining)) costText += `｜剩余 ${remaining}`;
+        card.querySelector(".plan-cost").textContent = costText;
         let answered = false;
         const reply = (answer) => {
           if (answered) return;
@@ -588,7 +638,8 @@
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer });
           card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; });
           awaitingUser = false; markActivity();
-          setStatus(answer === "confirm" ? "Generating…" : "Cancelled");
+          setStatus(answer === "confirm" ? "thinking…" : "Cancelled");
+          if (answer === "confirm") setPending("正在生成代码…");
         };
         card.querySelector(".plan-go").addEventListener("click", () => reply("confirm"));
         card.querySelector(".plan-cancel").addEventListener("click", () => reply("cancel"));
@@ -596,13 +647,87 @@
         $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
       }
 
-      // ----- Code -----
-      let lastCode = "";
-      function renderCode(code) {
-        lastCode = code;
-        $("codeEmpty").classList.add("hidden");
-        $("codeFilled").classList.remove("hidden");
-        const host = $("code"); host.innerHTML = "";
+      // ----- deploy checkpoint (board connection + wiring, before install/flash) -----
+      let currentDeployCard = null;
+      function addDeployPrompt(promptId, manifest) {
+        currentThink = null;
+        clearPending();
+        $("activityEmpty").classList.add("hidden");
+        setTab("activity");
+        setStatus("Confirm wiring & connection…");
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
+          '<div class="ev-ico skill">•</div>' +
+          '<div class="ev-main"><div class="ev-label"><span class="kind">deploy</span></div>' +
+          '<div class="ev-sum">按下面的接线图连接好硬件，确认开发板已插入后再部署</div>' +
+          '<div class="deploy-wiring"></div>' +
+          '<div class="deploy-status">正在检测开发板…</div>' +
+          '<div class="deploy-ports"></div>' +
+          '<div class="ask-options"><button class="ask-opt deploy-go" type="button" disabled>部署</button><button class="ask-opt deploy-rescan" type="button">重新扫描</button><button class="ask-opt deploy-cancel" type="button">取消</button></div>' +
+          "</div></div></div>";
+        const wiring = wiringMarkup(manifest);
+        if (wiring) card.querySelector(".deploy-wiring").innerHTML = wiring;
+        const statusEl = card.querySelector(".deploy-status");
+        const portsEl = card.querySelector(".deploy-ports");
+        const goBtn = card.querySelector(".deploy-go");
+        let answered = false;
+        let selectedPort = null;
+        const reply = (answer) => {
+          if (answered) return;
+          answered = true;
+          // Carry the chosen port on the prompt response itself so the host sets it
+          // before unblocking the agent — a separate select_device message races the
+          // resolve and the first device tool can fire before the port lands.
+          vscode.postMessage({ type: "ui_prompt_response", promptId, answer, port: answer === "confirm" ? selectedPort : null });
+          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; });
+          currentDeployCard = null;
+          awaitingUser = false; markActivity();
+          setStatus(answer === "confirm" ? "Deploying…" : "Cancelled");
+        };
+        goBtn.addEventListener("click", () => reply("confirm"));
+        card.querySelector(".deploy-cancel").addEventListener("click", () => reply("cancel"));
+        card.querySelector(".deploy-rescan").addEventListener("click", () => { statusEl.textContent = "正在检测开发板…"; vscode.postMessage({ type: "deploy_rescan" }); });
+        // Updated by deploy_ports_updated: no board -> Deploy stays disabled; one
+        // board -> auto-selected; several -> the user picks one before deploying.
+        currentDeployCard = {
+          setPorts: (ports) => {
+            ports = Array.isArray(ports) ? ports : [];
+            portsEl.innerHTML = "";
+            if (!ports.length) {
+              statusEl.textContent = "未检测到开发板，请连接后点击“重新扫描”";
+              selectedPort = null; goBtn.disabled = true; return;
+            }
+            if (ports.length === 1) {
+              selectedPort = ports[0];
+              statusEl.textContent = "已连接：" + ports[0];
+            } else {
+              statusEl.textContent = "检测到多个设备，请选择：";
+              selectedPort = null;
+              ports.forEach((p) => {
+                const b = document.createElement("button");
+                b.className = "ask-opt"; b.type = "button"; b.textContent = p;
+                b.addEventListener("click", () => {
+                  selectedPort = p;
+                  portsEl.querySelectorAll(".ask-opt").forEach((x) => x.classList.remove("chosen"));
+                  b.classList.add("chosen"); goBtn.disabled = false;
+                });
+                portsEl.appendChild(b);
+              });
+            }
+            goBtn.disabled = selectedPort == null;
+          },
+        };
+        $("activity").appendChild(card);
+        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
+        vscode.postMessage({ type: "deploy_rescan" });
+      }
+
+      // ----- Code (streamed live into the activity feed) -----
+      // No separate Code tab: codegen streams into the activity feed as a growing
+      // block, then lands as a real .py file in the workspace (opened in the editor).
+      function codeRowsInto(host, code) {
+        host.innerHTML = "";
         highlightLines(code.replace(/\n$/, "")).forEach((toks, i) => {
           const row = document.createElement("div"); row.className = "code-row";
           const gut = document.createElement("div"); gut.className = "code-gut"; gut.textContent = String(i + 1);
@@ -610,7 +735,50 @@
           toks.forEach((t) => { const s = document.createElement("span"); if (t.cls) s.className = t.cls; s.textContent = t.text; src.appendChild(s); });
           row.append(gut, src); host.appendChild(row);
         });
-        markNew("code");
+      }
+      // Append a codegen token to the open code card, or open a new one (one card
+      // per file — multi-file projects get a card each).
+      function streamCodeDelta(text, path) {
+        clearPending();
+        const file = path || "main.py";
+        const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
+        if (currentCode && currentCode.path === file) { currentCode.raw += text; currentCode.pre.textContent = currentCode.raw; currentCode.card.__code = currentCode.raw; scroll(); return; }
+        currentThink = null; // a code stream closes any open thinking card
+        $("activityEmpty").classList.add("hidden");
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        // Code card: filename + Copy header, then the code body (raw <pre> while
+        // streaming, swapped for highlighted line-numbered rows on finalize).
+        card.innerHTML = '<div class="ev-card code-card"><div class="code-card-head">' +
+          '<span class="code-file"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v5h5" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="code-name"></span></span>' +
+          '<button class="code-copy" type="button">Copy</button>' +
+          '</div><div class="ev-code"><pre class="code-pre"></pre></div></div>';
+        card.querySelector(".code-name").textContent = file;
+        const pre = card.querySelector(".code-pre");
+        pre.textContent = text;
+        card.__code = text; // full source for the Copy button (survives finalize)
+        const copyBtn = card.querySelector(".code-copy");
+        copyBtn.addEventListener("click", () => {
+          vscode.postMessage({ type: "copy_code", text: card.__code || "" });
+          copyBtn.textContent = "已复制"; copyBtn.classList.add("done");
+          setTimeout(() => { copyBtn.textContent = "Copy"; copyBtn.classList.remove("done"); }, 1500);
+        });
+        $("activity").appendChild(card);
+        currentCode = { card, pre, raw: text, path: file };
+        scroll();
+      }
+      // Finalize the open code card: swap the raw stream for syntax-highlighted,
+      // line-numbered rows. Handles a code_updated with no preceding deltas.
+      function finalizeCode(code, path) {
+        const file = path || "main.py";
+        if (!currentCode || currentCode.path !== file) streamCodeDelta("", file);
+        if (!currentCode) return;
+        currentCode.card.__code = code; // Copy uses the finalized source
+        const block = document.createElement("div");
+        block.className = "code-block";
+        codeRowsInto(block, code);
+        currentCode.pre.replaceWith(block);
+        currentCode = null;
       }
 
       // ----- Serial -----
@@ -706,13 +874,13 @@
         const ref = refs.find((r) => !/machine_pin_led/.test(r));
         return ref ? ref.split("@")[0] : "";
       }
-      function renderWiring(manifest) {
+      // Build the wiring diagram HTML from a manifest ("" if none). Shared by the
+      // Wiring tab and the deploy checkpoint card so both show the same diagram.
+      function wiringMarkup(manifest) {
         let comps;
         try { comps = buildComponents(manifest); }
-        catch (e) { console.error("renderWiring: unrecognized manifest.wiring shape", e); comps = []; }
-        const host = $("wiring");
-        if (!comps.length) { $("wiringEmpty").classList.remove("hidden"); host.innerHTML = ""; return; }
-        $("wiringEmpty").classList.add("hidden");
+        catch (e) { console.error("wiringMarkup: unrecognized manifest.wiring shape", e); comps = []; }
+        if (!comps.length) return "";
         const boardName = (manifest && manifest.board_id) ? manifest.board_id : "Target board";
         let html = '<div class="wiring"><div class="wire-board">' +
           "<span><b>" + esc(boardName) + "</b> · " + comps.length + " component" + (comps.length > 1 ? "s" : "") + "</span></div>";
@@ -731,13 +899,22 @@
         }
         if (comps.some((c) => c.key === "led")) html += '<div class="wire-note">⚠ LED needs a current-limiting resistor (≈220–330Ω).</div>';
         html += "</div>";
+        return html;
+      }
+      function renderWiring(manifest) {
+        const html = wiringMarkup(manifest);
+        const host = $("wiring");
+        if (!html) { $("wiringEmpty").classList.remove("hidden"); host.innerHTML = ""; return; }
+        $("wiringEmpty").classList.add("hidden");
         host.innerHTML = html;
         markNew("wiring");
       }
       function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
       // ----- credits -----
+      let lastDailyGrant = 0;
       function setCredits(balance, dailyGrant) {
+        if (dailyGrant > 0) lastDailyGrant = dailyGrant;
         $("qUsed").textContent = balance;
         const max = dailyGrant > 0 ? dailyGrant : balance;
         const pct = max > 0 ? Math.min(100, Math.round((balance / max) * 100)) : 0;
@@ -755,10 +932,20 @@
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
           setCredits(msg.event.balance, msg.event.dailyGrant);
         }
-        if (msg.type === "trace_event") { markActivity(); addActivity(msg.event); }
-        if (msg.type === "ui_prompt_needed") { awaitingUser = true; addAskPrompt(msg.promptId, msg.question, msg.options); }
-        if (msg.type === "plan_needed") { awaitingUser = true; addPlanPrompt(msg.promptId, msg.plan); }
-        if (msg.type === "code_updated") { markActivity(); renderCode(msg.code); if (activeTab === "activity") setTab("code"); }
+        if (msg.type === "trace_event") {
+          markActivity();
+          const t = msg.event && typeof msg.event.text === "string" ? msg.event.text.trim() : "";
+          if (PHASE_LABELS.has(t)) currentPhase = t;        // a known tool phase
+          else if (t) currentPhase = "thinking";               // streamed reasoning text
+          tickHeartbeat();                                  // repaint the label now, don't wait up to 1s
+          addActivity(msg.event);
+        }
+        if (msg.type === "ui_prompt_needed") { awaitingUser = true; pauseTimer(); addAskPrompt(msg.promptId, msg.question, msg.options); }
+        if (msg.type === "plan_needed") { awaitingUser = true; pauseTimer(); addPlanPrompt(msg.promptId, msg.plan); }
+        if (msg.type === "deploy_needed") { awaitingUser = true; pauseTimer(); addDeployPrompt(msg.promptId, msg.manifest); }
+        if (msg.type === "deploy_ports_updated") { if (currentDeployCard) currentDeployCard.setPorts(msg.ports); }
+        if (msg.type === "code_delta") { markActivity(); streamCodeDelta(msg.text, msg.path); }
+        if (msg.type === "code_updated") { markActivity(); finalizeCode(msg.code, msg.path); }
         if (msg.type === "manifest_updated") { markActivity(); renderWiring(msg.manifest); }
         if (msg.type === "serial_output") { markActivity(); addSerial(msg.lines); }
         if (msg.type === "device_selected") { markActivity(); addActivity({ type: "trace", text: "Device selected: " + msg.port }); }
@@ -782,6 +969,11 @@
         if (msg.type === "session_done") {
           setRunning(false);
           currentThink = null;
+          currentCode = null;
+          clearPending();
+          // A still-open deploy card is now stale (its prompt was resolved by the
+          // session ending); disable its buttons so clicks can't post stale replies.
+          if (currentDeployCard) { document.querySelectorAll(".deploy-go, .deploy-rescan, .deploy-cancel").forEach((b) => { b.disabled = true; }); currentDeployCard = null; }
           $("serialHead").classList.remove("live");
           document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
           const t = String(msg.terminal);

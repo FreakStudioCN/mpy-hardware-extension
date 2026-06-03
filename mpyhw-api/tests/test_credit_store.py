@@ -5,12 +5,33 @@ from app import credit_store
 USER = {"id": "42", "login": "octocat", "email": None}
 
 
-def test_credits_for_tokens_rounds_up():
-    assert credit_store.credits_for_tokens(0) == 0
-    assert credit_store.credits_for_tokens(1) == 1
-    assert credit_store.credits_for_tokens(10_000) == 1
-    assert credit_store.credits_for_tokens(10_001) == 2
-    assert credit_store.credits_for_tokens(55_000) == 6
+def test_record_tokens_charges_cumulatively_not_per_call():
+    # 20 small calls of 2000 tokens accumulate to 40000 = 4 credits total, instead of
+    # 20 (one per call) under the old ceil-per-call model that burned a day's grant.
+    credit_store.ensure_daily_grant(USER, 50)
+
+    charged = sum(credit_store.record_tokens(USER, 2_000) for _ in range(20))
+
+    assert charged == 4
+
+
+def test_record_tokens_charges_only_on_threshold_crossing():
+    credit_store.ensure_daily_grant(USER, 50)
+
+    assert credit_store.record_tokens(USER, 9_000) == 0   # 0 -> 9000: no full credit yet
+    assert credit_store.record_tokens(USER, 2_000) == 1   # 9000 -> 11000: crosses 10k
+    assert credit_store.record_tokens(USER, 500) == 0     # 11000 -> 11500: no new crossing
+
+
+def test_record_tokens_resets_on_new_utc_day():
+    day1 = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+    day2 = datetime(2026, 6, 2, 0, 30, tzinfo=timezone.utc)
+
+    credit_store.ensure_daily_grant(USER, 50, now=day1)
+    credit_store.record_tokens(USER, 9_000)
+    # A new UTC day zeroes the tally, so the next 2k starts from 0 (no immediate crossing).
+    credit_store.ensure_daily_grant(USER, 50, now=day2)
+    assert credit_store.record_tokens(USER, 2_000) == 0
 
 
 def test_first_grant_creates_user_with_full_balance():
@@ -20,6 +41,16 @@ def test_first_grant_creates_user_with_full_balance():
     assert state["daily_grant"] == 50
     assert state["login"] == "octocat"
     assert state["resets_at"]
+
+
+def test_first_grant_creates_user_balance_and_ledger_row():
+    credit_store.ensure_daily_grant(USER, 50)
+
+    user_row = credit_store.get_user(USER["id"])
+    assert user_row["login"] == "octocat"
+
+    ledger = credit_store.ledger_for_user(USER["id"])
+    assert ledger == [{"action": "grant", "credits": 50, "balance_after": 50, "status": "posted"}]
 
 
 def test_debit_subtracts_and_persists():
@@ -61,6 +92,21 @@ def test_refund_returns_a_reserved_credit():
     credit_store.reserve(USER, 1)
 
     assert credit_store.refund(USER, 1) == 5
+
+
+def test_reserve_debit_and_refund_record_ledger_rows():
+    credit_store.ensure_daily_grant(USER, 5)
+
+    credit_store.reserve(USER, 1)
+    credit_store.debit(USER, 2)
+    credit_store.refund(USER, 1)
+
+    assert credit_store.ledger_for_user(USER["id"]) == [
+        {"action": "grant", "credits": 5, "balance_after": 5, "status": "posted"},
+        {"action": "reserve", "credits": -1, "balance_after": 4, "status": "reserved"},
+        {"action": "debit", "credits": -2, "balance_after": 2, "status": "posted"},
+        {"action": "refund", "credits": 1, "balance_after": 3, "status": "posted"},
+    ]
 
 
 def test_daily_reset_refills_on_new_utc_day():

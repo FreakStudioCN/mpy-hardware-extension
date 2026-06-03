@@ -1,80 +1,108 @@
-# HANDOFF
-
-> Last updated: 2026-06-01 (session: code-review fixes + device-library connect + agent-UX redesign)
-> Workspace: `C:\Users\Haipeng Wu\Desktop\cursor_for_hardware`
-> Three roots: `mpyhw-api/` (FastAPI backend), `mpy-hardware-extension/` (VS Code extension), `docs/`.
+# HANDOFF — Blockless credit/cost-structure fix
 
 ## Goal
+A single hardware project was burning the **entire 50-credit daily grant and dying with
+`out_of_credits` before codegen finished** (real evidence: `.mpyhw/sessions/session-mpxv67yn-d9lrtl3b/session.jsonl`,
+balance trace `50→…→0` then `session_error:"out_of_credits"`). Root cause is the cost
+structure, not an accounting bug: every ReAct round re-sent the full growing context
+(system prompt + ~25-skill catalog + 15 tool defs + all history) at full price, with
+per-call `ceil` rounding. Plan of record: `~/.claude/plans/blockless-credits-34-activity-parsed-crown.md`
+(items A1,A2,A3 = cut re-send / cache; B1,B2 = cache-discount metering; C = cumulative
+metering; D = honest estimate; E = raise grant).
 
-MicroPython "one-sentence-to-hardware" agent MVP. Product path:
-`intent -> capabilities -> API Package Intelligence -> driver context -> manifest -> code -> audit -> shim loop -> serial observation -> repair`.
+## Current Progress (what's DONE and verified)
 
-This session's focus was driven by the user (product owner) hitting real problems while test-driving the live app: a non-hardware request death-looped, the agent refused instead of asking, only one board / one device existed, and an `ask_user` confirm couldn't be answered. Work shifted from "plan execution" to **making the running product actually work and connecting the real device library**.
+**Client (extension) — `mpy-hardware-extension/` — full test suite GREEN (exit 0):**
+- **A1** `compactMessagesForRequest` in `src/core/agent-backed-loop.ts`: stubs stale, bulky
+  tool_result blocks (`query_board_profile`/`get_package_context`/`propose_manifest`/
+  `generate_code`/`read_serial_until`, >800 chars), keeps the last 2 tool-result turns
+  verbatim, never mutates `state.messages`. Tests in `test/agent-backed-loop.test.ts`.
+- **A2** catalog sent only on `state.turnSeq === 0` (same file, `requestMessages`).
+- **D** honest plan-gate cost in `src/webview/index.html`: `本步预计 ~N｜本次会话已用 X｜剩余 Y`
+  (added module-scoped `lastDailyGrant`, set in `setCredits`).
 
-## First Action On Resume
+**Backend — `mpyhw-api/`:**
+- **A3** byte-stable prefix contract comment in `app/routes_llm.py` `_deepseek_payload` +
+  regression test `test_deepseek_payload_is_byte_stable_for_prefix_caching` (already
+  deterministic; this locks it).
+- **B1 (verified with REAL DeepSeek calls)**: model `deepseek-v4-pro` is real; usage returns
+  `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` (+ `prompt_tokens_details.cached_tokens`).
+  Automatic prefix caching gives **~99% hit on an identical re-sent prefix**.
+- **B2** cache-discounted metering in `app/routes_llm.py`: `_translate_deepseek_stream` now
+  captures the full `usage` dict; new `_billable_tokens()` = `miss + completion + MPYHW_CACHE_HIT_WEIGHT*hit`
+  (default 0.1); `meter()` charges billable (not raw total), analytics still records raw
+  `total_tokens`. Test `test_llm_messages_charges_cache_discounted_tokens` in `tests/test_credits.py`.
+- **C** cumulative metering: `meter` calls `credit_store.record_tokens()`. **NOTE: the user
+  re-implemented `record_tokens` themselves onto a new `token_tallies` table** (see collision note).
+  `tests/test_credit_store.py` has cumulative tests; `tests/test_credits.py` 25k→2 expectation updated.
 
-The API server was restarted at end of session and is running as a **background task** (`uvicorn app.main:app` on `127.0.0.1:8787`, `.env` loaded). If resuming in a new process, assume it is NOT running and restart:
+### Real measurement (replaying the actual 18-round session through DeepSeek)
+| scenario | credits |
+|---|---|
+| real session (old: ceil-per-call, no cache discount) | **50 → died** |
+| replay baseline, raw-token metering | 38 |
+| **+ cache-discounted (B2)** | **9** |
+| A1+A2 optimized + cache-discounted (B2) | **7** |
+**Key insight: cache-discounted metering (B2) is the dominant lever (38→9). A1/A2 help the
+miss/uncached cost but matter less once caching is priced in — and aggressive trimming can
+*bust* the cache (observed round 6). Strategy = stable prefix + discount hits, NOT aggressive trimming.**
 
-```powershell
-cd mpyhw-api ; .\scripts\serve.ps1   # loads .env (DEEPSEEK_API_KEY), starts uvicorn on 8787
-```
+## ⚠️ CRITICAL: active collaboration / do not clobber
+The user has been **rewriting the backend in parallel** during this session. They built:
+- `app/db.py` — a Postgres-capable (`DATABASE_URL`) + SQLite layer with tables `users`,
+  `credit_balances`, `credit_ledger`, `token_tallies`, `active_llm_sessions`, `telemetry_events`,
+  `llm_turns`, `sessions`.
+- `app/credit_store.py` — ledger (`_ledger`, `get_user`, `ledger_for_user`) + `record_tokens`
+  reconciled onto **`token_tallies`** (NOT the `credit_balances.tokens_used_today` column an
+  earlier edit added — see dead code below).
+- `app/analytics.py` (`record_llm_turn`), `app/llm_sessions.py` (per-user/global concurrency),
+  `tests/test_llm_concurrency.py`.
 
-Run both test suites before changing anything (baseline must be green):
-```powershell
-cd mpy-hardware-extension ; node --no-warnings --experimental-strip-types test/all.test.ts   # 77 pass
-cd mpyhw-api ; python -m pytest -q                                                            # 49 pass
-cd mpy-hardware-extension\python\shim ; python -m pytest -q                                   # 6 pass
-```
-
-## Current State (this session's deltas)
-
-**Device library is now real (was a single AHT20 fixture):**
-- Connected the **live upypi.net registry**. New `ingest_upypi.py --live` sweeps `/api/search` by capability term, fetches each `package.json` + source, and writes `content/packages/package_index.json`. Catalog: **2 -> 28 real devices** (ssd1306, mpu6050, bmp280, dht11, relay, neopixel, servos, ads1115, tcs34725 color, mpr121, ...).
-- Improved `infer_capabilities` (package_store.py): 4 -> 13 capability types, so the catalog is searchable by capability.
-- **Driver-context depth: 3 -> 10 generatable devices.** Improved `extract_driver_context` (normalize_driver_context.py) to detect multi-arg I2C constructors (`SSD1306_I2C(i2c, addr, ...)`), prioritize the driver's own module in `import_names`, and extract public methods. Generatable now: aht20_driver, ssd1306, graftsense_aht20, ssd1306_driver, mpu6050_driver, bmp280(_driver), tcs34725_color_driver, ads1115_driver, mpr121.
-- **Boards: 1 -> 3.** Added `content/boards/rpi-pico-w.json` and `esp32-c3-devkitm-1.json` (esp32-s3 was the only one).
-
-**Agent UX / behavior fixes:**
-- Removed the `<not_hardware>` refusal mechanism everywhere (sse-client.ts, agent-loop.ts, webview, routes_llm.py prompt, routes_telemetry.py enum). It was buggy (split-token detection) and wrong product-wise.
-- **Death-loop fix:** a turn with no tool call no longer spins to max_turns. `agent-loop.ts` now nudges once then yields `awaiting_user` (uses `state.textOnlyTurns`, initialized in session-state.ts).
-- **System prompt** (routes_llm.py): hard rule — any time the model needs the user to choose/confirm/answer it MUST call `ask_user` (renders an answerable input), NEVER a plain-text question. Plus: ambiguous/seemingly-non-hardware requests -> clarify via ask_user, don't refuse.
-- **Requirement-first opening** (`buildOpening` in agent-backed-loop.ts): clarify WHAT to build before hardware; board handling = use chosen / auto-adopt the only one / recommend+confirm among several.
-- Concurrent edit (kept): multi-turn conversation continuity via `input.state` reuse in agent-backed-loop.ts.
-
-**Also this session — a full code review** found and fixed 10 bugs (serial-read error_kind so repair loop works; quota now server-authoritative not client-trusted; manifest pin-capability gate runs in the real agent path; codegen fails loudly on missing pin instead of `Pin()`; client `safeJson` after ok-check; serial_read_until buffers split fragments; flash path `main.py`; package_index records normalized on load; boards listing skips malformed file). All have regression tests.
+**Coordinate before editing `app/db.py`, `app/credit_store.py`, `app/routes_llm.py`, `app/analytics.py`,
+`app/llm_sessions.py` — the user is hands-on there.**
 
 ## What Worked
+- Replaying the real recorded session through DeepSeek = objective, decisive evidence
+  (temp scripts in `%TEMP%`: `probe_deepseek.py`, `replay_measure.py`).
+- Keeping A1 trimming gentle (last-2 verbatim, >800-char threshold) so it doesn't bust caching.
+- Idempotent, additive backend changes that the user could merge into their architecture.
 
-- Probing upypi.net directly (`curl /api/search?q=...`, `/pkgs/<name>/<ver>/package.json`) before coding the ingest — confirmed the real API shape and that the registry is live.
-- Improving the extractor + re-ingesting (reset index to baseline first, then `--live`) to regenerate driver contexts — turned "listed/installable" into "generatable" for I2C sensors.
-- Diagnosing "fix doesn't work" as **stale deployed artifacts**: the extension runs from `dist/extension/activate.cjs` (esbuild bundle), and uvicorn holds the prompt in memory — neither picks up `src/` edits without rebuild/restart. Verified via bundle mtime + `grep` of the bundle.
-- Content (`content/packages`, `content/boards`) is read from disk per request, so catalog/board changes are live WITHOUT restarting the server; only code (prompt) changes need a restart.
-
-## What Did NOT Work / Gotchas
-
-- `node --test test/*.test.ts` hits sandbox `spawn EPERM`; use `node --no-warnings --experimental-strip-types test/all.test.ts`.
-- `Start-Process powershell -File serve.ps1 -WindowStyle Hidden` did not stick; starting uvicorn directly in a background task (after loading `.env`) worked.
-- A concurrent process/linter is actively editing files this session (agent-loop.ts, serve.py, test files, etc.). The first combined test run was a mid-rewrite snapshot (false failures); re-running clean was green. **If tests fail oddly, re-run before debugging.**
-- `extract_driver_context` is I2C-centric: GPIO/OneWire/SPI drivers (relay, ds18b20, led) get NO context yet -> they stay `installable`, not `generatable`.
-- upypi `/api/pkgs` (full listing) returns 500; discovery must sweep `/api/search` by keyword, so the catalog is only as complete as `DISCOVERY_TERMS` in ingest_upypi.py.
+## What Didn't Work / gotchas
+- **Background Bash with pipes loses stdout** here; the harness also auto-backgrounds pytest.
+  Use `> file 2>&1` (no pipe) and Read the file, or rely on the completion **exit code**.
+- **Bash cwd does NOT persist across calls** on this Windows setup — use absolute paths or a
+  single `cd … && cmd`.
+- Two `test_llm_concurrency.py` tests fail (`502 != 429`) — that's the **user's in-flight
+  concurrency feature** (handler doesn't return 429 yet), NOT caused by these changes.
 
 ## Next Steps
+1. **Backend tests now REQUIRE Postgres.** The user switched `tests/conftest.py` from the old
+   SQLite tmp-DB fixture (`_credit_env`) to `_api_env`, which `pytest.fail`s unless
+   `DATABASE_URL` or `MPYHW_TEST_DATABASE_URL` is set. My backend tests (B2 + cumulative + A3 +
+   ledger) were **verified green under the prior SQLite harness** (multiple exit-0 runs); they now
+   need a Postgres test DB to re-run. The B2 change is pure-Python / DB-agnostic (uses the user's
+   `app.db`-abstracted `record_tokens`), so it should pass on Postgres — set
+   `MPYHW_TEST_DATABASE_URL=postgres://…` and run `cd mpyhw-api && python -m pytest tests/ -q`
+   to confirm (expect the 2 known `test_llm_concurrency` WIP reds).
+2. **Dead code to resolve (from these edits, now superseded by the user's design):**
+   - `app/db.py` `credit_balances.tokens_used_today` column — unused (record_tokens uses `token_tallies`). Drop it.
+   - `app/credit_store.py` `credits_for_tokens` (ceil) — no longer called by the meter; keep only if used elsewhere.
+3. **E — raise `DAILY_GRANT`**: deferred (gated). With B2, a project costs ~7–9 credits, so 50/day
+   ≈ 5–7 projects. Recommend bumping `MPYHW_DAILY_GRANT` (e.g. 100) **only after B2 is deployed/verified live** — raising it before B2 multiplies real DeepSeek spend.
+4. **End-to-end live validation**: re-run the same "AI 对话机器人" intent against the real API
+   (`scripts/serve.ps1`, key in `mpyhw-api/.env`) and confirm the new `session.jsonl` finishes
+   codegen with credits to spare (not `out_of_credits`), and that `llm_turns`/credits reflect cache discount.
+5. **Cleanup**: remove temp probe scripts in `%TEMP%` and any stray `mpyhw-api/_ptest.txt`.
+6. **Progressive disclosure (optional, lower priority)**: data shows limited additional value
+   once caching is priced in; only worth it to shrink first-time *miss* (e.g. board profile / tool
+   schema first send) and only if it doesn't break prefix stability.
 
-1. **GraftSense modules -> profiles (BLOCKED on data).** `dev/extracted/开发生产宣传SOP.md` lists the GraftSense module line (Grove-based; RCWL-9623 ultrasonic, etc.) but only as names/process docs — no machine-readable pin/driver specs. Need a spec table from the user, or derive from the matching upypi driver. Ask the user where to get specs.
-2. **Driver-context for non-I2C devices** (GPIO/OneWire/SPI) so relay/led/ds18b20 become generatable, not just installable.
-3. **Re-test the live agent UX** after the user reloads the VS Code window (new bundle) — confirm "造个 AI 女朋友" now pops an `ask_user` input instead of refusing/looping, and that requirement-first + board recommend works across the 3 boards.
-4. Expand `DISCOVERY_TERMS` / add a fuller upypi catalog sweep.
-5. Real hardware gate still unreached: `mpy-hardware-extension/scripts/smoke-hardware.ps1 -Port COM3` with ESP32-S3 + AHT20 + LED. Promote AHT20 `generatable -> verified` only after that passes.
-
-## Key Files Touched This Session
-
-API: `app/routes_llm.py` (prompt), `app/routes_quota.py` (server-side quota), `app/package_store.py` (infer_capabilities, record normalization), `app/routes_content.py` (boards robustness), `scripts/ingest_upypi.py` (live ingest), `scripts/normalize_driver_context.py` (extractor), `content/packages/package_index.json` + `content/packages/driver_context/*` (regenerated), `content/boards/{rpi-pico-w,esp32-c3-devkitm-1}.json` (new).
-Extension: `src/core/{agent-loop,agent-backed-loop,sse-client,manifest-schema,codegen,manifest-builder,api-client,board-client,package-client,pipeline}.ts`, `src/webview/index.html`, `python/shim/serve.py`. Bundle rebuilt: `dist/extension/activate.cjs` (run `node scripts/build-extension.mjs` after src changes).
-
-## User Preferences / Constraints
-
-- Product correctness over plan/spec fidelity; plans can be wrong.
-- Be honest about what's verified vs. stale/untested — the user explicitly distrusts "tests pass" when the running app is broken (it was a stale bundle/server).
-- Surgical edits; surface tradeoffs; don't revert unrelated dirty files in docs/ or dev/.
-- The user is the product owner (CEO). Anti-abuse is a stated pillar, but the `<not_hardware>` refusal specifically was removed in favor of ask_user clarification.
-- Replies to this user can be in Chinese.
+## Files changed this session
+- `mpy-hardware-extension/src/core/agent-backed-loop.ts` (A1, A2)
+- `mpy-hardware-extension/test/agent-backed-loop.test.ts` (A1 tests, A2 assertion)
+- `mpy-hardware-extension/src/webview/index.html` (D)
+- `mpyhw-api/app/routes_llm.py` (A3 comment, B2)
+- `mpyhw-api/tests/test_llm_messages.py` (A3 test; user also lowered max_tokens default)
+- `mpyhw-api/tests/test_credits.py` (B2 test, cumulative expectation)
+- `mpyhw-api/tests/test_credit_store.py` (cumulative tests; user added ledger tests)
+- `mpyhw-api/app/db.py`, `app/credit_store.py` — **shared with the user's parallel rewrite; see collision note**

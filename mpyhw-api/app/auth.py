@@ -7,6 +7,7 @@ Code extension obtains via the built-in GitHub auth provider).
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import urllib.error
@@ -42,6 +43,34 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict[s
     except session_token.TokenError:
         raise HTTPException(status_code=401, detail={"error": "invalid_token"})
     return {"id": payload["sub"], "login": payload.get("login"), "email": payload.get("email")}
+
+
+def get_optional_user(authorization: str | None = Header(default=None)) -> dict[str, Any] | None:
+    """Like get_current_user, but returns None instead of 401 when the token is
+    missing or invalid. For ingestion routes that accept anonymous events yet must
+    derive identity server-side rather than trusting a client-supplied user id."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = session_token.decode(token, _jwt_secret())
+    except session_token.TokenError:
+        return None
+    return {"id": payload["sub"], "login": payload.get("login"), "email": payload.get("email")}
+
+
+def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
+    """Gate operational/admin routes behind a shared secret.
+
+    Distinct from the per-user JWT: admin routes expose all users' data, so they
+    require the `X-Admin-Token` header to match `MPYHW_ADMIN_TOKEN`. Fail closed —
+    if the env secret is unset the route is unreachable.
+    """
+    expected = os.getenv("MPYHW_ADMIN_TOKEN")
+    if not expected:
+        raise HTTPException(status_code=401, detail={"error": "admin_disabled"})
+    if not x_admin_token or not hmac.compare_digest(x_admin_token, expected):
+        raise HTTPException(status_code=401, detail={"error": "admin_unauthorized"})
 
 
 def verify_github_token(access_token: str) -> dict[str, Any]:

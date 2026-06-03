@@ -17,6 +17,7 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
     }
     const events = asAsyncEvents(await input.sseClient());
     let assistantText = "";
+    let reasoningText = "";
     let sawStop = false;
     const toolUses: any[] = [];
     const toolResults: any[] = [];
@@ -28,6 +29,12 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
       if (event.type === "text_delta") {
         assistantText += event.text;
         await input.recorder?.record({ type: "assistant_text", turnSeq: state.turnSeq + 1, text: event.text });
+      }
+      if (event.type === "thinking_delta") {
+        // Thinking-mode reasoning. Accumulate it so it can be stored on the assistant
+        // turn and passed back next round (DeepSeek requires reasoning_content for a
+        // replayed tool-calling thinking turn, else it 400s).
+        reasoningText += event.text;
       }
       if (event.type === "tool_use_complete") {
         await input.recorder?.record({
@@ -63,8 +70,12 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
         }
       }
       if (event.type === "message_stop") {
-        if (assistantText || toolUses.length) {
+        if (assistantText || toolUses.length || reasoningText) {
           const content: any[] = [];
+          // Thinking block first, so it round-trips as reasoning_content (the server
+          // re-attaches it to the DeepSeek assistant message). Required for thinking-
+          // mode tool turns; kept in the durable history so the prefix stays cacheable.
+          if (reasoningText) content.push({ type: "thinking", thinking: reasoningText });
           if (assistantText) content.push({ type: "text", text: assistantText });
           content.push(...toolUses);
           state.messages.push({ role: "assistant", content });

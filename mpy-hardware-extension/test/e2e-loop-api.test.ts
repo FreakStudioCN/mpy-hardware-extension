@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
 import net from "node:net";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -31,10 +29,12 @@ function canImport(mod: string): boolean {
   return !!python && spawnSync(python, ["-c", `import ${mod}`], { cwd: apiDir, stdio: "ignore" }).status === 0;
 }
 
-// Skip locally when the API toolchain isn't present; in CI this must run (set
-// MPYHW_REQUIRE_CONTRACT_TESTS=1) so a missing dependency can't hide the gap.
-const ready = !!python && canImport("uvicorn") && canImport("app.main");
-const skipReason = ready ? false : (process.env.MPYHW_REQUIRE_CONTRACT_TESTS ? false : "python/uvicorn/app.main not available");
+// Skip locally when the API toolchain or a test Postgres isn't present; in CI this
+// must run (set MPYHW_REQUIRE_CONTRACT_TESTS=1) so a missing dependency can't hide the
+// gap. The spawned API requires a Postgres DATABASE_URL — there is no SQLite fallback.
+const dbUrl = process.env.DATABASE_URL || process.env.MPYHW_TEST_DATABASE_URL;
+const ready = !!python && !!dbUrl && canImport("uvicorn") && canImport("app.main");
+const skipReason = ready ? false : (process.env.MPYHW_REQUIRE_CONTRACT_TESTS ? false : "python/uvicorn/app.main/DATABASE_URL not available");
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -62,8 +62,9 @@ async function waitForHealth(base: string, timeoutMs: number): Promise<void> {
 test("real agent loop drives a real spawned API over HTTP+SSE (auth + credits + stream)", { skip: skipReason, timeout: 40000 }, async () => {
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
-  const dbPath = join(mkdtempSync(join(tmpdir(), "mpyhw-e2e-")), "credits.db");
-  const env = { ...process.env, MPYHW_LLM_STUB: "1", MPYHW_JWT_SECRET: "test-secret", MPYHW_CREDIT_DB: dbPath };
+  // Stub only the LLM upstream; auth, credits, and sessions hit the real Postgres the
+  // spawned API connects to via DATABASE_URL (sourced from DATABASE_URL or MPYHW_TEST_DATABASE_URL).
+  const env = { ...process.env, MPYHW_LLM_STUB: "1", MPYHW_JWT_SECRET: "test-secret", ...(dbUrl ? { DATABASE_URL: dbUrl } : {}) };
 
   const server = spawn(python!, ["-m", "uvicorn", "app.main:app", "--port", String(port), "--log-level", "warning"], { cwd: apiDir, env });
   const serverErr: string[] = [];

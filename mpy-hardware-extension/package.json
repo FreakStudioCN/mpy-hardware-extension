@@ -1,6 +1,6 @@
 {
   "name": "mpy-hardware-extension",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "publisher": "mpyhw",
   "displayName": "Blockless",
   "description": "MicroPython hardware agent MVP.",
@@ -56,6 +56,7 @@
     "test": "node --no-warnings --experimental-strip-types test/all.test.ts",
     "typecheck": "node scripts/typecheck.mjs",
     "golden": "node --no-warnings --experimental-strip-types src/cli/run-golden-path.ts",
+    "live-gen": "node --no-warnings --experimental-strip-types src/cli/run-live-gen.ts",
     "build": "node scripts/build-extension.mjs",
     "package": "npm run build && node scripts/package-extension.mjs",
     "smoke:extension": "npm test && npm run typecheck && npm run build && npm run package"

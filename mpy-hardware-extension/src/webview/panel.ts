@@ -50,23 +50,35 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   let availableBoards: any[] = [];
   const controller = new SessionController({
     postMessage: (message) => webview.postMessage(message),
-    confirmTool: async (tool) => {
-      const choice = await vscode.window.showWarningMessage(`Allow ${tool.name}?`, "Allow", "Cancel");
-      return choice === "Allow";
-    },
     loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(workspaceFolder) }),
     recorderFactory: workspaceFolder ? (traceId) => new JsonlSessionRecorder({ workspaceFolder, traceId }) : undefined,
-    writeFiles: async (files) => writeGeneratedFiles({
-      workspaceFolder,
-      generatedRoot: workspaceFolder ? undefined : join(process.cwd(), ".mpyhw", "generated"),
-      files,
-      exists: async (path) => existsSync(path),
-      writeFile: async (path, content) => {
-        await mkdir(dirname(path), { recursive: true });
-        await writeFile(path, content, "utf-8");
-      },
-      confirmOverwrite: async (path) => (await vscode.window.showWarningMessage(`Overwrite ${path}?`, "Overwrite", "Cancel")) === "Overwrite",
-    }),
+    writeFiles: async (files) => {
+      const result = await writeGeneratedFiles({
+        workspaceFolder,
+        generatedRoot: workspaceFolder ? undefined : join(process.cwd(), ".mpyhw", "generated"),
+        files,
+        exists: async (path) => existsSync(path),
+        writeFile: async (path, content) => {
+          await mkdir(dirname(path), { recursive: true });
+          await writeFile(path, content, "utf-8");
+        },
+        confirmOverwrite: async (path) => (await vscode.window.showWarningMessage(`Overwrite ${path}?`, "Overwrite", "Cancel")) === "Overwrite",
+      });
+      // Land the user on the real file: the generated code now lives in the
+      // workspace (not an in-panel preview), so open main.py in the editor.
+      if (result?.ok) {
+        const mainPath = (result.paths ?? []).find((p: string) => p.endsWith("/main.py"));
+        if (mainPath && vscode.workspace?.openTextDocument) {
+          try {
+            const doc = await vscode.workspace.openTextDocument(mainPath);
+            await vscode.window.showTextDocument(doc, { preview: false });
+          } catch {
+            // opening the editor is a nicety; ignore failures (e.g. headless host)
+          }
+        }
+      }
+      return result;
+    },
   });
   webview.onDidReceiveMessage(async (message: any) => {
     if (message.type === "request_boards") {
@@ -121,7 +133,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           webview.postMessage({ type: "session_error", error: "device_unavailable" });
           return;
         }
-        const port = ports.length === 1 ? ports[0] : await vscode.window.showQuickPick?.(ports, { placeHolder: "Select MicroPython device" });
+        // The deploy card may already have picked a port; honor it and skip the
+        // quickpick. Otherwise auto-pick the only one, or prompt for a choice.
+        const port = (message.port && ports.includes(message.port)) ? message.port
+          : ports.length === 1 ? ports[0]
+          : await vscode.window.showQuickPick?.(ports, { placeHolder: "Select MicroPython device" });
         if (!port) return;
         shim.setPort?.(port);
         webview.postMessage({ type: "device_selected", port });
@@ -129,7 +145,28 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         webview.postMessage({ type: "session_error", error: error?.message ?? "device_scan_failed" });
       }
     }
+    if (message.type === "deploy_rescan") {
+      // Board-connection check for the deploy checkpoint. Reports the live port
+      // list back to the card; an empty list keeps the Deploy button disabled.
+      try {
+        webview.postMessage({ type: "deploy_ports_updated", ports: await shim.scan() });
+      } catch {
+        webview.postMessage({ type: "deploy_ports_updated", ports: [] });
+      }
+    }
+    if (message.type === "copy_code") {
+      // Copy the code card's source to the clipboard via the host (reliable in the
+      // webview sandbox). Best-effort: a host without clipboard access is a no-op.
+      try {
+        await vscode.env?.clipboard?.writeText?.(String(message.text ?? ""));
+      } catch {
+        // clipboard unavailable (e.g. headless host) — ignore
+      }
+    }
     if (message.type === "ui_prompt_response") {
+      // Set the deploy port (if the response carries one) before resolving, so the
+      // agent's first device tool always sees the chosen port — no select_device race.
+      if (message.answer === "confirm" && message.port) shim.setPort?.(message.port);
       controller.resolvePrompt(message.promptId, message.answer);
     }
     if (message.type === "cancel_session") {

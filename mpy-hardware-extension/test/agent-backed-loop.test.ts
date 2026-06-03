@@ -103,9 +103,7 @@ test("agent-backed loop runs intent -> packages -> manifest -> code -> deploy ->
   const result = await loop({
     intent: "超过30度亮红灯",
     boardId: "esp32-s3-devkitc-1",
-    onEvent: (event) => events.push(event),
-    confirmTool: async () => true,
-  });
+    onEvent: (event) => events.push(event),  });
 
   assert.equal(result.terminal, "success");
 
@@ -176,11 +174,11 @@ test("a continued session reuses the board profile and driver contexts without r
   }) as unknown as typeof fetch;
 
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
-  const first = await loop({ intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1", confirmTool: async () => true });
+  const first = await loop({ intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
   assert.equal(first.terminal, "success");
 
   phase = 2;
-  const second = await loop({ intent: "make it blink faster", boardId: "esp32-s3-devkitc-1", state: first.state, confirmTool: async () => true });
+  const second = await loop({ intent: "make it blink faster", boardId: "esp32-s3-devkitc-1", state: first.state });
 
   assert.equal(second.terminal, "success");
   assert.equal(boardFetchedInPhase2, false, "turn 2 must not re-query the board profile");
@@ -228,8 +226,112 @@ test("load_skill persists the skill body into later agent and codegen requests",
 
   assert.deepEqual(result.state.loadedSkills, ["upy-gen-main"]);
   assert.match(JSON.stringify(agentRequestBodies[0].messages), /AVAILABLE SKILLS/);
+  // Append-only: the catalog lives in the durable opening (message[0]), so it is
+  // present every round — but as a byte-stable prefix (a cache HIT), not re-sent as
+  // a shifting front block. message[0] is therefore identical across rounds.
+  assert.match(JSON.stringify(agentRequestBodies[1].messages), /AVAILABLE SKILLS/);
+  assert.equal(
+    JSON.stringify(agentRequestBodies[1].messages[0]),
+    JSON.stringify(agentRequestBodies[0].messages[0]),
+    "the catalog-bearing opening must stay byte-identical round-over-round",
+  );
+  // The skill body reaches later agent requests via the load_skill tool_result
+  // (appended at the tail), and the codegen sub-call still grounds on it.
   assert.match(JSON.stringify(agentRequestBodies[1].messages), /Always print MPYHW_READY/);
   assert.match(JSON.stringify(codegenRequestBodies[0].messages), /Always print MPYHW_READY/);
+});
+
+test("agent requests stay append-only across rounds (prefix-stable for DeepSeek's cache)", async () => {
+  // The whole credit fix rides on this invariant: each round's request must be a pure
+  // TAIL-APPEND of the previous one — never prepend, re-render, reorder, or stub an
+  // earlier message. When the prefix bytes diverge, DeepSeek re-bills the whole cached
+  // context at full price (the bust that drained a day's credits in one session).
+  let turnIndex = 0;
+  const agentRequests: any[] = [];
+  const turns = [
+    { name: "load_skill", input: { skill: "upy-gen-main" } },          // mid-session skill load — the worst prior offender
+    { name: "query_board_profile", input: { board_id: "esp32-s3-devkitc-1" } },
+    { name: "get_package_context", input: { name: "aht20_driver", version: "1.0.0" } },
+    { name: "resolve_package_candidates", input: { intent: "x", capabilities: ["temperature_sensing"], board_id: "esp32-s3-devkitc-1" } },
+  ];
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/skills")) return jsonResponse({ skills: [{ name: "upy-gen-main", description: "Generate MicroPython main.py" }] });
+    if (url.endsWith("/v1/skills/upy-gen-main")) return { ok: true, status: 200, text: async () => "# upy-gen-main\nAlways print MPYHW_READY." } as unknown as Response;
+    if (url.endsWith("/v1/llm/messages")) {
+      agentRequests.push(JSON.parse(String(init?.body ?? "{}")));
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    if (url.endsWith("/v1/packages/resolve")) return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+    if (url.includes("/driver-context")) return jsonResponse(AHT20_CONTEXT);
+    if (url.includes("/v1/boards/")) return jsonResponse(BOARD);
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "thermometer", boardId: "esp32-s3-devkitc-1" });
+
+  assert.ok(agentRequests.length >= 4, `expected several rounds, got ${agentRequests.length}`);
+  // Per-message equality of the shared prefix: because the backend serializes each
+  // message deterministically and in order, an unchanged message-prefix means the
+  // request's leading BYTES are identical round-over-round (the cache-hit condition).
+  for (let r = 1; r < agentRequests.length; r++) {
+    const prev = agentRequests[r - 1].messages;
+    const curr = agentRequests[r].messages;
+    assert.ok(curr.length >= prev.length, `round ${r} shrank the history (${prev.length} -> ${curr.length})`);
+    for (let i = 0; i < prev.length; i++) {
+      assert.equal(JSON.stringify(curr[i]), JSON.stringify(prev[i]), `round ${r} mutated message[${i}] — prefix bust`);
+    }
+  }
+
+  // The loaded skill body entered the history exactly once (the load_skill
+  // tool_result), not re-rendered into a front block that shifts every round.
+  const finalJson = JSON.stringify(agentRequests.at(-1).messages);
+  assert.equal(finalJson.split("Always print MPYHW_READY").length - 1, 1, "skill body must appear exactly once (append-only)");
+});
+
+test("thinking-mode reasoning round-trips: a thinking_delta is stored as a thinking block on the assistant turn", async () => {
+  // DeepSeek thinking mode streams reasoning_content (surfaced as thinking_delta) and
+  // then 400s the next tool-calling round if that reasoning is not passed back. The
+  // loop must store it as a thinking block on the assistant turn so it round-trips.
+  let turnIndex = 0;
+  const agentRequests: any[] = [];
+  const sseThink = (reasoning: string, turn: { name: string; input: any }) => [
+    JSON.stringify({ type: "content_block_delta", delta: { type: "thinking_delta", thinking: reasoning } }),
+    JSON.stringify({ type: "content_block_start", content_block: { type: "tool_use", id: turn.name, name: turn.name } }),
+    JSON.stringify({ type: "content_block_delta", delta: { type: "input_json_delta", partial_json: JSON.stringify(turn.input) } }),
+    JSON.stringify({ type: "content_block_stop" }),
+    JSON.stringify({ type: "message_stop" }),
+  ].map((d) => `data: ${d}`).join("\n\n");
+  const turns = [
+    { name: "query_board_profile", input: { board_id: "esp32-s3-devkitc-1" } },
+    { name: "resolve_package_candidates", input: { intent: "x", capabilities: ["temperature_sensing"], board_id: "esp32-s3-devkitc-1" } },
+  ];
+  const reasonings = ["Check the board pins first.", "Now pick a driver package."];
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      agentRequests.push(JSON.parse(String(init?.body ?? "{}")));
+      const turn = turns[turnIndex];
+      const reasoning = reasonings[turnIndex];
+      turnIndex++;
+      return { ok: true, status: 200, text: async () => (turn ? sseThink(reasoning, turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    if (url.includes("/v1/boards/")) return jsonResponse(BOARD);
+    if (url.endsWith("/v1/packages/resolve")) return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "thermometer", boardId: "esp32-s3-devkitc-1" });
+
+  // The request for turn 1 must carry turn 0's reasoning as a thinking block on the
+  // assistant message, first in the content array (so the server re-attaches it as
+  // reasoning_content for DeepSeek).
+  const assistantMsg = agentRequests[1].messages.find((m: any) => m.role === "assistant");
+  assert.ok(assistantMsg, "expected an assistant message in the second request");
+  assert.equal(assistantMsg.content[0].type, "thinking");
+  assert.equal(assistantMsg.content[0].thinking, "Check the board pins first.");
+  assert.ok(assistantMsg.content.some((b: any) => b.type === "tool_use"), "assistant turn keeps its tool_use");
 });
 
 test("loading an already loaded skill is a noop and does not fetch the body again", async () => {
@@ -282,14 +384,15 @@ test("a serial read that never sees its markers drives repair exhaustion, not ma
   }) as unknown as typeof fetch;
 
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
-  const result = await loop({ intent: "x", boardId: "esp32-s3-devkitc-1", confirmTool: async () => true });
+  const result = await loop({ intent: "x", boardId: "esp32-s3-devkitc-1" });
 
   assert.equal(result.terminal, "repair_exhausted");
 });
 
-test("device-touching tools are skipped when the user declines confirmation", async () => {
+test("declining the deploy checkpoint skips device-touching tools", async () => {
   let turnIndex = 0;
   let installed = false;
+  let deployPrompts = 0;
   const shim = {
     installPackage: async () => void (installed = true),
     writeMainPy: async () => {},
@@ -306,10 +409,90 @@ test("device-touching tools are skipped when the user declines confirmation", as
   }) as unknown as typeof fetch;
 
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
-  const result = await loop({ intent: "x", boardId: "esp32-s3-devkitc-1", confirmTool: async () => false });
+  // Decline the deploy gate: install_package is cancelled (never touches the
+  // device); read_serial_until (not a deploy tool) still runs and verifies.
+  const result = await loop({ intent: "x", boardId: "esp32-s3-devkitc-1", confirmDeploy: async () => { deployPrompts += 1; return false; } });
 
   assert.equal(installed, false);
+  assert.equal(deployPrompts, 1, "deploy gate fires before the first device tool");
   assert.equal(result.terminal, "success");
+});
+
+test("the deploy checkpoint fires once before the first device tool, not per tool", async () => {
+  let turnIndex = 0;
+  let deployPrompts = 0;
+  const shimCalls: string[] = [];
+  const shim = {
+    scan: async () => ["COM3"],
+    installPackage: async () => void shimCalls.push("install"),
+    writeMainPy: async () => void shimCalls.push("write"),
+    flashAndRun: async () => void shimCalls.push("flash"),
+    serialReadUntil: async () => (shimCalls.push("serial"), { ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2"] }),
+  };
+  const turns = [
+    { name: "install_package", input: { package_json_url: "u", port: "COM3" } },
+    { name: "write_main_py", input: { path: "main.py", content: "print('MPYHW_READY')" } },
+    { name: "flash_and_run", input: { path: "main.py", port: "COM3" } },
+    { name: "read_serial_until", input: { markers: ["MPYHW_READY", "TEMP_C="], port: "COM3" } },
+  ];
+  const fetchImpl = (async (url: string) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
+  const result = await loop({ intent: "x", boardId: "esp32-s3-devkitc-1", confirmDeploy: async () => { deployPrompts += 1; return true; } });
+
+  assert.equal(result.terminal, "success");
+  assert.equal(deployPrompts, 1, "confirmed once, not re-prompted for write/flash");
+  assert.deepEqual(shimCalls, ["install", "write", "flash", "serial"]);
+});
+
+test("generate_code streams the generation as code_delta then a final code_updated", async () => {
+  let mainTurns = 0;
+  const events: any[] = [];
+  const manifest = {
+    board_id: "esp32-s3-devkitc-1",
+    capabilities: ["display_text"],
+    pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6" },
+    wiring: [{ role: "i2c_sda", pin: "GPIO5" }],
+  };
+  const turns = [{ name: "generate_code", input: { manifest, target_path: "main.py" } }];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        // Two text chunks: the loop must surface each as a code_delta and only
+        // emit the assembled, fence-stripped file once via code_updated.
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "```python\nprint('MPYHW_READY')\n" } }),
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "while True:\n    pass\n```" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "show the temperature on an OLED screen", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e) });
+
+  const deltas = events.filter((e) => e.type === "code_delta");
+  assert.equal(deltas.length, 2, "each text chunk streams as a code_delta");
+  assert.ok(deltas.every((d) => d.path === "main.py"), "deltas carry the target path");
+  const updated = events.find((e) => e.type === "code_updated");
+  assert.ok(updated, "expected a terminal code_updated");
+  assert.match(updated.code, /MPYHW_READY/);
+  assert.doesNotMatch(updated.code, /```/, "the finished file is fence-stripped");
+  // code_updated lands after the deltas (the streaming card finalizes last).
+  assert.ok(events.indexOf(updated) > events.lastIndexOf(deltas[1]));
 });
 
 test("generate_code uses grounded LLM generation (one path) and strips code fences", async () => {
@@ -342,7 +525,7 @@ test("generate_code uses grounded LLM generation (one path) and strips code fenc
   }) as unknown as typeof fetch;
 
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
-  await loop({ intent: "show the temperature on an OLED screen", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e), confirmTool: async () => true });
+  await loop({ intent: "show the temperature on an OLED screen", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e) });
 
   const code = events.find((e) => e.type === "code_updated");
   assert.ok(code, "expected code_updated from the LLM fallback");
@@ -380,7 +563,7 @@ test("generate_code routes a non-main target_path to module-rules codegen and ta
   }) as unknown as typeof fetch;
 
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
-  await loop({ intent: "thermometer", boardId: "esp32-s3-devkitc-1", onEvent: (e: any) => events.push(e), confirmTool: async () => true });
+  await loop({ intent: "thermometer", boardId: "esp32-s3-devkitc-1", onEvent: (e: any) => events.push(e) });
 
   const code = events.find((e) => e.type === "code_updated");
   assert.ok(code, "expected code_updated");
@@ -408,7 +591,7 @@ test("read_workspace_file dispatches to the injected host reader (and reports un
     fetchImpl: mkFetch([{ name: "read_workspace_file", input: { path: "lib/aht20.py" } }]),
     readWorkspaceFile: async (path: string) => { reads.push(path); return { ok: true, content: "class AHT20: pass" }; },
   });
-  await loop({ intent: "read a file", boardId: "esp32-s3-devkitc-1", confirmTool: async () => true });
+  await loop({ intent: "read a file", boardId: "esp32-s3-devkitc-1" });
   assert.deepEqual(reads, ["lib/aht20.py"], "reader called with the requested path");
 
   // No reader injected (headless): the tool reports workspace_unavailable and the loop still finishes.
@@ -420,7 +603,6 @@ test("read_workspace_file dispatches to the injected host reader (and reports un
   const result = await loop2({
     intent: "read a file",
     boardId: "esp32-s3-devkitc-1",
-    confirmTool: async () => true,
     recorder: { record: async (e: any) => { observations.push(e); } },
   });
   assert.ok(result, "loop finishes without a workspace reader");
@@ -475,7 +657,7 @@ test("write_main_py deploys additional generated files (multi-file project) to t
   };
 
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
-  await loop({ intent: "thermometer", boardId: "esp32-s3-devkitc-1", confirmTool: async () => true });
+  await loop({ intent: "thermometer", boardId: "esp32-s3-devkitc-1" });
 
   assert.equal(mainWritten, "print('MPYHW_READY')");
   // main.py is written via writeMainPy; only the extra lib/ module goes via writeDeviceFile.
@@ -514,7 +696,7 @@ test("generate_code emits manifest_updated so the wiring view renders even witho
   }) as unknown as typeof fetch;
 
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
-  await loop({ intent: "show the temperature on an OLED screen", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e), confirmTool: async () => true });
+  await loop({ intent: "show the temperature on an OLED screen", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e) });
 
   const manifestEvent = events.find((e) => e.type === "manifest_updated");
   assert.ok(manifestEvent, "expected manifest_updated from generate_code so wiring can render");

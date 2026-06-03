@@ -1,6 +1,12 @@
 export function planWorkspaceWrites(input: { workspaceFolder?: string; generatedRoot?: string; files: Record<string, string> }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
-  return Object.keys(input.files).map((name) => ({ path: joinPath(root, normalizeGeneratedArtifactPath(name) ?? name), content: input.files[name] }));
+  // Apply the same containment as writeGeneratedFiles: skip any name that fails
+  // normalization rather than falling back to the raw name, which would let a
+  // path like "../../x" escape the root.
+  return Object.keys(input.files)
+    .map((name) => ({ name, safe: normalizeGeneratedArtifactPath(name) }))
+    .filter((entry): entry is { name: string; safe: string } => entry.safe !== null)
+    .map((entry) => ({ path: joinPath(root, entry.safe), content: input.files[entry.name] }));
 }
 
 export async function writeGeneratedFiles(input: {

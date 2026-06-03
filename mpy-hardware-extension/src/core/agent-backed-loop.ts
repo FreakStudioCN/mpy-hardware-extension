@@ -21,8 +21,9 @@ const LED_BUILTIN_CONTEXT = {
   install: { builtin: true },
 };
 
-// Mutating, device-touching tools require user confirmation before running.
-const CONFIRM_TOOLS = new Set(["install_package", "write_main_py", "flash_and_run"]);
+// Device-touching tools. Before the first one runs, the host shows a single
+// deploy-readiness checkpoint (board connection + wiring) and confirms once.
+const DEPLOY_TOOLS = new Set(["install_package", "write_main_py", "flash_and_run"]);
 
 type LoopDeps = {
   apiBaseUrl?: string;
@@ -47,11 +48,14 @@ type LoopInput = {
   state?: any;
   recorder?: { record(event: Record<string, any>): Promise<void> };
   onEvent?: (event: any) => void;
-  confirmTool?: (tool: any) => Promise<boolean>;
   askUser?: (question: string, options?: string[]) => Promise<string | null>;
   // Build-plan gate: the host shows the requirements + credit estimate and resolves
   // true to proceed with codegen, false to cancel. Undefined (headless/test) = proceed.
   confirmPlan?: (plan: BuildPlan) => Promise<boolean>;
+  // Deploy-readiness gate: the host scans for the board and shows the wiring
+  // diagram, resolving true to proceed with install/flash, false to cancel.
+  // Undefined (headless/test) = proceed.
+  confirmDeploy?: () => Promise<boolean>;
   signal?: AbortSignal;
   availableBoards?: Array<{ board_id: string; display_name?: string }>;
 };
@@ -174,6 +178,15 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     // deploy can push the whole set without the model re-sending file contents.
     state.files ??= {};
     state.messages.push({ role: "user", content: input.state ? input.intent : buildOpening(input) });
+    // Fold the (static) skill catalog into the durable opening so it lives in the
+    // byte-stable request prefix and is re-sent every round as a cache HIT — instead
+    // of being re-prepended at the front each turn (which shifted the prefix and
+    // busted DeepSeek's automatic prefix cache). Only on a fresh conversation (the
+    // opening is the first message); a continuation already carries it in message[0].
+    if (state.messages.length === 1) {
+      const catalog = await skillCatalog.renderCatalog();
+      if (catalog) state.messages[0].content += `\n\n${catalog}`;
+    }
     if (input.state) {
       // Continuing a prior conversation: keep the history and derived hardware
       // context (board, driverContexts), but reset the per-message loop-control
@@ -184,6 +197,9 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       state.turnSeq = 0;
       state.repairRound = 0;
       state.textOnlyTurns = 0;
+      // Re-gate deploy each new request: the board may have been unplugged
+      // between turns, so a continued session must re-confirm before flashing.
+      state.deployConfirmed = false;
     }
 
     function contextsForCodegen(manifest: any) {
@@ -209,7 +225,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
         : "produce a focused, importable module consistent with the manifest and the entry main.py; define classes/functions only, with no top-level side effects.";
       const user =
         `You are a MicroPython hardware codegen assistant. Output ONLY the complete contents of ${targetPath} — no markdown fences, no prose.\n` +
-        `Rules: import only modules on the board profile or the provided driver import_names; use the given constructors; ${fileRules}\n\n` +
+        `Rules: import only modules on the board profile or the provided driver import_names; use the given constructors; never use __import__, exec, or eval to bypass audit; if a needed module is not available, report that constraint or ask_user instead of bypassing it; ${fileRules}\n\n` +
         (loadedSkillText ? `Loaded MicroPython skills:\n${loadedSkillText}\n\n` : "") +
         `Board profile:\n${JSON.stringify(state.board ?? { board_id: manifest?.board_id ?? input.boardId })}\n\n` +
         `Resolved driver contexts:\n${JSON.stringify(contexts)}\n\n` +
@@ -218,7 +234,17 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       const messages = [{ role: "user", content: user }];
       await input.recorder?.record({ type: "llm_request", kind: "codegen", messages, tools: [] });
       try {
-        const code = stripCodeFences((await llmClient.collectText({ messages, tools: [] }, input.signal)).trim());
+        // Stream the generation so the code appears live in the activity feed
+        // (code_delta) instead of landing as one finished block. collectText wraps
+        // this same stream; we inline it to surface the deltas as they arrive.
+        let raw = "";
+        for await (const event of await llmClient.streamMessages({ messages, tools: [] }, input.signal)) {
+          if (event.type === "text_delta") {
+            raw += event.text;
+            onEvent({ type: "code_delta", text: event.text, path: targetPath });
+          }
+        }
+        const code = stripCodeFences(raw.trim());
         await input.recorder?.record({ type: "llm_response", kind: "codegen", text: code });
         return code ? { ok: true as const, code } : { ok: false as const, error: "codegen_empty" };
       } catch {
@@ -294,7 +320,10 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           if (body == null) return { ok: false, error_kind: "skill_not_found" };
           state.loadedSkills.push(skillName);
           state.skillBodies[skillName] = body;
-          return { ok: true, skill: skillName, loaded: true };
+          // Return the body in the tool_result so it enters the conversation at the
+          // tail, once, and is re-sent as a stable cache hit thereafter — rather than
+          // being re-rendered into a front block every round (which busts the cache).
+          return { ok: true, skill: skillName, loaded: true, body };
         }
         if (name === "read_workspace_file") {
           // The host (extension) owns the read + path containment to the workspace
@@ -335,7 +364,11 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
             return { ok: true };
           }
           if (name === "read_serial_until") {
-            const markers = toolInput.markers ?? ["MPYHW_READY", "TEMP_C="];
+            // Fallback only when the model omits markers (the schema requires them).
+            // MPYHW_READY is the one boot line every generated main.py prints, so it
+            // is board/sensor-agnostic; the old "TEMP_C=" default timed out (and thus
+            // failed) any working non-temperature build that fell back to it.
+            const markers = toolInput.markers ?? ["MPYHW_READY"];
             const result = await shim.serialReadUntil(markers);
             const lines = Array.isArray(result) ? result : result.lines ?? [];
             onEvent({ type: "serial_output", lines });
@@ -370,18 +403,24 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     };
 
     const sseClient = async () => {
-      const messages = await requestMessages(state, skillCatalog);
+      // Append-only: the durable history IS the request. Nothing is prepended,
+      // re-rendered, reordered, or stubbed on re-send, so the leading bytes stay
+      // byte-identical across rounds and DeepSeek's prefix cache keeps hitting.
+      const messages = state.messages;
       const body = { messages, tools };
       await input.recorder?.record({ type: "llm_request", kind: "agent", messages: cloneJson(messages), tools: cloneJson(tools) });
       return llmClient.streamMessages(body, input.signal);
     };
 
     const dispatch = async (tool: any) => {
-      if (CONFIRM_TOOLS.has(tool.name) && input.confirmTool) {
-        const allowed = await input.confirmTool(tool);
-        if (!allowed) {
-          return { ok: false, error_kind: "user_cancelled" };
-        }
+      // One-shot deploy-readiness checkpoint before the first device-touching
+      // tool: the host scans for the board and shows the wiring diagram for
+      // confirmation. Once confirmed, the rest of the deploy sequence
+      // (install -> write -> flash -> read) runs without further prompts.
+      if (DEPLOY_TOOLS.has(tool.name) && !state.deployConfirmed) {
+        const approved = typeof input.confirmDeploy === "function" ? await input.confirmDeploy() : true;
+        if (!approved) return { ok: false, error_kind: "user_cancelled" };
+        state.deployConfirmed = true;
       }
       return dispatchTool(tool, executors);
     };
@@ -405,16 +444,6 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     });
     return { terminal: result.terminal, state };
   };
-}
-
-async function requestMessages(state: any, skillCatalog: SkillCatalog) {
-  const contextParts: string[] = [];
-  const catalog = await skillCatalog.renderCatalog();
-  if (catalog) contextParts.push(catalog);
-  const loaded = renderLoadedSkillBodies(state);
-  if (loaded) contextParts.push(`LOADED SKILLS:\n${loaded}`);
-  if (!contextParts.length) return state.messages;
-  return [{ role: "user", content: contextParts.join("\n\n") }, ...state.messages];
 }
 
 function renderLoadedSkillBodies(state: any): string {

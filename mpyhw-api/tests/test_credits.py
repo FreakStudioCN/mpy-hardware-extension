@@ -60,9 +60,42 @@ def test_llm_messages_meters_tokens_and_emits_remaining(monkeypatch):
     )
 
     assert response.status_code == 200
-    # 25_000 tokens -> ceil(25000/10000) = 3 credits debited.
+    # 25_000 tokens, cumulative from 0 -> 25000//10000 = 2 credits debited (floor on the
+    # running daily tally, not ceil-per-call: 20k crossed, the trailing 5k not yet).
     assert '"type": "credits"' in response.text
-    assert client.get("/v1/credits", headers=_auth_header()).json()["balance"] == credit_store.DAILY_GRANT - 3
+    assert client.get("/v1/credits", headers=_auth_header()).json()["balance"] == credit_store.DAILY_GRANT - 2
+
+
+def test_llm_messages_charges_cache_discounted_tokens(monkeypatch):
+    # DeepSeek auto-caches the stable prefix and bills cache hits at ~1/10. The meter
+    # must charge on cache-discounted tokens, not raw total: a turn that is mostly
+    # cache hits costs a fraction of what the raw prompt size implies.
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    def fake_open(_body, _api_key):
+        return _sse_bytes(
+            {"choices": [{"delta": {"content": "ok"}}]},
+            {"choices": [], "usage": {
+                "total_tokens": 100_000,
+                "prompt_cache_hit_tokens": 80_000,
+                "prompt_cache_miss_tokens": 15_000,
+                "completion_tokens": 5_000,
+            }},
+        )
+
+    monkeypatch.setattr("app.routes_llm._open_deepseek_stream", fake_open)
+
+    response = client.post(
+        "/v1/llm/messages",
+        headers=_auth_header(),
+        json={"messages": [{"role": "user", "content": "blink"}], "tools": []},
+    )
+
+    assert response.status_code == 200
+    # billable = 15000 miss + 5000 completion + 0.1*80000 hit = 28000 -> 2 credits
+    # (raw total of 100000 would have been 10 credits).
+    assert client.get("/v1/credits", headers=_auth_header()).json()["balance"] == credit_store.DAILY_GRANT - 2
 
 
 def test_llm_messages_returns_402_when_out_of_credits():

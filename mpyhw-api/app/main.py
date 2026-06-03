@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.routes_admin import router as admin_router
 from app.health import router as health_router
 from app.routes_auth import router as auth_router
 from app.routes_content import router as content_router
@@ -11,6 +12,7 @@ from app.routes_tools import router as tools_router
 
 
 app = FastAPI(title="mpyhw-api", version="0.2.0")
+app.include_router(admin_router)
 app.include_router(health_router)
 app.include_router(package_router)
 app.include_router(content_router)

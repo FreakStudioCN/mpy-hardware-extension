@@ -14,10 +14,24 @@ export function auditCode(code: string, input: { board: { available_modules: str
     }
   }
   const disallowed = parseImports(code).filter((name) => !allowed.has(name));
+  // Scan for dynamic-exec calls on code with comments and string literals removed,
+  // so a comment ("# never use eval()") or a string ("type eval(x)") mentioning a
+  // construct isn't mistaken for a real call and made to reject valid code.
+  const scannable = stripCommentsAndStrings(code);
   for (const { token, re } of DANGEROUS_CONSTRUCTS) {
-    if (re.test(code)) disallowed.push(token);
+    if (re.test(scannable)) disallowed.push(token);
   }
   return disallowed.length ? { ok: false, disallowed_imports: disallowed } : { ok: true, disallowed_imports: [] };
+}
+
+function stripCommentsAndStrings(code: string): string {
+  // Blank out string contents (triple-quoted first, then single-line) and drop
+  // `#` comments. A real exec()/eval() call is never inside quotes or after a `#`,
+  // so it survives; text that only mentions one inside a string/comment does not.
+  return code
+    .replace(/'''[\s\S]*?'''|"""[\s\S]*?"""/g, '""')
+    .replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/#[^\n]*/g, "");
 }
 
 function parseImports(code: string): string[] {

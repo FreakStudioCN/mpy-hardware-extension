@@ -26,11 +26,37 @@ def test_deepseek_payload_caps_output_tokens(monkeypatch):
 
     monkeypatch.delenv("MPYHW_LLM_MAX_TOKENS", raising=False)
     payload = routes_llm._deepseek_payload({"messages": [{"role": "user", "content": "hi"}], "tools": []})
-    assert payload["max_tokens"] == 8192
-
-    monkeypatch.setenv("MPYHW_LLM_MAX_TOKENS", "4096")
-    payload = routes_llm._deepseek_payload({"messages": [{"role": "user", "content": "hi"}], "tools": []})
     assert payload["max_tokens"] == 4096
+
+    monkeypatch.setenv("MPYHW_LLM_MAX_TOKENS", "2048")
+    payload = routes_llm._deepseek_payload({"messages": [{"role": "user", "content": "hi"}], "tools": []})
+    assert payload["max_tokens"] == 2048
+
+
+def test_deepseek_payload_is_byte_stable_for_prefix_caching():
+    # DeepSeek's automatic prefix caching only hits when the leading bytes of the
+    # request are identical across rounds. Lock the determinism so re-sent context
+    # lands in the cache instead of being re-billed at full price: the same body
+    # must serialize identically, the constant system prompt must lead, and tools
+    # must keep the client's order (not be reordered by set iteration).
+    from app import routes_llm
+
+    body = {
+        "messages": [
+            {"role": "user", "content": "blink an ESP32 LED"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "c1", "name": "query_board_profile", "input": {"board_id": "esp32-s3-devkitc-1"}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "{\"ok\": true}"}]},
+        ],
+        "tools": [{"name": "query_board_profile"}, {"name": "search_packages"}, {"name": "load_skill"}],
+    }
+
+    first = routes_llm._deepseek_payload(body)
+    second = routes_llm._deepseek_payload(body)
+
+    assert json.dumps(first["messages"]) == json.dumps(second["messages"])
+    assert json.dumps(first.get("tools")) == json.dumps(second.get("tools"))
+    assert first["messages"][0] == {"role": "system", "content": routes_llm.SYSTEM_PROMPT}
+    assert [tool["function"]["name"] for tool in first["tools"]] == ["query_board_profile", "search_packages", "load_skill"]
 
 
 def test_llm_messages_rejects_noncanonical_tool():
@@ -298,6 +324,49 @@ def test_deepseek_messages_translate_tool_turns():
     assert json.loads(call["function"]["arguments"]) == {"board_id": "esp32-s3-devkitc-1"}
 
     assert messages[3] == {"role": "tool", "tool_call_id": "call_1", "content": "{\"ok\": true}"}
+
+
+def test_translate_stream_surfaces_reasoning_as_thinking_delta():
+    from app import routes_llm
+
+    # Thinking-mode models (deepseek-v4-pro) stream reasoning_content. It must be
+    # surfaced (as thinking_delta) so the client can store it and pass it back — not
+    # dropped, which makes DeepSeek 400 the next tool-calling round.
+    chunks = _sse_bytes(
+        {"choices": [{"delta": {"reasoning_content": "Check the board pins first."}}]},
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "c1", "function": {"name": "query_board_profile", "arguments": "{}"}},
+        ]}}]},
+    )
+    out = "".join(routes_llm._translate_deepseek_stream(chunks))
+
+    assert "thinking_delta" in out
+    assert "Check the board pins first." in out
+
+
+def test_deepseek_messages_round_trips_reasoning_content():
+    from app import routes_llm
+
+    # A thinking block on the assistant turn must translate back to reasoning_content
+    # on the DeepSeek assistant message (verified live: without it DeepSeek 400s a
+    # replayed thinking-mode tool turn; with it the call is accepted).
+    body = {
+        "messages": [
+            {"role": "user", "content": "blink an ESP32 LED"},
+            {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "Check the board first."},
+                {"type": "tool_use", "id": "call_1", "name": "query_board_profile", "input": {"board_id": "esp32-s3-devkitc-1"}},
+            ]},
+            {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "call_1", "content": "{\"ok\": true}"},
+            ]},
+        ]
+    }
+    assistant = routes_llm._deepseek_messages(body)[2]
+
+    assert assistant["role"] == "assistant"
+    assert assistant["reasoning_content"] == "Check the board first."
+    assert assistant["tool_calls"][0]["function"]["name"] == "query_board_profile"
 
 
 def test_llm_tool_capabilities_come_from_package_store(monkeypatch):

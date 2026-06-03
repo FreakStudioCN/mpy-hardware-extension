@@ -36,14 +36,25 @@ npm install
 npm run build                        # esbuild 打包到 dist/extension/activate.cjs
 ```
 
-用 VS Code 打开 `mpy-hardware-extension/` 文件夹,按 `F5` 启动 Extension Development Host(扩展调试窗口)。
+两种加载方式,任选其一:
+
+**方式 A — F5 调试(开发迭代用)**:用 VS Code 打开 `mpy-hardware-extension/` 文件夹,按 `F5` 启动 Extension Development Host。前端 `src/webview/index.html` 在此模式下实时读取,改完直接重开面板即可。
+
+**方式 B — 打包安装到你日常的 VS Code(自测用)**:
+
+```sh
+npm run package                      # 生成 build/mpy-hardware-extension-<version>.vsix
+code --install-extension build/mpy-hardware-extension-<version>.vsix --force
+```
+
+> 重装注意:每次重新打包前先 bump `package.json` 的 `version`,否则 VS Code 认为版本未变、不会真正更新;安装后要**完全退出并重启 VS Code**(`Reload Window` 不够)。vsix 是打包那一刻的冻结快照——前端改动必须重新 `package` 才会进安装版。
 
 ### 3. 使用
 
 1. 在活动栏点 **Blockless** 图标打开侧边面板。
-2. 确认 API 已在跑——否则设备下拉框显示 “No device — start the API to load boards”,Generate 按钮会一直灰着。
-3. 选一块板子(如 ESP32-S3 DevKitC-1),在输入框描述设备要做什么(中英文皆可),点 **Generate**。
-4. 在 Activity / Code / Serial / Wiring 四个标签里看生成过程与结果。agent 思考时状态栏会有蓝色转圈动画;出错则变红色静止文字。
+2. 确认 API 已在跑；否则板卡列表、配额和生成流程无法加载。
+3. 在输入框描述设备要做什么(中英文皆可),点 **Generate**。如果需求或板卡选择不明确,agent 会在 Activity 里用可回答的问题让你确认。
+4. 在 Activity / Code / Serial / Wiring 四个标签里看生成过程与结果。Activity 默认只展示用户可理解的阶段、问题和确认项；`generate_code` / `ask_user` 这类内部 tool 名称只进入日志和开发者 trace,不直接展示给普通用户。
 
 **常用环境变量**
 
@@ -53,6 +64,7 @@ npm run build                        # esbuild 打包到 dist/extension/activate
 | `MPYHW_LOOP=template` | 用离线确定性流水线代替真实 LLM | 不设=真实 agent |
 | `MPYHW_LLM_STUB=1` | 后端用桩 LLM,无需真实 key | 不设=连 DeepSeek |
 | `DEEPSEEK_API_KEY` | 后端 DeepSeek 密钥(写在 `.env`) | 必填(stub 模式除外) |
+| `MPYHW_ADMIN_TOKEN` | 运维指标接口 `/v1/admin/metrics` 的访问密钥,请求带 `X-Admin-Token` 头 | 不设=该接口对外关闭 |
 
 > 注意:`dist/` 不进仓(`src` 为唯一真相),所以克隆后必须先 `npm install && npm run build` 才能跑扩展。
 

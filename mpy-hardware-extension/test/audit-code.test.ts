@@ -22,6 +22,15 @@ test("audit rejects imports outside board modules and driver context", () => {
   assert.deepEqual(result.disallowed_imports, ["socket"]);
 });
 
+test("audit allows network modules when declared by the board profile", () => {
+  const result = auditCode("import network\nimport socket\nimport ssl\n", {
+    board: { available_modules: ["machine", "network", "socket", "ssl"] },
+    driverContexts: [],
+  });
+
+  assert.equal(result.ok, true);
+});
+
 test("audit flags dynamic import / exec / eval that bypass static import checks", () => {
   for (const code of ["os = __import__('os')", "exec('import socket')", "eval('open(\"/etc\")')"]) {
     const result = auditCode(code, { board: { available_modules: ["machine", "time"] }, driverContexts: [] });

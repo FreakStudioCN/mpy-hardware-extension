@@ -9,6 +9,18 @@ bundled from `src/` via esbuild. The deterministic template pipeline is opt-in o
   `mpyhw-api` `/v1/llm/messages`, which proxies **DeepSeek**. The model chooses
   packages, builds the manifest, calls `generate_code`, audits, and drives the
   device loop. Code and manifest render live in the panel.
+- **User-facing Activity** — the panel does not show raw tool names such as
+  `generate_code`, `query_board_profile`, or `ask_user` by default. It renders
+  product-level phases ("生成代码", "检查代码"), interactive questions, plan
+  confirmations, code, serial output, and wiring. Raw tool calls and observations
+  remain in session logs / developer trace for debugging.
+- **Interactive questions** — `ask_user` pauses the loop, renders one question
+  card in the WebView, and feeds the answer back into the agent. It must not also
+  appear as a duplicate trace line.
+- **Plan confirmation** — before paid codegen, the UI shows a user-facing hardware
+  plan: target board, capabilities, selected driver packages, wiring, and rough
+  credit estimate. It must not expose internal manifest fields like `logic` when
+  those are not meaningful product choices.
 - **Closed-loop plumbing** — `install → write → flash → read_serial → verify` runs
   through the real agent loop; serial markers (`MPYHW_READY`, `TEMP_C=…`) drive the
   `success` terminal. Verified end-to-end with fakes in
@@ -31,19 +43,15 @@ bundled from `src/` via esbuild. The deterministic template pipeline is opt-in o
 - `MPYHW_LLM_STUB=1` (API side) — connectivity smoke test only; the stub emits text,
   not tool calls, so it cannot drive the full loop.
 
-## Remaining gaps before a board lights up
+## Current boundaries
 
-These are the honest TODOs that this change did **not** close:
-
-1. **No device wiring yet.** With no `shim` connected, device tools return
-   `device_unavailable` — generation is real, but the loop cannot reach `success`
-   without a board. Plugging one in needs:
-   - a stdio JSON-RPC server loop in `python/shim/serve.py` (the `Shim` class exists,
-     but there is no `__main__` that reads requests the way `shim-process.ts` expects), and
-   - `createPanel` to spawn it and pass the `shim` into `createLoop`.
-2. **Codegen only handles AHT20 + LED.** `generate_code` → `generateMainPy` returns
-   `not_generatable` for any other sensor/constructor ([codegen.ts](../src/core/codegen.ts)).
-   The agent runs for any intent but can only *finish* on that one scenario until
-   codegen generalizes.
-3. **`ask_user` is not interactive.** It surfaces the question as a trace and returns
-   `null`; the agent proceeds with defaults. A webview round-trip is still needed.
+1. **Hardware success still requires a real board and a compatible driver context.**
+   The loop can generate files without a connected board, but install / flash /
+   serial verification need the shim and a detected MicroPython device.
+2. **Codegen is grounded, not hardcoded.** `generate_code` now uses a nested LLM
+   call grounded on the board profile, manifest, loaded skills, and resolved
+   driver contexts. If driver context is missing or weak, the agent should ask the
+   user, load a skill, or mark the path experimental instead of inventing APIs.
+3. **Logs are not the product UI.** Keep raw tool traffic, JSON arguments,
+   observations, and terminal internals in recorder output / developer trace.
+   The default Activity stream should stay readable for a hardware builder.

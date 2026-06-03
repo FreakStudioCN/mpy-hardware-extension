@@ -3,7 +3,6 @@ import type { SessionRecorder } from "./session-recorder.ts";
 export class SessionController {
   deps: {
     postMessage: (message: any) => void;
-    confirmTool: (tool: any) => Promise<boolean>;
     loop: (input: any) => Promise<any>;
     recorderFactory?: (traceId: string) => SessionRecorder;
     writeFiles?: (files: Record<string, string>) => Promise<any>;
@@ -25,7 +24,7 @@ export class SessionController {
   // target_path the agent generates. Written to the workspace alongside manifest.json.
   private latestFiles: Record<string, string> = {};
 
-  constructor(deps: { postMessage: (message: any) => void; confirmTool: (tool: any) => Promise<boolean>; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any> }) {
+  constructor(deps: { postMessage: (message: any) => void; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any> }) {
     this.deps = deps;
   }
 
@@ -66,16 +65,9 @@ export class SessionController {
         availableBoards: input.availableBoards,
         state: this.state,
         onEvent: (event: any) => this.postEvent(event),
-        confirmTool: async (tool: any) => {
-          let allowed = true;
-          if (["install_package", "write_main_py", "flash_and_run"].includes(tool.name)) {
-            allowed = await this.deps.confirmTool(tool);
-          }
-          this.record({ type: "confirmation", tool, allowed });
-          return allowed;
-        },
         askUser: (question: string, options?: string[]) => this.askUser(question, options),
         confirmPlan: (plan: any) => this.confirmPlan(plan),
+        confirmDeploy: () => this.confirmDeploy(),
         recorder: this.recorder,
         signal: this.abort.signal,
       });
@@ -129,6 +121,19 @@ export class SessionController {
     });
   }
 
+  // Deploy-readiness gate: show the wiring diagram (from the latest manifest) and
+  // a board-connection check, then resolve true once the user confirms. Reuses the
+  // pendingPrompts round-trip (webview replies via ui_prompt_response with
+  // "confirm"/"cancel"); a cancelled/finished session resolves it false.
+  confirmDeploy(): Promise<boolean> {
+    const promptId = `deploy-${++this.promptSeq}`;
+    return new Promise<boolean>((resolve) => {
+      this.pendingPrompts.set(promptId, (answer) => resolve(answer === "confirm"));
+      this.record({ type: "deploy_proposed", promptId, manifest: this.latestManifest });
+      this.deps.postMessage({ type: "deploy_needed", promptId, manifest: this.latestManifest });
+    });
+  }
+
   resolvePrompt(promptId: string, answer: string | null) {
     const resolve = this.pendingPrompts.get(promptId);
     if (resolve) {
@@ -154,10 +159,16 @@ export class SessionController {
       this.deps.postMessage({ type: "manifest_updated", manifest: event.manifest });
       return;
     }
+    if (event.type === "code_delta") {
+      // Live codegen tokens — forwarded straight to the activity feed's streaming
+      // code card. Not recorded; the finished code is captured by code_updated.
+      this.deps.postMessage({ type: "code_delta", text: event.text, path: event.path });
+      return;
+    }
     if (event.type === "code_updated") {
       this.latestFiles[event.path ?? "main.py"] = event.code;
       this.record({ type: "artifact", kind: "code", code: event.code });
-      this.deps.postMessage({ type: "code_updated", code: event.code });
+      this.deps.postMessage({ type: "code_updated", code: event.code, path: event.path });
       return;
     }
     if (event.type === "serial_output") {

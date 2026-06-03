@@ -3,30 +3,40 @@ import test from "node:test";
 
 import { SessionController } from "../src/extension/session-controller.ts";
 
-test("session controller streams loop events and requires confirmation for hardware tools", async () => {
+// Let a loop that awaits one gate advance to the next: after resolving the first
+// prompt, the loop's continuation (and the next gate's message/record) runs on a
+// microtask, so drain a few before inspecting.
+const flushMicrotasks = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
+
+test("session controller streams loop events and gates deploy via confirmDeploy", async () => {
   const messages: any[] = [];
   const controller = new SessionController({
     postMessage: (message) => messages.push(message),
-    confirmTool: async (tool) => tool.name !== "install_package",
-    loop: async ({ onEvent, confirmTool }) => {
+    loop: async ({ onEvent, confirmDeploy }) => {
       onEvent({ type: "trace", text: "start" });
       onEvent({ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1" } });
-      onEvent({ type: "code_updated", code: "print('MPYHW_READY')" });
+      onEvent({ type: "code_updated", code: "print('MPYHW_READY')", path: "main.py" });
       onEvent({ type: "serial_output", lines: ["MPYHW_READY"] });
-      const approved = await confirmTool({ name: "install_package" });
-      return { terminal: approved ? "success" : "confirmation_rejected" };
+      const approved = await confirmDeploy();
+      return { terminal: approved ? "success" : "user_cancelled" };
     },
   });
 
-  const result = await controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
+  const started = controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
+  const deploy = messages.find((m) => m.type === "deploy_needed");
+  assert.ok(deploy, "expected a deploy_needed message before any device action");
+  assert.deepEqual(deploy.manifest, { board_id: "esp32-s3-devkitc-1" });
+  controller.resolvePrompt(deploy.promptId, "cancel");
+  const result = await started;
 
-  assert.equal(result.terminal, "confirmation_rejected");
-  assert.deepEqual(messages, [
-    { type: "trace_event", event: { type: "trace", text: "start" } },
-    { type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1" } },
-    { type: "code_updated", code: "print('MPYHW_READY')" },
-    { type: "serial_output", lines: ["MPYHW_READY"] },
-    { type: "session_done", terminal: "confirmation_rejected" },
+  assert.equal(result.terminal, "user_cancelled");
+  assert.deepEqual(messages.map((m) => m.type), [
+    "trace_event",
+    "manifest_updated",
+    "code_updated",
+    "serial_output",
+    "deploy_needed",
+    "session_done",
   ]);
 });
 
@@ -36,7 +46,6 @@ test("session controller rejects a concurrent start while a run is in flight", a
   let loopStarts = 0;
   const controller = new SessionController({
     postMessage: () => {},
-    confirmTool: async () => true,
     loop: async () => { loopStarts += 1; await gate; return { terminal: "success" }; },
   });
 
@@ -58,7 +67,6 @@ test("session controller writes generated files after code and manifest are avai
   const messages: any[] = [];
   const controller = new SessionController({
     postMessage: (message) => messages.push(message),
-    confirmTool: async () => true,
     writeFiles: async (files) => {
       written.push(files);
       return { ok: true, paths: ["C:/project/main.py", "C:/project/manifest.json"] };
@@ -80,7 +88,6 @@ test("session controller accumulates multi-file projects by path and writes them
   const written: any[] = [];
   const controller = new SessionController({
     postMessage: () => {},
-    confirmTool: async () => true,
     writeFiles: async (files) => {
       written.push(files);
       return { ok: true, paths: Object.keys(files) };
@@ -106,7 +113,6 @@ test("session controller reports generated file write failures without changing 
   const messages: any[] = [];
   const controller = new SessionController({
     postMessage: (message) => messages.push(message),
-    confirmTool: async () => true,
     writeFiles: async () => ({ ok: false, error_kind: "overwrite_rejected" }),
     loop: async ({ onEvent }) => {
       onEvent({ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1" } });
@@ -126,7 +132,6 @@ test("session controller routes ask_user to the webview and feeds the answer bac
   let captured: string | null = "unset";
   const controller = new SessionController({
     postMessage: (message) => messages.push(message),
-    confirmTool: async () => true,
     loop: async ({ askUser }) => {
       captured = await askUser("Which board are you using?");
       return { terminal: "generated" };
@@ -150,7 +155,6 @@ test("session controller routes confirmPlan to the webview as plan_needed and re
   let confirmed: boolean | "unset" = "unset";
   const controller = new SessionController({
     postMessage: (message) => messages.push(message),
-    confirmTool: async () => true,
     loop: async ({ confirmPlan }) => {
       confirmed = await confirmPlan({ intent: "blink", estimate: 3, capabilities: ["digital_output"], wiring: [] });
       return { terminal: "generated" };
@@ -172,7 +176,6 @@ test("session controller confirmPlan resolves false on cancel and on session can
   let a: boolean | "unset" = "unset";
   const c1 = new SessionController({
     postMessage: () => {},
-    confirmTool: async () => true,
     loop: async ({ confirmPlan }) => { a = await confirmPlan({ estimate: 2 }); return { terminal: "generated" }; },
   });
   const s1 = c1.start({ intent: "x", boardId: "b" });
@@ -185,7 +188,6 @@ test("session controller confirmPlan resolves false on cancel and on session can
   let b: boolean | "unset" = "unset";
   const c2 = new SessionController({
     postMessage: () => {},
-    confirmTool: async () => true,
     loop: async ({ confirmPlan, signal }) => { b = await confirmPlan({ estimate: 2 }); return { terminal: signal?.aborted ? "cancelled" : "generated" }; },
   });
   const s2 = c2.start({ intent: "x", boardId: "b" });
@@ -194,20 +196,53 @@ test("session controller confirmPlan resolves false on cancel and on session can
   assert.equal(b, false);
 });
 
-test("session controller records UI prompts, confirmations, artifacts, and terminal state", async () => {
+test("session controller routes confirmDeploy to the webview as deploy_needed and resolves the choice", async () => {
+  const messages: any[] = [];
+  let confirmed: boolean | "unset" = "unset";
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    loop: async ({ onEvent, confirmDeploy }) => {
+      onEvent({ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1", wiring: [{ role: "led_anode", pin: "GPIO2" }] } });
+      confirmed = await confirmDeploy();
+      return { terminal: "success" };
+    },
+  });
+
+  const started = controller.start({ intent: "x", boardId: "b" });
+  const deploy = messages.find((m) => m.type === "deploy_needed");
+  assert.ok(deploy, "expected a deploy_needed message carrying the manifest for the wiring diagram");
+  assert.deepEqual(deploy.manifest, { board_id: "esp32-s3-devkitc-1", wiring: [{ role: "led_anode", pin: "GPIO2" }] });
+
+  controller.resolvePrompt(deploy.promptId, "confirm");
+  await started;
+  assert.equal(confirmed, true);
+});
+
+test("session controller confirmDeploy resolves false on session cancel", async () => {
+  let approved: boolean | "unset" = "unset";
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ confirmDeploy, signal }) => { approved = await confirmDeploy(); return { terminal: signal?.aborted ? "cancelled" : "generated" }; },
+  });
+  const started = controller.start({ intent: "x", boardId: "b" });
+  controller.cancel();
+  await started;
+  assert.equal(approved, false);
+});
+
+test("session controller records UI prompts, the deploy gate, artifacts, and terminal state", async () => {
   const recorded: any[] = [];
   const controller = new SessionController({
     postMessage: () => {},
-    confirmTool: async () => true,
     recorderFactory: (traceId: string) => ({
       record: async (event: any) => void recorded.push({ traceId, ...event }),
     }),
-    loop: async ({ onEvent, askUser, confirmTool }) => {
+    loop: async ({ onEvent, askUser, confirmDeploy }) => {
       const answer = await askUser("Which output should it use?");
       onEvent({ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1", answer } });
-      onEvent({ type: "code_updated", code: "print('MPYHW_READY')" });
+      onEvent({ type: "code_updated", code: "print('MPYHW_READY')", path: "main.py" });
       onEvent({ type: "serial_output", lines: ["MPYHW_READY"] });
-      await confirmTool({ name: "write_main_py", input: { path: "main.py" } });
+      await confirmDeploy();
       return { terminal: "success" };
     },
   });
@@ -216,6 +251,10 @@ test("session controller records UI prompts, confirmations, artifacts, and termi
   const prompt = recorded.find((event) => event.type === "ui_prompt");
   assert.ok(prompt, "expected ui_prompt event");
   controller.resolvePrompt(prompt.promptId, "OLED");
+  await flushMicrotasks();
+  const deploy = recorded.find((event) => event.type === "deploy_proposed");
+  assert.ok(deploy, "expected deploy_proposed event after the artifacts");
+  controller.resolvePrompt(deploy.promptId, "confirm");
   await started;
 
   assert.deepEqual(recorded.map((event) => event.type), [
@@ -226,7 +265,8 @@ test("session controller records UI prompts, confirmations, artifacts, and termi
     "artifact",
     "artifact",
     "serial_output",
-    "confirmation",
+    "deploy_proposed",
+    "ui_prompt_answer",
     "session_finished",
   ]);
   assert.equal(recorded[0].intent, "build companion");
@@ -234,8 +274,9 @@ test("session controller records UI prompts, confirmations, artifacts, and termi
   assert.equal(recorded[3].answer, "OLED");
   assert.equal(recorded[4].kind, "manifest");
   assert.equal(recorded[5].code, "print('MPYHW_READY')");
-  assert.deepEqual(recorded[7].tool, { name: "write_main_py", input: { path: "main.py" } });
-  assert.equal(recorded[8].terminal, "success");
+  assert.equal(recorded[7].manifest.board_id, "esp32-s3-devkitc-1");
+  assert.equal(recorded[8].answer, "confirm");
+  assert.equal(recorded[9].terminal, "success");
 });
 
 test("session controller carries agent state into the next user message", async () => {
@@ -246,7 +287,6 @@ test("session controller carries agent state into the next user message", async 
   ];
   const controller = new SessionController({
     postMessage: () => {},
-    confirmTool: async () => true,
     loop: async (input) => {
       statesSeen.push(input.state);
       return { terminal: "awaiting_user", state: returnedStates[statesSeen.length - 1] };
@@ -264,7 +304,6 @@ test("session controller cancel unblocks a pending ask_user with a null answer",
   let captured: string | null = "unset";
   const controller = new SessionController({
     postMessage: () => {},
-    confirmTool: async () => true,
     loop: async ({ askUser, signal }) => {
       captured = await askUser("?");
       return { terminal: signal?.aborted ? "cancelled" : "generated" };
@@ -283,7 +322,6 @@ test("session controller reports loop crashes to the webview", async () => {
   const messages: any[] = [];
   const controller = new SessionController({
     postMessage: (message) => messages.push(message),
-    confirmTool: async () => true,
     loop: async () => {
       throw new Error("api down");
     },

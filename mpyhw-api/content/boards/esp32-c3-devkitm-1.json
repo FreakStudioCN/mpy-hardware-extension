@@ -15,6 +15,6 @@
     "led_default": "GPIO10"
   },
   "forbidden_pins": ["GPIO8", "GPIO9", "GPIO18", "GPIO19"],
-  "available_modules": ["machine", "time", "math", "json"],
+  "available_modules": ["machine", "time", "math", "json", "network", "socket", "ssl"],
   "voltage_notes": "3.3V logic only. GPIO8/GPIO9 are strapping pins and GPIO18/19 are USB; the onboard RGB LED on GPIO8 is a WS2812, so GPIO10 is recommended for a wired LED."
 }

@@ -152,6 +152,35 @@ test("webview lets the user choose a device port when multiple devices are conne
   assert.deepEqual(posted.find((message) => message.type === "device_selected"), { type: "device_selected", port: "COM8" });
 });
 
+test("deploy confirm sets the chosen port on the prompt response, before the agent is unblocked", async () => {
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const selectedPorts: Array<string | null> = [];
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: () => {},
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const shim = {
+    scan: async () => ["COM7", "COM8"],
+    setPort: (port: string | null) => selectedPorts.push(port),
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); }, shim });
+  // A cancel carries no port; a confirm carries the chosen one and must set it
+  // synchronously in the same handler that resolves the deploy prompt.
+  await handler?.({ type: "ui_prompt_response", promptId: "deploy-1", answer: "cancel", port: null });
+  await handler?.({ type: "ui_prompt_response", promptId: "deploy-2", answer: "confirm", port: "COM8" });
+
+  assert.deepEqual(selectedPorts, ["COM8"]);
+});
+
 test("view provider wires the same session controller into a docked webview view", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;

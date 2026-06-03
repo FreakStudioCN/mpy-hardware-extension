@@ -36,6 +36,9 @@ def test_board_profile_is_served_with_pin_safety_data():
     assert "i2c_sda" in body["pin_recommendations"]
     assert "GPIO19" in body["forbidden_pins"]
     assert "machine" in body["available_modules"]
+    assert "network" in body["available_modules"]
+    assert "socket" in body["available_modules"]
+    assert "ssl" in body["available_modules"]
 
 
 def test_board_index_contains_detail_hashes():
