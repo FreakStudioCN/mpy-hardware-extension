@@ -33,9 +33,11 @@ const CODEGEN_SSE = [
 function makeFetch(turns: Array<{ name: string; input: any }>) {
   let turnIndex = 0;
   const counts = { codegen: 0 };
+  const bodies: any[] = [];
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     if (url.endsWith("/v1/llm/messages")) {
       const body = JSON.parse(String(init?.body ?? "{}"));
+      bodies.push(body);
       if (Array.isArray(body.tools) && body.tools.length === 0) {
         counts.codegen += 1;
         return { ok: true, status: 200, text: async () => CODEGEN_SSE } as unknown as Response;
@@ -45,7 +47,7 @@ function makeFetch(turns: Array<{ name: string; input: any }>) {
     }
     throw new Error(`unexpected url ${url}`);
   }) as unknown as typeof fetch;
-  return { fetchImpl, counts };
+  return { fetchImpl, counts, bodies };
 }
 
 test("estimateCredits = base 2 + one per driver package", () => {
@@ -64,7 +66,7 @@ test("plan gate: declining the plan cancels codegen (no code, no spend)", async 
     intent: "超过30度亮红灯",
     boardId: "esp32-c3-devkitm-1",
     onEvent: (e) => events.push(e),
-    confirmPlan: async (plan) => { plans.push(plan); return false; },
+    confirmPlan: async (plan) => { plans.push(plan); return { action: "cancel" }; },
   });
 
   assert.equal(plans.length, 1, "plan gate should fire exactly once");
@@ -83,7 +85,7 @@ test("plan gate: confirming proceeds to codegen and emits code + wiring", async 
     intent: "超过30度亮红灯",
     boardId: "esp32-c3-devkitm-1",
     onEvent: (e) => events.push(e),
-    confirmPlan: async () => true,
+    confirmPlan: async () => ({ action: "confirm" }),
   });
 
   assert.equal(counts.codegen, 1);
@@ -102,11 +104,42 @@ test("plan gate fires once per session: a repeated generate_code does not re-pro
   await loop({
     intent: "超过30度亮红灯",
     boardId: "esp32-c3-devkitm-1",
-    confirmPlan: async () => { planCalls += 1; return true; },
+    confirmPlan: async () => { planCalls += 1; return { action: "confirm" }; },
   });
 
   assert.equal(planCalls, 1, "plan confirmation must be asked only once per session");
   assert.equal(counts.codegen, 2, "both generate_code calls should run codegen");
+});
+
+test("plan gate: revising re-plans (feedback reaches the model, no codegen, gate fires again)", async () => {
+  const events: any[] = [];
+  const plans: any[] = [];
+  const { fetchImpl, counts, bodies } = makeFetch([
+    { name: "generate_code", input: { manifest: MANIFEST, target_path: "main.py" } },
+    { name: "generate_code", input: { manifest: MANIFEST, target_path: "main.py" } },
+  ]);
+  const FEEDBACK = "把 LED 换成蜂鸣器";
+  let call = 0;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({
+    intent: "超过30度亮红灯",
+    boardId: "esp32-c3-devkitm-1",
+    onEvent: (e) => events.push(e),
+    // First gate: revise with feedback. Second gate: confirm.
+    confirmPlan: async (plan) => {
+      plans.push(plan);
+      return call++ === 0 ? { action: "revise", feedback: FEEDBACK } : { action: "confirm" };
+    },
+  });
+
+  assert.equal(plans.length, 2, "the gate fires again after a revise");
+  assert.equal(counts.codegen, 1, "revise runs no codegen; only the later confirm does");
+  // The revise feedback round-trips to the model as a tool_result observation.
+  const wire = JSON.stringify(bodies);
+  assert.match(wire, /plan_revision_requested/, "model sees the revision request");
+  assert.ok(wire.includes(FEEDBACK), "model sees the user's feedback text");
+  assert.ok(events.some((e) => e.type === "code_updated"), "the confirmed plan eventually generates code");
 });
 
 test("headless (no confirmPlan) proceeds without gating", async () => {

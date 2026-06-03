@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,6 +22,18 @@ class TelemetryEvent(BaseModel):
     def event_type_is_allowed(cls, value: str) -> str:
         if value not in analytics.ALLOWED_EVENT_TYPES:
             raise ValueError("unknown event_type")
+        return value
+
+    @field_validator("timestamp")
+    @classmethod
+    def timestamp_is_iso8601(cls, value: str) -> str:
+        # A malformed timestamp would reach sessions.started_at/ended_at and break the
+        # ::timestamptz cast in metrics_snapshot, 500-ing /v1/admin/metrics. Reject at
+        # ingest so bad data never lands. The client sends new Date().toISOString().
+        try:
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("timestamp must be ISO-8601")
         return value
 
 

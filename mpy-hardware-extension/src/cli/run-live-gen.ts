@@ -64,7 +64,7 @@ try {
     // build plan, and decline device deploy (no hardware — codegen already captured).
     askUser: async (_question: string, options?: string[]) =>
       options && options.length ? options[0] : "你来决定，按你的推荐继续",
-    confirmPlan: async () => true,
+    confirmPlan: async () => ({ action: "confirm" as const }),
     confirmDeploy: async () => false,
   });
 } catch (error) {

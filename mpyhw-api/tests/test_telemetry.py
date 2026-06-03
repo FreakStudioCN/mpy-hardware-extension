@@ -90,5 +90,36 @@ def test_admin_metrics_disabled_when_secret_unset(monkeypatch):
     assert response.json()["detail"]["error"] == "admin_disabled"
 
 
-def event(event_type, payload):
-    return {"trace_id": "trace-1", "event_type": event_type, "timestamp": "2026-06-01T00:00:00Z", "payload": payload}
+def test_telemetry_rejects_malformed_timestamp():
+    response = client.post("/v1/telemetry", json={"events": [event("tool_dispatch", {}, timestamp="not-a-date")]})
+
+    assert response.status_code == 422
+
+
+def test_telemetry_accepts_iso8601_millis_z():
+    # The real client sends new Date().toISOString() -> e.g. "2026-06-03T10:00:00.000Z".
+    response = client.post("/v1/telemetry", json={"events": [event("tool_dispatch", {}, timestamp="2026-06-03T10:00:00.000Z")]})
+
+    assert response.status_code == 204
+
+
+def test_admin_metrics_survives_session_with_client_timestamps(monkeypatch):
+    # A finished session with the client's millis-Z timestamps must not break the
+    # ended_at::timestamptz - started_at::timestamptz cast in metrics_snapshot.
+    monkeypatch.setenv("MPYHW_ADMIN_TOKEN", "s3cret")
+    client.post(
+        "/v1/telemetry",
+        json={"events": [
+            event("session_started", {}, timestamp="2026-06-03T10:00:00.000Z"),
+            event("session_finished", {}, timestamp="2026-06-03T10:00:05.000Z"),
+        ]},
+    )
+
+    response = client.get("/v1/admin/metrics", headers={"X-Admin-Token": "s3cret"})
+
+    assert response.status_code == 200
+    assert response.json()["session_duration_ms"]["p50"] == 5000
+
+
+def event(event_type, payload, timestamp="2026-06-01T00:00:00Z"):
+    return {"trace_id": "trace-1", "event_type": event_type, "timestamp": timestamp, "payload": payload}

@@ -10,7 +10,8 @@ export class SessionController {
 
   // Pending ask_user prompts: promptId -> resolve fn. The loop awaits askUser();
   // the webview answers via a ui_prompt_response message routed to resolvePrompt.
-  private pendingPrompts = new Map<string, (answer: string | null) => void>();
+  // `extra` carries optional response data (e.g. the plan-revise feedback).
+  private pendingPrompts = new Map<string, (answer: string | null, extra?: any) => void>();
   private promptSeq = 0;
   private abort: AbortController | null = null;
   private state: any = undefined;
@@ -108,14 +109,17 @@ export class SessionController {
     });
   }
 
-  // Build-plan gate: show the requirements + credit estimate and resolve true when
-  // the user confirms. Reuses the pendingPrompts round-trip (webview replies via the
-  // same ui_prompt_response with answer "confirm"/"cancel"); a cancelled/finished
-  // session resolves it false through cancelPrompts.
-  confirmPlan(plan: any): Promise<boolean> {
+  // Build-plan gate: show the requirements + credit estimate and resolve the user's
+  // choice. Reuses the pendingPrompts round-trip (webview replies via the same
+  // ui_prompt_response with answer "confirm"/"cancel"/"revise"; revise carries
+  // free-text feedback). A cancelled/finished session resolves to cancel.
+  confirmPlan(plan: any): Promise<{ action: "confirm" | "cancel" | "revise"; feedback?: string }> {
     const promptId = `plan-${++this.promptSeq}`;
-    return new Promise<boolean>((resolve) => {
-      this.pendingPrompts.set(promptId, (answer) => resolve(answer === "confirm"));
+    return new Promise((resolve) => {
+      this.pendingPrompts.set(promptId, (answer, extra) => resolve({
+        action: answer === "confirm" ? "confirm" : answer === "revise" ? "revise" : "cancel",
+        feedback: extra?.feedback,
+      }));
       this.record({ type: "plan_proposed", promptId, plan });
       this.deps.postMessage({ type: "plan_needed", promptId, plan });
     });
@@ -134,12 +138,12 @@ export class SessionController {
     });
   }
 
-  resolvePrompt(promptId: string, answer: string | null) {
+  resolvePrompt(promptId: string, answer: string | null, extra?: any) {
     const resolve = this.pendingPrompts.get(promptId);
     if (resolve) {
       this.pendingPrompts.delete(promptId);
       this.record({ type: "ui_prompt_answer", promptId, answer });
-      resolve(answer);
+      resolve(answer, extra);
     }
   }
 
@@ -179,6 +183,11 @@ export class SessionController {
     if (event.kind === "credits") {
       this.record({ type: "session_event", event });
       this.deps.postMessage({ type: "session_event", event });
+      return;
+    }
+    if (event.type === "summary") {
+      this.record({ type: "summary", text: event.text });
+      this.deps.postMessage({ type: "summary", text: event.text });
       return;
     }
     this.record({ type: "trace_event", event });

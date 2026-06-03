@@ -152,11 +152,11 @@ test("session controller routes ask_user to the webview and feeds the answer bac
 
 test("session controller routes confirmPlan to the webview as plan_needed and resolves the choice", async () => {
   const messages: any[] = [];
-  let confirmed: boolean | "unset" = "unset";
+  let decision: any = "unset";
   const controller = new SessionController({
     postMessage: (message) => messages.push(message),
     loop: async ({ confirmPlan }) => {
-      confirmed = await confirmPlan({ intent: "blink", estimate: 3, capabilities: ["digital_output"], wiring: [] });
+      decision = await confirmPlan({ intent: "blink", estimate: 3, capabilities: ["digital_output"], wiring: [] });
       return { terminal: "generated" };
     },
   });
@@ -168,12 +168,40 @@ test("session controller routes confirmPlan to the webview as plan_needed and re
 
   controller.resolvePrompt(plan.promptId, "confirm");
   await started;
-  assert.equal(confirmed, true);
+  assert.equal(decision.action, "confirm");
 });
 
-test("session controller confirmPlan resolves false on cancel and on session cancel", async () => {
+test("session controller confirmPlan resolves a revise decision carrying the feedback", async () => {
+  const messages: any[] = [];
+  let decision: any = "unset";
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    loop: async ({ confirmPlan }) => { decision = await confirmPlan({ estimate: 2 }); return { terminal: "generated" }; },
+  });
+
+  const started = controller.start({ intent: "x", boardId: "b" });
+  const plan = messages.find((m) => m.type === "plan_needed");
+  controller.resolvePrompt(plan.promptId, "revise", { feedback: "用 TFT 彩屏" });
+  await started;
+  assert.deepEqual(decision, { action: "revise", feedback: "用 TFT 彩屏" });
+});
+
+test("session controller forwards a loop summary event to the webview as a summary message", async () => {
+  const messages: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent }) => { onEvent({ type: "summary", text: "all done" }); return { terminal: "generated" }; },
+  });
+
+  await controller.start({ intent: "x", boardId: "b" });
+  const summary = messages.find((m) => m.type === "summary");
+  assert.ok(summary, "expected a summary message");
+  assert.equal(summary.text, "all done");
+});
+
+test("session controller confirmPlan resolves cancel on cancel answer and on session cancel", async () => {
   // explicit "cancel" answer
-  let a: boolean | "unset" = "unset";
+  let a: any = "unset";
   const c1 = new SessionController({
     postMessage: () => {},
     loop: async ({ confirmPlan }) => { a = await confirmPlan({ estimate: 2 }); return { terminal: "generated" }; },
@@ -182,10 +210,10 @@ test("session controller confirmPlan resolves false on cancel and on session can
   // resolve the pending plan prompt with cancel
   c1.resolvePrompt("plan-1", "cancel");
   await s1;
-  assert.equal(a, false);
+  assert.equal(a.action, "cancel");
 
-  // session cancel unblocks a pending plan as false
-  let b: boolean | "unset" = "unset";
+  // session cancel unblocks a pending plan as cancel
+  let b: any = "unset";
   const c2 = new SessionController({
     postMessage: () => {},
     loop: async ({ confirmPlan, signal }) => { b = await confirmPlan({ estimate: 2 }); return { terminal: signal?.aborted ? "cancelled" : "generated" }; },
@@ -193,7 +221,7 @@ test("session controller confirmPlan resolves false on cancel and on session can
   const s2 = c2.start({ intent: "x", boardId: "b" });
   c2.cancel();
   await s2;
-  assert.equal(b, false);
+  assert.equal(b.action, "cancel");
 });
 
 test("session controller routes confirmDeploy to the webview as deploy_needed and resolves the choice", async () => {

@@ -123,17 +123,47 @@ test("credits message updates the quota label and gates Start", async () => {
   assert.equal(generate.disabled, true, "out of credits -> Start disabled");
 });
 
-test("trace_event text is HTML-escaped, not injected as live markup (XSS guard)", async () => {
+test("summary text is HTML-escaped, not injected as live markup (XSS guard)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
 
-  // "Generated ... done" routes through the markdown/innerHTML path (not the
-  // textContent paths), which is where an escaping regression would be exploitable.
-  post(dom, { type: "trace_event", event: { text: "Generated <script>alert(1)</script> done" } });
+  // The model's final reply renders through the markdown/innerHTML path — the place
+  // an escaping regression would be exploitable. (Mid-process narration is suppressed.)
+  post(dom, { type: "summary", text: "Generated <script>alert(1)</script> done" });
 
   const activity = document.getElementById("activity")!;
-  assert.equal(activity.querySelectorAll("script").length, 0, "no <script> element injected from event text");
+  assert.equal(activity.querySelectorAll("script").length, 0, "no <script> element injected from summary text");
   assert.match(activity.innerHTML, /&lt;script&gt;/, "angle brackets escaped in rendered HTML");
+});
+
+test("process narration is suppressed — a trace_event adds no feed card but still drives the status line", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "x";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  const before = activity.children.length;
+
+  post(dom, { type: "trace_event", event: { text: "让我换个思路，先读板子资料。" } });
+  post(dom, { type: "trace_event", event: { text: "生成代码" } });
+
+  assert.equal(activity.children.length, before, "no narration cards added to the feed");
+  assert.match(document.getElementById("status")!.textContent!, /^生成代码… \d+s$/, "status line still reflects the live phase");
+
+  post(dom, { type: "session_done", terminal: "generated" }); // clears the heartbeat interval
+});
+
+test("a summary message renders exactly one final result card", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  post(dom, { type: "summary", text: "已生成代码：用 ssd1306 驱动 OLED 显示温度。" });
+
+  const cards = activity.querySelectorAll(".ev-card");
+  assert.equal(cards.length, 1, "one result card");
+  assert.match(activity.textContent!, /已生成代码/);
 });
 
 test("ask_user trace is not rendered beside the interactive question card", async () => {
@@ -294,4 +324,40 @@ test("confirming the build plan shows an immediate in-feed spinner that clears w
 
   post(dom, { type: "code_delta", text: "import time\n", path: "main.py" });
   assert.equal(activity.querySelector(".feed-pending"), null, "pending spinner cleared once code streams");
+});
+
+test("plan card shows the model's summary and a revise box that posts feedback to the host", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+  const posted: any[] = [];
+  // The fallback vscode shim posts via console.log (see the Copy test).
+  (dom.window as any).console.log = (m: any) => posted.push(m);
+
+  post(dom, {
+    type: "plan_needed",
+    promptId: "plan-7",
+    plan: {
+      boardId: "esp32-s3-devkitc-1",
+      summary: "用 **SSD1306** OLED 显示温度，MPR121 做触摸。",
+      capabilities: ["display_text"],
+      packages: ["ssd1306"],
+      wiring: [{ role: "i2c_sda", pin: "GPIO5" }],
+      estimate: 4,
+    },
+  });
+
+  // Narrative summary renders (markdown bolded) above the structured rows.
+  const summaryEl = activity.querySelector(".plan-summary")!;
+  assert.ok(summaryEl, "plan summary rendered");
+  assert.ok(summaryEl.querySelector("strong"), "summary markdown bolded");
+
+  // Typing a change + 修改计划 posts a revise response carrying the feedback.
+  const input = activity.querySelector(".plan-revise") as any;
+  input.value = "把 OLED 换成 TFT";
+  (activity.querySelector(".plan-edit") as HTMLButtonElement).click();
+
+  const revise = posted.find((m) => m && m.type === "ui_prompt_response" && m.answer === "revise");
+  assert.ok(revise, "修改计划 posts a revise response");
+  assert.equal(revise.feedback, "把 OLED 换成 TFT");
 });

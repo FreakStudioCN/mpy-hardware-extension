@@ -134,6 +134,9 @@
       .plan-list { margin: 8px 0 0; padding-left: 16px; font-size: 12px; line-height: 1.6; }
       .plan-k { color: var(--fg-muted); }
       .plan-cost { margin-top: 8px; font-size: 12px; font-weight: 600; }
+      .plan-summary { margin: 6px 0 2px; }
+      .plan-edit { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); font-weight: 500; }
+      .plan-edit:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); background: var(--vsc-hover); }
       .ask-opt.plan-go { background: var(--accent, #2f6feb); color: #fff; border-color: transparent; }
       .ask-opt:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); }
       .ask-opt.chosen { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -501,6 +504,21 @@
         const w = $("activity").parentElement;
         w.scrollTop = w.scrollHeight;
       }
+      // The agent's final plain-text reply, shown as one clean result card. The
+      // streamed mid-process reasoning is suppressed, so this is the only assistant
+      // prose the user sees.
+      function addSummary(text) {
+        const t = (text == null ? "" : String(text)).trim();
+        if (!t) return;
+        currentThink = null; clearPending();
+        $("activityEmpty").classList.add("hidden");
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind">summary</span></div><div class="ev-sum"></div></div></div></div>';
+        card.querySelector(".ev-sum").innerHTML = renderMarkdown(t);
+        $("activity").appendChild(card);
+        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
+      }
       function addActivity(ev) {
         const text = (ev && typeof ev.text === "string") ? ev.text : JSON.stringify(ev);
         if (!text) return;
@@ -605,10 +623,16 @@
           '<div class="ev-ico skill">•</div>' +
           '<div class="ev-main"><div class="ev-label"><span class="kind">plan</span></div>' +
           '<div class="ev-sum">确认硬件选型后开始生成代码与接线图</div>' +
+          '<div class="ev-sum plan-summary"></div>' +
           '<ul class="plan-list"></ul>' +
           '<div class="plan-cost"></div>' +
+          '<div class="ask-row"><input class="ask-input plan-revise" type="text" placeholder="想改点什么？例如：把 OLED 换成 TFT、再加一个蜂鸣器…"><button class="ask-send plan-edit" type="button">修改计划</button></div>' +
           '<div class="ask-options"><button class="ask-opt plan-go" type="button">确认生成</button><button class="ask-opt plan-cancel" type="button">取消</button></div>' +
           "</div></div></div>";
+        // Model-written narrative (optional), rendered above the structured rows.
+        const summaryEl = card.querySelector(".plan-summary");
+        if (typeof plan.summary === "string" && plan.summary.trim()) summaryEl.innerHTML = renderMarkdown(plan.summary.trim());
+        else summaryEl.remove();
         const rows = [];
         if (plan.boardId) rows.push(["设备", plan.boardId]);
         if (Array.isArray(plan.capabilities) && plan.capabilities.length) rows.push(["功能", plan.capabilities.join("、")]);
@@ -632,17 +656,30 @@
         if (Number.isFinite(remaining)) costText += `｜剩余 ${remaining}`;
         card.querySelector(".plan-cost").textContent = costText;
         let answered = false;
-        const reply = (answer) => {
+        const reviseInput = card.querySelector(".plan-revise");
+        const reply = (answer, feedback) => {
           if (answered) return;
           answered = true;
-          vscode.postMessage({ type: "ui_prompt_response", promptId, answer });
-          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; });
+          vscode.postMessage({ type: "ui_prompt_response", promptId, answer, feedback });
+          card.querySelectorAll(".ask-opt, .ask-send").forEach((b) => { b.disabled = true; });
+          reviseInput.disabled = true;
           awaitingUser = false; markActivity();
-          setStatus(answer === "confirm" ? "thinking…" : "Cancelled");
-          if (answer === "confirm") setPending("正在生成代码…");
+          if (answer === "cancel") { setStatus("Cancelled"); return; }
+          setStatus("thinking…");
+          // Revise re-runs the agent to re-plan; confirm proceeds to codegen.
+          setPending(answer === "revise" ? "正在按你的修改重新规划…" : "正在生成代码…");
+        };
+        // Revise: send the user's free-text change request back so the agent re-plans
+        // and the host re-shows an updated plan. Empty input is a no-op.
+        const submitRevise = () => {
+          const fb = reviseInput.value.trim();
+          if (!fb) { reviseInput.focus(); return; }
+          reply("revise", fb);
         };
         card.querySelector(".plan-go").addEventListener("click", () => reply("confirm"));
         card.querySelector(".plan-cancel").addEventListener("click", () => reply("cancel"));
+        card.querySelector(".plan-edit").addEventListener("click", submitRevise);
+        reviseInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitRevise(); } });
         $("activity").appendChild(card);
         $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
       }
@@ -938,8 +975,11 @@
           if (PHASE_LABELS.has(t)) currentPhase = t;        // a known tool phase
           else if (t) currentPhase = "thinking";               // streamed reasoning text
           tickHeartbeat();                                  // repaint the label now, don't wait up to 1s
-          addActivity(msg.event);
+          // Process narration (reasoning + phase labels) is intentionally NOT shown
+          // as feed cards — only the status line above + spinner reflect progress.
+          // The model's final reply arrives separately as a "summary" message.
         }
+        if (msg.type === "summary") { markActivity(); addSummary(msg.text); }
         if (msg.type === "ui_prompt_needed") { awaitingUser = true; pauseTimer(); addAskPrompt(msg.promptId, msg.question, msg.options); }
         if (msg.type === "plan_needed") { awaitingUser = true; pauseTimer(); addPlanPrompt(msg.promptId, msg.plan); }
         if (msg.type === "deploy_needed") { awaitingUser = true; pauseTimer(); addDeployPrompt(msg.promptId, msg.manifest); }

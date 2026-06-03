@@ -78,7 +78,7 @@ test("agent-backed loop runs intent -> packages -> manifest -> code -> deploy ->
       if (Array.isArray(body.tools) && body.tools.length === 0) {
         // Nested codegen sub-call: the LLM streams back main.py.
         const sse = [
-          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "import time\nprint('MPYHW_READY')\nwhile True:\n    temp_c = sensor.temperature\n    time.sleep(1)\n" } }),
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "import time\nimport aht20\nprint('MPYHW_READY')\nwhile True:\n    temp_c = sensor.temperature\n    time.sleep(1)\n" } }),
           JSON.stringify({ type: "message_stop" }),
         ].map((d) => `data: ${d}`).join("\n\n");
         return { ok: true, status: 200, text: async () => sse } as unknown as Response;
@@ -448,7 +448,7 @@ test("the deploy checkpoint fires once before the first device tool, not per too
 
   assert.equal(result.terminal, "success");
   assert.equal(deployPrompts, 1, "confirmed once, not re-prompted for write/flash");
-  assert.deepEqual(shimCalls, ["install", "write", "flash", "serial"]);
+  assert.deepEqual(shimCalls, ["install", "flash", "serial"]);
 });
 
 test("generate_code streams the generation as code_delta then a final code_updated", async () => {
@@ -664,6 +664,121 @@ test("write_main_py deploys additional generated files (multi-file project) to t
   assert.deepEqual(deviceWrites, [{ path: "lib/aht20.py", code: "class AHT20:\n    pass" }]);
 });
 
+test("write_main_py deploys generated main.py from local state, not the model echo", async () => {
+  let turnIndex = 0;
+  let mainWritten = "";
+  const manifest = {
+    board_id: "esp32-s3-devkitc-1",
+    capabilities: ["digital_output"],
+    pins: { led_anode: "GPIO2" },
+    wiring: [{ role: "led_anode", pin: "GPIO2" }],
+  };
+  const turns = [
+    { name: "generate_code", input: { manifest, target_path: "main.py" } },
+    { name: "write_main_py", input: { path: "main.py", content: "print('STALE_ECHO')" } },
+  ];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('GENERATED_MAIN')" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+  const shim = {
+    scan: async () => ["COM3"],
+    installPackage: async () => {},
+    writeMainPy: async (content: string) => { mainWritten = content; },
+    flashAndRun: async () => {},
+    serialReadUntil: async () => ({ ok: true, lines: [] }),
+  };
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await loop({ intent: "blink", boardId: "esp32-s3-devkitc-1" });
+
+  assert.equal(mainWritten, "print('GENERATED_MAIN')");
+});
+
+test("audit_code audits generated local state when the model echo diverges", async () => {
+  let turnIndex = 0;
+  const recorded: any[] = [];
+  const manifest = {
+    board_id: "esp32-s3-devkitc-1",
+    capabilities: ["digital_output"],
+    pins: { led_anode: "GPIO2" },
+    wiring: [{ role: "led_anode", pin: "GPIO2" }],
+  };
+  const turns = [
+    { name: "generate_code", input: { manifest, target_path: "main.py" } },
+    { name: "audit_code", input: { path: "main.py", content: "import machine\n" } },
+  ];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "import socket\n" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+  const state = { traceId: "session", intent: "x", boardId: "esp32-s3-devkitc-1", turnSeq: 0, repairRound: 0, textOnlyTurns: 0, loadedSkills: [], messages: [], board: BOARD, driverContexts: [] };
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({
+    intent: "blink",
+    boardId: "esp32-s3-devkitc-1",
+    state,
+    recorder: { record: async (event: any) => { recorded.push(event); } },
+  });
+
+  assert.ok(recorded.some((event) => JSON.stringify(event).includes("audit_failed")));
+  assert.ok(recorded.some((event) => JSON.stringify(event).includes("socket")));
+});
+
+test("write_main_py fails without a generated main.py and does not touch the device", async () => {
+  let writes = 0;
+  const recorded: any[] = [];
+  const fetchImpl = (async (url: string) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const turn = { name: "write_main_py", input: { path: "main.py", content: "print('UNGENERATED')" } };
+      return { ok: true, status: 200, text: async () => sseForTurn(turn) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+  const shim = {
+    scan: async () => ["COM3"],
+    installPackage: async () => {},
+    writeMainPy: async () => { writes += 1; },
+    flashAndRun: async () => {},
+    serialReadUntil: async () => ({ ok: true, lines: [] }),
+  };
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await loop({
+    intent: "blink",
+    boardId: "esp32-s3-devkitc-1",
+    recorder: { record: async (event: any) => { recorded.push(event); } },
+  });
+
+  assert.equal(writes, 0);
+  assert.ok(recorded.some((event) => JSON.stringify(event).includes("generated_main_missing")));
+});
+
 test("generate_code emits manifest_updated so the wiring view renders even without a prior propose_manifest", async () => {
   // Reproduces the wiring-never-appears bug: when the agent goes straight to
   // generate_code (propose_manifest never validated), the wiring panel listens
@@ -732,11 +847,34 @@ test("agent-backed loop keeps internal tool names out of user-facing trace event
   }) as unknown as typeof fetch;
 
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
-  await loop({ intent: "thermometer with OLED", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e), confirmPlan: async () => true });
+  await loop({ intent: "thermometer with OLED", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e), confirmPlan: async () => ({ action: "confirm" }) });
 
   const traceText = events.filter((event) => event.type === "trace").map((event) => event.text).join("\n");
   assert.doesNotMatch(traceText, /Agent session/);
   assert.doesNotMatch(traceText, /generate_code/);
+});
+
+test("agent-backed loop hides streamed reasoning and surfaces only the final reply as a summary", async () => {
+  const events: any[] = [];
+  // One turn: the model streams free-text reasoning, then hands back with no tool call.
+  const fetchImpl = (async (url: string) => {
+    if (!url.endsWith("/v1/llm/messages")) throw new Error(`unexpected url ${url}`);
+    const sse = [
+      JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "让我想想…这其实很简单。" } }),
+      JSON.stringify({ type: "message_stop" }),
+    ].map((d) => `data: ${d}`).join("\n\n");
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "你好", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e) });
+
+  // Mid-stream reasoning is internal — never forwarded as a trace event...
+  assert.ok(!events.some((e) => e.type === "trace"), "streamed reasoning must not surface as trace");
+  // ...but the model's final plain-text reply is surfaced once, as a summary.
+  const summaries = events.filter((e) => e.type === "summary");
+  assert.equal(summaries.length, 1, "exactly one summary event");
+  assert.equal(summaries[0].text, "让我想想…这其实很简单。");
 });
 
 test("opening turn tells the agent to recommend a board when none is chosen", async () => {

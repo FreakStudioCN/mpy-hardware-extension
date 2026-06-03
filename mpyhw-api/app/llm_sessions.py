@@ -6,7 +6,11 @@ from typing import Any
 
 from app import db
 
-DEFAULT_USER_LIMIT = 1
+# 2, not 1: a single user turn opens the main agent stream AND, while it is still
+# draining, the generate_code tool opens a nested /v1/llm/messages stream for
+# codegen. With a limit of 1 the nested call collides with its own parent's slot
+# and 429s, so codegen never runs. Cost is still bounded per turn by credits.
+DEFAULT_USER_LIMIT = 2
 DEFAULT_GLOBAL_LIMIT = 30
 DEFAULT_TTL_SECONDS = 120
 

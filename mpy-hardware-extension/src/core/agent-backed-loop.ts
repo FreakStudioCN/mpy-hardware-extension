@@ -50,8 +50,9 @@ type LoopInput = {
   onEvent?: (event: any) => void;
   askUser?: (question: string, options?: string[]) => Promise<string | null>;
   // Build-plan gate: the host shows the requirements + credit estimate and resolves
-  // true to proceed with codegen, false to cancel. Undefined (headless/test) = proceed.
-  confirmPlan?: (plan: BuildPlan) => Promise<boolean>;
+  // the user's choice — confirm (proceed to codegen), cancel, or revise (re-plan
+  // with free-text feedback). Undefined (headless/test) = proceed.
+  confirmPlan?: (plan: BuildPlan) => Promise<PlanDecision>;
   // Deploy-readiness gate: the host scans for the board and shows the wiring
   // diagram, resolving true to proceed with install/flash, false to cancel.
   // Undefined (headless/test) = proceed.
@@ -93,11 +94,19 @@ function stripCodeFences(text: string): string {
 export type BuildPlan = {
   intent: string;
   boardId?: string;
+  // Optional model-written narrative: what the device does and why these choices
+  // were made. Shown above the structured rows on the plan card. Absent if the
+  // model didn't supply a manifest.summary.
+  summary?: string;
   capabilities: string[];
   packages: string[];
   wiring: Array<{ role: string; pin: string }>;
   estimate: number;
 };
+
+// The user's choice at the build-plan gate. "revise" carries free-text feedback
+// the model uses to re-plan before the gate is shown again.
+export type PlanDecision = { action: "confirm" | "cancel" | "revise"; feedback?: string };
 
 // Rough, deterministic credit estimate for the build (codegen + audit + deploy).
 // The exact token count is unknown before generation, so this is a ballpark the
@@ -114,8 +123,12 @@ function buildPlan(manifest: any, intent: string): BuildPlan {
   return {
     intent,
     boardId: manifest?.board_id,
-    capabilities: manifest?.capabilities ?? [],
-    packages: (manifest?.packages ?? []).map((p: any) => (typeof p === "string" ? p : p?.name)).filter(Boolean),
+    summary: typeof manifest?.summary === "string" ? manifest.summary : undefined,
+    capabilities: Array.isArray(manifest?.capabilities) ? manifest.capabilities : [],
+    // Guard with Array.isArray, not `?? []`: the model sometimes emits `packages`
+    // as a non-array (e.g. {} or 0 for a no-package project), and `?? []` only
+    // catches null/undefined, so `.map` would throw and crash the whole loop.
+    packages: (Array.isArray(manifest?.packages) ? manifest.packages : []).map((p: any) => (typeof p === "string" ? p : p?.name)).filter(Boolean),
     wiring: Array.isArray(manifest?.wiring) ? manifest.wiring : [],
     estimate: estimateCredits(manifest),
   };
@@ -289,8 +302,16 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           // Repair-loop regenerations keep planConfirmed=true and skip the prompt.
           if (!state.planConfirmed) {
             const plan = buildPlan(toolInput.manifest, input.intent);
-            const approved = typeof input.confirmPlan === "function" ? await input.confirmPlan(plan) : true;
-            if (!approved) return { ok: false, error_kind: "user_cancelled" };
+            const decision = typeof input.confirmPlan === "function"
+              ? await input.confirmPlan(plan)
+              : { action: "confirm" as const };
+            if (decision.action === "cancel") return { ok: false, error_kind: "user_cancelled" };
+            // Revise: hand the user's feedback back to the model and keep the gate
+            // closed (planConfirmed stays false), so it re-plans and the host shows
+            // the plan again. Not a runtime_error, so it doesn't count as a repair.
+            if (decision.action === "revise") {
+              return { ok: false, error_kind: "plan_revision_requested", feedback: decision.feedback };
+            }
             state.planConfirmed = true;
           }
           // One path: grounded LLM generation for every part. No per-sensor
@@ -308,7 +329,9 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           if (!state.board) {
             return { ok: false, error_kind: "audit_unavailable", message: "board profile not loaded" };
           }
-          const audit = auditCode(toolInput.content, { board: state.board, driverContexts: contextsForCodegen({ capabilities: ["digital_output"] }) });
+          const auditPath = toolInput.path ?? "main.py";
+          const auditContent = typeof state.files?.[auditPath] === "string" ? state.files[auditPath] : toolInput.content;
+          const audit = auditCode(auditContent, { board: state.board, driverContexts: contextsForCodegen({ capabilities: ["digital_output"] }) });
           return audit.ok ? { ok: true } : { ok: false, error_kind: "audit_failed", disallowed_imports: audit.disallowed_imports };
         }
         if (name === "load_skill") {
@@ -348,7 +371,11 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
             return { ok: true };
           }
           if (name === "write_main_py") {
-            await shim.writeMainPy(toolInput.content);
+            const mainCode = state.files?.["main.py"];
+            if (typeof mainCode !== "string") {
+              return { ok: false, error_kind: "generated_main_missing" };
+            }
+            await shim.writeMainPy(mainCode);
             // Deploy any additional generated project files (lib/ modules) to the
             // device at their mirror paths. Content comes from the accumulated set,
             // not re-sent by the model. Single-file projects have none → no-op.
@@ -432,9 +459,10 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       dispatchTool: dispatch,
       recorder: input.recorder,
       onEvent: (event: any) => {
-        if (event.type === "text_delta" && event.text.trim()) {
-          onEvent({ type: "trace", text: event.text });
-        } else if (event.type === "tool_use_complete") {
+        // The model's streamed free-text is internal chain-of-thought — not shown.
+        // Only surface the compact tool phase (drives the host status line) and
+        // credit updates. The final reply is emitted once after the loop, below.
+        if (event.type === "tool_use_complete") {
           const phase = userVisibleToolPhase(event.name);
           if (phase) onEvent({ type: "trace", text: phase });
         } else if (event.type === "credits") {
@@ -442,6 +470,13 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
         }
       },
     });
+    // When the model hands the turn back with no tool call, its final plain-text
+    // reply is the one assistant prose worth showing — surface it once as a clean
+    // summary card (the streamed monologue is suppressed above).
+    if (result.terminal === "awaiting_user") {
+      const summary = lastAssistantText(state.messages);
+      if (summary) onEvent({ type: "summary", text: summary });
+    }
     return { terminal: result.terminal, state };
   };
 }
@@ -455,4 +490,12 @@ function renderLoadedSkillBodies(state: any): string {
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
+}
+
+// Text of the final assistant turn (the handoff reply). Used only when the loop
+// ends with awaiting_user, where the last message is that assistant turn.
+function lastAssistantText(messages: any[]): string {
+  const last = messages?.[messages.length - 1];
+  if (!last || last.role !== "assistant" || !Array.isArray(last.content)) return "";
+  return last.content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("").trim();
 }
