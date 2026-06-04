@@ -120,3 +120,14 @@ test("DeviceShim maps the verify track (static check + simulate) to script.* RPC
   assert.deepEqual(sim, { passed: true, noTests: false, output: "3 passed", exitCode: 0 });
   assert.equal(calls.find((c) => c.method === "script.run_simulate").params.target, "test/pc");
 });
+
+test("DeviceShim maps render_wiring / render_diagram to script.* RPC (default md, offline)", async () => {
+  const calls: any[] = [];
+  const shim = new DeviceShim(async (method: string, params: any) => { calls.push({ method, params }); return { status: "ok", output: "wrote docs/diagram.md" }; });
+
+  await shim.renderWiring("C:/proj/app");
+  await shim.renderDiagram("C:/proj/app");
+
+  assert.deepEqual(calls.find((c) => c.method === "script.render_wiring").params, { project_dir: "C:/proj/app", format: "md" });
+  assert.deepEqual(calls.find((c) => c.method === "script.render_diagram").params, { project_dir: "C:/proj/app", format: "md" });
+});

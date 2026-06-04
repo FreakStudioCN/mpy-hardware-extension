@@ -44,6 +44,8 @@ SCRIPT_FILES = {
     "validate": "upy-project-gen-toolchain-spec/scripts/validate_json.py",
     "scaffold": "upy-scaffold/scripts/init_scaffold.py",
     "download_drivers": "upy-generate/scripts/download_drivers.py",
+    "render_wiring": "upy-wiring/scripts/render_wiring_local.py",
+    "render_diagram": "upy-diagram/scripts/render_diagram_local.py",
 }
 
 
@@ -264,6 +266,23 @@ def _run_simulate(shim, params):
     return {"status": "ok", "passed": r["exit_code"] == 0, "no_tests": r["exit_code"] == 5, **r}
 
 
+def _run_render(shim, kind, params):
+    # Render docs/<kind>.json -> Mermaid .md via the upstream renderer. Default
+    # format "md" keeps it offline (the "all"/"png" formats call mermaid.ink).
+    project_dir = params["project_dir"]
+    docs = os.path.join(project_dir, "docs")
+    r = shim.run_script(
+        resolve_script(f"render_{kind}"),
+        ["--input", os.path.join(docs, f"{kind}.json"), "--output", docs, "--format", params.get("format", "md")],
+        timeout=120,
+    )
+    rc = getattr(r, "returncode", 1)
+    if rc != 0:
+        return {"status": "error", "error_kind": "render_failed", "exit_code": rc,
+                "message": (getattr(r, "stderr", "") or getattr(r, "stdout", "") or "").strip()}
+    return {"status": "ok", "exit_code": rc, "output": (getattr(r, "stdout", "") or "").strip()}
+
+
 def _dispatch(shim, method, params):
     if method == "script.run_validate":
         return _run_validate(shim, params)
@@ -275,6 +294,10 @@ def _dispatch(shim, method, params):
         return _run_static_check(shim, params)
     if method == "script.run_simulate":
         return _run_simulate(shim, params)
+    if method == "script.render_wiring":
+        return _run_render(shim, "wiring", params)
+    if method == "script.render_diagram":
+        return _run_render(shim, "diagram", params)
     if method == "device.scan":
         return {"status": "ok", "devices": [{"port": p} for p in shim.scan()]}
     if method == "device.health_check":

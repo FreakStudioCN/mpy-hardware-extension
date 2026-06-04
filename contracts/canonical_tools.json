@@ -343,5 +343,31 @@
       },
       "additionalProperties": false
     }
+  },
+  {
+    "name": "render_wiring",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Render docs/wiring.json (which you author against the wiring schema) to a Mermaid wiring .md via the vendored renderer. Default format \"md\" is offline; \"png\"/\"all\" use mermaid.ink (network).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "format": { "type": "string", "enum": ["md", "png", "all"], "description": "Output format (default md)." }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "render_diagram",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Render docs/diagram.json (architecture + flow you author against the diagram schema) to Mermaid .md via the vendored renderer. Writing diagram.json also populates the webview Diagram tab. Default format \"md\" is offline.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "format": { "type": "string", "enum": ["md", "png", "all"], "description": "Output format (default md)." }
+      },
+      "additionalProperties": false
+    }
   }
 ]

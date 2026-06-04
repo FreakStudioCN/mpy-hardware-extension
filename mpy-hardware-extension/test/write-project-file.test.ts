@@ -11,6 +11,10 @@ function capturingWriter() {
 test("write_project_file writes the manifest and firmware/test tree files", async () => {
   const allowed = [
     "project-manifest.json",
+    "wiring.json",
+    "diagram.json",
+    "docs/diagram.json",
+    "docs/wiring.json",
     "firmware/main.py",
     "firmware/conf.py",
     "firmware/drivers/aht20_driver/__init__.py",

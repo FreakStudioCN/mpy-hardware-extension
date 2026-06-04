@@ -181,6 +181,48 @@ test("manifest_updated renders the upstream device-identity shape (buses[]/stand
   assert.equal((wiring.innerHTML.match(/ssd1306/gi) || []).length, 1);
 });
 
+test("diagram_updated renders the architecture layers + run flow in the Diagram tab", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  // Empty until a diagram arrives.
+  assert.equal(document.querySelector('.tab[data-tab="diagram"]') != null, true, "Diagram tab exists");
+  assert.equal(document.getElementById("diagramEmpty")!.classList.contains("hidden"), false);
+
+  post(dom, {
+    type: "diagram_updated",
+    diagram: {
+      architecture: {
+        layers: [
+          { id: "task", label: "Task Layer", modules: [{ name: "tasks.sensor_task", path: "firmware/tasks/sensor_task.py", role: "read + format" }] },
+          { id: "driver", label: "Driver Layer", modules: [{ name: "drivers.aht20_driver", path: "firmware/drivers/aht20_driver/__init__.py" }] },
+        ],
+      },
+      flow: [
+        { seq: 1, phase: "boot", action: "boot", detail: "WDT + sleep(3)" },
+        { seq: 2, phase: "run", action: "loop", detail: "read -> display" },
+      ],
+    },
+  });
+
+  const diagram = document.getElementById("diagram")!;
+  assert.equal(document.getElementById("diagramEmpty")!.classList.contains("hidden"), true, "empty state hidden once rendered");
+  assert.match(diagram.innerHTML, /Task Layer/);
+  assert.match(diagram.innerHTML, /tasks\.sensor_task/);
+  assert.match(diagram.innerHTML, /Driver Layer/);
+  assert.match(diagram.innerHTML, /drivers\.aht20_driver/);
+  // Run-flow steps render in order.
+  assert.match(diagram.innerHTML, /boot/);
+  assert.match(diagram.innerHTML, /read -&gt; display/);
+});
+
+test("diagram_updated with an empty diagram keeps the empty state (no throw)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, { type: "diagram_updated", diagram: { architecture: { layers: [] }, flow: [] } });
+  assert.equal(document.getElementById("diagramEmpty")!.classList.contains("hidden"), false);
+});
+
 test("credits message updates the quota label and gates Start", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

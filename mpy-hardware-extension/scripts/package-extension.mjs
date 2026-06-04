@@ -82,6 +82,8 @@ function collectUpstream() {
     "upy-project-gen-toolchain-spec/diagram.schema.json",
     "upy-scaffold/scripts/init_scaffold.py",
     "upy-generate/scripts/download_drivers.py",
+    "upy-wiring/scripts/render_wiring_local.py",
+    "upy-diagram/scripts/render_diagram_local.py",
     ...walkDir(join(upstreamRoot, "upy-scaffold", "templates")).map((abs) => relative(upstreamRoot, abs).replaceAll("\\", "/")),
   ];
   return rels.map((rel) => ({

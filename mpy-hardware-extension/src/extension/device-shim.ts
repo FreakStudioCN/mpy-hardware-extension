@@ -126,6 +126,22 @@ export class DeviceShim {
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "simulate_failed");
     return { passed: !!r.passed, noTests: !!r.no_tests, output: r.output ?? "", exitCode: r.exit_code ?? 1 };
   }
+
+  // Render docs/<kind>.json -> Mermaid .md via the upstream renderer (default "md",
+  // offline). The agent authors the JSON; this produces the shareable diagram.
+  async renderWiring(projectDir: string, format = "md"): Promise<{ output: string }> {
+    await this.ensure();
+    const r = await this.rpc("script.render_wiring", { project_dir: projectDir, format });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "render_failed");
+    return { output: r.output ?? "" };
+  }
+
+  async renderDiagram(projectDir: string, format = "md"): Promise<{ output: string }> {
+    await this.ensure();
+    const r = await this.rpc("script.render_diagram", { project_dir: projectDir, format });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "render_failed");
+    return { output: r.output ?? "" };
+  }
 }
 
 // Spawn the Python shim and wire a DeviceShim to it. Everything is lazy: Python

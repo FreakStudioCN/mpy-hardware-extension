@@ -13,6 +13,7 @@ from serve import (
     scripts_root,
     _ensure_utf8_io,
     _run_project_script,
+    _run_render,
     _run_simulate,
     _run_static_check,
     _run_validate,
@@ -274,6 +275,28 @@ def test_run_simulate_maps_pytest_exit_codes():
 
     failed = _run_simulate(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, "1 failed", "")), {"project_dir": "/p"})
     assert failed["passed"] is False and failed["no_tests"] is False
+
+
+def test_run_render_builds_input_output_format_args():
+    captured = {}
+
+    def runner(cmd, **_k):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, "rendered", "")
+
+    res = _run_render(Shim(runner=runner), "diagram", {"project_dir": "/proj"})
+    assert res == {"status": "ok", "exit_code": 0, "output": "rendered"}
+    cmd = captured["cmd"]
+    assert cmd[1].replace("\\", "/").endswith("upy-diagram/scripts/render_diagram_local.py")
+    # default format is md (offline), reading docs/diagram.json into docs/.
+    assert cmd[cmd.index("--format") + 1] == "md"
+    assert cmd[cmd.index("--input") + 1] == os.path.join("/proj", "docs", "diagram.json")
+    assert cmd[cmd.index("--output") + 1] == os.path.join("/proj", "docs")
+
+
+def test_run_render_maps_nonzero_to_error():
+    fail = _run_render(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, "", "bad json")), "wiring", {"project_dir": "/p"})
+    assert fail["status"] == "error" and fail["error_kind"] == "render_failed" and "bad json" in fail["message"]
 
 
 class FakeSerial:

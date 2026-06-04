@@ -23,6 +23,8 @@ const ROUTES: Record<string, "local" | "api" | "shim" | "ui"> = {
   run_download_drivers: "shim",
   run_static_check: "shim",
   run_simulate: "shim",
+  render_wiring: "shim",
+  render_diagram: "shim",
   ask_user: "ui",
 };
 

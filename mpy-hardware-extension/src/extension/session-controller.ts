@@ -163,6 +163,11 @@ export class SessionController {
       this.deps.postMessage({ type: "manifest_updated", manifest: event.manifest });
       return;
     }
+    if (event.type === "diagram_updated") {
+      this.record({ type: "artifact", kind: "diagram", diagram: event.diagram });
+      this.deps.postMessage({ type: "diagram_updated", diagram: event.diagram });
+      return;
+    }
     if (event.type === "code_delta") {
       // Live codegen tokens — forwarded straight to the activity feed's streaming
       // code card. Not recorded; the finished code is captured by code_updated.

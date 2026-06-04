@@ -45,11 +45,12 @@ export function normalizeGeneratedArtifactPath(name: string, options: { allowMai
   if (allowLib && segments[0] === "lib" && segments.length >= 2 && name.endsWith(".py")) return name;
   if (allowProjectTree) {
     // The upstream project tree the agent fills during the phase-driven build: the
-    // manifest at the project root, plus .py files anywhere under the firmware/ and
-    // test/ trees (drivers, tasks, lib, test/pc, test/device). Path traversal,
-    // absolute paths, and backslashes are already rejected above, so any accepted
-    // path stays inside the project root by construction.
-    if (name === "project-manifest.json") return name;
+    // manifest + wiring/diagram JSON at the project root or under docs/, plus .py
+    // files anywhere under the firmware/ and test/ trees (drivers, tasks, lib,
+    // test/pc, test/device). Path traversal, absolute paths, and backslashes are
+    // already rejected above, so any accepted path stays inside the project root.
+    if (name === "project-manifest.json" || name === "wiring.json" || name === "diagram.json") return name;
+    if (segments[0] === "docs" && segments.length >= 2 && name.endsWith(".json")) return name;
     if ((segments[0] === "firmware" || segments[0] === "test") && segments.length >= 2 && name.endsWith(".py")) return name;
   }
   return null;

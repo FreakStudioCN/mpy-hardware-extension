@@ -196,6 +196,8 @@ function userVisibleToolPhase(toolName: string): string | null {
     run_download_drivers: "Downloading drivers",
     run_static_check: "Checking code (lint)",
     run_simulate: "Running PC simulation",
+    render_wiring: "Rendering wiring diagram",
+    render_diagram: "Rendering architecture diagram",
     scan_device: "Scanning devices",
   };
   return phases[toolName] ?? null;
@@ -430,7 +432,14 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           const filePath = String(toolInput.path ?? "");
           const content = String(toolInput.content ?? "");
           const result = await deps.writeProjectFile(filePath, content);
-          if (result.ok) state.files[filePath] = content;
+          if (result.ok) {
+            state.files[filePath] = content;
+            // Writing the architecture diagram feeds the webview Diagram tab. Parse
+            // best-effort; a malformed JSON just doesn't update the tab.
+            if (filePath.endsWith("diagram.json")) {
+              try { onEvent({ type: "diagram_updated", diagram: JSON.parse(content) }); } catch { /* ignore */ }
+            }
+          }
           return result;
         }
         return { ok: false, error_kind: "UnknownToolError" };
@@ -487,6 +496,16 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           // Upstream toolchain scripts (host-side, no device): validate the
           // manifest/wiring/diagram against the canonical schema, generate the
           // firmware skeleton, download drivers. All operate on the project dir.
+          if (name === "render_wiring") {
+            const projectDir = state.projectDir ?? deps.projectRoot;
+            if (!projectDir) return { ok: false, error_kind: "project_dir_unavailable" };
+            return { ok: true, output: (await shim.renderWiring(projectDir, toolInput.format ?? "md")).output };
+          }
+          if (name === "render_diagram") {
+            const projectDir = state.projectDir ?? deps.projectRoot;
+            if (!projectDir) return { ok: false, error_kind: "project_dir_unavailable" };
+            return { ok: true, output: (await shim.renderDiagram(projectDir, toolInput.format ?? "md")).output };
+          }
           if (name === "run_validate" || name === "run_scaffold" || name === "run_download_drivers" || name === "run_static_check" || name === "run_simulate") {
             const projectDir = state.projectDir ?? deps.projectRoot;
             if (!projectDir) return { ok: false, error_kind: "project_dir_unavailable" };

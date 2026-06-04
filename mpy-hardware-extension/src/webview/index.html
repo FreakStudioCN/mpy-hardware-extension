@@ -272,6 +272,7 @@
         <button class="tab active" data-tab="activity" data-i18n="tab_activity">Activity</button>
         <button class="tab" data-tab="serial" data-i18n="tab_serial">Serial</button>
         <button class="tab" data-tab="wiring" data-i18n="tab_wiring">Wiring</button>
+        <button class="tab" data-tab="diagram" data-i18n="tab_diagram">Diagram</button>
       </div>
 
       <div class="tabwrap">
@@ -292,6 +293,11 @@
         <div class="view hidden" data-view="wiring">
           <div id="wiring"></div>
           <div class="empty" id="wiringEmpty"><h4 data-i18n="empty_wiring_h">No wiring yet</h4><p data-i18n="empty_wiring_p">After codegen, the hardware layout maps to friendly signals and pins here.</p></div>
+        </div>
+        <!-- Diagram -->
+        <div class="view hidden" data-view="diagram">
+          <div id="diagram"></div>
+          <div class="empty" id="diagramEmpty"><h4 data-i18n="empty_diagram_h">No diagram yet</h4><p data-i18n="empty_diagram_p">When the project architecture is generated, its module layers and run flow appear here.</p></div>
         </div>
       </div>
 
@@ -320,7 +326,9 @@
       const I18N = {
         en: {
           credits: "Credits", lowCredits: "Running low on credits today.",
-          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring",
+          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram",
+          empty_diagram_h: "No diagram yet", empty_diagram_p: "When the project architecture is generated, its module layers and run flow appear here.",
+          diagram_architecture: "Architecture", diagram_flow: "Run flow",
           empty_activity_h: "Ready", empty_activity_p: "Describe what your device should do, then press Generate.",
           empty_serial_h: "No output", empty_serial_p: "Device output streams here after flashing.",
           empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
@@ -372,7 +380,9 @@
         },
         zh: {
           credits: "额度", lowCredits: "今日额度快用完了。",
-          tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线",
+          tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线", tab_diagram: "架构图",
+          empty_diagram_h: "暂无架构图", empty_diagram_p: "生成项目架构后，模块分层与运行流程会在这里展示。",
+          diagram_architecture: "架构分层", diagram_flow: "运行流程",
           empty_activity_h: "就绪", empty_activity_p: "描述你想做的设备，然后点“生成”。",
           empty_serial_h: "暂无输出", empty_serial_p: "烧录后，设备输出会显示在这里。",
           empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
@@ -1165,6 +1175,46 @@
       }
       function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
+      // ----- Diagram tab (renders upstream diagram.json architecture + run flow) -----
+      function diagramMarkup(diagram) {
+        if (!diagram || typeof diagram !== "object") return "";
+        const arch = diagram.architecture || {};
+        const layers = Array.isArray(arch.layers) ? arch.layers : [];
+        const flow = Array.isArray(diagram.flow) ? diagram.flow : [];
+        if (!layers.length && !flow.length) return "";
+        let html = "";
+        if (layers.length) {
+          html += '<div class="diagram-section"><h4 class="diagram-h">' + esc(tr("diagram_architecture")) + "</h4>";
+          for (const layer of layers) {
+            const mods = Array.isArray(layer.modules) ? layer.modules : [];
+            html += '<div class="diagram-layer"><div class="diagram-layer-name">' + esc(layer.label || layer.id || "") + "</div><div class=\"diagram-modules\">";
+            for (const m of mods) {
+              html += '<span class="diagram-module" title="' + esc(m.path || "") + '">' + esc(m.name || "")
+                + (m.role ? ' <span class="diagram-role">' + esc(m.role) + "</span>" : "") + "</span>";
+            }
+            html += "</div></div>";
+          }
+          html += "</div>";
+        }
+        if (flow.length) {
+          html += '<div class="diagram-section"><h4 class="diagram-h">' + esc(tr("diagram_flow")) + '</h4><ol class="diagram-flow">';
+          for (const step of flow) {
+            html += "<li>" + esc(step.action || step.phase || "")
+              + (step.detail ? ' — <span class="diagram-detail">' + esc(step.detail) + "</span>" : "") + "</li>";
+          }
+          html += "</ol></div>";
+        }
+        return html;
+      }
+      function renderDiagram(diagram) {
+        const html = diagramMarkup(diagram);
+        const host = $("diagram");
+        if (!html) { $("diagramEmpty").classList.remove("hidden"); host.innerHTML = ""; return; }
+        $("diagramEmpty").classList.add("hidden");
+        host.innerHTML = html;
+        markNew("diagram");
+      }
+
       // ----- credits -----
       let lastDailyGrant = 0;
       function setCredits(balance, dailyGrant) {
@@ -1205,6 +1255,7 @@
         if (msg.type === "code_delta") { streamCodeDelta(msg.text, msg.path); }
         if (msg.type === "code_updated") { finalizeCode(msg.code, msg.path); }
         if (msg.type === "manifest_updated") { renderWiring(msg.manifest); }
+        if (msg.type === "diagram_updated") { renderDiagram(msg.diagram); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
         if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
         if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); }
