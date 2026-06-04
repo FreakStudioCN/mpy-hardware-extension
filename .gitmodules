@@ -1,0 +1,3 @@
+[submodule "third_party/MicroPython_Skills"]
+	path = third_party/MicroPython_Skills
+	url = https://github.com/FreakStudioCN/MicroPython_Skills
