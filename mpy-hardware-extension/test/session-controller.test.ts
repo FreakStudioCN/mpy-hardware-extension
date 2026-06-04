@@ -213,6 +213,27 @@ test("session controller confirmPlan resolves a revise decision carrying the fee
   assert.deepEqual(decision, { action: "revise", feedback: "用 TFT 彩屏" });
 });
 
+test("session controller routes confirmComponents to the webview as components_needed and resolves kept devices + additions", async () => {
+  const messages: any[] = [];
+  let decision: any = "unset";
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    loop: async ({ confirmComponents }) => {
+      decision = await confirmComponents([{ name: "SSD1306 OLED" }, { name: "WS2812 RGB LED" }]);
+      return { terminal: "generated" };
+    },
+  });
+
+  const started = controller.start({ intent: "x", boardId: "b" });
+  const prompt = messages.find((m) => m.type === "components_needed");
+  assert.ok(prompt, "expected a components_needed message");
+  assert.equal(prompt.devices.length, 2);
+
+  controller.resolvePrompt(prompt.promptId, "confirm", { devices: ["SSD1306 OLED"], feedback: "加 DHT22" });
+  await started;
+  assert.deepEqual(decision, { action: "confirm", devices: ["SSD1306 OLED"], feedback: "加 DHT22" });
+});
+
 test("session controller forwards a loop summary event to the webview as a summary message", async () => {
   const messages: any[] = [];
   const controller = new SessionController({

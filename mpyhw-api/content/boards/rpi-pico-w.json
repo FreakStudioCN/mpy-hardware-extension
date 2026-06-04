@@ -15,6 +15,6 @@
     "led_default": "GPIO15"
   },
   "forbidden_pins": ["GPIO23", "GPIO24", "GPIO25", "GPIO29"],
-  "available_modules": ["machine", "time", "math", "json", "rp2"],
+  "available_modules": ["machine", "time", "math", "json", "os", "sys", "gc", "struct", "framebuf", "neopixel", "asyncio", "rp2"],
   "voltage_notes": "3.3V logic only. The onboard LED is on the CYW43 wireless chip (Pin('LED')), not a GPIO; GPIO15 is recommended for a wired external LED."
 }

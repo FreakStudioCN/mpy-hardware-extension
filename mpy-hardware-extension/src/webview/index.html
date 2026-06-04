@@ -369,6 +369,7 @@
           plan_board: "Board", plan_features: "Features", plan_packages: "Packages", plan_wiring: "Wiring",
           plan_revise_ph: "Change anything? e.g. swap the OLED for a TFT, add a buzzer…",
           revise: "Revise", confirm_generate: "Confirm & generate", cancel: "Cancel",
+          kind_components: "components", comp_intro: "Here are the components I planned — confirm, and tick to add or remove:", comp_confirm: "Confirm components", comp_add_ph: "Missing a part? Add it here",
           cost_step: "This step ~{n} credits", cost_used: " · {n} used this session", cost_left: " · {n} left",
           deploy_intro: "Wire it up as shown below, plug in the board, then deploy.",
           detecting_board: "Detecting board…", deploy: "Deploy", rescan: "Rescan",
@@ -423,6 +424,7 @@
           plan_board: "开发板", plan_features: "功能", plan_packages: "驱动包", plan_wiring: "接线",
           plan_revise_ph: "需要改什么？例如：把 OLED 换成 TFT、加一个蜂鸣器…",
           revise: "修改", confirm_generate: "确认并生成", cancel: "取消",
+          kind_components: "器件", comp_intro: "以下是我帮你规划的器件清单，请确认（可勾选增减）：", comp_confirm: "确认器件", comp_add_ph: "缺了器件，需要补充",
           cost_step: "本步预计 ~{n} 额度", cost_used: " · 本次会话已用 {n}", cost_left: " · 剩余 {n}",
           deploy_intro: "按下图接线，插上开发板，然后部署。",
           detecting_board: "正在检测开发板…", deploy: "部署", rescan: "重新扫描",
@@ -825,6 +827,58 @@
         setTimeout(() => input.focus(), 0);
       }
 
+      // ----- component confirmation (deterministic multi-select, host-owned) -----
+      // Renders the proposed devices[] as toggleable chips (all pre-selected). The
+      // user unchecks to remove and/or types missing parts; Confirm posts the kept
+      // device names + the free-text additions back to the host.
+      function addComponentPrompt(promptId, devices) {
+        currentThink = null;
+        clearPending();
+        $("activityEmpty").classList.add("hidden");
+        setTab("activity");
+        devices = Array.isArray(devices) ? devices : [];
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
+          '<div class="ev-ico skill">•</div>' +
+          '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_components") + '</span></div>' +
+          '<div class="ev-sum">' + tr("comp_intro") + '</div>' +
+          '<div class="ask-options comp-options"></div>' +
+          '<div class="ask-row"><input class="ask-input comp-add" type="text" placeholder="' + tr("comp_add_ph") + '"></div>' +
+          '<div class="ask-options"><button class="ask-opt comp-go" type="button">' + tr("comp_confirm") + '</button><button class="ask-opt comp-cancel" type="button">' + tr("cancel") + '</button></div>' +
+          "</div></div></div>";
+        const optHost = card.querySelector(".comp-options");
+        const selected = new Set();
+        for (const dev of devices) {
+          const nm = String(dev && dev.name != null ? dev.name : dev);
+          const iface = dev && dev.interface ? " · " + String(dev.interface) : "";
+          selected.add(nm);
+          const b = document.createElement("button");
+          b.className = "ask-opt chosen"; b.type = "button"; b.textContent = "✓ " + nm + iface;
+          b.addEventListener("click", () => {
+            if (selected.has(nm)) { selected.delete(nm); b.classList.remove("chosen"); b.textContent = nm + iface; }
+            else { selected.add(nm); b.classList.add("chosen"); b.textContent = "✓ " + nm + iface; }
+          });
+          optHost.appendChild(b);
+        }
+        const addInput = card.querySelector(".comp-add");
+        let answered = false;
+        const reply = (answer) => {
+          if (answered) return;
+          answered = true;
+          vscode.postMessage({ type: "ui_prompt_response", promptId, answer, devices: Array.from(selected), feedback: addInput.value.trim() });
+          card.querySelectorAll(".ask-opt").forEach((x) => { x.disabled = true; });
+          addInput.disabled = true;
+          if (answer === "confirm") setPending(tr("working"));
+        };
+        card.querySelector(".comp-go").addEventListener("click", () => reply("confirm"));
+        card.querySelector(".comp-cancel").addEventListener("click", () => reply("cancel"));
+        addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); reply("confirm"); } });
+        $("activity").appendChild(card);
+        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
+        setTimeout(() => addInput.focus(), 0);
+      }
+
       // ----- build plan (confirmation gate before codegen spends credits) -----
       function addPlanPrompt(promptId, plan) {
         plan = plan || {};
@@ -1192,7 +1246,12 @@
         try { comps = buildComponents(manifest); }
         catch (e) { console.error("wiringMarkup: unrecognized manifest.wiring shape", e); comps = []; }
         if (!comps.length) return "";
-        const boardName = (manifest && manifest.board_id) ? manifest.board_id : tr("target_board");
+        // Resolve the board name the same way buildPlan does (agent-backed-loop.ts):
+        // rich upstream manifests carry the board under mcu.board/mcu.model (no
+        // board_id), so reading only board_id silently degraded to the "Target board"
+        // placeholder and dropped the actual MCU from the diagram.
+        const mcu = manifest && manifest.mcu;
+        const boardName = (mcu && (mcu.board || mcu.model)) || (manifest && manifest.board_id) || tr("target_board");
         let html = '<div class="wiring"><div class="wire-board">' +
           "<span><b>" + esc(boardName) + "</b> · " + componentCount(comps.length) + "</span></div>";
         for (const c of comps) {
@@ -1297,6 +1356,7 @@
         if (msg.type === "summary_seal") { sealSummary(); }
         if (msg.type === "summary") { addSummary(msg.text); }
         if (msg.type === "ui_prompt_needed") { addAskPrompt(msg.promptId, msg.question, msg.options); }
+        if (msg.type === "components_needed") { addComponentPrompt(msg.promptId, msg.devices); }
         if (msg.type === "plan_needed") { addPlanPrompt(msg.promptId, msg.plan); }
         if (msg.type === "deploy_needed") { addDeployPrompt(msg.promptId, msg.manifest); }
         if (msg.type === "deploy_ports_updated") { if (currentDeployCard) currentDeployCard.setPorts(msg.ports); }

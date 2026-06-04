@@ -29,6 +29,29 @@ test("parses text delta, accumulates tool-use JSON across fragments, and stops",
   ]);
 });
 
+test("a tool call with malformed argument JSON is surfaced as invalidInput, not thrown", () => {
+  // The exact production failure: the model emitted a write_project_file whose
+  // content string had an unescaped quote, so the accumulated arguments aren't
+  // valid JSON. The parser must NOT throw (that killed the whole session); it must
+  // hand back a tool_use_complete flagged invalidInput so the loop can recover.
+  const wire = [
+    { type: "content_block_start", content_block: { type: "tool_use", id: "toolu_1", name: "write_project_file" } },
+    { type: "content_block_delta", delta: { type: "input_json_delta", partial_json: "{\"path\":\"main.py\",\"content\":\"print(\"oops\")\"}" } },
+    { type: "content_block_stop" },
+    { type: "message_stop" },
+  ].map(sse).join("");
+
+  const events = parseSseEvents(wire);
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0].type, "tool_use_complete");
+  assert.equal(events[0].id, "toolu_1");
+  assert.equal(events[0].name, "write_project_file");
+  assert.deepEqual(events[0].input, {});
+  assert.ok(typeof events[0].invalidInput === "string" && events[0].invalidInput.length > 0);
+  assert.deepEqual(events[1], { type: "message_stop" });
+});
+
 test("text is passed through verbatim (no refusal special-casing) and stream error is structured", () => {
   // The <not_hardware> refusal mechanism was removed; such text must now flow
   // through as an ordinary text_delta rather than a special terminal event.

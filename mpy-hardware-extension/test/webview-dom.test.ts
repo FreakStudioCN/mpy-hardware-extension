@@ -181,6 +181,39 @@ test("manifest_updated renders the upstream device-identity shape (buses[]/stand
   assert.equal((wiring.innerHTML.match(/ssd1306/gi) || []).length, 1);
 });
 
+test("manifest_updated shows the real board from a rich manifest's mcu (not the 'Target board' placeholder)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  // The exact shape agent-backed-loop emits for a rich upstream manifest:
+  // { ...manifest, wiring } — the board lives under mcu.board/mcu.model and there
+  // is NO board_id. Reading only board_id used to degrade to the placeholder and
+  // drop the MCU from the diagram entirely.
+  post(dom, {
+    type: "manifest_updated",
+    manifest: {
+      schema_version: "1.0",
+      mcu: { model: "ESP32-S3", board: "esp32-s3-devkitc-1" },
+      devices: [{ name: "SSD1306 OLED", type: "display", interface: "I2C", i2c_addr: ["0x3C"] }],
+      wiring: {
+        buses: [
+          {
+            type: "i2c",
+            id: "I2C0",
+            signals: [{ role: "SDA", gpio: "GPIO5" }, { role: "SCL", gpio: "GPIO6" }],
+            devices: [{ name: "SSD1306 OLED", type: "display", addr: "0x3C" }],
+          },
+        ],
+        standalone: [],
+      },
+    },
+  });
+
+  const wiring = document.getElementById("wiring")!;
+  assert.match(wiring.innerHTML, /esp32-s3-devkitc-1/, "the wiring card header names the actual board");
+  assert.doesNotMatch(wiring.innerHTML, /Target board/, "no generic placeholder when the board is known");
+});
+
 test("manifest_updated renders every pin of a multi-pin standalone part (no dropped pins)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
@@ -682,4 +715,43 @@ test("plan card shows the model's summary and a revise box that posts feedback t
   const revise = posted.find((m) => m && m.type === "ui_prompt_response" && m.answer === "revise");
   assert.ok(revise, "Revise posts a revise response");
   assert.equal(revise.feedback, "把 OLED 换成 TFT");
+});
+
+test("component card renders devices as pre-ticked toggle chips; unticking one and confirming posts the kept set + additions", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+  const posted: any[] = [];
+  (dom.window as any).console.log = (m: any) => posted.push(m);
+
+  post(dom, {
+    type: "components_needed",
+    promptId: "comp-1",
+    devices: [
+      { name: "SSD1306 OLED 128x64", interface: "I2C" },
+      { name: "WS2812 RGB LED", interface: "GPIO" },
+    ],
+  });
+
+  // One toggle chip per device, all pre-selected (multi-select, not single-pick).
+  const opts = [...activity.querySelectorAll(".comp-options .ask-opt")] as HTMLButtonElement[];
+  assert.equal(opts.length, 2, "one chip per device");
+  assert.ok(opts.every((o) => o.classList.contains("chosen")), "devices start ticked");
+  assert.match(activity.textContent!, /SSD1306 OLED 128x64/);
+  assert.match(activity.textContent!, /WS2812 RGB LED/);
+
+  // Untick the LED (remove), type a missing part, confirm.
+  const led = opts.find((o) => o.textContent!.includes("WS2812"))!;
+  led.click();
+  assert.ok(!led.classList.contains("chosen"), "clicking a ticked chip unticks it");
+  (activity.querySelector(".comp-add") as HTMLInputElement).value = "加一个 DHT22 温湿度传感器";
+  (activity.querySelector(".comp-go") as HTMLButtonElement).click();
+
+  const confirm = posted.find((m) => m && m.type === "ui_prompt_response" && m.promptId === "comp-1");
+  assert.ok(confirm, "Confirm posts a response");
+  assert.equal(confirm.answer, "confirm");
+  // Spread into a test-realm array: the webview builds it in the jsdom realm, whose
+  // Array.prototype differs, so a direct deepStrictEqual would fail on prototype.
+  assert.deepEqual([...confirm.devices], ["SSD1306 OLED 128x64"], "only the kept device names are sent");
+  assert.equal(confirm.feedback, "加一个 DHT22 温湿度传感器");
 });

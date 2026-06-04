@@ -15,6 +15,6 @@
     "led_default": "GPIO2"
   },
   "forbidden_pins": ["GPIO19", "GPIO20"],
-  "available_modules": ["machine", "time", "math", "json", "network", "socket", "ssl"],
+  "available_modules": ["machine", "time", "math", "json", "os", "sys", "gc", "struct", "framebuf", "neopixel", "asyncio", "network", "socket", "ssl"],
   "voltage_notes": "Use 3.3V logic only. Do not connect 5V sensor signals directly to GPIO."
 }

@@ -26,6 +26,19 @@ const LED_BUILTIN_CONTEXT = {
 // deploy-readiness checkpoint (board connection + wiring) and confirms once.
 const DEPLOY_TOOLS = new Set(["install_package", "write_main_py", "flash_and_run"]);
 
+function detectUserLanguage(text: string): "zh" | "en" {
+  return /[一-鿿]/.test(text) ? "zh" : "en";
+}
+
+function languageInstruction(intent: string): string {
+  const language = detectUserLanguage(intent) === "zh" ? "Simplified Chinese" : "English";
+  return `[Use ${language} for all user-visible prose in this turn: assistant text, ask_user questions, final summaries, manifest requirements.description, and manifest summary. Keep code, package names, board ids, file paths, pin names, JSON keys, and protocol/tool identifiers unchanged.]`;
+}
+
+function userTurnContent(intent: string): string {
+  return `${intent}\n\n${languageInstruction(intent)}`;
+}
+
 type LoopDeps = {
   apiBaseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -67,6 +80,11 @@ type LoopInput = {
   // diagram, resolving true to proceed with install/flash, false to cancel.
   // Undefined (headless/test) = proceed.
   confirmDeploy?: () => Promise<boolean>;
+  // Component-confirmation gate: the host shows the proposed device list as a
+  // deterministic multi-select card so the user can drop parts or note missing ones
+  // before hardware selection. Resolves with the kept device names + optional
+  // free-text additions. Undefined (headless/test) = proceed as-is.
+  confirmComponents?: (devices: any[]) => Promise<{ action: "confirm" | "cancel"; devices?: string[]; feedback?: string }>;
   signal?: AbortSignal;
   availableBoards?: Array<{ board_id: string; display_name?: string }>;
 };
@@ -79,7 +97,7 @@ function buildOpening(input: LoopInput): string {
   const boards = input.availableBoards ?? [];
   const boardKnown = input.boardId && input.boardId !== "auto";
   const parts = [
-    input.intent,
+    userTurnContent(input.intent),
     "",
     "[First make sure you understand the request. If the goal or the core behaviour is unclear, or it could be built more than one way, call the ask_user tool to clarify what device to build and what it should do BEFORE selecting hardware or generating code. Always ask via the ask_user tool, never as plain assistant text.]",
     "[Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its \"phase\" field each time you call propose_manifest: analyze (schema_version \"1.0\" + created_at as an ISO 8601 timestamp + project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. Carry the earlier fields (created_at, project_name, ...) forward unchanged on later calls. After analyze and select-hw, call run_validate to check the manifest against the schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then generate the task/driver code, then the device tools. Set phase to \"complete\" when the build is finished.]",
@@ -91,7 +109,7 @@ function buildOpening(input: LoopInput): string {
     parts.push(`[Only one board is currently supported: ${boards[0].board_id}. Use it (pass this board_id to query_board_profile) and briefly tell the user which board you are targeting; do not make them choose.]`);
   } else if (boards.length > 1) {
     const list = boards.map((b) => `${b.board_id}${b.display_name ? ` (${b.display_name})` : ""}`).join(", ");
-    parts.push(`[The user has NOT chosen a board. Supported boards: ${list}. Once the requirement is clear, recommend the single most suitable board and briefly say why, then call ask_user to confirm before continuing. Use the confirmed board_id for query_board_profile and codegen.]`);
+    parts.push(`[The user has NOT chosen a board. Supported boards: ${list}. Once the requirement is clear, recommend the single most suitable board and briefly say why. The board is a TECHNICAL choice: in 小白/beginner mode, just adopt your recommendation and tell the user which board you picked — do NOT ask them to choose. Only in 自定义/custom mode, call ask_user to confirm the board before continuing. Use that board_id for query_board_profile and codegen.]`);
   }
   return parts.join("\n");
 }
@@ -265,7 +283,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     // Generated project files by path (main.py + any lib/ modules), so the device
     // deploy can push the whole set without the model re-sending file contents.
     state.files ??= {};
-    state.messages.push({ role: "user", content: input.state ? input.intent : buildOpening(input) });
+    state.messages.push({ role: "user", content: input.state ? userTurnContent(input.intent) : buildOpening(input) });
     // Fold the (static) skill catalog into the durable opening so it lives in the
     // byte-stable request prefix and is re-sent every round as a cache HIT — instead
     // of being re-prepended at the front each turn (which shifted the prefix and
@@ -383,6 +401,23 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           // from devices[]/pinout[] (one device = one card, no phantom).
           state.manifest = manifest;
           if (typeof manifest.phase === "string") state.phase = manifest.phase;
+          // Component-confirmation gate (deterministic, once per session): when the
+          // proposed manifest first carries devices[], show them as a multi-select
+          // card so the user can drop parts or note missing ones before hardware
+          // selection. Unchecked devices come back as a trimmed list; free-text
+          // additions ride back as feedback for the agent to fold into devices[].
+          const proposedDevices = Array.isArray(manifest.devices) ? manifest.devices : [];
+          if (!state.componentsConfirmed && proposedDevices.length && typeof input.confirmComponents === "function") {
+            const decision = await input.confirmComponents(proposedDevices);
+            if (decision.action === "cancel") return { ok: false, error_kind: "user_cancelled" };
+            state.componentsConfirmed = true;
+            const keptNames = Array.isArray(decision.devices) ? new Set(decision.devices.map(String)) : null;
+            const removed = keptNames ? proposedDevices.filter((d: any) => !keptNames.has(String(d?.name ?? ""))) : [];
+            const add = typeof decision.feedback === "string" ? decision.feedback.trim() : "";
+            if (removed.length || add) {
+              return { ok: false, error_kind: "components_revision_requested", removed: removed.map((d: any) => d?.name), add };
+            }
+          }
           const wiring = deriveWiring(manifest);
           onEvent({ type: "manifest_updated", manifest: { ...manifest, wiring } });
           if (typeof deps.writeProjectFile === "function") {

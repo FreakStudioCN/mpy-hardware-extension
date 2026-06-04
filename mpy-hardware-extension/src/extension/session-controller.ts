@@ -76,6 +76,7 @@ export class SessionController {
         askUser: (question: string, options?: string[]) => this.askUser(question, options),
         confirmPlan: (plan: any) => this.confirmPlan(plan),
         confirmDeploy: () => this.confirmDeploy(),
+        confirmComponents: (devices: any[]) => this.confirmComponents(devices),
         recorder: this.recorder,
         signal: this.abort.signal,
       });
@@ -142,6 +143,24 @@ export class SessionController {
       this.pendingPrompts.set(promptId, (answer) => resolve(answer === "confirm"));
       this.record({ type: "deploy_proposed", promptId, manifest: this.latestManifest });
       this.deps.postMessage({ type: "deploy_needed", promptId, manifest: this.latestManifest });
+    });
+  }
+
+  // Component-confirmation gate: show the proposed device list as a deterministic
+  // multi-select card (host-owned, not an LLM-authored ask_user) and resolve the
+  // user's kept device names + any free-text additions. Reuses the pendingPrompts
+  // round-trip; the webview replies via ui_prompt_response with answer
+  // "confirm"/"cancel" plus extra { devices, feedback }.
+  confirmComponents(devices: any[]): Promise<{ action: "confirm" | "cancel"; devices?: string[]; feedback?: string }> {
+    const promptId = `components-${++this.promptSeq}`;
+    return new Promise((resolve) => {
+      this.pendingPrompts.set(promptId, (answer, extra) => resolve({
+        action: answer === "confirm" ? "confirm" : "cancel",
+        devices: extra?.devices,
+        feedback: extra?.feedback,
+      }));
+      this.record({ type: "components_proposed", promptId, devices });
+      this.deps.postMessage({ type: "components_needed", promptId, devices });
     });
   }
 

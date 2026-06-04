@@ -52,7 +52,15 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
           input: event.input,
         });
         toolUses.push({ type: "tool_use", id: event.id, name: event.name, input: event.input });
-        const raw = await input.dispatchTool({ name: event.name, input: event.input });
+        // The SSE parser couldn't decode this call's arguments as JSON. Don't
+        // dispatch a half-formed call: feed a structured error back so the model
+        // re-sends ONLY this call with valid JSON, instead of the whole session
+        // crashing and losing all prior progress (manifest, generated code, writes).
+        // A non-runtime failure, so it accrues the no-progress streak and the loop
+        // still terminates if the model keeps emitting invalid JSON.
+        const raw = event.invalidInput
+          ? { ok: false, error_kind: "invalid_tool_input", message: `Your arguments for ${event.name} were not valid JSON (${event.invalidInput}). A string value (most likely file content) probably contains an unescaped quote, backslash, or newline. Re-send ONLY this tool call with its arguments as valid JSON, escaping every special character inside string values.` }
+          : await input.dispatchTool({ name: event.name, input: event.input });
         const observation = normalizeObservation(event.name, raw);
         await input.recorder?.record({
           type: "tool_result",

@@ -65,7 +65,21 @@ class SseEventParser {
       return;
     }
     if (data.type === "content_block_stop" && this.currentTool) {
-      this.events.push({ type: "tool_use_complete", ...this.currentTool, input: this.toolJson ? JSON.parse(this.toolJson) : {} });
+      // The model occasionally emits tool-call arguments that aren't valid JSON
+      // (commonly an unescaped quote/newline/backslash inside a large code string).
+      // A bare JSON.parse here would throw and kill the whole session — discarding
+      // the manifest, generated code, and files already written. Instead, flag the
+      // call's input as invalid so the loop can feed a structured error back and let
+      // the model re-send ONLY this call with valid JSON.
+      const event: any = { type: "tool_use_complete", ...this.currentTool, input: {} };
+      if (this.toolJson) {
+        try {
+          event.input = JSON.parse(this.toolJson);
+        } catch (error: any) {
+          event.invalidInput = error?.message ?? "invalid tool-arguments JSON";
+        }
+      }
+      this.events.push(event);
       this.currentTool = undefined;
       this.toolJson = "";
       return;

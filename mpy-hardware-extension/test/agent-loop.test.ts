@@ -94,6 +94,38 @@ test("unknown tool observation lets loop continue", async () => {
   assert.equal(toolResult.content[0].tool_use_id, "1");
 });
 
+test("a tool call with invalid argument JSON feeds an error result back and lets the model retry", async () => {
+  // The production crash: the SSE parser couldn't decode a write_project_file's
+  // arguments (unescaped quote in a code string). The loop must NOT dispatch the
+  // half-formed call or crash — it feeds an invalid_tool_input error back, and a
+  // valid retry still drives the build to success.
+  const recorded: any[] = [];
+  const calls: string[] = [];
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted([
+      [{ type: "tool_use_complete", id: "1", name: "write_project_file", input: {}, invalidInput: "Expected ',' or '}' after property value in JSON at position 5516" }, { type: "message_stop" }],
+      [{ type: "tool_use_complete", id: "2", name: "read_serial_until", input: {} }, { type: "message_stop" }],
+    ]),
+    dispatchTool: async (tool) => {
+      calls.push(tool.name);
+      return { ok: true, lines: ["MPYHW_READY", "TEMP_C=24.0"] };
+    },
+    recorder: { record: async (event: any) => void recorded.push(event) },
+  });
+
+  assert.equal(result.terminal, "success");
+  // The invalid call was never dispatched; only the valid retry was.
+  assert.deepEqual(calls, ["read_serial_until"]);
+  // It still produced a paired tool_result carrying the error (so DeepSeek's
+  // tool_call/tool_result pairing stays valid and the model sees what to fix).
+  const firstResult = recorded.find((event) => event.type === "tool_result" && event.id === "1");
+  assert.ok(firstResult);
+  assert.equal(firstResult.observation.ok, false);
+  assert.equal(firstResult.observation.error_kind, "invalid_tool_input");
+  assert.match(firstResult.observation.output.message, /valid JSON/);
+});
+
 test("records assistant text, tool use, and complete tool result observations", async () => {
   const recorded: any[] = [];
   await runAgentLoop({

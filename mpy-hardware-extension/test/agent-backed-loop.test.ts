@@ -794,6 +794,103 @@ test("propose_manifest (rich) tracks phase, renders derived wiring, and persists
   assert.equal(JSON.parse(persisted!.content).project_name, "temp-display");
 });
 
+test("propose_manifest component gate trims unticked devices and asks the agent to revise", async () => {
+  const mkFetch = (turns: any[]) => {
+    let i = 0;
+    return (async (url: string) => {
+      if (url.endsWith("/v1/llm/messages")) {
+        const turn = turns[i++];
+        return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  };
+  const richManifest = {
+    schema_version: "1.0", phase: "analyze", created_at: "2026-06-04T00:00:00Z", project_name: "pet",
+    requirements: { description: "x" },
+    devices: [
+      { name: "SSD1306 OLED", type: "display", interface: "I2C", i2c_addr: ["0x3C"] },
+      { name: "AHT20", type: "temperature_sensor", interface: "I2C", i2c_addr: ["0x38"] },
+    ],
+    mcu: { model: "ESP32-S3", board: "esp32-s3-devkitc-1" },
+    pinout: [
+      { device: "SSD1306 OLED", pin_name: "I2C0 SDA", gpio: "GPIO8" },
+      { device: "SSD1306 OLED", pin_name: "I2C0 SCL", gpio: "GPIO9" },
+      { device: "AHT20", pin_name: "I2C0 SDA", gpio: "GPIO8" },
+      { device: "AHT20", pin_name: "I2C0 SCL", gpio: "GPIO9" },
+    ],
+  };
+  const seen: string[] = [];
+  const recorded: any[] = [];
+  const events: any[] = [];
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([{ name: "propose_manifest", input: { manifest: richManifest } }]),
+    writeProjectFile: async (path: string) => ({ ok: true, path }),
+  });
+  await loop({
+    intent: "x", boardId: "esp32-s3-devkitc-1",
+    onEvent: (e: any) => events.push(e),
+    recorder: { record: async (e: any) => { recorded.push(e); } },
+    confirmComponents: async (devices: any[]) => { seen.push(...devices.map((d) => d.name)); return { action: "confirm", devices: ["SSD1306 OLED"], feedback: "" }; },
+  });
+
+  // The gate is shown the proposed devices, and an unticked device comes back as a
+  // revision request (not a committed manifest) so the agent re-proposes devices[].
+  assert.deepEqual(seen, ["SSD1306 OLED", "AHT20"]);
+  const result = recorded.find((e: any) => e.type === "tool_result" && e.name === "propose_manifest");
+  assert.equal(result?.observation?.ok, false);
+  assert.equal(result?.observation?.error_kind, "components_revision_requested");
+  // The full tool output (incl. removed/add) is preserved under observation.output,
+  // which is what the agent sees in the serialized tool_result.
+  assert.deepEqual(result?.observation?.output?.removed, ["AHT20"]);
+  assert.ok(!events.some((e: any) => e.type === "manifest_updated"), "a revision request does not commit the manifest");
+});
+
+test("propose_manifest component gate proceeds on a clean confirm and fires only once", async () => {
+  const mkFetch = (turns: any[]) => {
+    let i = 0;
+    return (async (url: string) => {
+      if (url.endsWith("/v1/llm/messages")) {
+        const turn = turns[i++];
+        return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  };
+  const base = {
+    schema_version: "1.0", created_at: "2026-06-04T00:00:00Z", project_name: "pet",
+    requirements: { description: "x" },
+    devices: [{ name: "SSD1306 OLED", type: "display", interface: "I2C", i2c_addr: ["0x3C"] }],
+    mcu: { model: "ESP32-S3", board: "esp32-s3-devkitc-1" },
+    pinout: [
+      { device: "SSD1306 OLED", pin_name: "I2C0 SDA", gpio: "GPIO8" },
+      { device: "SSD1306 OLED", pin_name: "I2C0 SCL", gpio: "GPIO9" },
+    ],
+  };
+  let calls = 0;
+  const writes: any[] = [];
+  const events: any[] = [];
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([
+      { name: "propose_manifest", input: { manifest: { ...base, phase: "analyze" } } },
+      { name: "propose_manifest", input: { manifest: { ...base, phase: "select-hw" } } },
+    ]),
+    writeProjectFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path }; },
+  });
+  const { state } = await loop({
+    intent: "x", boardId: "esp32-s3-devkitc-1",
+    onEvent: (e: any) => events.push(e),
+    confirmComponents: async () => { calls += 1; return { action: "confirm" }; },
+  });
+
+  assert.equal(calls, 1, "the gate fires once, not on every propose_manifest");
+  assert.equal(state.componentsConfirmed, true);
+  assert.ok(events.some((e: any) => e.type === "manifest_updated"), "a clean confirm commits the manifest");
+  assert.ok(writes.some((w: any) => w.path === "project-manifest.json"), "manifest persisted after confirm");
+});
+
 test("propose_manifest rejects legacy thin manifests on the agent path", async () => {
   const recorded: any[] = [];
   const events: any[] = [];
@@ -1392,8 +1489,45 @@ test("agent-backed loop appends a new user message when continuing prior state",
   assert.equal(firstBody.messages.length, 3);
   assert.deepEqual(firstBody.messages[0], priorState.messages[0]);
   assert.deepEqual(firstBody.messages[1], priorState.messages[1]);
-  assert.deepEqual(firstBody.messages[2], { role: "user", content: "now make it blink faster" });
+  assert.equal(firstBody.messages[2].role, "user");
+  assert.match(firstBody.messages[2].content, /now make it blink faster/);
   assert.equal(result.state, priorState);
+});
+
+test("agent-backed loop tells the model to keep all user-visible prose in the current user language", async () => {
+  const bodies: any[] = [];
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      bodies.push(JSON.parse(String(init?.body ?? "{}")));
+      return { ok: true, status: 200, text: async () => `data: ${JSON.stringify({ type: "message_stop" })}` } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "做一个温度计", boardId: "auto" });
+
+  const priorState = {
+    traceId: "session",
+    intent: "blink an led",
+    boardId: "esp32-s3-devkitc-1",
+    turnSeq: 1,
+    repairRound: 0,
+    loadedSkills: [],
+    messages: [
+      { role: "user", content: "blink an led" },
+      { role: "assistant", content: [{ type: "text", text: "Done" }] },
+    ],
+  };
+  await loop({ intent: "现在改成蜂鸣器报警", boardId: "esp32-s3-devkitc-1", state: priorState });
+
+  const freshOpening = bodies[0].messages[0].content;
+  assert.match(freshOpening, /Use Simplified Chinese for all user-visible prose/);
+  assert.match(freshOpening, /ask_user questions, final summaries, manifest requirements\.description, and manifest summary/);
+
+  const continuedTurn = bodies[1].messages[2].content;
+  assert.match(continuedTurn, /现在改成蜂鸣器报警/);
+  assert.match(continuedTurn, /Use Simplified Chinese for all user-visible prose/);
 });
 
 test("metered loop sends the auth token and forwards the credits balance to the UI", async () => {

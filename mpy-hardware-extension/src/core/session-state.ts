@@ -18,6 +18,9 @@ export function createSessionState(input: { traceId: string; intent: string; boa
     // The user declined the deploy gate (or no board). Ends the loop cleanly as
     // "generated" instead of thrashing on deploy-tool retries. Reset per request.
     deployDeclined: false,
+    // The user confirmed the component list at the one-shot gate in propose_manifest.
+    // Persists across continuation so a follow-up message doesn't re-prompt.
+    componentsConfirmed: false,
     // Derived session context built up by tool executions. Lives on state so it
     // survives multi-turn continuation (a follow-up message reuses the same state).
     board: undefined as any,

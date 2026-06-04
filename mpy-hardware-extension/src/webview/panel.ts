@@ -177,8 +177,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Set the deploy port (if the response carries one) before resolving, so the
       // agent's first device tool always sees the chosen port — no select_device race.
       if (message.answer === "confirm" && message.port) shim.setPort?.(message.port);
-      // `feedback` rides along on a plan "revise" so the agent can re-plan.
-      controller.resolvePrompt(message.promptId, message.answer, { feedback: message.feedback });
+      // `feedback` rides along on a plan "revise" so the agent can re-plan; `devices`
+      // rides along on a component-confirm so the host knows the kept parts.
+      controller.resolvePrompt(message.promptId, message.answer, { feedback: message.feedback, devices: message.devices });
     }
     if (message.type === "cancel_session") {
       controller.cancel();
