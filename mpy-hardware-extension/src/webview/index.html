@@ -1041,9 +1041,15 @@
       function busSignal(k) { const key = String(k).toLowerCase(); if (LOCALE === "zh" && BUS_SIGNAL_ZH[key]) return BUS_SIGNAL_ZH[key]; return BUS_SIGNAL[key] || humanize(k); }
       function componentCount(n) { return LOCALE === "zh" ? (n + " 个元件") : (n + " component" + (n > 1 ? "s" : "")); }
       function busWord(busLabel, kind) { const w = kind === "device" ? (LOCALE === "zh" ? "设备" : "device") : (LOCALE === "zh" ? "总线" : "bus"); return busLabel + (LOCALE === "zh" ? " " : " ") + w; }
-      // The offline pipeline emits a flat [{role,pin}] array; the live LLM emits a
-      // richer bus-keyed object ({ i2c: { sda, scl, devices:[{address,label}] } }),
-      // which can show several devices sharing one bus. Render both shapes.
+      // Friendly pin-row labels for standalone GPIO parts (upstream wiring.standalone[].type).
+      const STANDALONE_SIGNAL = { gpio_out: "Output", gpio_in: "Input", gpio_in_pullup: "Input (pull-up)", pwm: "PWM", adc: "Analog (ADC)" };
+      const STANDALONE_SIGNAL_ZH = { gpio_out: "输出", gpio_in: "输入", gpio_in_pullup: "输入 (上拉)", pwm: "PWM", adc: "模拟 (ADC)" };
+      function standaloneSignal(type) { const t = String(type == null ? "" : type).toLowerCase(); if (LOCALE === "zh" && STANDALONE_SIGNAL_ZH[t]) return STANDALONE_SIGNAL_ZH[t]; return STANDALONE_SIGNAL[t] || humanize(t); }
+      // The contract emits a device-identity object { buses[], standalone[] }
+      // (upstream wiring.schema): one card per device on a bus, one per
+      // standalone GPIO part — device identity is first-class, so there is no
+      // role-bucketing and no global chip stamp. A legacy flat [{role,pin}]
+      // array and the older bus-keyed object are still rendered for back-compat.
       function buildComponents(manifest) {
         const wiring = manifest && manifest.wiring;
         if (Array.isArray(wiring)) {
@@ -1053,6 +1059,34 @@
             (byComp[map.comp] = byComp[map.comp] || []).push({ signal: roleSignal(w.role), kind: map.kind, pin: w.pin });
           }
           return Object.keys(byComp).map((k) => ({ key: k, ...compInfo(k), pins: byComp[k] }));
+        }
+        if (wiring && typeof wiring === "object" && (Array.isArray(wiring.buses) || Array.isArray(wiring.standalone))) {
+          const comps = [];
+          for (const bus of wiring.buses || []) {
+            const busLabel = String((bus && (bus.type || bus.id)) || "bus").toUpperCase();
+            const pins = (Array.isArray(bus && bus.signals) ? bus.signals : []).map((s) => ({
+              signal: busSignal(s && s.role), kind: classifyRole(String((s && s.role) || "")), pin: String((s && s.gpio) || ""),
+            }));
+            const devices = Array.isArray(bus && bus.devices) ? bus.devices : [];
+            if (devices.length) {
+              for (const d of devices) {
+                const addr = d && d.addr;
+                comps.push({ key: "bus", driver: "", name: (d && d.name) || busWord(busLabel, "device"), part: busLabel + (addr ? " · " + addr : ""), pins });
+              }
+            } else {
+              comps.push({ key: "bus", driver: "", name: busWord(busLabel, "bus"), part: "", pins });
+            }
+          }
+          for (const part of wiring.standalone || []) {
+            const type = String((part && part.type) || "gpio_out");
+            comps.push({
+              key: "other", driver: "",
+              name: (part && part.name) || compInfo("other").name,
+              part: (part && part.external_components) || "",
+              pins: [{ signal: standaloneSignal(type), kind: classifyRole(type), pin: String((part && part.pin) || "") }],
+            });
+          }
+          return comps;
         }
         if (wiring && typeof wiring === "object") {
           const comps = [];
@@ -1078,6 +1112,9 @@
         return [];
       }
       function driverFor(comp, manifest) {
+        // Device-identity cards carry their own label (or none); never fall back
+        // to stamping the first global driver ref onto every card.
+        if (comp.driver !== undefined) return comp.driver;
         const refs = (manifest && manifest.driver_context_refs) || [];
         if (comp.key === "led") return LOCALE === "zh" ? "GPIO 输出" : "GPIO out";
         const ref = refs.find((r) => !/machine_pin_led/.test(r));

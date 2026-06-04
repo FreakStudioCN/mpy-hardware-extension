@@ -48,5 +48,55 @@ export function validateManifest(manifest: any, board: any = manifest?.board): {
       }
     }
   }
+  // Wiring: the device-identity object { buses[], standalone[] } (upstream
+  // wiring.schema). A legacy flat [{role,pin}] array is still accepted. The
+  // gpios named in wiring must be allocated in pins — wiring mirrors pins, it
+  // never introduces a pin of its own.
+  const wiring = manifest?.wiring;
+  if (wiring !== undefined && wiring !== null && !Array.isArray(wiring)) {
+    if (typeof wiring !== "object") {
+      errors.push({
+        code: "wiring_shape_invalid",
+        message: `wiring must be an object with buses[]/standalone[] (or a legacy [{role,pin}] array); got ${typeof wiring}.`,
+      });
+    } else {
+      const allocated = new Set(
+        pins && typeof pins === "object" && !Array.isArray(pins)
+          ? (Object.values(pins).filter((v) => typeof v === "string") as string[])
+          : [],
+      );
+      const wiringPins: string[] = [];
+      if (wiring.buses !== undefined) {
+        if (!Array.isArray(wiring.buses)) {
+          errors.push({ code: "wiring_shape_invalid", message: `wiring.buses must be an array of buses; got ${typeof wiring.buses}.` });
+        } else {
+          for (const bus of wiring.buses) {
+            for (const sig of bus?.signals ?? []) {
+              if (typeof sig?.gpio === "string") wiringPins.push(sig.gpio);
+            }
+          }
+        }
+      }
+      if (wiring.standalone !== undefined) {
+        if (!Array.isArray(wiring.standalone)) {
+          errors.push({ code: "wiring_shape_invalid", message: `wiring.standalone must be an array; got ${typeof wiring.standalone}.` });
+        } else {
+          for (const part of wiring.standalone) {
+            if (typeof part?.pin === "string") wiringPins.push(part.pin);
+          }
+        }
+      }
+      if (allocated.size) {
+        for (const gpio of wiringPins) {
+          if (!allocated.has(gpio)) {
+            errors.push({
+              code: "wiring_pin_mismatch",
+              message: `wiring references pin ${gpio} that is not allocated in pins; wiring must mirror pins.`,
+            });
+          }
+        }
+      }
+    }
+  }
   return errors.length ? { valid: false, errors } : { valid: true, errors: [] };
 }

@@ -85,7 +85,28 @@
               "additionalProperties": { "type": "string" }
             },
             "logic": { "type": "object", "description": "Behavioural parameters, e.g. {\"threshold_c\":30,\"action\":\"led_on_above_threshold\"}." },
-            "wiring": { "type": "array", "description": "One entry per connection: {role, pin}. Mirrors pins.", "items": { "type": "object", "properties": { "role": { "type": "string" }, "pin": { "type": "string" } } } },
+            "wiring": {
+              "type": "object",
+              "description": "Device-identity wiring (subset of the upstream wiring.schema). buses[] = shared comm buses, each with signals[] (role SDA/SCL/... -> gpio) and the devices[] on that bus (name + type + I2C addr); standalone[] = direct-GPIO parts (LED/buzzer/button), each {name, pin, type}. Derive it from pins: ONE physical part = exactly ONE device or standalone entry. Never emit a bare {role, pin} list. The wiring diagram renders from this.",
+              "properties": {
+                "buses": { "type": "array", "items": { "type": "object", "properties": {
+                  "type": { "type": "string", "enum": ["i2c", "spi", "uart", "onewire", "can"] },
+                  "id": { "type": "string", "description": "Bus id, e.g. I2C0." },
+                  "signals": { "type": "array", "items": { "type": "object", "properties": {
+                    "role": { "type": "string", "enum": ["SDA", "SCL", "MOSI", "MISO", "SCK", "CS", "TX", "RX", "DQ"] },
+                    "gpio": { "type": "string" } } } },
+                  "devices": { "type": "array", "items": { "type": "object", "properties": {
+                    "name": { "type": "string", "description": "Device label, e.g. SSD1306 OLED." },
+                    "type": { "type": "string" },
+                    "addr": { "type": "string", "description": "I2C address, e.g. 0x3C." },
+                    "cs_gpio": { "type": "string" } } } } } } },
+                "standalone": { "type": "array", "items": { "type": "object", "properties": {
+                  "name": { "type": "string" },
+                  "pin": { "type": "string" },
+                  "type": { "type": "string", "enum": ["gpio_out", "gpio_in", "gpio_in_pullup", "pwm", "adc"] },
+                  "external_components": { "type": "string", "description": "e.g. 220Ω series resistor." } } } }
+              }
+            },
             "summary": { "type": "string", "description": "Short friendly explanation shown to the user as the build plan." }
           },
           "required": ["board_id", "capabilities", "packages", "driver_context_refs", "pins", "logic", "wiring", "summary"],

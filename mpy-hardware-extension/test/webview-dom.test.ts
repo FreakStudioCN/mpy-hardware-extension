@@ -136,6 +136,51 @@ test("manifest_updated renders the rich bus-keyed shape with named devices (dual
   assert.match(wiring.innerHTML, /GPIO5/);
 });
 
+test("manifest_updated renders the upstream device-identity shape (buses[]/standalone[]) with no phantom card and no global chip stamp", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  // A single ssd1306 OLED on I2C plus a standalone LED. The old flat model
+  // turned this into a phantom "Peripheral · ssd1306 · Gpio Out" card; the
+  // device-identity shape must render exactly two correctly-attributed cards.
+  post(dom, {
+    type: "manifest_updated",
+    manifest: {
+      board_id: "esp32-s3-devkitc-1",
+      driver_context_refs: ["ssd1306@1.0.0"],
+      pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6", gpio_out: "GPIO2" },
+      wiring: {
+        buses: [
+          {
+            type: "i2c",
+            id: "I2C0",
+            signals: [{ role: "SDA", gpio: "GPIO5" }, { role: "SCL", gpio: "GPIO6" }],
+            devices: [{ name: "SSD1306 OLED", type: "display", addr: "0x3C" }],
+          },
+        ],
+        standalone: [{ name: "Status LED", pin: "GPIO2", type: "gpio_out", external_components: "220Ω series resistor" }],
+      },
+    },
+  });
+
+  const wiring = document.getElementById("wiring")!;
+  // Exactly two cards: the OLED and the LED — no phantom third component.
+  assert.equal(wiring.querySelectorAll(".comp-card").length, 2);
+  assert.doesNotMatch(wiring.innerHTML, /Peripheral/);
+  // The OLED renders by its own identity + I2C address + bus signals.
+  assert.match(wiring.innerHTML, /SSD1306 OLED/);
+  assert.match(wiring.innerHTML, /0x3C/);
+  assert.match(wiring.innerHTML, /Data \(SDA\)/);
+  assert.match(wiring.innerHTML, /GPIO5/);
+  // The LED is its own card with its pin + external component note.
+  assert.match(wiring.innerHTML, /Status LED/);
+  assert.match(wiring.innerHTML, /GPIO2/);
+  assert.match(wiring.innerHTML, /220Ω series resistor/);
+  // The chip label appears once (the OLED's own name), never stamped globally
+  // onto the LED card.
+  assert.equal((wiring.innerHTML.match(/ssd1306/gi) || []).length, 1);
+});
+
 test("credits message updates the quota label and gates Start", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

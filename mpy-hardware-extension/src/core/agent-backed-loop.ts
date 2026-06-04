@@ -119,6 +119,20 @@ export function estimateCredits(manifest: any): number {
 
 // Human-readable build plan derived deterministically from the manifest + intent.
 // Drives the host's plan card; no LLM call.
+// The plan-gate card summarizes wiring as a flat role -> pin list. The manifest
+// `wiring` is now the device-identity object { buses[], standalone[] }, so derive
+// the summary from `pins` (still role -> pin); a legacy flat array passes through.
+function planWiringRows(manifest: any): Array<{ role: string; pin: string }> {
+  if (Array.isArray(manifest?.wiring)) return manifest.wiring;
+  const pins = manifest?.pins;
+  if (pins && typeof pins === "object" && !Array.isArray(pins)) {
+    return Object.entries(pins)
+      .filter(([, pin]) => typeof pin === "string")
+      .map(([role, pin]) => ({ role, pin: pin as string }));
+  }
+  return [];
+}
+
 function buildPlan(manifest: any, intent: string): BuildPlan {
   return {
     intent,
@@ -129,7 +143,7 @@ function buildPlan(manifest: any, intent: string): BuildPlan {
     // as a non-array (e.g. {} or 0 for a no-package project), and `?? []` only
     // catches null/undefined, so `.map` would throw and crash the whole loop.
     packages: (Array.isArray(manifest?.packages) ? manifest.packages : []).map((p: any) => (typeof p === "string" ? p : p?.name)).filter(Boolean),
-    wiring: Array.isArray(manifest?.wiring) ? manifest.wiring : [],
+    wiring: planWiringRows(manifest),
     estimate: estimateCredits(manifest),
   };
 }
