@@ -1,6 +1,12 @@
-export function shouldTerminate(state: { turnSeq: number; repairRound: number; noProgressStreak?: number; lastRuntimeMarker?: string; runtimeVerified?: boolean }) {
+export function shouldTerminate(state: { turnSeq: number; repairRound: number; noProgressStreak?: number; lastRuntimeMarker?: string; runtimeVerified?: boolean; phase?: string }) {
   if (state.runtimeVerified) {
     return { done: true, reason: "success" };
+  }
+  // The phase-driven build reached its terminal phase (e.g. a PC-only build that
+  // finished without flashing to a device): end cleanly instead of waiting for a
+  // runtime marker that never comes.
+  if (state.phase === "complete") {
+    return { done: true, reason: "complete" };
   }
   if (state.repairRound >= 3) {
     return { done: true, reason: "repair_exhausted" };

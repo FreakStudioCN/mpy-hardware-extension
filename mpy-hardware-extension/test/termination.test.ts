@@ -27,7 +27,15 @@ test("session state starts with a fully deterministic initial shape", () => {
     board: undefined,
     driverContexts: [],
     projectDir: undefined,
+    phase: "analyze",
+    manifest: undefined,
   });
+});
+
+test("a build that reaches the complete phase terminates cleanly", () => {
+  // A PC-only build finishes without a runtime marker; the terminal phase ends it.
+  assert.equal(shouldTerminate({ turnSeq: 5, repairRound: 0, phase: "complete" }).reason, "complete");
+  assert.equal(shouldTerminate({ turnSeq: 5, repairRound: 0, phase: "generate" }).done, false);
 });
 
 test("serial observations are truncated to tail content", () => {

@@ -3,6 +3,13 @@
 // embedded manifest.board for the offline pipeline. Without it the
 // pin-capability gate cannot run, so the real agent path must supply it.
 export function validateManifest(manifest: any, board: any = manifest?.board): { valid: true; errors: [] } | { valid: false; errors: Array<{ code: string; message: string }> } {
+  // Two contracts coexist: the rich upstream project-manifest (has schema_version)
+  // and the legacy thin manifest. This TS check is a cheap structural pre-filter —
+  // the authoritative gate for the rich manifest is the vendored validate_json.py
+  // (run_validate via the shim), so do NOT hand-copy the full schema here.
+  if (manifest && typeof manifest === "object" && manifest.schema_version !== undefined) {
+    return validateRichManifest(manifest, board);
+  }
   const errors: Array<{ code: string; message: string }> = [];
   for (const key of ["board_id", "capabilities", "packages", "driver_context_refs", "pins", "logic", "wiring"]) {
     if (!(key in manifest)) {
@@ -96,6 +103,41 @@ export function validateManifest(manifest: any, board: any = manifest?.board): {
           }
         }
       }
+    }
+  }
+  return errors.length ? { valid: false, errors } : { valid: true, errors: [] };
+}
+
+// Structural pre-check for the rich upstream project-manifest. Intentionally shallow:
+// it catches the obvious shape errors so the agent self-corrects in one round, while
+// the vendored validate_json.py (run_validate) remains the authoritative schema gate.
+// No pin-role enum gate here — pinout[] uses upstream pin_name/device identity, and
+// deeper pin correctness is owned by select-hw + validate_json, not a TS re-copy.
+function validateRichManifest(manifest: any, _board: any): { valid: true; errors: [] } | { valid: false; errors: Array<{ code: string; message: string }> } {
+  const errors: Array<{ code: string; message: string }> = [];
+  for (const key of ["schema_version", "phase", "created_at", "project_name", "requirements", "devices"]) {
+    if (!(key in manifest)) errors.push({ code: "missing_field", message: key });
+  }
+  const requirements = manifest?.requirements;
+  if (requirements !== undefined) {
+    if (typeof requirements !== "object" || requirements === null || Array.isArray(requirements)) {
+      errors.push({ code: "requirements_shape_invalid", message: "requirements must be an object with a description." });
+    } else if (typeof requirements.description !== "string" || !requirements.description) {
+      errors.push({ code: "missing_field", message: "requirements.description" });
+    }
+  }
+  const devices = manifest?.devices;
+  if (devices !== undefined) {
+    if (!Array.isArray(devices) || devices.length === 0) {
+      errors.push({ code: "devices_shape_invalid", message: "devices must be a non-empty array of {name, type, interface}." });
+    } else {
+      devices.forEach((device: any, index: number) => {
+        for (const field of ["name", "type", "interface"]) {
+          if (!device || typeof device[field] !== "string" || !device[field]) {
+            errors.push({ code: "device_field_missing", message: `devices[${index}].${field} is required (string).` });
+          }
+        }
+      });
     }
   }
   return errors.length ? { valid: false, errors } : { valid: true, errors: [] };

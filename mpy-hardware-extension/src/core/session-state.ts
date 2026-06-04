@@ -23,5 +23,13 @@ export function createSessionState(input: { traceId: string; intent: string; boa
     // the phase-driven loop (B2, from project_name); until then the executors fall
     // back to deps.projectRoot (the workspace root).
     projectDir: undefined as string | undefined,
+    // Upstream build phase (analyze -> select-hw -> scaffold -> generate -> deploy
+    // -> ... -> complete). Mirrors the proposed manifest's `phase` field; drives the
+    // termination `complete` check. Survives continuation like the rest of the
+    // derived context.
+    phase: "analyze" as string,
+    // The latest proposed upstream project-manifest (rich shape). Lives on state so
+    // later phases build on it and the device/script steps can read it.
+    manifest: undefined as any,
   };
 }

@@ -425,21 +425,22 @@ def test_llm_local_tools_expose_parameter_schemas():
         assert parameters["additionalProperties"] is False
 
 
-def test_propose_manifest_schema_documents_pins_role_to_pin():
+def test_propose_manifest_schema_documents_the_rich_upstream_manifest():
     from app import routes_llm
 
     # The model only proposes a well-formed manifest if the tool schema actually
-    # describes its shape. A bare {"type": "object"} taught it nothing, so it kept
-    # guessing the pins orientation wrong and spun on manifest_invalid. The nested
-    # schema must list the required fields and state pins is keyed by role.
+    # describes its shape. The contract is now the upstream phased project-manifest
+    # (analyze->select-hw->...), so the nested schema must list its required fields
+    # and describe devices[] (wiring is DERIVED from devices+pinout, never emitted).
     tools = routes_llm._deepseek_tools([{"name": "propose_manifest"}])
     manifest = tools[0]["function"]["parameters"]["properties"]["manifest"]
 
     assert set(manifest["required"]) >= {
-        "board_id", "capabilities", "packages", "driver_context_refs", "pins", "logic", "wiring",
+        "schema_version", "phase", "project_name", "requirements", "devices",
     }
-    assert manifest["properties"]["pins"]["type"] == "object"
-    assert "role" in manifest["properties"]["pins"]["description"].lower()
+    assert manifest["properties"]["devices"]["type"] == "array"
+    assert "phase" in manifest["properties"]
+    assert "analyze" in manifest["properties"]["phase"]["enum"]
 
 
 def test_propose_manifest_schema_is_byte_stable():

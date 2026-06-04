@@ -93,3 +93,42 @@ test("led_anode on a gpio_out pin still validates", () => {
   const result = validateManifest(withPins({ led_anode: "GPIO2" }), board);
   assert.equal(result.valid, true);
 });
+
+// ---- Rich upstream project-manifest (schema_version present) ----
+// Dual-shape: the thin tests above still pass; a manifest with schema_version is
+// validated structurally here (validate_json.py is the authoritative deep gate).
+
+const richBase = {
+  schema_version: "1.0",
+  phase: "analyze",
+  created_at: "2026-06-04T00:00:00Z",
+  project_name: "temp-display",
+  requirements: { description: "用 ssd1306 显示温度" },
+  devices: [{ name: "AHT20", type: "temperature_sensor", interface: "I2C", i2c_addr: ["0x38"] }],
+};
+
+test("a complete rich project-manifest validates", () => {
+  assert.equal(validateManifest(richBase).valid, true);
+});
+
+test("a rich manifest missing required top-level fields is rejected", () => {
+  const result = validateManifest({ schema_version: "1.0", project_name: "x" });
+  assert.equal(result.valid, false);
+  const missing = result.errors.filter((e) => e.code === "missing_field").map((e) => e.message);
+  for (const key of ["phase", "created_at", "requirements", "devices"]) {
+    assert.ok(missing.includes(key), `expected missing_field ${key}`);
+  }
+});
+
+test("a rich manifest without requirements.description is rejected", () => {
+  const result = validateManifest({ ...richBase, requirements: { scene: "indoor" } });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((e) => e.message === "requirements.description"));
+});
+
+test("a rich manifest with an empty or malformed devices list is rejected", () => {
+  assert.equal(validateManifest({ ...richBase, devices: [] }).valid, false);
+  const bad = validateManifest({ ...richBase, devices: [{ name: "AHT20" }] });
+  assert.equal(bad.valid, false);
+  assert.ok(bad.errors.some((e) => e.code === "device_field_missing"));
+});

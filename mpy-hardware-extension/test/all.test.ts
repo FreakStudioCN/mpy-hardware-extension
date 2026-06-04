@@ -25,6 +25,7 @@ import "./sse-contract.test.ts";
 import "./workspace-writer.test.ts";
 import "./write-project-file.test.ts";
 import "./upstream-submodule.test.ts";
+import "./wiring-derive.test.ts";
 import "./session-recorder.test.ts";
 import "./session-controller.test.ts";
 import "./error-classification.test.ts";

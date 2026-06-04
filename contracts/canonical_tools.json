@@ -67,49 +67,55 @@
     "name": "propose_manifest",
     "executor_hint": "local",
     "requires_user_confirm": false,
-    "description": "Propose a hardware manifest with selected board, packages, pins, logic, and wiring.",
+    "description": "Propose (or update) the upstream project-manifest, filled in progressively across phases. Call it again as the build advances, setting the manifest's \"phase\" each time. The canonical project-manifest schema (validated by run_validate) is the single source of truth; if a loaded skill conflicts with it, follow the schema. The wiring diagram is DERIVED automatically from devices[] + pinout[] (one physical device = one card) — do not hand-build a wiring object.",
     "input_schema": {
       "type": "object",
       "properties": {
         "manifest": {
           "type": "object",
-          "description": "Hardware manifest. pins maps each ROLE to a board pin string (role -> pin); do not invert it.",
+          "description": "Upstream project-manifest.json. Fill the fields owned by the current phase; carry prior fields forward unchanged.",
           "properties": {
-            "board_id": { "type": "string", "description": "Board id from query_board_profile, e.g. esp32-s3-devkitc-1." },
-            "capabilities": { "type": "array", "items": { "type": "string" }, "description": "Capabilities this build needs, e.g. [\"temperature_sensing\",\"digital_output\"]." },
-            "packages": { "type": "array", "items": { "type": "object" }, "description": "Resolved packages, each {name, version}." },
-            "driver_context_refs": { "type": "array", "items": { "type": "string" }, "description": "Refs to fetched driver contexts, e.g. \"aht20_driver@1.0.0\"." },
-            "pins": {
+            "schema_version": { "type": "string", "enum": ["1.0"], "description": "Manifest schema version; always \"1.0\"." },
+            "phase": { "type": "string", "enum": ["analyze", "select-hw", "scaffold", "generate", "wiring", "diagram", "deploy", "autofix", "cold-driver", "simulate", "complete", "failed"], "description": "Current build phase. Advance it as you progress; set \"complete\" when done." },
+            "created_at": { "type": "string", "description": "ISO 8601 timestamp of first creation." },
+            "project_name": { "type": "string", "description": "Short project name extracted from the user's request." },
+            "requirements": {
               "type": "object",
-              "description": "Object mapping each ROLE to a board PIN string (role -> pin), NOT pin -> role and NOT role -> object. Use roles from the driver pin_roles and pins allowed by the board profile's pin_capabilities / pin_recommendations. Example: {\"i2c_sda\":\"GPIO5\",\"i2c_scl\":\"GPIO6\",\"led_anode\":\"GPIO2\"}.",
-              "additionalProperties": { "type": "string" }
-            },
-            "logic": { "type": "object", "description": "Behavioural parameters, e.g. {\"threshold_c\":30,\"action\":\"led_on_above_threshold\"}." },
-            "wiring": {
-              "type": "object",
-              "description": "Device-identity wiring (subset of the upstream wiring.schema). buses[] = shared comm buses, each with signals[] (role SDA/SCL/... -> gpio) and the devices[] on that bus (name + type + I2C addr); standalone[] = direct-GPIO parts (LED/buzzer/button), each {name, pin, type}. Derive it from pins: ONE physical part = exactly ONE device or standalone entry. Never emit a bare {role, pin} list. The wiring diagram renders from this.",
+              "description": "[analyze] Parsed requirements. description is required; the rest are an optional taxonomy (scene/power/network/sample_rate/output[]/...).",
               "properties": {
-                "buses": { "type": "array", "items": { "type": "object", "properties": {
-                  "type": { "type": "string", "enum": ["i2c", "spi", "uart", "onewire", "can"] },
-                  "id": { "type": "string", "description": "Bus id, e.g. I2C0." },
-                  "signals": { "type": "array", "items": { "type": "object", "properties": {
-                    "role": { "type": "string", "enum": ["SDA", "SCL", "MOSI", "MISO", "SCK", "CS", "TX", "RX", "DQ"] },
-                    "gpio": { "type": "string" } } } },
-                  "devices": { "type": "array", "items": { "type": "object", "properties": {
-                    "name": { "type": "string", "description": "Device label, e.g. SSD1306 OLED." },
-                    "type": { "type": "string" },
-                    "addr": { "type": "string", "description": "I2C address, e.g. 0x3C." },
-                    "cs_gpio": { "type": "string" } } } } } } },
-                "standalone": { "type": "array", "items": { "type": "object", "properties": {
-                  "name": { "type": "string" },
-                  "pin": { "type": "string" },
-                  "type": { "type": "string", "enum": ["gpio_out", "gpio_in", "gpio_in_pullup", "pwm", "adc"] },
-                  "external_components": { "type": "string", "description": "e.g. 220Ω series resistor." } } } }
+                "description": { "type": "string", "description": "Summary of the user's request, in the user's language. Shown to the user as the build plan." },
+                "output": { "type": "array", "items": { "type": "string" }, "description": "Output methods, e.g. [\"display_oled\",\"serial\"]." }
+              },
+              "required": ["description"],
+              "additionalProperties": true
+            },
+            "devices": {
+              "type": "array",
+              "description": "[analyze] One entry per physical part. interface decides wiring: I2C/SPI/UART/I2S/CAN/1-Wire are bus devices; GPIO/PWM/ADC are standalone parts.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "description": "Part model/name, e.g. SSD1306 OLED, AHT20." },
+                  "type": { "type": "string", "description": "Category, e.g. display, temperature_sensor, led, buzzer." },
+                  "interface": { "type": "string", "enum": ["I2C", "SPI", "UART", "GPIO", "PWM", "ADC", "I2S", "1-Wire", "CAN", "USB", "WiFi", "BLE"] },
+                  "i2c_addr": { "type": "array", "items": { "type": "string" }, "description": "I2C addresses for I2C devices, e.g. [\"0x3C\"]." },
+                  "driver": { "type": "object", "description": "Resolved driver, e.g. {source, package_name, version}." }
+                },
+                "required": ["name", "type", "interface"]
               }
             },
-            "summary": { "type": "string", "description": "Short friendly explanation shown to the user as the build plan." }
+            "mcu": { "type": "object", "description": "[select-hw] Chosen MCU, e.g. {model, board, reason}." },
+            "pinout": {
+              "type": "array",
+              "description": "[select-hw] Pin allocation, one row per connection: {device, pin_name (e.g. \"I2C0 SDA\"), gpio (e.g. \"GPIO8\")}. Shared bus pins (SDA/SCL) appear once.",
+              "items": { "type": "object", "properties": {
+                "device": { "type": "string" }, "pin_name": { "type": "string" }, "gpio": { "type": "string" }, "mcu_pin": { "type": "string" } } }
+            },
+            "bom": { "type": "array", "items": { "type": "object" }, "description": "[select-hw] Bill of materials." },
+            "scheduler_type": { "type": "string", "enum": ["timer", "asyncio", "while_loop", "multi_thread"], "description": "[scaffold] Runtime scheduler model." },
+            "summary": { "type": "string", "description": "Optional short friendly plan summary; defaults to requirements.description." }
           },
-          "required": ["board_id", "capabilities", "packages", "driver_context_refs", "pins", "logic", "wiring", "summary"],
+          "required": ["schema_version", "phase", "project_name", "requirements", "devices"],
           "additionalProperties": true
         }
       },

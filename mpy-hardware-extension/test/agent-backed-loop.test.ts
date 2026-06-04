@@ -652,6 +652,64 @@ test("write_project_file dispatches to the injected host writer and mirrors into
   );
 });
 
+test("propose_manifest (rich) tracks phase, renders derived wiring, and persists the manifest", async () => {
+  const mkFetch = (turns: any[]) => {
+    let i = 0;
+    return (async (url: string) => {
+      if (url.endsWith("/v1/llm/messages")) {
+        const turn = turns[i++];
+        return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  };
+
+  const richManifest = {
+    schema_version: "1.0",
+    phase: "select-hw",
+    created_at: "2026-06-04T00:00:00Z",
+    project_name: "temp-display",
+    requirements: { description: "用 ssd1306 显示温度" },
+    devices: [
+      { name: "SSD1306 OLED", type: "display", interface: "I2C", i2c_addr: ["0x3C"] },
+      { name: "AHT20", type: "temperature_sensor", interface: "I2C", i2c_addr: ["0x38"] },
+    ],
+    mcu: { model: "ESP32-S3", board: "esp32-s3-devkitc-1" },
+    pinout: [
+      { device: "SSD1306 OLED", pin_name: "I2C0 SDA", gpio: "GPIO8" },
+      { device: "SSD1306 OLED", pin_name: "I2C0 SCL", gpio: "GPIO9" },
+      { device: "AHT20", pin_name: "I2C0 SDA", gpio: "GPIO8" },
+      { device: "AHT20", pin_name: "I2C0 SCL", gpio: "GPIO9" },
+    ],
+  };
+
+  const writes: Array<{ path: string; content: string }> = [];
+  const events: any[] = [];
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([{ name: "propose_manifest", input: { manifest: richManifest } }]),
+    writeProjectFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path }; },
+  });
+  const { state } = await loop({ intent: "用 ssd1306 显示温度", boardId: "esp32-s3-devkitc-1", onEvent: (e: any) => events.push(e) });
+
+  // Phase + manifest tracked on state.
+  assert.equal(state.phase, "select-hw");
+  assert.equal(state.manifest.project_name, "temp-display");
+
+  // manifest_updated carries DERIVED device-identity wiring: one I2C bus, two
+  // device entries, no phantom card.
+  const updated = events.find((e) => e.type === "manifest_updated");
+  assert.ok(updated, "manifest_updated emitted");
+  assert.equal(updated.manifest.wiring.buses.length, 1);
+  assert.deepEqual(updated.manifest.wiring.buses[0].devices.map((d: any) => d.name), ["SSD1306 OLED", "AHT20"]);
+  assert.equal(updated.manifest.wiring.standalone.length, 0);
+
+  // The rich manifest is persisted to the project tree.
+  const persisted = writes.find((w) => w.path === "project-manifest.json");
+  assert.ok(persisted, "project-manifest.json written");
+  assert.equal(JSON.parse(persisted!.content).project_name, "temp-display");
+});
+
 test("write_main_py deploys additional generated files (multi-file project) to the device", async () => {
   let mainTurns = 0;
   let codegenCall = 0;

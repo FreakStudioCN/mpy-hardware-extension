@@ -2,6 +2,7 @@ import { ApiClient } from "./api-client.ts";
 import { BoardClient } from "./board-client.ts";
 import { auditCode } from "./audit-code.ts";
 import { validateManifest } from "./manifest-schema.ts";
+import { deriveWiring } from "./wiring-derive.ts";
 import { CANONICAL_TOOLS } from "./tool-registry.ts";
 import { dispatchTool } from "./tool-dispatch.ts";
 import { createLlmClient } from "./llm-client.ts";
@@ -81,7 +82,8 @@ function buildOpening(input: LoopInput): string {
     input.intent,
     "",
     "[First make sure you understand the request. If the goal or the core behaviour is unclear, or it could be built more than one way, call the ask_user tool to clarify what device to build and what it should do BEFORE selecting hardware or generating code. Always ask via the ask_user tool, never as plain assistant text.]",
-    "[Structure the code to fit the project. A simple project can be a single main.py. For a more complex one, split it into main.py (the runnable entry) plus importable modules under lib/ — call generate_code once per file, passing each file's target_path (e.g. lib/sensor.py). Keep it only as complex as the project needs.]",
+    "[Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its \"phase\" field each time you call propose_manifest: analyze (project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. After analyze and select-hw, call run_validate to check the manifest against the schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then generate the task/driver code, then the device tools. Set phase to \"complete\" when the build is finished.]",
+    "[Structure the code to fit the project. A simple project can be a single main.py. For a more complex one, split it into main.py (the runnable entry) plus importable modules under lib/ or the firmware/ tree — call generate_code once per file, passing each file's target_path (e.g. lib/sensor.py). Keep it only as complex as the project needs.]",
   ];
   if (boardKnown) {
     parts.push(`[Target board already selected by the user: ${input.boardId}. Use this board and pass this board_id to query_board_profile. Do NOT ask the user which board to use.]`);
@@ -123,7 +125,10 @@ export type PlanDecision = { action: "confirm" | "cancel" | "revise"; feedback?:
 // driver package. 1 credit = 10k tokens.
 export function estimateCredits(manifest: any): number {
   const packages = Array.isArray(manifest?.packages) ? manifest.packages.length : 0;
-  return 2 + packages;
+  // Rich upstream manifests carry devices[] instead of packages[]; cost scales with
+  // whichever is present (codegen + audit base plus one per driver/device).
+  const devices = Array.isArray(manifest?.devices) ? manifest.devices.length : 0;
+  return 2 + Math.max(packages, devices);
 }
 
 // Human-readable build plan derived deterministically from the manifest + intent.
@@ -133,6 +138,13 @@ export function estimateCredits(manifest: any): number {
 // the summary from `pins` (still role -> pin); a legacy flat array passes through.
 function planWiringRows(manifest: any): Array<{ role: string; pin: string }> {
   if (Array.isArray(manifest?.wiring)) return manifest.wiring;
+  // Rich upstream manifest: summarise the pinout[] (device pin_name -> gpio) as
+  // role -> pin rows for the plan card.
+  if (Array.isArray(manifest?.pinout)) {
+    return manifest.pinout
+      .filter((p: any) => p?.gpio)
+      .map((p: any) => ({ role: String(p.pin_name ?? p.device ?? "pin"), pin: String(p.gpio) }));
+  }
   const pins = manifest?.pins;
   if (pins && typeof pins === "object" && !Array.isArray(pins)) {
     return Object.entries(pins)
@@ -143,15 +155,22 @@ function planWiringRows(manifest: any): Array<{ role: string; pin: string }> {
 }
 
 function buildPlan(manifest: any, intent: string): BuildPlan {
+  const isRich = manifest && typeof manifest === "object" && manifest.schema_version !== undefined;
   return {
     intent,
-    boardId: manifest?.board_id,
-    summary: typeof manifest?.summary === "string" ? manifest.summary : undefined,
-    capabilities: Array.isArray(manifest?.capabilities) ? manifest.capabilities : [],
+    boardId: isRich ? (manifest?.mcu?.board ?? manifest?.mcu?.model ?? manifest?.board_id) : manifest?.board_id,
+    summary: isRich
+      ? (typeof manifest?.summary === "string" ? manifest.summary : manifest?.requirements?.description)
+      : (typeof manifest?.summary === "string" ? manifest.summary : undefined),
+    capabilities: isRich
+      ? (Array.isArray(manifest?.devices) ? manifest.devices.map((d: any) => d?.type).filter(Boolean) : [])
+      : (Array.isArray(manifest?.capabilities) ? manifest.capabilities : []),
     // Guard with Array.isArray, not `?? []`: the model sometimes emits `packages`
     // as a non-array (e.g. {} or 0 for a no-package project), and `?? []` only
     // catches null/undefined, so `.map` would throw and crash the whole loop.
-    packages: (Array.isArray(manifest?.packages) ? manifest.packages : []).map((p: any) => (typeof p === "string" ? p : p?.name)).filter(Boolean),
+    packages: isRich
+      ? (Array.isArray(manifest?.devices) ? manifest.devices.map((d: any) => d?.driver?.package_name).filter(Boolean) : [])
+      : (Array.isArray(manifest?.packages) ? manifest.packages : []).map((p: any) => (typeof p === "string" ? p : p?.name)).filter(Boolean),
     wiring: planWiringRows(manifest),
     estimate: estimateCredits(manifest),
   };
@@ -313,12 +332,26 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           }
         }
         if (name === "propose_manifest") {
-          const validation = validateManifest(toolInput.manifest, state.board);
+          const manifest = toolInput.manifest;
+          const validation = validateManifest(manifest, state.board);
           if (!validation.valid) {
             return { ok: false, error_kind: "manifest_invalid", errors: validation.errors };
           }
-          onEvent({ type: "manifest_updated", manifest: toolInput.manifest });
-          return { ok: true, manifest: toolInput.manifest };
+          // Rich upstream manifest: track the build phase, persist the manifest to
+          // the project tree, and render wiring from the device-identity object
+          // DERIVED from devices[]/pinout[] (one device = one card, no phantom).
+          if (manifest && typeof manifest === "object" && manifest.schema_version !== undefined) {
+            state.manifest = manifest;
+            if (typeof manifest.phase === "string") state.phase = manifest.phase;
+            const wiring = deriveWiring(manifest);
+            onEvent({ type: "manifest_updated", manifest: { ...manifest, wiring } });
+            if (typeof deps.writeProjectFile === "function") {
+              await deps.writeProjectFile("project-manifest.json", JSON.stringify(manifest, null, 2));
+            }
+            return { ok: true, phase: state.phase };
+          }
+          onEvent({ type: "manifest_updated", manifest });
+          return { ok: true, manifest };
         }
         if (name === "generate_code") {
           // Surface the manifest first so the wiring view renders as part of the
