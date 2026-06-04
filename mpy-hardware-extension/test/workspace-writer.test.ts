@@ -54,3 +54,20 @@ test("workspace writer allows main, manifest, and lib python artifacts", () => {
 
   assert.deepEqual(plan.map((item) => item.path), ["C:/project/main.py", "C:/project/manifest.json", "C:/project/lib/aht20.py"]);
 });
+
+test("post-loop batch writer keeps its narrow allowlist (no firmware/ tree leak)", async () => {
+  // The firmware/ + project-manifest.json tree is writable only through
+  // write_project_file (allowProjectTree). The post-loop batch writer must still
+  // reject those paths so the broader allowance can't reach it implicitly.
+  for (const name of ["firmware/main.py", "firmware/drivers/aht20_driver/__init__.py", "project-manifest.json", "test/pc/test_sensor.py"]) {
+    const result = await writeGeneratedFiles({
+      workspaceFolder: "C:/project",
+      files: { [name]: "x" },
+      exists: async () => false,
+      writeFile: async () => undefined,
+      confirmOverwrite: async () => true,
+    });
+    assert.equal(result.ok, false, name);
+    assert.equal(result.error_kind, "invalid_generated_path", name);
+  }
+});

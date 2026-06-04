@@ -34,8 +34,8 @@ export async function writeGeneratedFiles(input: {
   return { ok: true, paths };
 }
 
-export function normalizeGeneratedArtifactPath(name: string, options: { allowMain?: boolean; allowManifest?: boolean; allowLib?: boolean } = {}) {
-  const { allowMain = true, allowManifest = true, allowLib = true } = options;
+export function normalizeGeneratedArtifactPath(name: string, options: { allowMain?: boolean; allowManifest?: boolean; allowLib?: boolean; allowProjectTree?: boolean } = {}) {
+  const { allowMain = true, allowManifest = true, allowLib = true, allowProjectTree = false } = options;
   if (typeof name !== "string" || !name || name.includes("\\") || name.includes("\0")) return null;
   if (name.startsWith("/") || /^[A-Za-z]:/.test(name)) return null;
   const segments = name.split("/");
@@ -43,7 +43,36 @@ export function normalizeGeneratedArtifactPath(name: string, options: { allowMai
   if (allowMain && name === "main.py") return name;
   if (allowManifest && name === "manifest.json") return name;
   if (allowLib && segments[0] === "lib" && segments.length >= 2 && name.endsWith(".py")) return name;
+  if (allowProjectTree) {
+    // The upstream project tree the agent fills during the phase-driven build: the
+    // manifest at the project root, plus .py files anywhere under the firmware/ and
+    // test/ trees (drivers, tasks, lib, test/pc, test/device). Path traversal,
+    // absolute paths, and backslashes are already rejected above, so any accepted
+    // path stays inside the project root by construction.
+    if (name === "project-manifest.json") return name;
+    if ((segments[0] === "firmware" || segments[0] === "test") && segments.length >= 2 && name.endsWith(".py")) return name;
+  }
   return null;
+}
+
+// Agent-driven single-file write (the write_project_file tool), versus the
+// post-loop batch in writeGeneratedFiles. The agent writes into the project tree
+// (project-manifest.json + firmware/ + test/) one file at a time as the build
+// progresses. Path safety is the allowProjectTree allowlist above; the caller
+// injects the real fs writer (mkdir -p + writeFile).
+export async function writeProjectFile(input: {
+  workspaceFolder?: string;
+  generatedRoot?: string;
+  path: string;
+  content: string;
+  writeFile: (path: string, content: string) => Promise<void>;
+}) {
+  const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
+  const safe = normalizeGeneratedArtifactPath(input.path, { allowProjectTree: true });
+  if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path };
+  const target = joinPath(root, safe);
+  await input.writeFile(target, input.content);
+  return { ok: true as const, path: target };
 }
 
 function joinPath(root: string, name: string) {

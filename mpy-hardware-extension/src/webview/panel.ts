@@ -12,7 +12,7 @@ import { createDeviceShim } from "../extension/device-shim.ts";
 import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { CANONICAL_TOOLS } from "../core/tool-registry.ts";
-import { writeGeneratedFiles } from "../extension/workspace-writer.ts";
+import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void };
 
@@ -50,7 +50,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   let availableBoards: any[] = [];
   const controller = new SessionController({
     postMessage: (message) => webview.postMessage(message),
-    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(workspaceFolder) }),
+    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(workspaceFolder), writeProjectFile: makeWorkspaceWriter(workspaceFolder) }),
     recorderFactory: workspaceFolder ? (traceId) => new JsonlSessionRecorder({ workspaceFolder, traceId }) : undefined,
     writeFiles: async (files) => {
       const result = await writeGeneratedFiles({
@@ -187,7 +187,7 @@ async function checkToolRegistry(apiBaseUrl: string, fetchImpl: typeof fetch) {
 
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }> }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }> }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);
@@ -213,6 +213,26 @@ function makeWorkspaceReader(workspaceFolder?: string) {
       return { ok: false as const, error_kind: "file_not_found" };
     }
   };
+}
+
+// write_project_file backing: writes a project-tree file (project-manifest.json +
+// firmware/ + test/) relative to the workspace root. Path safety (allowed-path set
+// + containment) lives in writeProjectFile; this only supplies the real fs writer
+// (mkdir -p + writeFile). Falls back to .mpyhw/generated when there is no
+// workspace folder, mirroring the post-loop writeGeneratedFiles fallback.
+function makeWorkspaceWriter(workspaceFolder?: string) {
+  const generatedRoot = workspaceFolder ? undefined : join(process.cwd(), ".mpyhw", "generated");
+  return (relPath: string, content: string) =>
+    writeProjectFile({
+      workspaceFolder,
+      generatedRoot,
+      path: relPath,
+      content,
+      writeFile: async (path, fileContent) => {
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, fileContent, "utf-8");
+      },
+    });
 }
 
 function readWebviewHtml(): string {

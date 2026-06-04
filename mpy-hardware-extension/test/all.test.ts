@@ -23,6 +23,7 @@ import "./e2e-loop-api.test.ts";
 import "./device-shim.test.ts";
 import "./sse-contract.test.ts";
 import "./workspace-writer.test.ts";
+import "./write-project-file.test.ts";
 import "./session-recorder.test.ts";
 import "./session-controller.test.ts";
 import "./error-classification.test.ts";

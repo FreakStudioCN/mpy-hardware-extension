@@ -612,6 +612,46 @@ test("read_workspace_file dispatches to the injected host reader (and reports un
   );
 });
 
+test("write_project_file dispatches to the injected host writer and mirrors into state.files", async () => {
+  const mkFetch = (turns: any[]) => {
+    let i = 0;
+    return (async (url: string) => {
+      if (url.endsWith("/v1/llm/messages")) {
+        const turn = turns[i++];
+        return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  };
+
+  const writes: Array<{ path: string; content: string }> = [];
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([{ name: "write_project_file", input: { path: "firmware/tasks/sensor.py", content: "def tick():\n    pass\n" } }]),
+    writeProjectFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path: `C:/project/${path}` }; },
+  });
+  const { state } = await loop({ intent: "write a file", boardId: "esp32-s3-devkitc-1" });
+  assert.deepEqual(writes, [{ path: "firmware/tasks/sensor.py", content: "def tick():\n    pass\n" }], "writer called with path + content");
+  assert.equal(state.files["firmware/tasks/sensor.py"], "def tick():\n    pass\n", "written file mirrored into state.files for deploy");
+
+  // No writer injected (headless): the tool reports workspace_unavailable and the loop still finishes.
+  const observations: any[] = [];
+  const loop2 = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([{ name: "write_project_file", input: { path: "firmware/main.py", content: "x" } }]),
+  });
+  const result = await loop2({
+    intent: "write a file",
+    boardId: "esp32-s3-devkitc-1",
+    recorder: { record: async (e: any) => { observations.push(e); } },
+  });
+  assert.ok(result, "loop finishes without a workspace writer");
+  assert.ok(
+    observations.some((e) => JSON.stringify(e).includes("workspace_unavailable")),
+    "missing writer surfaces workspace_unavailable",
+  );
+});
+
 test("write_main_py deploys additional generated files (multi-file project) to the device", async () => {
   let mainTurns = 0;
   let codegenCall = 0;

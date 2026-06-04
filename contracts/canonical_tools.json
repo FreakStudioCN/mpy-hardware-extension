@@ -257,5 +257,20 @@
       "required": ["path"],
       "additionalProperties": false
     }
+  },
+  {
+    "name": "write_project_file",
+    "executor_hint": "local",
+    "requires_user_confirm": false,
+    "description": "Write a file into the user's project workspace (path relative to the workspace root). Use for the project manifest and the firmware project tree, e.g. project-manifest.json, firmware/main.py, firmware/conf.py, firmware/drivers/<name>/__init__.py, firmware/drivers/<name>/mock.py, firmware/tasks/<task>.py, test/pc/test_<task>.py. The host enforces path containment and an allowed-path set; paths outside it are rejected.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "description": "Workspace-relative path, for example firmware/tasks/sensor.py or project-manifest.json." },
+        "content": { "type": "string", "description": "Full file contents to write." }
+      },
+      "required": ["path", "content"],
+      "additionalProperties": false
+    }
   }
 ]

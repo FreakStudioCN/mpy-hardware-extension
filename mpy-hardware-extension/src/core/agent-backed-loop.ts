@@ -39,6 +39,10 @@ type LoopDeps = {
   // Reads a file from the user's workspace for the read_workspace_file tool. The
   // host enforces path containment to the workspace root. Absent in headless/test.
   readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
+  // Writes a file into the project tree for the write_project_file tool. The host
+  // enforces path containment + the allowed-path set (project-manifest.json +
+  // firmware/ + test/). Absent in headless/test.
+  writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>;
 };
 
 type LoopInput = {
@@ -162,6 +166,7 @@ function userVisibleToolPhase(toolName: string): string | null {
     read_serial_until: "Reading serial output",
     load_skill: "Loading hardware rules",
     read_workspace_file: "Reading workspace file",
+    write_project_file: "Writing project file",
     scan_device: "Scanning devices",
   };
   return phases[toolName] ?? null;
@@ -370,6 +375,20 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
             return { ok: false, error_kind: "workspace_unavailable" };
           }
           return await deps.readWorkspaceFile(String(toolInput.path ?? ""));
+        }
+        if (name === "write_project_file") {
+          // The host owns the write + path containment / allowed-path set; the loop
+          // forwards the path + content. Absent in headless/test. On success also
+          // mirror the file into state.files so the device-deploy step can push it
+          // (parity with generate_code's accumulation).
+          if (typeof deps.writeProjectFile !== "function") {
+            return { ok: false, error_kind: "workspace_unavailable" };
+          }
+          const filePath = String(toolInput.path ?? "");
+          const content = String(toolInput.content ?? "");
+          const result = await deps.writeProjectFile(filePath, content);
+          if (result.ok) state.files[filePath] = content;
+          return result;
         }
         return { ok: false, error_kind: "UnknownToolError" };
       },
