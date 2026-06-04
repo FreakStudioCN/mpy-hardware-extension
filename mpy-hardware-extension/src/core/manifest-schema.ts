@@ -9,11 +9,42 @@ export function validateManifest(manifest: any, board: any = manifest?.board): {
       errors.push({ code: "missing_field", message: key });
     }
   }
-  if (board?.pin_capabilities && manifest.pins) {
-    for (const [role, pin] of Object.entries(manifest.pins)) {
-      const allowed = board.pin_capabilities[String(pin)] ?? [];
-      if (!allowed.includes(role) && !(role === "led_anode" && allowed.includes("gpio_out"))) {
-        errors.push({ code: "pin_role_not_allowed", message: `${role} on ${pin}` });
+  const pins = manifest?.pins;
+  if (pins !== undefined) {
+    if (typeof pins !== "object" || pins === null || Array.isArray(pins)) {
+      errors.push({
+        code: "pins_shape_invalid",
+        message: `pins must be an object mapping role -> pin string, e.g. {"i2c_sda":"GPIO5","led_anode":"GPIO2"}; got ${Array.isArray(pins) ? "array" : typeof pins}.`,
+      });
+    } else {
+      for (const [role, pin] of Object.entries(pins)) {
+        // The key is the ROLE and the value must be a pin string. A non-string
+        // value means the model inverted or nested the map; name the shape
+        // explicitly instead of interpolating "[object Object]".
+        if (typeof pin !== "string") {
+          errors.push({
+            code: "pins_shape_invalid",
+            message: `pins["${role}"] must be a pin string (role -> pin), e.g. "${role}":"GPIO5"; got ${typeof pin}. The key is the ROLE and the value is the board pin.`,
+          });
+          continue;
+        }
+        if (board?.pin_capabilities) {
+          const allowed = board.pin_capabilities[pin] ?? [];
+          const ok = allowed.includes(role) || (role === "led_anode" && allowed.includes("gpio_out"));
+          if (!ok) {
+            const recommended = board.pin_recommendations?.[role];
+            const allowedPins = Object.keys(board.pin_capabilities).filter(
+              (p) => board.pin_capabilities[p].includes(role) || (role === "led_anode" && board.pin_capabilities[p].includes("gpio_out")),
+            );
+            const hint = allowedPins.length
+              ? `allowed pins for role "${role}": ${allowedPins.join(", ")}${recommended ? ` (recommended ${recommended})` : ""}`
+              : `the board profile lists no pin that supports role "${role}"; this board cannot satisfy "${role}"`;
+            errors.push({
+              code: "pin_role_not_allowed",
+              message: `pin ${pin} does not support role "${role}" (pin ${pin} supports: ${allowed.length ? allowed.join(", ") : "nothing"}); ${hint}.`,
+            });
+          }
+        }
       }
     }
   }

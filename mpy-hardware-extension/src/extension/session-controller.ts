@@ -185,6 +185,18 @@ export class SessionController {
       this.deps.postMessage({ type: "session_event", event });
       return;
     }
+    if (event.type === "summary_delta") {
+      // Live tokens of the model's reply — forwarded to the streaming summary card.
+      // Not recorded; the finished reply is captured by the "summary" event below.
+      this.deps.postMessage({ type: "summary_delta", text: event.text });
+      return;
+    }
+    if (event.type === "summary_discard") {
+      // The streamed prose belonged to a tool-calling turn (mid-process narration);
+      // tell the webview to drop the in-progress summary card.
+      this.deps.postMessage({ type: "summary_discard" });
+      return;
+    }
     if (event.type === "summary") {
       this.record({ type: "summary", text: event.text });
       this.deps.postMessage({ type: "summary", text: event.text });

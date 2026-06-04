@@ -67,6 +67,34 @@ test("deploy_needed shows a checkpoint card with the wiring diagram and a disabl
   assert.match(activity.textContent!, /COM7/, "connection status shows the detected port");
 });
 
+test("multi-device deploy card groups device chips above the actions and gates Deploy on a pick", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  post(dom, { type: "deploy_needed", promptId: "deploy-m", manifest: { board_id: "esp32-s3-devkitc-1", wiring: [{ role: "led_anode", pin: "GPIO2" }] } });
+  post(dom, { type: "deploy_ports_updated", ports: ["COM3", "COM4"] });
+
+  // One chip per device, in their own selection group (distinct from the actions).
+  const ports = activity.querySelector(".deploy-ports")!;
+  const chips = ports.querySelectorAll(".ask-opt");
+  assert.equal(chips.length, 2, "one chip per device");
+  assert.match(ports.textContent!, /COM3/);
+  assert.match(ports.textContent!, /COM4/);
+
+  // Actions live in the structured footer: a primary Deploy over a secondary row.
+  const deployBtn = activity.querySelector(".deploy-actions .deploy-go") as any;
+  assert.ok(deployBtn, "Deploy is the primary action inside .deploy-actions");
+  assert.ok(activity.querySelector(".deploy-secondary .deploy-rescan"), "Rescan in the secondary row");
+  assert.ok(activity.querySelector(".deploy-secondary .deploy-cancel"), "Cancel in the secondary row");
+
+  // Deploy is gated until a device is picked.
+  assert.equal(deployBtn.disabled, true, "Deploy disabled while no device is picked");
+  (chips[0] as HTMLButtonElement).click();
+  assert.ok((chips[0] as HTMLElement).classList.contains("chosen"), "picked chip is marked chosen");
+  assert.equal(deployBtn.disabled, false, "Deploy enabled once a device is picked");
+});
+
 test("manifest_updated renders wiring from the flat [{role,pin}] shape", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
@@ -136,22 +164,29 @@ test("summary text is HTML-escaped, not injected as live markup (XSS guard)", as
   assert.match(activity.innerHTML, /&lt;script&gt;/, "angle brackets escaped in rendered HTML");
 });
 
-test("process narration is suppressed — a trace_event adds no feed card but still drives the status line", async () => {
+test("trace_event drives one working spinner — raw reasoning never leaks; a known tool step shows a curated phase label", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
   const activity = document.getElementById("activity")!;
 
-  (document.getElementById("intent") as HTMLTextAreaElement).value = "x";
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "x"; // no CJK -> en locale
   (document.getElementById("generate") as HTMLButtonElement).click();
-  const before = activity.children.length;
+  const label = () => activity.querySelector(".feed-pending .pending-label")!.textContent;
 
+  // A trace_event WITHOUT a tool name (raw model narration) must not surface its
+  // text — the single spinner card stays on the neutral working label.
   post(dom, { type: "trace_event", event: { text: "让我换个思路，先读板子资料。" } });
-  post(dom, { type: "trace_event", event: { text: "生成代码" } });
+  assert.equal(label(), "Working…", "neutral working label, never the raw reasoning");
+  assert.doesNotMatch(activity.textContent!, /换个思路|读板子/, "raw chain-of-thought never reaches the DOM");
 
-  assert.equal(activity.children.length, before, "no narration cards added to the feed");
-  assert.match(document.getElementById("status")!.textContent!, /^生成代码… \d+s$/, "status line still reflects the live phase");
+  // A trace_event WITH a recognized tool name shows the curated, localized phase —
+  // reusing the same single spinner card, not a new one.
+  post(dom, { type: "trace_event", event: { text: "Generating code", toolName: "generate_code" } });
+  assert.equal(activity.querySelectorAll(".feed-pending").length, 1, "still a single spinner card");
+  assert.equal(label(), "Generating code…", "label follows the tool phase");
+  assert.doesNotMatch(label()!, /\d+s/, "no per-second timer leaks");
 
-  post(dom, { type: "session_done", terminal: "generated" }); // clears the heartbeat interval
+  post(dom, { type: "session_done", terminal: "generated" }); // ends the run
 });
 
 test("a summary message renders exactly one final result card", async () => {
@@ -164,6 +199,66 @@ test("a summary message renders exactly one final result card", async () => {
   const cards = activity.querySelectorAll(".ev-card");
   assert.equal(cards.length, 1, "one result card");
   assert.match(activity.textContent!, /已生成代码/);
+});
+
+test("the model's reply streams token-by-token into one card, finalized as rendered markdown", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  // Live tokens append to a single growing reply card (plain text while streaming).
+  post(dom, { type: "summary_delta", text: "用 **" });
+  post(dom, { type: "summary_delta", text: "ssd1306** 显示温度。" });
+  assert.equal(activity.querySelectorAll(".ev-card").length, 1, "one growing reply card");
+  assert.match(activity.textContent!, /用 \*\*ssd1306\*\* 显示温度。/, "raw text shown while streaming");
+
+  // The final summary finalizes that SAME card with rendered markdown — no duplicate.
+  post(dom, { type: "summary", text: "用 **ssd1306** 显示温度。" });
+  assert.equal(activity.querySelectorAll(".ev-card").length, 1, "still one card after finalize");
+  assert.ok(activity.querySelector(".ev-sum strong"), "markdown bolded after finalize");
+  assert.doesNotMatch(activity.textContent!, /\*\*/, "raw asterisks gone after finalize");
+});
+
+test("streamed narration is discarded when its turn calls a tool, leaving no card", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  // Narration streams in, then its turn calls a tool -> the host sends summary_discard.
+  post(dom, { type: "summary_delta", text: "让我先读板子资料。" });
+  assert.equal(activity.querySelectorAll(".ev-card").length, 1, "narration shows live");
+  post(dom, { type: "summary_discard" });
+  assert.equal(activity.querySelectorAll(".ev-card").length, 0, "discarded narration leaves no card");
+
+  // The real, tool-free reply then streams into a fresh card and finalizes.
+  post(dom, { type: "summary_delta", text: "完成。" });
+  post(dom, { type: "summary", text: "完成。" });
+  assert.equal(activity.querySelectorAll(".ev-card").length, 1, "only the final reply remains");
+  assert.match(activity.textContent!, /完成。/);
+});
+
+test("with animation available, question text reveals progressively then finishes as markdown", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  // jsdom has no requestAnimationFrame, so the typewriter renders instantly there.
+  // Inject a controllable one and drive frames by hand to observe the typed reveal.
+  const cbs: Array<(t: number) => void> = [];
+  let now = 0;
+  (dom.window as any).requestAnimationFrame = (cb: (t: number) => void) => { cbs.push(cb); return cbs.length; };
+  const flush = (ms: number) => { now += ms; for (const cb of cbs.splice(0)) cb(now); };
+
+  const question = "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥"; // 32 chars, no markdown
+  post(dom, { type: "ui_prompt_needed", promptId: "p-anim", question, options: [] });
+  const ask = document.querySelector(".ask-q")!;
+  assert.equal(ask.textContent, "", "nothing typed before the first frame runs");
+
+  flush(16); // baseline frame establishes the clock
+  flush(16); // reveals a first slice
+  const mid = ask.textContent || "";
+  assert.ok(mid.length > 0 && mid.length < question.length, "partially revealed mid-animation");
+
+  for (let i = 0; i < 50 && cbs.length; i++) flush(50); // drain to completion
+  assert.match(ask.innerHTML, /一二三四五六七八九十甲乙丙丁戊己庚辛壬癸/, "fully revealed and rendered when done");
 });
 
 test("ask_user trace is not rendered beside the interactive question card", async () => {
@@ -224,54 +319,81 @@ test("plan prompt renders user-facing selection details without string-indexed l
   assert.doesNotMatch(activityText, /Read AHT20 sensor temperature and humidity/);
 });
 
-test("working status names the live phase and drops the misleading 'idle' copy", async () => {
+test("the working spinner follows the phase in the session's language — neutral until a known tool step, raw reasoning never leaks", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
-  const status = document.getElementById("status")!;
+  const activity = document.getElementById("activity")!;
 
-  // Start a run the way the user does (intent + Generate click).
+  // A Chinese request locks the UI to Chinese, so every label is the Chinese one.
   (document.getElementById("intent") as HTMLTextAreaElement).value = "闪烁一个 LED";
   (document.getElementById("generate") as HTMLButtonElement).click();
-  assert.equal(status.textContent, "thinking…", "seed status is the generic working label");
+  const label = () => activity.querySelector(".feed-pending .pending-label")!.textContent;
+  assert.equal(label(), "处理中…", "the spinner starts on the neutral working label, localized");
 
-  // A known tool phase becomes the live status label immediately (no 1s wait).
-  post(dom, { type: "trace_event", event: { text: "生成代码" } });
-  assert.match(status.textContent!, /^生成代码… \d+s$/, "status names what the agent is doing");
+  // A trace without a tool name (raw narration) stays neutral and never leaks its text.
+  post(dom, { type: "trace_event", event: { text: "让我先读板子资料" } });
+  assert.equal(label(), "处理中…", "raw narration keeps the neutral label");
+  assert.doesNotMatch(activity.textContent!, /读板子资料/, "raw chain-of-thought never reaches the DOM");
+
+  // A recognized tool step shows the curated, localized phase — no timer.
+  post(dom, { type: "trace_event", event: { text: "Generating code", toolName: "generate_code" } });
+  assert.equal(label(), "正在生成代码…", "the label follows the tool phase, localized");
+  assert.doesNotMatch(label()!, /\d+s/, "no per-second timer");
 
   // The old 'nothing happening' copy that read as a hang is gone entirely.
   assert.doesNotMatch(html, /无新动作/, "the misleading idle copy was removed from the webview");
 
-  post(dom, { type: "session_done", terminal: "generated" }); // clears the heartbeat interval
+  post(dom, { type: "session_done", terminal: "generated" }); // ends the run
 });
 
-test("the working timer counts active work only — waiting for the user does not inflate it", async () => {
+test("a Chinese request skins the whole UI in Chinese — no English labels around a Chinese summary", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
-  const status = document.getElementById("status")!;
-  let now = 1000;
-  dom.window.Date.now = () => now; // control the clock deterministically
 
-  (document.getElementById("intent") as HTMLTextAreaElement).value = "读温度";
-  (document.getElementById("generate") as HTMLButtonElement).click(); // segment starts at t=1000
+  // The session's language is detected from the request and locked. Static chrome
+  // re-skins immediately.
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "做一个温度计";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(document.querySelector('.tab[data-tab="activity"]')!.textContent, "动态", "tabs localized");
+  assert.equal((document.getElementById("intent") as HTMLTextAreaElement).placeholder, "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）", "composer placeholder localized");
 
-  now = 6000; // 5s of real work
-  post(dom, { type: "trace_event", event: { text: "生成代码" } });
-  assert.equal(status.textContent, "生成代码… 5s");
-
-  // Agent asks for a plan; the user dawdles 30s before answering — that gap must NOT count.
+  // The plan card (the reported mix) is fully Chinese: labels + friendly feature
+  // names, while package ids and pins stay as identifiers.
   post(dom, {
     type: "plan_needed",
-    promptId: "plan-1",
-    plan: { intent: "x", boardId: "b", capabilities: [], packages: [], wiring: [], logic: "x", estimate: 1 },
+    promptId: "plan-zh",
+    plan: { boardId: "rpi-pico-w", summary: "用 SSD1306 显示温度。", capabilities: ["display_text", "digital_output"], packages: ["ssd1306"], wiring: [{ role: "i2c_sda", pin: "GPIO5" }], estimate: 3 },
   });
-  now = 36000; // 30s spent waiting on the user
-  (document.querySelector(".plan-go") as HTMLButtonElement).click(); // resume; new segment at t=36000
+  const activity = document.getElementById("activity")!.textContent!;
+  assert.match(activity, /开发板/, "Board label localized");
+  assert.match(activity, /功能/, "Features label localized");
+  assert.match(activity, /驱动包/, "Packages label localized");
+  assert.match(activity, /文字显示/, "capability display_text shown as a friendly Chinese name");
+  assert.match(activity, /确认并生成/, "Confirm & generate localized");
+  assert.match(activity, /本步预计/, "cost line localized");
+  assert.match(activity, /ssd1306/, "package id kept as identifier");
+  assert.match(activity, /GPIO5/, "pin kept as identifier");
+  assert.doesNotMatch(activity, /Confirm & generate|Features|Packages|This step/, "no English chrome leaks into the Chinese plan card");
+});
 
-  now = 38000; // 2s more real work
-  post(dom, { type: "trace_event", event: { text: "检查代码" } });
-  assert.equal(status.textContent, "检查代码… 7s", "5s + 2s active, not 37s wall-clock");
+test("an English request keeps the chrome in English (no Chinese leaks)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
 
-  post(dom, { type: "session_done", terminal: "generated" }); // clears the heartbeat interval
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "build a thermometer";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(document.querySelector('.tab[data-tab="activity"]')!.textContent, "Activity", "tabs stay English");
+
+  post(dom, {
+    type: "plan_needed",
+    promptId: "plan-en",
+    plan: { boardId: "rpi-pico-w", capabilities: ["display_text"], packages: ["ssd1306"], wiring: [{ role: "i2c_sda", pin: "GPIO5" }], estimate: 3 },
+  });
+  const activity = document.getElementById("activity")!.textContent!;
+  assert.match(activity, /Board/, "English Board label");
+  assert.match(activity, /Text display/, "capability display_text shown as a friendly English name");
+  assert.match(activity, /Confirm & generate/, "English confirm button");
+  assert.doesNotMatch(activity, /[一-鿿]/, "no Chinese chrome in an English session");
 });
 
 test("code card shows a filename header + Copy button and finalizes with line-numbered rows", async () => {
@@ -320,7 +442,7 @@ test("confirming the build plan shows an immediate in-feed spinner that clears w
     plan: { boardId: "esp32-s3-devkitc-1", capabilities: [], packages: [], wiring: [], estimate: 4 },
   });
   (activity.querySelector(".plan-go") as HTMLButtonElement).click();
-  assert.ok(activity.querySelector(".feed-pending"), "a pending spinner appears right after 确认生成");
+  assert.ok(activity.querySelector(".feed-pending"), "a pending spinner appears right after Confirm & generate");
 
   post(dom, { type: "code_delta", text: "import time\n", path: "main.py" });
   assert.equal(activity.querySelector(".feed-pending"), null, "pending spinner cleared once code streams");
@@ -352,12 +474,12 @@ test("plan card shows the model's summary and a revise box that posts feedback t
   assert.ok(summaryEl, "plan summary rendered");
   assert.ok(summaryEl.querySelector("strong"), "summary markdown bolded");
 
-  // Typing a change + 修改计划 posts a revise response carrying the feedback.
+  // Typing a change + Revise posts a revise response carrying the feedback.
   const input = activity.querySelector(".plan-revise") as any;
   input.value = "把 OLED 换成 TFT";
   (activity.querySelector(".plan-edit") as HTMLButtonElement).click();
 
   const revise = posted.find((m) => m && m.type === "ui_prompt_response" && m.answer === "revise");
-  assert.ok(revise, "修改计划 posts a revise response");
+  assert.ok(revise, "Revise posts a revise response");
   assert.equal(revise.feedback, "把 OLED 换成 TFT");
 });

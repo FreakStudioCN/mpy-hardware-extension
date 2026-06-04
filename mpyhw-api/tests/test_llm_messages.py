@@ -425,6 +425,34 @@ def test_llm_local_tools_expose_parameter_schemas():
         assert parameters["additionalProperties"] is False
 
 
+def test_propose_manifest_schema_documents_pins_role_to_pin():
+    from app import routes_llm
+
+    # The model only proposes a well-formed manifest if the tool schema actually
+    # describes its shape. A bare {"type": "object"} taught it nothing, so it kept
+    # guessing the pins orientation wrong and spun on manifest_invalid. The nested
+    # schema must list the required fields and state pins is keyed by role.
+    tools = routes_llm._deepseek_tools([{"name": "propose_manifest"}])
+    manifest = tools[0]["function"]["parameters"]["properties"]["manifest"]
+
+    assert set(manifest["required"]) >= {
+        "board_id", "capabilities", "packages", "driver_context_refs", "pins", "logic", "wiring",
+    }
+    assert manifest["properties"]["pins"]["type"] == "object"
+    assert "role" in manifest["properties"]["pins"]["description"].lower()
+
+
+def test_propose_manifest_schema_is_byte_stable():
+    from app import routes_llm
+
+    # The tools array is part of DeepSeek's cached request prefix; the manifest
+    # schema is static JSON, so the converted tool must serialize identically across
+    # calls (no nondeterministic enrichment crept onto this path).
+    first = routes_llm._deepseek_tools([{"name": "propose_manifest"}])
+    second = routes_llm._deepseek_tools([{"name": "propose_manifest"}])
+    assert json.dumps(first) == json.dumps(second)
+
+
 def test_llm_load_skill_schema_comes_from_skill_catalog(monkeypatch, tmp_path):
     from app import routes_llm
 

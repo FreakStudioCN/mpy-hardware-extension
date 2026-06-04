@@ -137,10 +137,18 @@
       .plan-summary { margin: 6px 0 2px; }
       .plan-edit { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); font-weight: 500; }
       .plan-edit:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); background: var(--vsc-hover); }
-      .ask-opt.plan-go { background: var(--accent, #2f6feb); color: #fff; border-color: transparent; }
+      .ask-opt.plan-go, .ask-opt.deploy-go { background: var(--accent, #2f6feb); color: #fff; border-color: transparent; }
       .ask-opt:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); }
       .ask-opt.chosen { background: var(--accent); color: #fff; border-color: var(--accent); }
       .ask-opt:disabled { opacity: .5; cursor: default; }
+      /* Deploy checkpoint: device-pick chips above a divider, then a primary Deploy
+         (full-width) over a secondary Rescan/Cancel row — keeps selection and actions
+         visually distinct and avoids the 3-button wrap. */
+      .deploy-ports { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      .deploy-actions { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--vsc-input-border); }
+      .deploy-go { width: 100%; text-align: center; }
+      .deploy-secondary { display: flex; gap: 6px; margin-top: 6px; }
+      .deploy-secondary .ask-opt { flex: 1; }
       .ask-answer { margin-top: 6px; font-size: 12px; color: #7ee08a; font-family: var(--mono); }
 
       /* code tab */
@@ -226,11 +234,6 @@
         font-family: var(--ui); font-size: 13px; line-height: 1.5; outline: none; min-height: 38px; max-height: 120px; }
       .composer textarea::placeholder { color: var(--fg-dim); }
       .composer-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-      .composer-bar .ctx { font-size: 11px; color: var(--fg-dim); display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
-      .composer-bar .ctx .spin { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 50%; border: 1.5px solid #ffffff26; border-top-color: var(--accent); display: none; }
-      .composer-bar .ctx.thinking { color: var(--accent); }
-      .composer-bar .ctx.thinking .spin { display: inline-block; animation: spin .7s linear infinite; }
-      .composer-bar .ctx.error { color: var(--red); }
       @keyframes spin { to { transform: rotate(360deg); } }
       .composer-bar .grow { flex: 1; }
       .gen-btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 13px;
@@ -243,7 +246,7 @@
 
       .fade-in { animation: fadeIn .28s ease both; }
       @keyframes fadeIn { from { transform: translateY(5px); } to { transform: none; } }
-      @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .composer-bar .ctx.thinking .spin { animation: none; } .feed-spin { animation: none; } }
+      @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .feed-spin { animation: none; } }
     </style>
   </head>
   <body>
@@ -259,44 +262,43 @@
           <div class="ph-grow"></div>
         </div>
         <div class="quota hidden" id="quota">
-          <div class="quota-top"><span>Credits</span><span class="num"><b id="qUsed">0</b></span></div>
+          <div class="quota-top"><span data-i18n="credits">Credits</span><span class="num"><b id="qUsed">0</b></span></div>
           <div class="quota-bar"><div class="quota-fill" id="qFill" style="width:0%"></div></div>
-          <div class="quota-warn" id="qWarn">Running low on credits today.</div>
+          <div class="quota-warn" id="qWarn" data-i18n="lowCredits">Running low on credits today.</div>
         </div>
       </div>
 
       <div class="tabs" id="tabs">
-        <button class="tab active" data-tab="activity">Activity</button>
-        <button class="tab" data-tab="serial">Serial</button>
-        <button class="tab" data-tab="wiring">Wiring</button>
+        <button class="tab active" data-tab="activity" data-i18n="tab_activity">Activity</button>
+        <button class="tab" data-tab="serial" data-i18n="tab_serial">Serial</button>
+        <button class="tab" data-tab="wiring" data-i18n="tab_wiring">Wiring</button>
       </div>
 
       <div class="tabwrap">
         <!-- Activity -->
         <div class="view" data-view="activity">
           <div class="activity" id="activity"></div>
-          <div class="empty" id="activityEmpty"><h4>Ready</h4><p>Describe what your device should do, then press Generate.</p></div>
+          <div class="empty" id="activityEmpty"><h4 data-i18n="empty_activity_h">Ready</h4><p data-i18n="empty_activity_p">Describe what your device should do, then press Generate.</p></div>
         </div>
         <!-- Serial -->
         <div class="view hidden" data-view="serial">
           <div id="serialFilled" class="hidden">
-            <div class="serial-head" id="serialHead"><span class="dot"></span><span>Serial monitor</span><span class="baud">115200</span></div>
+            <div class="serial-head" id="serialHead"><span class="dot"></span><span data-i18n="serial_monitor">Serial monitor</span><span class="baud">115200</span></div>
             <div class="serial-body" id="serial"></div>
           </div>
-          <div class="empty" id="serialEmpty"><h4>No output</h4><p>Device output streams here after flashing.</p></div>
+          <div class="empty" id="serialEmpty"><h4 data-i18n="empty_serial_h">No output</h4><p data-i18n="empty_serial_p">Device output streams here after flashing.</p></div>
         </div>
         <!-- Wiring -->
         <div class="view hidden" data-view="wiring">
           <div id="wiring"></div>
-          <div class="empty" id="wiringEmpty"><h4>No wiring yet</h4><p>After codegen, the hardware layout maps to friendly signals and pins here.</p></div>
+          <div class="empty" id="wiringEmpty"><h4 data-i18n="empty_wiring_h">No wiring yet</h4><p data-i18n="empty_wiring_p">After codegen, the hardware layout maps to friendly signals and pins here.</p></div>
         </div>
       </div>
 
       <div class="composer">
         <div class="composer-box" id="composerBox">
-          <textarea id="intent" placeholder="描述你的设备要做什么…（例如：温度超过 30 度时亮红灯）" rows="1"></textarea>
+          <textarea id="intent" data-i18n-ph="intent_ph" placeholder="I want to build… (e.g. light a red LED when the temperature goes above 30°C)" rows="1"></textarea>
           <div class="composer-bar">
-            <span class="ctx" id="statusWrap"><span class="spin"></span><span id="status">Ready</span></span>
             <span class="grow"></span>
             <button class="gen-btn" id="generate">Generate</button>
           </div>
@@ -307,6 +309,137 @@
     <script>
       const vscode = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : { postMessage: (m) => console.log(m), getState: () => null, setState: () => {} };
       const $ = (id) => document.getElementById(id);
+
+      // ----- i18n: the whole UI follows the user's input language -----
+      // Detected once per session from the first request (zh if it contains CJK,
+      // else en) and locked. The model already writes its prose (summary /
+      // questions) in the same language, so chrome + prose stay consistent — no
+      // more English labels around a Chinese summary (or vice-versa).
+      function detectLocale(text) { return /[一-鿿]/.test(String(text == null ? "" : text)) ? "zh" : "en"; }
+      let LOCALE = "en";
+      const I18N = {
+        en: {
+          credits: "Credits", lowCredits: "Running low on credits today.",
+          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring",
+          empty_activity_h: "Ready", empty_activity_p: "Describe what your device should do, then press Generate.",
+          empty_serial_h: "No output", empty_serial_p: "Device output streams here after flashing.",
+          empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
+          serial_monitor: "Serial monitor",
+          intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
+          ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
+          waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
+          deploying: "Deploying…", confirm_wiring: "Confirm wiring & connection…",
+          replanning: "Re-planning with your changes…", generating_code: "Generating code…",
+          tp_query_board_profile: "Detecting board…", tp_search_packages: "Finding drivers…",
+          tp_get_package_context: "Reading driver docs…", tp_propose_manifest: "Planning wiring…",
+          tp_generate_code: "Generating code…", tp_audit_code: "Checking code…",
+          tp_install_package: "Installing packages…", tp_write_main_py: "Writing to device…",
+          tp_flash_and_run: "Running on device…", tp_read_serial_until: "Reading serial output…",
+          tp_load_skill: "Loading hardware rules…", tp_read_workspace_file: "Reading workspace file…",
+          tp_scan_device: "Scanning devices…",
+          kind_user: "user", kind_summary: "summary", kind_question: "question", kind_plan: "plan", kind_deploy: "deploy",
+          kind_tool: "tool", kind_result: "result", kind_skill: "skill", kind_error: "error",
+          type_answer: "Type your answer…", send: "Send", sent: "Sent",
+          plan_intro: "Confirm the hardware, then I’ll generate the code and wiring.",
+          plan_board: "Board", plan_features: "Features", plan_packages: "Packages", plan_wiring: "Wiring",
+          plan_revise_ph: "Change anything? e.g. swap the OLED for a TFT, add a buzzer…",
+          revise: "Revise", confirm_generate: "Confirm & generate", cancel: "Cancel",
+          cost_step: "This step ~{n} credits", cost_used: " · {n} used this session", cost_left: " · {n} left",
+          deploy_intro: "Wire it up as shown below, plug in the board, then deploy.",
+          detecting_board: "Detecting board…", deploy: "Deploy", rescan: "Rescan",
+          no_board: "No board detected — connect one and click Rescan.", connected: "Connected: {p}",
+          multiple_devices: "Multiple devices found — pick one:",
+          copy: "Copy", copied: "Copied",
+          device_selected: "Device selected: {p}", files_written: "Generated files written: {p}", files_write_failed: "Generated files not written: {e}",
+          session_ended: "Session ended: {t}",
+          target_board: "Target board", led_note: "⚠ LED needs a current-limiting resistor (≈220–330Ω).",
+          term_generated: "Done", term_success: "Done", term_cancelled: "Stopped",
+          term_awaiting_user: "Waiting for your reply", term_max_turns: "Stopped (max turns)",
+          term_manifest_unresolved: "Couldn't finalize a valid wiring plan",
+          term_repair_exhausted: "Couldn't get it working", term_session_error: "Error",
+          err_out_of_credits: "Out of credits — resets at midnight UTC",
+          err_sign_in_required: "Sign in with GitHub to start",
+          err_auth_provider_unavailable: "VS Code GitHub auth is unavailable",
+          err_github_session_failed: "GitHub sign-in did not complete in VS Code",
+          err_github_session_unavailable: "Sign in with GitHub to start",
+          err_github_token_exchange_failed: "GitHub sign-in reached the API, but token exchange failed",
+          err_github_token_exchange_unreachable: "Cannot reach the auth API",
+          err_github_token_missing: "Auth API returned no session token",
+        },
+        zh: {
+          credits: "额度", lowCredits: "今日额度快用完了。",
+          tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线",
+          empty_activity_h: "就绪", empty_activity_p: "描述你想做的设备，然后点“生成”。",
+          empty_serial_h: "暂无输出", empty_serial_p: "烧录后，设备输出会显示在这里。",
+          empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
+          serial_monitor: "串口监视器",
+          intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
+          ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
+          waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",
+          deploying: "正在部署…", confirm_wiring: "确认接线与连接…",
+          replanning: "正在按你的修改重新规划…", generating_code: "正在生成代码…",
+          tp_query_board_profile: "正在检测开发板…", tp_search_packages: "正在查找驱动…",
+          tp_get_package_context: "正在阅读驱动文档…", tp_propose_manifest: "正在规划接线…",
+          tp_generate_code: "正在生成代码…", tp_audit_code: "正在校验代码…",
+          tp_install_package: "正在安装依赖…", tp_write_main_py: "正在写入设备…",
+          tp_flash_and_run: "正在设备上运行…", tp_read_serial_until: "正在读取串口输出…",
+          tp_load_skill: "正在加载硬件规则…", tp_read_workspace_file: "正在读取工作区文件…",
+          tp_scan_device: "正在扫描设备…",
+          kind_user: "你", kind_summary: "总结", kind_question: "问题", kind_plan: "方案", kind_deploy: "部署",
+          kind_tool: "工具", kind_result: "结果", kind_skill: "技能", kind_error: "错误",
+          type_answer: "输入你的回答…", send: "发送", sent: "已发送",
+          plan_intro: "确认硬件后，我就开始生成代码和接线图。",
+          plan_board: "开发板", plan_features: "功能", plan_packages: "驱动包", plan_wiring: "接线",
+          plan_revise_ph: "需要改什么？例如：把 OLED 换成 TFT、加一个蜂鸣器…",
+          revise: "修改", confirm_generate: "确认并生成", cancel: "取消",
+          cost_step: "本步预计 ~{n} 额度", cost_used: " · 本次会话已用 {n}", cost_left: " · 剩余 {n}",
+          deploy_intro: "按下图接线，插上开发板，然后部署。",
+          detecting_board: "正在检测开发板…", deploy: "部署", rescan: "重新扫描",
+          no_board: "未检测到开发板——请连接后点击“重新扫描”。", connected: "已连接：{p}",
+          multiple_devices: "发现多个设备——请选择一个：",
+          copy: "复制", copied: "已复制",
+          device_selected: "已选择设备：{p}", files_written: "已写入生成文件：{p}", files_write_failed: "生成文件写入失败：{e}",
+          session_ended: "会话结束：{t}",
+          target_board: "目标开发板", led_note: "⚠ LED 需要串联一个限流电阻（约 220–330Ω）。",
+          term_generated: "完成", term_success: "完成", term_cancelled: "已停止",
+          term_awaiting_user: "等待你的回复", term_max_turns: "已停止（达到回合上限）",
+          term_manifest_unresolved: "无法确定可行的接线方案",
+          term_repair_exhausted: "未能让它正常运行", term_session_error: "出错",
+          err_out_of_credits: "额度已用完——UTC 午夜重置",
+          err_sign_in_required: "请用 GitHub 登录后开始",
+          err_auth_provider_unavailable: "VS Code 的 GitHub 登录不可用",
+          err_github_session_failed: "GitHub 登录未在 VS Code 中完成",
+          err_github_session_unavailable: "请用 GitHub 登录后开始",
+          err_github_token_exchange_failed: "GitHub 登录已到达 API，但令牌交换失败",
+          err_github_token_exchange_unreachable: "无法连接鉴权 API",
+          err_github_token_missing: "鉴权 API 未返回会话令牌",
+        },
+      };
+      function tr(key, vars) {
+        let s = (I18N[LOCALE] && I18N[LOCALE][key]) || I18N.en[key] || key;
+        if (vars) for (const k in vars) s = s.split("{" + k + "}").join(vars[k]);
+        return s;
+      }
+      function sep() { return LOCALE === "zh" ? "、" : ", "; }
+      // Friendly capability names (the plan card's "Features" row). Unknown ids
+      // fall back to the raw identifier; package names and pins stay as-is.
+      const CAP_NAMES = {
+        en: { temperature_sensing: "Temperature sensing", humidity_sensing: "Humidity sensing", digital_output: "Digital output", display_text: "Text display", touch_sensing: "Touch sensing", motion_sensing: "Motion sensing", analog_input: "Analog input", sound_output: "Sound output" },
+        zh: { temperature_sensing: "温度感应", humidity_sensing: "湿度感应", digital_output: "数字输出", display_text: "文字显示", touch_sensing: "触摸感应", motion_sensing: "运动感应", analog_input: "模拟输入", sound_output: "声音输出" },
+      };
+      function capName(id) { const m = CAP_NAMES[LOCALE] || CAP_NAMES.en; return m[id] || CAP_NAMES.en[id] || id; }
+      function applyStaticI18n() {
+        document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = tr(el.getAttribute("data-i18n")); });
+        document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.setAttribute("placeholder", tr(el.getAttribute("data-i18n-ph"))); });
+      }
+      // Lock the UI language for the session (first intent). Re-skins the static
+      // chrome and the idle status/button when the session isn't already running.
+      function setLocale(loc) {
+        if (loc === LOCALE) return;
+        LOCALE = loc;
+        applyStaticI18n();
+        if (!running) $("generate").textContent = tr("generate");
+      }
 
       // ----- device list (from API, never hardcoded) -----
       // Board selection happens in the conversation (the agent recommends and
@@ -368,66 +501,33 @@
       }
       document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
 
-      // ----- status / composer -----
-      function setStatus(text, kind) {
-        $("status").textContent = text;
-        const w = $("statusWrap");
-        w.classList.toggle("error", kind === "error");
-        if (kind === "error") w.classList.remove("thinking");
-      }
-      // ----- liveness heartbeat -----
-      // The spinner alone only says "the session hasn't ended". During a long,
-      // silent LLM call (e.g. codegen) that's indistinguishable from a hang, so
-      // show *what* the agent is doing plus a per-second active-work timer — that
-      // moving timer + spinner is the "still alive" signal (Claude-Code style).
-      // User-facing phase labels the agent emits (mirror of userVisibleToolPhase
-      // in core/agent-backed-loop.ts — keep in sync; unknown phases fall back to
-      // the generic "thinking" label, so any drift just degrades gracefully).
-      const PHASE_LABELS = new Set([
-        "读取开发板资料", "查找可用驱动", "读取驱动资料", "准备接线方案", "生成代码",
-        "检查代码", "安装驱动包", "写入设备", "运行设备", "读取串口输出",
-        "加载硬件规则", "读取工作区文件", "扫描设备",
-      ]);
-      // Active-work accounting: time spent waiting for the user (ask_user / plan /
-      // deploy) must NOT inflate the timer. activeMs accumulates completed segments;
-      // segStart marks the open segment (0 while paused).
-      let activeMs = 0, segStart = 0, currentPhase = null, heartbeatTimer = null, awaitingUser = false;
-      function activeElapsed() { return activeMs + (segStart ? Date.now() - segStart : 0); }
-      function markActivity() { if (!segStart) segStart = Date.now(); } // resumes after a pause
-      function pauseTimer() { if (segStart) { activeMs += Date.now() - segStart; segStart = 0; } }
-      function fmtSecs(ms) { return Math.round(ms / 1000) + "s"; }
-      function tickHeartbeat() {
-        if (!running || awaitingUser) return;
-        setStatus((currentPhase || "thinking") + "… " + fmtSecs(activeElapsed()));
-        if (pendingCard) pendingCard.querySelector(".pending-label").textContent = pendingLabel + " " + fmtSecs(activeElapsed());
-      }
+      // ----- composer / working indicator -----
+      // The single "AI is working" affordance is the in-feed spinner card
+      // (setPending). It appears the moment a turn starts and re-arms on each tool
+      // step (see trace_event), labelled with the current curated phase — never the
+      // model's raw reasoning. There is no separate status bar.
       function setRunning(on) {
         running = on;
         const btn = $("generate");
-        btn.textContent = on ? "Stop" : "Generate";
+        btn.textContent = on ? tr("stop") : tr("generate");
         btn.classList.toggle("stop", on);
-        const w = $("statusWrap");
-        w.classList.toggle("thinking", on);
-        if (on) w.classList.remove("error");
-        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-        if (on) {
-          awaitingUser = false;
-          activeMs = 0; segStart = Date.now(); currentPhase = null;
-          heartbeatTimer = setInterval(tickHeartbeat, 1000);
-        }
+        if (on) setPending(tr("working")); // immediate spinner; trace_event refines the label
         updateGenerateEnabled();
       }
       $("generate").addEventListener("click", () => {
-        if (running) { vscode.postMessage({ type: "cancel_session" }); setStatus("Stopping…"); return; }
+        if (running) { vscode.postMessage({ type: "cancel_session" }); setPending(tr("stopping")); return; }
         const intent = $("intent").value.trim();
         if (!intent) return;
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
+        // Lock the session's UI language to the request's language before anything
+        // renders, so chrome + the model's prose stay in one language.
+        setLocale(detectLocale(intent));
         currentThink = null;
         addUserMessage(intent);
         $("intent").value = "";
         $("intent").style.height = "auto";
-        setTab("activity"); setRunning(true); setStatus("thinking…");
+        setTab("activity"); setRunning(true);
         // boardId "auto": the agent recommends a board and confirms it in chat.
         vscode.postMessage({ type: "start_session", intent, boardId: "auto" });
       });
@@ -450,6 +550,7 @@
       const ICONS = { thinking: "•", skill: "•", tool: "•", result: "•", error: "•" };
       let currentThink = null; // open thinking card's text node, or null
       let currentCode = null;  // open streaming code card { pre, host, path }, or null
+      let currentSummary = null; // open streaming reply card { card, sum, raw }, or null
       // In-feed "working" indicator. After a user action (confirm plan / answer) the
       // next visible event is the LLM's first token, which can be seconds away — an
       // empty feed reads as a hang. setPending drops an immediate spinner card; the
@@ -468,6 +569,14 @@
         const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
       }
       function clearPending() { if (pendingCard) { pendingCard.remove(); pendingCard = null; } }
+      // Map a trace event to a working-spinner label: only a recognized tool name
+      // yields a curated, localized phase string; anything else (including raw
+      // prose in ev.text) falls back to the neutral label — chain-of-thought can't
+      // leak through here.
+      function phaseLabel(ev) {
+        const key = ev && ev.toolName ? "tp_" + ev.toolName : "";
+        return (key && tr(key) !== key) ? tr(key) : tr("working");
+      }
       // Render a safe subset of markdown (headings, bullets, ordered lists, bold,
       // inline code, paragraphs). HTML is escaped first, so LLM output cannot
       // inject markup — the regexes only re-introduce our own tags.
@@ -494,30 +603,86 @@
         close();
         return out.join("");
       }
+      // Steady-rate typewriter. feed() appends text to reveal char-by-char into `el`
+      // (plain text while typing); end() swaps in rendered markdown once the reveal
+      // catches up. Streamed text (summary deltas) and atomic text (a question or
+      // plan written in one shot) both flow through it, so all assistant prose types
+      // out at a uniform cadence. Without requestAnimationFrame (jsdom tests) it
+      // renders the full text + markdown synchronously, so the DOM is complete at once.
+      function makeTypewriter(el, scroll) {
+        const animated = typeof requestAnimationFrame === "function";
+        const CPMS = 0.7; // chars per ms (~700/s) — faster than the model generates
+        let target = "", shown = 0, raf = null, last = 0, ended = false;
+        const settle = () => { el.innerHTML = renderMarkdown(target); if (scroll) scroll(); };
+        function frame(ts) {
+          if (!last) { last = ts; raf = requestAnimationFrame(frame); return; }
+          shown = Math.min(target.length, shown + Math.max(1, Math.round(CPMS * (ts - last))));
+          last = ts;
+          el.textContent = target.slice(0, shown);
+          if (scroll) scroll();
+          if (shown < target.length) { raf = requestAnimationFrame(frame); return; }
+          raf = null; last = 0;
+          if (ended) settle();
+        }
+        const pump = () => { if (animated && raf === null && shown < target.length) { last = 0; raf = requestAnimationFrame(frame); } };
+        return {
+          feed(t) {
+            target += (t == null ? "" : String(t));
+            if (!animated) { el.textContent = target; if (scroll) scroll(); return; }
+            pump();
+          },
+          end(finalText) {
+            if (finalText != null) target = String(finalText);
+            ended = true;
+            if (!animated || shown >= target.length) { if (raf === null) settle(); }
+            else pump();
+          },
+        };
+      }
       function addUserMessage(text) {
         $("activityEmpty").classList.add("hidden");
         const card = document.createElement("div");
         card.className = "ev fade-in";
-        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind">user</span></div><div class="ev-sum"></div></div></div></div>';
+        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_user") + '</span></div><div class="ev-sum"></div></div></div></div>';
         card.querySelector(".ev-sum").textContent = text;
         $("activity").appendChild(card);
         const w = $("activity").parentElement;
         w.scrollTop = w.scrollHeight;
       }
-      // The agent's final plain-text reply, shown as one clean result card. The
-      // streamed mid-process reasoning is suppressed, so this is the only assistant
-      // prose the user sees.
-      function addSummary(text) {
-        const t = (text == null ? "" : String(text)).trim();
-        if (!t) return;
-        currentThink = null; clearPending();
+      // Open an empty result card with a typewriter bound to its prose element.
+      function openSummaryCard() {
         $("activityEmpty").classList.add("hidden");
         const card = document.createElement("div");
         card.className = "ev fade-in";
-        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind">summary</span></div><div class="ev-sum"></div></div></div></div>';
-        card.querySelector(".ev-sum").innerHTML = renderMarkdown(t);
+        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_summary") + '</span></div><div class="ev-sum"></div></div></div></div>';
         $("activity").appendChild(card);
-        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
+        const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
+        scroll();
+        return { card, tw: makeTypewriter(card.querySelector(".ev-sum"), scroll) };
+      }
+      // A token of the model's reply: feed the open card's typewriter, opening one
+      // on the first token. The text types out char-by-char; addSummary() ends it.
+      function streamSummaryDelta(text) {
+        clearPending();
+        currentThink = null;
+        if (!currentSummary) currentSummary = openSummaryCard();
+        currentSummary.tw.feed(text);
+      }
+      // The agent's final reply. Ends the open card's typewriter (typing out any
+      // remaining buffered text, then rendering markdown). A non-streamed path
+      // (template loop) lands here with no open card and types the whole thing.
+      function addSummary(text) {
+        const t = (text == null ? "" : String(text)).trim();
+        if (!t) { discardSummary(); return; }
+        currentThink = null; clearPending();
+        if (!currentSummary) currentSummary = openSummaryCard();
+        currentSummary.tw.end(t);
+        currentSummary = null;
+      }
+      // Drop the in-progress streamed reply: its turn called a tool, so the prose
+      // was mid-process narration, not the final answer.
+      function discardSummary() {
+        if (currentSummary) { currentSummary.card.remove(); currentSummary = null; }
       }
       function addActivity(ev) {
         const text = (ev && typeof ev.text === "string") ? ev.text : JSON.stringify(ev);
@@ -546,11 +711,11 @@
         card.className = "ev fade-in";
         const ico = '<div class="ev-ico ' + kind + '">' + ICONS[kind] + "</div>";
         if (kind === "tool") {
-          card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main"><div class="ev-label"><span class="kind">tool</span><span class="ev-tool"></span></div></div></div></div>';
+          card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_tool") + '</span><span class="ev-tool"></span></div></div></div></div>';
           card.querySelector(".ev-tool").textContent = text.replace(/^→\s*/, "");
         } else {
           const cls = kind === "error" ? " is-error" : "";
-          const label = kind === "result" ? "result" : kind === "skill" ? "skill" : "error";
+          const label = kind === "result" ? tr("kind_result") : kind === "skill" ? tr("kind_skill") : tr("kind_error");
           card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main"><div class="ev-label"><span class="kind">' + label + '</span></div><div class="ev-sum' + cls + '"></div></div></div></div>';
           card.querySelector(".ev-sum").innerHTML = renderMarkdown(text);
         }
@@ -564,17 +729,18 @@
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
-        setStatus("Waiting for your answer…");
         const card = document.createElement("div");
         card.className = "ev fade-in";
         card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
           '<div class="ev-ico skill">•</div>' +
-          '<div class="ev-main"><div class="ev-label"><span class="kind">question</span></div>' +
+          '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_question") + '</span></div>' +
           '<div class="ev-sum ask-q"></div>' +
           '<div class="ask-options"></div>' +
-          '<div class="ask-row"><input class="ask-input" type="text" placeholder="Type your answer…"><button class="ask-send">Send</button></div>' +
+          '<div class="ask-row"><input class="ask-input" type="text" placeholder="' + tr("type_answer") + '"><button class="ask-send">' + tr("send") + '</button></div>' +
           "</div></div></div>";
-        card.querySelector(".ask-q").innerHTML = renderMarkdown(question);
+        const askScroll = () => { $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight; };
+        const askTyper = makeTypewriter(card.querySelector(".ask-q"), askScroll);
+        askTyper.feed(question == null ? "" : String(question)); askTyper.end();
         const input = card.querySelector(".ask-input");
         const send = card.querySelector(".ask-send");
         let answered = false;
@@ -583,13 +749,11 @@
           if (!answer || answered) return;
           answered = true;
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer });
-          input.disabled = true; send.disabled = true; send.textContent = "Sent";
+          input.disabled = true; send.disabled = true; send.textContent = tr("sent");
           card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; if (b.textContent === answer) b.classList.add("chosen"); });
           const a = document.createElement("div"); a.className = "ask-answer"; a.textContent = "• " + answer;
           card.querySelector(".ev-main").appendChild(a);
-          awaitingUser = false; markActivity();
-          setStatus("thinking…");
-          setPending("thinking…");
+          setPending(tr("working"));
         };
         // Choices presented in the conversation render as clickable options; the
         // text box stays for a free-form answer.
@@ -616,32 +780,33 @@
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
-        setStatus("Review the plan…");
         const card = document.createElement("div");
         card.className = "ev fade-in";
         card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
           '<div class="ev-ico skill">•</div>' +
-          '<div class="ev-main"><div class="ev-label"><span class="kind">plan</span></div>' +
-          '<div class="ev-sum">确认硬件选型后开始生成代码与接线图</div>' +
+          '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_plan") + '</span></div>' +
+          '<div class="ev-sum">' + tr("plan_intro") + '</div>' +
           '<div class="ev-sum plan-summary"></div>' +
           '<ul class="plan-list"></ul>' +
           '<div class="plan-cost"></div>' +
-          '<div class="ask-row"><input class="ask-input plan-revise" type="text" placeholder="想改点什么？例如：把 OLED 换成 TFT、再加一个蜂鸣器…"><button class="ask-send plan-edit" type="button">修改计划</button></div>' +
-          '<div class="ask-options"><button class="ask-opt plan-go" type="button">确认生成</button><button class="ask-opt plan-cancel" type="button">取消</button></div>' +
+          '<div class="ask-row"><input class="ask-input plan-revise" type="text" placeholder="' + tr("plan_revise_ph") + '"><button class="ask-send plan-edit" type="button">' + tr("revise") + '</button></div>' +
+          '<div class="ask-options"><button class="ask-opt plan-go" type="button">' + tr("confirm_generate") + '</button><button class="ask-opt plan-cancel" type="button">' + tr("cancel") + '</button></div>' +
           "</div></div></div>";
         // Model-written narrative (optional), rendered above the structured rows.
         const summaryEl = card.querySelector(".plan-summary");
-        if (typeof plan.summary === "string" && plan.summary.trim()) summaryEl.innerHTML = renderMarkdown(plan.summary.trim());
-        else summaryEl.remove();
+        if (typeof plan.summary === "string" && plan.summary.trim()) {
+          const planScroll = () => { $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight; };
+          const planTyper = makeTypewriter(summaryEl, planScroll); planTyper.feed(plan.summary.trim()); planTyper.end();
+        } else summaryEl.remove();
         const rows = [];
-        if (plan.boardId) rows.push(["设备", plan.boardId]);
-        if (Array.isArray(plan.capabilities) && plan.capabilities.length) rows.push(["功能", plan.capabilities.join("、")]);
-        if (Array.isArray(plan.packages) && plan.packages.length) rows.push(["驱动包", plan.packages.join("、")]);
-        if (Array.isArray(plan.wiring) && plan.wiring.length) rows.push(["接线", plan.wiring.map((w) => `${w.role}→${w.pin}`).join("，")]);
+        if (plan.boardId) rows.push([tr("plan_board"), plan.boardId]);
+        if (Array.isArray(plan.capabilities) && plan.capabilities.length) rows.push([tr("plan_features"), plan.capabilities.map(capName).join(sep())]);
+        if (Array.isArray(plan.packages) && plan.packages.length) rows.push([tr("plan_packages"), plan.packages.join(sep())]);
+        if (Array.isArray(plan.wiring) && plan.wiring.length) rows.push([tr("plan_wiring"), plan.wiring.map((w) => `${roleSignal(w.role)}→${w.pin}`).join(sep())]);
         const list = card.querySelector(".plan-list");
         for (const [label, value] of rows) {
           const li = document.createElement("li");
-          const b = document.createElement("span"); b.className = "plan-k"; b.textContent = label + "：";
+          const b = document.createElement("span"); b.className = "plan-k"; b.textContent = label + ": ";
           li.appendChild(b); li.appendChild(document.createTextNode(value));
           list.appendChild(li);
         }
@@ -651,9 +816,9 @@
         const remaining = parseInt($("qUsed").textContent, 10);
         const est = Number(plan.estimate) || 0;
         const used = (lastDailyGrant > 0 && Number.isFinite(remaining)) ? lastDailyGrant - remaining : null;
-        let costText = `本步预计 ~${est} credits`;
-        if (used != null) costText += `｜本次会话已用 ${used}`;
-        if (Number.isFinite(remaining)) costText += `｜剩余 ${remaining}`;
+        let costText = tr("cost_step", { n: est });
+        if (used != null) costText += tr("cost_used", { n: used });
+        if (Number.isFinite(remaining)) costText += tr("cost_left", { n: remaining });
         card.querySelector(".plan-cost").textContent = costText;
         let answered = false;
         const reviseInput = card.querySelector(".plan-revise");
@@ -663,11 +828,9 @@
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer, feedback });
           card.querySelectorAll(".ask-opt, .ask-send").forEach((b) => { b.disabled = true; });
           reviseInput.disabled = true;
-          awaitingUser = false; markActivity();
-          if (answer === "cancel") { setStatus("Cancelled"); return; }
-          setStatus("thinking…");
+          if (answer === "cancel") return; // session_done renders the terminal
           // Revise re-runs the agent to re-plan; confirm proceeds to codegen.
-          setPending(answer === "revise" ? "正在按你的修改重新规划…" : "正在生成代码…");
+          setPending(answer === "revise" ? tr("replanning") : tr("generating_code"));
         };
         // Revise: send the user's free-text change request back so the agent re-plans
         // and the host re-shows an updated plan. Empty input is a no-op.
@@ -691,17 +854,17 @@
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
-        setStatus("Confirm wiring & connection…");
         const card = document.createElement("div");
         card.className = "ev fade-in";
         card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
           '<div class="ev-ico skill">•</div>' +
-          '<div class="ev-main"><div class="ev-label"><span class="kind">deploy</span></div>' +
-          '<div class="ev-sum">按下面的接线图连接好硬件，确认开发板已插入后再部署</div>' +
+          '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_deploy") + '</span></div>' +
+          '<div class="ev-sum">' + tr("deploy_intro") + '</div>' +
           '<div class="deploy-wiring"></div>' +
-          '<div class="deploy-status">正在检测开发板…</div>' +
+          '<div class="deploy-status">' + tr("detecting_board") + '</div>' +
           '<div class="deploy-ports"></div>' +
-          '<div class="ask-options"><button class="ask-opt deploy-go" type="button" disabled>部署</button><button class="ask-opt deploy-rescan" type="button">重新扫描</button><button class="ask-opt deploy-cancel" type="button">取消</button></div>' +
+          '<div class="deploy-actions"><button class="ask-opt deploy-go" type="button" disabled>' + tr("deploy") + '</button>' +
+          '<div class="deploy-secondary"><button class="ask-opt deploy-rescan" type="button">' + tr("rescan") + '</button><button class="ask-opt deploy-cancel" type="button">' + tr("cancel") + '</button></div></div>' +
           "</div></div></div>";
         const wiring = wiringMarkup(manifest);
         if (wiring) card.querySelector(".deploy-wiring").innerHTML = wiring;
@@ -719,12 +882,11 @@
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer, port: answer === "confirm" ? selectedPort : null });
           card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; });
           currentDeployCard = null;
-          awaitingUser = false; markActivity();
-          setStatus(answer === "confirm" ? "Deploying…" : "Cancelled");
+          if (answer === "confirm") setPending(tr("deploying")); // cancel: session_done renders the terminal
         };
         goBtn.addEventListener("click", () => reply("confirm"));
         card.querySelector(".deploy-cancel").addEventListener("click", () => reply("cancel"));
-        card.querySelector(".deploy-rescan").addEventListener("click", () => { statusEl.textContent = "正在检测开发板…"; vscode.postMessage({ type: "deploy_rescan" }); });
+        card.querySelector(".deploy-rescan").addEventListener("click", () => { statusEl.textContent = tr("detecting_board"); vscode.postMessage({ type: "deploy_rescan" }); });
         // Updated by deploy_ports_updated: no board -> Deploy stays disabled; one
         // board -> auto-selected; several -> the user picks one before deploying.
         currentDeployCard = {
@@ -732,14 +894,14 @@
             ports = Array.isArray(ports) ? ports : [];
             portsEl.innerHTML = "";
             if (!ports.length) {
-              statusEl.textContent = "未检测到开发板，请连接后点击“重新扫描”";
+              statusEl.textContent = tr("no_board");
               selectedPort = null; goBtn.disabled = true; return;
             }
             if (ports.length === 1) {
               selectedPort = ports[0];
-              statusEl.textContent = "已连接：" + ports[0];
+              statusEl.textContent = tr("connected", { p: ports[0] });
             } else {
-              statusEl.textContent = "检测到多个设备，请选择：";
+              statusEl.textContent = tr("multiple_devices");
               selectedPort = null;
               ports.forEach((p) => {
                 const b = document.createElement("button");
@@ -788,7 +950,7 @@
         // streaming, swapped for highlighted line-numbered rows on finalize).
         card.innerHTML = '<div class="ev-card code-card"><div class="code-card-head">' +
           '<span class="code-file"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v5h5" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="code-name"></span></span>' +
-          '<button class="code-copy" type="button">Copy</button>' +
+          '<button class="code-copy" type="button">' + tr("copy") + '</button>' +
           '</div><div class="ev-code"><pre class="code-pre"></pre></div></div>';
         card.querySelector(".code-name").textContent = file;
         const pre = card.querySelector(".code-pre");
@@ -797,8 +959,8 @@
         const copyBtn = card.querySelector(".code-copy");
         copyBtn.addEventListener("click", () => {
           vscode.postMessage({ type: "copy_code", text: card.__code || "" });
-          copyBtn.textContent = "已复制"; copyBtn.classList.add("done");
-          setTimeout(() => { copyBtn.textContent = "Copy"; copyBtn.classList.remove("done"); }, 1500);
+          copyBtn.textContent = tr("copied"); copyBtn.classList.add("done");
+          setTimeout(() => { copyBtn.textContent = tr("copy"); copyBtn.classList.remove("done"); }, 1500);
         });
         $("activity").appendChild(card);
         currentCode = { card, pre, raw: text, path: file };
@@ -869,6 +1031,16 @@
       // Friendly labels for bus connection pins in the rich (LLM) wiring shape.
       const BUS_SIGNAL = { sda: "Data (SDA)", scl: "Clock (SCL)", mosi: "Data (MOSI)", miso: "Data (MISO)",
         sck: "Clock (SCK)", cs: "Chip select (CS)", tx: "TX", rx: "RX", power: "Power 3V3", vcc: "Power 3V3", gnd: "Ground" };
+      // zh overrides for the wiring diagram; en uses the maps above (pins like GPIO5
+      // and bus names like I2C stay as identifiers in both languages).
+      const ROLE_SIGNAL_ZH = { i2c_sda: "数据 (SDA)", i2c_scl: "时钟 (SCL)", i2c_power: "电源 3V3", i2c_gnd: "地 (GND)", led_anode: "正极 (+)", led_cathode: "负极 (–)", button: "开关引脚", button_gnd: "地 (GND)" };
+      const COMPONENTS_ZH = { i2c: { name: "I²C 传感器", part: "I²C 总线设备" }, led: { name: "状态 LED", part: "5mm + 限流电阻" }, btn: { name: "按钮", part: "轻触按键" }, other: { name: "外设", part: "" } };
+      const BUS_SIGNAL_ZH = { sda: "数据 (SDA)", scl: "时钟 (SCL)", mosi: "数据 (MOSI)", miso: "数据 (MISO)", sck: "时钟 (SCK)", cs: "片选 (CS)", tx: "TX", rx: "RX", power: "电源 3V3", vcc: "电源 3V3", gnd: "地 (GND)" };
+      function roleSignal(role) { if (LOCALE === "zh" && ROLE_SIGNAL_ZH[role]) return ROLE_SIGNAL_ZH[role]; const m = ROLE_MAP[role]; return m ? m.signal : humanize(role); }
+      function compInfo(key) { const base = COMPONENTS[key] || COMPONENTS.other; if (LOCALE === "zh") { const z = COMPONENTS_ZH[key] || COMPONENTS_ZH.other; return { name: z.name || base.name, part: z.part != null ? z.part : base.part }; } return base; }
+      function busSignal(k) { const key = String(k).toLowerCase(); if (LOCALE === "zh" && BUS_SIGNAL_ZH[key]) return BUS_SIGNAL_ZH[key]; return BUS_SIGNAL[key] || humanize(k); }
+      function componentCount(n) { return LOCALE === "zh" ? (n + " 个元件") : (n + " component" + (n > 1 ? "s" : "")); }
+      function busWord(busLabel, kind) { const w = kind === "device" ? (LOCALE === "zh" ? "设备" : "device") : (LOCALE === "zh" ? "总线" : "bus"); return busLabel + (LOCALE === "zh" ? " " : " ") + w; }
       // The offline pipeline emits a flat [{role,pin}] array; the live LLM emits a
       // richer bus-keyed object ({ i2c: { sda, scl, devices:[{address,label}] } }),
       // which can show several devices sharing one bus. Render both shapes.
@@ -877,10 +1049,10 @@
         if (Array.isArray(wiring)) {
           const byComp = {};
           for (const w of wiring) {
-            const map = ROLE_MAP[w.role] || { signal: humanize(w.role), comp: "other", kind: classifyRole(w.role) };
-            (byComp[map.comp] = byComp[map.comp] || []).push({ signal: map.signal, kind: map.kind, pin: w.pin });
+            const map = ROLE_MAP[w.role] || { comp: "other", kind: classifyRole(w.role) };
+            (byComp[map.comp] = byComp[map.comp] || []).push({ signal: roleSignal(w.role), kind: map.kind, pin: w.pin });
           }
-          return Object.keys(byComp).map((k) => ({ key: k, ...(COMPONENTS[k] || COMPONENTS.other), pins: byComp[k] }));
+          return Object.keys(byComp).map((k) => ({ key: k, ...compInfo(k), pins: byComp[k] }));
         }
         if (wiring && typeof wiring === "object") {
           const comps = [];
@@ -889,16 +1061,16 @@
             const pins = [];
             for (const [k, v] of Object.entries(spec)) {
               if (k === "devices" || v == null || typeof v === "object") continue;
-              pins.push({ signal: BUS_SIGNAL[k.toLowerCase()] || humanize(k), kind: classifyRole(k), pin: String(v) });
+              pins.push({ signal: busSignal(k), kind: classifyRole(k), pin: String(v) });
             }
             const busLabel = bus.toUpperCase();
             const devices = Array.isArray(spec.devices) ? spec.devices : [];
             if (devices.length) {
               for (const d of devices) {
-                comps.push({ key: bus, name: (d && d.label) || (busLabel + " device"), part: (d && d.address) ? (busLabel + " · " + d.address) : (busLabel + " bus"), pins });
+                comps.push({ key: bus, name: (d && d.label) || busWord(busLabel, "device"), part: (d && d.address) ? (busLabel + " · " + d.address) : busWord(busLabel, "bus"), pins });
               }
             } else {
-              comps.push({ key: bus, name: busLabel + " bus", part: "", pins });
+              comps.push({ key: bus, name: busWord(busLabel, "bus"), part: "", pins });
             }
           }
           return comps;
@@ -907,7 +1079,7 @@
       }
       function driverFor(comp, manifest) {
         const refs = (manifest && manifest.driver_context_refs) || [];
-        if (comp.key === "led") return "GPIO out";
+        if (comp.key === "led") return LOCALE === "zh" ? "GPIO 输出" : "GPIO out";
         const ref = refs.find((r) => !/machine_pin_led/.test(r));
         return ref ? ref.split("@")[0] : "";
       }
@@ -918,9 +1090,9 @@
         try { comps = buildComponents(manifest); }
         catch (e) { console.error("wiringMarkup: unrecognized manifest.wiring shape", e); comps = []; }
         if (!comps.length) return "";
-        const boardName = (manifest && manifest.board_id) ? manifest.board_id : "Target board";
+        const boardName = (manifest && manifest.board_id) ? manifest.board_id : tr("target_board");
         let html = '<div class="wiring"><div class="wire-board">' +
-          "<span><b>" + esc(boardName) + "</b> · " + comps.length + " component" + (comps.length > 1 ? "s" : "") + "</span></div>";
+          "<span><b>" + esc(boardName) + "</b> · " + componentCount(comps.length) + "</span></div>";
         for (const c of comps) {
           const drv = driverFor(c, manifest);
           html += '<div class="comp-card fade-in"><div class="comp-top">' +
@@ -934,7 +1106,7 @@
           }
           html += "</div></div>";
         }
-        if (comps.some((c) => c.key === "led")) html += '<div class="wire-note">⚠ LED needs a current-limiting resistor (≈220–330Ω).</div>';
+        if (comps.some((c) => c.key === "led")) html += '<div class="wire-note">' + tr("led_note") + '</div>';
         html += "</div>";
         return html;
       }
@@ -969,47 +1141,40 @@
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
           setCredits(msg.event.balance, msg.event.dailyGrant);
         }
-        if (msg.type === "trace_event") {
-          markActivity();
-          const t = msg.event && typeof msg.event.text === "string" ? msg.event.text.trim() : "";
-          if (PHASE_LABELS.has(t)) currentPhase = t;        // a known tool phase
-          else if (t) currentPhase = "thinking";               // streamed reasoning text
-          tickHeartbeat();                                  // repaint the label now, don't wait up to 1s
-          // Process narration (reasoning + phase labels) is intentionally NOT shown
-          // as feed cards — only the status line above + spinner reflect progress.
-          // The model's final reply arrives separately as a "summary" message.
+        if (msg.type === "trace_event" && running) {
+          // The agent's internal tool steps drive the single in-feed working
+          // spinner — we show a curated, localized phase label (e.g. "Generating
+          // code…"), never the model's raw reasoning (chain-of-thought is discarded
+          // upstream before the tool fires). This refreshes the label and re-arms
+          // the spinner in the gap between one card finishing and the next tool
+          // starting — unless real content is currently streaming.
+          if (!currentSummary && !currentCode) setPending(phaseLabel(msg.event));
         }
-        if (msg.type === "summary") { markActivity(); addSummary(msg.text); }
-        if (msg.type === "ui_prompt_needed") { awaitingUser = true; pauseTimer(); addAskPrompt(msg.promptId, msg.question, msg.options); }
-        if (msg.type === "plan_needed") { awaitingUser = true; pauseTimer(); addPlanPrompt(msg.promptId, msg.plan); }
-        if (msg.type === "deploy_needed") { awaitingUser = true; pauseTimer(); addDeployPrompt(msg.promptId, msg.manifest); }
+        if (msg.type === "summary_delta") { streamSummaryDelta(msg.text); }
+        if (msg.type === "summary_discard") { discardSummary(); }
+        if (msg.type === "summary") { addSummary(msg.text); }
+        if (msg.type === "ui_prompt_needed") { addAskPrompt(msg.promptId, msg.question, msg.options); }
+        if (msg.type === "plan_needed") { addPlanPrompt(msg.promptId, msg.plan); }
+        if (msg.type === "deploy_needed") { addDeployPrompt(msg.promptId, msg.manifest); }
         if (msg.type === "deploy_ports_updated") { if (currentDeployCard) currentDeployCard.setPorts(msg.ports); }
-        if (msg.type === "code_delta") { markActivity(); streamCodeDelta(msg.text, msg.path); }
-        if (msg.type === "code_updated") { markActivity(); finalizeCode(msg.code, msg.path); }
-        if (msg.type === "manifest_updated") { markActivity(); renderWiring(msg.manifest); }
-        if (msg.type === "serial_output") { markActivity(); addSerial(msg.lines); }
-        if (msg.type === "device_selected") { markActivity(); addActivity({ type: "trace", text: "Device selected: " + msg.port }); }
-        if (msg.type === "files_written") { markActivity(); addActivity({ type: "trace", text: "Generated files written: " + (msg.paths || []).join(", ") }); }
-        if (msg.type === "files_write_failed") { markActivity(); addActivity({ type: "trace", text: "Generated files not written: " + msg.error }); }
+        if (msg.type === "code_delta") { streamCodeDelta(msg.text, msg.path); }
+        if (msg.type === "code_updated") { finalizeCode(msg.code, msg.path); }
+        if (msg.type === "manifest_updated") { renderWiring(msg.manifest); }
+        if (msg.type === "serial_output") { addSerial(msg.lines); }
+        if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
+        if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); }
+        if (msg.type === "files_write_failed") { addActivity({ type: "trace", text: tr("files_write_failed", { e: msg.error }) }); }
         if (msg.type === "session_error") {
-          const FRIENDLY_ERR = {
-            out_of_credits: "Out of credits — resets at midnight UTC",
-            sign_in_required: "Sign in with GitHub to start",
-            auth_provider_unavailable: "VS Code GitHub auth is unavailable",
-            github_session_failed: "GitHub sign-in did not complete in VS Code",
-            github_session_unavailable: "Sign in with GitHub to start",
-            github_token_exchange_failed: "GitHub sign-in reached the API, but token exchange failed",
-            github_token_exchange_unreachable: "Cannot reach the auth API",
-            github_token_missing: "Auth API returned no session token",
-          };
-          const text = FRIENDLY_ERR[msg.error] || msg.error;
+          const errKey = "err_" + msg.error;
+          const text = (I18N[LOCALE] && I18N[LOCALE][errKey]) || I18N.en[errKey] || msg.error;
           if (msg.error === "out_of_credits") { quotaExhausted = true; $("quota").classList.add("exhausted"); updateGenerateEnabled(); }
-          addActivity({ text }); setStatus(text, "error");
+          addActivity({ text });
         }
         if (msg.type === "session_done") {
           setRunning(false);
           currentThink = null;
           currentCode = null;
+          currentSummary = null;
           clearPending();
           // A still-open deploy card is now stale (its prompt was resolved by the
           // session ending); disable its buttons so clicks can't post stale replies.
@@ -1018,18 +1183,19 @@
           document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
           const t = String(msg.terminal);
           const ok = t === "generated" || t === "success";
-          const FRIENDLY = {
-            generated: "Done", success: "Done", cancelled: "Stopped",
-            awaiting_user: "Waiting for your reply",
-            max_turns: "Stopped (max turns)",
-            repair_exhausted: "Couldn't get it working", session_error: "Error",
-          };
+          const label = tr("term_" + t);
+          const friendly = label === "term_" + t ? t : label;
           const isError = !ok && t !== "cancelled" && t !== "awaiting_user";
-          setStatus(FRIENDLY[t] || t, isError ? "error" : null);
-          if (isError) addActivity({ text: "Session ended: " + (FRIENDLY[t] || t) });
+          // The status bar is gone; surface a terminal line in the feed for ends
+          // that aren't self-evident from the result (errors and a cancelled run).
+          // A successful finish needs none — the summary + code cards say it.
+          if (isError || t === "cancelled") addActivity({ text: tr("session_ended", { t: friendly }) });
         }
       });
 
+      // Skin the static chrome for the initial (English) locale; the session's
+      // first request re-skins it to the user's language via setLocale.
+      applyStaticI18n();
       // Pull the real device list + credit balance from the extension host on load.
       vscode.postMessage({ type: "request_boards" });
     </script>

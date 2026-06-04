@@ -60,3 +60,36 @@ test("pin-capability gate still runs for a board-less manifest when the board is
   assert.equal(result.valid, false);
   assert.equal(result.errors[0].code, "pin_role_not_allowed");
 });
+
+// Layer 2: the error feedback must be actionable so a wrong manifest self-corrects
+// in one round instead of spinning on manifest_invalid (the desktop-pet failure).
+function withPins(pins: any) {
+  return { board_id: "esp32-s3-devkitc-1", capabilities: [], packages: [], driver_context_refs: [], pins, logic: {}, wiring: [] };
+}
+
+test("a pin->object pins map fails clearly and never emits [object Object]", () => {
+  // The model sent pins keyed by pin with object values; the old builder rendered
+  // "GPIO5 on [object Object]", which taught it nothing.
+  const result = validateManifest(withPins({ GPIO5: { role: "i2c_sda" } }), board);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.every((e) => !e.message.includes("[object Object]")));
+  assert.equal(result.errors[0].code, "pins_shape_invalid");
+});
+
+test("a disallowed pin lists the allowed pins for that role", () => {
+  const result = validateManifest(withPins({ i2c_sda: "GPIO2" }), board);
+  assert.equal(result.errors[0].code, "pin_role_not_allowed");
+  assert.ok(result.errors[0].message.includes("GPIO5")); // the pin that allows i2c_sda
+  assert.ok(result.errors[0].message.includes("i2c_sda"));
+});
+
+test("a role no pin supports says the board cannot satisfy it", () => {
+  const result = validateManifest(withPins({ analog_input: "GPIO5" }), board);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors[0].message.toLowerCase().includes("cannot satisfy"));
+});
+
+test("led_anode on a gpio_out pin still validates", () => {
+  const result = validateManifest(withPins({ led_anode: "GPIO2" }), board);
+  assert.equal(result.valid, true);
+});

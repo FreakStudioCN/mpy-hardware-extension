@@ -30,3 +30,4 @@ import "./telemetry.test.ts";
 import "./webview-panel.test.ts";
 import "./webview-dom.test.ts";
 import "./typecheck-script.test.ts";
+import "./dev-up-script.test.ts";

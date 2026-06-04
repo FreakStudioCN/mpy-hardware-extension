@@ -71,7 +71,26 @@
     "input_schema": {
       "type": "object",
       "properties": {
-        "manifest": { "type": "object" }
+        "manifest": {
+          "type": "object",
+          "description": "Hardware manifest. pins maps each ROLE to a board pin string (role -> pin); do not invert it.",
+          "properties": {
+            "board_id": { "type": "string", "description": "Board id from query_board_profile, e.g. esp32-s3-devkitc-1." },
+            "capabilities": { "type": "array", "items": { "type": "string" }, "description": "Capabilities this build needs, e.g. [\"temperature_sensing\",\"digital_output\"]." },
+            "packages": { "type": "array", "items": { "type": "object" }, "description": "Resolved packages, each {name, version}." },
+            "driver_context_refs": { "type": "array", "items": { "type": "string" }, "description": "Refs to fetched driver contexts, e.g. \"aht20_driver@1.0.0\"." },
+            "pins": {
+              "type": "object",
+              "description": "Object mapping each ROLE to a board PIN string (role -> pin), NOT pin -> role and NOT role -> object. Use roles from the driver pin_roles and pins allowed by the board profile's pin_capabilities / pin_recommendations. Example: {\"i2c_sda\":\"GPIO5\",\"i2c_scl\":\"GPIO6\",\"led_anode\":\"GPIO2\"}.",
+              "additionalProperties": { "type": "string" }
+            },
+            "logic": { "type": "object", "description": "Behavioural parameters, e.g. {\"threshold_c\":30,\"action\":\"led_on_above_threshold\"}." },
+            "wiring": { "type": "array", "description": "One entry per connection: {role, pin}. Mirrors pins.", "items": { "type": "object", "properties": { "role": { "type": "string" }, "pin": { "type": "string" } } } },
+            "summary": { "type": "string", "description": "Short friendly explanation shown to the user as the build plan." }
+          },
+          "required": ["board_id", "capabilities", "packages", "driver_context_refs", "pins", "logic", "wiring", "summary"],
+          "additionalProperties": true
+        }
       },
       "required": ["manifest"],
       "additionalProperties": false

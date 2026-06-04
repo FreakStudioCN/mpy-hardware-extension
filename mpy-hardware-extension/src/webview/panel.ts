@@ -117,7 +117,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Login up front: a real VS Code host must have a GitHub session before the
       // metered loop runs. Headless/test hosts (no vscode.authentication) skip this.
       if (vscode.authentication) {
-        const jwt = await auth.getToken(true);
+        const jwt = await auth.getToken(true, { forceRefresh: true });
         if (!jwt) {
           webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
           webview.postMessage({ type: "session_done", terminal: "session_error" });

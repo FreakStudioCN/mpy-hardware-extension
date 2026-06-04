@@ -27,3 +27,26 @@ test("github auth records backend token exchange failures", async () => {
   assert.match(logs.join("\n"), /GitHub token exchange failed: 401/);
   assert.doesNotMatch(logs.join("\n"), /gho-token/);
 });
+
+test("github auth can force-refresh a cached backend session token", async () => {
+  let calls = 0;
+  const auth = createGithubAuth({
+    apiBaseUrl: "http://api.test",
+    vscode: {
+      authentication: {
+        getSession: async () => ({ accessToken: "gho-token" }),
+      },
+    },
+    fetchImpl: async () => {
+      calls += 1;
+      return {
+        ok: true,
+        json: async () => ({ token: `jwt-${calls}`, login: "octocat" }),
+      } as Response;
+    },
+  });
+
+  assert.equal(await auth.getToken(true), "jwt-1");
+  assert.equal(await auth.getToken(true), "jwt-1");
+  assert.equal(await auth.getToken(true, { forceRefresh: true }), "jwt-2");
+});

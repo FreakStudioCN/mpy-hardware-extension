@@ -1,6 +1,6 @@
 {
   "name": "mpy-hardware-extension",
-  "version": "0.2.6",
+  "version": "0.2.11",
   "publisher": "mpyhw",
   "displayName": "Blockless",
   "description": "MicroPython hardware agent MVP.",

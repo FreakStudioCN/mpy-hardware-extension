@@ -17,6 +17,7 @@ test("session state starts with a fully deterministic initial shape", () => {
     boardId: "esp32-s3-devkitc-1",
     turnSeq: 0,
     repairRound: 0,
+    noProgressStreak: 0,
     textOnlyTurns: 0,
     loadedSkills: [],
     skillBodies: {},
@@ -49,4 +50,13 @@ test("termination detects success, max turns, and repair exhaustion", () => {
   assert.equal(shouldTerminate({ turnSeq: 1, repairRound: 0, lastRuntimeMarker: "TEMP_C=31.2 LED=ON" }).done, false);
   assert.equal(shouldTerminate({ turnSeq: 20, repairRound: 0 }).reason, "max_turns");
   assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 3 }).reason, "repair_exhausted");
+});
+
+test("termination stops a no-progress streak as manifest_unresolved", () => {
+  // Repeated non-runtime failures (e.g. propose_manifest manifest_invalid) must
+  // fail fast with a clear reason instead of grinding to max_turns.
+  assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 0, noProgressStreak: 4 }).reason, "manifest_unresolved");
+  assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 0, noProgressStreak: 3 }).done, false);
+  // Runtime repair exhaustion is the more specific signal and takes precedence.
+  assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 3, noProgressStreak: 9 }).reason, "repair_exhausted");
 });

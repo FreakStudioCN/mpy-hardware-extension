@@ -58,6 +58,14 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
         if (observation.error_kind === "runtime_error") {
           state.repairRound += 1;
         }
+        // No-progress backstop: a successful tool clears the streak; a non-runtime
+        // failure (e.g. manifest_invalid) extends it. Runtime errors are owned by
+        // repairRound above and neither extend nor reset this streak.
+        if (observation.ok) {
+          state.noProgressStreak = 0;
+        } else if (observation.error_kind !== "runtime_error") {
+          state.noProgressStreak = (state.noProgressStreak ?? 0) + 1;
+        }
         // Only a SUCCESSFUL read establishes a runtime marker. A failed read
         // (timeout) can still carry buffered lines whose tail happens to contain
         // the success marker; recording it would falsely grade the failure as

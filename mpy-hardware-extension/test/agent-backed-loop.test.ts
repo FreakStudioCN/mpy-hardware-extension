@@ -877,6 +877,79 @@ test("agent-backed loop hides streamed reasoning and surfaces only the final rep
   assert.equal(summaries[0].text, "让我想想…这其实很简单。");
 });
 
+test("the final reply streams as summary_delta tokens, then finalizes as one summary", async () => {
+  const events: any[] = [];
+  // One tool-free turn: the model streams its reply in two chunks, then hands back.
+  const fetchImpl = (async (url: string) => {
+    if (!url.endsWith("/v1/llm/messages")) throw new Error(`unexpected url ${url}`);
+    const sse = [
+      JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "用 " } }),
+      JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "ssd1306 显示温度。" } }),
+      JSON.stringify({ type: "message_stop" }),
+    ].map((d) => `data: ${d}`).join("\n\n");
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "你好", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e) });
+
+  // Each token surfaces live as a summary_delta (the reply streams in)...
+  assert.deepEqual(
+    events.filter((e) => e.type === "summary_delta").map((e) => e.text),
+    ["用 ", "ssd1306 显示温度。"],
+  );
+  // ...then the assembled reply is finalized exactly once as a summary.
+  const summaries = events.filter((e) => e.type === "summary");
+  assert.equal(summaries.length, 1, "exactly one summary event");
+  assert.equal(summaries[0].text, "用 ssd1306 显示温度。");
+  // No tool ran, so nothing was discarded.
+  assert.ok(!events.some((e) => e.type === "summary_discard"), "no discard on a tool-free turn");
+});
+
+test("narration before a tool call is discarded — only the final, tool-free reply becomes the summary", async () => {
+  const events: any[] = [];
+  let mainTurn = 0;
+  // Turn 1: the model narrates, then calls a tool (so the narration is mid-process).
+  const turn1 = [
+    JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "让我先看看板子。" } }),
+    JSON.stringify({ type: "content_block_start", content_block: { type: "tool_use", id: "query_board_profile", name: "query_board_profile" } }),
+    JSON.stringify({ type: "content_block_delta", delta: { type: "input_json_delta", partial_json: JSON.stringify({ board_id: "esp32-s3-devkitc-1" }) } }),
+    JSON.stringify({ type: "content_block_stop" }),
+    JSON.stringify({ type: "message_stop" }),
+  ].map((d) => `data: ${d}`).join("\n\n");
+  // Turn 2: text only, no tool -> this is the real, final reply.
+  const turn2 = [
+    JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "好了，这是结果。" } }),
+    JSON.stringify({ type: "message_stop" }),
+  ].map((d) => `data: ${d}`).join("\n\n");
+
+  const fetchImpl = (async (url: string) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const sse = mainTurn++ === 0 ? turn1 : turn2;
+      return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+    }
+    if (url.includes("/v1/boards/")) {
+      return { ok: true, status: 200, json: async () => BOARD } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  const result = await loop({ intent: "你好", boardId: "esp32-s3-devkitc-1", onEvent: (e) => events.push(e) });
+
+  assert.equal(result.terminal, "awaiting_user");
+  // The narration streamed live, then was discarded the moment the tool fired.
+  assert.equal(events.filter((e) => e.type === "summary_discard").length, 1, "one discard for the tool turn");
+  assert.deepEqual(
+    events.filter((e) => e.type === "summary_delta").map((e) => e.text),
+    ["让我先看看板子。", "好了，这是结果。"],
+  );
+  // Only the final, tool-free turn's text survives as the summary.
+  const summaries = events.filter((e) => e.type === "summary");
+  assert.equal(summaries.length, 1, "exactly one summary event");
+  assert.equal(summaries[0].text, "好了，这是结果。");
+});
+
 test("opening turn tells the agent to recommend a board when none is chosen", async () => {
   let firstBody: any = null;
   const fetchImpl = (async (url: string, init?: RequestInit) => {

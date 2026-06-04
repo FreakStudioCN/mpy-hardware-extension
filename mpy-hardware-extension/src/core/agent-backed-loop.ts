@@ -136,19 +136,19 @@ function buildPlan(manifest: any, intent: string): BuildPlan {
 
 function userVisibleToolPhase(toolName: string): string | null {
   const phases: Record<string, string> = {
-    query_board_profile: "读取开发板资料",
-    search_packages: "查找可用驱动",
-    get_package_context: "读取驱动资料",
-    propose_manifest: "准备接线方案",
-    generate_code: "生成代码",
-    audit_code: "检查代码",
-    install_package: "安装驱动包",
-    write_main_py: "写入设备",
-    flash_and_run: "运行设备",
-    read_serial_until: "读取串口输出",
-    load_skill: "加载硬件规则",
-    read_workspace_file: "读取工作区文件",
-    scan_device: "扫描设备",
+    query_board_profile: "Reading board profile",
+    search_packages: "Finding drivers",
+    get_package_context: "Reading driver docs",
+    propose_manifest: "Planning wiring",
+    generate_code: "Generating code",
+    audit_code: "Checking code",
+    install_package: "Installing packages",
+    write_main_py: "Writing to device",
+    flash_and_run: "Running on device",
+    read_serial_until: "Reading serial output",
+    load_skill: "Loading hardware rules",
+    read_workspace_file: "Reading workspace file",
+    scan_device: "Scanning devices",
   };
   return phases[toolName] ?? null;
 }
@@ -209,6 +209,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       state.runtimeVerified = false;
       state.turnSeq = 0;
       state.repairRound = 0;
+      state.noProgressStreak = 0;
       state.textOnlyTurns = 0;
       // Re-gate deploy each new request: the board may have been unplugged
       // between turns, so a continued session must re-confirm before flashing.
@@ -452,6 +453,12 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       return dispatchTool(tool, executors);
     };
 
+    // Stream the model's prose live, but only the FINAL reply is meant to survive.
+    // A turn that ends in a tool call was mid-process narration (chain-of-thought):
+    // its streamed text is discarded the moment the tool fires, leaving only the
+    // neutral "Working…" ping. A turn that hands back with no tool keeps its
+    // streamed card, finalized as the summary below.
+    let streamedThisTurn = false;
     const result = await runAgentLoop({
       state,
       sseClient,
@@ -459,20 +466,28 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       dispatchTool: dispatch,
       recorder: input.recorder,
       onEvent: (event: any) => {
-        // The model's streamed free-text is internal chain-of-thought — not shown.
-        // Only surface the compact tool phase (drives the host status line) and
-        // credit updates. The final reply is emitted once after the loop, below.
-        if (event.type === "tool_use_complete") {
+        if (event.type === "text_delta") {
+          streamedThisTurn = true;
+          onEvent({ type: "summary_delta", text: event.text });
+        } else if (event.type === "tool_use_complete") {
+          // This turn isn't the final reply: drop any prose streamed before the
+          // tool call, then surface the compact progress ping. We pass the tool
+          // name so the host can show a curated, localized phase label (e.g.
+          // "Generating code…") — never the model's raw reasoning, which was just
+          // discarded above.
+          if (streamedThisTurn) { onEvent({ type: "summary_discard" }); streamedThisTurn = false; }
           const phase = userVisibleToolPhase(event.name);
-          if (phase) onEvent({ type: "trace", text: phase });
+          if (phase) onEvent({ type: "trace", text: phase, toolName: event.name });
+        } else if (event.type === "message_stop") {
+          streamedThisTurn = false;
         } else if (event.type === "credits") {
           onEvent({ kind: "credits", balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt });
         }
       },
     });
     // When the model hands the turn back with no tool call, its final plain-text
-    // reply is the one assistant prose worth showing — surface it once as a clean
-    // summary card (the streamed monologue is suppressed above).
+    // reply is the one assistant prose worth showing. It already streamed in live
+    // above; this summary finalizes that card (plain text -> rendered markdown).
     if (result.terminal === "awaiting_user") {
       const summary = lastAssistantText(state.messages);
       if (summary) onEvent({ type: "summary", text: summary });

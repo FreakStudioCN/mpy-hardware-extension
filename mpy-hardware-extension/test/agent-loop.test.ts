@@ -166,6 +166,47 @@ test("max turns and repair exhaustion are deterministic", async () => {
   assert.equal(repair.terminal, "repair_exhausted");
 });
 
+test("repeated non-runtime tool failures stop fast as manifest_unresolved", async () => {
+  // The desktop-pet failure: propose_manifest fails validation over and over.
+  // manifest_invalid does not count toward repair, so without a no-progress
+  // backstop the loop ground silently to max_turns. It must stop at N=4 instead.
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted(Array.from({ length: 6 }, (_, i) => [{ type: "tool_use_complete", id: String(i), name: "propose_manifest", input: {} }, { type: "message_stop" }])),
+    dispatchTool: async () => ({ ok: false, error_kind: "manifest_invalid", errors: [{ code: "pin_role_not_allowed", message: "x" }] }),
+  });
+
+  assert.equal(result.terminal, "manifest_unresolved");
+  assert.ok(result.state.turnSeq < 20, "stops well before the max_turns cap");
+});
+
+test("a success resets the no-progress streak so it does not fire", async () => {
+  // Three validation failures then a successful run: the streak resets on the
+  // success and 3 < 4 never fired, so the build still terminates success.
+  const names = ["propose_manifest", "propose_manifest", "propose_manifest", "read_serial_until"];
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted(names.map((name, i) => [{ type: "tool_use_complete", id: String(i), name, input: {} }, { type: "message_stop" }])),
+    dispatchTool: async (tool) => tool.name === "read_serial_until"
+      ? { ok: true, lines: ["MPYHW_READY", "TEMP_C=24.0"] }
+      : { ok: false, error_kind: "manifest_invalid", errors: [] },
+  });
+
+  assert.equal(result.terminal, "success");
+});
+
+test("interleaved single failures never trip the no-progress backstop", async () => {
+  // fail/ok alternation keeps resetting the streak; it must not accumulate to N.
+  let n = 0;
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted(Array.from({ length: 8 }, (_, i) => [{ type: "tool_use_complete", id: String(i), name: "propose_manifest", input: {} }, { type: "message_stop" }])),
+    dispatchTool: async () => (n++ % 2 === 0 ? { ok: false, error_kind: "manifest_invalid", errors: [] } : { ok: true }),
+  });
+
+  assert.notEqual(result.terminal, "manifest_unresolved");
+});
+
 test("a turn without message_stop terminates as interrupted instead of looping", async () => {
   const result = await runAgentLoop({
     state: baseState(),

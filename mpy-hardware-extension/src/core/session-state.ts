@@ -5,6 +5,10 @@ export function createSessionState(input: { traceId: string; intent: string; boa
     boardId: input.boardId,
     turnSeq: 0,
     repairRound: 0,
+    // Consecutive non-runtime tool failures (e.g. manifest_invalid). Reset on any
+    // success; a streak terminates the loop as manifest_unresolved so repeated
+    // validation failures fail fast instead of grinding to max_turns.
+    noProgressStreak: 0,
     textOnlyTurns: 0,
     loadedSkills: [] as string[],
     skillBodies: {} as Record<string, string>,

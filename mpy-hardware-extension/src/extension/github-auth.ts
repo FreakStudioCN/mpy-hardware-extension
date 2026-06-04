@@ -1,4 +1,5 @@
 type Deps = { vscode: any; apiBaseUrl: string; fetchImpl: typeof fetch; log?: (message: string) => void };
+type TokenOptions = { forceRefresh?: boolean };
 
 // Exchanges a VS Code GitHub session for our backend session JWT.
 //
@@ -16,12 +17,13 @@ export function createGithubAuth(deps: Deps) {
     deps.log?.(`[github-auth] ${message}`);
   }
 
-  async function getToken(interactive: boolean): Promise<string | undefined> {
+  async function getToken(interactive: boolean, options: TokenOptions = {}): Promise<string | undefined> {
     if (!deps.vscode?.authentication?.getSession) {
       record("auth_provider_unavailable", "VS Code GitHub authentication provider is unavailable");
       return undefined;
     }
-    if (cachedJwt) return cachedJwt;
+    if (cachedJwt && !options.forceRefresh) return cachedJwt;
+    if (options.forceRefresh) cachedJwt = undefined;
     let session: any;
     try {
       const options = interactive ? { createIfNone: true } : { silent: true };
