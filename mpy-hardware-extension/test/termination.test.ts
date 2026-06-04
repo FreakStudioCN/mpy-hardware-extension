@@ -26,6 +26,7 @@ test("session state starts with a fully deterministic initial shape", () => {
     runtimeVerified: false,
     board: undefined,
     driverContexts: [],
+    projectDir: undefined,
   });
 });
 

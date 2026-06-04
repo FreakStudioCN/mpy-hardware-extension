@@ -78,6 +78,37 @@ export class DeviceShim {
     const r = await this.rpc("device.serial_read_until", { port, markers });
     return { ok: r?.ok ?? r?.status === "ok", lines: r?.lines ?? [] };
   }
+
+  // ---- Upstream toolchain scripts (run on the host via the shim's venv) ----
+  // No device/port needed; just ensure the shim process + venv are up.
+
+  // Validate a project file against a vendored upstream schema (validate_json.py).
+  // The host joins projectDir + relPath. A non-zero exit is a normal "invalid"
+  // result, not a thrown error: returns { valid, output, exitCode } so the caller
+  // can surface the schema messages.
+  async runValidate(projectDir: string, relPath = "project-manifest.json", schema: "project-manifest" | "wiring" | "diagram" = "project-manifest"): Promise<{ valid: boolean; output: string; exitCode: number }> {
+    await this.ensure();
+    const r = await this.rpc("script.run_validate", { project_dir: projectDir, path: relPath, schema });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "validate_failed");
+    return { valid: !!r.valid, output: r.output ?? "", exitCode: r.exit_code ?? 1 };
+  }
+
+  // Generate the firmware/ skeleton into projectDir (init_scaffold.py). Writes
+  // host files directly; throws the script's error_kind on a non-zero exit.
+  async runScaffold(projectDir: string, mode: "timer" | "async" | "thread" = "timer"): Promise<{ output: string }> {
+    await this.ensure();
+    const r = await this.rpc("script.run_scaffold", { project_dir: projectDir, mode });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "scaffold_failed");
+    return { output: r.output ?? "" };
+  }
+
+  // Download device drivers into projectDir/firmware/lib (download_drivers.py).
+  async runDownloadDrivers(projectDir: string): Promise<{ output: string }> {
+    await this.ensure();
+    const r = await this.rpc("script.run_download_drivers", { project_dir: projectDir });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "download_failed");
+    return { output: r.output ?? "" };
+  }
 }
 
 // Spawn the Python shim and wire a DeviceShim to it. Everything is lazy: Python
@@ -96,9 +127,10 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
 
   async function start(): Promise<void> {
     const python = resolvePython(opts.vscode);
-    const venvPython = ensureVenv(python, opts.vscode);
+    const shimDir = join(opts.extensionUri?.fsPath ?? process.cwd(), "python", "shim");
+    const venvPython = ensureVenv(python, opts.vscode, join(shimDir, "requirements.txt"));
     const venvBin = dirname(venvPython);
-    const scriptPath = join(opts.extensionUri?.fsPath ?? process.cwd(), "python", "shim", "serve.py");
+    const scriptPath = join(shimDir, "serve.py");
     // Put the venv's bin on PATH so serve.py's bare `mpremote` calls resolve.
     const env = { ...process.env, PATH: venvBin + delimiter + (process.env.PATH ?? "") };
     child = spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env });
@@ -152,7 +184,13 @@ function resolvePython(vscode: any): string {
   throw new Error("python_not_found");
 }
 
-function ensureVenv(python: string, vscode: any): string {
+// Probe that ALL shim runtime deps import, not just mpremote: the venv also needs
+// jsonschema/flake8/requests for the upstream toolchain scripts (validate/scaffold/
+// download). A venv from an earlier version may have mpremote but not these, so
+// gate the install on the full set.
+const SHIM_IMPORT_PROBE = ["-c", "import mpremote, serial, jsonschema, flake8, requests"];
+
+function ensureVenv(python: string, vscode: any, requirementsPath: string): string {
   const venvDir = join(homedir(), ".mpyhw", "venv");
   const venvPython = process.platform === "win32"
     ? join(venvDir, "Scripts", "python.exe")
@@ -161,12 +199,12 @@ function ensureVenv(python: string, vscode: any): string {
     const result = spawnSync(python, ["-m", "venv", venvDir], { stdio: "ignore", timeout: 30_000 });
     if (result.error || result.status !== 0) throw new Error("python_venv_failed");
   }
-  if (!canRun(venvPython, ["-m", "mpremote", "version"])) {
+  if (!canRun(venvPython, SHIM_IMPORT_PROBE)) {
     const indexUrl = vscode?.workspace?.getConfiguration?.("mpyhw")?.get?.("pipIndexUrl");
-    const args = ["-m", "pip", "install", "--upgrade", "mpremote", "pyserial"];
+    const args = ["-m", "pip", "install", "--upgrade", "-r", requirementsPath];
     if (indexUrl) args.push("--index-url", indexUrl);
-    const result = spawnSync(venvPython, args, { stdio: "ignore", timeout: 120_000 });
-    if (result.error || result.status !== 0 || !canRun(venvPython, ["-m", "mpremote", "version"])) {
+    const result = spawnSync(venvPython, args, { stdio: "ignore", timeout: 300_000 });
+    if (result.error || result.status !== 0 || !canRun(venvPython, SHIM_IMPORT_PROBE)) {
       throw new Error("shim_dependency_install_failed");
     }
   }

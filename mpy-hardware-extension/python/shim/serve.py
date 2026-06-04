@@ -31,6 +31,43 @@ def map_install_error(stderr: str) -> str:
     return "mpremote_error"
 
 
+# ---------- upstream toolchain scripts (vendored MicroPython_Skills submodule) ----------
+# The scripts/schemas live in the repo-root submodule. In a packaged VSIX they are
+# bundled under <ext>/third_party; in dev they sit at <repo>/third_party (one level
+# above <ext>). Probe both relative to this file (<ext>/python/shim/serve.py).
+SCHEMA_FILES = {
+    "project-manifest": "upy-project-gen-toolchain-spec/project-manifest.schema.json",
+    "wiring": "upy-project-gen-toolchain-spec/wiring.schema.json",
+    "diagram": "upy-project-gen-toolchain-spec/diagram.schema.json",
+}
+SCRIPT_FILES = {
+    "validate": "upy-project-gen-toolchain-spec/scripts/validate_json.py",
+    "scaffold": "upy-scaffold/scripts/init_scaffold.py",
+    "download_drivers": "upy-generate/scripts/download_drivers.py",
+}
+
+
+def scripts_root() -> str:
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, "..", "..", "third_party", "MicroPython_Skills"),       # packaged: <ext>/third_party
+        os.path.join(here, "..", "..", "..", "third_party", "MicroPython_Skills"),  # dev: <repo>/third_party
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return os.path.abspath(candidate)
+    return os.path.abspath(candidates[0])
+
+
+def resolve_script(name: str) -> str:
+    return os.path.join(scripts_root(), SCRIPT_FILES[name])
+
+
+def resolve_schema(name: str):
+    rel = SCHEMA_FILES.get(name)
+    return os.path.join(scripts_root(), rel) if rel else None
+
+
 class Shim:
     def __init__(self, runner=None, serial_factory=None):
         self.runner = runner or subprocess.run
@@ -109,6 +146,12 @@ class Shim:
             return {"ok": False, "error": "timeout", "lines": matched}
         return {"ok": True, "lines": matched}
 
+    def run_script(self, script_path: str, args: list[str], timeout: float = 300):
+        # Run a vendored upstream toolchain script with the shim's own Python
+        # (sys.executable = the venv interpreter), so its deps (jsonschema/flake8/
+        # requests) resolve from the venv. Injectable via self.runner for tests.
+        return self._run([sys.executable, script_path, *args], timeout=timeout)
+
     def _run(self, command: list[str], timeout: float = 30):
         self.commands.append(command)
         return self.runner(command, capture_output=True, text=True, timeout=timeout)
@@ -166,7 +209,37 @@ def _write_code_to_device(code, run):
             os.remove(tmp)
 
 
+def _run_validate(shim, params):
+    schema_path = resolve_schema(params.get("schema", "project-manifest"))
+    if schema_path is None:
+        return {"status": "error", "error_kind": "unknown_schema"}
+    project_dir = params.get("project_dir")
+    rel = params.get("path", "project-manifest.json")
+    json_path = os.path.join(project_dir, rel) if project_dir else rel
+    r = shim.run_script(resolve_script("validate"), ["--schema", schema_path, "--json", json_path], timeout=60)
+    rc = getattr(r, "returncode", 1)
+    # validate_json.py: exit 0 = valid, 1 = validation errors, 2 = parse/not-found.
+    # A non-zero exit is a normal "invalid" result, not a transport failure, so the
+    # call status is always ok and the validity rides in `valid` + the output text.
+    return {"status": "ok", "valid": rc == 0, "exit_code": rc, "output": (getattr(r, "stdout", "") or "").strip()}
+
+
+def _run_project_script(shim, name, args):
+    r = shim.run_script(resolve_script(name), args)
+    rc = getattr(r, "returncode", 1)
+    if rc != 0:
+        return {"status": "error", "error_kind": "script_failed", "exit_code": rc,
+                "message": (getattr(r, "stderr", "") or getattr(r, "stdout", "") or "").strip()}
+    return {"status": "ok", "exit_code": rc, "output": (getattr(r, "stdout", "") or "").strip()}
+
+
 def _dispatch(shim, method, params):
+    if method == "script.run_validate":
+        return _run_validate(shim, params)
+    if method == "script.run_scaffold":
+        return _run_project_script(shim, "scaffold", ["--project-dir", params["project_dir"], "--mode", params.get("mode", "timer")])
+    if method == "script.run_download_drivers":
+        return _run_project_script(shim, "download_drivers", ["--project-dir", params["project_dir"]])
     if method == "device.scan":
         return {"status": "ok", "devices": [{"port": p} for p in shim.scan()]}
     if method == "device.health_check":

@@ -18,6 +18,9 @@ const ROUTES: Record<string, "local" | "api" | "shim" | "ui"> = {
   write_main_py: "shim",
   flash_and_run: "shim",
   read_serial_until: "shim",
+  run_validate: "shim",
+  run_scaffold: "shim",
+  run_download_drivers: "shim",
   ask_user: "ui",
 };
 

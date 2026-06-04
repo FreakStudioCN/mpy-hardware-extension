@@ -19,5 +19,9 @@ export function createSessionState(input: { traceId: string; intent: string; boa
     // survives multi-turn continuation (a follow-up message reuses the same state).
     board: undefined as any,
     driverContexts: [] as any[],
+    // Absolute project directory the upstream toolchain scripts operate on. Set by
+    // the phase-driven loop (B2, from project_name); until then the executors fall
+    // back to deps.projectRoot (the workspace root).
+    projectDir: undefined as string | undefined,
   };
 }

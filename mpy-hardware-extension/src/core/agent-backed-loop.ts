@@ -43,6 +43,11 @@ type LoopDeps = {
   // enforces path containment + the allowed-path set (project-manifest.json +
   // firmware/ + test/). Absent in headless/test.
   writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>;
+  // Absolute path of the project directory the upstream toolchain scripts operate
+  // on (validate / scaffold / download_drivers run host-side and need a real path).
+  // The host supplies the workspace root; B2 narrows it to <root>/<slug>. Absent in
+  // headless/test, in which case the scripts report project_dir_unavailable.
+  projectRoot?: string;
 };
 
 type LoopInput = {
@@ -167,6 +172,9 @@ function userVisibleToolPhase(toolName: string): string | null {
     load_skill: "Loading hardware rules",
     read_workspace_file: "Reading workspace file",
     write_project_file: "Writing project file",
+    run_validate: "Validating against schema",
+    run_scaffold: "Generating project skeleton",
+    run_download_drivers: "Downloading drivers",
     scan_device: "Scanning devices",
   };
   return phases[toolName] ?? null;
@@ -440,6 +448,23 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
               return { ok: false, error_kind: "runtime_error", error: result.error ?? "serial_read_timeout", lines };
             }
             return { ok: true, lines };
+          }
+          // Upstream toolchain scripts (host-side, no device): validate the
+          // manifest/wiring/diagram against the canonical schema, generate the
+          // firmware skeleton, download drivers. All operate on the project dir.
+          if (name === "run_validate" || name === "run_scaffold" || name === "run_download_drivers") {
+            const projectDir = state.projectDir ?? deps.projectRoot;
+            if (!projectDir) return { ok: false, error_kind: "project_dir_unavailable" };
+            if (name === "run_validate") {
+              // A failed validation is a normal result the agent acts on, not an
+              // error: return ok with the validity flag + schema messages.
+              const r = await shim.runValidate(projectDir, toolInput.path ?? "project-manifest.json", toolInput.schema ?? "project-manifest");
+              return { ok: true, valid: r.valid, exit_code: r.exitCode, output: r.output };
+            }
+            if (name === "run_scaffold") {
+              return { ok: true, output: (await shim.runScaffold(projectDir, toolInput.mode ?? "timer")).output };
+            }
+            return { ok: true, output: (await shim.runDownloadDrivers(projectDir)).output };
           }
           return { ok: false, error_kind: "UnknownToolError" };
         } catch (error: any) {

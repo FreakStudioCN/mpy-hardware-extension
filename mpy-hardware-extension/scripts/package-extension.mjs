@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
 const CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
@@ -57,10 +57,48 @@ const files = [
   { name: "extension/docs/install.md", data: readFileSync("docs/install.md") },
   { name: "extension/docs/demo-checklist.md", data: readFileSync("docs/demo-checklist.md") },
   { name: "extension/docs/troubleshooting.md", data: readFileSync("docs/troubleshooting.md") },
+  // Vendored upstream toolchain (the shim runs these host-side). They live in the
+  // repo-root submodule, outside the extension dir, so bundle them under
+  // extension/third_party where serve.py's scripts_root() finds them when packaged.
+  ...collectUpstream(),
 ].map((file) => ({ name: file.name.replaceAll("\\", "/"), data: Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data) }));
 
 writeFileSync(artifact, makeZip(files));
 console.log(`Built ${artifact}`);
+
+// Collect the vendored upstream scripts/schemas/templates the shim runs (validate,
+// scaffold + its templates, download_drivers). Source = repo-root submodule
+// (../third_party from the extension dir); destination mirrors it under
+// extension/third_party so serve.py's scripts_root() resolves it in a packaged VSIX.
+function collectUpstream() {
+  const upstreamRoot = join("..", "third_party", "MicroPython_Skills");
+  if (!existsSync(upstreamRoot)) {
+    fail(`Upstream submodule not found at ${upstreamRoot} — run \`git submodule update --init --recursive\` before packaging.`);
+  }
+  const rels = [
+    "upy-project-gen-toolchain-spec/scripts/validate_json.py",
+    "upy-project-gen-toolchain-spec/project-manifest.schema.json",
+    "upy-project-gen-toolchain-spec/wiring.schema.json",
+    "upy-project-gen-toolchain-spec/diagram.schema.json",
+    "upy-scaffold/scripts/init_scaffold.py",
+    "upy-generate/scripts/download_drivers.py",
+    ...walkDir(join(upstreamRoot, "upy-scaffold", "templates")).map((abs) => relative(upstreamRoot, abs).replaceAll("\\", "/")),
+  ];
+  return rels.map((rel) => ({
+    name: `extension/third_party/MicroPython_Skills/${rel}`,
+    data: readFileSync(join(upstreamRoot, rel)),
+  }));
+}
+
+function walkDir(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...walkDir(full));
+    else out.push(full);
+  }
+  return out;
+}
 
 function contentTypes() {
   return `<?xml version="1.0" encoding="utf-8"?>

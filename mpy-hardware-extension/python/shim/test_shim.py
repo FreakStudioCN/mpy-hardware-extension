@@ -1,8 +1,20 @@
+import os
 import subprocess
+import sys
 
 import pytest
 
-from serve import Shim, map_install_error, parse_scan_output, _ensure_utf8_io
+from serve import (
+    Shim,
+    map_install_error,
+    parse_scan_output,
+    resolve_schema,
+    resolve_script,
+    scripts_root,
+    _ensure_utf8_io,
+    _run_project_script,
+    _run_validate,
+)
 
 
 def test_ensure_utf8_io_forces_utf8_and_tolerates_missing_reconfigure():
@@ -160,6 +172,68 @@ def test_serial_read_until_drives_a_real_pyserial_loopback_port():
 
     assert result["ok"] is True
     assert result["lines"] == ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]
+
+
+def test_run_script_builds_a_python_command_with_args():
+    calls = []
+
+    def runner(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return subprocess.CompletedProcess(cmd, 0, "ok", "")
+
+    shim = Shim(runner=runner)
+    shim.run_script("/path/to/validate_json.py", ["--schema", "s.json", "--json", "m.json"])
+
+    # Runs with the shim's own interpreter so venv deps (jsonschema/flake8/requests) resolve.
+    assert calls[0][0][0] == sys.executable
+    assert calls[0][0][1:] == ["/path/to/validate_json.py", "--schema", "s.json", "--json", "m.json"]
+    assert calls[0][1]["capture_output"] is True
+    assert calls[0][1]["text"] is True
+
+
+def test_resolve_script_and_schema_paths():
+    assert resolve_script("validate").replace("\\", "/").endswith("upy-project-gen-toolchain-spec/scripts/validate_json.py")
+    assert resolve_script("scaffold").replace("\\", "/").endswith("upy-scaffold/scripts/init_scaffold.py")
+    assert resolve_script("download_drivers").replace("\\", "/").endswith("upy-generate/scripts/download_drivers.py")
+    assert resolve_schema("wiring").replace("\\", "/").endswith("upy-project-gen-toolchain-spec/wiring.schema.json")
+    assert resolve_schema("nope") is None
+    assert os.path.isabs(scripts_root())
+
+
+def test_run_validate_maps_exit_codes_to_validity():
+    # rc 0 = valid, rc 1 = invalid; BOTH are transport-ok (the validity rides in `valid`).
+    ok = _run_validate(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "[OK] valid", "")),
+                       {"project_dir": "/p", "schema": "project-manifest"})
+    assert ok == {"status": "ok", "valid": True, "exit_code": 0, "output": "[OK] valid"}
+
+    bad = _run_validate(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, "[FAIL] 1 error", "")),
+                        {"project_dir": "/p", "schema": "project-manifest"})
+    assert bad["status"] == "ok" and bad["valid"] is False and bad["exit_code"] == 1
+
+
+def test_run_validate_joins_project_dir_and_rejects_unknown_schema():
+    captured = {}
+
+    def runner(cmd, **_k):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    _run_validate(Shim(runner=runner), {"project_dir": "/proj", "path": "wiring.json", "schema": "wiring"})
+    # --json arg is project_dir joined with the relative path.
+    json_arg = captured["cmd"][captured["cmd"].index("--json") + 1]
+    assert json_arg == os.path.join("/proj", "wiring.json")
+
+    assert _run_validate(Shim(runner=runner), {"schema": "nope"}) == {"status": "error", "error_kind": "unknown_schema"}
+
+
+def test_run_project_script_maps_nonzero_exit_to_error():
+    fail = _run_project_script(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, "", "boom")),
+                               "scaffold", ["--project-dir", "/p", "--mode", "timer"])
+    assert fail["status"] == "error" and fail["error_kind"] == "script_failed" and "boom" in fail["message"]
+
+    ok = _run_project_script(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "[OK] done", "")),
+                             "download_drivers", ["--project-dir", "/p"])
+    assert ok == {"status": "ok", "exit_code": 0, "output": "[OK] done"}
 
 
 class FakeSerial:

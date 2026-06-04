@@ -63,3 +63,25 @@ test("shim round-trip: real serve.py answers scan / write_main_py / serial_read_
   // silent. (Was a no-op `assert.ok(true, ...)` that could never fail.)
   assert.equal(stderr.join("").trim(), "", `shim emitted stderr during a clean round-trip: ${stderr.join("")}`);
 });
+
+// Proves the script.* contract across the boundary: TS sends { project_dir, path,
+// schema }, serve.py resolves the vendored validate_json.py + schema path and runs
+// it (faked) — the echoed command proves the script path + args threaded through.
+test("shim round-trip: real serve.py answers script.run_validate over stdio", { skip: skipReason }, async () => {
+  const child = spawn(python!, ["shim_fake_driver.py"], { cwd: shimDir, stdio: ["pipe", "pipe", "pipe"] });
+  const proc = new ShimProcess({ write: (line: string) => child.stdin.write(line) });
+  child.stdout.on("data", (d: Buffer) => proc.feed(d.toString()));
+  child.on("exit", (code: number) => proc.handleExit(code ?? -1));
+
+  try {
+    const r = await proc.request("script.run_validate", { project_dir: "C:/proj", path: "project-manifest.json", schema: "wiring" });
+    assert.equal(r.status, "ok");
+    assert.equal(r.valid, true);              // fake runner returns exit 0
+    assert.equal(r.exit_code, 0);
+    assert.match(r.output, /validate_json\.py/);     // resolved script path
+    assert.match(r.output, /wiring\.schema\.json/);  // resolved schema for "wiring"
+    assert.match(r.output, /project-manifest\.json/); // project_dir + path joined for --json
+  } finally {
+    child.kill();
+  }
+});

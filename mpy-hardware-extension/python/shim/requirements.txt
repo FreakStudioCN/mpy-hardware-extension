@@ -1,3 +1,6 @@
 mpremote
 pyserial
 pytest
+jsonschema
+flake8
+requests

@@ -272,5 +272,44 @@
       "required": ["path", "content"],
       "additionalProperties": false
     }
+  },
+  {
+    "name": "run_validate",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Validate a project JSON file against the canonical upstream schema (project-manifest, wiring, or diagram) by running the vendored validate_json.py on the host. Returns whether it is valid plus the schema error messages. The schema is the single source of truth — use this as the authoritative gate after writing the manifest or wiring/diagram JSON.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "schema": { "type": "string", "enum": ["project-manifest", "wiring", "diagram"], "description": "Which canonical schema to validate against." },
+        "path": { "type": "string", "description": "Project-relative path of the JSON file to validate (default project-manifest.json)." }
+      },
+      "required": ["schema"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_scaffold",
+    "executor_hint": "shim",
+    "requires_user_confirm": true,
+    "description": "Generate the deterministic firmware/ project skeleton (board.py, conf.py, boot.py, main.py template, lib/logger, lib/scheduler, tasks/maintenance, driver stubs, tools/, README, .flake8) by running the vendored init_scaffold.py on the host. Requires a project-manifest.json at the select-hw phase (with mcu, pinout, devices). Writes files directly into the project directory.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["timer", "async", "thread"], "description": "Scheduler mode for the generated main.py (default timer)." }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_download_drivers",
+    "executor_hint": "shim",
+    "requires_user_confirm": true,
+    "description": "Download the device drivers listed in project-manifest.json (devices[].driver) from upypi/GitHub into firmware/lib, along with README and example references, by running the vendored download_drivers.py on the host. Network access required.",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
   }
 ]

@@ -76,3 +76,29 @@ test("DeviceShim allows lib python extra device files", async () => {
   const write = calls.find((call) => call.method === "device.write_device_file");
   assert.equal(write.params.path, "lib/aht20.py");
 });
+
+test("DeviceShim runs upstream toolchain scripts via script.* RPC (no device/port)", async () => {
+  const calls: any[] = [];
+  const responses: Record<string, any> = {
+    "script.run_validate": { status: "ok", valid: false, exit_code: 1, output: "(root): 'phase' is a required property" },
+    "script.run_scaffold": { status: "ok", exit_code: 0, output: "[OK] firmware/board.py" },
+    "script.run_download_drivers": { status: "ok", exit_code: 0, output: "[DONE] Driver download complete" },
+  };
+  const shim = new DeviceShim(async (method: string, params: any) => { calls.push({ method, params }); return responses[method]; });
+
+  const validation = await shim.runValidate("C:/proj/app", "project-manifest.json", "project-manifest");
+  assert.deepEqual(validation, { valid: false, output: "(root): 'phase' is a required property", exitCode: 1 });
+  assert.deepEqual(calls.find((c) => c.method === "script.run_validate").params, { project_dir: "C:/proj/app", path: "project-manifest.json", schema: "project-manifest" });
+
+  assert.equal((await shim.runScaffold("C:/proj/app", "timer")).output, "[OK] firmware/board.py");
+  assert.equal(calls.find((c) => c.method === "script.run_scaffold").params.mode, "timer");
+
+  assert.equal((await shim.runDownloadDrivers("C:/proj/app")).output, "[DONE] Driver download complete");
+  // None of these scan for a device — they run host-side against the project dir.
+  assert.ok(!calls.some((c) => c.method === "device.scan"), "toolchain scripts must not require a device");
+});
+
+test("DeviceShim throws the script error_kind on a failed toolchain run", async () => {
+  const shim = new DeviceShim(async () => ({ status: "error", error_kind: "script_failed", message: "boom" }));
+  await assert.rejects(() => shim.runScaffold("C:/proj/app"), /script_failed/);
+});

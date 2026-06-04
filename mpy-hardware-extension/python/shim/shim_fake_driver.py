@@ -6,6 +6,7 @@ contract (newline framing, _dispatch routing, param keys, response shapes)
 without needing mpremote, a serial port, or a real board.
 """
 import subprocess
+import sys
 
 from serve import Shim, main
 
@@ -13,6 +14,11 @@ from serve import Shim, main
 def _fake_runner(command, **_kwargs):
     # serve.py shells out to mpremote via subprocess.run; return canned output
     # shaped like the real CLI so _dispatch/parse_scan_output behave normally.
+    if command and command[0] == sys.executable:
+        # An upstream toolchain script run ([python, script, *args]). Echo the
+        # command so the round-trip can assert the resolved script path + args
+        # threaded across the boundary, without executing the real script.
+        return subprocess.CompletedProcess(command, 0, " ".join(command), "")
     if "list" in command:
         stdout = "COM3 303A:1001 MicroPython\n"
     else:

@@ -50,7 +50,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   let availableBoards: any[] = [];
   const controller = new SessionController({
     postMessage: (message) => webview.postMessage(message),
-    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(workspaceFolder), writeProjectFile: makeWorkspaceWriter(workspaceFolder) }),
+    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(workspaceFolder), writeProjectFile: makeWorkspaceWriter(workspaceFolder), projectRoot: workspaceFolder }),
     recorderFactory: workspaceFolder ? (traceId) => new JsonlSessionRecorder({ workspaceFolder, traceId }) : undefined,
     writeFiles: async (files) => {
       const result = await writeGeneratedFiles({
@@ -187,7 +187,7 @@ async function checkToolRegistry(apiBaseUrl: string, fetchImpl: typeof fetch) {
 
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }> }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; projectRoot?: string }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);
