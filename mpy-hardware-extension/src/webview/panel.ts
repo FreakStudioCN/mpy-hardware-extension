@@ -16,6 +16,13 @@ import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-wr
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void };
 
+// All generation output is contained under <workspace>/<PROJECT_SUBDIR>, never the
+// workspace root. The scaffold (init_scaffold.py) writes README.md/LICENSE/.flake8
+// and the firmware/ tree straight into its project_dir with no overwrite check, so
+// pointing it at the open workspace root would clobber those files (e.g. when the
+// dev repo itself is the open folder). A dedicated subfolder makes that impossible.
+const PROJECT_SUBDIR = "blockless-project";
+
 // Open the UI as an editor-area tab. Kept for the mpyhw.openPanel command and
 // existing tests; the docked sidebar uses createViewProvider below.
 export function createPanel(vscode: any, extensionUri: any, deps: PanelDeps = {}) {
@@ -47,15 +54,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
   const auth = createGithubAuth({ vscode, apiBaseUrl, fetchImpl, log: deps.log });
   const workspaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
+  // Project output goes into a dedicated subfolder (see PROJECT_SUBDIR); session
+  // trace logs stay at the workspace root under .mpyhw, not mixed into the project.
+  const projectFolder = workspaceFolder ? join(workspaceFolder, PROJECT_SUBDIR) : undefined;
   let availableBoards: any[] = [];
   const controller = new SessionController({
     postMessage: (message) => webview.postMessage(message),
-    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(workspaceFolder), writeProjectFile: makeWorkspaceWriter(workspaceFolder), projectRoot: workspaceFolder }),
+    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), projectRoot: projectFolder }),
     recorderFactory: workspaceFolder ? (traceId) => new JsonlSessionRecorder({ workspaceFolder, traceId }) : undefined,
     writeFiles: async (files) => {
       const result = await writeGeneratedFiles({
-        workspaceFolder,
-        generatedRoot: workspaceFolder ? undefined : join(process.cwd(), ".mpyhw", "generated"),
+        workspaceFolder: projectFolder,
+        generatedRoot: projectFolder ? undefined : join(process.cwd(), ".mpyhw", "generated"),
         files,
         exists: async (path) => existsSync(path),
         writeFile: async (path, content) => {

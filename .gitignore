@@ -42,3 +42,6 @@ mpyhw-api/credits.db
 # Generated codegen output dropped at repo root during e2e runs
 /main.py
 /manifest.json
+
+# Generated hardware project (the extension writes here, never the workspace root)
+/blockless-project/
