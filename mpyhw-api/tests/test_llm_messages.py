@@ -453,17 +453,14 @@ def test_propose_manifest_schema_is_byte_stable():
     assert json.dumps(first) == json.dumps(second)
 
 
-def test_llm_load_skill_schema_comes_from_skill_catalog(monkeypatch, tmp_path):
-    from app import routes_llm
-
-    skill_dir = tmp_path / "content" / "skills" / "existing"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "upy-analyze.md").write_text("# upy-analyze", encoding="utf-8")
-    (skill_dir / "upy-generate.md").write_text("# upy-generate", encoding="utf-8")
-    monkeypatch.setattr(routes_llm, "ROOT", tmp_path)
+def test_llm_load_skill_schema_comes_from_skill_catalog():
+    from app import routes_llm, skill_catalog
 
     tools = routes_llm._deepseek_tools([{"name": "load_skill"}])
     parameters = tools[0]["function"]["parameters"]
 
     assert parameters["required"] == ["skill"]
-    assert parameters["properties"]["skill"]["enum"] == ["upy-analyze", "upy-generate"]
+    # The load_skill enum is exactly the served project-gen surface.
+    assert parameters["properties"]["skill"]["enum"] == skill_catalog.served_skill_names()
+    assert "upy-wiring" in parameters["properties"]["skill"]["enum"]
+    assert "upy-norm-driver" not in parameters["properties"]["skill"]["enum"]

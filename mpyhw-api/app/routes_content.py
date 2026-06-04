@@ -4,6 +4,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Response
 
+from app import skill_catalog
+
 
 ROOT = Path(__file__).resolve().parents[1]
 router = APIRouter()
@@ -48,12 +50,12 @@ def board(board_id: str):
 @router.get("/v1/skills")
 def skills():
     summaries = []
-    for path in sorted((ROOT / "content" / "skills" / "existing").glob("*.md")):
-        body = path.read_text(encoding="utf-8")
+    for name in skill_catalog.served_skill_names():
+        body = skill_catalog.skill_md_path(name).read_text(encoding="utf-8")
         summaries.append({
-            "name": path.stem,
-            "description": body.splitlines()[0].lstrip("# ").strip(),
-            "body_url": f"/v1/skills/{path.stem}",
+            "name": name,
+            "description": skill_catalog.skill_description(body),
+            "body_url": f"/v1/skills/{name}",
             "body_sha256": hashlib.sha256(body.encode()).hexdigest(),
         })
     return {"version": hashlib.sha256(json.dumps(summaries, sort_keys=True).encode()).hexdigest(), "skills": summaries}
@@ -61,8 +63,8 @@ def skills():
 
 @router.get("/v1/skills/{name}")
 def skill(name: str):
-    path = _safe_content_path(ROOT / "content" / "skills" / "existing", name, ".md")
-    if not path.exists():
+    path = skill_catalog.skill_md_path(name)
+    if path is None:
         raise HTTPException(status_code=404, detail={"error": "skill_not_found"})
     body = path.read_text(encoding="utf-8")
     headers = {"ETag": hashlib.sha256(body.encode()).hexdigest()}

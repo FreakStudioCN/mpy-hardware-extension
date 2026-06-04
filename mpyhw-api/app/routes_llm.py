@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app import analytics, credit_store, llm_sessions
+from app import analytics, credit_store, llm_sessions, skill_catalog
 from app.auth import get_current_user
 from app.package_store import PackageStore
 from app.tool_registry import CANONICAL_TOOL_INPUT_SCHEMAS, CANONICAL_TOOL_NAMES
@@ -492,7 +492,7 @@ def _capability_schema() -> dict[str, Any]:
 
 
 def _skill_name_schema() -> dict[str, Any]:
-    names = sorted(path.stem for path in (ROOT / "content" / "skills" / "existing").glob("*.md"))
+    names = skill_catalog.served_skill_names()
     schema: dict[str, Any] = {"type": "string"}
     if names:
         schema["enum"] = names
