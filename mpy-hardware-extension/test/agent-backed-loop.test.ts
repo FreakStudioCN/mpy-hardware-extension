@@ -4,10 +4,35 @@ import test from "node:test";
 import { createAgentBackedLoop, estimateCredits } from "../src/core/agent-backed-loop.ts";
 
 const MANIFEST = {
+  schema_version: "1.0",
+  phase: "select-hw",
+  created_at: "2026-06-04T00:00:00Z",
+  project_name: "temp-led",
+  requirements: { description: "Turn on the LED when the temperature is above 30 C." },
+  devices: [
+    { name: "AHT20", type: "temperature_sensor", interface: "I2C", i2c_addr: ["0x38"], driver: { package_name: "aht20_driver", version: "1.0.0" } },
+    { name: "Status LED", type: "led", interface: "GPIO", driver: { package_name: "machine_pin_led", version: "builtin" } },
+  ],
+  mcu: { model: "ESP32-S3", board: "esp32-s3-devkitc-1" },
+  pinout: [
+    { device: "AHT20", pin_name: "I2C0 SDA", gpio: "GPIO5" },
+    { device: "AHT20", pin_name: "I2C0 SCL", gpio: "GPIO6" },
+    { device: "Status LED", pin_name: "LED", gpio: "GPIO2" },
+  ],
   board_id: "esp32-s3-devkitc-1",
   capabilities: ["temperature_sensing", "digital_output"],
   packages: [{ name: "aht20_driver", version: "1.0.0" }, { name: "machine_pin_led", version: "builtin" }],
   driver_context_refs: ["aht20_driver@1.0.0", "machine_pin_led@builtin"],
+  pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6", led_anode: "GPIO2" },
+  logic: { threshold_c: 30, action: "led_on_above_threshold" },
+  wiring: [{ role: "i2c_sda", pin: "GPIO5" }, { role: "i2c_scl", pin: "GPIO6" }, { role: "led_anode", pin: "GPIO2" }],
+};
+
+const THIN_MANIFEST = {
+  board_id: "esp32-s3-devkitc-1",
+  capabilities: ["temperature_sensing", "digital_output"],
+  packages: [{ name: "aht20_driver", version: "1.0.0" }],
+  driver_context_refs: ["aht20_driver@1.0.0"],
   pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6", led_anode: "GPIO2" },
   logic: { threshold_c: 30, action: "led_on_above_threshold" },
   wiring: [{ role: "i2c_sda", pin: "GPIO5" }, { role: "i2c_scl", pin: "GPIO6" }, { role: "led_anode", pin: "GPIO2" }],
@@ -454,12 +479,7 @@ test("the deploy checkpoint fires once before the first device tool, not per too
 test("generate_code streams the generation as code_delta then a final code_updated", async () => {
   let mainTurns = 0;
   const events: any[] = [];
-  const manifest = {
-    board_id: "esp32-s3-devkitc-1",
-    capabilities: ["display_text"],
-    pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6" },
-    wiring: [{ role: "i2c_sda", pin: "GPIO5" }],
-  };
+  const manifest = MANIFEST;
   const turns = [{ name: "generate_code", input: { manifest, target_path: "main.py" } }];
 
   const fetchImpl = (async (url: string, init?: RequestInit) => {
@@ -498,12 +518,7 @@ test("generate_code streams the generation as code_delta then a final code_updat
 test("generate_code uses grounded LLM generation (one path) and strips code fences", async () => {
   let mainTurns = 0;
   const events: any[] = [];
-  const manifest = {
-    board_id: "esp32-s3-devkitc-1",
-    capabilities: ["display_text"],
-    pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6" },
-    wiring: [{ role: "i2c_sda", pin: "GPIO5" }, { role: "i2c_scl", pin: "GPIO6" }],
-  };
+  const manifest = MANIFEST;
   const turns = [{ name: "generate_code", input: { manifest, target_path: "main.py" } }];
 
   const fetchImpl = (async (url: string, init?: RequestInit) => {
@@ -537,12 +552,7 @@ test("generate_code routes a non-main target_path to module-rules codegen and ta
   let mainTurns = 0;
   const events: any[] = [];
   let codegenPrompt = "";
-  const manifest = {
-    board_id: "esp32-s3-devkitc-1",
-    capabilities: ["temperature_sensing"],
-    pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6" },
-    wiring: [{ role: "i2c_sda", pin: "GPIO5" }, { role: "i2c_scl", pin: "GPIO6" }],
-  };
+  const manifest = MANIFEST;
   const turns = [{ name: "generate_code", input: { manifest, target_path: "lib/aht20.py" } }];
 
   const fetchImpl = (async (url: string, init?: RequestInit) => {
@@ -710,17 +720,78 @@ test("propose_manifest (rich) tracks phase, renders derived wiring, and persists
   assert.equal(JSON.parse(persisted!.content).project_name, "temp-display");
 });
 
+test("propose_manifest rejects legacy thin manifests on the agent path", async () => {
+  const recorded: any[] = [];
+  const events: any[] = [];
+  let turn = 0;
+  const fetchImpl = (async (url: string) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const tool = turn++ === 0 ? { name: "propose_manifest", input: { manifest: THIN_MANIFEST } } : null;
+      return { ok: true, status: 200, text: async () => (tool ? sseForTurn(tool) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  const { state } = await loop({
+    intent: "thermometer",
+    boardId: "esp32-s3-devkitc-1",
+    onEvent: (event) => events.push(event),
+    recorder: { record: async (event: any) => { recorded.push(event); } },
+  });
+
+  assert.equal(state.manifest, undefined);
+  assert.ok(!events.some((event) => event.type === "manifest_updated"), "thin manifest must not update the UI");
+  const result = recorded.find((event) => event.type === "tool_result" && event.name === "propose_manifest");
+  assert.equal(result?.observation?.ok, false);
+  assert.equal(result?.observation?.error_kind, "manifest_contract_error");
+  assert.match(JSON.stringify(result?.observation), /schema_version/);
+});
+
+test("generate_code rejects legacy thin manifests before plan gate or codegen", async () => {
+  const recorded: any[] = [];
+  const events: any[] = [];
+  let turn = 0;
+  let codegenCalls = 0;
+  let planCalls = 0;
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        codegenCalls += 1;
+        return { ok: true, status: 200, text: async () => `data: ${JSON.stringify({ type: "message_stop" })}` } as unknown as Response;
+      }
+      const tool = turn++ === 0 ? { name: "generate_code", input: { manifest: THIN_MANIFEST, target_path: "main.py" } } : null;
+      return { ok: true, status: 200, text: async () => (tool ? sseForTurn(tool) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({
+    intent: "thermometer",
+    boardId: "esp32-s3-devkitc-1",
+    onEvent: (event) => events.push(event),
+    recorder: { record: async (event: any) => { recorded.push(event); } },
+    confirmPlan: async () => { planCalls += 1; return { action: "confirm" }; },
+  });
+
+  assert.equal(planCalls, 0, "thin manifest must be rejected before the plan gate");
+  assert.equal(codegenCalls, 0, "thin manifest must not reach nested LLM codegen");
+  assert.ok(!events.some((event) => event.type === "manifest_updated"), "thin manifest must not update the UI");
+  assert.ok(!events.some((event) => event.type === "code_updated"), "thin manifest must not produce code");
+  const result = recorded.find((event) => event.type === "tool_result" && event.name === "generate_code");
+  assert.equal(result?.observation?.ok, false);
+  assert.equal(result?.observation?.error_kind, "manifest_contract_error");
+  assert.match(JSON.stringify(result?.observation), /schema_version/);
+});
+
 test("write_main_py deploys additional generated files (multi-file project) to the device", async () => {
   let mainTurns = 0;
   let codegenCall = 0;
   let mainWritten = "";
   const deviceWrites: any[] = [];
-  const manifest = {
-    board_id: "esp32-s3-devkitc-1",
-    capabilities: ["temperature_sensing"],
-    pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6" },
-    wiring: [{ role: "i2c_sda", pin: "GPIO5" }],
-  };
+  const manifest = MANIFEST;
   const turns = [
     { name: "generate_code", input: { manifest, target_path: "main.py" } },
     { name: "generate_code", input: { manifest, target_path: "lib/aht20.py" } },
@@ -765,12 +836,7 @@ test("write_main_py deploys additional generated files (multi-file project) to t
 test("write_main_py deploys generated main.py from local state, not the model echo", async () => {
   let turnIndex = 0;
   let mainWritten = "";
-  const manifest = {
-    board_id: "esp32-s3-devkitc-1",
-    capabilities: ["digital_output"],
-    pins: { led_anode: "GPIO2" },
-    wiring: [{ role: "led_anode", pin: "GPIO2" }],
-  };
+  const manifest = MANIFEST;
   const turns = [
     { name: "generate_code", input: { manifest, target_path: "main.py" } },
     { name: "write_main_py", input: { path: "main.py", content: "print('STALE_ECHO')" } },
@@ -808,12 +874,7 @@ test("write_main_py deploys generated main.py from local state, not the model ec
 test("audit_code audits generated local state when the model echo diverges", async () => {
   let turnIndex = 0;
   const recorded: any[] = [];
-  const manifest = {
-    board_id: "esp32-s3-devkitc-1",
-    capabilities: ["digital_output"],
-    pins: { led_anode: "GPIO2" },
-    wiring: [{ role: "led_anode", pin: "GPIO2" }],
-  };
+  const manifest = MANIFEST;
   const turns = [
     { name: "generate_code", input: { manifest, target_path: "main.py" } },
     { name: "audit_code", input: { path: "main.py", content: "import machine\n" } },
@@ -881,15 +942,11 @@ test("generate_code emits manifest_updated so the wiring view renders even witho
   // Reproduces the wiring-never-appears bug: when the agent goes straight to
   // generate_code (propose_manifest never validated), the wiring panel listens
   // for manifest_updated, which only propose_manifest used to emit. The manifest
-  // that produced the code must also reach the UI so wiring can render.
+  // that produced the code must also reach the UI so wiring can render. Agent
+  // live paths require the rich upstream manifest shape.
   let mainTurns = 0;
   const events: any[] = [];
-  const manifest = {
-    board_id: "esp32-s3-devkitc-1",
-    capabilities: ["display_text"],
-    pins: { i2c_sda: "GPIO5", i2c_scl: "GPIO6" },
-    wiring: [{ role: "i2c_sda", pin: "GPIO5" }, { role: "i2c_scl", pin: "GPIO6" }],
-  };
+  const manifest = MANIFEST;
   const turns = [{ name: "generate_code", input: { manifest, target_path: "main.py" } }];
 
   const fetchImpl = (async (url: string, init?: RequestInit) => {
@@ -913,19 +970,15 @@ test("generate_code emits manifest_updated so the wiring view renders even witho
 
   const manifestEvent = events.find((e) => e.type === "manifest_updated");
   assert.ok(manifestEvent, "expected manifest_updated from generate_code so wiring can render");
-  assert.deepEqual(manifestEvent.manifest, manifest);
+  assert.equal(manifestEvent.manifest.schema_version, "1.0");
+  assert.equal(manifestEvent.manifest.wiring.buses.length, 1);
+  assert.equal(manifestEvent.manifest.wiring.standalone.length, 1);
 });
 
 test("agent-backed loop keeps internal tool names out of user-facing trace events", async () => {
   let mainTurns = 0;
   const events: any[] = [];
-  const manifest = {
-    board_id: "esp32-s3-devkitc-1",
-    capabilities: ["temperature_sensing", "humidity_sensing", "display_text"],
-    packages: [{ name: "aht20_driver" }, { name: "ssd1306" }],
-    wiring: [{ role: "i2c_sda", pin: "GPIO5" }, { role: "i2c_scl", pin: "GPIO6" }],
-    logic: "Read AHT20 sensor temperature and humidity every 2 seconds, display on SSD1306 OLED.",
-  };
+  const manifest = MANIFEST;
   const turns = [{ name: "generate_code", input: { manifest, target_path: "main.py" } }];
 
   const fetchImpl = (async (url: string, init?: RequestInit) => {

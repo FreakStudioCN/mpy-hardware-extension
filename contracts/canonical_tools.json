@@ -127,11 +127,25 @@
     "name": "generate_code",
     "executor_hint": "local",
     "requires_user_confirm": false,
-    "description": "Generate MicroPython project code from a validated hardware manifest.",
+    "description": "Generate MicroPython project code from the current validated rich upstream project-manifest.json. The manifest argument must be the latest project-manifest shape with schema_version \"1.0\" (devices[] + pinout[]); legacy thin manifests without schema_version are rejected.",
     "input_schema": {
       "type": "object",
       "properties": {
-        "manifest": { "type": "object" },
+        "manifest": {
+          "type": "object",
+          "description": "Current rich upstream project-manifest.json produced by propose_manifest and validated by run_validate; must include schema_version \"1.0\".",
+          "properties": {
+            "schema_version": { "type": "string", "enum": ["1.0"], "description": "Manifest schema version; always \"1.0\"." },
+            "phase": { "type": "string", "description": "Current build phase." },
+            "project_name": { "type": "string" },
+            "requirements": { "type": "object" },
+            "devices": { "type": "array" },
+            "mcu": { "type": "object" },
+            "pinout": { "type": "array" }
+          },
+          "required": ["schema_version", "phase", "project_name", "requirements", "devices"],
+          "additionalProperties": true
+        },
         "target_path": { "type": "string" }
       },
       "required": ["manifest", "target_path"],

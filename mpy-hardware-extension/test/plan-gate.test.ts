@@ -4,6 +4,19 @@ import test from "node:test";
 import { createAgentBackedLoop, estimateCredits } from "../src/core/agent-backed-loop.ts";
 
 const MANIFEST = {
+  schema_version: "1.0",
+  phase: "select-hw",
+  created_at: "2026-06-04T00:00:00Z",
+  project_name: "temp-led",
+  requirements: { description: "Turn on the LED when the temperature is above 30 C." },
+  devices: [
+    { name: "AHT20", type: "temperature_sensing", interface: "I2C", i2c_addr: ["0x38"], driver: { package_name: "aht20_driver", version: "1.0.0" } },
+  ],
+  mcu: { model: "ESP32-C3", board: "esp32-c3-devkitm-1" },
+  pinout: [
+    { device: "AHT20", pin_name: "I2C0 SDA", gpio: "GPIO5" },
+    { device: "Status LED", pin_name: "LED", gpio: "GPIO2" },
+  ],
   board_id: "esp32-c3-devkitm-1",
   capabilities: ["temperature_sensing", "digital_output"],
   packages: [{ name: "aht20_driver", version: "1.0.0" }],
@@ -71,7 +84,7 @@ test("plan gate: declining the plan cancels codegen (no code, no spend)", async 
 
   assert.equal(plans.length, 1, "plan gate should fire exactly once");
   assert.equal(plans[0].estimate, 3);
-  assert.deepEqual(plans[0].capabilities, ["temperature_sensing", "digital_output"]);
+  assert.deepEqual(plans[0].capabilities, ["temperature_sensing"]);
   assert.equal(counts.codegen, 0, "declined plan must not run the codegen sub-call");
   assert.ok(!events.some((e) => e.type === "code_updated"), "no code should be produced");
 });

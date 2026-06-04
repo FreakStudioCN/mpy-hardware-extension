@@ -3,6 +3,7 @@
 .claude/scheduled_tasks.lock
 .claude/local/
 .claude/projects/
+.claude/settings.local.json
 .superpowers/
 
 # Python
@@ -37,3 +38,7 @@ dev/.pdf-export/
 mpy-hardware-extension/tmp/
 .mpyhw/
 mpyhw-api/credits.db
+
+# Generated codegen output dropped at repo root during e2e runs
+/main.py
+/manifest.json

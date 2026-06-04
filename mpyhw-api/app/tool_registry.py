@@ -10,6 +10,7 @@ CANONICAL_TOOLS = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 
 CANONICAL_TOOL_NAMES = {tool["name"] for tool in CANONICAL_TOOLS}
 CANONICAL_TOOL_INPUT_SCHEMAS = {tool["name"]: tool["input_schema"] for tool in CANONICAL_TOOLS}
+CANONICAL_TOOL_DESCRIPTIONS = {tool["name"]: tool.get("description", "") for tool in CANONICAL_TOOLS}
 
 
 def tool_registry_version() -> str:

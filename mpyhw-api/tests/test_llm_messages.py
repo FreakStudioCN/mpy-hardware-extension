@@ -443,6 +443,21 @@ def test_propose_manifest_schema_documents_the_rich_upstream_manifest():
     assert "analyze" in manifest["properties"]["phase"]["enum"]
 
 
+def test_generate_code_schema_requires_the_rich_upstream_manifest():
+    from app import routes_llm
+
+    tools = routes_llm._deepseek_tools([{"name": "generate_code"}])
+    tool = tools[0]["function"]
+    manifest = tool["parameters"]["properties"]["manifest"]
+
+    assert "rich upstream project-manifest" in tool["description"]
+    assert set(manifest["required"]) >= {
+        "schema_version", "phase", "project_name", "requirements", "devices",
+    }
+    assert manifest["properties"]["schema_version"]["enum"] == ["1.0"]
+    assert "legacy thin manifests" in tool["description"]
+
+
 def test_propose_manifest_schema_is_byte_stable():
     from app import routes_llm
 

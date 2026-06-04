@@ -176,6 +176,31 @@ function buildPlan(manifest: any, intent: string): BuildPlan {
   };
 }
 
+function requireRichManifest(manifest: any) {
+  if (!manifest || typeof manifest !== "object") {
+    return {
+      ok: false,
+      error_kind: "manifest_contract_error",
+      errors: [{ code: "manifest_shape_invalid", message: "manifest must be an upstream project-manifest object with schema_version \"1.0\"." }],
+    };
+  }
+  if (manifest.schema_version === undefined) {
+    return {
+      ok: false,
+      error_kind: "manifest_contract_error",
+      errors: [{ code: "missing_field", message: "manifest.schema_version is required; use the upstream project-manifest.json schema, not the legacy thin manifest." }],
+    };
+  }
+  if (manifest.schema_version !== "1.0") {
+    return {
+      ok: false,
+      error_kind: "manifest_contract_error",
+      errors: [{ code: "schema_version_invalid", message: "manifest.schema_version must be \"1.0\"." }],
+    };
+  }
+  return null;
+}
+
 function userVisibleToolPhase(toolName: string): string | null {
   const phases: Record<string, string> = {
     query_board_profile: "Reading board profile",
@@ -337,6 +362,8 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
         }
         if (name === "propose_manifest") {
           const manifest = toolInput.manifest;
+          const contractError = requireRichManifest(manifest);
+          if (contractError) return contractError;
           const validation = validateManifest(manifest, state.board);
           if (!validation.valid) {
             return { ok: false, error_kind: "manifest_invalid", errors: validation.errors };
@@ -354,19 +381,25 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
             }
             return { ok: true, phase: state.phase };
           }
-          onEvent({ type: "manifest_updated", manifest });
-          return { ok: true, manifest };
+          return { ok: false, error_kind: "manifest_invalid", errors: [{ code: "schema_version_invalid", message: "manifest.schema_version must be \"1.0\"." }] };
         }
         if (name === "generate_code") {
+          const manifest = toolInput.manifest;
+          const contractError = requireRichManifest(manifest);
+          if (contractError) return contractError;
+          const validation = validateManifest(manifest, state.board);
+          if (!validation.valid) {
+            return { ok: false, error_kind: "manifest_invalid", errors: validation.errors };
+          }
           // Surface the manifest first so the wiring view renders as part of the
           // plan the user reviews — before any (paid) codegen runs. Also covers the
           // case where the agent skipped (or never validated) a propose_manifest call.
-          onEvent({ type: "manifest_updated", manifest: toolInput.manifest });
+          onEvent({ type: "manifest_updated", manifest: { ...manifest, wiring: deriveWiring(manifest) } });
           // Plan gate (deterministic, once per session): show requirements + a rough
           // credit estimate and wait for confirmation before spending on codegen.
           // Repair-loop regenerations keep planConfirmed=true and skip the prompt.
           if (!state.planConfirmed) {
-            const plan = buildPlan(toolInput.manifest, input.intent);
+            const plan = buildPlan(manifest, input.intent);
             const decision = typeof input.confirmPlan === "function"
               ? await input.confirmPlan(plan)
               : { action: "confirm" as const };
@@ -383,8 +416,8 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           // special-casing. (The deterministic template lives only in the
           // offline MPYHW_LOOP=template pipeline.)
           const targetPath = toolInput.target_path ?? "main.py";
-          const contexts = contextsForCodegen(toolInput.manifest);
-          const generated = await generateCodeViaLlm(toolInput.manifest, contexts, targetPath);
+          const contexts = contextsForCodegen(manifest);
+          const generated = await generateCodeViaLlm(manifest, contexts, targetPath);
           if (!generated.ok) return { ok: false, error_kind: "codegen_failed", error: generated.error };
           state.files[targetPath] = generated.code;
           onEvent({ type: "code_updated", code: generated.code, path: targetPath });
