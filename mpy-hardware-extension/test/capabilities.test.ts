@@ -24,3 +24,14 @@ test("extracts humidity from golden phrase", () => {
 test("extracts product demo capabilities from Chinese intent", () => {
   assert.deepEqual(extractCapabilities("超过30度亮红灯"), ["temperature_sensing", "digital_output"]);
 });
+
+test("returns no capabilities for empty or non-hardware intents", () => {
+  assert.deepEqual(extractCapabilities(""), []);
+  assert.deepEqual(extractCapabilities("write me a poem about the sea"), []);
+});
+
+test("word boundaries stop substrings from false-matching (ledger is not an LED)", () => {
+  // matchesKeyword wraps ascii keywords in (^|[^a-z0-9])kw($|[^a-z0-9]); the "led" inside
+  // "ledger" must NOT register a digital_output capability.
+  assert.deepEqual(extractCapabilities("update the ledger entry"), []);
+});

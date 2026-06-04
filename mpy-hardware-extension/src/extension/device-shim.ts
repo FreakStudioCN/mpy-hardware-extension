@@ -74,6 +74,17 @@ export class DeviceShim {
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "flash_failed");
   }
 
+  // Deploy the on-disk <projectDir>/firmware/ tree to the device ROOT (mirror
+  // `mpremote fs cp -r firmware/ :/`): firmware/lib/x.py -> /lib/x.py, boot.py ->
+  // /boot.py, main.py last. The python side walks the real disk tree (never a
+  // model-supplied path), so no path normalization is needed here — containment was
+  // enforced at write time by writeProjectFile.
+  async deployFirmwareTree(projectDir: string): Promise<void> {
+    const port = await this.ensurePort();
+    const r = await this.rpc("device.deploy_firmware_tree", { project_dir: projectDir, port });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "deploy_failed");
+  }
+
   async serialReadUntil(markers: string[]): Promise<{ ok: boolean; lines: string[] }> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.serial_read_until", { port, markers });

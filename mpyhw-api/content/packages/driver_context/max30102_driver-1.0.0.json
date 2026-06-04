@@ -1,0 +1,99 @@
+{
+  "import_names": [
+    "max30102",
+    "circular_buffer",
+    "ucollections"
+  ],
+  "constructors": [
+    "MAX30102(i2c)"
+  ],
+  "read_methods": [
+    "add_sample",
+    "append",
+    "available",
+    "bitmask",
+    "calculate_heart_rate",
+    "check",
+    "check_part_id",
+    "clear",
+    "clear_fifo",
+    "disable_a_full",
+    "disable_alc_ovf",
+    "disable_data_rdy",
+    "disable_die_temp_rdy",
+    "disable_fifo_rollover",
+    "disable_prox_int",
+    "disable_slots",
+    "enable_a_full",
+    "enable_alc_ovf",
+    "enable_data_rdy",
+    "enable_die_temp_rdy",
+    "enable_fifo_rollover",
+    "enable_prox_int",
+    "enable_slot",
+    "fifo_bytes_to_int",
+    "find_peaks",
+    "get_acquisition_frequency",
+    "get_green",
+    "get_int_1",
+    "get_int_2",
+    "get_ir",
+    "get_read_pointer",
+    "get_red",
+    "get_revision_id",
+    "get_write_pointer",
+    "i2c_read_register",
+    "i2c_set_register",
+    "is_empty",
+    "next_sample",
+    "pop",
+    "pop_green_from_storage",
+    "pop_head",
+    "pop_ir_from_storage",
+    "pop_red_from_storage",
+    "read_part_id",
+    "read_temperature",
+    "safe_check",
+    "set_active_leds_amplitude",
+    "set_adc_range",
+    "set_bitmask",
+    "set_fifo_almost_full",
+    "set_fifo_average",
+    "set_led_mode",
+    "set_prox_int_tresh",
+    "set_proximity_threshold",
+    "set_pulse_amplitude_green",
+    "set_pulse_amplitude_it",
+    "set_pulse_amplitude_proximity",
+    "set_pulse_amplitude_red",
+    "set_pulse_width",
+    "set_sample_rate",
+    "setup_sensor",
+    "shutdown",
+    "soft_reset",
+    "update_acquisition_frequency",
+    "wakeup"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/max30102_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "max30102.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

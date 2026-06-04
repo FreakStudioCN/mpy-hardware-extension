@@ -1,0 +1,62 @@
+{
+  "import_names": [
+    "sh1107",
+    "framebuf2"
+  ],
+  "constructors": [
+    "SH1107_I2C(i2c)"
+  ],
+  "read_methods": [
+    "blit",
+    "circle",
+    "contrast",
+    "display_start_line",
+    "ellipse",
+    "fill",
+    "fill_rect",
+    "flip",
+    "hline",
+    "init_display",
+    "invert",
+    "is_awake",
+    "large_text",
+    "line",
+    "pixel",
+    "poly",
+    "poweroff",
+    "poweron",
+    "rect",
+    "register_updates",
+    "reset",
+    "scroll",
+    "show",
+    "sleep",
+    "text",
+    "triangle",
+    "vline",
+    "write_command",
+    "write_data"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sh1107_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "sh1107.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

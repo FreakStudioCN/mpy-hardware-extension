@@ -1,0 +1,15 @@
+{
+  "name": "fix_relay_out",
+  "version": "1.0.0",
+  "description": "GPIO relay output driver",
+  "author": "Fixture",
+  "license": "MIT",
+  "chips": "all",
+  "fw": "all",
+  "urls": [
+    [
+      "relay.py",
+      "code/relay.py"
+    ]
+  ]
+}

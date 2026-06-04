@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import re
+from pathlib import Path
 from typing import Any
 
 
@@ -101,3 +103,171 @@ def evaluate_support_level(
 def extract_examples(readme: str) -> list[str]:
     blocks = re.findall(r"```(?:python)?\s*(.*?)```", readme, flags=re.DOTALL)
     return [block.strip() for block in blocks if block.strip()]
+
+
+# --- GraftSense-spec AST extraction -----------------------------------------
+# GraftSense drivers follow a strict spec (upy_driver_dev_spec_summary.md): one
+# public class per concern, a type-annotated __init__, and mandatory dependency
+# injection — the bus object (I2C/SPI/UART/Pin) is passed into the constructor,
+# never built inside the class. That contract makes the constructor signature a
+# reliable declaration of the bus, so we parse it with AST instead of the
+# substring heuristics extract_driver_context() uses for the looser upypi catalog.
+
+BUS_BY_ANNOTATION = {
+    "I2C": "i2c", "SoftI2C": "i2c",
+    "SPI": "spi", "SoftSPI": "spi",
+    "UART": "uart",
+    "Pin": "gpio",
+    "ADC": "analog",
+    "PWM": "pwm",
+}
+PIN_ROLES_BY_BUS = {
+    "i2c": ["i2c_sda", "i2c_scl"],
+    "spi": ["spi_sck", "spi_mosi", "spi_miso", "spi_cs"],
+    "uart": ["uart_tx", "uart_rx"],
+    "gpio": ["gpio"],
+    "analog": ["adc_in"],
+    "pwm": ["pwm_out"],
+}
+
+
+def _annotation_base_name(node: ast.AST | None) -> str | None:
+    """Last name of a type annotation: I2C -> 'I2C', machine.I2C -> 'I2C',
+    Optional[I2C] -> 'I2C', "I2C" (stringified) -> 'I2C'."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value.split("[")[0].split(".")[-1].strip("'\" ")
+    if isinstance(node, ast.Subscript):  # Optional[I2C] / Union[I2C, None]
+        return _annotation_base_name(node.slice)
+    return None
+
+
+def _init_params(func: ast.FunctionDef) -> list[ast.arg]:
+    args = func.args
+    params = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    if params and params[0].arg in ("self", "cls"):
+        params = params[1:]
+    return params
+
+
+def _detect_bus(params: list[ast.arg]) -> tuple[str | None, bool]:
+    """Return (bus, by_annotation). Prefer the injected-type annotation; fall
+    back to parameter names (real drivers like HC08(self, uart) omit the type)."""
+    for param in params:
+        bus = BUS_BY_ANNOTATION.get(_annotation_base_name(param.annotation))
+        if bus:
+            return bus, True
+    names = {param.arg.lower() for param in params}
+    if "i2c" in names or {"scl", "sda"} & names:
+        return "i2c", False
+    if "spi" in names or {"sck", "sclk", "mosi", "miso"} & names:
+        return "spi", False
+    if "uart" in names or {"tx", "rx"} & names:
+        return "uart", False
+    if any(name == "pin" or name.startswith("pin_") or name.endswith("_pin") or name in {"pin_num", "pin_no", "gpio"} for name in names):
+        return "gpio", False
+    if any("adc" in name for name in names):
+        return "analog", False
+    return None, False
+
+
+def extract_graftsense_context(
+    package: dict[str, Any], readme: str, code_files: list[tuple[str, str]]
+) -> dict[str, Any]:
+    """AST-based driver-context extraction for a GraftSense driver package.
+
+    code_files is the list of (filename, source) for the driver's code/*.py with
+    main.py already excluded. Each file is parsed independently (every file opens
+    with `from __future__ import annotations`, so concatenating would put a future
+    import mid-module and fail to parse)."""
+    classes: dict[str, ast.ClassDef] = {}
+    class_module: dict[str, str] = {}
+    module_stems: list[str] = []
+    for filename, text in code_files:
+        stem = Path(filename).stem
+        if stem not in module_stems:
+            module_stems.append(stem)
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                classes.setdefault(node.name, node)
+                class_module.setdefault(node.name, stem)
+
+    def chain(name: str, seen: set[str] | None = None) -> list[ast.ClassDef]:
+        """The class plus its in-file base classes (so a subclass inherits the
+        base's __init__/methods — e.g. AHT20(AHT10))."""
+        seen = seen if seen is not None else set()
+        if name in seen or name not in classes:
+            return []
+        seen.add(name)
+        result = [classes[name]]
+        for base in classes[name].bases:
+            if isinstance(base, ast.Name) and base.id in classes:
+                result.extend(chain(base.id, seen))
+        return result
+
+    def find_init(name: str) -> ast.FunctionDef | None:
+        for cls in chain(name):
+            for node in cls.body:
+                if isinstance(node, ast.FunctionDef) and node.name == "__init__":
+                    return node
+        return None
+
+    constructors: list[str] = []
+    candidate_modules: list[str] = []
+    read_methods: set[str] = set()
+    read_properties: set[str] = set()
+    buses: list[str] = []
+    by_annotation = False
+    for name, cls in classes.items():
+        if name.startswith("_"):
+            continue
+        init = find_init(name)
+        if init is None:
+            continue
+        params = _init_params(init)
+        bus, annotated = _detect_bus(params)
+        if not bus:
+            continue
+        by_annotation = by_annotation or annotated
+        if bus not in buses:
+            buses.append(bus)
+        constructors.append(f"{name}({', '.join(param.arg for param in params)})")
+        if class_module.get(name) and class_module[name] not in candidate_modules:
+            candidate_modules.append(class_module[name])
+        for member in chain(name):
+            for node in member.body:
+                if not isinstance(node, ast.FunctionDef) or node.name.startswith("_"):
+                    continue
+                is_property = any(isinstance(dec, ast.Name) and dec.id == "property" for dec in node.decorator_list)
+                (read_properties if is_property else read_methods).add(node.name)
+
+    buses.sort()
+    import_names = candidate_modules + [stem for stem in module_stems if stem not in candidate_modules]
+    pin_roles: list[str] = []
+    for bus in buses:
+        for role in PIN_ROLES_BY_BUS.get(bus, []):
+            if role not in pin_roles:
+                pin_roles.append(role)
+    context = {
+        "import_names": import_names,
+        "constructors": sorted(constructors),
+        "read_methods": sorted(read_methods - read_properties),
+        "read_properties": sorted(read_properties),
+        "bus": buses,
+        "pin_roles": pin_roles,
+        "install": {"method": "mpremote mip install", "url": package.get("package_json_url", "")},
+        "examples": extract_examples(readme),
+        "known_issues": [],
+        "evidence_refs": [{"type": "source", "path": filename} for filename, _ in code_files]
+        + ([{"type": "readme", "path": "README.md"}] if readme else []),
+        "confidence": 0.8 if by_annotation else (0.7 if buses else 0.5),
+    }
+    context["support_level"] = evaluate_support_level(package, context, requested_level="generatable")
+    return context

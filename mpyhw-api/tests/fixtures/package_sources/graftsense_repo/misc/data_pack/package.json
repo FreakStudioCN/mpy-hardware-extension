@@ -1,0 +1,15 @@
+{
+  "name": "fix_data_pack",
+  "version": "1.0.0",
+  "description": "Pure data helper with no hardware bus",
+  "author": "Fixture",
+  "license": "MIT",
+  "chips": "all",
+  "fw": "all",
+  "urls": [
+    [
+      "data.py",
+      "code/data.py"
+    ]
+  ]
+}

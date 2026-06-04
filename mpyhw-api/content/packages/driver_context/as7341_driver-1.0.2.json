@@ -1,0 +1,71 @@
+{
+  "import_names": [
+    "as7341"
+  ],
+  "constructors": [
+    "AS7341(i2c)"
+  ],
+  "read_methods": [
+    "channel_select",
+    "check_interrupt",
+    "clear_interrupt",
+    "disable",
+    "enable",
+    "get_again",
+    "get_again_factor",
+    "get_astep_time",
+    "get_channel_data",
+    "get_flicker_frequency",
+    "get_gpio_value",
+    "get_integration_time",
+    "get_overflow_count",
+    "get_spectral_data",
+    "get_thresholds",
+    "isconnected",
+    "measurement_completed",
+    "reset",
+    "set_again",
+    "set_again_factor",
+    "set_astep",
+    "set_atime",
+    "set_flicker_detection",
+    "set_gpio_input",
+    "set_gpio_inverted",
+    "set_gpio_mask",
+    "set_gpio_output",
+    "set_interrupt_persistence",
+    "set_led_current",
+    "set_measure_mode",
+    "set_smux",
+    "set_spectral_interrupt",
+    "set_spectral_measurement",
+    "set_spectral_threshold_channel",
+    "set_syns_int",
+    "set_thresholds",
+    "set_wen",
+    "set_wtime",
+    "start_measure"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/as7341_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "as7341.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

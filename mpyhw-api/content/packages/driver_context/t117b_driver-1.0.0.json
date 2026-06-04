@@ -1,0 +1,46 @@
+{
+  "import_names": [
+    "t117b"
+  ],
+  "constructors": [
+    "T117(i2c)"
+  ],
+  "read_methods": [
+    "deinit",
+    "enable_alerts",
+    "get_status",
+    "get_status_raw",
+    "get_temp",
+    "get_temp_raw",
+    "set_alert_config",
+    "set_alert_thresholds",
+    "set_avg",
+    "set_measure_mode",
+    "set_mps",
+    "set_sleep",
+    "soft_reset",
+    "wait_conv_ready"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/t117b_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "t117b.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

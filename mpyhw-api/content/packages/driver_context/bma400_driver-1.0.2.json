@@ -1,0 +1,42 @@
+{
+  "import_names": [
+    "bma400",
+    "typing"
+  ],
+  "constructors": [
+    "BMA400(i2c)"
+  ],
+  "read_methods": [
+    "acc_range",
+    "acceleration",
+    "filter_bandwidth",
+    "output_data_rate",
+    "oversampling_rate",
+    "power_mode",
+    "source_data_registers"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bma400_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "bma400.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

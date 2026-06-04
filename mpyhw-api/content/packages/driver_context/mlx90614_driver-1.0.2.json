@@ -1,0 +1,41 @@
+{
+  "import_names": [
+    "mlx90614"
+  ],
+  "constructors": [
+    "MLX90614(i2c)",
+    "MLX90615(i2c)"
+  ],
+  "read_methods": [
+    "ambient",
+    "get",
+    "object",
+    "object2",
+    "read",
+    "read_ambient",
+    "read_object",
+    "read_object2"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mlx90614_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "mlx90614.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

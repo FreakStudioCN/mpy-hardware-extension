@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -83,5 +85,29 @@ test("shim round-trip: real serve.py answers script.run_validate over stdio", { 
     assert.match(r.output, /project-manifest\.json/); // project_dir + path joined for --json
   } finally {
     child.kill();
+  }
+});
+
+// Proves the device.deploy_firmware_tree contract: TS sends { project_dir, port },
+// serve.py joins project_dir + "firmware", walks the REAL on-disk tree, and copies
+// each file (faked mpremote). A real temp firmware/ dir exercises the walk + the
+// project_dir/"firmware" join across the boundary.
+test("shim round-trip: real serve.py answers device.deploy_firmware_tree over stdio", { skip: skipReason }, async () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "mpyhw-deploy-"));
+  mkdirSync(join(projectDir, "firmware", "lib"), { recursive: true });
+  writeFileSync(join(projectDir, "firmware", "main.py"), "print('MPYHW_READY')", "utf-8");
+  writeFileSync(join(projectDir, "firmware", "lib", "ssd1306.py"), "class SSD1306: pass", "utf-8");
+
+  const child = spawn(python!, ["shim_fake_driver.py"], { cwd: shimDir, stdio: ["pipe", "pipe", "pipe"] });
+  const proc = new ShimProcess({ write: (line: string) => child.stdin.write(line) });
+  child.stdout.on("data", (d: Buffer) => proc.feed(d.toString()));
+  child.on("exit", (code: number) => proc.handleExit(code ?? -1));
+
+  try {
+    const r = await proc.request("device.deploy_firmware_tree", { project_dir: projectDir, port: "COM3" });
+    assert.deepEqual(r, { status: "ok" });
+  } finally {
+    child.kill();
+    rmSync(projectDir, { recursive: true, force: true });
   }
 });

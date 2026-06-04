@@ -1,0 +1,39 @@
+{
+  "import_names": [
+    "pcf8591"
+  ],
+  "constructors": [
+    "PCF8591(i2c)"
+  ],
+  "read_methods": [
+    "analog_read",
+    "analog_read_all",
+    "analog_write",
+    "begin",
+    "disable_output",
+    "voltage_read",
+    "voltage_write"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/pcf8591_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "pcf8591.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

@@ -1,0 +1,71 @@
+{
+  "import_names": [
+    "__init__",
+    "micropython_bma220",
+    "typing"
+  ],
+  "constructors": [
+    "BMA220(i2c)"
+  ],
+  "read_methods": [
+    "acc_range",
+    "acceleration",
+    "double_tap_enabled",
+    "filter_bandwidth",
+    "latched_mode",
+    "lowg_duration",
+    "lowg_enabled",
+    "lowg_hysteresis",
+    "lowg_interrupt",
+    "lowg_threshold",
+    "orientation_blocking",
+    "orientation_enabled",
+    "orientation_exchange",
+    "orientation_interrupt",
+    "sleep_duration",
+    "sleep_enabled",
+    "slope_duration",
+    "slope_filter",
+    "slope_interrupt",
+    "slope_interrupt_info",
+    "slope_sign",
+    "slope_threshold",
+    "slope_x_enabled",
+    "slope_y_enabled",
+    "slope_z_enabled",
+    "tt_duration",
+    "tt_filter",
+    "tt_interrupt",
+    "tt_interrupt_info",
+    "tt_sign",
+    "tt_threshold",
+    "tt_x_enabled",
+    "tt_y_enabled",
+    "tt_z_enabled",
+    "x_enabled",
+    "y_enabled",
+    "z_enabled"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bma220_driver/1.0.1/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "__init__.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

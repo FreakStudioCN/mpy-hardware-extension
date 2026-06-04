@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -15,15 +16,6 @@ from app.package_store import normalize_record, safe_context_filename
 from scripts.normalize_driver_context import extract_driver_context
 
 UPYPI_BASE = "https://upypi.net"
-
-# Capability terms swept against /api/search to discover the live catalog. upypi
-# has no full-listing endpoint, so we probe by capability keyword and dedupe.
-DISCOVERY_TERMS = [
-    "temperature", "humidity", "pressure", "oled", "display", "led", "relay",
-    "servo", "ultrasonic", "motion", "light", "adc", "rtc", "touch", "distance",
-    "dht", "ssd1306", "neopixel", "ws2812", "mpu6050", "bmp280", "pir", "gas",
-    "color", "ds18b20", "ds1307", "ds1302", "ads1115", "mpr121", "aht20",
-]
 
 
 def normalize_upypi_package(raw: dict[str, Any]) -> dict[str, Any]:
@@ -77,21 +69,90 @@ def _http_get_json(url: str, timeout: float = 15.0) -> Any:
     return json.loads(_http_get(url, timeout))
 
 
-def discover_packages(terms: list[str], get_json=_http_get_json) -> dict[str, str]:
-    """Sweep /api/search across capability terms; return {name: version}."""
-    found: dict[str, str] = {}
-    for term in terms:
-        try:
-            data = get_json(f"{UPYPI_BASE}/api/search?q={urllib.parse.quote(term)}")
-        except (urllib.error.URLError, OSError, ValueError):
+def discover_packages(get_json=_http_get_json) -> dict[str, str]:
+    """Return the full upypi catalog as {name: latest_version}.
+
+    upypi exposes /packages.json — one request, deduped to the latest version per
+    name. This replaces the old /api/search keyword sweep, which matched package
+    *names* only (`WHERE name LIKE %term%`) and so surfaced a small fraction of the
+    registry (~26 of 200+) — everything whose name didn't contain a probe term was
+    invisible."""
+    data = get_json(f"{UPYPI_BASE}/packages.json")
+    latest: dict[str, str] = {}
+    for pkg in data.get("packages", []):
+        name = pkg.get("name")
+        version = pkg.get("version")
+        if not name or not version:
             continue
-        for hit in data.get("results", []):
-            name = hit.get("name")
-            url = (hit.get("url") or "").rstrip("/")
-            version = url.rsplit("/", 1)[-1] if "/" in url else "1.0.0"
-            if name and name not in found:
-                found[name] = version
-    return found
+        if name not in latest or version_key(version) > version_key(latest[name]):
+            latest[name] = version
+    return latest
+
+
+def version_key(version: str) -> tuple[tuple[int, int | str], ...]:
+    parts: list[tuple[int, int | str]] = []
+    for token in re.split(r"([0-9]+)", str(version)):
+        if not token or token in {".", "-", "_"}:
+            continue
+        for part in re.split(r"[._-]+", token):
+            if not part:
+                continue
+            parts.append((0, int(part)) if part.isdigit() else (1, part.lower()))
+    return tuple(parts)
+
+
+def parse_upypi_package_json_url(url: str) -> tuple[str, str] | None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.netloc != "upypi.net":
+        return None
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) != 4 or parts[0] != "pkgs" or parts[3] != "package.json":
+        return None
+    return urllib.parse.unquote(parts[1]), urllib.parse.unquote(parts[2])
+
+
+def reconcile_driver_context_refs(output_dir: str | Path, records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    output_dir = Path(output_dir)
+    write_index = records is None
+    records = list(records) if records is not None else read_existing_records(output_dir)
+    by_key = {(record.get("name"), record.get("version")): record for record in records if record.get("name") and record.get("version")}
+    context_dir = output_dir / "driver_context"
+    if not context_dir.exists():
+        return records
+
+    for context_path in sorted(context_dir.glob("*.json")):
+        try:
+            context = json.loads(context_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        install = context.get("install") if isinstance(context, dict) else None
+        install_url = install.get("url") if isinstance(install, dict) else ""
+        parsed = parse_upypi_package_json_url(str(install_url or ""))
+        if parsed is None:
+            continue
+        name, version = parsed
+        ref = f"driver_context/{context_path.name}"
+        record = by_key.get((name, version))
+        if record is None:
+            record = normalize_record(
+                {
+                    "name": name,
+                    "version": version,
+                    "source": "upypi",
+                    "package_json_url": install_url,
+                    "support_level": context.get("support_level", "generatable"),
+                    "description": context.get("description", ""),
+                    "cached": True,
+                }
+            )
+            records.append(record)
+            by_key[(name, version)] = record
+        record["driver_context_ref"] = ref
+        if context.get("support_level"):
+            record["support_level"] = context["support_level"]
+    if write_index:
+        (output_dir / "package_index.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
+    return records
 
 
 def fetch_source(pkg: dict[str, Any], name: str, version: str, get_text=_http_get) -> str:
@@ -107,7 +168,7 @@ def fetch_source(pkg: dict[str, Any], name: str, version: str, get_text=_http_ge
     return "\n".join(parts)
 
 
-def ingest_live(output_dir: str | Path, terms: list[str] | None = None, get_json=_http_get_json, get_text=_http_get) -> dict[str, Any]:
+def ingest_live(output_dir: str | Path, get_json=_http_get_json, get_text=_http_get) -> dict[str, Any]:
     """Pull the live upypi catalog into content/packages. Each package becomes a
     searchable record; I2C sensors that expose a constructor also get a driver
     context (generatable), others stay installable."""
@@ -117,7 +178,7 @@ def ingest_live(output_dir: str | Path, terms: list[str] | None = None, get_json
     existing = {(record["name"], record["version"]) for record in records}
     written = 0
     contexts: list[str] = []
-    for name, version in discover_packages(terms or DISCOVERY_TERMS, get_json).items():
+    for name, version in discover_packages(get_json).items():
         try:
             pkg = get_json(f"{UPYPI_BASE}/pkgs/{name}/{version}/package.json")
         except (urllib.error.URLError, OSError, ValueError):
@@ -140,6 +201,7 @@ def ingest_live(output_dir: str | Path, terms: list[str] | None = None, get_json
         records.append(record)
         existing.add((name, version))
         written += 1
+    records = reconcile_driver_context_refs(output_dir, records)
     (output_dir / "package_index.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
     evidence = {"source": "upypi-live", "records_written": written, "driver_contexts": contexts}
     (output_dir / "ingestion_evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")

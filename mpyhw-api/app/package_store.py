@@ -232,22 +232,36 @@ def normalize_record(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 # Keyword -> capability inference for ingested packages whose JSON carries no
-# explicit capabilities list. Substring match against name + description. Keeps
-# the original four capabilities and extends to the rest of the upypi catalog.
+# explicit capabilities list. Substring match against name + description. Keyword
+# sets are tuned against the full upypi catalog (200+ packages): chip part numbers
+# in the package name are the strongest signal, since most descriptions are the
+# boilerplate "A MicroPython library to control <name>". A package may match
+# several capabilities (e.g. si1145 senses both light and UV) — all are kept.
 CAPABILITY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
-    ("temperature_sensing", ("temp", "aht20", "aht21", "dht", "bmp280", "bme280", "ds18b20", "ds18x20", "thermo")),
-    ("humidity_sensing", ("humid", "aht20", "aht21", "dht", "bme280")),
-    ("pressure_sensing", ("pressure", "bmp280", "bme280", "barometer")),
-    ("display_text", ("oled", "ssd1306", "display", "lcd", "menu", "screen")),
-    ("digital_output", ("led", "relay", "neopixel", "ws2812", "pixel", "piranha")),
-    ("motion_sensing", ("mpu6050", "pir", "motion", "gyro", "accel", "imu", "mpu9250")),
-    ("distance_sensing", ("ultrasonic", "hcsr04", "hc-sr04", "distance", "rcwl", "tof", "vl53")),
-    ("color_sensing", ("tcs34725", "color")),
-    ("analog_input", ("adc", "ads1115", "ads1015", "analog")),
+    ("temperature_sensing", ("temperature", "aht20", "aht21", "dht", "bmp280", "bme280", "ds18b20", "ds18x20", "ds18", "my18e20", "thermo", "mlx90614", "mcp9808", "lm75", "scd4")),
+    ("humidity_sensing", ("humid", "aht20", "aht21", "dht", "bme280", "moisture", "soil", "scd4")),
+    ("pressure_sensing", ("pressure", "barometer", "bmp280", "bme280", "bmp390", "bmp581", "dps310", "icp10111", "mpl3115", "ms5611", "ms5803")),
+    ("display_text", ("oled", "ssd1306", "ssd1327", "ssd1683", "display", "lcd", "lcm1602", "menu", "screen", "sh1106", "sh1107", "st7789", "st7735", "ht16k33", "tm1637", "eink", "e-ink", "epaper", "e-paper")),
+    ("digital_output", ("led", "relay", "neopixel", "ws2812", "pixel", "piranha", "mcp23017", "pcf8574", "pcf8575", "opto", "mosfet")),
+    ("digital_input", ("button", "joystick", "rotary", "encoder", "limit switch", "wheelswitch", "hall", "keypad", "keys")),
+    ("motion_sensing", ("mpu6050", "mpu9250", "pir", "motion", "gyro", "accelerometer", "imu", "mems", "adxl345", "bma220", "bma400", "kx132", "mma7660", "mma8451", "mma8452", "h3lis", "lis2dh", "lis3dh", "lsm6", "icm20", "tilt")),
+    ("distance_sensing", ("ultrasonic", "hcsr04", "hc-sr04", "distance", "rcwl", "tof", "vl53", "gp2y0", "proximity")),
+    ("color_sensing", ("tcs34725", "tcs3472", "color", "veml6040", "as7341", "spectral")),
+    ("analog_input", ("adc", "ads1115", "ads1015", "ads1219", "analog", "mcp3421", "cs1237", "pcf8591", "potentiometer")),
+    ("analog_output", ("dac", "mcp4725", "mcp4728", "ds3502", "digipot")),
     ("servo_control", ("servo",)),
-    ("touch_sensing", ("mpr121", "touch", "capacitive")),
-    ("gas_sensing", ("gas", "co2", "mq2", "mq135", "voc")),
-    ("timekeeping", ("rtc", "ds1307", "ds1302", "ds3231")),
+    ("touch_sensing", ("mpr121", "touch", "capacitive", "gt911")),
+    ("gas_sensing", ("gas", "co2", "eco2", "voc", "air quality", "mq2", "mq135", "mqx", "mgx", "ccs811", "ags02", "sgp40", "sgp30", "ens160", "mics", "pms5003", "pms7003", "particulate")),
+    ("timekeeping", ("rtc", "ds1307", "ds1302", "ds3231", "pcf8563", "pcf8523")),
+    ("magnetic_sensing", ("magnet", "magneto", "compass", "geomagnetic", "qmc5883", "hmc5883", "bmm150", "lis2mdl", "lis3mdl", "mlx90393", "mmc5603", "mmc5983", "rm3100", "hscdtd", "as5600")),
+    ("light_sensing", ("illuminance", "lux", "ambient light", "luminosity", "photoresistor", "bh1750", "tsl2561", "opt3001", "max44009", "veml7700", "ltr390", "isl29125", "si1145", "gl5516")),
+    ("uv_sensing", ("ultraviolet", "uva", "uvb", "veml6075", "ltr390", "si1145", "guva", "s12sd")),
+    ("current_sensing", ("current", "ina219", "ina226", "shunt", "ammeter", "power monitor")),
+    ("motor_control", ("motor", "stepper", "fan_pwm")),
+    ("weight_sensing", ("load cell", "loadcell", "weight", "hx711", "cs1237", "strain")),
+    ("heart_rate_sensing", ("heart rate", "heartrate", "pulse oximeter", "spo2", "max30100", "max30102")),
+    ("sound_sensing", ("microphone", "max9814")),
+    ("audio_output", ("buzzer", "speaker", "mp3", "tts", "jq6500", "kt403a", "dy_sv19t", "snr9816")),
 ]
 
 

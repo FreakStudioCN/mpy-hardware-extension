@@ -1,0 +1,49 @@
+{
+  "import_names": [
+    "ssd1327"
+  ],
+  "constructors": [
+    "SEEED_OLED_96X96(i2c)",
+    "SSD1327_I2C(i2c)",
+    "WS_OLED_128X128(i2c)"
+  ],
+  "read_methods": [
+    "contrast",
+    "fill",
+    "init_display",
+    "invert",
+    "line",
+    "lookup",
+    "pixel",
+    "poweroff",
+    "poweron",
+    "rotate",
+    "scroll",
+    "show",
+    "text",
+    "write_cmd",
+    "write_data"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ssd1327_driver/1.0.1/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "ssd1327.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

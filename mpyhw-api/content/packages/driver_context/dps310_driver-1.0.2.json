@@ -1,0 +1,44 @@
+{
+  "import_names": [
+    "__init__",
+    "micropython_dps310"
+  ],
+  "constructors": [
+    "DPS310(i2c)"
+  ],
+  "read_methods": [
+    "altitude",
+    "mode",
+    "pressure",
+    "pressure_oversample",
+    "pressure_rate",
+    "sea_level_pressure",
+    "temperature_oversample",
+    "temperature_rate",
+    "twos_complement"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/dps310_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "__init__.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

@@ -80,6 +80,80 @@ def test_write_device_file_top_level_file_skips_mkdir():
     assert shim.commands == [["mpremote", "connect", "COM3", "resume", "fs", "cp", "/tmp/boot.py", ":boot.py"]]
 
 
+def test_deploy_firmware_tree_strips_prefix_and_mkdirs_parents(tmp_path):
+    fw = tmp_path / "firmware"
+    (fw / "lib").mkdir(parents=True)
+    (fw / "lib" / "ssd1306.py").write_text("class SSD1306: pass", encoding="utf-8")
+    (fw / "boot.py").write_text("# boot", encoding="utf-8")
+    shim = Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "", ""))
+
+    result = shim.deploy_firmware_tree("COM3", str(fw))
+
+    assert result == {"status": "ok"}
+    targets = [c[-1] for c in shim.commands if c[4] == "fs" and c[5] == "cp"]
+    # firmware/ prefix stripped: contents map to the device root (so bare imports resolve).
+    assert ":lib/ssd1306.py" in targets
+    assert ":boot.py" in targets
+    # the lib parent dir is created (best-effort) before its file is copied.
+    assert ["mpremote", "connect", "COM3", "resume", "fs", "mkdir", ":lib"] in shim.commands
+
+
+def test_deploy_firmware_tree_uploads_main_py_last(tmp_path):
+    fw = tmp_path / "firmware"
+    (fw / "lib").mkdir(parents=True)
+    (fw / "lib" / "x.py").write_text("x", encoding="utf-8")
+    (fw / "boot.py").write_text("b", encoding="utf-8")
+    (fw / "main.py").write_text("m", encoding="utf-8")
+    shim = Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "", ""))
+
+    shim.deploy_firmware_tree("COM3", str(fw))
+
+    cps = [c for c in shim.commands if c[4] == "fs" and c[5] == "cp"]
+    # main.py is copied AFTER every dependency, so it does not autorun before deps land.
+    assert cps[-1][-1] == ":main.py"
+
+
+def test_deploy_firmware_tree_missing_dir_returns_error_without_commands(tmp_path):
+    shim = Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "", ""))
+
+    result = shim.deploy_firmware_tree("COM3", str(tmp_path / "nope" / "firmware"))
+
+    assert result == {"status": "error", "error_kind": "firmware_dir_missing"}
+    assert shim.commands == []
+
+
+def test_deploy_firmware_tree_maps_cp_failure(tmp_path):
+    fw = tmp_path / "firmware"
+    fw.mkdir()
+    (fw / "main.py").write_text("m", encoding="utf-8")
+    shim = Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, "", "device busy"))
+
+    result = shim.deploy_firmware_tree("COM3", str(fw))
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "port_busy"
+
+
+def test_deploy_firmware_tree_skips_gitkeep_and_only_walks_firmware(tmp_path):
+    # The firmware/ tree IS the device image; sibling project files (manifest, docs,
+    # PC tests) live OUTSIDE firmware/ and must never reach the board.
+    fw = tmp_path / "firmware"
+    (fw / "lib").mkdir(parents=True)
+    (fw / "lib" / ".gitkeep").write_text("", encoding="utf-8")
+    (fw / "tasks").mkdir()
+    (fw / "tasks" / "sensor.py").write_text("def tick(): pass", encoding="utf-8")
+    (tmp_path / "project-manifest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "diagram.json").write_text("{}", encoding="utf-8")
+    shim = Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "", ""))
+
+    shim.deploy_firmware_tree("COM3", str(fw))
+
+    targets = [c[-1] for c in shim.commands if c[4] == "fs" and c[5] == "cp"]
+    # Only the firmware/ .py file ships — no .gitkeep, no manifest/docs siblings.
+    assert targets == [":tasks/sensor.py"]
+
+
 def test_install_errors_are_classified():
     assert map_install_error("No such package") == "package_not_found"
     assert map_install_error("network unreachable") == "network"

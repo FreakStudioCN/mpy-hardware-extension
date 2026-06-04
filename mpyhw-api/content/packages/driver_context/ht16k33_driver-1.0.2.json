@@ -1,0 +1,43 @@
+{
+  "import_names": [
+    "ht16k33_matrix"
+  ],
+  "constructors": [
+    "HT16K33(i2c)"
+  ],
+  "read_methods": [
+    "blink_rate",
+    "brightness",
+    "fill",
+    "hex",
+    "number",
+    "pixel",
+    "push",
+    "put",
+    "scroll",
+    "show",
+    "text"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ht16k33_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "ht16k33_matrix.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

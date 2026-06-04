@@ -1,0 +1,43 @@
+{
+  "import_names": [
+    "lis3dh",
+    "collections",
+    "ucollections"
+  ],
+  "constructors": [
+    "LIS3DH_I2C(i2c)"
+  ],
+  "read_methods": [
+    "acceleration",
+    "data_rate",
+    "device_check",
+    "range",
+    "read_adc_mV",
+    "read_adc_raw",
+    "set_tap",
+    "shake",
+    "tapped"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ls3hd_driver/1.0.1/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "lis3dh.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

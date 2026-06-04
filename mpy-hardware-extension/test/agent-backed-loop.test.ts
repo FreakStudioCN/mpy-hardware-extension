@@ -788,6 +788,13 @@ test("propose_manifest (rich) tracks phase, renders derived wiring, and persists
   assert.deepEqual(updated.manifest.wiring.buses[0].devices.map((d: any) => d.name), ["SSD1306 OLED", "AHT20"]);
   assert.equal(updated.manifest.wiring.standalone.length, 0);
 
+  // diagram_updated is emitted alongside, feeding the Diagram tab the same moment
+  // wiring renders: a driver layer with one module per device.
+  const diagramEvent = events.find((e) => e.type === "diagram_updated");
+  assert.ok(diagramEvent, "diagram_updated emitted");
+  const driverLayer = diagramEvent.diagram.architecture.layers.find((l: any) => l.id === "driver");
+  assert.deepEqual(driverLayer.modules.map((m: any) => m.name), ["SSD1306 OLED", "AHT20"]);
+
   // The rich manifest is persisted to the project tree.
   const persisted = writes.find((w) => w.path === "project-manifest.json");
   assert.ok(persisted, "project-manifest.json written");
@@ -957,16 +964,20 @@ test("generate_code rejects legacy thin manifests before plan gate or codegen", 
   assert.match(JSON.stringify(result?.observation), /schema_version/);
 });
 
-test("write_main_py deploys additional generated files (multi-file project) to the device", async () => {
+test("write_main_py deploys the on-disk firmware/ tree to the device root (rich multi-file flow)", async () => {
+  // The rich flow assembles a firmware/ tree on disk; write_main_py deploys that WHOLE
+  // tree to the device root via deployFirmwareTree (mirror `mpremote fs cp -r firmware/ :/`),
+  // NOT per-file from state.files. writeMainPy / writeDeviceFile must not be called.
   let mainTurns = 0;
   let codegenCall = 0;
-  let mainWritten = "";
-  const deviceWrites: any[] = [];
+  let deployedDir: string | undefined;
+  let writeMainCalled = false;
+  let deviceFileCalled = false;
   const manifest = MANIFEST;
   const turns = [
-    { name: "generate_code", input: { manifest, target_path: "main.py" } },
-    { name: "generate_code", input: { manifest, target_path: "lib/aht20.py" } },
-    { name: "write_main_py", input: { path: "main.py", content: "print('MPYHW_READY')" } },
+    { name: "generate_code", input: { manifest, target_path: "firmware/main.py" } },
+    { name: "generate_code", input: { manifest, target_path: "firmware/lib/aht20.py" } },
+    { name: "write_main_py", input: { path: "main.py", content: "print('STALE_ECHO')" } },
   ];
   const codegenBodies = ["print('MPYHW_READY')", "class AHT20:\n    pass"];
 
@@ -990,21 +1001,70 @@ test("write_main_py deploys additional generated files (multi-file project) to t
   const shim = {
     scan: async () => ["COM3"],
     installPackage: async () => {},
-    writeMainPy: async (content: string) => { mainWritten = content; },
-    writeDeviceFile: async (path: string, code: string) => { deviceWrites.push({ path, code }); },
+    writeMainPy: async () => { writeMainCalled = true; },
+    writeDeviceFile: async () => { deviceFileCalled = true; },
+    deployFirmwareTree: async (dir: string) => { deployedDir = dir; },
     flashAndRun: async () => {},
     serialReadUntil: async () => ({ ok: true, lines: [] }),
   };
 
-  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim, writeProjectFile: async (path: string) => ({ ok: true, path }), projectRoot: "C:/project" });
   await loop({ intent: "thermometer", boardId: "esp32-s3-devkitc-1" });
 
-  assert.equal(mainWritten, "print('MPYHW_READY')");
-  // main.py is written via writeMainPy; only the extra lib/ module goes via writeDeviceFile.
-  assert.deepEqual(deviceWrites, [{ path: "lib/aht20.py", code: "class AHT20:\n    pass" }]);
+  assert.equal(deployedDir, "C:/project", "the whole on-disk firmware tree is deployed once");
+  assert.equal(writeMainCalled, false, "rich deploy does not also call writeMainPy");
+  assert.equal(deviceFileCalled, false, "rich deploy does not push files individually");
 });
 
-test("write_main_py deploys generated main.py from local state, not the model echo", async () => {
+test("write_main_py falls back to single-file deploy when no firmware tree is on disk", async () => {
+  // If deployFirmwareTree reports firmware_dir_missing (e.g. a headless/stub host with
+  // no persisted tree), the loop falls back to writing the generated main.py — resolved
+  // from the firmware/main.py key, not the model's stale echo — directly as /main.py.
+  let mainTurns = 0;
+  let codegenCall = 0;
+  let mainWritten = "";
+  const manifest = MANIFEST;
+  const turns = [
+    { name: "generate_code", input: { manifest, target_path: "firmware/main.py" } },
+    { name: "write_main_py", input: { path: "main.py", content: "print('STALE_ECHO')" } },
+  ];
+  const codegenBodies = ["print('MPYHW_READY')"];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const text = codegenBodies[codegenCall++] ?? "";
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const shim = {
+    scan: async () => ["COM3"],
+    installPackage: async () => {},
+    writeMainPy: async (content: string) => { mainWritten = content; },
+    deployFirmwareTree: async () => { throw new Error("firmware_dir_missing"); },
+    flashAndRun: async () => {},
+    serialReadUntil: async () => ({ ok: true, lines: [] }),
+  };
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim, writeProjectFile: async (path: string) => ({ ok: true, path }), projectRoot: "C:/project" });
+  await loop({ intent: "desktop pet", boardId: "esp32-s3-devkitc-1" });
+
+  assert.equal(mainWritten, "print('MPYHW_READY')", "falls back to the generated firmware/main.py, not the model echo");
+});
+
+test("write_main_py deploys generated main.py from local state, not the model echo (legacy single-file)", async () => {
+  // Legacy single-file flow: no firmware/ tree and no projectRoot, so the rich tree
+  // deploy is skipped and the generated main.py is written directly via writeMainPy.
   let turnIndex = 0;
   let mainWritten = "";
   const manifest = MANIFEST;
@@ -1042,19 +1102,17 @@ test("write_main_py deploys generated main.py from local state, not the model ec
   assert.equal(mainWritten, "print('GENERATED_MAIN')");
 });
 
-test("deploy pushes firmware/ + lib/ code to the device but skips manifests, docs, and PC tests", async () => {
-  // Regression: write_project_file now mirrors the whole project tree into
-  // state.files. The deploy loop pushes every non-main.py entry to the device via
-  // writeDeviceFile, whose allowlist only accepts lib/ + firmware/ .py — so the
-  // manifest / test / docs files used to throw invalid_generated_path and abort
-  // the whole deploy. They must be skipped, and firmware/ code must still flash.
+test("write_main_py deploys the firmware tree in one call; non-firmware artifacts never go through the loop", async () => {
+  // With tree deploy the loop makes ONE deployFirmwareTree call and never pushes files
+  // individually, so manifests/docs/PC-tests can't abort the deploy. (The "only firmware/
+  // is shipped" guarantee now lives in the python shim's tree walk, tested there.)
   let turnIndex = 0;
   const recorded: any[] = [];
-  const deviceWrites: string[] = [];
-  let mainWritten = "";
+  let deployedDir: string | undefined;
+  let deviceFileCalled = false;
   const manifest = MANIFEST;
   const turns = [
-    { name: "generate_code", input: { manifest, target_path: "main.py" } },
+    { name: "generate_code", input: { manifest, target_path: "firmware/main.py" } },
     { name: "write_project_file", input: { path: "firmware/tasks/sensor.py", content: "def tick():\n    pass\n" } },
     { name: "write_project_file", input: { path: "project-manifest.json", content: "{}" } },
     { name: "write_project_file", input: { path: "test/pc/test_sensor.py", content: "def test_x():\n    pass\n" } },
@@ -1076,17 +1134,13 @@ test("deploy pushes firmware/ + lib/ code to the device but skips manifests, doc
     }
     throw new Error(`unexpected url ${url}`);
   }) as unknown as typeof fetch;
-  // Fake shim mirrors the REAL writeDeviceFile allowlist: only lib/ + firmware/ .py
-  // are accepted; anything else throws invalid_generated_path like the real one.
+
   const shim = {
     scan: async () => ["COM3"],
     installPackage: async () => {},
-    writeMainPy: async (content: string) => { mainWritten = content; },
-    writeDeviceFile: async (path: string) => {
-      const ok = /^(lib|firmware)\//.test(path) && path.endsWith(".py");
-      if (!ok) throw new Error("invalid_generated_path");
-      deviceWrites.push(path);
-    },
+    writeMainPy: async () => {},
+    writeDeviceFile: async () => { deviceFileCalled = true; },
+    deployFirmwareTree: async (dir: string) => { deployedDir = dir; },
     flashAndRun: async () => {},
     serialReadUntil: async () => ({ ok: true, lines: [] }),
   };
@@ -1096,13 +1150,14 @@ test("deploy pushes firmware/ + lib/ code to the device but skips manifests, doc
     fetchImpl,
     shim,
     writeProjectFile: async (path: string) => ({ ok: true, path }),
+    projectRoot: "C:/project",
   });
   await loop({ intent: "blink", boardId: "esp32-s3-devkitc-1", recorder: { record: async (e: any) => { recorded.push(e); } } });
 
-  assert.equal(mainWritten, "print('MPYHW_READY')", "device main.py is the generated code");
-  assert.deepEqual(deviceWrites, ["firmware/tasks/sensor.py"], "only device code flashed; manifest + test skipped");
-  const deployResult = recorded.find((e) => e.type === "tool_result" && e.name === "write_main_py");
-  assert.equal(deployResult?.observation?.ok, true, "deploy succeeds (non-code artifacts do not abort it)");
+  assert.equal(deployedDir, "C:/project", "the firmware tree is deployed in one call");
+  assert.equal(deviceFileCalled, false, "no per-file device writes from the loop");
+  const deployResult = recorded.find((e: any) => e.type === "tool_result" && e.name === "write_main_py");
+  assert.equal(deployResult?.observation?.ok, true, "deploy succeeds");
 });
 
 test("generate_code grounds a rich-manifest GPIO part with the builtin LED context (capabilities derived from devices[])", async () => {
@@ -1248,6 +1303,11 @@ test("generate_code emits manifest_updated so the wiring view renders even witho
   assert.equal(manifestEvent.manifest.schema_version, "1.0");
   assert.equal(manifestEvent.manifest.wiring.buses.length, 1);
   assert.equal(manifestEvent.manifest.wiring.standalone.length, 1);
+
+  // The Diagram tab is fed too, even on the straight-to-generate_code path.
+  const diagramEvent = events.find((e) => e.type === "diagram_updated");
+  assert.ok(diagramEvent, "expected diagram_updated from generate_code so the Diagram tab renders");
+  assert.ok(diagramEvent.diagram.architecture.layers.length > 0, "derived diagram has layers");
 });
 
 test("agent-backed loop keeps internal tool names out of user-facing trace events", async () => {

@@ -1,0 +1,43 @@
+{
+  "import_names": [
+    "ccs811"
+  ],
+  "constructors": [
+    "CCS811(i2c)"
+  ],
+  "read_methods": [
+    "app_valid",
+    "check_for_error",
+    "configure_ccs811",
+    "data_available",
+    "get_base_line",
+    "print_error",
+    "read_eCO2",
+    "read_tVOC",
+    "reset",
+    "set_drive_mode",
+    "setup"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ccs811_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "ccs811.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

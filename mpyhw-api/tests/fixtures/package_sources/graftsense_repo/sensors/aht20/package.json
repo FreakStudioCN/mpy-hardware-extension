@@ -1,0 +1,15 @@
+{
+  "name": "fix_aht20",
+  "version": "1.0.0",
+  "description": "AHT20 temperature humidity sensor",
+  "author": "Fixture",
+  "license": "MIT",
+  "chips": "all",
+  "fw": "all",
+  "urls": [
+    [
+      "aht20.py",
+      "code/aht20.py"
+    ]
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "import_names": [
+    "bus_dc_motor",
+    "pca9685"
+  ],
+  "constructors": [
+    "PCA9685(i2c)"
+  ],
+  "read_methods": [
+    "break_motor",
+    "duty",
+    "freq",
+    "pwm",
+    "reset",
+    "set_motor_speed",
+    "stop_motor"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bus_dc_motor_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "bus_dc_motor.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

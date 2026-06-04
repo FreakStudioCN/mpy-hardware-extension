@@ -1,0 +1,47 @@
+{
+  "import_names": [
+    "pcf8574_io8",
+    "pcf8574"
+  ],
+  "constructors": [
+    "PCF8574(i2c)"
+  ],
+  "read_methods": [
+    "check",
+    "configure_port",
+    "deinit",
+    "get_pin",
+    "get_port",
+    "pin",
+    "port",
+    "ports_state",
+    "read_all",
+    "refresh",
+    "set_pin",
+    "set_port",
+    "toggle",
+    "write_all"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/pcf8574_io8_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "pcf8574_io8.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

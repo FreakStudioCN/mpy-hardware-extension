@@ -1,0 +1,15 @@
+{
+  "name": "fix_uart_modem",
+  "version": "1.0.0",
+  "description": "UART modem driver",
+  "author": "Fixture",
+  "license": "MIT",
+  "chips": "all",
+  "fw": "all",
+  "urls": [
+    [
+      "modem.py",
+      "code/modem.py"
+    ]
+  ]
+}

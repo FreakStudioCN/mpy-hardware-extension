@@ -1,0 +1,36 @@
+{
+  "import_names": [
+    "mpl3115a2"
+  ],
+  "constructors": [
+    "MPL3115A2(i2c)"
+  ],
+  "read_methods": [
+    "altitude",
+    "pressure"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mpl3115a2_driver/1.0.1/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "mpl3115a2.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

@@ -1,0 +1,50 @@
+{
+  "import_names": [
+    "vl53l0x"
+  ],
+  "constructors": [
+    "VL53L0X(i2c)"
+  ],
+  "read_methods": [
+    "calc_macro_period",
+    "decode_Vcsel_period",
+    "decode_timeout",
+    "encode_Vcsel_period",
+    "encode_timeout",
+    "get_sequence_step_enables",
+    "get_sequence_step_timeouts",
+    "get_vcsel_pulse_period",
+    "init",
+    "perform_single_ref_calibration",
+    "read",
+    "set_Vcsel_pulse_period",
+    "set_measurement_timing_budget",
+    "set_signal_rate_limit",
+    "start",
+    "stop",
+    "timeout_Mclks_to_microseconds",
+    "timeout_microseconds_to_Mclks"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/vl53l0x_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "vl53l0x.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

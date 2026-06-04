@@ -106,6 +106,26 @@ export class SessionController {
     this.cancelPrompts();
   }
 
+  // Start a fresh coding session: drop the accumulated conversation so the next
+  // start() is a brand-new build, not a continuation. Without this, every message
+  // continues the same conversation forever (state is only ever cleared on a board
+  // switch), so an unrelated next project inherits the prior board, manifest,
+  // skills, confirmed-gate flags, and the whole — ever-growing — message history.
+  // Aborts any in-flight run first; an aborted run unwinds through start()'s catch,
+  // which doesn't write state back, so clearing here is safe. The next start()
+  // mints a new traceId + recorder, so the new build records under its own trace.
+  reset() {
+    this.cancel();
+    this.state = undefined;
+    this.boardId = null;
+    this.traceId = null;
+    this.recorder = undefined;
+    this.recordedStart = false;
+    this.latestManifest = undefined;
+    this.latestFiles = {};
+    this.persistedPaths = [];
+  }
+
   // Send a question to the webview and resolve when the user answers. Optional
   // options render as clickable choices in the conversation.
   askUser(question: string, options?: string[]): Promise<string | null> {

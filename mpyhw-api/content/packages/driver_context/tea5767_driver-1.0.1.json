@@ -1,0 +1,39 @@
+{
+  "import_names": [
+    "tea5767"
+  ],
+  "constructors": [
+    "Radio(i2c)"
+  ],
+  "read_methods": [
+    "change_freqency",
+    "mute",
+    "read",
+    "search",
+    "set_frequency",
+    "standby",
+    "update"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tea5767_driver/1.0.1/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "tea5767.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

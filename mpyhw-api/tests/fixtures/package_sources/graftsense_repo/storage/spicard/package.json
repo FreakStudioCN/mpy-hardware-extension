@@ -1,0 +1,15 @@
+{
+  "name": "fix_spicard",
+  "version": "1.0.0",
+  "description": "SPI SD card driver",
+  "author": "Fixture",
+  "license": "MIT",
+  "chips": "all",
+  "fw": "all",
+  "urls": [
+    [
+      "card.py",
+      "code/card.py"
+    ]
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "import_names": [
+    "pcf8563"
+  ],
+  "constructors": [
+    "PCF8563(i2c)"
+  ],
+  "read_methods": [
+    "check_for_alarm_interrupt",
+    "check_if_alarm_on",
+    "clear_alarm",
+    "convert_sys_dt_to_rtc_dt",
+    "date",
+    "datetime",
+    "day",
+    "disable_alarm_interrupt",
+    "enable_alarm_interrupt",
+    "hours",
+    "minutes",
+    "month",
+    "seconds",
+    "set_clk_out_frequency",
+    "set_daily_alarm",
+    "set_datetime",
+    "turn_alarm_off",
+    "write_all",
+    "write_now",
+    "year"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/pcf8563_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "pcf8563.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

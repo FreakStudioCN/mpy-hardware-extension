@@ -1,0 +1,33 @@
+{
+  "import_names": [
+    "rcwl9623"
+  ],
+  "constructors": [
+    "RCWL9623(i2c)"
+  ],
+  "read_methods": [
+    "read_distance"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/rcwl9623_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "rcwl9623.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

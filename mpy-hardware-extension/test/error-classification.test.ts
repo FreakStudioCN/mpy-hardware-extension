@@ -11,3 +11,26 @@ test("classifies known hardware and package failures", () => {
   assert.equal(classifyError("network failure during mip install").category, "package_install_network");
   assert.equal(classifyError("manifest validation failed").category, "manifest_invalid");
 });
+
+test("a classified error carries its diagnostic code and next action, not just a category", () => {
+  // The actionable payload is the point of classification; assert the full shape for two
+  // representative branches so a regression in diagnostic_code/next_action is caught.
+  assert.deepEqual(classifyError("ImportError: no module named aht20"), {
+    category: "package_import_error",
+    diagnostic_code: "IMPORT_ERROR",
+    next_action: "Install the selected package or choose another driver context.",
+  });
+  assert.deepEqual(classifyError("OSError: [Errno 19] ENODEV"), {
+    category: "i2c_device_not_found",
+    diagnostic_code: "I2C_ENODEV",
+    next_action: "Check SDA/SCL wiring, power, and sensor address.",
+  });
+});
+
+test("an unrecognized failure falls back to a generic, still-actionable unknown_error", () => {
+  assert.deepEqual(classifyError("disk full writing temp file"), {
+    category: "unknown_error",
+    diagnostic_code: "UNKNOWN",
+    next_action: "Review the trace and retry with a smaller hardware goal.",
+  });
+});

@@ -1,0 +1,40 @@
+{
+  "import_names": [
+    "vl53l1x"
+  ],
+  "constructors": [
+    "VL53L1X(i2c)"
+  ],
+  "read_methods": [
+    "deinit",
+    "read",
+    "read_model_id",
+    "read_reg",
+    "read_reg_16bit",
+    "reset",
+    "write_reg",
+    "write_reg_16bit"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/vl53l1x_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "vl53l1x.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

@@ -116,6 +116,37 @@ class Shim:
             self._run(["mpremote", "connect", port, "resume", "fs", "mkdir", f":{cumulative}"])
         return self._run(["mpremote", "connect", port, "resume", "fs", "cp", local_path, f":{remote_path}"])
 
+    def deploy_firmware_tree(self, port: str, firmware_dir: str):
+        # Mirror the upstream `mpremote fs cp -r firmware/ :/` convention: the CONTENTS
+        # of firmware/ map to the device ROOT (firmware/lib/x.py -> :lib/x.py, boot.py
+        # -> :boot.py), so bare `import x` resolves from /lib and /boot.py autoruns.
+        # Walking the on-disk tree (not state.files) also captures files written by
+        # scaffold/download_drivers that never pass through write_device_file. main.py
+        # is copied LAST so its imports already exist when the next reset autoruns it.
+        if not os.path.isdir(firmware_dir):
+            return {"status": "error", "error_kind": "firmware_dir_missing"}
+        entries = []
+        for root, _dirs, files in os.walk(firmware_dir):
+            for name in files:
+                if name == ".gitkeep":
+                    continue
+                src = os.path.join(root, name)
+                rel = os.path.relpath(src, firmware_dir).replace("\\", "/")
+                entries.append((src, rel))
+        # Stable sort: every dependency (key False) keeps its order, main.py (key True)
+        # moves to the end.
+        entries.sort(key=lambda entry: entry[1] == "main.py")
+        for src, rel in entries:
+            parts = rel.split("/")
+            cumulative = ""
+            for segment in parts[:-1]:
+                cumulative = f"{cumulative}/{segment}" if cumulative else segment
+                self._run(["mpremote", "connect", port, "resume", "fs", "mkdir", f":{cumulative}"])
+            r = self._run(["mpremote", "connect", port, "resume", "fs", "cp", src, f":{rel}"])
+            if getattr(r, "returncode", 0) != 0:
+                return {"status": "error", "error_kind": map_install_error(getattr(r, "stderr", "") or ""), "message": (getattr(r, "stderr", "") or "").strip()}
+        return {"status": "ok"}
+
     def flash_and_run(self, port: str, local_main_py: str):
         return self._run(["mpremote", "connect", port, "resume", "run", local_main_py])
 
@@ -323,6 +354,8 @@ def _dispatch(shim, method, params):
         return _write_code_to_device(params.get("code", ""), lambda tmp: shim.write_main_py(params["port"], tmp))
     if method == "device.write_device_file":
         return _write_code_to_device(params.get("code", ""), lambda tmp: shim.write_device_file(params["port"], params["path"], tmp))
+    if method == "device.deploy_firmware_tree":
+        return shim.deploy_firmware_tree(params["port"], os.path.join(params["project_dir"], "firmware"))
     if method == "device.flash_and_run":
         # Soft reset so the freshly-written main.py autoruns (non-blocking for
         # infinite loops); device.serial_read_until captures the output.

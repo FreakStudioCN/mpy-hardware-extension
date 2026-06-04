@@ -1,0 +1,36 @@
+{
+  "import_names": [
+    "ags02ma"
+  ],
+  "constructors": [
+    "AGS02MA(i2c)"
+  ],
+  "read_methods": [
+    "debug_read_raw",
+    "deinit",
+    "firmware_version",
+    "gas_resistance"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ags02ma_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "ags02ma.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

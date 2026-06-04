@@ -376,6 +376,28 @@ test("session controller carries agent state into the next user message", async 
   assert.deepEqual(statesSeen[1], returnedStates[0]);
 });
 
+test("session controller reset drops the conversation so the next start is a fresh build under a new trace", async () => {
+  const statesSeen: any[] = [];
+  const traceIds: string[] = [];
+  const carried = { traceId: "session", intent: "first", boardId: "esp32-s3-devkitc-1", messages: [{ role: "user", content: "first" }] };
+  const controller = new SessionController({
+    postMessage: () => {},
+    recorderFactory: (traceId: string) => { traceIds.push(traceId); return { record: async () => {} }; },
+    loop: async (input) => { statesSeen.push(input.state); return { terminal: "awaiting_user", state: carried }; },
+  });
+
+  await controller.start({ intent: "first", boardId: "esp32-s3-devkitc-1" });
+  controller.reset();
+  await controller.start({ intent: "unrelated next project", boardId: "esp32-s3-devkitc-1" });
+
+  // First run starts cold; the second would have CONTINUED (seen `carried`) without
+  // the reset — instead it starts cold again, and under a distinct trace id.
+  assert.equal(statesSeen[0], undefined);
+  assert.equal(statesSeen[1], undefined, "reset must drop the carried state so the next start is a new conversation");
+  assert.equal(traceIds.length, 2, "the post-reset start must mint a fresh recorder trace");
+  assert.notEqual(traceIds[0], traceIds[1]);
+});
+
 test("session controller cancel unblocks a pending ask_user with a null answer", async () => {
   let captured: string | null = "unset";
   const controller = new SessionController({

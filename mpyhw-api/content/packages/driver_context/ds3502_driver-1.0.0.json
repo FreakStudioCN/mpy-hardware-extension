@@ -1,0 +1,41 @@
+{
+  "import_names": [
+    "ds3502"
+  ],
+  "constructors": [
+    "DS3502(i2c)"
+  ],
+  "read_methods": [
+    "generate_samples",
+    "read_control_register",
+    "read_wiper",
+    "set_mode",
+    "start",
+    "stop",
+    "to_dac_value",
+    "update",
+    "write_wiper"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ds3502_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "ds3502.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

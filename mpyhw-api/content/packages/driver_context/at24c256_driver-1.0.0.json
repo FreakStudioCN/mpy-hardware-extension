@@ -1,0 +1,36 @@
+{
+  "import_names": [
+    "at24c256"
+  ],
+  "constructors": [
+    "AT24CXX(i2c)"
+  ],
+  "read_methods": [
+    "read_byte",
+    "read_sequence",
+    "write_byte",
+    "write_page"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/at24c256_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "at24c256.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

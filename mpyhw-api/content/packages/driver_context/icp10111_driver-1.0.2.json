@@ -1,0 +1,39 @@
+{
+  "import_names": [
+    "icp10111",
+    "typing"
+  ],
+  "constructors": [
+    "ICP10111(i2c)"
+  ],
+  "read_methods": [
+    "calculate_conversion_constants",
+    "get_conversion_values",
+    "get_pressure",
+    "measurements",
+    "operation_mode",
+    "reset"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/icp10111_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "icp10111.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

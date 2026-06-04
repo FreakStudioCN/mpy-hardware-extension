@@ -1,0 +1,40 @@
+{
+  "import_names": [
+    "mma8452q",
+    "micropython_mma8452q",
+    "typing"
+  ],
+  "constructors": [
+    "MMA8452Q(i2c)"
+  ],
+  "read_methods": [
+    "acceleration",
+    "data_rate",
+    "high_pass_filter",
+    "high_pass_filter_cutoff",
+    "operation_mode",
+    "scale_range"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mma8452q_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "mma8452q.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

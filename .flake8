@@ -1,0 +1,12 @@
+[flake8]
+max-line-length = 120
+extend-ignore =
+    F821,
+    F401,
+per-file-ignores =
+    firmware/lib/logger/logging.py: F821
+    firmware/lib/scheduler/timer_sched.py: F821
+
+[pycodestyle]
+max-line-length = 120
+ignore = E402, W503

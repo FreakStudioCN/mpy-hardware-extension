@@ -3,6 +3,7 @@ import { BoardClient } from "./board-client.ts";
 import { auditCode } from "./audit-code.ts";
 import { validateManifest } from "./manifest-schema.ts";
 import { deriveWiring } from "./wiring-derive.ts";
+import { deriveDiagram } from "./diagram-derive.ts";
 import { CANONICAL_TOOLS } from "./tool-registry.ts";
 import { dispatchTool } from "./tool-dispatch.ts";
 import { createLlmClient } from "./llm-client.ts";
@@ -420,6 +421,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           }
           const wiring = deriveWiring(manifest);
           onEvent({ type: "manifest_updated", manifest: { ...manifest, wiring } });
+          onEvent({ type: "diagram_updated", diagram: deriveDiagram(manifest) });
           if (typeof deps.writeProjectFile === "function") {
             const persisted = await deps.writeProjectFile("project-manifest.json", JSON.stringify(manifest, null, 2));
             if (persisted.ok) onEvent({ type: "file_written", path: persisted.path ?? "project-manifest.json" });
@@ -438,6 +440,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           // plan the user reviews — before any (paid) codegen runs. Also covers the
           // case where the agent skipped (or never validated) a propose_manifest call.
           onEvent({ type: "manifest_updated", manifest: { ...manifest, wiring: deriveWiring(manifest) } });
+          onEvent({ type: "diagram_updated", diagram: deriveDiagram(manifest) });
           // Plan gate (deterministic, once per session): show requirements + a rough
           // credit estimate and wait for confirmation before spending on codegen.
           // Repair-loop regenerations keep planConfirmed=true and skip the prompt.
@@ -543,29 +546,33 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
             return { ok: true };
           }
           if (name === "write_main_py") {
-            const mainCode = state.files?.["main.py"];
-            if (typeof mainCode !== "string") {
-              return { ok: false, error_kind: "generated_main_missing" };
-            }
-            await shim.writeMainPy(mainCode);
-            // Deploy any additional generated project files (lib/ + firmware/ code)
-            // to the device at their mirror paths. Content comes from the accumulated
-            // set, not re-sent by the model. write_project_file also mirrors non-code
-            // artifacts (project-manifest.json, docs/, test/) into state.files; those
-            // live in the workspace, not on the board, and writeDeviceFile rejects
-            // them with invalid_generated_path — skip those rather than aborting the
-            // whole deploy. Single-file projects have no extra files → no-op.
-            if (typeof shim.writeDeviceFile === "function") {
-              for (const [filePath, code] of Object.entries(state.files ?? {})) {
-                if (filePath === "main.py") continue;
-                try {
-                  await shim.writeDeviceFile(filePath, String(code));
-                } catch (error: any) {
-                  if (error?.message === "invalid_generated_path") continue;
-                  throw error;
+            // Rich multi-file flow: a firmware/ project tree was assembled on disk
+            // (by scaffold/download_drivers + generate_code/write_project_file). Deploy
+            // the WHOLE tree to the device root (mirror `mpremote fs cp -r firmware/ :/`)
+            // so boot.py/board.py/conf.py + downloaded drivers — which never enter
+            // state.files — ship too, and firmware/lib/x.py lands at /lib/x.py (so a
+            // bare `import x` resolves). The on-disk tree, not state.files, is the truth.
+            const projectDir = state.projectDir ?? deps.projectRoot;
+            const hasFirmwareTree = Object.keys(state.files ?? {}).some((key) => key.startsWith("firmware/"));
+            if (projectDir && hasFirmwareTree && typeof shim.deployFirmwareTree === "function") {
+              try {
+                await shim.deployFirmwareTree(projectDir);
+                return { ok: true };
+              } catch (error: any) {
+                // No tree on disk after all (e.g. a stub shim in a headless run): fall
+                // through to the legacy single-file path. Any other failure is real.
+                if (error?.message !== "firmware_dir_missing") {
+                  return { ok: false, error_kind: error?.message ?? "deploy_failed" };
                 }
               }
             }
+            // Legacy single-file flow: no firmware tree, just write the generated
+            // main.py to the device as /main.py.
+            const mainContent = state.files?.["main.py"] ?? state.files?.["firmware/main.py"];
+            if (typeof mainContent !== "string") {
+              return { ok: false, error_kind: "generated_main_missing" };
+            }
+            await shim.writeMainPy(mainContent);
             return { ok: true };
           }
           if (name === "flash_and_run") {

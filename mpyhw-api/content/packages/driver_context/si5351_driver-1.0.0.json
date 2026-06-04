@@ -1,0 +1,46 @@
+{
+  "import_names": [
+    "silicon5351"
+  ],
+  "constructors": [
+    "SI5351_I2C(i2c)"
+  ],
+  "read_methods": [
+    "approximate_fraction",
+    "disable_oeb",
+    "disable_output",
+    "disabled_states",
+    "enable_output",
+    "init_clock",
+    "init_multisynth",
+    "reset_pll",
+    "set_freq_fixedms",
+    "set_freq_fixedpll",
+    "set_phase",
+    "setup_multisynth",
+    "setup_pll",
+    "write_config"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/si5351_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "silicon5351.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

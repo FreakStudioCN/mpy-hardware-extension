@@ -1,0 +1,49 @@
+{
+  "import_names": [
+    "isl29125",
+    "micropython_isl29125"
+  ],
+  "constructors": [
+    "ISL29125(i2c)"
+  ],
+  "read_methods": [
+    "adc_resolution",
+    "blue",
+    "clear_register_flag",
+    "colors",
+    "deinit",
+    "green",
+    "high_threshold",
+    "interrupt_threshold",
+    "interrupt_triggered",
+    "ir_compensation",
+    "ir_compensation_value",
+    "low_threshold",
+    "operation_mode",
+    "persistent_control",
+    "red",
+    "sensing_range"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/isl29125_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "isl29125.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

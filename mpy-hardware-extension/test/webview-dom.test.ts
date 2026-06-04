@@ -12,8 +12,17 @@ import { JSDOM } from "jsdom";
 // setCredits / the HTML-escape guard.
 const html = readFileSync(new URL("../src/webview/index.html", import.meta.url), "utf-8");
 
-async function loadWebview(): Promise<JSDOM> {
-  const dom = new JSDOM(html, { runScripts: "dangerously" });
+async function loadWebview(posted?: any[]): Promise<JSDOM> {
+  const dom = new JSDOM(html, {
+    runScripts: "dangerously",
+    beforeParse: posted ? (window) => {
+      (window as any).acquireVsCodeApi = () => ({
+        postMessage: (message: any) => posted.push(message),
+        getState: () => null,
+        setState: () => {},
+      });
+    } : undefined,
+  });
   await new Promise<void>((resolve) => {
     if (dom.window.document.readyState === "complete") resolve();
     else dom.window.addEventListener("load", () => resolve());
@@ -302,6 +311,59 @@ test("diagram_updated with an empty diagram keeps the empty state (no throw)", a
   assert.equal(document.getElementById("diagramEmpty")!.classList.contains("hidden"), false);
 });
 
+// The manifest-derived diagram (deriveDiagram) carries only neutral layer ids and
+// flow phases; the webview localizes them, while device names / mcu / interface
+// tokens stay as identifiers.
+const DERIVED_DIAGRAM = {
+  architecture: {
+    layers: [
+      { id: "entry", modules: [{ name: "main.py" }] },
+      { id: "driver", modules: [{ name: "SSD1306 OLED", role: "I2C", path: "display" }, { name: "AHT20", role: "I2C", path: "temperature_sensor" }] },
+      { id: "board", modules: [{ name: "ESP32-C3", role: "MCU" }] },
+    ],
+  },
+  flow: [
+    { phase: "init", detail: "I2C" },
+    { phase: "scan", detail: "SSD1306 OLED, AHT20" },
+    { phase: "create", detail: "SSD1306 OLED, AHT20" },
+    { phase: "run" },
+  ],
+};
+
+test("derived diagram (neutral ids/phases) renders localized English labels + raw identifiers", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "diagram_updated", diagram: DERIVED_DIAGRAM });
+
+  const diagram = document.getElementById("diagram")!;
+  assert.equal(document.getElementById("diagramEmpty")!.classList.contains("hidden"), true);
+  // Layer ids -> English labels.
+  for (const label of ["Entry", "Driver", "Board"]) assert.match(diagram.innerHTML, new RegExp(label));
+  // Flow phases -> English actions.
+  for (const action of ["Initialize bus", "Scan devices", "Create drivers", "Run loop"]) assert.match(diagram.innerHTML, new RegExp(action));
+  // Identifiers are not translated.
+  assert.match(diagram.innerHTML, /SSD1306 OLED/);
+  assert.match(diagram.innerHTML, /ESP32-C3/);
+});
+
+test("derived diagram renders Chinese labels once the session locale is zh", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  // Flip the UI language the same way a real session does: submit a Chinese intent.
+  (document.getElementById("intent") as any).value = "用 OLED 显示温度";
+  (document.getElementById("generate") as any).click();
+
+  post(dom, { type: "diagram_updated", diagram: DERIVED_DIAGRAM });
+
+  const diagram = document.getElementById("diagram")!;
+  for (const label of ["入口层", "驱动层", "板级层"]) assert.match(diagram.innerHTML, new RegExp(label));
+  for (const action of ["初始化总线", "扫描器件", "创建驱动", "运行循环"]) assert.match(diagram.innerHTML, new RegExp(action));
+  // Identifiers stay untranslated even in zh.
+  assert.match(diagram.innerHTML, /SSD1306 OLED/);
+});
+
 test("credits message updates the quota label and gates Start", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
@@ -353,6 +415,29 @@ test("trace_event drives one working spinner — raw reasoning never leaks; a kn
   assert.doesNotMatch(label()!, /\d+s/, "no per-second timer leaks");
 
   post(dom, { type: "session_done", terminal: "generated" }); // ends the run
+});
+
+test("New session wipes the feed and every tab back to its empty state", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+  posted.length = 0;
+
+  // Build up some conversation surface: a reply card in the feed + a rendered
+  // wiring view (its empty placeholder hidden).
+  post(dom, { type: "summary", text: "Done — wired the OLED." });
+  post(dom, { type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1", wiring: [{ role: "i2c_sda", pin: "GPIO5" }] } });
+  assert.ok(activity.querySelector(".ev-card"), "a reply card is present before reset");
+  assert.equal(document.getElementById("wiringEmpty")!.classList.contains("hidden"), true, "wiring empty hidden once a manifest rendered");
+
+  (document.getElementById("newSession") as any).click();
+
+  assert.equal(posted[0]?.type, "reset_session", "host state reset is requested");
+  assert.equal(activity.innerHTML, "", "the feed is wiped");
+  assert.equal(document.getElementById("activityEmpty")!.classList.contains("hidden"), false, "activity empty state restored");
+  assert.equal(document.getElementById("wiring")!.innerHTML, "", "wiring view wiped");
+  assert.equal(document.getElementById("wiringEmpty")!.classList.contains("hidden"), false, "wiring empty state restored");
 });
 
 test("a summary message renders exactly one final result card", async () => {

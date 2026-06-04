@@ -185,6 +185,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       controller.cancel();
       webview.postMessage({ type: "session_done", terminal: "cancelled" });
     }
+    if (message.type === "reset_session") {
+      // Drop the accumulated conversation so the next request starts a brand-new
+      // build instead of continuing this one. The webview clears its own feed
+      // optimistically; this just resets the controller's durable state.
+      controller.reset();
+    }
   });
 }
 

@@ -1,0 +1,47 @@
+{
+  "import_names": [
+    "mems_air_module"
+  ],
+  "constructors": [
+    "AirQualityMonitor(i2c)",
+    "MEMSGasSensor(i2c)",
+    "PCA9546ADR(i2c)"
+  ],
+  "read_methods": [
+    "calibrate_sensor",
+    "calibrate_zero",
+    "current_mask",
+    "disable_all",
+    "get_address",
+    "get_type",
+    "read_all",
+    "read_concentration",
+    "read_sensor",
+    "read_status",
+    "register_sensor",
+    "select_channel",
+    "write_ctl"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mems_driver/1.0.1/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "mems_air_module.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

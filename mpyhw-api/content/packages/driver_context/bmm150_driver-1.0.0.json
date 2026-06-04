@@ -1,0 +1,43 @@
+{
+  "import_names": [
+    "__init__",
+    "collections",
+    "micropython_bmm150",
+    "typing"
+  ],
+  "constructors": [
+    "BMM150(i2c)"
+  ],
+  "read_methods": [
+    "data_rate",
+    "deinit",
+    "high_threshold",
+    "interrupt_mode",
+    "low_threshold",
+    "measurements",
+    "operation_mode",
+    "status_interrupt"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bmm150_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "__init__.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

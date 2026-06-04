@@ -91,6 +91,26 @@ test("DeviceShim deploys firmware/ code but rejects manifests, docs, and PC test
   }
 });
 
+test("DeviceShim.deployFirmwareTree resolves the port and maps to device.deploy_firmware_tree", async () => {
+  const calls: any[] = [];
+  const shim = new DeviceShim(async (method: string, params: any) => {
+    calls.push({ method, params });
+    return method === "device.scan" ? { status: "ok", devices: [{ port: "COM5" }] } : { status: "ok" };
+  });
+
+  await shim.deployFirmwareTree("C:/proj/app");
+
+  const deploy = calls.find((c) => c.method === "device.deploy_firmware_tree");
+  assert.deepEqual(deploy.params, { project_dir: "C:/proj/app", port: "COM5" });
+});
+
+test("DeviceShim.deployFirmwareTree throws the shim's error_kind (e.g. firmware_dir_missing)", async () => {
+  const shim = new DeviceShim(async (method: string) =>
+    method === "device.scan" ? { status: "ok", devices: [{ port: "COM3" }] } : { status: "error", error_kind: "firmware_dir_missing" },
+  );
+  await assert.rejects(() => shim.deployFirmwareTree("C:/proj/app"), /firmware_dir_missing/);
+});
+
 test("DeviceShim runs upstream toolchain scripts via script.* RPC (no device/port)", async () => {
   const calls: any[] = [];
   const responses: Record<string, any> = {

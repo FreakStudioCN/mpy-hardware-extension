@@ -1,0 +1,44 @@
+{
+  "import_names": [
+    "qmc5883p"
+  ],
+  "constructors": [
+    "QMC5883P(i2c)",
+    "mag_base(i2c)"
+  ],
+  "read_methods": [
+    "i2c_readregs",
+    "i2c_writereg",
+    "range_sel",
+    "read_raw",
+    "read_scaled",
+    "ready",
+    "reset",
+    "set_oversampling",
+    "set_range",
+    "set_sampling_rate",
+    "set_samplingrate"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/qmc5883l_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "qmc5883p.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

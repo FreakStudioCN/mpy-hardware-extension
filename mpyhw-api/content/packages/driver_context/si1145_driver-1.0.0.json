@@ -1,0 +1,36 @@
+{
+  "import_names": [
+    "si1145"
+  ],
+  "constructors": [
+    "SI1145(i2c)"
+  ],
+  "read_methods": [
+    "read_ir",
+    "read_prox",
+    "read_uv",
+    "read_visible"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/si1145_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "si1145.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

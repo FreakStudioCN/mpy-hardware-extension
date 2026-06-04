@@ -1,0 +1,55 @@
+{
+  "import_names": [
+    "sh1106"
+  ],
+  "constructors": [
+    "SH1106_I2C(i2c)"
+  ],
+  "read_methods": [
+    "blit",
+    "contrast",
+    "ellipse",
+    "fill",
+    "fill_rect",
+    "flip",
+    "hline",
+    "init_display",
+    "invert",
+    "line",
+    "pixel",
+    "poweroff",
+    "poweron",
+    "rect",
+    "register_updates",
+    "reset",
+    "scroll",
+    "show",
+    "sleep",
+    "text",
+    "vline",
+    "write_cmd",
+    "write_data"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sh1106_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "sh1106.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

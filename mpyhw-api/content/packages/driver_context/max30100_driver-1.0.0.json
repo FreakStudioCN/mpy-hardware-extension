@@ -1,0 +1,49 @@
+{
+  "import_names": [
+    "max30100"
+  ],
+  "constructors": [
+    "MAX30100(i2c)"
+  ],
+  "read_methods": [
+    "disable_spo2",
+    "enable_interrupt",
+    "enable_spo2",
+    "get_number_of_samples",
+    "get_part_id",
+    "get_registers",
+    "get_rev_id",
+    "i2c_write",
+    "ir",
+    "read_sensor",
+    "red",
+    "refresh_temperature",
+    "reset",
+    "set_led_current",
+    "set_mode",
+    "set_spo_config",
+    "shutdown"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/max30100_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "max30100.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

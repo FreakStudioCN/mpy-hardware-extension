@@ -1,0 +1,40 @@
+{
+  "import_names": [
+    "mlx90640"
+  ],
+  "constructors": [
+    "I2CDevice(i2c)"
+  ],
+  "read_methods": [
+    "get_frame",
+    "init_float_array",
+    "init_int_array",
+    "read_into",
+    "refresh_rate",
+    "serial_number",
+    "write",
+    "write_then_read_into"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mlx90640_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "mlx90640.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

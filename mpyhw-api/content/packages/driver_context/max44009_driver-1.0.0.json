@@ -1,0 +1,44 @@
+{
+  "import_names": [
+    "max44009"
+  ],
+  "constructors": [
+    "MAX44009(i2c)"
+  ],
+  "read_methods": [
+    "continuous",
+    "current_division_ratio",
+    "deinit",
+    "int_enable",
+    "int_status",
+    "integration_time",
+    "lower_threshold",
+    "lux",
+    "lux_fast",
+    "manual",
+    "threshold_timer",
+    "upper_threshold"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/max44009_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "max44009.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

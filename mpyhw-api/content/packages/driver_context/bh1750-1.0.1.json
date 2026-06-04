@@ -1,0 +1,38 @@
+{
+  "import_names": [
+    "bh_1750"
+  ],
+  "constructors": [
+    "BH1750(i2c)"
+  ],
+  "read_methods": [
+    "configure",
+    "measurement",
+    "measurements",
+    "power_off",
+    "power_on",
+    "reset"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bh1750/1.0.1/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "bh_1750.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

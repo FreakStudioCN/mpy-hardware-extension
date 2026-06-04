@@ -1,0 +1,44 @@
+{
+  "import_names": [
+    "ads1219"
+  ],
+  "constructors": [
+    "ADS1219(i2c)"
+  ],
+  "read_methods": [
+    "powerdown",
+    "read_config",
+    "read_data",
+    "read_data_irq",
+    "read_status",
+    "reset",
+    "set_channel",
+    "set_conversion_mode",
+    "set_data_rate",
+    "set_gain",
+    "set_vref",
+    "start_sync"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ads1219_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "ads1219.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

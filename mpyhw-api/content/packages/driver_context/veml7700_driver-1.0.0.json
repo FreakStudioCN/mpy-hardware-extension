@@ -1,0 +1,34 @@
+{
+  "import_names": [
+    "veml7700"
+  ],
+  "constructors": [
+    "VEML7700(i2c)"
+  ],
+  "read_methods": [
+    "deinit",
+    "read_lux"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/veml7700_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "veml7700.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

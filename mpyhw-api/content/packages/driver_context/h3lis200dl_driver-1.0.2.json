@@ -1,0 +1,54 @@
+{
+  "import_names": [
+    "__init__",
+    "collections",
+    "micropython_h3lis200dl",
+    "typing"
+  ],
+  "constructors": [
+    "H3LIS200DL(i2c)"
+  ],
+  "read_methods": [
+    "acceleration",
+    "data_rate",
+    "full_scale_selection",
+    "high_pass_filter_cutoff",
+    "high_pass_filter_mode",
+    "interrupt1_configuration",
+    "interrupt1_duration",
+    "interrupt1_latched",
+    "interrupt1_source_register",
+    "interrupt1_threshold",
+    "interrupt2_configuration",
+    "interrupt2_duration",
+    "interrupt2_latched",
+    "interrupt2_source_register",
+    "interrupt2_threshold",
+    "operation_mode",
+    "x_enabled",
+    "y_enabled",
+    "z_enabled"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/h3lis200dl_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "__init__.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

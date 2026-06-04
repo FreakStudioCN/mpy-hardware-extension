@@ -45,3 +45,11 @@ mpyhw-api/credits.db
 
 # Generated hardware project (the extension writes here, never the workspace root)
 /blockless-project/
+
+# Generated hardware-project scaffold leaked to repo root during e2e runs
+/firmware/
+/host/
+/test/
+/tools/
+/project-manifest.json
+/review_full.diff

@@ -1,0 +1,34 @@
+{
+  "import_names": [
+    "rcwl9620"
+  ],
+  "constructors": [
+    "RCWL9620(i2c)"
+  ],
+  "read_methods": [
+    "deinit",
+    "read"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/rcwl9620_driver/1.0.0/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "rcwl9620.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}

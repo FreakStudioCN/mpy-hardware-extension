@@ -1,0 +1,37 @@
+{
+  "import_names": [
+    "LCD_I2C"
+  ],
+  "constructors": [
+    "LCD(i2c)"
+  ],
+  "read_methods": [
+    "clear",
+    "off",
+    "on",
+    "set_cursor",
+    "write"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/lcm1602a_driver/1.0.2/package.json"
+  },
+  "examples": [],
+  "known_issues": [],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "LCD_I2C.py"
+    }
+  ],
+  "confidence": 0.75,
+  "support_level": "generatable"
+}
