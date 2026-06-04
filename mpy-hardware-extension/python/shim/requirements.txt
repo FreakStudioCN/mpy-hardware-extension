@@ -3,4 +3,5 @@ pyserial
 pytest
 jsonschema
 flake8
+pylint
 requests

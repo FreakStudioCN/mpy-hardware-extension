@@ -21,6 +21,8 @@ const ROUTES: Record<string, "local" | "api" | "shim" | "ui"> = {
   run_validate: "shim",
   run_scaffold: "shim",
   run_download_drivers: "shim",
+  run_static_check: "shim",
+  run_simulate: "shim",
   ask_user: "ui",
 };
 

@@ -109,6 +109,23 @@ export class DeviceShim {
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "download_failed");
     return { output: r.output ?? "" };
   }
+
+  // Static-check the project: flake8 (gate) + pylint (advisory). `clean` keys on
+  // flake8; both outputs return so the caller can surface/fix issues.
+  async runStaticCheck(projectDir: string, target = "firmware"): Promise<{ clean: boolean; flake8: any; pylint: any }> {
+    await this.ensure();
+    const r = await this.rpc("script.run_static_check", { project_dir: projectDir, target });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "static_check_failed");
+    return { clean: !!r.clean, flake8: r.flake8, pylint: r.pylint };
+  }
+
+  // Run the PC-side unit tests (pytest test/pc) on CPython — no device needed.
+  async runSimulate(projectDir: string, target = "test/pc"): Promise<{ passed: boolean; noTests: boolean; output: string; exitCode: number }> {
+    await this.ensure();
+    const r = await this.rpc("script.run_simulate", { project_dir: projectDir, target });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "simulate_failed");
+    return { passed: !!r.passed, noTests: !!r.no_tests, output: r.output ?? "", exitCode: r.exit_code ?? 1 };
+  }
 }
 
 // Spawn the Python shim and wire a DeviceShim to it. Everything is lazy: Python
@@ -188,7 +205,7 @@ function resolvePython(vscode: any): string {
 // jsonschema/flake8/requests for the upstream toolchain scripts (validate/scaffold/
 // download). A venv from an earlier version may have mpremote but not these, so
 // gate the install on the full set.
-const SHIM_IMPORT_PROBE = ["-c", "import mpremote, serial, jsonschema, flake8, requests"];
+const SHIM_IMPORT_PROBE = ["-c", "import mpremote, serial, jsonschema, flake8, pylint, requests"];
 
 function ensureVenv(python: string, vscode: any, requirementsPath: string): string {
   const venvDir = join(homedir(), ".mpyhw", "venv");

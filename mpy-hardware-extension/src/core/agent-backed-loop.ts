@@ -194,6 +194,8 @@ function userVisibleToolPhase(toolName: string): string | null {
     run_validate: "Validating against schema",
     run_scaffold: "Generating project skeleton",
     run_download_drivers: "Downloading drivers",
+    run_static_check: "Checking code (lint)",
+    run_simulate: "Running PC simulation",
     scan_device: "Scanning devices",
   };
   return phases[toolName] ?? null;
@@ -485,7 +487,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           // Upstream toolchain scripts (host-side, no device): validate the
           // manifest/wiring/diagram against the canonical schema, generate the
           // firmware skeleton, download drivers. All operate on the project dir.
-          if (name === "run_validate" || name === "run_scaffold" || name === "run_download_drivers") {
+          if (name === "run_validate" || name === "run_scaffold" || name === "run_download_drivers" || name === "run_static_check" || name === "run_simulate") {
             const projectDir = state.projectDir ?? deps.projectRoot;
             if (!projectDir) return { ok: false, error_kind: "project_dir_unavailable" };
             if (name === "run_validate") {
@@ -497,7 +499,17 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
             if (name === "run_scaffold") {
               return { ok: true, output: (await shim.runScaffold(projectDir, toolInput.mode ?? "timer")).output };
             }
-            return { ok: true, output: (await shim.runDownloadDrivers(projectDir)).output };
+            if (name === "run_download_drivers") {
+              return { ok: true, output: (await shim.runDownloadDrivers(projectDir)).output };
+            }
+            if (name === "run_static_check") {
+              // Lint result is informational (the agent fixes and re-runs), not a
+              // transport error: ok with the clean flag + flake8/pylint output.
+              const r = await shim.runStaticCheck(projectDir, toolInput.target ?? "firmware");
+              return { ok: true, clean: r.clean, flake8: r.flake8, pylint: r.pylint };
+            }
+            const sim = await shim.runSimulate(projectDir, toolInput.target ?? "test/pc");
+            return { ok: true, passed: sim.passed, no_tests: sim.noTests, exit_code: sim.exitCode, output: sim.output };
           }
           return { ok: false, error_kind: "UnknownToolError" };
         } catch (error: any) {

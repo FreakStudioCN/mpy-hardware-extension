@@ -317,5 +317,31 @@
       "properties": {},
       "additionalProperties": false
     }
+  },
+  {
+    "name": "run_static_check",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Static-check the generated code on the host: flake8 (the gate; scaffold writes .flake8) plus pylint (advisory). Returns whether it is clean plus the linter output so you can fix issues before deploying. Run after generating code.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "target": { "type": "string", "description": "Project-relative path to check (default firmware)." }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_simulate",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Run the project's PC-side unit tests (pytest test/pc) on CPython via the host — no device needed. Returns whether they passed plus the pytest output. Use to verify business logic against the Mock drivers before flashing.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "target": { "type": "string", "description": "Project-relative test path (default test/pc)." }
+      },
+      "additionalProperties": false
+    }
   }
 ]

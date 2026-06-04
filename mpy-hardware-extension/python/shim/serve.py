@@ -152,6 +152,13 @@ class Shim:
         # requests) resolve from the venv. Injectable via self.runner for tests.
         return self._run([sys.executable, script_path, *args], timeout=timeout)
 
+    def run_module(self, module: str, args: list[str], cwd=None, timeout: float = 300):
+        # Run a venv module (flake8 / pylint / pytest) as `python -m <module>` in the
+        # project dir. Injectable via self.runner for tests.
+        cmd = [sys.executable, "-m", module, *args]
+        self.commands.append(cmd)
+        return self.runner(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+
     def _run(self, command: list[str], timeout: float = 30):
         self.commands.append(command)
         return self.runner(command, capture_output=True, text=True, timeout=timeout)
@@ -233,6 +240,30 @@ def _run_project_script(shim, name, args):
     return {"status": "ok", "exit_code": rc, "output": (getattr(r, "stdout", "") or "").strip()}
 
 
+def _module_result(r):
+    return {"exit_code": getattr(r, "returncode", 1),
+            "output": ((getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")).strip()}
+
+
+def _run_static_check(shim, params):
+    project_dir = params["project_dir"]
+    target = params.get("target", "firmware")
+    # flake8 is the configured gate (scaffold writes .flake8); pylint is advisory
+    # (noisy on MicroPython without an rcfile). Both outputs ride back for the agent
+    # to fix; `clean` keys on flake8 so it stays meaningful.
+    flake = _module_result(shim.run_module("flake8", [target, "--max-line-length=120"], cwd=project_dir, timeout=120))
+    pylint = _module_result(shim.run_module("pylint", [target], cwd=project_dir, timeout=180))
+    return {"status": "ok", "clean": flake["exit_code"] == 0, "flake8": flake, "pylint": pylint}
+
+
+def _run_simulate(shim, params):
+    project_dir = params["project_dir"]
+    target = params.get("target", "test/pc")
+    r = _module_result(shim.run_module("pytest", [target, "-q"], cwd=project_dir, timeout=300))
+    # pytest exit 0 = passed, 5 = no tests collected (treat as not-failed but empty).
+    return {"status": "ok", "passed": r["exit_code"] == 0, "no_tests": r["exit_code"] == 5, **r}
+
+
 def _dispatch(shim, method, params):
     if method == "script.run_validate":
         return _run_validate(shim, params)
@@ -240,6 +271,10 @@ def _dispatch(shim, method, params):
         return _run_project_script(shim, "scaffold", ["--project-dir", params["project_dir"], "--mode", params.get("mode", "timer")])
     if method == "script.run_download_drivers":
         return _run_project_script(shim, "download_drivers", ["--project-dir", params["project_dir"]])
+    if method == "script.run_static_check":
+        return _run_static_check(shim, params)
+    if method == "script.run_simulate":
+        return _run_simulate(shim, params)
     if method == "device.scan":
         return {"status": "ok", "devices": [{"port": p} for p in shim.scan()]}
     if method == "device.health_check":

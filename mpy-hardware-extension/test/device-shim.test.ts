@@ -102,3 +102,21 @@ test("DeviceShim throws the script error_kind on a failed toolchain run", async 
   const shim = new DeviceShim(async () => ({ status: "error", error_kind: "script_failed", message: "boom" }));
   await assert.rejects(() => shim.runScaffold("C:/proj/app"), /script_failed/);
 });
+
+test("DeviceShim maps the verify track (static check + simulate) to script.* RPC", async () => {
+  const calls: any[] = [];
+  const responses: Record<string, any> = {
+    "script.run_static_check": { status: "ok", clean: false, flake8: { exit_code: 1, output: "E501 line too long" }, pylint: { exit_code: 0, output: "" } },
+    "script.run_simulate": { status: "ok", passed: true, no_tests: false, exit_code: 0, output: "3 passed" },
+  };
+  const shim = new DeviceShim(async (method: string, params: any) => { calls.push({ method, params }); return responses[method]; });
+
+  const sc = await shim.runStaticCheck("C:/proj/app", "firmware");
+  assert.equal(sc.clean, false);
+  assert.equal(sc.flake8.output, "E501 line too long");
+  assert.deepEqual(calls.find((c) => c.method === "script.run_static_check").params, { project_dir: "C:/proj/app", target: "firmware" });
+
+  const sim = await shim.runSimulate("C:/proj/app");
+  assert.deepEqual(sim, { passed: true, noTests: false, output: "3 passed", exitCode: 0 });
+  assert.equal(calls.find((c) => c.method === "script.run_simulate").params.target, "test/pc");
+});

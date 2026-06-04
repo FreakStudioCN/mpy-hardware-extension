@@ -13,6 +13,8 @@ from serve import (
     scripts_root,
     _ensure_utf8_io,
     _run_project_script,
+    _run_simulate,
+    _run_static_check,
     _run_validate,
 )
 
@@ -234,6 +236,44 @@ def test_run_project_script_maps_nonzero_exit_to_error():
     ok = _run_project_script(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "[OK] done", "")),
                              "download_drivers", ["--project-dir", "/p"])
     assert ok == {"status": "ok", "exit_code": 0, "output": "[OK] done"}
+
+
+def test_run_module_builds_python_dash_m_command_with_cwd():
+    calls = []
+
+    def runner(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    Shim(runner=runner).run_module("flake8", ["firmware", "--max-line-length=120"], cwd="/proj")
+    assert calls[0][0] == [sys.executable, "-m", "flake8", "firmware", "--max-line-length=120"]
+    assert calls[0][1]["cwd"] == "/proj"
+
+
+def test_run_static_check_keys_clean_on_flake8():
+    # flake8 clean + pylint noisy -> still clean (pylint is advisory); flake8 dirty -> not clean.
+    def runner(rc_by_module):
+        def run(cmd, **_k):
+            module = cmd[2]
+            return subprocess.CompletedProcess(cmd, rc_by_module.get(module, 0), f"{module} out", "")
+        return run
+
+    clean = _run_static_check(Shim(runner=runner({"flake8": 0, "pylint": 16})), {"project_dir": "/p"})
+    assert clean["clean"] is True and clean["flake8"]["exit_code"] == 0 and clean["pylint"]["exit_code"] == 16
+
+    dirty = _run_static_check(Shim(runner=runner({"flake8": 1, "pylint": 0})), {"project_dir": "/p"})
+    assert dirty["clean"] is False and "flake8 out" in dirty["flake8"]["output"]
+
+
+def test_run_simulate_maps_pytest_exit_codes():
+    passed = _run_simulate(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "2 passed", "")), {"project_dir": "/p"})
+    assert passed["passed"] is True and passed["no_tests"] is False
+
+    none = _run_simulate(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 5, "no tests ran", "")), {"project_dir": "/p"})
+    assert none["passed"] is False and none["no_tests"] is True
+
+    failed = _run_simulate(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, "1 failed", "")), {"project_dir": "/p"})
+    assert failed["passed"] is False and failed["no_tests"] is False
 
 
 class FakeSerial:
