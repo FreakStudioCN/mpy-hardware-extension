@@ -225,6 +225,19 @@
       .pin-badge.ground { color: #b0b0b0; }
       .wire-note { font-size: 11px; color: var(--yellow); background: #d3a50a14; border: 1px solid #d3a50a33; padding: 6px 9px; border-radius: 6px; margin-top: 4px; }
 
+      /* diagram (architecture layers + run flow) */
+      #diagram { padding: 11px 12px 22px; }
+      .diagram-section { margin-bottom: 16px; }
+      .diagram-h { font-size: 12px; font-weight: 600; color: var(--fg-bright); margin: 0 0 8px; }
+      .diagram-layer { border: 1px solid var(--vsc-card-border); background: var(--vsc-card); border-radius: 9px; margin-bottom: 8px; overflow: hidden; }
+      .diagram-layer-name { font-size: 11px; color: var(--fg-dim); background: #ffffff0a; padding: 6px 11px; border-bottom: 1px solid var(--vsc-border-soft); }
+      .diagram-modules { display: flex; flex-wrap: wrap; gap: 6px; padding: 9px 11px; }
+      .diagram-module { font-family: var(--mono); font-size: 11px; color: var(--fg-bright); background: #ffffff12; border: 1px solid var(--vsc-border-soft); padding: 2px 8px; border-radius: 5px; }
+      .diagram-role { color: var(--fg-dim); font-family: inherit; }
+      .diagram-flow { margin: 0; padding-left: 20px; color: var(--fg); font-size: 12px; }
+      .diagram-flow li { padding: 3px 0; }
+      .diagram-detail { color: var(--fg-muted); }
+
       /* composer */
       .composer { flex: 0 0 auto; border-top: 1px solid var(--vsc-border); padding: 10px 12px 12px; }
       .composer-box { border: 1px solid var(--vsc-input-border); background: var(--vsc-input); border-radius: 9px; padding: 9px 10px 8px; transition: border-color .15s, box-shadow .15s; }
@@ -623,18 +636,30 @@
       }
       // Steady-rate typewriter. feed() appends text to reveal char-by-char into `el`
       // (plain text while typing); end() swaps in rendered markdown once the reveal
-      // catches up. Streamed text (summary deltas) and atomic text (a question or
-      // plan written in one shot) both flow through it, so all assistant prose types
-      // out at a uniform cadence. Without requestAnimationFrame (jsdom tests) it
-      // renders the full text + markdown synchronously, so the DOM is complete at once.
-      function makeTypewriter(el, scroll) {
+      // catches up. Streamed text (summary deltas, code deltas) and atomic text (a
+      // question or plan written in one shot) all flow through it, so everything
+      // types out at a uniform cadence. Without requestAnimationFrame (jsdom tests)
+      // it renders the full text synchronously, so the DOM is complete at once.
+      //   opts.cpms       — reveal rate in chars/ms (default 0.7 ≈ 700/s).
+      //   opts.maxBacklog — when buffered-but-unshown text exceeds this many chars,
+      //                     stop pacing and jump to the end. The text is already
+      //                     here, so revealing a big block slowly would only add lag
+      //                     (e.g. a whole file landing in one burst). Default: no cap.
+      //   opts.settle     — committer for end(): default renders markdown; code
+      //                     passes a plain-text settler so its #/* aren't parsed.
+      function makeTypewriter(el, scroll, opts) {
+        opts = opts || {};
         const animated = typeof requestAnimationFrame === "function";
-        const CPMS = 0.7; // chars per ms (~700/s) — faster than the model generates
-        let target = "", shown = 0, raf = null, last = 0, ended = false;
-        const settle = () => { el.innerHTML = renderMarkdown(target); if (scroll) scroll(); };
+        const CPMS = opts.cpms || 0.7; // chars per ms — faster than the model generates
+        const maxBacklog = opts.maxBacklog || Infinity;
+        const commit = opts.settle || ((node, text) => { node.innerHTML = renderMarkdown(text); });
+        let target = "", shown = 0, raf = null, last = 0, ended = false, stopped = false;
+        const settle = () => { commit(el, target); if (scroll) scroll(); };
         function frame(ts) {
+          if (stopped) { raf = null; return; }
           if (!last) { last = ts; raf = requestAnimationFrame(frame); return; }
           shown = Math.min(target.length, shown + Math.max(1, Math.round(CPMS * (ts - last))));
+          if (target.length - shown > maxBacklog) shown = target.length; // burst: skip the wait
           last = ts;
           el.textContent = target.slice(0, shown);
           if (scroll) scroll();
@@ -655,6 +680,9 @@
             if (!animated || shown >= target.length) { if (raf === null) settle(); }
             else pump();
           },
+          // Halt the reveal without committing — used when the caller is about to
+          // replace `el` (the code card swaps its <pre> for highlighted rows).
+          stop() { stopped = true; },
         };
       }
       function addUserMessage(text) {
@@ -701,6 +729,12 @@
       // was mid-process narration, not the final answer.
       function discardSummary() {
         if (currentSummary) { currentSummary.card.remove(); currentSummary = null; }
+      }
+      // Seal the in-progress streamed reply instead of dropping it: ask_user's
+      // lead-in prose stays on screen (typewriter finishes, then renders markdown)
+      // above the question card that follows.
+      function sealSummary() {
+        if (currentSummary) { currentSummary.tw.end(); currentSummary = null; }
       }
       function addActivity(ev) {
         const text = (ev && typeof ev.text === "string") ? ev.text : JSON.stringify(ev);
@@ -959,7 +993,7 @@
         clearPending();
         const file = path || "main.py";
         const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
-        if (currentCode && currentCode.path === file) { currentCode.raw += text; currentCode.pre.textContent = currentCode.raw; currentCode.card.__code = currentCode.raw; scroll(); return; }
+        if (currentCode && currentCode.path === file) { currentCode.raw += text; currentCode.tw.feed(text); currentCode.card.__code = currentCode.raw; return; }
         currentThink = null; // a code stream closes any open thinking card
         $("activityEmpty").classList.add("hidden");
         const card = document.createElement("div");
@@ -972,7 +1006,12 @@
           '</div><div class="ev-code"><pre class="code-pre"></pre></div></div>';
         card.querySelector(".code-name").textContent = file;
         const pre = card.querySelector(".code-pre");
-        pre.textContent = text;
+        // Reveal code through the typewriter like the summary, so it streams at a
+        // smooth cadence instead of jumping in whatever chunks the upstream sends.
+        // Faster than prose (code is dense + skimmed), and a burst cap so a whole
+        // file landing at once doesn't drag. Settles as plain text — never markdown.
+        const tw = makeTypewriter(pre, scroll, { cpms: 2, maxBacklog: 500, settle: (node, t) => { node.textContent = t; } });
+        tw.feed(text);
         card.__code = text; // full source for the Copy button (survives finalize)
         const copyBtn = card.querySelector(".code-copy");
         copyBtn.addEventListener("click", () => {
@@ -981,7 +1020,7 @@
           setTimeout(() => { copyBtn.textContent = tr("copy"); copyBtn.classList.remove("done"); }, 1500);
         });
         $("activity").appendChild(card);
-        currentCode = { card, pre, raw: text, path: file };
+        currentCode = { card, pre, tw, raw: text, path: file };
         scroll();
       }
       // Finalize the open code card: swap the raw stream for syntax-highlighted,
@@ -990,6 +1029,7 @@
         const file = path || "main.py";
         if (!currentCode || currentCode.path !== file) streamCodeDelta("", file);
         if (!currentCode) return;
+        currentCode.tw.stop(); // halt any in-flight reveal; we're replacing the <pre>
         currentCode.card.__code = code; // Copy uses the finalized source
         const block = document.createElement("div");
         block.className = "code-block";
@@ -1097,11 +1137,18 @@
           }
           for (const part of wiring.standalone || []) {
             const type = String((part && part.type) || "gpio_out");
+            const kind = classifyRole(type);
+            // Multi-pin parts (HX711, stepper, RGB LED) carry pins[]; label each row
+            // by its pin_name, falling back to the friendly type signal. Single-pin
+            // parts keep one row from part.pin.
+            const pinList = Array.isArray(part && part.pins) && part.pins.length
+              ? part.pins.map((pp) => ({ signal: (pp && pp.name) || standaloneSignal(type), kind, pin: String((pp && pp.gpio) || "") }))
+              : [{ signal: standaloneSignal(type), kind, pin: String((part && part.pin) || "") }];
             comps.push({
               key: "other", driver: "",
               name: (part && part.name) || compInfo("other").name,
               part: (part && part.external_components) || "",
-              pins: [{ signal: standaloneSignal(type), kind: classifyRole(type), pin: String((part && part.pin) || "") }],
+              pins: pinList,
             });
           }
           return comps;
@@ -1173,7 +1220,7 @@
         host.innerHTML = html;
         markNew("wiring");
       }
-      function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+      function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 
       // ----- Diagram tab (renders upstream diagram.json architecture + run flow) -----
       function diagramMarkup(diagram) {
@@ -1247,6 +1294,7 @@
         }
         if (msg.type === "summary_delta") { streamSummaryDelta(msg.text); }
         if (msg.type === "summary_discard") { discardSummary(); }
+        if (msg.type === "summary_seal") { sealSummary(); }
         if (msg.type === "summary") { addSummary(msg.text); }
         if (msg.type === "ui_prompt_needed") { addAskPrompt(msg.promptId, msg.question, msg.options); }
         if (msg.type === "plan_needed") { addPlanPrompt(msg.promptId, msg.plan); }

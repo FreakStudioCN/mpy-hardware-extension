@@ -181,6 +181,52 @@ test("manifest_updated renders the upstream device-identity shape (buses[]/stand
   assert.equal((wiring.innerHTML.match(/ssd1306/gi) || []).length, 1);
 });
 
+test("manifest_updated renders every pin of a multi-pin standalone part (no dropped pins)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  // An HX711 load-cell ADC wired to two GPIOs must show BOTH pins on its one card.
+  post(dom, {
+    type: "manifest_updated",
+    manifest: {
+      board_id: "esp32-s3-devkitc-1",
+      wiring: {
+        buses: [],
+        standalone: [{ name: "HX711", type: "gpio_out", pin: "GPIO4", pins: [{ name: "DT", gpio: "GPIO4" }, { name: "SCK", gpio: "GPIO5" }] }],
+      },
+    },
+  });
+
+  const wiring = document.getElementById("wiring")!;
+  assert.equal(wiring.querySelectorAll(".comp-card").length, 1, "one card for the part");
+  assert.equal(wiring.querySelectorAll(".pin-row").length, 2, "both pins rendered");
+  assert.match(wiring.innerHTML, /GPIO4/);
+  assert.match(wiring.innerHTML, /GPIO5/);
+});
+
+test("diagram module path with a double-quote cannot break out of the title attribute", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  // The diagram JSON is agent/LLM-authored; a quote in a module path must be
+  // escaped, not break out of title="..." and inject attributes.
+  post(dom, {
+    type: "diagram_updated",
+    diagram: {
+      architecture: { layers: [{ id: "x", label: "L", modules: [{ name: "m", path: 'a" onmouseover="alert(1)' }] }] },
+      flow: [],
+    },
+  });
+
+  const mod = document.querySelector(".diagram-module") as any;
+  assert.ok(mod, "module rendered");
+  // The raw quote+handler text is preserved verbatim as the title value (escaped),
+  // and no stray onmouseover attribute leaked onto the element.
+  assert.equal(mod.getAttribute("title"), 'a" onmouseover="alert(1)');
+  assert.equal(mod.hasAttribute("onmouseover"), false, "no attribute breakout");
+  assert.match(document.getElementById("diagram")!.innerHTML, /&quot;/, "quote is HTML-escaped in the markup");
+});
+
 test("diagram_updated renders the architecture layers + run flow in the Diagram tab", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
@@ -324,6 +370,24 @@ test("streamed narration is discarded when its turn calls a tool, leaving no car
   assert.match(activity.textContent!, /完成。/);
 });
 
+test("ask_user lead-in is sealed (kept), and the question card lands below it", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  // Lead-in streams in, then its turn calls ask_user -> the host sends summary_seal.
+  post(dom, { type: "summary_delta", text: "我可以帮你做 **温度显示**。" });
+  post(dom, { type: "summary_seal" });
+  assert.equal(activity.querySelectorAll(".ev-card").length, 1, "sealed lead-in stays as a card");
+  assert.ok(activity.querySelector(".ev-sum strong"), "sealed lead-in renders markdown");
+
+  // The question card then lands below the kept lead-in — both visible.
+  post(dom, { type: "ui_prompt_needed", promptId: "p-seal", question: "用哪块板子？", options: [] });
+  assert.equal(activity.querySelectorAll(".ev-card").length, 2, "lead-in and question both present");
+  assert.match(activity.textContent!, /我可以帮你做/, "lead-in survives");
+  assert.equal(document.querySelector(".ask-q")!.textContent, "用哪块板子？");
+});
+
 test("with animation available, question text reveals progressively then finishes as markdown", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
@@ -346,6 +410,55 @@ test("with animation available, question text reveals progressively then finishe
 
   for (let i = 0; i < 50 && cbs.length; i++) flush(50); // drain to completion
   assert.match(ask.innerHTML, /一二三四五六七八九十甲乙丙丁戊己庚辛壬癸/, "fully revealed and rendered when done");
+});
+
+test("with animation available, streamed code reveals progressively then finalizes as rows", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+  const cbs: Array<(t: number) => void> = [];
+  let now = 0;
+  (dom.window as any).requestAnimationFrame = (cb: (t: number) => void) => { cbs.push(cb); return cbs.length; };
+  const flush = (ms: number) => { now += ms; for (const cb of cbs.splice(0)) cb(now); };
+
+  // ~199 chars: more than one frame's reveal (code paces at ~2 chars/ms), under the 500 cap.
+  const code = Array.from({ length: 8 }, (_, i) => `print('streamed line ${i}')`).join("\n");
+  post(dom, { type: "code_delta", text: code, path: "main.py" });
+  const pre = activity.querySelector(".code-pre")!;
+  assert.equal(pre.textContent, "", "nothing revealed before the first frame runs");
+
+  flush(16); // baseline frame establishes the clock
+  flush(16); // reveals a first slice
+  const mid = pre.textContent || "";
+  assert.ok(mid.length > 0 && mid.length < code.length, "code partially revealed mid-stream");
+
+  for (let i = 0; i < 50 && cbs.length; i++) flush(50); // drain the reveal
+  assert.equal(pre.textContent, code, "fully revealed as plain text — code is never markdown-rendered");
+
+  // code_updated then swaps the streaming <pre> for highlighted, line-numbered rows.
+  post(dom, { type: "code_updated", code, path: "main.py" });
+  assert.ok(activity.querySelector(".code-block"), "finalized as a code block");
+  assert.equal(activity.querySelector(".code-pre"), null, "the streaming <pre> was replaced");
+});
+
+test("a code burst larger than the cap reveals at once instead of crawling", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+  const cbs: Array<(t: number) => void> = [];
+  let now = 0;
+  (dom.window as any).requestAnimationFrame = (cb: (t: number) => void) => { cbs.push(cb); return cbs.length; };
+  const flush = (ms: number) => { now += ms; for (const cb of cbs.splice(0)) cb(now); };
+
+  // A whole file landing in one chunk: well over the 500-char burst cap.
+  const big = Array.from({ length: 80 }, (_, i) => `x_${i} = ${i} * 1000  # padding to exceed the burst cap`).join("\n");
+  assert.ok(big.length > 1500, "fixture exceeds the cap");
+  post(dom, { type: "code_delta", text: big, path: "main.py" });
+  const pre = activity.querySelector(".code-pre")!;
+
+  flush(16); // baseline establishes the clock
+  flush(16); // one paced step, then the backlog cap jumps straight to the end
+  assert.equal(pre.textContent, big, "burst skipped the slow crawl and showed at once");
 });
 
 test("ask_user trace is not rendered beside the interactive question card", async () => {

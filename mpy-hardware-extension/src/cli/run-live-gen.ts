@@ -1,18 +1,27 @@
 // Headless real-generation harness: drives the live agent loop (DeepSeek via the
-// running mpyhw-api) for one intent and writes the generated files to tmp/live/.
+// running mpyhw-api) for one intent and writes the generated project into tmp/live/.
 // Unlike run-golden-path.ts (deterministic template pipeline), this exercises the
 // actual LLM codegen path the extension uses.
 //
+// It wires a real HOST shim (createDeviceShim) + project dir so the host verify
+// track (run_validate / run_scaffold / run_static_check / run_simulate — all
+// CPython, no device) actually runs. Device deploy is declined (no board), which
+// now ends the loop cleanly as "generated" instead of grinding to manifest_unresolved.
+//
 // Prereqs:
 //   1. mpyhw-api running (mpyhw-api/scripts/serve.ps1) with DEEPSEEK_API_KEY set.
-//   2. MPYHW_DEV_JWT = a dev session token. Mint it (dev secret) from mpyhw-api/:
-//      python -c "from app import session_token; print(session_token.encode({'sub':'dev','login':'dev'}, 'dev-insecure-secret', 86400))"
+//   2. MPYHW_DEV_JWT = a dev session token signed with the backend's MPYHW_JWT_SECRET
+//      (the live serve.ps1 loads the real secret from mpyhw-api/.env, not the dev default).
+//   3. A Python on PATH; first run bootstraps ~/.mpyhw/venv (jsonschema/flake8/pylint/...).
 //
 // Usage: npm run live-gen -- "your intent here"
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { createAgentBackedLoop } from "../core/agent-backed-loop.ts";
+import { createDeviceShim } from "../extension/device-shim.ts";
+import { writeProjectFile as writeContainedProjectFile } from "../extension/workspace-writer.ts";
 
 const intent = process.argv.slice(2).join(" ") || "ESP32-S3：每 2 秒读 AHT20 温湿度并显示在 SSD1306 OLED 上";
 const apiBaseUrl = (process.env.MPYHW_API_BASE ?? "http://127.0.0.1:8787").replace(/\/$/, "");
@@ -35,7 +44,33 @@ try {
 console.log(`intent: ${intent}`);
 console.log(`boards: ${availableBoards.map((b) => b.board_id).join(", ") || "(none)"}\n`);
 
-const loop = createAgentBackedLoop({ apiBaseUrl, getAuthToken: async () => jwt });
+// Extension root (this file is src/cli/run-live-gen.ts) — createDeviceShim joins
+// `${extRoot}/python/shim` for serve.py and the venv probe.
+const extRoot = fileURLToPath(new URL("../../", import.meta.url));
+const projectDir = join(extRoot, "tmp", "live");
+await mkdir(projectDir, { recursive: true });
+
+// Real host shim: the script.* RPCs (validate/scaffold/static_check/simulate) run on
+// CPython via the venv with no device. Device RPCs would need a board, but deploy is
+// declined below so they never run. vscode is undefined → resolvePython falls back to
+// python3/python.
+const shim = createDeviceShim({ vscode: undefined, extensionUri: { fsPath: extRoot } });
+
+const loop = createAgentBackedLoop({
+  apiBaseUrl,
+  getAuthToken: async () => jwt,
+  shim,
+  projectRoot: projectDir,
+  // write_project_file: same project-tree containment the extension host enforces,
+  // writing into projectDir so the verify scripts (which read projectDir) see the files.
+  writeProjectFile: (path: string, content: string) =>
+    writeContainedProjectFile({
+      workspaceFolder: projectDir,
+      path,
+      content,
+      writeFile: async (target: string, c: string) => { await mkdir(dirname(target), { recursive: true }); await writeFile(target, c, "utf-8"); },
+    }),
+});
 
 const files: Record<string, string> = {};
 let manifest: any;
@@ -47,6 +82,16 @@ try {
     intent,
     boardId: "auto",
     availableBoards,
+    // Self-documenting per-tool log: the loop records a tool_result for every
+    // dispatch, so a failing/declined step is visible (name + ok + error_kind).
+    recorder: {
+      record: async (e: any) => {
+        if (e.type === "tool_result") {
+          const o = e.observation ?? {};
+          console.log(`  [tool] ${e.name} -> ${o.ok ? "ok" : "FAIL " + (o.error_kind ?? "?")}`);
+        }
+      },
+    },
     onEvent: (event: any) => {
       if (event.type === "code_updated") {
         files[event.path ?? "main.py"] = event.code;
@@ -69,11 +114,14 @@ try {
   });
 } catch (error) {
   console.error("\nloop threw:", error);
+} finally {
+  // The shim spawned a child Python process; release it so node can exit.
+  (shim as any).dispose?.();
 }
 
 console.log(`\nterminal: ${result?.terminal ?? "(none)"}`);
 
-const outDir = join("tmp", "live");
+const outDir = projectDir;
 const written: string[] = [];
 for (const [path, code] of Object.entries(files)) {
   const full = join(outDir, path);

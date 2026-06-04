@@ -34,8 +34,8 @@ export async function writeGeneratedFiles(input: {
   return { ok: true, paths };
 }
 
-export function normalizeGeneratedArtifactPath(name: string, options: { allowMain?: boolean; allowManifest?: boolean; allowLib?: boolean; allowProjectTree?: boolean } = {}) {
-  const { allowMain = true, allowManifest = true, allowLib = true, allowProjectTree = false } = options;
+export function normalizeGeneratedArtifactPath(name: string, options: { allowMain?: boolean; allowManifest?: boolean; allowLib?: boolean; allowFirmware?: boolean; allowProjectTree?: boolean } = {}) {
+  const { allowMain = true, allowManifest = true, allowLib = true, allowFirmware = false, allowProjectTree = false } = options;
   if (typeof name !== "string" || !name || name.includes("\\") || name.includes("\0")) return null;
   if (name.startsWith("/") || /^[A-Za-z]:/.test(name)) return null;
   const segments = name.split("/");
@@ -43,6 +43,9 @@ export function normalizeGeneratedArtifactPath(name: string, options: { allowMai
   if (allowMain && name === "main.py") return name;
   if (allowManifest && name === "manifest.json") return name;
   if (allowLib && segments[0] === "lib" && segments.length >= 2 && name.endsWith(".py")) return name;
+  // Device-deployable firmware code (drivers/tasks/lib under firmware/). Used by the
+  // device deploy step, which flashes code but NOT manifests/docs/PC-tests.
+  if (allowFirmware && segments[0] === "firmware" && segments.length >= 2 && name.endsWith(".py")) return name;
   if (allowProjectTree) {
     // The upstream project tree the agent fills during the phase-driven build: the
     // manifest + wiring/diagram JSON at the project root or under docs/, plus .py

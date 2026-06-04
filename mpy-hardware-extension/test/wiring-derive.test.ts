@@ -91,3 +91,84 @@ test("empty/partial manifest derives empty wiring without throwing", () => {
   assert.deepEqual(deriveWiring({}), { buses: [], standalone: [] });
   assert.deepEqual(deriveWiring({ devices: [] }), { buses: [], standalone: [] });
 });
+
+test("two distinct I2C buses (I2C0 + I2C1) stay separate, not merged into one card", () => {
+  // Regression: keying buses by type alone collapsed two physical I2C controllers
+  // into one card with conflicting duplicate SDA/SCL signals. The pin_name bus
+  // token (I2C0 vs I2C1) must split them.
+  const wiring = deriveWiring({
+    schema_version: "1.0",
+    devices: [
+      { name: "OLED", type: "display", interface: "I2C", i2c_addr: ["0x3C"] },
+      { name: "RTC", type: "clock", interface: "I2C", i2c_addr: ["0x68"] },
+    ],
+    pinout: [
+      { device: "OLED", pin_name: "I2C0 SDA", gpio: "GPIO8" },
+      { device: "OLED", pin_name: "I2C0 SCL", gpio: "GPIO9" },
+      { device: "RTC", pin_name: "I2C1 SDA", gpio: "GPIO10" },
+      { device: "RTC", pin_name: "I2C1 SCL", gpio: "GPIO11" },
+    ],
+  });
+
+  assert.equal(wiring.buses.length, 2, "two separate I2C buses");
+  const byId = Object.fromEntries(wiring.buses.map((b: any) => [b.id, b]));
+  assert.deepEqual(byId["I2C0"].signals.map((s: any) => `${s.role}:${s.gpio}`).sort(), ["SCL:GPIO9", "SDA:GPIO8"]);
+  assert.deepEqual(byId["I2C1"].signals.map((s: any) => `${s.role}:${s.gpio}`).sort(), ["SCL:GPIO11", "SDA:GPIO10"]);
+  assert.deepEqual(byId["I2C0"].devices.map((d: any) => d.name), ["OLED"]);
+  assert.deepEqual(byId["I2C1"].devices.map((d: any) => d.name), ["RTC"]);
+});
+
+test("a standalone part whose pin_name contains a bus-role substring does not spawn a phantom bus", () => {
+  // Regression: signalRoleFromPinName matched 'TX'/'CS'/'RX' substrings on EVERY
+  // pinout row, so a standalone GPIO part on a pin labeled e.g. "TX_EN" fabricated
+  // a ghost UART bus AND a standalone card. A known standalone device must never
+  // contribute a bus signal.
+  const wiring = deriveWiring({
+    schema_version: "1.0",
+    devices: [{ name: "Relay", type: "relay", interface: "GPIO" }],
+    pinout: [{ device: "Relay", pin_name: "TX_EN", gpio: "GPIO7" }],
+  });
+
+  assert.equal(wiring.buses.length, 0, "no phantom bus from a standalone pin_name");
+  assert.deepEqual(wiring.standalone, [{ name: "Relay", pin: "GPIO7", type: "gpio_out" }]);
+});
+
+test("a multi-pin standalone part keeps all its pins (not just the first)", () => {
+  // Regression: pinout.find() captured only the first row, so multi-GPIO parts
+  // (HX711 DT+SCK, stepper, RGB LED) silently dropped their other connections.
+  const wiring = deriveWiring({
+    schema_version: "1.0",
+    devices: [{ name: "HX711", type: "load_cell_adc", interface: "GPIO" }],
+    pinout: [
+      { device: "HX711", pin_name: "DT", gpio: "GPIO4" },
+      { device: "HX711", pin_name: "SCK", gpio: "GPIO5" },
+    ],
+  });
+
+  assert.equal(wiring.buses.length, 0, "HX711 is standalone, not a bus");
+  assert.equal(wiring.standalone.length, 1, "one card for the part");
+  assert.equal(wiring.standalone[0].name, "HX711");
+  assert.deepEqual(wiring.standalone[0].pins.map((p: any) => p.gpio), ["GPIO4", "GPIO5"], "both pins kept");
+});
+
+test("the only SPI/UART bus is numbered from zero (id SPI0, not SPI1)", () => {
+  // Regression: bus id used the running map size across all types, so the first
+  // SPI bus after an I2C bus was labeled SPI1.
+  const wiring = deriveWiring({
+    schema_version: "1.0",
+    devices: [
+      { name: "Sensor", type: "temperature_sensor", interface: "I2C", i2c_addr: ["0x38"] },
+      { name: "Flash", type: "storage", interface: "SPI" },
+    ],
+    pinout: [
+      { device: "Sensor", pin_name: "SDA", gpio: "GPIO8" },
+      { device: "Sensor", pin_name: "SCL", gpio: "GPIO9" },
+      { device: "Flash", pin_name: "MOSI", gpio: "GPIO11" },
+      { device: "Flash", pin_name: "MISO", gpio: "GPIO13" },
+    ],
+  });
+
+  const spi = wiring.buses.find((b: any) => b.type === "spi");
+  assert.ok(spi, "spi bus present");
+  assert.equal(spi.id, "SPI0", "the sole SPI bus is SPI0, not SPI1");
+});

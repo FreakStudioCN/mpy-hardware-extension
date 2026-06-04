@@ -82,7 +82,7 @@ function buildOpening(input: LoopInput): string {
     input.intent,
     "",
     "[First make sure you understand the request. If the goal or the core behaviour is unclear, or it could be built more than one way, call the ask_user tool to clarify what device to build and what it should do BEFORE selecting hardware or generating code. Always ask via the ask_user tool, never as plain assistant text.]",
-    "[Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its \"phase\" field each time you call propose_manifest: analyze (project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. After analyze and select-hw, call run_validate to check the manifest against the schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then generate the task/driver code, then the device tools. Set phase to \"complete\" when the build is finished.]",
+    "[Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its \"phase\" field each time you call propose_manifest: analyze (schema_version \"1.0\" + created_at as an ISO 8601 timestamp + project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. Carry the earlier fields (created_at, project_name, ...) forward unchanged on later calls. After analyze and select-hw, call run_validate to check the manifest against the schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then generate the task/driver code, then the device tools. Set phase to \"complete\" when the build is finished.]",
     "[Structure the code to fit the project. A simple project can be a single main.py. For a more complex one, split it into main.py (the runnable entry) plus importable modules under lib/ or the firmware/ tree — call generate_code once per file, passing each file's target_path (e.g. lib/sensor.py). Keep it only as complex as the project needs.]",
   ];
   if (boardKnown) {
@@ -289,11 +289,20 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       // Re-gate deploy each new request: the board may have been unplugged
       // between turns, so a continued session must re-confirm before flashing.
       state.deployConfirmed = false;
+      // A prior decline must not terminate the continued request before it starts.
+      state.deployDeclined = false;
     }
 
     function contextsForCodegen(manifest: any) {
       const contexts = [...state.driverContexts];
-      const capabilities = manifest?.capabilities ?? [];
+      // Legacy thin manifests carry capabilities[]; rich upstream manifests carry
+      // devices[] instead, so derive the digital_output signal from a GPIO/PWM
+      // device — otherwise the builtin LED context is dropped on the rich path.
+      const capabilities = Array.isArray(manifest?.capabilities)
+        ? manifest.capabilities
+        : (Array.isArray(manifest?.devices)
+          ? manifest.devices.filter((d: any) => ["GPIO", "PWM"].includes(String(d?.interface ?? "").toUpperCase())).map(() => "digital_output")
+          : []);
       if (capabilities.includes("digital_output") && !contexts.some((context) => context.package?.name === "machine_pin_led")) {
         contexts.push(LED_BUILTIN_CONTEXT);
       }
@@ -368,20 +377,19 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           if (!validation.valid) {
             return { ok: false, error_kind: "manifest_invalid", errors: validation.errors };
           }
-          // Rich upstream manifest: track the build phase, persist the manifest to
-          // the project tree, and render wiring from the device-identity object
-          // DERIVED from devices[]/pinout[] (one device = one card, no phantom).
-          if (manifest && typeof manifest === "object" && manifest.schema_version !== undefined) {
-            state.manifest = manifest;
-            if (typeof manifest.phase === "string") state.phase = manifest.phase;
-            const wiring = deriveWiring(manifest);
-            onEvent({ type: "manifest_updated", manifest: { ...manifest, wiring } });
-            if (typeof deps.writeProjectFile === "function") {
-              await deps.writeProjectFile("project-manifest.json", JSON.stringify(manifest, null, 2));
-            }
-            return { ok: true, phase: state.phase };
+          // Rich upstream manifest (requireRichManifest already guaranteed
+          // schema_version "1.0"): track the build phase, persist the manifest to the
+          // project tree, and render wiring from the device-identity object DERIVED
+          // from devices[]/pinout[] (one device = one card, no phantom).
+          state.manifest = manifest;
+          if (typeof manifest.phase === "string") state.phase = manifest.phase;
+          const wiring = deriveWiring(manifest);
+          onEvent({ type: "manifest_updated", manifest: { ...manifest, wiring } });
+          if (typeof deps.writeProjectFile === "function") {
+            const persisted = await deps.writeProjectFile("project-manifest.json", JSON.stringify(manifest, null, 2));
+            if (persisted.ok) onEvent({ type: "file_written", path: persisted.path ?? "project-manifest.json" });
           }
-          return { ok: false, error_kind: "manifest_invalid", errors: [{ code: "schema_version_invalid", message: "manifest.schema_version must be \"1.0\"." }] };
+          return { ok: true, phase: state.phase };
         }
         if (name === "generate_code") {
           const manifest = toolInput.manifest;
@@ -421,6 +429,15 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           if (!generated.ok) return { ok: false, error_kind: "codegen_failed", error: generated.error };
           state.files[targetPath] = generated.code;
           onEvent({ type: "code_updated", code: generated.code, path: targetPath });
+          // Persist through the same allowProjectTree channel as write_project_file
+          // so the firmware tree lands on disk DURING the loop (not via the narrow
+          // post-loop batch, which rejects firmware/ paths). A rejected target_path
+          // surfaces immediately so the agent corrects it in-loop.
+          if (typeof deps.writeProjectFile === "function") {
+            const persisted = await deps.writeProjectFile(targetPath, generated.code);
+            if (!persisted.ok) return { ok: false, error_kind: persisted.error_kind ?? "write_failed", path: targetPath };
+            onEvent({ type: "file_written", path: persisted.path ?? targetPath });
+          }
           return { ok: true, path: targetPath, code: generated.code };
         }
         if (name === "audit_code") {
@@ -467,6 +484,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           const result = await deps.writeProjectFile(filePath, content);
           if (result.ok) {
             state.files[filePath] = content;
+            onEvent({ type: "file_written", path: result.path ?? filePath });
             // Writing the architecture diagram feeds the webview Diagram tab. Parse
             // best-effort; a malformed JSON just doesn't update the tab.
             if (filePath.endsWith("diagram.json")) {
@@ -495,12 +513,22 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
               return { ok: false, error_kind: "generated_main_missing" };
             }
             await shim.writeMainPy(mainCode);
-            // Deploy any additional generated project files (lib/ modules) to the
-            // device at their mirror paths. Content comes from the accumulated set,
-            // not re-sent by the model. Single-file projects have none → no-op.
+            // Deploy any additional generated project files (lib/ + firmware/ code)
+            // to the device at their mirror paths. Content comes from the accumulated
+            // set, not re-sent by the model. write_project_file also mirrors non-code
+            // artifacts (project-manifest.json, docs/, test/) into state.files; those
+            // live in the workspace, not on the board, and writeDeviceFile rejects
+            // them with invalid_generated_path — skip those rather than aborting the
+            // whole deploy. Single-file projects have no extra files → no-op.
             if (typeof shim.writeDeviceFile === "function") {
               for (const [filePath, code] of Object.entries(state.files ?? {})) {
-                if (filePath !== "main.py") await shim.writeDeviceFile(filePath, String(code));
+                if (filePath === "main.py") continue;
+                try {
+                  await shim.writeDeviceFile(filePath, String(code));
+                } catch (error: any) {
+                  if (error?.message === "invalid_generated_path") continue;
+                  throw error;
+                }
               }
             }
             return { ok: true };
@@ -602,7 +630,15 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       // (install -> write -> flash -> read) runs without further prompts.
       if (DEPLOY_TOOLS.has(tool.name) && !state.deployConfirmed) {
         const approved = typeof input.confirmDeploy === "function" ? await input.confirmDeploy() : true;
-        if (!approved) return { ok: false, error_kind: "user_cancelled" };
+        if (!approved) {
+          // A deliberate decline (or no board): the build is done bar flashing. Mark
+          // it so the loop ends cleanly as "generated" next iteration instead of the
+          // model thrashing on retries (user_cancelled is neutral, so the old path
+          // ground to manifest_unresolved). Still return the observation so the
+          // tool_result is recorded.
+          state.deployDeclined = true;
+          return { ok: false, error_kind: "user_cancelled" };
+        }
         state.deployConfirmed = true;
       }
       return dispatchTool(tool, executors);
@@ -625,12 +661,18 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           streamedThisTurn = true;
           onEvent({ type: "summary_delta", text: event.text });
         } else if (event.type === "tool_use_complete") {
-          // This turn isn't the final reply: drop any prose streamed before the
-          // tool call, then surface the compact progress ping. We pass the tool
-          // name so the host can show a curated, localized phase label (e.g.
-          // "Generating code…") — never the model's raw reasoning, which was just
-          // discarded above.
-          if (streamedThisTurn) { onEvent({ type: "summary_discard" }); streamedThisTurn = false; }
+          // This turn isn't the final reply, but prose streamed before the tool
+          // call is treated differently by tool: ask_user's lead-in is the
+          // user-facing preamble to a question, so SEAL it (it survives above the
+          // prompt card); every other tool's prose was mid-process narration, so
+          // discard it. Then surface the compact progress ping with the tool name
+          // so the host can show a curated, localized phase label (e.g.
+          // "Generating code…") — never the model's raw reasoning (that streams as
+          // thinking_delta and never reaches the summary card at all).
+          if (streamedThisTurn) {
+            onEvent({ type: event.name === "ask_user" ? "summary_seal" : "summary_discard" });
+            streamedThisTurn = false;
+          }
           const phase = userVisibleToolPhase(event.name);
           if (phase) onEvent({ type: "trace", text: phase, toolName: event.name });
         } else if (event.type === "message_stop") {

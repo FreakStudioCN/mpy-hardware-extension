@@ -22,8 +22,14 @@ export class SessionController {
   private latestManifest: any = undefined;
   // Generated files accumulated by path across generate_code calls. A single-file
   // project leaves this as { "main.py": ... }; a multi-file project collects each
-  // target_path the agent generates. Written to the workspace alongside manifest.json.
+  // target_path the agent generates. Used only by the headless post-loop fallback.
   private latestFiles: Record<string, string> = {};
+  // Project files the loop persisted to disk itself (write_project_file +
+  // generate_code, via the allowProjectTree channel). When non-empty, the loop
+  // owns all writes: the post-loop batch is skipped (no re-write, no manifest dup)
+  // and the files_written toast is built from these. Empty in headless/test runs
+  // with no loop-time writer, where the post-loop batch is the fallback writer.
+  private persistedPaths: string[] = [];
 
   constructor(deps: { postMessage: (message: any) => void; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any> }) {
     this.deps = deps;
@@ -57,6 +63,7 @@ export class SessionController {
     this.record({ type: "user_message", intent: input.intent, boardId: input.boardId });
     this.latestManifest = undefined;
     this.latestFiles = {};
+    this.persistedPaths = [];
     this.abort = new AbortController();
     try {
       const result = await this.deps.loop({
@@ -180,6 +187,12 @@ export class SessionController {
       this.deps.postMessage({ type: "code_updated", code: event.code, path: event.path });
       return;
     }
+    if (event.type === "file_written") {
+      // The loop persisted a file to disk itself; track it so writeArtifactsIfReady
+      // skips the redundant post-loop re-write and reports these paths instead.
+      if (event.path && !this.persistedPaths.includes(event.path)) this.persistedPaths.push(event.path);
+      return;
+    }
     if (event.type === "serial_output") {
       this.record({ type: "serial_output", lines: event.lines });
       this.deps.postMessage({ type: "serial_output", lines: event.lines });
@@ -202,6 +215,14 @@ export class SessionController {
       this.deps.postMessage({ type: "summary_discard" });
       return;
     }
+    if (event.type === "summary_seal") {
+      // ask_user's lead-in prose: finalize the streamed card so it stays above the
+      // question, instead of discarding it like other tool-turn narration. The text
+      // already reached the webview via summary_delta; the durable transcript keeps
+      // it on the assistant message in the history, so nothing to record here.
+      this.deps.postMessage({ type: "summary_seal" });
+      return;
+    }
     if (event.type === "summary") {
       this.record({ type: "summary", text: event.text });
       this.deps.postMessage({ type: "summary", text: event.text });
@@ -216,6 +237,17 @@ export class SessionController {
   }
 
   private async writeArtifactsIfReady() {
+    // The loop already persisted every file to disk (write_project_file +
+    // generate_code). Report what was written; no second write, no manifest dup
+    // (project-manifest.json is among the persisted paths, so there is no stray
+    // manifest.json). This is the path the real extension always takes.
+    if (this.persistedPaths.length > 0) {
+      await this.record({ type: "files_written", paths: this.persistedPaths });
+      this.deps.postMessage({ type: "files_written", paths: this.persistedPaths });
+      return;
+    }
+    // Headless fallback (no loop-time writer, e.g. tests): the post-loop batch is
+    // the only writer, so write the accumulated code files + the manifest.
     if (!this.deps.writeFiles || Object.keys(this.latestFiles).length === 0 || !this.latestManifest) return;
     const result = await this.deps.writeFiles({
       ...this.latestFiles,

@@ -414,7 +414,7 @@ test("a serial read that never sees its markers drives repair exhaustion, not ma
   assert.equal(result.terminal, "repair_exhausted");
 });
 
-test("declining the deploy checkpoint skips device-touching tools", async () => {
+test("declining the deploy checkpoint ends the build cleanly as generated", async () => {
   let turnIndex = 0;
   let installed = false;
   let deployPrompts = 0;
@@ -434,13 +434,14 @@ test("declining the deploy checkpoint skips device-touching tools", async () => 
   }) as unknown as typeof fetch;
 
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
-  // Decline the deploy gate: install_package is cancelled (never touches the
-  // device); read_serial_until (not a deploy tool) still runs and verifies.
+  // Decline the deploy gate: install_package is cancelled (never touches the device)
+  // and the deliberate decline ends the session as "generated" rather than letting the
+  // model thrash on retries (which the old neutral-cancel path ground to manifest_unresolved).
   const result = await loop({ intent: "x", boardId: "esp32-s3-devkitc-1", confirmDeploy: async () => { deployPrompts += 1; return false; } });
 
   assert.equal(installed, false);
   assert.equal(deployPrompts, 1, "deploy gate fires before the first device tool");
-  assert.equal(result.terminal, "success");
+  assert.equal(result.terminal, "generated");
 });
 
 test("the deploy checkpoint fires once before the first device tool, not per tool", async () => {
@@ -581,6 +582,79 @@ test("generate_code routes a non-main target_path to module-rules codegen and ta
   assert.match(codegenPrompt, /complete contents of lib\/aht20\.py/);
   assert.match(codegenPrompt, /importable module/);
   assert.doesNotMatch(codegenPrompt, /MPYHW_READY/);
+});
+
+test("generate_code persists through the injected writeProjectFile and emits file_written", async () => {
+  // The firmware tree must be written via the allowProjectTree channel DURING the
+  // loop (not via the narrow post-loop batch, which rejects firmware/ paths).
+  let mainTurns = 0;
+  const events: any[] = [];
+  const writes: Array<{ path: string; content: string }> = [];
+  const turns = [{ name: "generate_code", input: { manifest: MANIFEST, target_path: "firmware/main.py" } }];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('MPYHW_READY')\n" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl,
+    writeProjectFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path: `C:/project/${path}` }; },
+  });
+  await loop({ intent: "blink", boardId: "esp32-s3-devkitc-1", onEvent: (e: any) => events.push(e) });
+
+  assert.deepEqual(writes.map((w) => w.path), ["firmware/main.py"], "generate_code persists its output during the loop");
+  assert.match(writes[0].content, /MPYHW_READY/);
+  assert.deepEqual(events.find((e) => e.type === "file_written"), { type: "file_written", path: "C:/project/firmware/main.py" });
+});
+
+test("generate_code surfaces a persist rejection as its tool error_kind (in-loop, not silent post-loop)", async () => {
+  let mainTurns = 0;
+  const recorded: any[] = [];
+  const turns = [{ name: "generate_code", input: { manifest: MANIFEST, target_path: "boot.py" } }];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('x')\n" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl,
+    writeProjectFile: async (path: string) => ({ ok: false, error_kind: "invalid_generated_path", path }),
+  });
+  await loop({
+    intent: "blink",
+    boardId: "esp32-s3-devkitc-1",
+    recorder: { record: async (e: any) => { recorded.push(e); } },
+  });
+
+  const result = recorded.find((e) => e.type === "tool_result" && e.name === "generate_code");
+  assert.equal(result?.observation?.ok, false);
+  assert.equal(result?.observation?.error_kind, "invalid_generated_path");
 });
 
 test("read_workspace_file dispatches to the injected host reader (and reports unavailable without one)", async () => {
@@ -871,6 +945,110 @@ test("write_main_py deploys generated main.py from local state, not the model ec
   assert.equal(mainWritten, "print('GENERATED_MAIN')");
 });
 
+test("deploy pushes firmware/ + lib/ code to the device but skips manifests, docs, and PC tests", async () => {
+  // Regression: write_project_file now mirrors the whole project tree into
+  // state.files. The deploy loop pushes every non-main.py entry to the device via
+  // writeDeviceFile, whose allowlist only accepts lib/ + firmware/ .py — so the
+  // manifest / test / docs files used to throw invalid_generated_path and abort
+  // the whole deploy. They must be skipped, and firmware/ code must still flash.
+  let turnIndex = 0;
+  const recorded: any[] = [];
+  const deviceWrites: string[] = [];
+  let mainWritten = "";
+  const manifest = MANIFEST;
+  const turns = [
+    { name: "generate_code", input: { manifest, target_path: "main.py" } },
+    { name: "write_project_file", input: { path: "firmware/tasks/sensor.py", content: "def tick():\n    pass\n" } },
+    { name: "write_project_file", input: { path: "project-manifest.json", content: "{}" } },
+    { name: "write_project_file", input: { path: "test/pc/test_sensor.py", content: "def test_x():\n    pass\n" } },
+    { name: "write_main_py", input: { path: "main.py", content: "print('echo')" } },
+  ];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('MPYHW_READY')" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+  // Fake shim mirrors the REAL writeDeviceFile allowlist: only lib/ + firmware/ .py
+  // are accepted; anything else throws invalid_generated_path like the real one.
+  const shim = {
+    scan: async () => ["COM3"],
+    installPackage: async () => {},
+    writeMainPy: async (content: string) => { mainWritten = content; },
+    writeDeviceFile: async (path: string) => {
+      const ok = /^(lib|firmware)\//.test(path) && path.endsWith(".py");
+      if (!ok) throw new Error("invalid_generated_path");
+      deviceWrites.push(path);
+    },
+    flashAndRun: async () => {},
+    serialReadUntil: async () => ({ ok: true, lines: [] }),
+  };
+
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl,
+    shim,
+    writeProjectFile: async (path: string) => ({ ok: true, path }),
+  });
+  await loop({ intent: "blink", boardId: "esp32-s3-devkitc-1", recorder: { record: async (e: any) => { recorded.push(e); } } });
+
+  assert.equal(mainWritten, "print('MPYHW_READY')", "device main.py is the generated code");
+  assert.deepEqual(deviceWrites, ["firmware/tasks/sensor.py"], "only device code flashed; manifest + test skipped");
+  const deployResult = recorded.find((e) => e.type === "tool_result" && e.name === "write_main_py");
+  assert.equal(deployResult?.observation?.ok, true, "deploy succeeds (non-code artifacts do not abort it)");
+});
+
+test("generate_code grounds a rich-manifest GPIO part with the builtin LED context (capabilities derived from devices[])", async () => {
+  // Regression: contextsForCodegen read manifest.capabilities, which a pure rich
+  // upstream manifest never carries (it has devices[]), so the machine_pin_led
+  // builtin context was dropped and the LED codegen ran ungrounded.
+  let codegenPrompt = "";
+  let turnIndex = 0;
+  const richManifest = {
+    schema_version: "1.0",
+    phase: "generate",
+    created_at: "2026-06-04T00:00:00Z",
+    project_name: "blink",
+    requirements: { description: "Blink an LED." },
+    devices: [{ name: "Status LED", type: "led", interface: "GPIO" }],
+    mcu: { model: "ESP32-C3", board: "esp32-c3-devkitm-1" },
+    pinout: [{ device: "Status LED", pin_name: "LED", gpio: "GPIO2" }],
+  };
+  const turns = [{ name: "generate_code", input: { manifest: richManifest, target_path: "main.py" } }];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        codegenPrompt = String(body.messages?.[0]?.content ?? "");
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('MPYHW_READY')" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "blink", boardId: "esp32-c3-devkitm-1" });
+
+  assert.match(codegenPrompt, /machine_pin_led/, "builtin LED driver context grounds the GPIO part");
+});
+
 test("audit_code audits generated local state when the model echo diverges", async () => {
   let turnIndex = 0;
   const recorded: any[] = [];
@@ -1099,6 +1277,50 @@ test("narration before a tool call is discarded — only the final, tool-free re
   const summaries = events.filter((e) => e.type === "summary");
   assert.equal(summaries.length, 1, "exactly one summary event");
   assert.equal(summaries[0].text, "好了，这是结果。");
+});
+
+test("ask_user's lead-in prose is sealed (kept above the question), not discarded", async () => {
+  const events: any[] = [];
+  let mainTurn = 0;
+  // Turn 1: the model writes a user-facing lead-in, then calls ask_user.
+  const turn1 = [
+    JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "我可以帮你做温度显示。" } }),
+    JSON.stringify({ type: "content_block_start", content_block: { type: "tool_use", id: "ask_user", name: "ask_user" } }),
+    JSON.stringify({ type: "content_block_delta", delta: { type: "input_json_delta", partial_json: JSON.stringify({ question: "你想用哪块板子？" }) } }),
+    JSON.stringify({ type: "content_block_stop" }),
+    JSON.stringify({ type: "message_stop" }),
+  ].map((d) => `data: ${d}`).join("\n\n");
+  // Turn 2: text only, no tool -> the final reply after the answer comes back.
+  const turn2 = [
+    JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "好的，开始。" } }),
+    JSON.stringify({ type: "message_stop" }),
+  ].map((d) => `data: ${d}`).join("\n\n");
+
+  const fetchImpl = (async (url: string) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const sse = mainTurn++ === 0 ? turn1 : turn2;
+      return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  const result = await loop({
+    intent: "你好",
+    boardId: "esp32-s3-devkitc-1",
+    onEvent: (e) => events.push(e),
+    askUser: async () => "esp32-s3-devkitc-1",
+  });
+
+  assert.equal(result.terminal, "awaiting_user");
+  // The lead-in streamed live, same as any other prose...
+  assert.deepEqual(
+    events.filter((e) => e.type === "summary_delta").map((e) => e.text),
+    ["我可以帮你做温度显示。", "好的，开始。"],
+  );
+  // ...but when ask_user fired it was SEALED (kept above the question), not discarded.
+  assert.equal(events.filter((e) => e.type === "summary_seal").length, 1, "one seal for the ask_user turn");
+  assert.ok(!events.some((e) => e.type === "summary_discard"), "ask_user lead-in is never discarded");
 });
 
 test("opening turn tells the agent to recommend a board when none is chosen", async () => {

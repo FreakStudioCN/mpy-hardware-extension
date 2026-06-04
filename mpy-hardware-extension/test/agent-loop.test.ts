@@ -155,7 +155,7 @@ test("a tool-less narration ends the turn without reaching the next turn", async
 test("max turns and repair exhaustion are deterministic", async () => {
   // max_turns is reached by turns that keep calling tools but never hit the
   // success marker or repair exhaustion (a tool-less turn now ends as awaiting_user).
-  const max = await runAgentLoop({ state: baseState(), sseClient: scripted(Array.from({ length: 21 }, (_, i) => [{ type: "tool_use_complete", id: String(i), name: "search_packages", input: {} }, { type: "message_stop" }])), dispatchTool: async () => ({ ok: true }) });
+  const max = await runAgentLoop({ state: baseState(), sseClient: scripted(Array.from({ length: 41 }, (_, i) => [{ type: "tool_use_complete", id: String(i), name: "search_packages", input: {} }, { type: "message_stop" }])), dispatchTool: async () => ({ ok: true }) });
   const repair = await runAgentLoop({
     state: baseState(),
     sseClient: scripted(Array.from({ length: 4 }, (_, index) => [{ type: "tool_use_complete", id: String(index), name: "flash_and_run", input: {} }, { type: "message_stop" }])),
@@ -177,7 +177,7 @@ test("repeated non-runtime tool failures stop fast as manifest_unresolved", asyn
   });
 
   assert.equal(result.terminal, "manifest_unresolved");
-  assert.ok(result.state.turnSeq < 20, "stops well before the max_turns cap");
+  assert.ok(result.state.turnSeq < 40, "stops well before the max_turns cap");
 });
 
 test("a success resets the no-progress streak so it does not fire", async () => {
@@ -205,6 +205,25 @@ test("interleaved single failures never trip the no-progress backstop", async ()
   });
 
   assert.notEqual(result.terminal, "manifest_unresolved");
+});
+
+test("environment/user incapability is neutral and never trips manifest_unresolved", async () => {
+  // A headless run (no shim) + a declined deploy gate make host/deploy tools fail
+  // with device_unavailable / user_cancelled. These are not the model failing to
+  // produce a valid manifest, so they must NOT accumulate the no-progress streak —
+  // otherwise a missing board / declined flash is mislabeled "manifest_unresolved".
+  const kinds = ["device_unavailable", "user_cancelled", "device_unavailable", "user_cancelled", "device_unavailable"];
+  let i = 0;
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: scripted(kinds.map((_, n) => [{ type: "tool_use_complete", id: String(n), name: "run_validate", input: {} }, { type: "message_stop" }])),
+    dispatchTool: async () => ({ ok: false, error_kind: kinds[i++] ?? "device_unavailable" }),
+  });
+
+  // 5 consecutive neutral failures (> the streak cap of 4) never trip the backstop;
+  // the run ends only when the model hands back with no tool call.
+  assert.notEqual(result.terminal, "manifest_unresolved");
+  assert.equal(result.terminal, "awaiting_user");
 });
 
 test("a turn without message_stop terminates as interrupted instead of looping", async () => {

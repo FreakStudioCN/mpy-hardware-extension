@@ -77,6 +77,20 @@ test("DeviceShim allows lib python extra device files", async () => {
   assert.equal(write.params.path, "lib/aht20.py");
 });
 
+test("DeviceShim deploys firmware/ code but rejects manifests, docs, and PC tests", async () => {
+  const shim = new DeviceShim(async (method: string, params: any) =>
+    method === "device.scan" ? { status: "ok", devices: [{ port: "COM3" }] } : { status: "ok", _path: params.path });
+
+  // firmware/ python (drivers/tasks) is device code → deployed.
+  await shim.writeDeviceFile("firmware/drivers/aht20_driver/__init__.py", "x");
+  await shim.writeDeviceFile("firmware/tasks/sensor.py", "x");
+
+  // Non-code artifacts and PC tests must NOT reach the board.
+  for (const bad of ["project-manifest.json", "docs/diagram.json", "test/pc/test_sensor.py", "firmware/notes.txt"]) {
+    await assert.rejects(() => shim.writeDeviceFile(bad, "x"), /invalid_generated_path/, bad);
+  }
+});
+
 test("DeviceShim runs upstream toolchain scripts via script.* RPC (no device/port)", async () => {
   const calls: any[] = [];
   const responses: Record<string, any> = {

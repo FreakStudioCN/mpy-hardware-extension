@@ -70,6 +70,21 @@ def resolve_schema(name: str):
     return os.path.join(scripts_root(), rel) if rel else None
 
 
+def _subprocess_text_kwargs():
+    # Force UTF-8 on BOTH ends of the pipe: the child emits UTF-8 (PYTHONIOENCODING)
+    # and we decode UTF-8 with replacement. Without this, subprocess.run(text=True)
+    # decodes with the OS locale codepage (e.g. Windows cp936), so non-ASCII script
+    # output — Chinese requirements in a jsonschema error, an em-dash from a template
+    # — could raise UnicodeDecodeError and turn a normal result into a transport error.
+    return {
+        "capture_output": True,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "env": {**os.environ, "PYTHONIOENCODING": "utf-8"},
+    }
+
+
 class Shim:
     def __init__(self, runner=None, serial_factory=None):
         self.runner = runner or subprocess.run
@@ -159,11 +174,11 @@ class Shim:
         # project dir. Injectable via self.runner for tests.
         cmd = [sys.executable, "-m", module, *args]
         self.commands.append(cmd)
-        return self.runner(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+        return self.runner(cmd, timeout=timeout, cwd=cwd, **_subprocess_text_kwargs())
 
     def _run(self, command: list[str], timeout: float = 30):
         self.commands.append(command)
-        return self.runner(command, capture_output=True, text=True, timeout=timeout)
+        return self.runner(command, timeout=timeout, **_subprocess_text_kwargs())
 
 
 # ---------- stdio JSON-RPC server (entry point the VS Code extension spawns) ----------

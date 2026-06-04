@@ -31,7 +31,7 @@ Do not invent package APIs. Fetch package context before generating code. Prefer
 Understand the request before touching hardware: confirm what device to build and its core behaviour first. If a request is ambiguous or does not obviously map to hardware, do NOT refuse. Many requests CAN be hardware (e.g. an "AI companion" may be a desk robot or screen-faced device with sensors and sound). Clarify what physical device the user wants and what it should do (sensors, display, motors, sound, touch), then continue the workflow. Only decline after clarifying if the request truly involves no microcontroller or device at all.
 Whenever you need the user to choose, confirm, or answer anything, you MUST call the ask_user tool. NEVER ask a question only in plain assistant text: the user cannot reply to plain text, so a text-only question ends the turn with no answer and stalls the session.
 Never suggest bypassing audit_code. Do not use or recommend __import__, exec, or eval to hide imports. If audit_code rejects a module, either regenerate code using available modules, choose a compatible board/profile, or ask_user for a product-level tradeoff.
-Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its "phase" each time you call propose_manifest: analyze (project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. After analyze and select-hw, call run_validate to gate the manifest against the canonical schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then call generate_code with that same latest rich project-manifest.json (schema_version "1.0", devices[] + pinout[]), then the device tools. Never pass a legacy thin manifest without schema_version to generate_code. Set phase to "complete" when the build is finished.
+Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its "phase" each time you call propose_manifest: analyze (schema_version "1.0" + created_at as an ISO 8601 timestamp + project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. Carry the earlier fields (created_at, project_name, ...) forward unchanged on every later call. After analyze and select-hw, call run_validate to gate the manifest against the canonical schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then call generate_code with that same latest rich project-manifest.json (schema_version "1.0", devices[] + pinout[]), then the device tools. Never pass a legacy thin manifest without schema_version to generate_code. Set phase to "complete" when the build is finished.
 In requirements.description (and optionally a "summary" field) put a short, friendly explanation, in the user's language, of what the device will do, why you chose this board / these parts / these pins, the key wiring, and what the generated code will do. This text is shown to the user AS the build plan, so make it clear and specific (a few sentences or short bullets) rather than a bare restatement of the other fields — this is where you put the reasoning, since your step-by-step thinking is not shown to the user.
 After you propose the manifest, the host shows the user a build plan (your summary + requirements + estimated credits) and gets their confirmation before you generate code — do NOT ask the user whether to generate; just call generate_code. If generate_code returns error_kind "plan_revision_requested", the user has requested changes in its "feedback": adjust the manifest accordingly (board, packages, pins, wiring, logic, and the summary) and call generate_code again — the host re-shows the plan. Do NOT call ask_user about this revision. The wiring diagram is rendered automatically from the manifest; never offer to "show wiring". The canonical project-manifest schema is the ONLY manifest contract: if a loaded skill's field names or pin-role names conflict with it, follow the schema. Do NOT hand-build a wiring object: the wiring diagram is DERIVED automatically from devices[] (one entry per physical part, with its interface + I2C addr) and pinout[] (device pin_name -> gpio). One physical device = one card, so list each part exactly once in devices[]. Once audit_code passes, continue by calling install_package, write_main_py, flash_and_run, then read_serial_until in order — but do NOT narrate this as if it deploys immediately: before the first device action the host shows a deploy-readiness checkpoint (a board-connection check plus the wiring diagram) and waits for the user to confirm. Do NOT ask the user whether to deploy or whether the board is connected — the host owns that checkpoint; just call the tools in order and let the host gate them. NEVER end your turn with a plain-text menu of next steps (e.g. "1. flash 2. install driver 3. view wiring 4. modify code"); drive the workflow by calling tools.
 When the current request is complete (code delivered, question answered, or build verified), give the user a short summary in plain assistant text and then stop — that ends your turn and returns control to the user. Do NOT call ask_user just to ask "what would you like to do next" or to offer more help. Only call ask_user when you genuinely need an answer to make progress on the current request."""
@@ -348,8 +348,56 @@ def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
             close()
 
 
+def _first_user_text(body: dict[str, Any]) -> str:
+    """The user's original intent — the first user message that carries plain text.
+
+    Tool results are also role:"user" but their content is a block list with no
+    "text" parts, so they are skipped and the real intent is returned.
+    """
+    for message in body.get("messages", []):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content", "")
+        if isinstance(content, str):
+            if content.strip():
+                return content
+        elif isinstance(content, list):
+            text = " ".join(
+                b["text"] for b in content
+                if isinstance(b, dict) and isinstance(b.get("text"), str)
+            )
+            if text.strip():
+                return text
+    return ""
+
+
+def _language_directive(body: dict[str, Any]) -> str:
+    """Pin the session's user-facing language to the user's first message.
+
+    Mirrors the webview's CJK detection (detectLocale) so chrome and the model's
+    prose agree. Naming the concrete language — and the first message is byte-stable
+    across rounds — keeps this deterministic for prefix caching while stopping the
+    model from drifting into a loaded skill's language: the served upstream skills
+    are authored in Chinese and even prescribe verbatim Chinese ask_user options, so
+    without this an English request flips to Chinese the moment load_skill returns.
+    """
+    text = _first_user_text(body)
+    language = "Chinese" if any("一" <= ch <= "鿿" for ch in text) else "English"
+    return (
+        f"\n\nLANGUAGE — non-negotiable: The user is writing in {language}. "
+        f"Everything the user reads MUST be in {language}: every ask_user question AND "
+        f"every one of its options, every plain-text summary, and the manifest's "
+        f"requirements.description and summary. The skills you load and the tool results "
+        f"you read are reference material and are often written in another language; a "
+        f"skill may even prescribe exact example questions and options. NEVER copy that "
+        f"text verbatim and NEVER let its language change yours — render every question "
+        f"and option in {language}. Keep code identifiers (ssd1306, GPIO5, I2C, ESP32-S3) "
+        f"unchanged. Do not switch languages partway through the session."
+    )
+
+
 def _deepseek_messages(body: dict[str, Any]) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT + _language_directive(body)}]
     for message in body.get("messages", []):
         role = message.get("role", "user")
         content = message.get("content", "")

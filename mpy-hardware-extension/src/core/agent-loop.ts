@@ -1,6 +1,13 @@
 import { normalizeObservation, toToolResultBlock } from "./observations.ts";
 import { shouldTerminate } from "./termination.ts";
 
+// Failures the model can't fix by re-proposing the manifest: the environment can't
+// do the step (no device / no workspace) or the user declined it. They are neither
+// runtime errors (repairRound) nor model no-progress, so they must NOT feed the
+// noProgressStreak — counting them mislabels a declined deploy / missing board as
+// "manifest_unresolved". A declined deploy ends cleanly via state.deployDeclined.
+const NON_PROGRESS_NEUTRAL = new Set(["device_unavailable", "workspace_unavailable", "user_cancelled"]);
+
 type Recorder = { record(event: Record<string, any>): Promise<void> };
 
 type EventSource = any[] | AsyncIterable<any>;
@@ -60,10 +67,12 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
         }
         // No-progress backstop: a successful tool clears the streak; a non-runtime
         // failure (e.g. manifest_invalid) extends it. Runtime errors are owned by
-        // repairRound above and neither extend nor reset this streak.
+        // repairRound above and neither extend nor reset this streak. Environment/user
+        // incapability (NON_PROGRESS_NEUTRAL) is the model making a reasonable call the
+        // host can't satisfy — it neither extends nor resets the streak.
         if (observation.ok) {
           state.noProgressStreak = 0;
-        } else if (observation.error_kind !== "runtime_error") {
+        } else if (observation.error_kind !== "runtime_error" && !NON_PROGRESS_NEUTRAL.has(observation.error_kind)) {
           state.noProgressStreak = (state.noProgressStreak ?? 0) + 1;
         }
         // Only a SUCCESSFUL read establishes a runtime marker. A failed read

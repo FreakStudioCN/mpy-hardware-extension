@@ -192,6 +192,11 @@ def test_run_script_builds_a_python_command_with_args():
     assert calls[0][0][1:] == ["/path/to/validate_json.py", "--schema", "s.json", "--json", "m.json"]
     assert calls[0][1]["capture_output"] is True
     assert calls[0][1]["text"] is True
+    # UTF-8 forced on both ends so non-ASCII script output (Chinese manifest values,
+    # em-dashes) never crashes the decode on a non-UTF-8 locale (Windows cp936).
+    assert calls[0][1]["encoding"] == "utf-8"
+    assert calls[0][1]["errors"] == "replace"
+    assert calls[0][1]["env"]["PYTHONIOENCODING"] == "utf-8"
 
 
 def test_resolve_script_and_schema_paths():

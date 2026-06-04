@@ -24,6 +24,7 @@ test("session state starts with a fully deterministic initial shape", () => {
     messages: [],
     lastRuntimeMarker: undefined,
     runtimeVerified: false,
+    deployDeclined: false,
     board: undefined,
     driverContexts: [],
     projectDir: undefined,
@@ -57,7 +58,8 @@ test("tool errors preserve error_kind and serialize as tool_result", () => {
 test("termination detects success, max turns, and repair exhaustion", () => {
   assert.equal(shouldTerminate({ turnSeq: 1, repairRound: 0, runtimeVerified: true }).reason, "success");
   assert.equal(shouldTerminate({ turnSeq: 1, repairRound: 0, lastRuntimeMarker: "TEMP_C=31.2 LED=ON" }).done, false);
-  assert.equal(shouldTerminate({ turnSeq: 20, repairRound: 0 }).reason, "max_turns");
+  assert.equal(shouldTerminate({ turnSeq: 39, repairRound: 0 }).done, false);
+  assert.equal(shouldTerminate({ turnSeq: 40, repairRound: 0 }).reason, "max_turns");
   assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 3 }).reason, "repair_exhausted");
 });
 
@@ -68,4 +70,14 @@ test("termination stops a no-progress streak as manifest_unresolved", () => {
   assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 0, noProgressStreak: 3 }).done, false);
   // Runtime repair exhaustion is the more specific signal and takes precedence.
   assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 3, noProgressStreak: 9 }).reason, "repair_exhausted");
+});
+
+test("a declined deploy ends cleanly as generated, not manifest_unresolved", () => {
+  // The user declined the deploy gate (or no board): the code is generated, flashing
+  // was a deliberate skip. End "generated" — and beat a no-progress streak that may
+  // have built from the cancelled deploy-tool retries under the old behaviour.
+  assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 0, deployDeclined: true }).reason, "generated");
+  assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 0, deployDeclined: true, noProgressStreak: 9 }).reason, "generated");
+  // A verified runtime is still the stronger, more specific success signal.
+  assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 0, deployDeclined: true, runtimeVerified: true }).reason, "success");
 });

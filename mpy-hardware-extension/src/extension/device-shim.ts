@@ -58,10 +58,11 @@ export class DeviceShim {
 
   // Write a generated project file to an arbitrary device path (mirroring its
   // workspace-relative path); the shim creates parent dirs. Used to deploy lib/
-  // modules of a multi-file project alongside main.py.
+  // modules and the firmware/ tree (drivers/tasks) of a multi-file project
+  // alongside main.py. Non-code artifacts (manifests, docs, PC tests) are rejected.
   async writeDeviceFile(path: string, content: string): Promise<void> {
     const port = await this.ensurePort();
-    const safePath = normalizeGeneratedArtifactPath(path, { allowMain: false, allowManifest: false, allowLib: true });
+    const safePath = normalizeGeneratedArtifactPath(path, { allowMain: false, allowManifest: false, allowLib: true, allowFirmware: true });
     if (!safePath) throw new Error("invalid_generated_path");
     const r = await this.rpc("device.write_device_file", { path: safePath, code: content, port });
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "write_failed");

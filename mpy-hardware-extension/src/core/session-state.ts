@@ -15,6 +15,9 @@ export function createSessionState(input: { traceId: string; intent: string; boa
     messages: [] as any[],
     lastRuntimeMarker: undefined as string | undefined,
     runtimeVerified: false,
+    // The user declined the deploy gate (or no board). Ends the loop cleanly as
+    // "generated" instead of thrashing on deploy-tool retries. Reset per request.
+    deployDeclined: false,
     // Derived session context built up by tool executions. Lives on state so it
     // survives multi-turn continuation (a follow-up message reuses the same state).
     board: undefined as any,

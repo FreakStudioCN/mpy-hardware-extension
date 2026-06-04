@@ -55,7 +55,8 @@ def test_deepseek_payload_is_byte_stable_for_prefix_caching():
 
     assert json.dumps(first["messages"]) == json.dumps(second["messages"])
     assert json.dumps(first.get("tools")) == json.dumps(second.get("tools"))
-    assert first["messages"][0] == {"role": "system", "content": routes_llm.SYSTEM_PROMPT}
+    assert first["messages"][0]["role"] == "system"
+    assert first["messages"][0]["content"].startswith(routes_llm.SYSTEM_PROMPT)
     assert [tool["function"]["name"] for tool in first["tools"]] == ["query_board_profile", "search_packages", "load_skill"]
 
 
@@ -395,7 +396,29 @@ def test_system_prompt_is_delivered_to_the_provider_as_the_system_message():
     # constant exists). This is robust to prompt wording changes — unlike pinning
     # individual phrases — while still catching a regression that drops the prompt.
     messages = routes_llm._deepseek_messages({"messages": [{"role": "user", "content": "blink an LED"}]})
-    assert messages[0] == {"role": "system", "content": routes_llm.SYSTEM_PROMPT}
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"].startswith(routes_llm.SYSTEM_PROMPT)
+
+
+def test_system_prompt_pins_user_language_against_skill_drift():
+    from app import routes_llm
+
+    # Regression: the served upstream skills are authored in Chinese (and prescribe
+    # verbatim Chinese ask_user options), which flipped an English session to Chinese
+    # the moment load_skill returned. The system turn must pin the user's language and
+    # forbid copying a skill's text verbatim, so chrome (English) and prose stay aligned.
+    en = routes_llm._deepseek_messages({"messages": [{"role": "user", "content": "i want an ai girlfriend"}]})[0]["content"]
+    zh = routes_llm._deepseek_messages({"messages": [{"role": "user", "content": "我想做一个温湿度计"}]})[0]["content"]
+
+    assert "The user is writing in English" in en
+    assert "The user is writing in Chinese" in zh
+    assert "verbatim" in en
+    # A trailing tool_result (role:"user", block list) must not be mistaken for intent.
+    mixed = routes_llm._deepseek_messages({"messages": [
+        {"role": "user", "content": "build a thermometer"},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "你好"}]},
+    ]})[0]["content"]
+    assert "The user is writing in English" in mixed
 
 
 def test_system_prompt_omits_removed_not_hardware_refusal():
@@ -436,7 +459,7 @@ def test_propose_manifest_schema_documents_the_rich_upstream_manifest():
     manifest = tools[0]["function"]["parameters"]["properties"]["manifest"]
 
     assert set(manifest["required"]) >= {
-        "schema_version", "phase", "project_name", "requirements", "devices",
+        "schema_version", "phase", "created_at", "project_name", "requirements", "devices",
     }
     assert manifest["properties"]["devices"]["type"] == "array"
     assert "phase" in manifest["properties"]
@@ -452,7 +475,7 @@ def test_generate_code_schema_requires_the_rich_upstream_manifest():
 
     assert "rich upstream project-manifest" in tool["description"]
     assert set(manifest["required"]) >= {
-        "schema_version", "phase", "project_name", "requirements", "devices",
+        "schema_version", "phase", "created_at", "project_name", "requirements", "devices",
     }
     assert manifest["properties"]["schema_version"]["enum"] == ["1.0"]
     assert "legacy thin manifests" in tool["description"]

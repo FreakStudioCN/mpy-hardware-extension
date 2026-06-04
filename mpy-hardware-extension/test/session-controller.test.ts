@@ -109,6 +109,33 @@ test("session controller accumulates multi-file projects by path and writes them
   }]);
 });
 
+test("session controller reports loop-persisted files without a redundant batch write", async () => {
+  // When the loop persists files itself (write_project_file / generate_code emit
+  // file_written), the post-loop batch is skipped: no second write, no duplicate
+  // manifest.json, and files_written reports exactly the loop-persisted paths.
+  let writeFilesCalled = false;
+  const messages: any[] = [];
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    writeFiles: async () => { writeFilesCalled = true; return { ok: true, paths: [] }; },
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1" } });
+      onEvent({ type: "file_written", path: "C:/project/project-manifest.json" });
+      onEvent({ type: "code_updated", code: "print('MPYHW_READY')", path: "firmware/main.py" });
+      onEvent({ type: "file_written", path: "C:/project/firmware/main.py" });
+      return { terminal: "generated" };
+    },
+  });
+
+  await controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
+
+  assert.equal(writeFilesCalled, false, "the post-loop batch must not re-write loop-persisted files");
+  assert.deepEqual(
+    messages.find((message) => message.type === "files_written"),
+    { type: "files_written", paths: ["C:/project/project-manifest.json", "C:/project/firmware/main.py"] },
+  );
+});
+
 test("session controller reports generated file write failures without changing terminal state", async () => {
   const messages: any[] = [];
   const controller = new SessionController({
