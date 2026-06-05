@@ -14,6 +14,16 @@ from scripts.finalize_catalog import finalize_index, write_evidence
 from scripts.normalize_driver_context import extract_driver_context, extract_graftsense_context
 
 
+def _path_sort_key(path: Path) -> tuple[str, str]:
+    """Platform-independent sort key. sorted() on Path objects compares
+    case-insensitively on Windows but case-sensitively on POSIX, so the same
+    ingest yields different evidence_refs/import_names ordering per OS (and the
+    content-freshness CI drifts). casefold() pins the order everywhere; the raw
+    posix string is a deterministic tiebreak for case-only collisions."""
+    posix = path.as_posix()
+    return (posix.casefold(), posix)
+
+
 def _git_commit(repo_root: Path) -> str | None:
     """HEAD sha of the GraftSense submodule checkout, so the freshness guard can
     assert the committed content was generated from the pinned source. None when
@@ -91,7 +101,7 @@ def ingest_repo_dir(repo_root: str | Path, output_dir: str | Path) -> dict[str, 
 
     written = generatable = installable = 0
     driver_contexts: list[str] = []
-    for package_path in sorted(repo_root.glob("*/*/package.json")):
+    for package_path in sorted(repo_root.glob("*/*/package.json"), key=_path_sort_key):
         driver_dir = package_path.parent
         code_dir = driver_dir / "code"
         if not code_dir.is_dir():
@@ -110,7 +120,7 @@ def ingest_repo_dir(repo_root: str | Path, output_dir: str | Path) -> dict[str, 
         # app (concrete pins -> false constructors); __init__.py only re-exports.
         code_files = [
             (path.name, path.read_text(encoding="utf-8"))
-            for path in sorted(code_dir.rglob("*.py"))
+            for path in sorted(code_dir.rglob("*.py"), key=_path_sort_key)
             if path.name not in ("main.py", "__init__.py")
         ]
         manifest = {
