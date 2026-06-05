@@ -1,0 +1,60 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "PMS5003(uart, lock, set_pin, reset_pin, interval_passive_mode, event, active_mode, eco_mode, assume_sleeping)",
+    "PMS5003_base(uart, lock, set_pin, reset_pin, interval_passive_mode, event, active_mode, eco_mode, assume_sleeping)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "pms5003.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/27 下午5:00\n# @Author  : Kevin Köck\n# @File    : main.py\n# @Description : PMS5003空气质量传感器测试程序，演示主动/被动模式切换及节能模式\n\n# ======================================== 导入相关模块 =========================================\n\nimport machine\n# import pms5003\nimport uasyncio as asyncio\nimport pms5003\n\n# ======================================== 全局变量 ============================================\n\n# 获取事件循环对象\nloop = asyncio.get_event_loop()\n\n# 默认延时参数（未使用）\n_DEFAULT_MS = 20\n\n# PMS5003传感器实例\npm = None\n# 异步锁，用于多任务同步\nlock = asyncio.Lock()\n\n# ======================================== 功能函数 ============================================\n\nasync def printit():\n    \"\"\"\n    打印传感器当前测量数据\n    Args:无\n\n    Raises:无\n\n    Notes:该函数作为回调注册到传感器，新数据到达时自动调用\n\n    ==========================================\n    Print current measurement data of sensor\n    Args:None\n\n    Raises:None\n\n    Notes:This function is registered as callback, called automatically when new data arrives\n    \"\"\"\n    pm.print()\n\n\nimport time\n\n\nasync def idle():\n    \"\"\"\n    空闲任务，定期休眠\n    Args:无\n\n    Raises:无\n\n    Notes:未在主程序中使用，预留\n\n    ==========================================\n    Idle task, periodically sleeps\n    Args:None\n\n    Raises:None\n\n    Notes:Not used in main program, reserved\n    \"\"\"\n    while True:\n        await asyncio.sleep(2)\n        time.sleep_ms(5)\n\n\nasync def testing():\n    \"\"\"\n    测试传感器模式切换\n    等待120秒后进入主动模式，再等待120秒后切换到被动模式（禁用节能），最后启用节能模式\n    Args:无\n\n    Raises:无\n\n    Notes:演示传感器在不同模式下的行为\n\n    ==========================================\n    Test sensor mode switching\n    Wait 120 seconds, switch to active mode, then after 120 seconds switch to passive mode (eco off), finally enable eco mode\n    Args:None\n\n    Raises:None\n\n    Notes:Demonstrates sensor behavior in different modes\n    \"\"\"\n    await asyncio.sleep(120)\n    while pm._sleeping_state is False:\n        await asyncio.sleep_ms(100)\n    print(\"\")\n    print(\"\")\n    print(\"----------------------------------------------------------\")\n    print(\"\")\n    print(\"Setting to active mode while sleeping\")\n    print(\"\")\n    print(\"----------------------------------------------------------\")\n    print(\"\")\n    print(\"\")\n    asyncio.create_task(pm.setActiveMode())\n    await asyncio.sleep(120)\n    print(\"\")\n    print(\"\")\n    print(\"----------------------------------------------------------\")\n    print(\"\")\n    print(\"Setting to passive mode whithout sleeping with 20s interval\")\n    print(\"\")\n    print(\"----------------------------------------------------------\")\n    print(\"\")\n    print(\"\")\n    pm.setEcoMode(False)\n    asyncio.create_task(pm.setPassiveMode(20))\n    await asyncio.sleep(120)\n    print(\"\")\n    print(\"\")\n    print(\"----------------------------------------------------------\")\n    print(\"\")\n    print(\"Activating EcoMode, interval will be adapted to 60s\")\n    print(\"\")\n    print(\"----------------------------------------------------------\")\n    print(\"\")\n    print(\"\")\n    pm.setEcoMode(True)\n\n\ndef start():\n    \"\"\"\n    初始化传感器并启动主循环\n    Args:无\n\n    Raises:无\n\n    Notes:配置UART、创建PMS5003实例、注册回调、启动测试任务并运行事件循环\n\n    ==========================================\n    Initialize sensor and start main loop\n    Args:None\n\n    Raises:None\n\n    Notes:Configure UART, create PMS5003 instance, register callback, start test task and run event loop\n    \"\"\"\n    uart = machine.UART(0, tx=16, rx=17, baudrate=9600)\n    global pm\n    pm = pms5003.PMS5003(uart, lock, active_mode=False, interval_passive_mode=60)\n    pms5003.set_debug(True)\n    pm.registerCallback(printit)\n    asyncio.create_task(testing())\n    asyncio.get_event_loop().run_forever()\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 等待系统稳定\ntime.sleep(3)\n# 打印初始化完成信息\nprint(\"FreakStudio: PMS5003 sensor driver initialized\")\n\n# ========================================  主程序  ============================================\n\nstart()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "pms5003"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/pms5003t_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "isActive",
+    "print",
+    "read",
+    "registerCallback",
+    "registerEvent",
+    "setEcoMode"
+  ],
+  "read_properties": [
+    "particles_03um",
+    "particles_05um",
+    "particles_100um",
+    "particles_10um",
+    "particles_25um",
+    "particles_50um",
+    "pm100_env",
+    "pm100_standard",
+    "pm10_env",
+    "pm10_standard",
+    "pm25_env",
+    "pm25_standard",
+    "timestamp"
+  ],
+  "support_level": "generatable"
+}

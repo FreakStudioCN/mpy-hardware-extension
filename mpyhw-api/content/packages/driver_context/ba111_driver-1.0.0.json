@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "BA111TDS(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ba111_tds.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "4. **数据读取**:",
+    "---\n\n## 示例程序",
+    "---\n\n## 注意事项\n\n1. **基线校准规范**:首次使用或长期放置后必须执行基线校准，校准前需将探头置于 25℃±5℃ 的纯净水中，避免校准基准偏移。\n2. **探头干扰抑制**:同时使用两个 TDS 探头检测同一水体时，探头间距需保持在 1 米以上，避免电极间信号干扰。\n3. **环境影响修正**:探头浸入水中的深度、容器形状会对检测结果产生线性影响，可根据已知校准点的检测值自行修正系数。\n4. **维护建议**:长期使用后需定期检查探头电极表面是否结垢，及时清洁以维持检测精度；插拔探头时确保插头插紧，避免接触不良导致数据异常。\n5. **通信参数匹配**:UART 通信需确保波特率（9600）、数据位（8）、停止位（1）等参数与模块配置一致，避免通信失败。\n\n---\n\n## 联系方式\n\n如有任何问题或需要帮助，请通过以下方式联系开发者:\n\n📧 **邮箱**:liqinghsui@freakstudio.cn\n\n💻 **GitHub**:[https://github.com/FreakStudioCN](https://github.com/FreakStudioCN)\n\n---\n\n## 许可协议"
+  ],
+  "import_names": [
+    "ba111_tds"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ba111_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "calibrate",
+    "detect",
+    "set_ntc_b_value",
+    "set_ntc_resistance"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

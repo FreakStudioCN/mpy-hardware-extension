@@ -1,9 +1,29 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MPR121(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mpr121.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
   "import_names": [
     "mpr121"
   ],
-  "constructors": [
-    "MPR121(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mpr121/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "baseline_data",
@@ -15,25 +35,5 @@
     "touched"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mpr121/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mpr121.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

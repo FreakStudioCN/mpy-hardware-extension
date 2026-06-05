@@ -1,40 +1,51 @@
 {
-  "import_names": [
-    "__init__",
-    "micropython_lis3mdl",
-    "typing"
-  ],
-  "constructors": [
-    "LIS3MDL(i2c)"
-  ],
-  "read_methods": [
-    "data_rate",
-    "low_power_mode",
-    "magnetic",
-    "operation_mode",
-    "reset",
-    "scale_range"
-  ],
-  "read_properties": [],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.7,
+  "constructors": [
+    "LIS3MDL(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    },
+    {
+      "path": "lis3mdl.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "sensors/lis3mdl_driver/\n└── code/\n    ├── micropython_lis3mdl/\n    │   ├── __init__.py        # 包初始化文件\n    │   ├── lis3mdl.py         # 核心驱动（LIS3MDL 传感器类）\n    │   └── i2c_helpers.py     # I2C 通信辅助类（位操作与寄存器结构体）\n    └── main.py                # 测试示例（自动扫描 + 循环读取磁场数据）",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/9/8 下午4:52\n# @Author  : Jose D. Montoya\n# @File    : main.py\n# @Description : 使用LIS3MDL磁力计传感器读取磁场数据并打印\n# @License : MIT\n__version__ = \"0.1.0\"\n__author__ = \"Jose D. Montoya\"\n__license__ = \"MIT\"\n__platform__ = \"MicroPython v1.23.0\"\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import Pin, SoftI2C\nfrom micropython_lis3mdl import lis3mdl\n\n# ======================================== 全局变量 ============================================\n\n# 目标传感器可能的I2C地址列表（支持多地址）\nTARGET_SENSOR_ADDRS: list[int] = [0x1C, 0x1E]\n\n# I2C总线使用的SDA引脚号\nI2C_SDA_PIN: int = 4\n# I2C总线使用的SCL引脚号\nI2C_SCL_PIN: int = 5\n# I2C总线通信频率（Hz）\nI2C_FREQ: int = 400000\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: LIS3MDL sensor auto scan and data acquisition\")\n# 创建软件I2C总线实例\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 扫描I2C总线上的所有设备地址\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\n# 检查是否扫描到任何I2C设备\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(\"i2c devices found:\", len(devices_list))\n\n# 初始化传感器对象占位符\nsensor: lis3mdl.LIS3MDL = None\n\n# 遍历扫描到的设备地址，匹配目标地址\nfor device in devices_list:\n    if device in TARGET_SENSOR_ADDRS:\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            # 创建LIS3MDL传感器对象\n            sensor = lis3mdl.LIS3MDL(i2c=i2c_bus)\n            print(\"Sensor initialization successful\")\n            break\n        except Exception as e:\n            print(f\"Sensor Initialization failed: {e}\")\n            continue\nelse:\n    # 未在总线上发现任何目标传感器地址\n    raise Exception(\"No target sensor device found in I2C bus\")\n\n# ========================================  主程序  ============================================\n\n# 主循环：每隔0.5秒读取并打印磁场数据\nwhile True:\n    mag_x, mag_y, mag_z = sensor.magnetic\n    print(f\"X:{mag_x:0.2f}, Y:{mag_y:0.2f}, Z:{mag_z:0.2f} uT\")\n    print(\"\")\n    time.sleep(0.5)"
+  ],
+  "import_names": [
+    "lis3mdl",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/lis3mdl_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/lis3mdl_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "__init__.py"
-    }
+  "read_methods": [
+    "reset"
   ],
-  "confidence": 0.75,
+  "read_properties": [
+    "data_rate",
+    "low_power_mode",
+    "magnetic",
+    "operation_mode",
+    "scale_range"
+  ],
   "support_level": "generatable"
 }

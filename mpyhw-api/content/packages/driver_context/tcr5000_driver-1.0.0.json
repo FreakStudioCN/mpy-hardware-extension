@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "TCR5000(pin, trigger)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "tcr5000.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from tcr5000 import TCR5000\n\n# 初始化传感器（DIN 引脚为 6，中断触发方式为上升/下降沿）\nsensor = TCR5000(pin=6)\n\n# 定义回调函数（电平变化时触发）\ndef on_change(value):\n    print(\"Level changed to:\", value)\n\n# 注册回调函数\nsensor.set_callback(on_change)",
+    "import time\nfrom tcr5000 import TCR5000\n\ndef on_change(value: int) -> None:\n    \"\"\"电平变化回调函数\"\"\"\n    print(\"Callback triggered, value =\", value)\n\n# 上电延时\ntime.sleep(3)\nprint(\"FreakStudio:Single-channel tracking module test\")\n\n# 初始化传感器\nsensor = TCR5000(pin=6)\n# 注册回调\nsensor.set_callback(on_change)\n\ntry:\n    while True:\n        # 读取当前电平\n        val = sensor.read()\n        print(\"Current value:\", val)\n        time.sleep(1)\n\nexcept KeyboardInterrupt:\n    # 释放资源\n    sensor.deinit()\n    print(\"Program interrupted, resources released.\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "tcr5000"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/TCR5000_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "deinit",
+    "read",
+    "set_callback"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

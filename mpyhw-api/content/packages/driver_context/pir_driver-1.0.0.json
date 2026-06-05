@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "PIRSensor(pin, callback)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "pir_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from pir_sensor1 import PIRSensor\n\n# 初始化传感器（连接到GPIO6，可选传入回调函数）\npir = PIRSensor(pin=6)",
+    "# 1. 轮询模式:检查当前是否检测到人体\nis_detected = pir.is_motion_detected()\nprint(f\"当前是否检测到人体:{is_detected}\")\n\n# 2. 设置中断回调（检测到人体时执行函数）\ndef on_motion():\n    print(\"检测到人体接近！\")\npir.set_callback(callback=on_motion)\n\n# 3. 启用/禁用中断\npir.enable()  # 启用中断检测\npir.disable() # 禁用中断检测\n\n# 4. 阻塞等待人体检测（超时20秒）\ndetected = pir.wait_for_motion(timeout=20000)\nif detected:\n    print(\"阻塞等待:检测到人体\")\nelse:\n    print(\"阻塞等待:超时未检测到人体\")",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/8/29 下午6:47\n# @Author  : 缪贵成\n# @File    : main1.py\n# @Description : 红外人体热释传感器驱动测试文件\n\n# ======================================== 导入相关模块 =========================================\nfrom pir_sensor1 import PIRSensor\nimport time\n\n# ======================================== 功能函数 ============================================\ndef motion_callback():\n    \"\"\"\n    回调函数\n    ==========================================\n    callback function\n    \"\"\"\n    print(\"Motion detected!\")\n\n# ======================================== 初始化配置 ===========================================\n# 上电延时3s\ntime.sleep(3)\nprint(\"FreakStudio : Infrared human body pyro-release sensor test\")\n\n# 创建红外人体热释传感器对象\npir = PIRSensor(pin=6, callback=motion_callback)\n\n# ========================================  主程序  ============================================\n# 提示用户靠近\nprint(\"Waiting for motion...\")\n# 阻塞等待，超时20秒\ndetected = pir.wait_for_motion(timeout=20000)\n\nif detected:\n    # 阻塞等待检测到运动\n    print(\"Motion detected via blocking wait!\")\nelse:\n    print(\"Timeout, no motion detected.\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "pir_sensor"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/pir_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "debug",
+    "disable",
+    "enable",
+    "is_motion_detected",
+    "set_callback",
+    "wait_for_motion"
+  ],
+  "read_properties": [
+    "pin"
+  ],
+  "support_level": "generatable"
+}

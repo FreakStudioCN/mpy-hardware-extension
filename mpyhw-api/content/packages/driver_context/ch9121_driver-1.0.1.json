@@ -1,0 +1,38 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "CH9121(uart, cfg)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ch9121.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/16 下午9:00\n# @Author  : wybiral\n# @File    : main.py\n# @Description : CH9121串口转网络模块异步配置+阻塞式数据收发示例，适配Raspberry Pi Pico\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入MicroPython异步IO模块，用于异步配置CH9121\nimport uasyncio as asyncio\n\n# 导入CH9121异步驱动类（未修改阻塞式的原始版本）\nimport ch9121  # 注意：这里使用原始带异步方法的CH9121类（未改阻塞式的版本）\n\n# 从machine模块导入引脚和UART串口控制类\nfrom machine import Pin, UART\n\n# 导入时间模块，用于阻塞式延时操作\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# CH9121网络配置参数 - 网关地址，元组格式(段1, 段2, 段3, 段4)\nGATEWAY = (192, 168, 2, 254)  # 网关地址\n# CH9121网络配置参数 - 目标服务器IP地址，元组格式\nTARGET_IP = (192, 168, 2, 217)  # 目标服务器IP\n# CH9121网络配置参数 - 目标服务器端口号\nTARGET_PORT = 2000  # 目标服务器端口\n\n# ======================================== 功能函数 ============================================\n\n\nasync def async_config(eth):\n    \"\"\"\n    异步完成CH9121模块的初始化配置\n    Args:\n        eth: CH9121类实例对象，已初始化的串口转网络模块对象\n\n    Raises:\n        无\n\n    Notes:\n        1. 配置前等待1秒确保模块上电稳定\n        2. 配置完成后复位模块使参数生效\n        3. 复位后需等待1秒再进行后续操作\n\n    ==========================================\n    Asynchronously complete the initialization configuration of CH9121 module\n    Args:\n        eth: CH9121 class instance object, initialized serial to network module object\n\n    Raises:\n        None\n\n    Notes:\n        1. Wait 1 second before configuration to ensure the module is powered on stably\n        2. Reset the module after configuration to make parameters take effect\n        3. Wait 1 second after reset before subsequent operations\n    \"\"\"\n    # 等待模块上电稳定，避免配置指令发送失败\n    await asyncio.sleep(1)\n\n    # 异步配置CH9121为TCP客户端模式（1=TCP_CLIENT）\n    await eth.set_mode(ch9121.TCP_CLIENT)  # 设置为TCP客户端模式\n    # 异步配置CH9121网关地址\n    await eth.set_gateway(GATEWAY)  # 设置网关\n    # 异步配置CH9121目标服务器IP地址\n    await eth.set_target_ip(TARGET_IP)  # 设置目标IP\n    # 异步配置CH9121目标服务器端口号\n    await eth.set_target_port(TARGET_PORT)  # 设置目标端口\n    # 异步发送复位指令，使配置参数生效\n    await eth.reset()  # 复位模块使配置生效\n    # 等待模块复位完成，确保参数加载成功\n    await asyncio.sleep(1)  # 等待复位完成\n\n    # 异步读取CH9121当前工作模式\n    mode = await eth.get_mode()\n    # 打印工作模式原始值及说明\n    print(f\"[CH9121 Working Mode Raw Value]: {mode} (0=TCP_SERVER/1=TCP_CLIENT/2=UDP_SERVER/3=UDP_CLIENT)\")\n\n    # 异步读取CH9121配置的网关地址\n    gateway = await eth.get_gateway()\n    # 将网关元组转换为字符串格式（如192.168.2.254）\n    gateway_str = \".\".join(map(str, gateway))\n    # 打印配置的网关地址\n    print(f\"[CH9121 Configured Gateway]: {gateway_str}\")\n\n    # 异步读取CH9121配置的目标IP地址\n    target_ip = await eth.get_target_ip()\n    # 将目标IP元组转换为字符串格式\n    target_ip_str = \".\".join(map(str, target_ip))\n    # 打印配置的目标IP地址\n    print(f\"[CH9121 Configured Target IP]: {target_ip_str}\")\n\n    # 异步读取CH9121配置的目标端口号\n    target_port = await eth.get_target_port()\n    # 打印配置的目标端口号\n    print(f\"[CH9121 Configured Target Port]: {target_port}\")\n\n    # 打印配置完成提示，准备进入阻塞式数据收发模式\n    print(\"\n✅ Asynchronous configuration completed, switch to blocking data send/receive mode...\")\n\n\ndef blocking_read_write(eth, uart):\n    \"\"\"\n    阻塞式循环发送测试消息并读取串口响应数据\n    Args:\n        eth: CH9121类实例对象（本函数未使用，仅保持参数兼容）\n        uart: UART类实例对象，已初始化的串口对象\n\n    Raises:\n        无\n\n    Notes:\n        1. 直接使用UART阻塞式发送，绕过异步层\n        2. 每2秒发送一条带计数器的测试消息\n        3. 发送后延时0.1秒读取串口缓冲区数据\n\n    ==========================================\n    Blocking loop to send test messages and read serial response data\n    Args:\n        eth: CH9121 class instance object (not used in this function, only for parameter compatibility)\n        uart: UART class instance object, initialized serial port object\n\n    Raises:\n        None\n\n    Notes:\n        1. Directly use UART blocking send, bypass asynchronous layer\n        2. Send a test message with counter every 2 seconds\n        3. Delay 0.1 seconds after sending to read serial buffer data\n    \"\"\"\n    # 初始化消息计数器，用于标识每条测试消息\n    count = 1\n    # 无限循环执行数据收发操作\n    while True:\n        # 构造带计数器的测试消息字符串\n        test_msg = f\"Test message {count}: Hello, UART loopback!\"\n        # 打印发送的测试消息\n        print(f\"\nSent: {test_msg}\")\n\n        # 将测试消息编码为UTF-8字节串，通过UART阻塞式发送\n        uart.write(test_msg.encode(\"utf-8\"))\n\n        # 短延时，等待串口接收响应数据\n        time.sleep(0.1)\n\n        # 检查UART缓冲区是否有可读取的数据\n        if uart.any():  # 检查串口缓冲区是否有数据\n            # 读取缓冲区中所有可用数据并解码为UTF-8字符串\n            received = uart.read(uart.any()).decode(\"utf-8\")  # 读取所有可用数据\n            # 打印接收到的数据\n            print(f\" Received: {received}\")\n        else:\n            # 打印无数据接收提示\n            print(f\" Received: No data (check connections)\")\n\n        # 计数器自增，用于下一条消息的标识\n        count += 1\n        # 延时2秒后发送下一条测试消息\n        time.sleep(2)\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 延时3秒，确保Raspberry Pi Pico硬件及CH9121模块上电稳定\ntime.sleep(3)\n# 打印初始化提示信息\nprint(\"FreakStudio: Initialize CH9121 module and hardware\")\n\n# 初始化CH9121配置引脚，设置为输出模式（Pin 19）\ncfg = Pin(19, Pin.OUT)  # CH9121配置引脚\n# 初始化UART0串口，波特率9600，TX=Pin16，RX=Pin17（适配Raspberry Pi Pico）\nuart = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))  # 串口配置（波特率9600）\n# 初始化CH9121异步驱动对象，传入UART实例和配置引脚\neth = ch9121.CH9121(uart, cfg)  # 初始化CH9121对象（异步版本）\n\n# ========================================  主程序  ============================================\n\n# 程序主入口，判断是否为直接运行该脚本\nif __name__ == \"__main__\":\n    # 1. 获取asyncio事件循环对象\n    loop = asyncio.get_event_loop()\n    # 运行异步配置任务，直到配置完成\n    loop.run_until_complete(async_config(eth))  # 执行异步配置直到完成\n\n    # 2. 异步配置完成后，进入阻塞式数据收发循环\n    blocking_read_write(eth, uart)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copyof this software and associated documentation files (the \"Software\"), to dealin the Software without restriction, including without limitation the rightsto use, copy, modify, merge, publish, distribute, sublicense, and/or sellcopies of the Software, and to permit persons to whom the Software isfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in allcopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS ORIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THEAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHERLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THESOFTWARE.."
+  ],
+  "import_names": [
+    "ch9121"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/ch9121_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [],
+  "read_properties": [],
+  "support_level": "installable"
+}

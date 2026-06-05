@@ -1,0 +1,41 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "adxl345(bus, scl, sda, cs)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "adxl345.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/14 下午2:30\n# @Author  : fanday\n# @File    : main.py\n# @Description : ADXL345三轴加速度传感器测试 初始化I2C扫描 读取XYZ轴加速度数据\n# ======================================== 导入相关模块 =========================================\n\n# 从machine模块导入Pin类，用于控制GPIO引脚\nfrom machine import Pin\n\n# 从machine模块导入I2C类，用于I2C通信\nfrom machine import I2C\n\n# 导入时间模块，用于延时操作\nimport time\n\n# 导入ustruct模块，用于解析二进制数据\nimport ustruct\n\n# 从adxl345模块导入adxl345类，这是ADXL345传感器的驱动类\nfrom adxl345 import adxl345\n\n# ======================================== 全局变量 ============================================\n\n# I2C总线编号（使用0号总线）\nI2C_BUS_NUM = 0\n# ADXL345的SCL引脚连接到GP5\nI2C_SCL_PIN = 5\n# ADXL345的SDA引脚连接到GP4\nI2C_SDA_PIN = 4\n# I2C通信频率设置为400KHz\nI2C_FREQ = 400000\n# ADXL345支持的I2C地址列表（默认地址0x53，若SDO引脚拉高则为0x1D）\nTARGET_SENSOR_ADDRS = [0x53, 0x1D]\n# 初始化传感器对象为None，后续扫描成功后再赋值\nsnsr = None\n# 创建ADXL345片选引脚对象，设置为输出模式（I2C模式下片选引脚需设为输出）\ncs = Pin(22, Pin.OUT)\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 延时3秒，等待系统稳定\ntime.sleep(3)\n# 输出初始化开始提示（纯英文短句）\nprint(\"FreakStudio: Starting I2C scanner for ADXL345\")\n# 初始化I2C总线，用于扫描设备（传感器初始化时仍使用原始参数格式）\ni2c_bus = I2C(I2C_BUS_NUM, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n# 扫描I2C总线上的所有设备地址，返回地址列表\ndevices_list: list[int] = i2c_bus.scan()\n# 打印扫描开始提示\nprint(\"START I2C SCANNER\")\n# 检查是否扫描到任何设备\nif len(devices_list) == 0:\n    # 未发现设备时打印提示\n    print(\"No i2c device !\")\n    # 抛出异常并退出程序\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    # 输出发现的设备数量\n    print(\"i2c devices found:\", len(devices_list))\n    # 初始化目标地址变量\n    target_addr = None\n    # 遍历扫描到的所有设备地址\n    for device in devices_list:\n        # 如果当前地址属于目标传感器地址列表\n        if device in TARGET_SENSOR_ADDRS:\n            # 记录目标地址\n            target_addr = device\n            # 以十六进制格式打印目标地址\n            print(\"I2c hexadecimal address:\", hex(device))\n            try:\n                # 按照adxl345类要求传递参数：总线编号、SCL引脚、SDA引脚、片选引脚\n                snsr = adxl345(bus=I2C_BUS_NUM, scl=I2C_SCL_PIN, sda=I2C_SDA_PIN, cs=cs)\n                # 传感器初始化成功提示\n                print(\"Target sensor initialization successful\")\n                # 跳出循环\n                break\n            except Exception as e:\n                # 初始化失败时打印异常信息\n                print(f\"Sensor Initialization failed: {e}\")\n                # 继续尝试下一个地址\n                continue\n    # 如果传感器对象仍然为None（未成功初始化）\n    if snsr is None:\n        # 抛出明确异常，提示检查接线或地址\n        raise Exception(\"No ADXL345 found, please check wiring or address (0x53/0x1D)!\")\n\n# ========================================  主程序  ============================================\n\n# 无限循环读取传感器数据\nwhile True:\n    # 读取三轴加速度数据，返回值单位是mg\n    x, y, z = snsr.readXYZ()\n    # 打印X、Y、Z轴数据（单位：mg）\n    print(\"x:\", x, \"y:\", y, \"z:\", z, \"unit:mg\")\n    # 延时0.5秒\n    time.sleep(0.5)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+  ],
+  "import_names": [
+    "adxl345"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/adxl345_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "readByte",
+    "readXYZ",
+    "writeByte"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

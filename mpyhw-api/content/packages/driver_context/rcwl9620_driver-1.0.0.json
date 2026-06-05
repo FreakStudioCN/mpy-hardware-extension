@@ -1,34 +1,43 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "RCWL9620(i2c, address, debug)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "rcwl9620.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "rcwl9620_driver/\n├── code/\n│   ├── rcwl9620.py          # 核心驱动\n│   └── main.py              # 测试示例\n├── package.json             # mip 包配置\n├── README.md                # 本文档\n└── LICENSE                  # 许可协议",
+    "rcwl9620.py",
+    "from machine import I2C, Pin\nfrom rcwl9620 import RCWL9620\n\ni2c = I2C(0, sda=Pin(4), scl=Pin(5), freq=100000)\nsensor = RCWL9620(i2c)\nprint(\"Distance: %.2f mm\" % sensor.read())\nsensor.deinit()",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/05/06 00:00\n# @Author  : DFRobot\n# @File    : main.py\n# @Description : 测试RCWL9620超声波测距传感器驱动类的代码\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import I2C, Pin\nfrom rcwl9620 import RCWL9620\n\n# ======================================== 全局变量 ============================================\n\nTARGET_SENSOR_ADDRS = [0x57]\nI2C_ID = 0\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 100000\nREAD_INTERVAL_MS = 1000\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: Using RCWL9620 ultrasonic distance sensor ...\")\n\n# 初始化硬件I2C总线\ni2c_bus = I2C(I2C_ID, sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 扫描I2C总线设备\ndevices_list = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\nif len(devices_list) == 0:\n    raise RuntimeError(\"I2C scan found no devices\")\nprint(\"I2C devices found: %d\" % len(devices_list))\n\n# 遍历扫描结果，初始化目标传感器\nsensor = None\nfor device in devices_list:\n    if device in TARGET_SENSOR_ADDRS:\n        print(\"I2C address: %s\" % hex(device))\n        sensor = RCWL9620(i2c=i2c_bus, address=device)\n        print(\"Sensor initialization successful\")\n        break\n\nif sensor is None:\n    raise RuntimeError(\"No target sensor found on I2C bus\")\n\n# ========================================  主程序  ===========================================\n\ntry:\n    while True:\n        distance_mm = sensor.read()\n        print(\"Distance: %.2f mm\" % distance_mm)\n        time.sleep_ms(READ_INTERVAL_MS)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    sensor.deinit()\n    del sensor\n    print(\"Program exited\")"
+  ],
   "import_names": [
     "rcwl9620"
   ],
-  "constructors": [
-    "RCWL9620(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/rcwl9620_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "deinit",
     "read"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/rcwl9620_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "rcwl9620.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

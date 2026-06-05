@@ -1,0 +1,49 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "DataFlowProcessor(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "data_flow_processor.py",
+      "type": "source"
+    },
+    {
+      "path": "r60abd1.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import UART, Pin\nfrom data_flow_processor import DataFlowProcessor\nfrom r60abd1 import R60ABD1\n\n# 初始化UART (以Raspberry Pi Pico为例，TX=16, RX=17)\nuart = UART(0, baudrate=115200, tx=Pin(16), rx=Pin(17), timeout=0)\n\n# 创建数据流处理器\nprocessor = DataFlowProcessor(uart)\n\n# 创建R60ABD1实例，并配置功能\ndevice = R60ABD1(\n    processor,\n    parse_interval=200,          \n    # 数据解析间隔(ms)\n    presence_enabled=True,        \n    # 开启人体存在检测\n    heart_rate_enabled=True,       \n    # 开启心率监测\n    breath_monitoring_enabled=True,\n    # 开启呼吸监测\n    sleep_monitoring_enabled=True  \n    # 开启睡眠监测\n)",
+    "# 查询产品型号\nsuccess, model = device.query_product_model()\nif success:\n    print(f\"产品型号: {model}\")\n\n# 查询是否有人\nsuccess, presence = device.query_presence_status()\nif success:\n    print(f\"有人: {presence == 1}\")\n\n# 查询心率\nsuccess, hr = device.query_heart_rate_value()\nif success:\n    print(f\"心率: {hr} bpm\")\n\n# 查询睡眠状态\nsuccess, sleep_status = device.query_sleep_status()\nif success:\n    status_text = [\"深睡\", \"浅睡\", \"清醒\", \"无\"][sleep_status] if sleep_status < 4 else \"未知\"\n    print(f\"睡眠状态: {status_text}\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "data_flow_processor",
+    "r60abd1"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/r60abd1_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "build_and_send_frame",
+    "clear_buffer",
+    "get_stats",
+    "read_and_parse"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

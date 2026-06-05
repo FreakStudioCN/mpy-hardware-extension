@@ -1,33 +1,41 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "RCWL9623(mode, gpio_pins, onewire_pin, uart, i2c, addr)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "rcwl9623.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "3. **测距操作**:",
+    "---\n\n## 示例程序",
+    "---\n\n## 注意事项\n\n1. **UART 模式限制**:UART 模式不符合标准 UART 时序要求，使用时需特别注意硬件连接与时序匹配。\n2. **有效测距范围**:模块有效测量范围为 25cm~700cm，超出范围时 `read_distance()` 返回 `None`。\n3. **I2C 地址固定**:I2C 模式下设备地址固定为 0x57，不可修改。\n4. **中断安全**:所有测距方法均为阻塞操作，**非 ISR-safe**，不可在中断上下文调用。\n5. **硬件配置**:不同通信模式需通过焊接电阻 R5/R7 切换，具体参考模块原理图。\n\n---\n\n## 联系方式\n\n如有任何问题或需要帮助，请通过以下方式联系开发者:\n\n📧 **邮箱**:liqinghsui@freakstudio.cn\n\n💻 **GitHub**:[https://github.com/FreakStudioCN](https://github.com/FreakStudioCN)\n\n---\n\n## 许可协议"
+  ],
   "import_names": [
     "rcwl9623"
   ],
-  "constructors": [
-    "RCWL9623(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/rcwl9623_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "read_distance"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/rcwl9623_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "rcwl9623.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

@@ -1,0 +1,70 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "SerialServo(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "serial_servo.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import UART, Pin\nimport time\nfrom serial_servo import SerialServo\n\n# 延时3s等待设备上电\ntime.sleep(3)\nprint(\"FreakStudio: Serial Servo Test\")\n\n# 初始化UART（波特率115200，TX=GP16，RX=GP17，以Raspberry Pi Pico为例）\nuart = UART(0, baudrate=115200, tx=Pin(16), rx=Pin(17))\n\n# 创建舵机控制实例\nservo = SerialServo(uart)\n\n# 主循环:控制4号舵机在0°和90°之间切换\nwhile True:\n    # 控制4号舵机立即转到0°，耗时1000ms\n    servo.move_servo_immediate(servo_id=4, angle=0.0, time_ms=1000)\n    time.sleep(2)  # 等待舵机到位\n    \n    # 获取并打印当前设置的角度和时间\n    angle, time_ms = servo.get_servo_move_immediate(servo_id=4)\n    print(f\"Servo ID: 4, Angle: {angle}, Time: {time_ms}\")\n\n    # 控制4号舵机立即转到90°，耗时1000ms\n    servo.move_servo_immediate(servo_id=4, angle=90.0, time_ms=1000)\n    time.sleep(2)  # 等待舵机到位\n    \n    # 获取并打印当前设置的角度和时间\n    angle, time_ms = servo.get_servo_move_immediate(servo_id=4)\n    print(f\"Servo ID: 4, Angle: {angle}, Time: {time_ms}\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "serial_servo"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/motor_drivers/serial_servo_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "build_packet",
+    "calculate_checksum",
+    "get_servo_angle_offset",
+    "get_servo_angle_range",
+    "get_servo_id",
+    "get_servo_led",
+    "get_servo_led_alarm",
+    "get_servo_mode_and_speed",
+    "get_servo_motor_load_status",
+    "get_servo_move_immediate",
+    "get_servo_move_with_time_delay",
+    "get_servo_temp_range",
+    "get_servo_vin_range",
+    "move_servo_immediate",
+    "move_servo_with_time_delay",
+    "read_servo_position",
+    "read_servo_temp",
+    "read_servo_voltage",
+    "receive_command",
+    "send_command",
+    "set_servo_angle_offset",
+    "set_servo_angle_range",
+    "set_servo_id",
+    "set_servo_led",
+    "set_servo_led_alarm",
+    "set_servo_mode_and_speed",
+    "set_servo_motor_load",
+    "set_servo_temp_range",
+    "set_servo_vin_range",
+    "start_servo",
+    "stop_servo"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

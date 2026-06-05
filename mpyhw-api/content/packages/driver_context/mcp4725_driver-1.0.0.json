@@ -1,9 +1,40 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "MCP4725(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mcp4725.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import I2C, Pin\nfrom mcp4725 import MCP4725\nimport time\n\n# 初始化 I2C（Raspberry Pi Pico 示例:I2C0，SDA=GP4，SCL=GP5，400kHz）\ni2c = I2C(id=0, sda=Pin(4), scl=Pin(5), freq=400000)\n\n# 扫描 I2C 设备，获取 DAC 地址\ndevices = i2c.scan()\ndac_addr = None\nfor dev in devices:\n    if 0x60 <= dev <= 0x67:\n        dac_addr = dev\n        break\n\nif dac_addr is None:\n    raise RuntimeError(\"MCP4725 not found on I2C bus!\")\n\n# 创建 DAC 实例\ndac = MCP4725(i2c, dac_addr)",
+    "# 输出 1.65V（对应数字值 2048，假设满量程 3.3V）\ndac.write(2048)",
+    "# 配置为正常模式，输出 0V，并写入 EEPROM（上电自动恢复）\ndac.config(power_down='Off', value=0, eeprom=True)\ntime.sleep_ms(50)  # 配置后延时，避免读取错误",
+    "# 读取 EEPROM 状态、电源模式、当前输出值等\neeprom_busy, pd_mode, current_val, eeprom_pd, eeprom_val = dac.read()\nprint(f\"当前输出值: {current_val}, EEPROM 存储值: {eeprom_val}\")",
+    "from machine import ADC, Timer, Pin, I2C, UART\nimport time\nimport math\nfrom mcp4725 import MCP4725\n\n# 全局变量\nDAC_ADDRESS = 0x00\nadc_conversion_factor = 3.3 / 65535\n\ndef timer_callback(timer):\n    global adc, adc_conversion_factor, uart\n    value = adc.read_u16() * adc_conversion_factor\n    formatted_value = \"{:.2f}\".format(value)\n    uart.write(str(formatted_value) + '\\r\\n')\n    print('dac generated voltage: ' + str(formatted_value))\n\n# 初始化\ntime.sleep(3)\nprint(\"FreakStudio : Using DAC to generate sine wave\")\n\ni2c = I2C(id=0, sda=Pin(4), scl=Pin(5), freq=400000)\ndevices_list = i2c.scan()\nfor device in devices_list:\n    if 0x60 <= device <= 0x61:\n        DAC_ADDRESS = device\n\ndac = MCP4725(i2c, DAC_ADDRESS)\ndac.config(power_down='Off', value=0, eeprom=True)\ntime.sleep_ms(50)\n\nadc = ADC(1)  # ADC1-GP27\ntimer = Timer(-1)\ntimer.init(period=5, mode=Timer.PERIODIC, callback=timer_callback)\n\nuart = UART(0, 115200)\nuart.init(baudrate=115200, bits=8, parity=None, stop=1, tx=0, rx=1, timeout=100)\n\n# 生成正弦波\nfor i in range(10000):\n    value = 3.3 * math.sin(2 * math.pi * i / 100) + 3.3\n    value = int(value * 4095 / 6.6)\n    dac.write(value)\n    time.sleep_ms(10)\n\ntimer.deinit()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "mcp4725"
   ],
-  "constructors": [
-    "MCP4725(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/signal_generation/mcp4725_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "config",
@@ -11,25 +42,5 @@
     "write"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mcp4725_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mcp4725.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

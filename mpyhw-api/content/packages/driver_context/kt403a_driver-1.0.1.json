@@ -1,0 +1,72 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "KT403A(uart, device, volume, eq)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "kt403a.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/20 下午4:52\n# @Author  : 作者名\n# @File    : main.py\n# @Description : KT403A MP3模块功能测试，涵盖音量控制、EQ切换、播放控制、循环模式等核心功能\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入KT403A模块驱动类\nfrom kt403a import KT403A\n\n# 导入UART、Pin、Timer硬件控制模块\nfrom machine import UART, Pin\n\n# 导入毫秒级延迟模块\nfrom utime import sleep_ms\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 程序启动延迟3秒，确保硬件初始化完成\nsleep_ms(3)\n# 打印初始化完成提示\nprint(\"FreakStudio: KT403A MP3 module full function test\")\n\n# ========================================  主程序  ============================================\n\n# 打印测试标题分隔线\nprint(\"-----------------\")\n# 打印测试标题\nprint(\" Test KT403A MP3 \")\n# 打印测试标题分隔线\nprint(\"-----------------\")\n\n# 初始化UART通信，设置波特率9600，TX引脚16，RX引脚17\nuart = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n# 初始化KT403A MP3模块实例\nmp3 = KT403A(uart)\n\n# ==================== 基础信息查询测试 ====================\n# 打印基础信息查询测试标题\nprint(\"\n【Basic Information Query】\")\n# 获取当前音量值\ncurrent_vol = mp3.GetVolume()\n# 打印当前音量\nprint(f\"Current volume: {current_vol}%\")\n\n# 定义EQ模式映射字典\neq_mapping = {mp3.EQ_NORMAL: \"Normal\", mp3.EQ_POP: \"Pop\", mp3.EQ_ROCK: \"Rock\", mp3.EQ_JAZZ: \"Jazz\", mp3.EQ_CLASSIC: \"Classic\", mp3.EQ_BASS: \"Bass\"}\n# 获取当前EQ模式值\ncurrent_eq = mp3.GetEqualizer()\n# 打印当前EQ模式\nprint(f\"Current EQ mode: {eq_mapping.get(current_eq, 'Unknown')}\")\n\n# 获取SD卡（TF卡）中的音频文件数量\nfile_count = mp3.GetFilesCount(mp3.DEVICE_SD)\n# 打印SD卡文件数量\nprint(f\"Number of audio files in SD card (TF card): {file_count}\")\n\n# 判断并打印当前播放状态\nif mp3.IsPlaying():\n    print(\"Current status: Playing\")\nelif mp3.IsPaused():\n    print(\"Current status: Paused\")\nelif mp3.IsStopped():\n    print(\"Current status: Stopped\")\n\n# 延迟1秒，确保模块响应完成\nsleep_ms(1000)\n\n# ==================== 音量控制测试 ====================\n# 打印音量控制测试标题\nprint(\"\n【Volume Control Test】\")\n# 打印增大音量提示\nprint(\"Increase volume (+2 levels)...\")\n# 增大音量一级\nmp3.VolumeUp()\n# 延迟500毫秒\nsleep_ms(500)\n# 再次增大音量一级\nmp3.VolumeUp()\n# 延迟500毫秒\nsleep_ms(500)\n# 打印增大后的音量\nprint(f\"Volume after increase: {mp3.GetVolume()}%\")\n\n# 打印减小音量提示\nprint(\"Decrease volume (-1 level)...\")\n# 减小音量一级\nmp3.VolumeDown()\n# 延迟500毫秒\nsleep_ms(500)\n# 打印减小后的音量\nprint(f\"Volume after decrease: {mp3.GetVolume()}%\")\n\n# 打印设置音量提示\nprint(\"Set volume to 50%...\")\n# 设置音量为50%\nmp3.SetVolume(50)\n# 延迟500毫秒\nsleep_ms(500)\n# 打印设置后的音量\nprint(f\"Volume after setting: {mp3.GetVolume()}%\")\n\n# 延迟1秒\nsleep_ms(1000)\n\n# ==================== EQ音效切换测试 ====================\n# 打印EQ音效切换测试标题\nprint(\"\n【EQ Effect Switch Test】\")\n# 打印切换为摇滚模式提示\nprint(\"Switch to Rock mode...\")\n# 设置EQ为摇滚模式\nmp3.SetEqualizer(mp3.EQ_ROCK)\n# 延迟500毫秒\nsleep_ms(500)\n# 获取当前EQ模式\ncurrent_eq = mp3.GetEqualizer()\n# 打印当前EQ模式\nprint(f\"Current EQ mode: {eq_mapping.get(current_eq)}\")\n\n# 打印切换为重低音模式提示\nprint(\"Switch to Bass mode...\")\n# 设置EQ为重低音模式\nmp3.SetEqualizer(mp3.EQ_BASS)\n# 延迟500毫秒\nsleep_ms(500)\n# 获取当前EQ模式\ncurrent_eq = mp3.GetEqualizer()\n# 打印当前EQ模式\nprint(f\"Current EQ mode: {eq_mapping.get(current_eq)}\")\n\n# 打印恢复为普通模式提示\nprint(\"Restore to Normal mode...\")\n# 设置EQ为普通模式\nmp3.SetEqualizer(mp3.EQ_NORMAL)\n# 延迟500毫秒\nsleep_ms(500)\n# 获取当前EQ模式\ncurrent_eq = mp3.GetEqualizer()\n# 打印当前EQ模式\nprint(f\"Current EQ mode: {eq_mapping.get(current_eq)}\")\n\n# 延迟1秒\nsleep_ms(1000)\n\n# ==================== 播放控制测试（针对4个音频文件） ====================\n# 打印播放控制测试标题\nprint(\"\n【Playback Control Test (for 4 audio files)】\")\n# 打印播放第1首曲目提示\nprint(\"Play the 1st track...\")\n# 播放第1首曲目\nmp3.PlaySpecific(1)\n# 播放3秒\nsleep_ms(3000)\n\n# 打印暂停播放提示\nprint(\"Pause playback...\")\n# 暂停播放\nmp3.Pause()\n# 延迟1秒\nsleep_ms(1000)\n# 打印暂停后的状态\nprint(f\"Status after pause: {'Paused' if mp3.IsPaused() else 'Not paused'}\")\n\n# 打印继续播放提示\nprint(\"Resume playback...\")\n# 继续播放\nmp3.Play()\n# 继续播放2秒\nsleep_ms(2000)\n\n# 打印播放下一曲提示\nprint(\"Play next track (2nd track)...\")\n# 播放下一曲\nmp3.PlayNext()\n# 播放3秒\nsleep_ms(3000)\n\n# 打印播放上一曲提示\nprint(\"Play previous track (back to 1st track)...\")\n# 播放上一曲\nmp3.PlayPrevious()\n# 播放3秒\nsleep_ms(3000)\n\n# 打印播放第4首曲目提示\nprint(\"Play the 4th track directly...\")\n# 播放第4首曲目\nmp3.PlaySpecific(4)\n# 播放3秒\nsleep_ms(3000)\n\n# 延迟1秒\nsleep_ms(1000)\n\n# ==================== 循环模式测试 ====================\n# 打印循环模式测试标题\nprint(\"\n【Loop Mode Test】\")\n# 打印关闭全部循环提示\nprint(\"Disable all tracks loop...\")\n# 关闭全部曲目循环\nmp3.DisableLoopAll()\n# 延迟500毫秒\nsleep_ms(500)\n\n# 打印开启单曲循环提示\nprint(\"Enable single track loop (4th track)...\")\n# 开启当前曲目单曲循环\nmp3.RepeatCurrent()\n# 单曲循环播放3秒\nsleep_ms(3000)\n\n# 打印恢复全部循环提示\nprint(\"Restore all tracks loop...\")\n# 开启全部曲目循环\nmp3.EnableLoopAll()\n# 延迟500毫秒\nsleep_ms(500)\n\n# ==================== 随机播放测试 ====================\n# 打印随机播放测试标题\nprint(\"\n【Random Play Test】\")\n# 打印开启随机播放提示\nprint(\"Enable random playback of all tracks...\")\n# 开启所有曲目随机播放\nmp3.RandomAll()\n# 随机播放5秒\nsleep_ms(5000)\n\n# ==================== 停止播放测试 ====================\n# 打印停止播放测试标题\nprint(\"\n【Stop Playback Test】\")\n# 打印停止播放提示\nprint(\"Stop playback...\")\n# 停止当前音频播放\nmp3.Stop()\n# 延迟500毫秒\nsleep_ms(500)\n# 打印停止后的状态\nprint(f\"Status after stop: {'Stopped' if mp3.IsStopped() else 'Not stopped'}\")\n\n# ==================== 重置模块 ====================\n# 打印重置模块测试标题\nprint(\"\n【Reset Module】\")\n# 打印软复位提示\nprint(\"Soft reset KT403A module...\")\n# 软复位KT403A芯片\nmp3.ResetChip()\n# 延迟1秒\nsleep_ms(1000)\n# 打印测试完成提示\nprint(\"Test completed!\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copyof this software and associated documentation files (the \"Software\"), to dealin the Software without restriction, including without limitation the rightsto use, copy, modify, merge, publish, distribute, sublicense, and/or sellcopies of the Software, and to permit persons to whom the Software isfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in allcopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS ORIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THEAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHERLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THESOFTWARE."
+  ],
+  "import_names": [
+    "kt403a"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/kt403a_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "DisableDAC",
+    "DisableLoop",
+    "DisableLoopAll",
+    "EnableDAC",
+    "EnableLoop",
+    "EnableLoopAll",
+    "GetEqualizer",
+    "GetFilesCount",
+    "GetFolderFilesCount",
+    "GetState",
+    "GetVolume",
+    "IsPaused",
+    "IsPlaying",
+    "IsStopped",
+    "LoopFolder",
+    "Pause",
+    "Play",
+    "PlayFolder",
+    "PlayNext",
+    "PlayPrevious",
+    "PlaySpecific",
+    "PlaySpecificInFolder",
+    "RandomAll",
+    "RepeatCurrent",
+    "ResetChip",
+    "SetDevice",
+    "SetEqualizer",
+    "SetLowPowerOff",
+    "SetLowPowerOn",
+    "SetVolume",
+    "Stop",
+    "VolumeDown",
+    "VolumeUp"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,40 +1,48 @@
 {
-  "import_names": [
-    "mlx90640"
-  ],
-  "constructors": [
-    "I2CDevice(i2c)"
-  ],
-  "read_methods": [
-    "get_frame",
-    "init_float_array",
-    "init_int_array",
-    "read_into",
-    "refresh_rate",
-    "serial_number",
-    "write",
-    "write_then_read_into"
-  ],
-  "read_properties": [],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2CDevice(i2c, device_address, probe)",
+    "MLX90640(i2c_bus, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mlx90640.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import I2C\nfrom mlx90640 import MLX90640, RefreshRate\n\n# 初始化 I2C 总线\ni2c = I2C(0, scl=5, sda=4, freq=100000)\n\n# 扫描 I2C 设备并获取地址\ndevices = i2c.scan()\nmlx_addr = next((d for d in devices if 0x31 <= d <= 0x35), None)\n\n# 初始化传感器\nthermal_camera = MLX90640(i2c, mlx_addr)\n\n# 配置刷新率与发射率\nthermal_camera.refresh_rate = RefreshRate.REFRESH_2_HZ\nthermal_camera.emissivity = 0.92\n\n# 读取温度帧\ntemperature_frame = [0.0] * 768\nthermal_camera.get_frame(temperature_frame)",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/9/4 下午11:14\n# @Author  : 缪贵成\n# @File    : main.py\n# @Description :mlx90640点阵红外温度传感器模块驱动测试文件\n\nfrom machine import I2C\nimport time\nfrom mlx90640 import MLX90640, RefreshRate\n\n# 温度数据缓冲区\ntemperature_frame = [0.0] * 768\n\ntime.sleep(3)\nprint(\"FreakStudio:Testing the MLX90640 fractional infrared temperature sensor\")\n\n# 初始化 I2C\ni2c = I2C(0, scl=5, sda=4, freq=100000)\n\n# 扫描 I2C 设备\ndevices_list = i2c.scan()\nprint('START I2C SCANNER')\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\nelse:\n    print('i2c devices found:', len(devices_list))\nmlxaddr = next((d for d in devices_list if 0x31 <= d <= 0x35), None)\n\n# 初始化传感器\ntry:\n    thermal_camera = MLX90640(i2c, mlxaddr)\n    print(\"MLX90640 sensor initialized successfully\")\nexcept ValueError as init_error:\n    print(f\"Sensor initialization failed: {init_error}\")\n    raise SystemExit(1)\n\nprint(f\"Device serial number: {thermal_camera.serial_number}\")\n\n# 设置刷新率\ntry:\n    thermal_camera.refresh_rate = RefreshRate.REFRESH_2_HZ\n    print(f\"Refresh rate set to {thermal_camera.refresh_rate} Hz\")\nexcept ValueError as rate_error:\n    print(f\"Failed to set refresh rate: {rate_error}\")\n    raise SystemExit(1)\n\nthermal_camera.emissivity = 0.92\n\n# 主循环\ntry:\n    while True:\n        try:\n            thermal_camera.get_frame(temperature_frame)\n        except RuntimeError as read_error:\n            print(f\"Frame acquisition failed: {read_error}\")\n            time.sleep(0.5)\n            continue\n\n        # 统计温度\n        min_temp = min(temperature_frame)\n        max_temp = max(temperature_frame)\n        avg_temp = sum(temperature_frame) / len(temperature_frame)\n\n        print(\"\\n--- Temperature Statistics ---\")\n        print(f\"Min: {min_temp:.2f} °C | Max: {max_temp:.2f} °C | Avg: {avg_temp:.2f} °C\")\n\n        # 打印左上角 4×4 样本像素\n        print(\"--- Sample Pixels (Top-Left 4x4) ---\")\n        for row in range(4):\n            row_data = [f\"{temperature_frame[row*32 + col]:5.1f}\" for col in range(4)]\n            print(\" | \".join(row_data))\n\n        # 等待下一次测量\n        time.sleep(1.0 / (thermal_camera.refresh_rate + 1))\n\nexcept KeyboardInterrupt:\n    print(\"\\nProgram terminated by user\")\nfinally:\n    print(\"Testing process completed\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "mlx90640"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mlx90640_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mlx90640_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mlx90640.py"
-    }
+  "read_methods": [
+    "get_frame",
+    "read_into",
+    "write",
+    "write_then_read_into"
   ],
-  "confidence": 0.75,
+  "read_properties": [
+    "refresh_rate",
+    "serial_number"
+  ],
   "support_level": "generatable"
 }

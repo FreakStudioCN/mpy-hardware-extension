@@ -1,41 +1,49 @@
 {
-  "import_names": [
-    "__init__",
-    "",
-    "micropython_mmc5983",
-    "typing"
-  ],
-  "constructors": [
-    "MMC5983(i2c)"
-  ],
-  "read_methods": [
-    "bandwidth",
-    "continuous_mode_frequency",
-    "magnetic",
-    "operation_mode"
-  ],
-  "read_properties": [
-    "temperature"
-  ],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.7,
+  "constructors": [
+    "MMC5983(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    },
+    {
+      "path": "mmc5983.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "mmc5983_driver/\n├── code/\n│   ├── micropython_mmc5983/\n│   │   ├── __init__.py      # 包入口，导出 MMC5983 类\n│   │   ├── mmc5983.py       # 核心驱动\n│   │   └── i2c_helpers.py   # I2C 寄存器位域辅助工具\n│   └── main.py              # 测试示例\n├── package.json             # 包配置文件\n├── README.md                # 说明文档\n└── LICENSE                  # MIT 许可证",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/1/15 下午3:00\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : MMC5983磁力计连续模式读取并遍历操作模式\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入时间模块用于延时\nimport time\n\n# 导入MicroPython的引脚和软I2C类\nfrom machine import Pin, SoftI2C\n\n# 导入MMC5983磁力计驱动库\nfrom micropython_mmc5983 import mmc5983\n\n# ======================================== 全局变量 ============================================\n\n# 自动识别传感器地址，定义全局目标地址列表（支持多地址，单个也用[]）\nTARGET_SENSOR_ADDRS = [0x30]\n\n# I2C引脚和频率定义\nI2C_SDA_PIN = 4\nI2C_SCL_PIN = 5\nI2C_FREQ = 400000\n\n# ======================================== 初始化配置 ===========================================\n\n# 等待3秒让系统稳定\ntime.sleep(3)\n# 打印启动提示信息\nprint(\"FreakStudio: MMC5983 sensor continuous mode test\")\n\n# I2C初始化（兼容I2C/SoftI2C）\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 开始扫描I2C总线上的设备\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\n# 检查I2C设备扫描结果\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(\"i2c devices found:\", len(devices_list))\n\n# 遍历地址列表初始化目标传感器\n# 初始化传感器对象占位符\nsensor = None\nfor device in devices_list:\n    if device in TARGET_SENSOR_ADDRS:\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            # 自动识别并初始化对应传感器\n            sensor = mmc5983.MMC5983(i2c=i2c_bus)\n            print(\"Sensor initialization successful\")\n            break\n        except Exception as e:\n            print(f\"Sensor Initialization failed: {e}\")\n            continue\nelse:\n    # 未找到目标设备，抛出异常\n    raise Exception(\"No target sensor device found in I2C bus\")\n\n# 设置传感器为连续测量模式\nsensor.operation_mode = mmc5983.CONTINUOUS\n\n# ========================================  主程序  ============================================\n\n# 主循环：遍历所有操作模式并读取磁场数据\nwhile True:\n    # 遍历所有可用的操作模式\n    for operation_mode in mmc5983.operation_mode_values:\n        # 打印当前操作模式设置\n        print(\"Current Operation mode setting: \", sensor.operation_mode)\n        # 在当前模式下连续读取10次磁场数据\n        for _ in range(10):\n            # 读取X、Y、Z三轴磁场强度（微特斯拉）\n            magx, magy, magz = sensor.magnetic\n            # 打印磁场数值，保留两位小数\n            print(f\"X: {magx:.2f}uT, Y: {magy:.2f}uT, Z: {magz:.2f}uT\")\n            # 打印空行分隔\n            print()\n            # 延时0.5秒\n            time.sleep(0.5)\n        # 切换到下一个操作模式\n        sensor.operation_mode = operation_mode"
+  ],
+  "import_names": [
+    "mmc5983",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mmc5983_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mmc5983_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "__init__.py"
-    }
+  "read_methods": [],
+  "read_properties": [
+    "bandwidth",
+    "continuous_mode_frequency",
+    "magnetic",
+    "operation_mode",
+    "temperature"
   ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

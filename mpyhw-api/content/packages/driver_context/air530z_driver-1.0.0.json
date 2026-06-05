@@ -1,0 +1,53 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "Air530Z(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "air530z.py",
+      "type": "source"
+    },
+    {
+      "path": "nemapar.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import time\nfrom machine import UART, Pin\nfrom air530z import Air530Z\n\n# 上电延时3s，等待模块稳定\ntime.sleep(3)\nprint(\"FreakStudio: air530z test\")\n\n# 初始化UART（按硬件接线调整TX/RX引脚）\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n# 创建Air530Z实例\ngps = Air530Z(uart0)\n\n# 主循环:实时读取定位数据\nwhile True:\n    try:\n        gps_data = gps.read()\n\n        if gps_data:\n            print(\"=\" * 40)\n            print(\"GPS_DATA\")\n            print(\"=\" * 40)\n\n            # 打印经纬度\n            print(f\"longitude: {gps_data['longitude']}°\")\n            print(f\"latitude: {gps_data['latitude']}°\")\n\n            # 打印海拔\n            print(f\"altitude: {gps_data['altitude']}\")\n\n            # 打印时间戳\n            if gps_data['timestamp'] is None:\n                print(\"time: None\")\n            else:\n                ts = gps_data['timestamp']\n                print(f\"time: {ts['hour']:02d}:{ts['minute']:02d}:{ts['second']:02d}\")\n\n            # 打印卫星数\n            print(f\"satellites: {gps_data['satellites']}\")\n            print(\"=\" * 40)\n    except Exception as e:\n        print(\"Error reading GPS data:\", e)\n\n    time.sleep(1)",
+    "# 初始化后，切换为GPS Only模式\nsuccess, cmd = gps.set_system_mode(gps.MODE_GPS_ONLY)\nif success:\n    print(f\"切换为GPS Only模式成功，发送指令:{cmd}\")\nelse:\n    print(\"切换模式失败\")\n\n# 延时5秒后，切换回BDS+GPS双模模式\ntime.sleep(5)\nsuccess, cmd = gps.set_system_mode(gps.MODE_BDS_GPS)\nif success:\n    print(f\"切换为BDS+GPS模式成功，发送指令:{cmd}\")\nelse:\n    print(\"切换模式失败\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "air530z",
+    "nemapar"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/air530z_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "feed",
+    "query_product_info",
+    "read",
+    "set_baudrate",
+    "set_protocol",
+    "set_startup_mode",
+    "set_system_mode",
+    "set_update_rate"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

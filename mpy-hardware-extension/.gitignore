@@ -1,0 +1,4 @@
+# Build artifacts produced by vscode:prepublish (scripts/prepare-vsce.mjs):
+# a copy of the upstream toolchain subset, vendored in for packaging only.
+third_party/
+*.vsix

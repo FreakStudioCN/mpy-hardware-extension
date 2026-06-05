@@ -1,0 +1,52 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "NeopixelMatrix(width, height, pin, layout, brightness, order, flip_h, flip_v, rotate)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "neopixel_matrix.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin\nfrom neopixel_matrix import NeopixelMatrix\n\n# 初始化8×8矩阵，连接至Pin(6)，蛇形布局，亮度0.2，BRG颜色顺序\nmatrix = NeopixelMatrix(\n    width=8,\n    height=8,\n    pin=Pin(6),\n    layout=NeopixelMatrix.LAYOUT_SNAKE,\n    brightness=0.2,\n    order=NeopixelMatrix.ORDER_BRG,\n    flip_v=True\n)",
+    "# 清空矩阵\nmatrix.fill(0)\n# 绘制红色像素\nmatrix.pixel(2, 3, NeopixelMatrix.COLOR_RED)\n# 绘制蓝色水平线\nmatrix.hline(0, 0, 8, NeopixelMatrix.COLOR_BLUE)\n# 刷新显示\nmatrix.show()",
+    "# 从JSON字符串显示图像\njson_img = json.dumps({\n    \"pixels\": [0xF800, 0x07E0, 0x001F] * 16,\n    \"width\": 4\n})\nmatrix.show_rgb565_image(json_img, offset_x=2, offset_y=2)\nmatrix.show()\n\n# 从文件加载图像\nmatrix.load_rgb565_image('test_image.json')\nmatrix.show()",
+    "def color_wipe(color, delay=0.1):\n    matrix.fill(0)\n    for i in range(MATRIX_WIDTH):\n        for j in range(MATRIX_HEIGHT):\n            matrix.pixel(i, j, color)\n            matrix.show()\n            time.sleep(delay)\n    matrix.fill(0)\n\n# 调用示例\ncolor_wipe(NeopixelMatrix.COLOR_GREEN)",
+    "def optimized_scrolling_lines():\n    # 蓝色横线从上向下滚动，背景绿色\n    matrix.fill(0)\n    matrix.hline(0, 0, 8, NeopixelMatrix.COLOR_BLUE)\n    matrix.show()\n    time.sleep(0.5)\n    for _ in range(8):\n        matrix.scroll(0, 1, clear_color=NeopixelMatrix.COLOR_GREEN)\n        matrix.show()\n        time.sleep(0.3)\n    \n    # 红色竖线在青色背景上循环滚动\n    matrix.fill(NeopixelMatrix.COLOR_CYAN)\n    matrix.vline(0, 0, 8, NeopixelMatrix.COLOR_RED)\n    matrix.show()\n    time.sleep(0.5)\n    for _ in range(8):\n        matrix.scroll(1, 0, wrap=True)\n        matrix.show()\n        time.sleep(0.2)\n    matrix.fill(0)\n    matrix.show()\n\n# 调用示例\noptimized_scrolling_lines()",
+    "animation_frames = [json_img1, json_img2, json_img3]\n\ndef animate_images(matrix, frames, delay=0.5):\n    while True:\n        for frame in frames:\n            matrix.show_rgb565_image(frame)\n            matrix.show()\n            time.sleep(delay)\n\n# 调用示例\nanimate_images(matrix, animation_frames, delay=0.5)",
+    "text\nMIT License\n\nCopyright (c) 2025 李清水 (FreakStudio)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "neopixel_matrix"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/neopixel_matrix_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "apply_brightness_gamma_balance",
+    "load_rgb565_image",
+    "rgb565_to_rgb888",
+    "scroll",
+    "send_pixels_via_uart",
+    "show",
+    "show_rgb565_image"
+  ],
+  "read_properties": [
+    "brightness"
+  ],
+  "support_level": "generatable"
+}

@@ -1,0 +1,64 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "EWM550_UWB(uart, rx_timeout_ms)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ewm550_uwb.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from ewm550_uwb import EWM550UWB",
+    "# EWM550-7G9T10SP UWB模组MicroPython驱动\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/2\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : EWM550-7G9T10SP 超宽带UWB测距定位模组驱动，支持AT指令配置、测距、透传模式\n# @License : MIT\n# @Platform : MicroPython v1.23.0\n\n# ======================================== 导入相关模块 =========================================\n\nfrom machine import UART, Pin\nfrom ewm550_uwb import EWM550_UWB\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\nuart1 = UART(1, baudrate=921600, tx=Pin(8), rx=Pin(9), bits=8, parity=None, stop=1)\newm550_base = EWM550_UWB(uart1, rx_timeout_ms=600)\n\nprint(\"\n===== Start configuring as base station mode =====\")\n# 1. 进入AT模式\nok, resp = ewm550_base.enter_at_mode()\nprint(ok, resp, \"Enter AT mode\")\n\n# 2. 检测模块通信\nok, resp = ewm550_base.check()\nprint(ok, resp, \"Detect module communication\")\n\n# 3. 配置核心参数（与标签地址匹配）\n# 设为标签\nok, resp = ewm550_base.set_role(ewm550_base.Role[\"BASE\"])\nprint(ok, resp, \"Set to base station mode\")\n# 标签源地址:0000（与标签目标地址匹配）\nok, resp = ewm550_base.set_src_addr(\"0000\")\nprint(ok, resp, \"Set tag source address to 0000\")\n\n# 目标地址:前4位为基站地址1111，后16位补0（标签仅前4位生效）\nok, resp = ewm550_base.set_dst_addr(\"11110000000000000000\")\nprint(ok, resp, \"Bind base station address to 1111\")\n\n# 4. 复位+退出AT模式\nok, resp = ewm550_base.reset_module()\nprint(ok, resp, \"Reset and exit AT mode\")\n\nuart = UART(0, baudrate=921600, tx=Pin(16), rx=Pin(17), bits=8, parity=None, stop=1)\newm550_tag = EWM550_UWB(uart, rx_timeout_ms=600)\n\nprint(\"\n===== Start configuring as tag mode =====\")\n# 1. 进入AT模式\nok, resp = ewm550_tag.enter_at_mode()\nprint(ok, resp, \"Enter AT mode\")\n\n# 2. 检测模块通信\nok, resp = ewm550_tag.check()\nprint(ok, resp, \"Detect module communication\")\n\n# 3. 配置核心参数（与基站地址匹配）\n# 设为标签\nok, resp = ewm550_tag.set_role(ewm550_tag.Role[\"TAG\"])\nprint(ok, resp, \"Set to tag mode\")\n# 标签源地址:1111（与基站目标地址匹配）\nok, resp = ewm550_tag.set_src_addr(\"1111\")\nprint(ok, resp, \"Set tag source address to 1111\")\n\n# 目标地址:前4位为基站地址0000，后16位补0（标签仅前4位生效）\nok, resp = ewm550_tag.set_dst_addr(\"00000000000000000000\")\nprint(ok, resp, \"Bind base station address to 0000\")\n\n# 4. 复位+退出AT模式\nok, resp = ewm550_tag.reset_module()\nprint(ok, resp, \"Reset and exit AT mode\")\n\n# ========================================  主程序  ===========================================\n\nwhile True:\n    # 先判断是否有数据\n    if uart.any():\n        data = uart.read()\n        parsed_data = ewm550_tag.parse_ranging_data(data)\n        print(parsed_data)\n    # 避免占用过多资源\n    time.sleep_ms(10)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "ewm550_uwb"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/ewm550_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "check",
+    "enter_at_mode",
+    "enter_sleep_mode",
+    "exit_at_mode",
+    "get_baud",
+    "get_channel",
+    "get_dst_addr",
+    "get_power",
+    "get_print_interval",
+    "get_responder_num",
+    "get_role",
+    "get_src_addr",
+    "get_version",
+    "parse_ranging_data",
+    "reset_module",
+    "restore_factory_settings",
+    "set_baud",
+    "set_channel",
+    "set_dst_addr",
+    "set_power",
+    "set_print_interval",
+    "set_responder_num",
+    "set_role",
+    "set_src_addr"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

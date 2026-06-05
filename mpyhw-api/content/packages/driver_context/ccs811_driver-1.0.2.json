@@ -1,9 +1,36 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "CCS811(i2c, addr)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ccs811.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/12 下午4:12\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : CCS811传感器测试 读取eCO2和TVOC数据 配置驱动模式 软件重置传感器\n\n# ======================================== 导入相关模块 =========================================\n\nfrom machine import I2C, Pin, SoftI2C\nimport time\nfrom ccs811 import CCS811\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: CCS811 sensor test - read eCO2 and TVOC data, configure drive mode, software reset sensor\")\n# 初始化I2C总线（适配Raspberry Pi Pico，I2C 0，SCL=Pin(5), SDA=Pin(4)）\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=100000)\n#    i2c = SoftI2C(scl=Pin(5), sda=Pin(4), freq=100000)\n# 扫描I2C总线上的设备并打印地址\nprint(f\"I2C scanned device addresses: {[hex(addr) for addr in i2c.scan()]}\")\n# 创建CCS811传感器实例\nccs811 = CCS811(i2c)\n\n# ========================================  主程序  ============================================\n\ntry:\n    # 初始化CCS811传感器\n    ccs811.setup()\n    time.sleep(2)  # Wait for stabilization after initialization\n\n    # 检查APP是否有效\n    app_valid = ccs811.app_valid()\n    print(f\"\nAPP validity: {app_valid}\")\n\n    # 检查传感器是否存在错误\n    has_error = ccs811.check_for_error()\n    print(f\"Sensor error status: {has_error}\")\n\n    # 获取传感器基线值\n    baseline = ccs811.get_base_line()\n    print(f\"Sensor baseline value: 0x{baseline:04X}\")\n\n    # 修改驱动模式为1秒/次\n    print(\"\nSet drive mode to 1 second per reading...\")\n    ccs811.set_drive_mode(1)\n    time.sleep(1)\n\n    # 循环读取eCO2和TVOC数据（读取5次）\n    print(\"\nStart reading sensor data (5 times):\")\n    for i in range(5):\n        co2 = ccs811.read_eCO2()\n        time.sleep(2)  # Wait according to drive mode\n        tvoc = ccs811.read_tVOC()\n        print(f\"Reading {i+1} - eCO2: {co2} ppm, TVOC: {tvoc} ppb\")\n        time.sleep(2)  # Wait according to drive mode\n\n    # 执行传感器软件重置\n    print(\"\nPerform sensor software reset...\")\n    ccs811.reset()\n    time.sleep(2)\n\n    # 重置后重新初始化并读取一次数据\n    print(\"\nRe-initialize after reset...\")\n    ccs811.setup()\n    time.sleep(2)\n    co2 = ccs811.read_eCO2()\n    tvoc = ccs811.read_tVOC()\n    print(f\"Reading after reset - eCO2: {co2} ppm, TVOC: {tvoc} ppb\")\n\nexcept ValueError as e:\n    print(f\"Runtime error: {e}\")\nexcept Exception as e:\n    print(f\"Unknown error: {e}\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "ccs811"
   ],
-  "constructors": [
-    "CCS811(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ccs811_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "app_valid",
@@ -19,25 +46,5 @@
     "setup"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/ccs811_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "ccs811.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

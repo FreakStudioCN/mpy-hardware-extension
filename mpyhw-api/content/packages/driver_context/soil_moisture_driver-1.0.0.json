@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "SoilMoistureSensor(pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "soil_moisture.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from soil_moisture import SoilMoistureSensor\n\n# 初始化传感器:AIN接ADC引脚26（树莓派Pico的ADC0）\nsensor = SoilMoistureSensor(pin=26)",
+    "import time\nfrom soil_moisture import SoilMoistureSensor\n\n# 上电延时\ntime.sleep(3)\nprint(\"FreakStudio: SoilMoistureSensor Test Start\")\nprint(\"Please prepare the sensor for calibration (dry and wet)...\")\n\n# 初始化传感器 (ADC引脚26)\nsensor = SoilMoistureSensor(pin=26)\nprint(\"Sensor initialized on ADC pin 26\")\n\n# Step 1: 校准干燥值\ninput(\"Place sensor in DRY air/soil and press Enter...\")\ndry_value = sensor.calibrate_dry()\nprint(\"Calibrated dry value:\", dry_value)\n\n# Step 2: 校准湿润值\ninput(\"Place sensor in WATER (fully wet) and press Enter...\")\nwet_value = sensor.calibrate_wet()\nprint(\"Calibrated wet value:\", wet_value)\n\n# Step 3: 设置校准值\nsensor.set_calibration(dry_value, wet_value)\nprint(\"Calibration set: dry={}, wet={}\".format(dry_value, wet_value))\n\n# 循环读取传感器数据\nprint(\"\\nCalibration completed. Start reading moisture...\\n\")\n\ntry:\n    while True:\n        raw = sensor.read_raw()\n        moisture_percent = sensor.read_moisture()\n        level = sensor.get_level()\n\n        print(\n            \"Raw ADC: {:>5} | Moisture: {:>5.1f}% | Level: {}\".format(\n                raw, moisture_percent, level\n            )\n        )\n        time.sleep(2)\n\nexcept KeyboardInterrupt:\n    print(\"\\nTest stopped by user.\")\n\nprint(\"SoilMoistureSensor Test Completed\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "soil_moisture"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/soil_moisture_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "calibrate_dry",
+    "calibrate_wet",
+    "get_calibration",
+    "get_level",
+    "read_moisture",
+    "read_raw",
+    "set_calibration"
+  ],
+  "read_properties": [
+    "is_calibrated",
+    "level",
+    "moisture",
+    "raw"
+  ],
+  "support_level": "generatable"
+}

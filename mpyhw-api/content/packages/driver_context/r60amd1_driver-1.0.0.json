@@ -1,0 +1,55 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "DataFlowProcessor(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "data_flow_processor.py",
+      "type": "source"
+    },
+    {
+      "path": "hc08.py",
+      "type": "source"
+    },
+    {
+      "path": "r60amp1.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "3. **状态管理**:通过类属性维护设备状态（初始化状态、存在状态、运动状态、轨迹目标等），支持主动上报与主动查询双模式更新\n\n4. **异常处理**:内置查询重试（最大 3 次）、超时控制（默认 200ms），统计通信异常，便于调试与稳定性优化\n\n5. **定时器驱动**:通过硬件定时器周期性触发数据解析（默认 200ms），确保感知数据实时更新，避免阻塞主循环\n\n---\n\n\n\n## 使用说明\n\n### 1. 硬件连接\n\n- **UART 接线**（以 Raspberry Pi Pico 为例）:\n\t- 模块 MTX → MCU RX（GP17）\n\t- 模块 MRX → MCU TX（GP16）\n\t- 模块 VCC → 5V，模块 GND → GND\n\n- **蓝牙模块（可选）**:HC08 连接至 MCU UART1（TX=GP8, RX=GP9），波特率 9600\n\n### 2. 初始化流程",
+    "### 3. 数据读取与应用",
+    "---\n\n## 示例程序\n\n完整示例代码见 `main.py`，核心功能包括:\n\n- 设备初始化与状态校验\n- 定期打印传感器主动上报的存在状态、运动状态、轨迹信息\n- 通过 HC08 蓝牙模块将感知数据透传至上位机\n- 主动查询存在状态并打印结果\n- 异常捕获与资源清理",
+    "---\n\n## 注意事项\n\n1. **安装规范**:\n\n   - 必须水平安装，避免倾斜导致探测范围偏移\n   - 安装高度建议 1.4m，前方无金属、厚墙等遮挡物，避免干扰雷达信号\n2. **应用限制**:\n\n   - 本模块为消费级感知设备，**不可用于医疗诊断、工业安全等对精度和可靠性要求极高的场景**\n   - 多目标跟踪精度受环境干扰（如墙壁反射、移动物体密度）影响，实际使用需进行场景校准\n3. **通信稳定性**:\n\n   - UART 波特率需与模块配置一致（默认 115200），避免数据乱码\n   - 查询操作避免过于频繁（建议间隔 ≥200ms），防止设备处理过载\n4. **内存管理**:\n\n   - 长时间运行时，定期触发垃圾回收（`gc.collect()`），避免内存溢出\n   - 设备关闭时调用 `device.close()`，释放定时器与缓冲区资源\n\n---\n\n## 联系方式\n\n如有问题或技术支持，请联系:\n\n- 邮箱:liqinghsui@freakstudio.cn\n- GitHub:[FreakStudioCN](https://github.com/FreakStudioCN)\n\n---\n\n## 许可协议"
+  ],
+  "import_names": [
+    "data_flow_processor",
+    "hc08",
+    "r60amp1"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/r60amp1_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "build_and_send_frame",
+    "clear_buffer",
+    "get_stats",
+    "read_and_parse"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

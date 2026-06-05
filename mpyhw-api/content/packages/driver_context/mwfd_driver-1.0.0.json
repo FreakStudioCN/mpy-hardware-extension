@@ -1,0 +1,33 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "MWFD(input_pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mwfd.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mwfd"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mwfd_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "irq",
+    "read"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

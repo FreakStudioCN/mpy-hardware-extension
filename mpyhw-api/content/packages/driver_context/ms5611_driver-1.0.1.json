@@ -1,39 +1,45 @@
 {
-  "import_names": [
-    "ms5611",
-    "micropython_ms5611",
-    "typing"
-  ],
-  "constructors": [
-    "MS5611(i2c)"
-  ],
-  "read_methods": [
-    "measurements",
-    "pressure_oversample_rate",
-    "temperature_oversample_rate"
-  ],
-  "read_properties": [
-    "temperature"
-  ],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.7,
+  "constructors": [
+    "MS5611(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ms5611.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, I2C\n# Raspberry Pi Pico I2C0 配置\ni2c = I2C(0, sda=Pin(4), scl=Pin(5), freq=400000)",
+    "from ms5611 import MS5611\n\n# 初始化传感器（CSB 接 VCC，地址 0x77；若接 GND 则为 0x76）\nms_sensor = MS5611(i2c, address=0x77)",
+    "# 设置温度过采样率为 4096（最高精度）\nms_sensor.temperature_oversample_rate = MS5611.TEMP_OSR_4096\n# 设置压力过采样率为 4096（最高精度）\nms_sensor.pressure_oversample_rate = MS5611.PRESS_OSR_4096",
+    "# 读取温度（℃）和气压（KPa）\ntemperature, pressure = ms_sensor.measurements\nprint(f\"Temperature: {temperature:.2f}°C, Pressure: {pressure:.2f}KPa\")",
+    "from ms5611 import MS5611\n\ndef safe_read(sensor):try:return sensor.measurements, Trueexcept OSError as e:print(f\"I2C Error: {e}\")return (0.0, 0.0), False(temp, press), success = safe_read(ms_sensor)if success:print(f\"Temp: {temp:.2f}°C, Press: {press:.2f}KPa\")"
+  ],
+  "import_names": [
+    "ms5611"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ms5611_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/ms5611_driver/1.0.1/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "ms5611.py"
-    }
+  "read_methods": [],
+  "read_properties": [
+    "measurements",
+    "pressure_oversample_rate",
+    "temperature_oversample_rate"
   ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

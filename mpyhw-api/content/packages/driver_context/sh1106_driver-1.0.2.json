@@ -1,9 +1,42 @@
 {
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "SH1106_I2C(width, height, i2c, res, addr, rotate, external_vcc, delay)",
+    "SH1106_SPI(width, height, spi, dc, res, cs, rotate, external_vcc, delay)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "sh1106.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/13 下午5:00\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : 基于MicroPython驱动SH1106 128x64 OLED显示屏，实现文本显示、图形绘制、对比度调整、显示反转、屏幕翻转、滚动及开关机等功能\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入SH1106 OLED显示屏驱动模块\nimport sh1106\n\n# 从machine模块导入软件I2C类，用于模拟I2C通信\nfrom machine import SoftI2C, Pin\n\n# 导入时间模块，用于实现延时操作\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# I2C SCL引脚编号（适配Raspberry Pi Pico）\nI2C_SCL_PIN = 5\n# I2C SDA引脚编号（适配Raspberry Pi Pico）\nI2C_SDA_PIN = 4\n# I2C通信频率（Hz）\nI2C_FREQ = 400000\n# SH1106 OLED常见I2C目标地址（十进制：60=0x3c，61=0x3d）\nTARGET_OLED_ADDRS = [0x3C, 0x3D]\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 程序启动延时3秒，确保硬件完成上电初始化\ntime.sleep(3)\n# 打印功能标识，说明当前程序功能\nprint(\"FreakStudio: SH1106 OLED Display Demo\")\n\n# 初始化软件I2C总线\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 开始扫描I2C总线上的设备\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\n# 检查I2C设备扫描结果\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(\"i2c devices found:\", len(devices_list))\n# 遍历地址列表初始化目标SH1106 OLED\noled = None  # 初始化OLED对象占位符\nfor device in devices_list:\n    if device in TARGET_OLED_ADDRS:\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            # 找到目标地址，初始化SH1106 OLED对象\n            oled = sh1106.SH1106_I2C(128, 64, i2c_bus, addr=device, rotate=0)\n            print(\"SH1106 OLED initialization successful\")\n            break\n        except Exception as e:\n            print(f\"SH1106 OLED Initialization failed: {e}\")\n            continue\nelse:\n    # 遍历完所有设备未找到目标地址，抛出明确异常\n    raise Exception(\"No SH1106 OLED device found in I2C bus (target addresses: 0x3c/0x3d)\")\n\n# ========================================  主程序  ============================================\n\n# 1. 初始清屏\n# 填充整个屏幕为黑色（0=黑色，1=白色），清空所有显示内容\noled.fill(0)\n# 调用show()方法更新显示屏，使清屏操作生效\noled.show()\n# 延时0.5秒，保持清屏状态\ntime.sleep(0.5)\n\n# 2. 显示文本（SH1106 仅支持 0/1 两色，1 为白色显示）\n# 清空屏幕，准备显示文本内容\noled.fill(0)\n# 在坐标(8,8)位置显示文本\"SH1106 Demo\"，颜色为白色\noled.text(\"SH1106 Demo\", 8, 8, 1)\n# 在坐标(8,20)位置显示文本\"128x64 OLED\"，颜色为白色\noled.text(\"128x64 OLED\", 8, 20, 1)\n# 在坐标(8,32)位置显示文本\"MicroPython\"，颜色为白色\noled.text(\"MicroPython\", 8, 32, 1)\n# 更新显示屏，展示文本内容\noled.show()\n# 延时2秒，保持文本显示状态\ntime.sleep(2)\n\n# 3. 绘制图形：像素点 + 直线\n# 清空屏幕，准备绘制图形\noled.fill(0)\n# 循环绘制间隔像素点（按8像素间隔，体现渐变效果）\nfor x in range(0, 128, 8):\n    for y in range(0, 64, 8):\n        # 在坐标(x,y)位置绘制白色像素点\n        oled.pixel(x, y, 1)\n\n# 绘制对角线，起点(0,0)，终点(127,63)，颜色为白色\noled.line(0, 0, 127, 63, 1)\n# 绘制反对角线，起点(0,63)，终点(127,0)，颜色为白色\noled.line(0, 63, 127, 0, 1)\n# 绘制矩形边框，左上角(10,40)，宽度108，高度20，颜色为白色\noled.rect(10, 40, 108, 20, 1)\n# 在矩形内(8,45)位置显示文本\"Pixels & Lines\"，颜色为白色\noled.text(\"Pixels & Lines\", 8, 45, 1)\n# 更新显示屏，展示绘制的图形\noled.show()\n# 延时2秒，保持图形显示状态\ntime.sleep(2)\n\n# 4. 调整对比度（0-255，数值越大对比度越高）\n# 清空屏幕，准备显示对比度调整提示\noled.fill(0)\n# 在坐标(8,8)位置显示文本\"Contrast: 255\"，颜色为白色\noled.text(\"Contrast: 255\", 8, 8, 1)\n# 更新显示屏，展示提示文本\noled.show()\n# 设置显示屏对比度为最大值255\noled.contrast(255)\n# 延时1秒，保持最大对比度状态\ntime.sleep(1)\n\n# 清空屏幕，准备显示低对比度提示\noled.fill(0)\n# 在坐标(8,8)位置显示文本\"Contrast: 32\"，颜色为白色\noled.text(\"Contrast: 32\", 8, 8, 1)\n# 更新显示屏，展示提示文本\noled.show()\n# 设置显示屏对比度为32（低对比度）\noled.contrast(32)\n# 延时1秒，保持低对比度状态\ntime.sleep(1)\n\n# 恢复显示屏默认对比度（127，即十六进制0x7F）\noled.contrast(0x7F)\n\n# 5. 反转显示（黑白反转）\n# 清空屏幕，准备显示正常模式提示\noled.fill(0)\n# 在坐标(8,8)位置显示文本\"Normal\"，颜色为白色\noled.text(\"Normal\", 8, 8, 1)\n# 更新显示屏，展示正常模式\noled.show()\n# 延时1秒，保持正常显示状态\ntime.sleep(1)\n\n# 开启显示反转功能（黑变白，白变黑）\noled.invert(True)\n# 在坐标(8,20)位置显示文本\"Inverted\"，颜色为白色\noled.text(\"Inverted\", 8, 20, 1)\n# 更新显示屏，展示反转效果\noled.show()\n# 延时1秒，保持反转显示状态\ntime.sleep(1)\n\n# 关闭显示反转，恢复正常显示模式\noled.invert(False)\n# 延时1秒，保持恢复后的状态\ntime.sleep(1)\n\n# 6. 翻转/旋转显示（SH1106 通过 flip 实现 180 度翻转）\n# 清空屏幕，准备显示原始方向提示\noled.fill(0)\n# 在坐标(8,8)位置显示文本\"Original\"，颜色为白色\noled.text(\"Original\", 8, 8, 1)\n# 更新显示屏，展示原始方向\noled.show()\n# 延时1秒，保持原始显示方向\ntime.sleep(1)\n\n# 开启180度屏幕翻转功能（也可在初始化时用 rotate=180）\noled.flip(True)\n# 在坐标(8,20)位置显示文本\"Flipped\"，颜色为白色\noled.text(\"Flipped\", 8, 20, 1)\n# 更新显示屏，展示翻转效果\noled.show()\n# 延时1秒，保持翻转显示状态\ntime.sleep(1)\n\n# 关闭屏幕翻转，恢复原始方向\noled.flip(False)\n# 延时1秒，保持恢复后的状态\ntime.sleep(1)\n\n# 7. 软件滚动\n# 清空屏幕，准备显示滚动演示提示\noled.fill(0)\n# 在坐标(8,32)位置显示文本\"Scroll Demo\"，颜色为白色\noled.text(\"Scroll Demo\", 8, 32, 1)\n# 更新显示屏，展示滚动提示\noled.show()\n# 延时1秒，保持提示文本显示\ntime.sleep(1)\n\n# 向下滚动：循环20次，每次垂直向下偏移1像素\nfor i in range(0, 20):\n    # 设置滚动偏移量：水平0，垂直向下1\n    oled.scroll(0, 1)\n    # 更新显示屏，展示滚动效果\n    oled.show()\n    # 延时0.05秒，控制滚动速度\n    time.sleep(0.05)\n\n# 向上滚动：循环20次，每次垂直向上偏移1像素\nfor i in range(0, 20):\n    # 设置滚动偏移量：水平0，垂直向上1\n    oled.scroll(0, -1)\n    # 更新显示屏，展示滚动效果\n    oled.show()\n    # 延时0.05秒，控制滚动速度\n    time.sleep(0.05)\n\n# 8. 关机/开机演示\n# 清空屏幕，准备显示关机提示\noled.fill(0)\n# 在坐标(8,32)位置显示文本\"Power Off...\"，颜色为白色\noled.text(\"Power Off...\", 8, 32, 1)\n# 更新显示屏，展示关机提示\noled.show()\n# 延时1秒，保持关机提示显示\ntime.sleep(1)\n\n# 关闭屏幕，进入低功耗模式\noled.poweroff()\n# 延时2秒，保持关机状态\ntime.sleep(2)\n\n# 开启屏幕，退出低功耗模式\noled.poweron()\n# 清空屏幕，准备显示开机提示\noled.fill(0)\n# 在坐标(8,32)位置显示文本\"Power On!\"，颜色为白色\noled.text(\"Power On!\", 8, 32, 1)\n# 更新显示屏，展示开机提示\noled.show()\n# 延时2秒，保持开机提示显示\ntime.sleep(2)\n\n# 最终清屏，清空所有显示内容\noled.fill(0)\n# 更新显示屏，完成清屏操作\noled.show()",
+    "sql\nMIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "sh1106"
   ],
-  "constructors": [
-    "SH1106_I2C(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/sh1106_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
   ],
   "read_methods": [
     "blit",
@@ -31,25 +64,5 @@
     "write_data"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/sh1106_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "sh1106.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

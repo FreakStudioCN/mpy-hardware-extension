@@ -1,17 +1,52 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "ISL29125(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    },
+    {
+      "path": "isl29125.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "isl29125_driver/\n├── micropython_isl29125/\n│   ├── isl29125.py        # 核心驱动\n│   ├── i2c_helpers.py     # I2C 寄存器描述符工具\n│   └── __init__.py        # 包初始化\n├── main.py                # 测试示例\n├── package.json           # mip 包配置\n├── README.md              # 本文档\n└── LICENSE                # 许可协议",
+    "micropython_isl29125/（整个目录）",
+    "from machine import Pin, SoftI2C\nfrom micropython_isl29125 import isl29125\n\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=100_000)\nsensor = isl29125.ISL29125(i2c=i2c)\n\nsensor.operation_mode = isl29125.RED_GREEN_BLUE\nr, g, b = sensor.colors\nprint(\"R:%d G:%d B:%d\" % (r, g, b))\nsensor.deinit()",
+    "from machine import Pin, SoftI2C\nfrom micropython_isl29125 import isl29125\nimport time\n\nI2C_SDA_PIN = 4\nI2C_SCL_PIN = 5\nI2C_FREQ = 100_000\nTARGET_SENSOR_ADDRS = [0x44]\nEXPECTED_CHIP_ID = 0x7D\nMEAS_DELAY_MS = 500\n\ndef recognize_color(red, green, blue):\n    total = red + green + blue\n    if total < 50:\n        return \"Black/No light\"\n    r, g, b = red / total, green / total, blue / total\n    if r > 0.6: return \"Red\"\n    if g > 0.6: return \"Green\"\n    if b > 0.6: return \"Blue\"\n    if r > 0.4 and g > 0.4: return \"Yellow\"\n    if r > 0.3 and g > 0.3 and b > 0.3: return \"White\"\n    return \"Unknown\"\n\ntime.sleep(3)\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\ndevices_list = i2c_bus.scan()\n\nsensor = None\nfor addr in devices_list:\n    if addr in TARGET_SENSOR_ADDRS:\n        sensor = isl29125.ISL29125(i2c=i2c_bus, address=addr)\n        break\n\nif sensor is None:\n    raise RuntimeError(\"Target sensor not found on I2C bus\")\n\nsensor.operation_mode = isl29125.RED_GREEN_BLUE\nsensor.sensing_range  = isl29125.LUX_10K\nsensor.adc_resolution = isl29125.RES_16BITS\nsensor.clear_register_flag()\n\ntry:\n    while True:\n        r, g, b = sensor.colors\n        print(\"R:%5d | G:%5d | B:%5d | %s\" % (r, g, b, recognize_color(r, g, b)))\n        time.sleep_ms(MEAS_DELAY_MS)\nexcept KeyboardInterrupt:\n    pass\nfinally:\n    sensor.deinit()\n    del sensor"
+  ],
   "import_names": [
     "isl29125",
-    "micropython_isl29125"
+    "i2c_helpers"
   ],
-  "constructors": [
-    "ISL29125(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/isl29125_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
+    "clear_register_flag",
+    "deinit"
+  ],
+  "read_properties": [
     "adc_resolution",
     "blue",
-    "clear_register_flag",
     "colors",
-    "deinit",
     "green",
     "high_threshold",
     "interrupt_threshold",
@@ -24,26 +59,5 @@
     "red",
     "sensing_range"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/isl29125_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "isl29125.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

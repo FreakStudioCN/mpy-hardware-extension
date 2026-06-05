@@ -1,0 +1,45 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "VibrationSensor(pin, callback, debounce_ms)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "vibration_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "3. **状态读取**:",
+    "4. **资源释放**:",
+    "sensor.deinit()  # 禁用中断，释放资源",
+    "# MicroPython v1.23.0\nimport time\nfrom machine import Pin\nfrom vibration_sensor import VibrationSensor\n\ndef vibration_callback() -> None:\n    \"\"\"\n    震动回调函数，在检测到震动时触发。\n    \"\"\"\n    print(\"Vibration detected callback triggered!\")\n\n# 上电延时，确保硬件稳定\ntime.sleep(3)\nprint(\"FreakStudio: Vibration Sensor Test Start\")\n# 初始化震动传感器，GPIO 引脚 6 输入，回调函数处理\nsensor = VibrationSensor(pin=Pin(6), callback=vibration_callback, debounce_ms=10)\nsensor.init()\nprint(\"Sensor initialized with callback and debounce 50ms.\")\n\ntry:\n    start_time = time.ticks_ms()\n    while True:\n        # 轮询读取传感器状态\n        current_state: bool = sensor.read()\n        print(f\"Current vibration state: {current_state}\")\n\n        # 每隔 2 秒打印状态字典\n        if time.ticks_diff(time.ticks_ms(), start_time) > 2000:\n            status: dict = sensor.get_status()\n            print(f\"Sensor status: {status}\")\n            start_time = time.ticks_ms()\n\n        time.sleep(0.2)\n\nexcept KeyboardInterrupt:\n    # 用户中断退出\n    print(\"KeyboardInterrupt detected. Exiting test...\")\n\nfinally:\n    # 安全释放资源\n    sensor.deinit()\n    print(\"Sensor deinitialized. Test completed.\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "vibration_sensor"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/spring_vibration_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "deinit",
+    "get_status",
+    "init",
+    "read"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

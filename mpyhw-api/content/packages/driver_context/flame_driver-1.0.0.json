@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "FlameSensor(analog_pin, digital_pin, callback)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "flame_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "3. **启用中断**:",
+    "4. **读取数据**:\n\n   - 数字检测:`flame_sensor.is_flame_detected()` 返回是否检测到火焰。\n   - 模拟读数:`flame_sensor.get_analog_value()` 获取原始 ADC 值，`flame_sensor.get_voltage()` 转换为电压。\n5. **阻塞等待**:",
+    "if flame_sensor.wait_for_flame(timeout=10):\nprint(\"Flame detected within timeout.\")\nelse:\nprint(\"No flame detected within timeout.\")",
+    "# MicroPython v1.23.0\nimport time\nfrom machine import Pin\nfrom flame_sensor import FlameSensor\n\ndef flame_detected_callback():\n    print(\"Flame detected!\")\n\nprint(\"FreakStudio:Testing Flame Sensor\")\ntime.sleep(3)\n\n# 初始化火焰传感器对象\nflame_sensor = FlameSensor(analog_pin=26, digital_pin=19, callback=flame_detected_callback)\n# 启用数字引脚中断\nflame_sensor.enable()\n\nprint(\"=== Flame Sensor Initialized. Monitoring AO voltage... ===\")\n\ntry:\n    while True:\n        # 获取 AO 模拟值并转换为电压\n        voltage = flame_sensor.get_voltage()\n        print(\"AO Voltage: {:.2f} V\".format(voltage))\n        time.sleep(1)\nexcept KeyboardInterrupt:\n    print(\"=== Test Stopped by User ===\")\n    flame_sensor.disable()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "flame_sensor"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/flame_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "disable",
+    "enable",
+    "get_analog_value",
+    "get_voltage",
+    "is_flame_detected",
+    "set_callback",
+    "wait_for_flame"
+  ],
+  "read_properties": [
+    "analog",
+    "digital"
+  ],
+  "support_level": "generatable"
+}

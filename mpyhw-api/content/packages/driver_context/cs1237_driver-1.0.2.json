@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "CS1237(clock, data, gain, rate, channel)",
+    "CS1237P(clock, data, gain, rate, channel)",
+    "CS1238(clock, data, gain, rate, channel)",
+    "CS1238P(clock, data, gain, rate, channel)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "cs1237.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/17 下午4:52\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : CS1237/CS1238系列ADC芯片驱动使用示例，涵盖基础读取、缓冲读取、温度校准、电源管理等功能\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入数组模块，用于缓冲数据存储\nimport array\n\n# 导入时间模块，用于延时操作\nimport time\n\n# 导入Pin类，用于硬件引脚控制\nfrom machine import Pin\n\n# 导入CS1237系列ADC驱动类（需确保cs1237.py与当前文件同目录）\nfrom cs1237 import CS1237\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n\ndef demo_cs1237_basic():\n    \"\"\"\n    CS1237基础使用示例，包括芯片初始化、配置读取、数据读取、配置修改\n    Args:无\n\n    Raises:\n        ValueError: 参数值无效时抛出\n        TypeError: 参数类型错误时抛出\n        OSError: 传感器无响应时抛出\n\n    Notes:\n        演示基础的ADC数据读取流程，包含配置修改前后的对比验证\n\n    ==========================================\n    Basic usage example of CS1237, including chip initialization, configuration reading, data reading and configuration modification\n    Args:None\n\n    Raises:\n        ValueError: Raised when parameter value is invalid\n        TypeError: Raised when parameter type is incorrect\n        OSError: Raised when sensor does not respond\n\n    Notes:\n        Demonstrates the basic ADC data reading process, including comparative verification before and after configuration modification\n    \"\"\"\n    print(\"\n=== CS1237 Basic Read Example ===\")\n    try:\n        # 初始化芯片（增益64，采样率10Hz，通道0）\n        adc = CS1237(clock=CLK_PIN, data=DATA_PIN, gain=64, rate=10, channel=0)\n        print(f\"Chip initialization configuration: {adc}\")\n\n        # 获取当前配置\n        gain, rate, channel = adc.get_config()\n        print(f\"Current configuration - Gain: {gain}, Sample rate: {rate}Hz, Channel: {channel}\")\n\n        # 循环读取数据（5次）\n        print(\"Start reading ADC data：\")\n        for i in range(5):\n            try:\n                value = adc.read()  # 读取24位有符号数据\n                print(f\"Read {i + 1} times: {value}\")\n                time.sleep(0.5)\n            except OSError as e:\n                print(f\"Read failed: {e}\")\n\n        # 修改配置（增益改为128，采样率改为40Hz）\n        print(\"\nModify configuration (Gain 128, Sample rate 40Hz)...\")\n        adc.config(gain=128, rate=40)\n        gain, rate, channel = adc.get_config()\n        print(f\"Modified configuration - Gain: {gain}, Sample rate: {rate}Hz, Channel: {channel}\")\n\n        # 再次读取验证\n        value = adc.read()\n        print(f\"Read value under new configuration: {value}\")\n\n    except (ValueError, TypeError, OSError) as e:\n        print(f\"Initialization/Read failed: {e}\")\n\n\ndef demo_buffered_read():\n    \"\"\"\n    缓冲批量读取示例，实现一次性读取多个ADC数据并存储到数组缓冲区\n    Args:无\n\n    Raises:\n        ValueError: 参数值无效时抛出\n        TypeError: 参数类型错误时抛出\n        OSError: 传感器无响应时抛出\n\n    Notes:\n        通过data_acquired标志位轮询判断缓冲读取是否完成，适用于批量数据采集场景\n\n    ==========================================\n    Buffered batch read example, realizes reading multiple ADC data at one time and storing them in array buffer\n    Args:None\n\n    Raises:\n        ValueError: Raised when parameter value is invalid\n        TypeError: Raised when parameter type is incorrect\n        OSError: Raised when sensor does not respond\n\n    Notes:\n        Poll the data_acquired flag to determine whether the buffered reading is completed, suitable for batch data acquisition scenarios\n    \"\"\"\n    print(\"\n=== Buffered Batch Read Example ===\")\n    try:\n        adc = CS1237(CLK_PIN, DATA_PIN)\n        # 创建缓冲区（存储10个数据，类型为int）\n        buffer = array.array(\"i\", [0] * 10)\n\n        # 启动缓冲读取\n        print(\"Start buffered reading 10 data...\")\n        adc.read_buffered(buffer)\n\n        # 等待数据读取完成（轮询标志位）\n        while not adc.data_acquired:\n            time.sleep(0.01)\n\n        # 打印缓冲数据\n        print(\"Buffered read results:\")\n        for idx, val in enumerate(buffer):\n            print(f\"Data {idx + 1}: {val}\")\n\n    except (ValueError, TypeError, OSError) as e:\n        print(f\"Buffered read failed: {e}\")\n\n\ndef demo_temperature_calibration():\n    \"\"\"\n    温度校准与读取示例，实现ADC芯片的温度校准和实时温度读取\n    Args:无\n\n    Raises:\n        ValueError: 参数值无效时抛出\n        TypeError: 参数类型错误时抛出\n        OSError: 传感器无响应时抛出\n\n    Notes:\n        温度校准需在稳定环境温度下执行，校准后才能获取准确的温度值\n\n    ==========================================\n    Temperature calibration and reading example, realizes temperature calibration and real-time temperature reading of ADC chip\n    Args:None\n\n    Raises:\n        ValueError: Raised when parameter value is invalid\n        TypeError: Raised when parameter type is incorrect\n        OSError: Raised when sensor does not respond\n\n    Notes:\n        Temperature calibration must be performed at a stable ambient temperature to obtain accurate temperature values after calibration\n    \"\"\"\n    print(\"\n=== Temperature Calibration and Read Example ===\")\n    try:\n        adc = CS1237(CLK_PIN, DATA_PIN)\n\n        # 步骤1：温度校准（假设当前环境温度25℃，自动读取参考值）\n        print(\"Start temperature calibration (Current temperature 25℃)...\")\n        adc.calibrate_temperature(temp=25.0)  # ref_value=None时自动读取\n        print(f\"Calibration reference value: {adc.ref_value}, Reference temperature: {adc.ref_temp}℃\")\n\n        # 步骤2：读取当前温度\n        print(\"Read current temperature...\")\n        for i in range(3):\n            try:\n                temp = adc.temperature()\n                print(f\"Temperature read {i + 1} times: {temp:.2f}℃\")\n                time.sleep(0.5)\n            except OSError as e:\n                print(f\"Temperature read failed: {e}\")\n\n    except (ValueError, TypeError, OSError) as e:\n        print(f\"Temperature function failed: {e}\")\n\n\ndef demo_power_management():\n    \"\"\"\n    电源管理示例，演示ADC芯片的掉电模式进入和唤醒操作\n    Args:无\n\n    Raises:\n        ValueError: 参数值无效时抛出\n        TypeError: 参数类型错误时抛出\n        OSError: 传感器无响应时抛出\n\n    Notes:\n        掉电模式可降低功耗，唤醒后需等待约100ms确保芯片稳定\n\n    ==========================================\n    Power management example, demonstrates entering power-down mode and wake-up operation of ADC chip\n    Args:None\n\n    Raises:\n        ValueError: Raised when parameter value is invalid\n        TypeError: Raised when parameter type is incorrect\n        OSError: Raised when sensor does not respond\n\n    Notes:\n        Power-down mode can reduce power consumption, wait about 100ms after wake-up to ensure chip stability\n    \"\"\"\n    print(\"\n=== Power Management Example ===\")\n    try:\n        adc = CS1237(CLK_PIN, DATA_PIN)\n\n        # 读取掉电前数据\n        print(\"Read value before power down:\", adc.read())\n\n        # 进入掉电模式\n        print(\"Enter power down mode...\")\n        adc.power_down()\n        time.sleep(2)  # 掉电2秒\n\n        # 唤醒芯片\n        print(\"Wake up chip...\")\n        adc.power_up()\n        time.sleep(0.1)  # 唤醒后等待稳定\n\n        # 读取唤醒后数据\n        print(\"Read value after wake up:\", adc.read())\n\n    except (ValueError, TypeError, OSError) as e:\n        print(f\"Power management failed: {e}\")\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 程序启动延时3秒，确保硬件稳定\ntime.sleep(3)\n# 打印程序启动标识\nprint(\"FreakStudio: CS1237 ADC driver demo\")\n\n# 定义CS1237芯片时钟引脚（GPIO5，输出模式）\nCLK_PIN = Pin(5, Pin.OUT)\n# 定义CS1237芯片数据引脚（GPIO4，输入模式）\nDATA_PIN = Pin(4, Pin.IN)\n\n# ========================================  主程序  ============================================\n\nif __name__ == \"__main__\":\n    # 执行顺序：基础读取 → 缓冲读取 → 温度校准 → 电源管理\n    demo_cs1237_basic()\n    demo_buffered_read()\n    demo_temperature_calibration()\n    demo_power_management()\n    print(\"\n=== All examples executed completed ===\")",
+    "sql\nMIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "cs1237"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/signal_acquisition/cs1237_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "align_buffer",
+    "calibrate_temperature",
+    "config",
+    "config_status",
+    "get_config",
+    "power_down",
+    "power_up",
+    "read",
+    "read_buffered",
+    "temperature"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -102,7 +102,9 @@ function buildOpening(input: LoopInput): string {
     "",
     "[First make sure you understand the request. If the goal or the core behaviour is unclear, or it could be built more than one way, call the ask_user tool to clarify what device to build and what it should do BEFORE selecting hardware or generating code. Always ask via the ask_user tool, never as plain assistant text.]",
     "[Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its \"phase\" field each time you call propose_manifest: analyze (schema_version \"1.0\" + created_at as an ISO 8601 timestamp + project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. Carry the earlier fields (created_at, project_name, ...) forward unchanged on later calls. After analyze and select-hw, call run_validate to check the manifest against the schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then generate the task/driver code, then the device tools. Set phase to \"complete\" when the build is finished.]",
+    "[Do NOT call ask_user to confirm a device/component/BOM list. Put the proposed physical parts in manifest.devices during propose_manifest phase \"analyze\"; the host will automatically show a multi-select component confirmation card where the user can tick parts in or out and add missing parts.]",
     "[Structure the code to fit the project. A simple project can be a single main.py. For a more complex one, split it into main.py (the runnable entry) plus importable modules under lib/ or the firmware/ tree — call generate_code once per file, passing each file's target_path (e.g. lib/sensor.py). Keep it only as complex as the project needs.]",
+    "[Mind each package's support_level: only \"generatable\"/\"verified\" packages carry a machine-readable driver context you can code against (call get_package_context and generate from it). An \"installable\" package can be mip-installed but has NO verified API surface — do not claim you can auto-generate its driver; say it must be wired/used manually or choose a generatable alternative.]",
   ];
   if (boardKnown) {
     parts.push(`[Target board already selected by the user: ${input.boardId}. Use this board and pass this board_id to query_board_profile. Do NOT ask the user which board to use.]`);
@@ -247,11 +249,16 @@ function userVisibleToolPhase(toolName: string): string | null {
   return phases[toolName] ?? null;
 }
 
+// Dev/headless default backend when no apiBaseUrl/MPYHW_API_BASE is provided. The
+// extension panel always passes a resolved URL (see extension/api-base-url.ts); this
+// is the single localhost fallback shared by direct core/CLI callers.
+export const DEV_API_BASE_URL = "http://127.0.0.1:8787";
+
 // Real ReAct loop: the LLM (DeepSeek, via /v1/llm/messages) drives
 // intent -> package intelligence -> manifest -> audited code -> device loop ->
 // serial observation -> repair, calling canonical tools we execute locally.
 export function createAgentBackedLoop(deps: LoopDeps = {}) {
-  const apiBaseUrl = (deps.apiBaseUrl ?? process.env.MPYHW_API_BASE ?? "http://127.0.0.1:8787").replace(/\/$/, "");
+  const apiBaseUrl = (deps.apiBaseUrl ?? process.env.MPYHW_API_BASE ?? DEV_API_BASE_URL).replace(/\/$/, "");
   const fetchImpl = deps.fetchImpl ?? fetch;
   const shim = deps.shim;
   const requestTimeoutMs = deps.requestTimeoutMs ?? 90_000;
@@ -411,13 +418,13 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           if (!state.componentsConfirmed && proposedDevices.length && typeof input.confirmComponents === "function") {
             const decision = await input.confirmComponents(proposedDevices);
             if (decision.action === "cancel") return { ok: false, error_kind: "user_cancelled" };
-            state.componentsConfirmed = true;
             const keptNames = Array.isArray(decision.devices) ? new Set(decision.devices.map(String)) : null;
             const removed = keptNames ? proposedDevices.filter((d: any) => !keptNames.has(String(d?.name ?? ""))) : [];
             const add = typeof decision.feedback === "string" ? decision.feedback.trim() : "";
             if (removed.length || add) {
               return { ok: false, error_kind: "components_revision_requested", removed: removed.map((d: any) => d?.name), add };
             }
+            state.componentsConfirmed = true;
           }
           const wiring = deriveWiring(manifest);
           onEvent({ type: "manifest_updated", manifest: { ...manifest, wiring } });
@@ -640,6 +647,22 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       },
       ui: async (name: string, toolInput: any) => {
         if (name === "ask_user") {
+          if (isComponentListAsk(toolInput) && typeof input.confirmComponents === "function" && !state.componentsConfirmed) {
+            const options = Array.isArray(toolInput.options) ? toolInput.options : [];
+            const proposedDevices = options.map((option: any) => ({ name: String(option) }));
+            const decision = await input.confirmComponents(proposedDevices);
+            if (decision.action === "cancel") return { ok: false, error_kind: "user_cancelled" };
+            const keptNames = Array.isArray(decision.devices) ? new Set(decision.devices.map(String)) : null;
+            const removed = keptNames ? proposedDevices.filter((d: any) => !keptNames.has(String(d.name))) : [];
+            const add = typeof decision.feedback === "string" ? decision.feedback.trim() : "";
+            if (removed.length || add) {
+              return { ok: false, error_kind: "components_revision_requested", removed: removed.map((d: any) => d.name), add };
+            }
+            // Once-per-session, mirroring the propose_manifest gate, so a model that
+            // keeps asking doesn't re-render the multi-select card every turn.
+            state.componentsConfirmed = true;
+            return { ok: true, answer: `Component list confirmed: ${proposedDevices.map((d: any) => d.name).join(", ")}` };
+          }
           // Wired to the webview when an askUser callback is provided; the loop
           // pauses here until the user answers. Falls back to a null answer for
           // headless contexts (tests / no UI).
@@ -733,6 +756,13 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     }
     return { terminal: result.terminal, state };
   };
+}
+
+function isComponentListAsk(toolInput: any): boolean {
+  const question = String(toolInput?.question ?? "").toLowerCase();
+  const options = Array.isArray(toolInput?.options) ? toolInput.options : [];
+  if (options.length < 2) return false;
+  return /器件清单|元件清单|部件清单|物料清单|零件清单|\bbom\b|bill of materials|component list|parts list|device list/.test(question);
 }
 
 function renderLoadedSkillBodies(state: any): string {

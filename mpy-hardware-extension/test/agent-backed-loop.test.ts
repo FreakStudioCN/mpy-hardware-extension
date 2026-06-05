@@ -854,6 +854,73 @@ test("propose_manifest component gate trims unticked devices and asks the agent 
   assert.ok(!events.some((e: any) => e.type === "manifest_updated"), "a revision request does not commit the manifest");
 });
 
+test("propose_manifest component gate re-confirms after a requested revision", async () => {
+  const mkFetch = (turns: any[]) => {
+    let i = 0;
+    return (async (url: string) => {
+      if (url.endsWith("/v1/llm/messages")) {
+        const turn = turns[i++];
+        return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  };
+  const base = {
+    schema_version: "1.0", created_at: "2026-06-04T00:00:00Z", project_name: "pet",
+    requirements: { description: "x" },
+    mcu: { model: "ESP32-S3", board: "esp32-s3-devkitc-1" },
+  };
+  const firstManifest = {
+    ...base,
+    phase: "analyze",
+    devices: [
+      { name: "SSD1306 OLED", type: "display", interface: "I2C", i2c_addr: ["0x3C"] },
+      { name: "AHT20", type: "temperature_sensor", interface: "I2C", i2c_addr: ["0x38"] },
+    ],
+    pinout: [
+      { device: "SSD1306 OLED", pin_name: "I2C0 SDA", gpio: "GPIO8" },
+      { device: "SSD1306 OLED", pin_name: "I2C0 SCL", gpio: "GPIO9" },
+      { device: "AHT20", pin_name: "I2C0 SDA", gpio: "GPIO8" },
+      { device: "AHT20", pin_name: "I2C0 SCL", gpio: "GPIO9" },
+    ],
+  };
+  const revisedManifest = {
+    ...base,
+    phase: "analyze",
+    devices: [
+      { name: "SSD1306 OLED", type: "display", interface: "I2C", i2c_addr: ["0x3C"] },
+      { name: "DHT22", type: "humidity_sensor", interface: "GPIO" },
+    ],
+    pinout: [
+      { device: "SSD1306 OLED", pin_name: "I2C0 SDA", gpio: "GPIO8" },
+      { device: "SSD1306 OLED", pin_name: "I2C0 SCL", gpio: "GPIO9" },
+      { device: "DHT22", pin_name: "DATA", gpio: "GPIO4" },
+    ],
+  };
+  const seen: string[][] = [];
+  const events: any[] = [];
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([
+      { name: "propose_manifest", input: { manifest: firstManifest } },
+      { name: "propose_manifest", input: { manifest: revisedManifest } },
+    ]),
+  });
+  const { state } = await loop({
+    intent: "x", boardId: "esp32-s3-devkitc-1",
+    onEvent: (e: any) => events.push(e),
+    confirmComponents: async (devices: any[]) => {
+      seen.push(devices.map((d) => d.name));
+      if (seen.length === 1) return { action: "confirm", devices: ["SSD1306 OLED"], feedback: "Add DHT22" };
+      return { action: "confirm", devices: ["SSD1306 OLED", "DHT22"], feedback: "" };
+    },
+  });
+
+  assert.deepEqual(seen, [["SSD1306 OLED", "AHT20"], ["SSD1306 OLED", "DHT22"]]);
+  assert.equal(state.componentsConfirmed, true);
+  assert.ok(events.some((e: any) => e.type === "manifest_updated"), "the revised clean confirm commits the manifest");
+});
+
 test("propose_manifest component gate proceeds on a clean confirm and fires only once", async () => {
   const mkFetch = (turns: any[]) => {
     let i = 0;
@@ -896,6 +963,112 @@ test("propose_manifest component gate proceeds on a clean confirm and fires only
   assert.equal(state.componentsConfirmed, true);
   assert.ok(events.some((e: any) => e.type === "manifest_updated"), "a clean confirm commits the manifest");
   assert.ok(writes.some((w: any) => w.path === "project-manifest.json"), "manifest persisted after confirm");
+});
+
+test("ask_user used for component list confirmation is routed to the multi-select component gate", async () => {
+  const mkFetch = (turns: any[]) => {
+    let i = 0;
+    return (async (url: string) => {
+      if (url.endsWith("/v1/llm/messages")) {
+        const turn = turns[i++];
+        return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  };
+  const recorded: any[] = [];
+  const seen: string[] = [];
+  let askUserCalled = false;
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([{
+      name: "ask_user",
+      input: {
+        question: "请确认器件清单",
+        options: ["SSD1306 OLED", "WS2812 RGB LED"],
+      },
+    }]),
+  });
+
+  await loop({
+    intent: "x",
+    boardId: "esp32-s3-devkitc-1",
+    recorder: { record: async (e: any) => { recorded.push(e); } },
+    askUser: async () => { askUserCalled = true; return "should not be used"; },
+    confirmComponents: async (devices: any[]) => {
+      seen.push(...devices.map((d) => d.name));
+      return { action: "confirm", devices: ["SSD1306 OLED"], feedback: "加 DHT22" };
+    },
+  });
+
+  assert.equal(askUserCalled, false, "component confirmation should not render as a normal single-choice ask_user prompt");
+  assert.deepEqual(seen, ["SSD1306 OLED", "WS2812 RGB LED"]);
+  const result = recorded.find((e: any) => e.type === "tool_result" && e.name === "ask_user");
+  assert.equal(result?.observation?.ok, false);
+  assert.equal(result?.observation?.error_kind, "components_revision_requested");
+  assert.deepEqual(result?.observation?.output?.removed, ["WS2812 RGB LED"]);
+  assert.equal(result?.observation?.output?.add, "加 DHT22");
+});
+
+test("ask_user component confirmation fires the multi-select gate only once per session", async () => {
+  const mkFetch = (turns: any[]) => {
+    let i = 0;
+    return (async (url: string) => {
+      if (url.endsWith("/v1/llm/messages")) {
+        const turn = turns[i++];
+        return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  };
+  let confirmCalls = 0;
+  let askUserCalls = 0;
+  const componentAsk = { name: "ask_user", input: { question: "请确认器件清单", options: ["SSD1306 OLED", "AHT20"] } };
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl: mkFetch([componentAsk, componentAsk]) });
+
+  await loop({
+    intent: "x",
+    boardId: "esp32-s3-devkitc-1",
+    recorder: { record: async () => {} },
+    askUser: async () => { askUserCalls += 1; return "ok"; },
+    confirmComponents: async (devices: any[]) => {
+      confirmCalls += 1;
+      return { action: "confirm", devices: devices.map((d) => d.name), feedback: "" }; // clean confirm
+    },
+  });
+
+  assert.equal(confirmCalls, 1, "the component multi-select card is shown once, not re-fired every turn");
+  assert.equal(askUserCalls, 1, "a second component-list ask_user falls through to a normal prompt");
+});
+
+test("ask_user whose question merely contains 'bomb' is NOT mis-routed to the component gate", async () => {
+  const mkFetch = (turns: any[]) => {
+    let i = 0;
+    return (async (url: string) => {
+      if (url.endsWith("/v1/llm/messages")) {
+        const turn = turns[i++];
+        return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch;
+  };
+  let confirmCalled = false;
+  let askedQuestion = "";
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: mkFetch([{ name: "ask_user", input: { question: "Should I add a bombproof enclosure or a ventilated one?", options: ["bombproof", "ventilated"] } }]),
+  });
+
+  await loop({
+    intent: "x",
+    boardId: "esp32-s3-devkitc-1",
+    recorder: { record: async () => {} },
+    askUser: async (q: string) => { askedQuestion = q; return "ventilated"; },
+    confirmComponents: async () => { confirmCalled = true; return { action: "confirm", devices: [] }; },
+  });
+
+  assert.equal(confirmCalled, false, "a bare 'bomb' substring must not trigger the component multi-select gate");
+  assert.match(askedQuestion, /bombproof/);
 });
 
 test("propose_manifest rejects legacy thin manifests on the agent path", async () => {

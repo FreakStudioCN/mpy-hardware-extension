@@ -1,0 +1,122 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "ModbusRTU(addr, baudrate, data_bits, stop_bits, parity, pins, ctrl_pin, uart_id)",
+    "Serial(uart_id, baudrate, data_bits, stop_bits, parity, pins, ctrl_pin)",
+    "WS61Water(slave_addr, uart_id, tx_pin, rx_pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "common.py",
+      "type": "source"
+    },
+    {
+      "path": "const.py",
+      "type": "source"
+    },
+    {
+      "path": "functions.py",
+      "type": "source"
+    },
+    {
+      "path": "modbus.py",
+      "type": "source"
+    },
+    {
+      "path": "serial.py",
+      "type": "source"
+    },
+    {
+      "path": "tcp.py",
+      "type": "source"
+    },
+    {
+      "path": "typing.py",
+      "type": "source"
+    },
+    {
+      "path": "version.py",
+      "type": "source"
+    },
+    {
+      "path": "wd61.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "serial",
+    "wd61",
+    "common",
+    "const",
+    "functions",
+    "modbus",
+    "tcp",
+    "typing",
+    "version"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ws61_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "add_coil",
+    "add_hreg",
+    "add_ireg",
+    "add_ist",
+    "calibrate_sensor",
+    "get_coil",
+    "get_hreg",
+    "get_ireg",
+    "get_ist",
+    "get_request",
+    "process",
+    "read_485_node_address",
+    "read_alarm_threshold",
+    "read_capacitance",
+    "read_coils",
+    "read_device_id",
+    "read_discrete_inputs",
+    "read_holding_registers",
+    "read_input_registers",
+    "read_release_threshold",
+    "read_temperature",
+    "read_water_status",
+    "remove_coil",
+    "remove_hreg",
+    "remove_ireg",
+    "remove_ist",
+    "send_exception_response",
+    "send_response",
+    "set_coil",
+    "set_hreg",
+    "set_ireg",
+    "set_ist",
+    "setup_registers",
+    "wake_up",
+    "write_alarm_threshold",
+    "write_device_id",
+    "write_multiple_coils",
+    "write_multiple_registers",
+    "write_release_threshold",
+    "write_single_coil",
+    "write_single_register"
+  ],
+  "read_properties": [
+    "changed_coils",
+    "changed_hregs",
+    "changed_registers",
+    "coils",
+    "hregs",
+    "iregs",
+    "ists"
+  ],
+  "support_level": "generatable"
+}

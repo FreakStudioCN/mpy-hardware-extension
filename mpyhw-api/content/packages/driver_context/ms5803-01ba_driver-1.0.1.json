@@ -1,0 +1,46 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "MS5803(i2c, address, temp_osr, pressure_osr, temp_units, pressure_units)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "MS5803.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/14 上午11:00\n# @Author  : minyiky\n# @File    : main.py\n# @Description : MS5803温压传感器测试 初始化传感器 读取原始数据 切换不同单位读取温压数据\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入Pin和I2C模块用于硬件通信\nfrom machine import Pin, I2C\n\n# 导入时间模块用于延时操作\nimport time\n\n# 导入MS5803传感器驱动类\nfrom ms5803 import MS5803  # 导入原始驱动\n\n# ======================================== 全局变量 ============================================\n\n# 定义I2C SCL引脚编号（适配Raspberry Pi Pico）\nI2C_SCL_PIN = 5\n# 定义I2C SDA引脚编号（适配Raspberry Pi Pico）\nI2C_SDA_PIN = 4\n# 定义I2C通信频率\nI2C_FREQ = 400000\n# MS5803传感器支持的I2C地址列表\nTARGET_SENSOR_ADDRS = [0x76, 0x77]\n# 声明MS5803传感器对象变量\nms_sensor = None\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: MS5803 Temperature and Pressure Sensor Test\")\n\n# 初始化I2C总线，指定引脚和通信频率\ni2c_bus = I2C(0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n# 扫描I2C总线上的所有设备地址\ndevices_list: list[int] = i2c_bus.scan()\n# 打印I2C扫描开始提示\nprint(\"START I2C SCANNER\")\n# 判断是否扫描到I2C设备\nif len(devices_list) == 0:\n    # 打印无I2C设备提示\n    print(\"No i2c device !\")\n    # 抛出异常并终止程序\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    # 打印扫描到的I2C设备数量\n    print(\"i2c devices found:\", len(devices_list))\n    # 初始化目标地址变量\n    target_addr = None\n    # 遍历扫描到的I2C设备地址\n    for device in devices_list:\n        # 判断是否匹配MS5803传感器地址\n        if device in TARGET_SENSOR_ADDRS:\n            # 记录匹配到的传感器地址\n            target_addr = device\n            # 打印匹配到的传感器十六进制地址\n            print(\"I2c hexadecimal address:\", hex(device))\n            try:\n                # 初始化MS5803传感器，使用默认参数（OSR=256，摄氏度，帕斯卡）\n                ms_sensor = MS5803(i2c_bus, address=target_addr)\n                # 打印传感器初始化成功提示\n                print(\"Target sensor initialization successful\")\n                # 找到目标传感器后退出循环\n                break\n            except Exception as e:\n                # 打印传感器初始化失败信息\n                print(f\"Sensor Initialization failed: {e}\")\n                # 继续遍历其他地址\n                continue\n    # 判断是否成功初始化传感器\n    if ms_sensor is None:\n        # 抛出未找到MS5803传感器的异常\n        raise Exception(\"No MS5803 found, please check the wiring or address!\")\n\n# ========================================  主程序  ============================================\n\n# 重置MS5803传感器，恢复出厂校准参数\nprint(\"\n=== Reset Sensor ===\")\nms_sensor.reset()\n# 重置后延时等待传感器稳定\ntime.sleep_ms(10)\n\n# 读取传感器原始温压数据\nprint(\"\n=== 1. Get Raw Temperature and Pressure Data (Unconverted Units) ===\")\nraw_temp, raw_pressure = ms_sensor.get_measurements()\n# 打印原始温度值\nprint(f\"Raw temperature value: {raw_temp}\")\n# 打印原始压力值\nprint(f\"Raw pressure value: {raw_pressure}\")\n\n# 以摄氏度和帕斯卡为单位读取温压数据\nprint(\"\n=== 2. Get Data with Custom Units (Celsius + Pascals) ===\")\ntemp_c, pressure_pa = ms_sensor.get_measurements(temp_units=\"celcius\", pressure_units=\"pascals\")\n# 打印摄氏度温度值\nprint(f\"Temperature: {temp_c:.2f} °C\")\n# 打印帕斯卡压力值\nprint(f\"Pressure: {pressure_pa:.2f} Pa\")\n\n# 以华氏度和巴为单位读取温压数据\nprint(\"\n=== 3. Switch Units (Fahrenheit + Bar) ===\")\ntemp_f, pressure_bar = ms_sensor.get_measurements(temp_units=\"fahrenheit\", pressure_units=\"bar\")\n# 打印华氏度温度值\nprint(f\"Temperature: {temp_f:.2f} °F\")\n# 打印巴压力值\nprint(f\"Pressure: {pressure_bar:.4f} bar\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "MS5803"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ms5803-01ba_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "get_measurements",
+    "reset"
+  ],
+  "read_properties": [
+    "pressure_osr",
+    "pressure_units",
+    "temp_osr",
+    "temp_units"
+  ],
+  "support_level": "generatable"
+}

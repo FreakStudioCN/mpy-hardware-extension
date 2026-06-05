@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "PassivePms7003(uart)",
+    "Pms7003(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "aqi.py",
+      "type": "source"
+    },
+    {
+      "path": "pms7003.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/1/10 下午3:00\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : PMS7003空气质量传感器数据读取与AQI计算程序\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入AQI计算模块\nfrom aqi import AQI\n# 导入PMS7003传感器驱动模块\nfrom pms7003 import Pms7003\n# 导入机器模块的UART和Pin类\nfrom machine import UART,Pin\n# 导入时间模块\nimport time\n\n# ======================================== 全局变量 ============================================\n\n\n# ======================================== 功能函数 ============================================\n\ndef demo_active_mode():\n    \"\"\"\n    演示传感器主动模式数据读取\n    Args:无\n\n    Raises:\n        UartError: UART通信异常\n        Exception: 其他读取异常\n\n    Notes:主动模式下传感器持续输出数据，无需唤醒操作\n\n    ==========================================\n    Demo sensor data reading in active mode\n    Args:None\n\n    Raises:\n        UartError: UART communication error\n        Exception: Other reading errors\n\n    Notes:Sensor continuously outputs data in active mode, no wake-up required\n    \"\"\"\n    print(\"=== Active Mode: Start reading PMS7003 data ===\")\n    \n    # 初始化UART0，波特率9600，TX引脚16，RX引脚17\n    uart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n    # 初始化PMS7003传感器对象\n    sensor = Pms7003(uart=uart0)\n    # 等待传感器稳定\n    time.sleep(30)\n\n    while True:\n        try:\n            # 读取传感器数据\n            data = sensor.read()\n            # 提取PM2.5浓度数据\n            pm25 = data['PM2_5_ATM']\n            # 提取PM10浓度数据\n            pm10 = data['PM10_0_ATM']\n            # 计算空气质量指数AQI\n            aqi_value = AQI.aqi(pm25, pm10)\n\n            # 打印数据分隔线\n            print(\"-\" * 50)\n            # 打印PM2.5浓度值\n            print(f\"PM2.5: {pm25} μg/m³\")\n            # 打印PM10浓度值\n            print(f\"PM10 : {pm10} μg/m³\")\n            # 打印计算得到的AQI值\n            print(f\"AQI  : {aqi_value:.1f}\")\n            # 打印数据分隔线\n            print(\"-\" * 50)\n\n        except UartError as e:\n            print(f\"UART error: {e}\")\n        except Exception as e:\n            print(f\"Read failed: {e}\")\n        \n        # 2秒后进行下一次读取\n        time.sleep(2)\n\ndef demo_passive_mode():\n    \"\"\"\n    演示传感器被动模式数据读取\n    Args:无\n\n    Raises:\n        UartError: UART通信异常\n        Exception: 其他读取异常\n\n    Notes:被动模式下传感器需要唤醒才能输出数据，读取完成后可进入睡眠模式降低功耗\n\n    ==========================================\n    Demo sensor data reading in passive mode\n    Args:None\n\n    Raises:\n        UartError: UART communication error\n        Exception: Other reading errors\n\n    Notes:Sensor needs to be woken up to output data in passive mode, can enter sleep mode after reading to reduce power consumption\n    \"\"\"\n    print(\"=== Passive Mode: Start reading PMS7003 data ===\")\n    \n    # 初始化UART0，波特率9600，TX引脚16，RX引脚17\n    uart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n    # 初始化被动模式PMS7003传感器对象\n    sensor = PassivePms7003(uart=uart0)\n    # 等待传感器初始化\n    time.sleep(2)\n\n    while True:\n        try:\n            # 打印唤醒提示\n            print(\"Waking up sensor...\")\n            # 唤醒传感器\n            sensor.wakeup()\n            # 等待传感器响应\n            time.sleep(2)\n\n            # 读取传感器数据\n            data = sensor.read()\n            # 提取PM2.5浓度数据\n            pm25 = data['PM2_5_ATM']\n            # 提取PM10浓度数据\n            pm10 = data['PM10_0_ATM']\n            # 计算空气质量指数AQI\n            aqi_value = AQI.aqi(pm25, pm10)\n\n            # 打印数据分隔线\n            print(\"-\" * 50)\n            # 打印PM2.5浓度值\n            print(f\"PM2.5: {pm25} μg/m³\")\n            # 打印PM10浓度值\n            print(f\"PM10 : {pm10} μg/m³\")\n            # 打印计算得到的AQI值\n            print(f\"AQI  : {aqi_value:.1f}\")\n            # 打印数据分隔线\n            print(\"-\" * 50)\n\n            # 打印睡眠提示\n            print(\"Putting sensor to sleep...\")\n            # 让传感器进入睡眠模式\n            sensor.sleep()\n\n        except UartError as e:\n            print(f\"UART error: {e}\")\n        except Exception as e:\n            print(f\"Read failed: {e}\")\n        \n        # 10秒后进行下一次读取\n        time.sleep(10)\n\n# ======================================== 自定义类 ============================================\n\n\n# ======================================== 初始化配置 ===========================================\n\n# 等待系统启动稳定\ntime.sleep(3)\nprint(\"FreakStudio: PMS7003 sensor system initialized\")\n\n# ========================================  主程序  ============================================\n\n# 主程序入口\nif __name__ == \"__main__\":\n    # 执行主动模式演示函数\n    demo_active_mode()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "pms7003",
+    "aqi"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/pms7003_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "read",
+    "sleep",
+    "wakeup"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,0 +1,80 @@
+{
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)",
+    "SpiAdapter(bus, data_mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ens160sciosense.py",
+      "type": "source"
+    },
+    {
+      "path": "base_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "bitfield.py",
+      "type": "source"
+    },
+    {
+      "path": "bus_service.py",
+      "type": "source"
+    },
+    {
+      "path": "crc_mod.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "ens160_driver/\n├── code/\n│   ├── ens160sciosense.py   # 驱动文件\n│   ├── main.py              # 测试示例\n│   └── sensor_pack_2/       # 依赖包\n├── package.json\n├── README.md\n└── LICENSE",
+    "from machine import Pin, SoftI2C\nfrom sensor_pack_2.bus_service import I2cAdapter\nimport ens160sciosense\n\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=400_000)\nadapter = I2cAdapter(i2c)\nsensor = ens160sciosense.Ens160(adapter, address=0x52)\n\nsensor.start_measurement(start=True)\n\nimport time\ntime.sleep_ms(sensor.get_conversion_cycle_time())\n\nwhile True:\n    data = next(sensor)\n    if data:\n        print(\"eCO2:\", data.eco2, \"ppm  TVOC:\", data.tvoc, \"ppb  AQI:\", data.aqi)\n    time.sleep_ms(1000)",
+    "Ens160(adapter, address=0x52, check_crc=True)",
+    "ens160_air_params(eco2, tvoc, aqi)\n# eco2: eCO2 浓度 [ppm]\n# tvoc: TVOC 浓度 [ppb]\n# aqi:  空气质量指数 1(优秀)..5(极差)\n\nens160_status(stat_as, stat_error, validity_flag, new_data, new_gpr)\nens160_config(int_pol, int_cfg, int_gpr, int_dat, int_en)\nens160_firmware_version(major, minor, release)",
+    "sensor.set_ambient_temp(25.0)   # 摄氏度\nsensor.set_humidity(50)          # 相对湿度 %"
+  ],
+  "import_names": [
+    "bus_service",
+    "ens160sciosense",
+    "base_sensor",
+    "bitfield",
+    "crc_mod"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ens160_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "get_bus_type",
+    "read",
+    "read_buf_from_memory",
+    "read_register",
+    "read_to_buf",
+    "write",
+    "write_and_read",
+    "write_buf_to_memory",
+    "write_const",
+    "write_register"
+  ],
+  "read_properties": [
+    "prepare_func"
+  ],
+  "support_level": "generatable"
+}

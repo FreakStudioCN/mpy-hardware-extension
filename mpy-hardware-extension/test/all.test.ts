@@ -14,6 +14,7 @@ import "./agent-loop.test.ts";
 import "./agent-backed-loop.test.ts";
 import "./plan-gate.test.ts";
 import "./api-client.test.ts";
+import "./api-base-url.test.ts";
 import "./github-auth.test.ts";
 import "./python-env.test.ts";
 import "./shim-process.test.ts";

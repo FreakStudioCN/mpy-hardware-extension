@@ -68,7 +68,6 @@
         border: 1px solid var(--vsc-border); font-family: var(--ui); font-size: 11px;
       }
       .newsession-btn:hover:not(:disabled) { color: var(--fg-bright); border-color: var(--fg-dim); background: #ffffff0a; }
-      .newsession-btn:disabled { opacity: .4; cursor: not-allowed; }
 
       /* quota */
       .quota { margin-top: 10px; }
@@ -281,9 +280,9 @@
             <div class="ph-title">Blockless</div>
           </div>
           <div class="ph-grow"></div>
-          <button class="newsession-btn" id="newSession" data-i18n-title="new_session_tip" title="Start a fresh project — clears the current conversation">
+          <button class="newsession-btn" id="newSession" data-i18n-title="new_session_tip" title="Restart the project - clears the current conversation">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-            <span data-i18n="new_session">New session</span>
+            <span data-i18n="new_session">Restart</span>
           </button>
         </div>
         <div class="quota hidden" id="quota">
@@ -360,7 +359,7 @@
           serial_monitor: "Serial monitor",
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
-          new_session: "New session", new_session_tip: "Start a fresh project — clears the current conversation",
+          new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
           deploying: "Deploying…", confirm_wiring: "Confirm wiring & connection…",
           replanning: "Re-planning with your changes…", generating_code: "Generating code…",
@@ -416,7 +415,7 @@
           serial_monitor: "串口监视器",
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
-          new_session: "新建会话", new_session_tip: "开始一个全新项目——会清空当前对话",
+          new_session: "重新开始", new_session_tip: "重新开始项目——会清空当前对话",
           waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",
           deploying: "正在部署…", confirm_wiring: "确认接线与连接…",
           replanning: "正在按你的修改重新规划…", generating_code: "正在生成代码…",
@@ -559,9 +558,6 @@
         const btn = $("generate");
         btn.textContent = on ? tr("stop") : tr("generate");
         btn.classList.toggle("stop", on);
-        // A fresh session can't be started mid-run (it would clear a conversation the
-        // loop is still writing to); stop first, then start new. Re-enabled on done.
-        $("newSession").disabled = on;
         if (on) setPending(tr("working")); // immediate spinner; trace_event refines the label
         updateGenerateEnabled();
       }
@@ -604,8 +600,8 @@
         setTab("activity");
       }
       $("newSession").addEventListener("click", () => {
-        if (running) return; // the button is disabled mid-run; guard the race anyway
         vscode.postMessage({ type: "reset_session" });
+        setRunning(false);
         clearConversation();
         $("intent").value = ""; $("intent").style.height = "auto";
       });
@@ -1450,6 +1446,12 @@
           // that aren't self-evident from the result (errors and a cancelled run).
           // A successful finish needs none — the summary + code cards say it.
           if (isError || t === "cancelled") addActivity({ text: tr("session_ended", { t: friendly }) });
+        }
+        if (msg.type === "session_busy") {
+          // The host rejected this start because a prior run is still unwinding.
+          // Clear the optimistic spinner so the UI can't hang; the user can retry.
+          setRunning(false);
+          clearPending();
         }
       });
 

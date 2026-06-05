@@ -1,16 +1,47 @@
 {
-  "import_names": [
-    "__init__",
-    "collections",
-    "micropython_bmm150",
-    "typing"
+  "bus": [
+    "i2c"
   ],
+  "confidence": 0.7,
   "constructors": [
-    "BMM150(i2c)"
+    "BMM150(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bmm150.py",
+      "type": "source"
+    },
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "bmm150_driver/\n├── code/\n│   ├── micropython_bmm150/\n│   │   ├── __init__.py        # 包初始化文件\n│   │   ├── bmm150.py          # BMM150 核心驱动\n│   │   └── i2c_helpers.py     # I2C 寄存器操作辅助类\n│   └── main.py                # 测试示例程序\n├── LICENSE                    # MIT 许可协议\n└── README.md                  # 本说明文档",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2023/01/01 00:00\n# @Author  : Jose D. Montoya\n# @File    : main.py\n# @Description : 测试 BMM150 三轴磁力计驱动类的代码\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\nimport time\nfrom machine import Pin, I2C\nfrom micropython_bmm150 import bmm150\n\n# ======================================== 全局变量 ============================================\n# I2C 配置常量\nI2C_BUS_ID = 0\nI2C_SDA_PIN = 4\nI2C_SCL_PIN = 5\nI2C_FREQ = 400000\n\n# BMM150 设备常量\nBMM150_DEVICE_ID_REG = 0xFF\nBMM150_EXPECTED_ID = 0x32\nBMM150_DEFAULT_ADDR = 0x13\n\n# 打印间隔（毫秒）\nprint_interval = 500\nlast_print_time = 0\n\n# ======================================== 功能函数 ============================================\ndef test_basic_measurements():\n    \"\"\"\n    测试基本磁场测量功能\n    \"\"\"\n    print(\"=== Testing Basic Measurements ===\")\n    magx, magy, magz, hall = bmm.measurements\n    print(\"X-axis: %d uT\" % magx)\n    print(\"Y-axis: %d uT\" % magy)\n    print(\"Z-axis: %d uT\" % magz)\n    print(\"Hall resistance: %d\" % hall)\n    print()\n\n\ndef test_operation_modes():\n    \"\"\"\n    测试操作模式切换\n    \"\"\"\n    print(\"=== Testing Operation Modes ===\")\n    # 测试 NORMAL 模式\n    bmm.operation_mode = bmm150.NORMAL\n    print(\"Operation mode: %s\" % bmm.operation_mode)\n    time.sleep_ms(100)\n\n    # 测试 FORCED 模式\n    bmm.operation_mode = bmm150.FORCED\n    print(\"Operation mode: %s\" % bmm.operation_mode)\n    time.sleep_ms(100)\n\n    # 恢复 NORMAL 模式\n    bmm.operation_mode = bmm150.NORMAL\n    print(\"Restored to NORMAL mode\")\n    print()\n\n\ndef test_data_rates():\n    \"\"\"\n    测试数据速率配置\n    \"\"\"\n    print(\"=== Testing Data Rates ===\")\n    rates = [\n        (bmm150.RATE_10HZ, \"10Hz\"),\n        (bmm150.RATE_2HZ, \"2Hz\"),\n        (bmm150.RATE_30HZ, \"30Hz\"),\n    ]\n    for rate_val, rate_name in rates:\n        bmm.data_rate = rate_val\n        print(\"Data rate set to: %s\" % rate_name)\n        print(\"Current data rate: %s\" % bmm.data_rate)\n        time.sleep_ms(100)\n    print()\n\n\ndef test_thresholds():\n    \"\"\"\n    测试阈值配置\n    \"\"\"\n    print(\"=== Testing Thresholds ===\")\n    # 测试高阈值\n    bmm.high_threshold = 100\n    print(\"High threshold set to: %d\" % bmm.high_threshold)\n\n    # 测试低阈值\n    bmm.low_threshold = 50\n    print(\"Low threshold set to: %d\" % bmm.low_threshold)\n    print()\n\n\ndef test_interrupt_mode():\n    \"\"\"\n    测试中断模式配置\n    \"\"\"\n    print(\"=== Testing Interrupt Mode ===\")\n    # 启用中断\n    bmm.interrupt_mode = bmm150.INT_ENABLED\n    print(\"Interrupt mode: %s\" % bmm.interrupt_mode)\n\n    # 读取中断状态\n    status = bmm.status_interrupt\n    print(\"Interrupt status: %s\" % str(status))\n    print()\n\n\ndef print_continuous_data():\n    \"\"\"\n    连续打印磁场数据（高频函数，供 REPL 手动调用）\n    \"\"\"\n    magx, magy, magz, hall = bmm.measurements\n    print(\"X: %d uT, Y: %d uT, Z: %d uT, Hall: %d\" % (magx, magy, magz, hall))\n    status = bmm.status_interrupt\n    print(\"Interrupt status: %s\" % str(status))\n    print()\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\ntime.sleep(3)\nprint(\"FreakStudio: Testing BMM150 Magnetometer Driver ...\")\n\n# 初始化 I2C 总线\ni2c = I2C(I2C_BUS_ID,sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 扫描 I2C 设备\ndevices = i2c.scan()\nif not devices:\n    raise RuntimeError(\"No I2C devices found\")\nprint(\"I2C devices found: %s\" % [hex(addr) for addr in devices])\n\n# 验证 BMM150 设备地址\nif BMM150_DEFAULT_ADDR not in devices:\n    raise RuntimeError(\"BMM150 not found at address 0x%02X\" % BMM150_DEFAULT_ADDR)\nprint(\"BMM150 found at address: 0x%02X\" % BMM150_DEFAULT_ADDR)\n\n\n# 初始化 BMM150 驱动\nbmm = bmm150.BMM150(i2c,BMM150_DEFAULT_ADDR )\nprint(\"BMM150 driver initialized\")\nprint()\n\n# 执行初始化测试\ntest_basic_measurements()\ntest_operation_modes()\ntest_data_rates()\ntest_thresholds()\ntest_interrupt_mode()\n\nprint(\"=== Initialization tests completed ===\")\nprint(\"Entering continuous monitoring mode...\")\nprint()\n\n# ========================================  主程序  ===========================================\ntry:\n    while True:\n        current_time = time.ticks_ms()\n        if time.ticks_diff(current_time, last_print_time) >= print_interval:\n            # 低频查询：每 500ms 打印一次磁场数据\n            magx, magy, magz, hall = bmm.measurements\n            print(\"X: %d uT, Y: %d uT, Z: %d uT\" % (magx, magy, magz))\n\n            last_print_time = current_time\n\n        # print_continuous_data()  # 高频函数，注释默认执行，可 REPL 手动调用\n        time.sleep_ms(10)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    bmm.deinit()\n    del bmm\n    del i2c\n    print(\"Program exited\")"
+  ],
+  "import_names": [
+    "bmm150",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/bmm150_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
+    "deinit"
+  ],
+  "read_properties": [
     "data_rate",
-    "deinit",
     "high_threshold",
     "interrupt_mode",
     "low_threshold",
@@ -18,26 +49,5 @@
     "operation_mode",
     "status_interrupt"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/bmm150_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "__init__.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

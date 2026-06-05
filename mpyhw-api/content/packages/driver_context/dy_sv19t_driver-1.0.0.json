@@ -1,0 +1,74 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "DYSV19T(uart, default_volume, default_disk, default_play_mode, default_dac_channel, timeout_ms)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "dy_sv19t.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import UART, Pin, Timer\nimport time\nfrom dy_sv19t import *\n\ndef tick(timer):\n    \"\"\"定时器回调，监测播放进度\"\"\"\n    hms = player.check_play_time_send()\n    if hms:\n        h, m, s = hms\n        print(\"[auto time] h:m:s =\", h, m, s)\n\n# 初始化配置\ntime.sleep(3)\nprint(\"FreakStudio:  DY-SV19T Play Test \")\n\n# 初始化UART（波特率9600，TX=GP16，RX=GP17）\nuart = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n\n# 初始化定时器（1秒触发一次进度监测）\ntim = Timer(-1)\ntim.init(period=1000, mode=Timer.PERIODIC, callback=tick)\n\n# 创建播放器实例\nplayer = DYSV19T(\n    uart,\n    default_volume=DYSV19T.VOLUME_MAX,\n    default_disk=DYSV19T.DISK_SD,\n    default_play_mode=DYSV19T.MODE_SINGLE_STOP,\n    default_dac_channel=DYSV19T.CH_MP3,\n    timeout_ms=600,\n)\n\n# 基础设置\nplayer.set_volume(20)          # 设置音量20\nplayer.set_eq(player.EQ_ROCK)  # 设置EQ为摇滚\nplayer.set_play_mode(player.MODE_SINGLE_STOP)  # 设置播放模式\nplayer.set_dac_channel(player.CH_MP3)  # 设置输出通道\n\n# 状态查询\nplayer.query_status()\nplayer.query_current_disk()\nplayer.query_current_track()\nplayer.query_current_track_time()\nplayer.query_short_filename()\nplayer.query_total_tracks()\nplayer.query_folder_first_track()\nplayer.query_folder_total_tracks()\nplayer.query_online_disks()\n\n# 使能播放时间上报\nplayer.enable_play_time_send()\nplayer.play()\n\n# 示例演示（按需启用）\n# play_track_demo()          # 按路径播放音频\n# select_and_play_demo()     # 选择曲目并控制播放\n# repeat_area_demo()         # 区间复读\n# insert_track_demo()        # 插播音频\n# combination_playlist_demo() # 组合播放\n# loop_mode_demo()           # 循环模式设置",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "dy_sv19t"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/dy-sv19t_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "check_play_time_send",
+    "disable_play_time_send",
+    "enable_play_time_send",
+    "end_combination_playlist",
+    "end_insert",
+    "end_repeat",
+    "insert_path",
+    "insert_track",
+    "next_track",
+    "pause",
+    "play",
+    "play_disk_path",
+    "prev_track",
+    "query_current_disk",
+    "query_current_track",
+    "query_current_track_time",
+    "query_folder_first_track",
+    "query_folder_total_tracks",
+    "query_online_disks",
+    "query_short_filename",
+    "query_status",
+    "query_total_tracks",
+    "repeat_area",
+    "seek_back",
+    "seek_forward",
+    "select_track",
+    "set_dac_channel",
+    "set_eq",
+    "set_loop_count",
+    "set_play_mode",
+    "set_volume",
+    "start_combination_playlist",
+    "stop",
+    "volume_down",
+    "volume_up"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

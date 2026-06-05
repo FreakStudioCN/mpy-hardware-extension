@@ -1,38 +1,93 @@
 {
-  "import_names": [
-    "gt911"
-  ],
-  "constructors": [
-    "GT911(i2c)"
-  ],
-  "read_methods": [
-    "available",
-    "irq_callback",
-    "read_id",
-    "read_touch",
-    "reflash_config",
-    "reset"
-  ],
-  "read_properties": [],
   "bus": [
-    "i2c"
+    "i2c",
+    "spi"
   ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
+  "confidence": 0.8,
+  "constructors": [
+    "GT911(i2c, int_pin, rst_pin, addr, width, height, touch_points, reverse_x, reverse_y, reverse_axis, sito, refresh_rate, user_callback)",
+    "ST7789(spi, width, height, reset, dc, cs, backlight, rotation, color_order, custom_init, custom_rotations)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "gt911.py",
+      "type": "source"
+    },
+    {
+      "path": "st7789.py",
+      "type": "source"
+    },
+    {
+      "path": "vga1_16x16.py",
+      "type": "source"
+    },
+    {
+      "path": "vga1_16x32.py",
+      "type": "source"
+    },
+    {
+      "path": "vga1_8x8.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, SPI, I2C, Timer\nfrom st7789 import ST7789\nfrom gt911 import GT911\n\n# 1. 初始化 SPI 与 LCD\nspi = SPI(1, baudrate=40000000, sck=Pin(18), mosi=Pin(23))\nlcd = ST7789(\n    spi,\n    width=240,\n    height=320,\n    dc=Pin(2),\n    cs=Pin(5),\n    reset=Pin(4),\n    backlight=Pin(15),\n    rotation=0\n)\nlcd.fill(lcd.WHITE)  # 清屏为白色\n\n# 2. 初始化 I2C 与 GT911\ni2c = I2C(0, sda=Pin(21), scl=Pin(22), freq=400000)\ngt911_dev = GT911(\n    i2c,\n    int_pin=34,\n    rst_pin=35,\n    addr=0x5D,\n    width=240,\n    height=320,\n    touch_points=2\n)\n\n# 3. 初始化 LED 与触摸定时器\nLED = Pin(25, Pin.OUT, value=0)\ntouch_timer = Timer(-1)\n\n# 4. 触摸检测回调（简化版）\ndef detect_touch(t):\n    touch_points, touches = gt911_dev.read_touch()\n    if touch_points > 0:\n        x, y = touches[0][1], touches[0][2]\n        print(f\"触摸坐标:X={x}, Y={y}\")\n        # 模拟按钮触摸逻辑\n        if 20 <= x <= 100 and 50 <= y <= 90:\n            LED.on()\n        elif 20 <= x <= 100 and 120 <= y <= 160:\n            LED.off()\n    touch_timer.init(period=100, mode=Timer.ONE_SHOT, callback=lambda t: None)\n\n# 5. 启动触摸检测定时器\ntouch_timer.init(period=50, mode=Timer.PERIODIC, callback=detect_touch)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "gt911",
+    "st7789",
+    "vga1_16x16",
+    "vga1_16x32",
+    "vga1_8x8"
   ],
   "install": {
     "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/gt911_driver/1.0.0/package.json"
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/gt911_driver"
   },
-  "examples": [],
   "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "gt911.py"
-    }
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
   ],
-  "confidence": 0.75,
+  "read_methods": [
+    "available",
+    "bitmap",
+    "blit_buffer",
+    "fill",
+    "fill_rect",
+    "hard_reset",
+    "hline",
+    "init",
+    "inversion_mode",
+    "irq_callback",
+    "line",
+    "pbitmap",
+    "pixel",
+    "polygon",
+    "read_id",
+    "read_touch",
+    "rect",
+    "reflash_config",
+    "reset",
+    "rotation",
+    "sleep_mode",
+    "soft_reset",
+    "text",
+    "vline",
+    "vscrdef",
+    "vscsad",
+    "write",
+    "write_width"
+  ],
+  "read_properties": [],
   "support_level": "generatable"
 }

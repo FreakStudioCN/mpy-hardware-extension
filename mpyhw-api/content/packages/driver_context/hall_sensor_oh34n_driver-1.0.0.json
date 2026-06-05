@@ -1,0 +1,45 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "HallSensorOH34N(pin, callback)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "hall_sensor_oh34n.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from hall_sensor_oh34n import HallSensorOH34N\n\n# 初始化霍尔传感器:DIN接GPIO引脚6，绑定回调函数（可选）\ndef hall_callback():\n    print(\"Magnetic field detected!\")\n\nsensor = HallSensorOH34N(pin=6, callback=hall_callback)",
+    "import time\nfrom hall_sensor_oh34n import HallSensorOH34N\n\n# 消抖标志位和时间戳\nflag = False\nlast_time = 0\nDEBOUNCE_MS = 200\n\ndef hall_callback() -> None:\n    global flag, last_time\n    now = time.ticks_ms()\n    if time.ticks_diff(now, last_time) > DEBOUNCE_MS:\n        flag = True\n        last_time = now\n\n# 上电延时\ntime.sleep(3)\nprint(\"FreakStudio: Hall Sensor OH34N Test Start \")\n\n# 初始化霍尔传感器（GP6引脚）\nsensor = HallSensorOH34N(pin=6, callback=hall_callback)\n\n# 启用中断检测\nsensor.enable()\nprint(\"Interrupt detection enabled.\")\n\ntry:\n    while True:\n        if flag:\n            print(\"Callback: Magnetic field detected!\")\n            flag = False\n        state = sensor.read()\n        print(f\"Magnetic field detected: {state}\")\n        time.sleep(1)\nexcept KeyboardInterrupt:\n    print(\"Test stopped by user.\")\n    sensor.disable()\n    print(\"Interrupt detection disabled.\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "hall_sensor_oh34n"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/hall_sensor_oh34n_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "disable",
+    "enable",
+    "read",
+    "set_callback"
+  ],
+  "read_properties": [
+    "digital"
+  ],
+  "support_level": "generatable"
+}

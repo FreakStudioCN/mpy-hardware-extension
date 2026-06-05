@@ -1,0 +1,45 @@
+{
+  "bus": [
+    "pwm"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "OptoMosSimple(pwm, pwm_max, inverted)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "opto_mos_simple.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import time\nfrom machine import Pin, PWM\nfrom opto_mos_simple import OptoMosSimple\n\n# 上电延时，等待模块稳定\ntime.sleep(3)\nprint(\"FreakStudio:  OptoMosSimple Test Start \")\n\n# 创建 PWM 对象，GPIO6 输出，频率1kHz\npwm = PWM(Pin(6))\npwm.freq(1000)\nprint(\"PWM object created on Pin 6 with 1kHz frequency.\")\n\n# 创建驱动实例\ndriver = OptoMosSimple(pwm)\nprint(\"Driver object created.\")\n\n# 初始化驱动（默认关闭输出）\ndriver.init()\nprint(\"[init] Initialized ->\", driver.get_status())\n\n# 测试 set_duty 方法:设置占空比计数值\nprint(\"[set_duty] Set duty=10000\")\ndriver.set_duty(10000)\nprint(\"Status:\", driver.get_status())\n\nprint(\"[set_duty] Set duty=70000 (out of range, auto clipped)\")\ndriver.set_duty(70000)  # 超出65535，自动裁剪为65535\nprint(\"Status:\", driver.get_status())\n\n# 测试 set_percent 方法:设置占空比百分比\nprint(\"[set_percent] Set 25% duty cycle\")\ndriver.set_percent(25.0)\nprint(\"Status:\", driver.get_status())\n\nprint(\"[set_percent] Set 150% duty cycle (out of range, auto clipped)\")\ndriver.set_percent(150.0)  # 超出100%，自动裁剪为100%\nprint(\"Status:\", driver.get_status())\n\n# 测试 full_on 方法:全速输出（100%占空比）\nprint(\"[full_on] Full ON\")\ndriver.full_on()\nprint(\"Status:\", driver.get_status())\ntime.sleep(5)  # 保持全速5秒\n\n# 测试 off 方法:关闭输出（0%占空比）\nprint(\"[off] Turn OFF\")\ndriver.off()\nprint(\"Status:\", driver.get_status())\ntime.sleep(10)  # 保持关闭10秒\n\n# 测试 inverted 模式（反向输出，使用不同GPIO避免冲突）\nprint(\"[inverted] Testing inverted mode\")\npwm_inv = PWM(Pin(16))\npwm_inv.freq(1000)\ndriver_inv = OptoMosSimple(pwm_inv, inverted=True)  # 反向输出\ndriver_inv.init()\ndriver_inv.set_percent(30.0)  # 实际输出70%占空比（反向）\nprint(\"Inverted 30% ->\", driver_inv.get_status())\ndriver_inv.full_on()  # 实际输出0%占空比（反向）\nprint(\"Inverted full_on ->\", driver_inv.get_status())\ndriver_inv.off()  # 实际输出100%占空比（反向）\nprint(\"Inverted off ->\", driver_inv.get_status())\n\n# 释放资源\nprint(\"[deinit] Release resources\")\ndriver.deinit()\ndriver_inv.deinit()\nprint(\"PWM released.\")\n\nprint(\"=== OptoMosSimple Test End ===\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "opto_mos_simple"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/motor_drivers/opto_mos_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "pwm_out"
+  ],
+  "read_methods": [
+    "deinit",
+    "full_on",
+    "get_status",
+    "init",
+    "off",
+    "set_duty",
+    "set_percent"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

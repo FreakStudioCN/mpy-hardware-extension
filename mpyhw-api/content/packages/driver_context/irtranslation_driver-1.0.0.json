@@ -1,0 +1,70 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "IR_GET(pin, nedges, twait, display)",
+    "NEC(pin, freq, verbose)",
+    "NEC_16(pin, callback)",
+    "NEC_8(pin, callback)",
+    "NEC_ABC(pin, extended, samsung, callback)",
+    "RP2_RMT(pin_pulse, carrier, sm_no, sm_freq)",
+    "SAMSUNG(pin, callback)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "acquire.py",
+      "type": "source"
+    },
+    {
+      "path": "nec.py",
+      "type": "source"
+    },
+    {
+      "path": "print_error.py",
+      "type": "source"
+    },
+    {
+      "path": "nec.py",
+      "type": "source"
+    },
+    {
+      "path": "rp2_rmt.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import time\nfrom machine import Pin\nfrom ir_tx.nec import NEC\nfrom ir_rx.nec import NEC_16\n\ndef ir_callback(addr: int, cmd: int, repeat: bool) -> None:\n    print(f\"[RX] Address=0x{addr:04X}, Cmd=0x{cmd:02X}, Repeat={repeat}\")\n\ntime.sleep(3)\nprint(\"FreakStudio:Infrared transceiver test\")\n\nTX_PIN = Pin(6, Pin.OUT)\nRX_PIN = Pin(14, Pin.IN)\n\nir_tx = NEC(TX_PIN, freq=38000)\nir_rx = NEC_16(RX_PIN, ir_callback)\n\nprint(\"[System] Ready... TX=GP6, RX=GP14\")\n\nwhile True:\n    print(\"[TX] Sending NEC signal...\")\n    ir_tx.transmit(0x10, 0x20)\n    time.sleep(2)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "acquire",
+    "nec",
+    "rp2_rmt",
+    "print_error"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/irtranslation_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "acquire",
+    "busy",
+    "cancel",
+    "decode",
+    "repeat",
+    "send",
+    "tx"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

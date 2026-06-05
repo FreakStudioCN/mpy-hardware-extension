@@ -1,0 +1,47 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "PowerLED(pin, pwm_freq)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "led_single_power.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from led_single_power import PowerLED\n\n# 初始化大功率LED:DOUT接PWM引脚14，PWM频率默认1000Hz\nled = PowerLED(pin=14, pwm_freq=1000)",
+    "import time\nfrom led_single_power import PowerLED\n\n# 上电延时\ntime.sleep(3)\nprint(\"FreakStudio: Test high-power LED lights\")\n\n# 创建实例，使用GP14引脚\nled = PowerLED(pin=14, pwm_freq=1000)\n\n# 打开 LED\ntry:\n    led.on()\n    print(\"LED turned ON.\")\n    time.sleep(4)\nexcept RuntimeError as e:\n    print(\"Error turning LED ON:\", e)\n\n# 关闭 LED\ntry:\n    led.off()\n    print(\"LED turned OFF.\")\n    time.sleep(4)\nexcept RuntimeError as e:\n    print(\"Error turning LED OFF:\", e)\n\n# 切换 LED 状态\ntry:\n    led.toggle()\n    print(\"LED toggled. Current state:\", \"ON\" if led.get_state() else \"OFF\")\n    time.sleep(1)\nexcept RuntimeError as e:\n    print(\"Error toggling LED:\", e)\n\n# 设置亮度逐步调光\ntry:\n    for duty in range(0, 1024, 2):\n        led.set_brightness(duty)\n        print(f\"LED brightness set to {duty}/1023. Current state:\", \"ON\" if led.get_state() else \"OFF\")\n        time.sleep(0.5)\nexcept (ValueError, RuntimeError) as e:\n    print(\"Error setting brightness:\", e)\n\n# 最终关闭 LED\ntry:\n    led.off()\n    print(\"LED turned OFF at the end of test.\")\nexcept RuntimeError as e:\n    print(\"Error turning LED OFF at the end:\", e)\n\nprint(\"PowerLED Test End\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "led_single_power"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/led_single_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "get_state",
+    "off",
+    "on",
+    "set_brightness",
+    "toggle"
+  ],
+  "read_properties": [
+    "digital",
+    "pwm"
+  ],
+  "support_level": "generatable"
+}

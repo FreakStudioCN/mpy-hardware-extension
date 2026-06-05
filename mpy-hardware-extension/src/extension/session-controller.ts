@@ -14,6 +14,11 @@ export class SessionController {
   private pendingPrompts = new Map<string, (answer: string | null, extra?: any) => void>();
   private promptSeq = 0;
   private abort: AbortController | null = null;
+  // Bumped by reset() to supersede an in-flight run. start() captures the value at
+  // launch and drops any outbound message once the generation has moved on, so an
+  // aborted run's late unwinding (terminal session_done, trailing events) can't land
+  // in the freshly-cleared conversation of the next session.
+  private generation = 0;
   private state: any = undefined;
   private boardId: string | null = null;
   private traceId: string | null = null;
@@ -65,6 +70,10 @@ export class SessionController {
     this.latestFiles = {};
     this.persistedPaths = [];
     this.abort = new AbortController();
+    const myGen = this.generation;
+    // True only while this run is still the current one. reset() bumps the
+    // generation, so a superseded run stops emitting into the new session.
+    const current = () => myGen === this.generation;
     try {
       const result = await this.deps.loop({
         intent: input.intent,
@@ -72,7 +81,7 @@ export class SessionController {
         traceId: this.traceId,
         availableBoards: input.availableBoards,
         state: this.state,
-        onEvent: (event: any) => this.postEvent(event),
+        onEvent: (event: any) => { if (current()) this.postEvent(event); },
         askUser: (question: string, options?: string[]) => this.askUser(question, options),
         confirmPlan: (plan: any) => this.confirmPlan(plan),
         confirmDeploy: () => this.confirmDeploy(),
@@ -80,22 +89,30 @@ export class SessionController {
         recorder: this.recorder,
         signal: this.abort.signal,
       });
-      if (result.state) this.state = result.state;
-      await this.writeArtifactsIfReady();
-      await this.record({ type: "session_finished", terminal: result.terminal, state: result.state });
-      this.deps.postMessage({ type: "session_done", terminal: result.terminal });
+      if (current() && result.state) this.state = result.state;
+      if (current()) {
+        await this.writeArtifactsIfReady();
+        await this.record({ type: "session_finished", terminal: result.terminal, state: result.state });
+        this.deps.postMessage({ type: "session_done", terminal: result.terminal });
+      }
       return result;
     } catch (error: any) {
       const message = error?.message ?? "session_error";
       const result = { terminal: "session_error", error: message };
       await this.record({ type: "session_error", error: message });
       await this.record({ type: "session_finished", terminal: result.terminal });
-      this.deps.postMessage({ type: "session_error", error: message });
-      this.deps.postMessage({ type: "session_done", terminal: result.terminal });
+      if (current()) {
+        this.deps.postMessage({ type: "session_error", error: message });
+        this.deps.postMessage({ type: "session_done", terminal: result.terminal });
+      }
       return result;
     } finally {
-      this.cancelPrompts();
-      this.abort = null;
+      // A superseded run leaves prompts + abort to the run that replaced it (reset()
+      // already cleared this run's prompts and reassigned abort).
+      if (current()) {
+        this.cancelPrompts();
+        this.abort = null;
+      }
     }
   }
 
@@ -115,7 +132,12 @@ export class SessionController {
   // which doesn't write state back, so clearing here is safe. The next start()
   // mints a new traceId + recorder, so the new build records under its own trace.
   reset() {
+    // Supersede the in-flight run FIRST so its late unwinding messages are dropped,
+    // then abort it and clear state. Null abort so the next start() is a fresh run
+    // (not rejected as session_busy while the aborted run is still unwinding).
+    this.generation++;
     this.cancel();
+    this.abort = null;
     this.state = undefined;
     this.boardId = null;
     this.traceId = null;

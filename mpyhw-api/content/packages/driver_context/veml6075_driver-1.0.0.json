@@ -1,37 +1,45 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "VEML6075(i2c, integration_time, high_dynamic, uva_a_coef, uva_b_coef, uvb_c_coef, uvb_d_coef, uva_response, uvb_response)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "veml6075.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "veml6075_driver/\n├── code/\n│   ├── veml6075.py          # 标准版驱动（含 const 和寄存器常量）\n│   ├── veml6075_lowmem.py   # 低内存版驱动（寄存器地址内联）\n│   └── main.py              # 测试示例\n├── package.json             # 包配置文件\n├── README.md                # 说明文档\n└── LICENSE                  # MIT 许可证",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/05/06 09:00\n# @Author  : Nelio Goncalves Godoi\n# @File    : main.py\n# @Description : 测试VEML6075紫外线传感器驱动类的代码\n# @License : MIT\n\nimport time\nfrom machine import Pin, SoftI2C\nfrom veml6075 import VEML6075\n\nTARGET_SENSOR_ADDRS = [0x10]\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 100_000\n\ntime.sleep(3)\nprint(\"FreakStudio: Using VEML6075 UV sensor ...\")\n\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\ndevices_list = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\nif len(devices_list) == 0:\n    raise RuntimeError(\"I2C scan found no devices\")\n\nsensor = None\nfor device in devices_list:\n    if device in TARGET_SENSOR_ADDRS:\n        sensor = VEML6075(i2c=i2c_bus)\n        print(\"Sensor initialization successful\")\n        break\n\nif sensor is None:\n    raise RuntimeError(\"No target sensor found on I2C bus\")\n\ntry:\n    while True:\n        print(\"UVA: %.2f\" % sensor.uva)\n        print(\"UVB: %.2f\" % sensor.uvb)\n        print(\"UV Index: %.2f\" % sensor.uv_index)\n        time.sleep_ms(1000)\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nfinally:\n    sensor.deinit()\n    del sensor\n    print(\"Program exited\")"
+  ],
   "import_names": [
     "veml6075"
   ],
-  "constructors": [
-    "VEML6075(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/veml6075_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
-    "deinit",
+    "deinit"
+  ],
+  "read_properties": [
     "integration_time",
     "uv_index",
     "uva",
     "uvb"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/veml6075_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "veml6075.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

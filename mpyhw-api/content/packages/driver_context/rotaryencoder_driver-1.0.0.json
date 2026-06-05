@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "EC11Encoder(pin_a, pin_b, pin_btn)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ec11encoder.py",
+      "type": "source"
+    },
+    {
+      "path": "processbar.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from ec11encoder import EC11Encoder\nfrom processbar import ProgressBar\n\n# 初始化编码器（无按键版本）\nencoder = EC11Encoder(pin_a=6, pin_b=7)\n\n# 初始化编码器（带按键版本）\n# encoder = EC11Encoder(pin_a=6, pin_b=7, pin_btn=8)\n\n# 初始化进度条（最大值 20，进度条长度 50）\nprogress_bar = ProgressBar(max_value=20)",
+    "# 获取当前旋转计数\ncurrent_count = encoder.get_rotation_count()\nprint(f\"旋转计数: {current_count}\")\n\n# 重置旋转计数\nencoder.reset_rotation_count()\n\n# 查询按键状态\nif encoder.is_button_pressed():\n    print(\"按键被按下\")\n\n# 更新进度条显示\nprogress_bar.update(current_count)\n\n# 重置进度条为 0%\nprogress_bar.reset()",
+    "import time\nfrom processbar import ProgressBar\nfrom ec11encoder import EC11Encoder\n\n# 上电延时 3s\ntime.sleep(3)\nprint(\"FreakStudio : Using GPIO read Rotary Encoder value, use software debounce by timer\")\n\n# 创建编码器和进度条对象\nencoder = EC11Encoder(pin_a=6, pin_b=7)\nprogress_bar = ProgressBar(max_value=20)\n\n# 主循环\nwhile True:\n    # 获取旋转计数并更新进度条\n    current_rotation = encoder.get_rotation_count()\n    print(f\"Rotation count: {current_rotation}\")\n    progress_bar.update(current_rotation)\n    \n    # 按键按下时重置进度条\n    if encoder.is_button_pressed():\n        progress_bar.reset()\n    \n    # 10ms 刷新一次\n    time.sleep_ms(10)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "ec11encoder",
+    "processbar"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/rotaryencoder_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "get_rotation_count",
+    "is_button_pressed",
+    "reset_rotation_count"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

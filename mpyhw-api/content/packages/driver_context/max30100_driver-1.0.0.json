@@ -1,9 +1,37 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "MAX30100(i2c, mode, sample_rate, led_current_red, led_current_ir, pulse_width, max_buffer_len)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "max30100.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "3. **数据读取与计算**:",
+    "---\n\n## 示例程序",
+    "---\n\n## 注意事项\n\n1. **使用规范**:\n\n   - 测量时需将传感器紧密贴合皮肤（如手指腹），避免光线泄漏；保持静止，避免强光直射。\n   - 模块为消费级精度，**不可用于医疗诊断**，仅适用于教学实验与创客项目。\n2. **硬件保护**:\n\n   - 避免在模块工作时频繁插拔电源，防止芯片损坏。\n   - 定期清洁传感器光学窗口，避免污渍/指纹遮挡光线影响检测精度。\n3. **数据优化**:\n\n   - 示例中的血氧计算公式为简化版本，实际应用中可根据 MAX30100 芯片手册优化算法，提升计算精度。\n\n---\n\n## 联系方式\n\n如有任何问题或需要帮助，请通过以下方式联系开发者:\n\n📧 **邮箱**:liqinghsui@freakstudio.cn\n\n💻 **GitHub**:[https://github.com/FreakStudioCN](https://github.com/FreakStudioCN)\n\n---\n\n## 许可协议"
+  ],
   "import_names": [
     "max30100"
   ],
-  "constructors": [
-    "MAX30100(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/max30100_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "disable_spo2",
@@ -14,9 +42,7 @@
     "get_registers",
     "get_rev_id",
     "i2c_write",
-    "ir",
     "read_sensor",
-    "red",
     "refresh_temperature",
     "reset",
     "set_led_current",
@@ -24,26 +50,9 @@
     "set_spo_config",
     "shutdown"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
+  "read_properties": [
+    "ir",
+    "red"
   ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/max30100_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "max30100.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

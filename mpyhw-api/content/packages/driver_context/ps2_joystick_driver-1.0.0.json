@@ -1,0 +1,41 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "Joystick(vrx_pin, vry_pin, vsw_pin, freq, callback)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "joystick.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import time\nfrom joystick import Joystick\n\n# 延时3s等待设备上电\ntime.sleep(3)\nprint(\"FreakStudio : reading the voltage value of Joystick experiment\")\n\n# 初始化摇杆（X轴GP28，Y轴GP27，采样频率10Hz）\njoystick = Joystick(vrx_pin=28, vry_pin=27, freq=10)\n\n# 启动采集\njoystick.start()\n\ntry:\n    while True:\n        # 获取并打印摇杆状态\n        x_val, y_val, sw_val = joystick.get_values()\n        print(\"Joystick values: X = {:.2f}, Y = {:.2f}, Switch = {}\".format(x_val, y_val, sw_val))\n        time.sleep(0.2)\nexcept KeyboardInterrupt:\n    print(\"Data collection completed\")\nfinally:\n    # 停止采集，释放资源\n    joystick.stop()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "joystick"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/ps2_joystick_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "get_values",
+    "start",
+    "stop"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

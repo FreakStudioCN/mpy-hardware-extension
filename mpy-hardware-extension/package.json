@@ -1,11 +1,22 @@
 {
   "name": "mpy-hardware-extension",
-  "version": "0.2.14",
+  "version": "0.3.0",
   "publisher": "mpyhw",
   "displayName": "Blockless",
-  "description": "MicroPython hardware agent MVP.",
-  "private": true,
+  "description": "Build MicroPython hardware projects from a sentence: an AI agent picks the board, wires the parts, and generates deployable code.",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "icon": "media/icon.png",
   "type": "module",
+  "categories": ["AI", "Education", "Other"],
+  "keywords": ["MicroPython", "hardware", "embedded", "IoT", "ESP32"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ChrisWu132/mpy-hardware-extension.git"
+  },
+  "homepage": "https://github.com/ChrisWu132/mpy-hardware-extension#readme",
+  "bugs": {
+    "url": "https://github.com/ChrisWu132/mpy-hardware-extension/issues"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -39,6 +50,11 @@
     "configuration": {
       "title": "Blockless",
       "properties": {
+        "mpyhw.apiBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Override the Blockless backend API URL (e.g. http://127.0.0.1:8787 for local development). Leave blank to use the default hosted backend."
+        },
         "mpyhw.pythonPath": {
           "type": "string",
           "default": "",
@@ -58,11 +74,14 @@
     "golden": "node --no-warnings --experimental-strip-types src/cli/run-golden-path.ts",
     "live-gen": "node --no-warnings --experimental-strip-types src/cli/run-live-gen.ts",
     "build": "node scripts/build-extension.mjs",
-    "package": "npm run build && node scripts/package-extension.mjs",
-    "smoke:extension": "npm test && npm run typecheck && npm run build && npm run package"
+    "vscode:prepublish": "node scripts/prepare-vsce.mjs",
+    "package": "vsce package --out build/",
+    "publish": "vsce publish",
+    "smoke:extension": "npm test && npm run typecheck && npm run package"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.0",
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3"

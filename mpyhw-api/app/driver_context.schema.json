@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "driver_context",
+  "description": "Machine-readable spec the LLM uses to generate correct driver init + API calls. Produced by the ingest pipeline (driver_context/*.json) and inline in curated-driver-contexts.json.",
+  "type": "object",
+  "required": [
+    "import_names",
+    "constructors",
+    "read_methods",
+    "read_properties",
+    "bus",
+    "pin_roles",
+    "install",
+    "examples",
+    "known_issues",
+    "evidence_refs",
+    "confidence"
+  ],
+  "properties": {
+    "import_names": { "type": "array", "items": { "type": "string" } },
+    "constructors": { "type": "array", "items": { "type": "string" } },
+    "read_methods": { "type": "array", "items": { "type": "string" } },
+    "read_properties": { "type": "array", "items": { "type": "string" } },
+    "bus": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["i2c", "spi", "uart", "gpio", "analog", "pwm"] }
+    },
+    "pin_roles": { "type": "array", "items": { "type": "string" } },
+    "install": {
+      "type": "object",
+      "required": ["method"],
+      "properties": {
+        "method": { "type": "string" },
+        "url": { "type": "string" },
+        "builtin": { "type": "boolean" }
+      }
+    },
+    "examples": { "type": "array", "items": { "type": "string" } },
+    "known_issues": { "type": "array", "items": { "type": "string" } },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "path"],
+        "properties": {
+          "type": { "type": "string" },
+          "path": { "type": "string" },
+          "hash_file": { "type": "string" }
+        }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "support_level": {
+      "type": "string",
+      "enum": ["discoverable", "installable", "generatable", "verified", "experimental"]
+    }
+  }
+}

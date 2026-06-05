@@ -1,12 +1,43 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "MLX90393(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mlx90393.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "mlx90393_driver/\n├── code/\n│   ├── micropython_mlx90393/\n│   │   ├── mlx90393.py    # 核心驱动\n│   │   └── __init__.py    # 包初始化\n│   └── main.py            # 测试示例\n├── package.json           # mip 包配置\n├── README.md              # 本文档\n└── LICENSE                # 许可协议",
+    "micropython_mlx90393/（整个目录）",
+    "from machine import Pin, I2C\nfrom micropython_mlx90393 import mlx90393\n\ni2c = I2C(0, sda=Pin(4), scl=Pin(5))\nsensor = mlx90393.MLX90393(i2c=i2c)\n\nmagx, magy, magz = sensor.magnetic\nprint(\"X: %.2f uT | Y: %.2f uT | Z: %.2f uT\" % (magx, magy, magz))\nsensor.deinit()",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/4/21 15:30\n# @Author  : FreakStudio\n# @File    : main.py\n# @Description : Test code for MLX90393 three-axis magnetometer sensor driver\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import Pin, SoftI2C\nfrom micropython_mlx90393 import mlx90393\n\n# ======================================== 全局变量 ============================================\n\n# I2C 引脚配置\nI2C_SDA_PIN = 4\nI2C_SCL_PIN = 5\n\n# 目标传感器 I2C 地址列表\nTARGET_SENSOR_ADDRS = [0x0C]\n\n# 测量循环延时（秒）\nMEAS_DELAY_S = 1\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: MLX90393 magnetometer test starting ...\")\n\n# 初始化 I2C 总线\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN))\n\n# 扫描 I2C 总线\ndevices_list = i2c_bus.scan()\nprint(\"I2C scan result: %s\" % [hex(d) for d in devices_list])\n\nif len(devices_list) == 0:\n    raise RuntimeError(\"I2C scan found no devices\")\n\n# 查找目标传感器地址\nsensor = None\nfor device_addr in devices_list:\n    if device_addr in TARGET_SENSOR_ADDRS:\n        print(\"Target sensor found at address: %s\" % hex(device_addr))\n        sensor = mlx90393.MLX90393(i2c=i2c_bus)\n        break\n\nif sensor is None:\n    raise RuntimeError(\"Target sensor not found on I2C bus\")\n\nprint(\"Sensor initialization successful\")\n\n# ========================================  主程序  ===========================================\nwhile True:\n        # 读取 X/Y/Z 三轴磁场值（微特斯拉）\n        magx, magy, magz = sensor.magnetic\n        print(\"X: %.2f uT | Y: %.2f uT | Z: %.2f uT\" % (magx, magy, magz))\n        time.sleep(MEAS_DELAY_S)"
+  ],
   "import_names": [
     "mlx90393"
   ],
-  "constructors": [
-    "MLX90393(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mlx90393_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
-    "deinit",
+    "deinit"
+  ],
+  "read_properties": [
     "digital_filter",
     "gain",
     "magnetic",
@@ -15,26 +46,5 @@
     "resolution_y",
     "resolution_z"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mlx90393_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mlx90393.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

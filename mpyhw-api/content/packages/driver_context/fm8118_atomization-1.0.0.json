@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "FM8118_Atomization(pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "fm8118_atomization.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from fm8118_atomization import FM8118_Atomization\n\n# 初始化雾化模块，使用GPIO6控制\natomizer = FM8118_Atomization(pin=6)",
+    "# 开启雾化\natomizer.on()\n\n# 关闭雾化\natomizer.off()\n\n# 切换雾化状态\natomizer.toggle()\n\n# 查询当前状态\nif atomizer.is_on():\n    print(\"雾化器已开启\")\nelse:\n    print(\"雾化器已关闭\")",
+    "import time\nfrom fm8118_atomization import FM8118_Atomization\n\n# 上电延时3s\ntime.sleep(3)\nprint(\"FreakStudio:Testing the FM8118-based atomization module\")\n\n# 使用GPIO6控制雾化模块\natomizer = FM8118_Atomization(pin=6)\n\ntry:\n    while True:\n        print(\"turn on\")\n        atomizer.on()\n        print(\"status:\", atomizer.is_on())\n        time.sleep(10)\n\n        print(\"turn off...\")\n        atomizer.off()\n        print(\"status:\", atomizer.is_on())\n        time.sleep(10)\n\n        print(\"toggle...\")\n        atomizer.toggle()\n        print(\"status:\", atomizer.is_on())\n        time.sleep(10)\n\nexcept KeyboardInterrupt:\n    print(\"test stop\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "fm8118_atomization"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/motor_drivers/fm8118_atomization_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "is_on",
+    "off",
+    "on",
+    "toggle"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

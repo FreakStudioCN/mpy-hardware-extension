@@ -1,0 +1,103 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "SIM800(uart)",
+    "SIM800GPRS(uart)",
+    "SIM800SMS(uart)",
+    "SIM800TCPIP(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "core.py",
+      "type": "source"
+    },
+    {
+      "path": "gprs.py",
+      "type": "source"
+    },
+    {
+      "path": "sms.py",
+      "type": "source"
+    },
+    {
+      "path": "tcpip.py",
+      "type": "source"
+    },
+    {
+      "path": "utils.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from sim800.core import SIM800\nsim800 = SIM800(uart=1, tx_pin=17, rx_pin=16, baudrate=9600)\nsim800.init()",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/9/8 下午5:20\n# @Author  : alankrantas\n# @File    : main.py\n# @Description : SIM800模块基础信息查询示例，优化打印格式提取关键信息\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入SIM800短信扩展类\nfrom sim800 import SIM800SMS\n\n# 从machine模块导入UART和Pin类，用于硬件引脚和串口配置\nfrom machine import UART, Pin\n\n# 导入time模块，用于延时操作\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n\ndef parse_phone_number(response: bytes) -> str:\n    \"\"\"\n    解析手机号响应数据，提取关键手机号信息\n    Args:\n        response (bytes): 原始响应字节数据\n\n    Raises:\n        无\n\n    Notes:\n        解析失败时返回友好的未知提示，避免程序崩溃\n\n    ==========================================\n    Parse phone number response data to extract key phone number information\n    Args:\n        response (bytes): Raw response byte data\n\n    Raises:\n        None\n\n    Notes:\n        Return a friendly unknown prompt when parsing fails to avoid program crash\n    \"\"\"\n    try:\n        # 将字节数据转换为字符串并清理换行符\n        resp_str = response.decode(\"utf-8\").replace(\"\n\n\", \"\")\n        # 提取手机号部分\n        phone_part = resp_str.split(\"+CNUM:\")[1].split(\",\")[1].replace('\"', \"\")\n        return f\"SIM Card Phone Number: {phone_part if phone_part else 'Not configured'}\"\n    except (IndexError, ValueError):\n        return \"SIM Card Phone Number: Unknown\"\n\n\ndef parse_manufacturer(response: bytes) -> str:\n    \"\"\"\n    解析制造商响应数据，提取模块制造商信息\n    Args:\n        response (bytes): 原始响应字节数据\n\n    Raises:\n        无\n\n    Notes:\n        解析失败时返回友好的未知提示，避免程序崩溃\n\n    ==========================================\n    Parse manufacturer response data to extract module manufacturer information\n    Args:\n        response (bytes): Raw response byte data\n\n    Raises:\n        None\n\n    Notes:\n        Return a friendly unknown prompt when parsing fails to avoid program crash\n    \"\"\"\n    try:\n        # 将字节数据转换为字符串并清理换行符\n        resp_str = response.decode(\"utf-8\").replace(\"\n\n\", \"\")\n        # 提取制造商名称部分\n        manufacturer = resp_str.split(\"OK\")[0].strip()\n        return f\"Module Manufacturer: {manufacturer if manufacturer else 'Unknown'}\"\n    except (IndexError, ValueError):\n        return \"Module Manufacturer: Unknown\"\n\n\ndef parse_signal_quality(response: bytes) -> str:\n    \"\"\"\n    解析信号质量响应数据，提取信号强度和误码率\n    Args:\n        response (bytes): 原始响应字节数据\n\n    Raises:\n        无\n\n    Notes:\n        RSSI范围0-31（数值越大信号越好），99表示无信号；BER范围0-7（数值越小误码率越低），99表示未知\n\n    ==========================================\n    Parse signal quality response data to extract signal strength and bit error rate\n    Args:\n        response (bytes): Raw response byte data\n\n    Raises:\n        None\n\n    Notes:\n        RSSI range 0-31 (higher value = better signal), 99 means no signal; BER range 0-7 (lower value = lower bit error rate), 99 means unknown\n    \"\"\"\n    try:\n        # 将字节数据转换为字符串并清理换行符\n        resp_str = response.decode(\"utf-8\").replace(\"\n\n\", \"\")\n        # 提取信号质量数值部分\n        csq_part = resp_str.split(\"+CSQ:\")[1].split(\"OK\")[0].strip()\n        # 拆分信号强度和误码率\n        rssi, ber = csq_part.split(\",\")\n        # 生成信号强度描述文本\n        rssi_desc = \"No signal\" if rssi == \"99\" else f\"{rssi} (0-31, higher value = better signal)\"\n        # 生成误码率描述文本\n        ber_desc = \"Unknown\" if ber == \"99\" else f\"{ber} (0-7, lower value = lower bit error rate)\"\n        return f\"Signal Quality - RSSI: {rssi_desc}, BER: {ber_desc}\"\n    except (IndexError, ValueError):\n        return \"Signal Quality: Unknown\"\n\n\ndef parse_serial_number(response: bytes) -> str:\n    \"\"\"\n    解析序列号响应数据，提取模块IMEI号\n    Args:\n        response (bytes): 原始响应字节数据\n\n    Raises:\n        无\n\n    Notes:\n        解析失败时返回友好的未知提示，避免程序崩溃\n\n    ==========================================\n    Parse serial number response data to extract module IMEI number\n    Args:\n        response (bytes): Raw response byte data\n\n    Raises:\n        None\n\n    Notes:\n        Return a friendly unknown prompt when parsing fails to avoid program crash\n    \"\"\"\n    try:\n        # 将字节数据转换为字符串并清理换行符\n        resp_str = response.decode(\"utf-8\").replace(\"\n\n\", \"\")\n        # 提取IMEI号部分\n        imei = resp_str.split(\"OK\")[0].strip()\n        return f\"Module IMEI Number: {imei if imei else 'Unknown'}\"\n    except (IndexError, ValueError):\n        return \"Module IMEI Number: Unknown\"\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 延时3秒，确保SIM800模块完成初始化\ntime.sleep(3)\n# 打印模块初始化完成提示信息\nprint(\"FreakStudio: SIM800 module initialized successfully\")\n# 配置UART0串口，波特率9600，TX引脚16，RX引脚17（适配Raspberry Pi Pico）\nuart = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n# 实例化SIM800SMS类，传入配置好的UART对象\nsim800 = SIM800SMS(uart=uart)\n\n# ========================================  主程序  ============================================\n\n# 获取手机号响应数据并解析打印\nphone_resp = sim800.get_phone_number()\nprint(parse_phone_number(phone_resp))\n\n# 获取制造商响应数据并解析打印\nmanufacturer_resp = sim800.get_manufacturer()\nprint(parse_manufacturer(manufacturer_resp))\n\n# 获取信号质量响应数据并解析打印\nsignal_resp = sim800.get_signal_quality()\nprint(parse_signal_quality(signal_resp))\n\n# 获取序列号响应数据并解析打印\nserial_resp = sim800.get_serial_number()\nprint(parse_serial_number(serial_resp))",
+    "MIT License\nCopyright (c) 2026 FreakStudio\nPermission is hereby granted, free of charge, to any person obtaining a copyof this software and associated documentation files (the \"Software\"), to dealin the Software without restriction, including without limitation the rightsto use, copy, modify, merge, publish, distribute, sublicense, and/or sellcopies of the Software, and to permit persons to whom the Software isfurnished to do so, subject to the following conditions:\nThe above copyright notice and this permission notice shall be included in allcopies or substantial portions of the Software.\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS ORIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THEAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHERLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THESOFTWARE."
+  ],
+  "import_names": [
+    "core",
+    "gprs",
+    "sms",
+    "tcpip",
+    "utils"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/sim800_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "attach_gprs",
+    "close_tcp_connection",
+    "close_udp_connection",
+    "delete_all_sms",
+    "delete_sms",
+    "detach_gprs",
+    "dial_number",
+    "ftp_close",
+    "ftp_get_file",
+    "ftp_init",
+    "ftp_put_file",
+    "get_gsm_location",
+    "get_ip_address",
+    "get_manufacturer",
+    "get_network_time",
+    "get_phone_number",
+    "get_serial_number",
+    "get_signal_quality",
+    "hang_up",
+    "http_get",
+    "http_init",
+    "http_post",
+    "http_set_param",
+    "http_terminate",
+    "initialize",
+    "read_all_sms",
+    "read_response",
+    "read_sms",
+    "receive_data_tcp",
+    "receive_data_udp",
+    "reset",
+    "send_command",
+    "send_data_tcp",
+    "send_data_udp",
+    "send_sms",
+    "set_apn",
+    "set_sms_format",
+    "shutdown_gprs",
+    "start_tcp_connection",
+    "start_udp_connection"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

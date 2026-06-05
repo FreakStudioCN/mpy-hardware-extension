@@ -1,14 +1,40 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "MPU6050(i2c, addr)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mpu6050.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "3. **数据读取与解析**:",
+    "---\n\n## 示例程序",
+    "---\n\n## 注意事项\n\n1. **校准规范**:执行加速度校准或 Z 轴清零指令时，需保持传感器水平/垂直静止，避免数据偏移；校准过程需等待 500ms 完成。\n2. **模式切换**:切换串口/I2C 模式或波特率后，需重新初始化对应通信接口，确保参数同步。\n3. **内存管理**:长时间运行时，需定期触发垃圾回收（`gc.collect()`），避免内存溢出。\n4. **应用限制**:模块为消费级精度，不可用于医疗诊断、高精度工业控制等对数据可靠性要求极高的场景。\n\n---\n\n## 联系方式\n\n如有任何问题或需要帮助，请通过以下方式联系开发者:\n\n📧 **邮箱**:liqinghsui@freakstudio.cn\n\n💻 **GitHub**:[https://github.com/FreakStudioCN](https://github.com/FreakStudioCN)\n\n---\n\n## 许可协议"
+  ],
   "import_names": [
     "mpu6050"
   ],
-  "constructors": [
-    "MPU6050(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mpu6050_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "get_accel_range",
-    "get_angles_degrees",
-    "get_angles_radians",
     "get_gyro_range",
     "read_accel_abs",
     "read_accel_data",
@@ -16,32 +42,8 @@
     "read_gyro_data",
     "read_temperature",
     "set_accel_range",
-    "set_gyro_range",
-    "signedIntFromBytes",
-    "update_complementary",
-    "update_kalman",
-    "update_roll_pitch"
+    "set_gyro_range"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mpu6050_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mpu6050.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

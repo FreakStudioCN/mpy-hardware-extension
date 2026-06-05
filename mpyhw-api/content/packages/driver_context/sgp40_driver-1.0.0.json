@@ -1,0 +1,79 @@
+{
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)",
+    "SpiAdapter(bus, data_mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "base_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "bitfield.py",
+      "type": "source"
+    },
+    {
+      "path": "bus_service.py",
+      "type": "source"
+    },
+    {
+      "path": "crc_mod.py",
+      "type": "source"
+    },
+    {
+      "path": "sgp4Xmod.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "sensors/sgp40_driver/\n├── code/\n│   ├── sgp4Xmod.py\n│   ├── main.py\n│   └── sensor_pack_2/\n│       ├── __init__.py\n│       ├── base_sensor.py\n│       ├── bitfield.py\n│       ├── bus_service.py\n│       └── crc_mod.py\n├── package.json\n├── LICENSE\n└── README.md",
+    "# 使用 mpremote 上传（示例）\nmpremote cp code/sgp4Xmod.py :sgp4Xmod.py\nmpremote cp code/main.py :main.py\nmpremote cp -r code/sensor_pack_2 :sensor_pack_2",
+    "mpremote run code/main.py",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/05/06 07:00\n# @Author  : FreakStudio\n# @File    : main.py\n# @Description : SGP40/SGP41 空气质量传感器驱动测试\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import Pin, SoftI2C\nfrom sensor_pack_2.bus_service import I2cAdapter\nfrom sgp4Xmod import SGP4X\n\n# ======================================== 全局变量 ============================================\n\nTARGET_SENSOR_ADDRS = [0x59]\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 100_000\nSENSOR_ID = 0          # 0=SGP40, 1=SGP41\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: SGP40/SGP41 air quality sensor test\")\n\n# ========================================  主程序  ============================================\n\nif __name__ == '__main__':\n    i2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n    devices_list = i2c_bus.scan()\n    print(\"START I2C SCANNER\")\n\n    if not devices_list:\n        raise SystemExit(\"I2C scan found no devices\")\n    print(\"i2c devices found:\", len(devices_list))\n\n    sensor = None\n    for device in devices_list:\n        if device in TARGET_SENSOR_ADDRS:\n            print(\"I2C address:\", hex(device))\n            try:\n                sensor = SGP4X(I2cAdapter(i2c_bus), address=device, sensor_id=SENSOR_ID)\n                print(\"Sensor initialization successful\")\n                break\n            except Exception as e:\n                print(\"Sensor init failed:\", e)\n\n    if sensor is None:\n        raise SystemExit(\"No target sensor found on I2C bus\")\n\n    try:\n        sn = sensor.get_id()\n        print(\"Serial number: 0x%04X 0x%04X 0x%04X\" % (sn.word_0, sn.word_1, sn.word_2))\n\n        result = sensor.execute_self_test()\n        print(\"Self test: %s (0x%04X)\" % (\"PASS\" if result == 0xD400 else \"FAIL\", result))\n\n        if SENSOR_ID == 1:\n            print(\"Conditioning SGP41 for 10s...\")\n            for _ in range(10):\n                val = sensor.execute_conditioning(rel_hum=50, temperature=25)\n                print(\"Conditioning VOC raw:\", val.VOC)\n                time.sleep_ms(1000)\n\n        print(\"Starting measurement loop (Ctrl+C to stop)...\")\n        while True:\n            val = sensor.measure_raw_signal(rel_hum=50, temperature=25)\n            if SENSOR_ID == 1:\n                print(\"VOC raw: %d  NOx raw: %d\" % (val.VOC, val.NOx))\n            else:\n                print(\"VOC raw:\", val.VOC)\n            time.sleep_ms(1000)\n\n    except KeyboardInterrupt:\n        print(\"Program interrupted by user\")\n    finally:\n        sensor.deinit()\n        print(\"Sensor deinitialized\")"
+  ],
+  "import_names": [
+    "bus_service",
+    "base_sensor",
+    "bitfield",
+    "crc_mod",
+    "sgp4Xmod"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/sgp40_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "get_bus_type",
+    "read",
+    "read_buf_from_memory",
+    "read_register",
+    "read_to_buf",
+    "write",
+    "write_and_read",
+    "write_buf_to_memory",
+    "write_const",
+    "write_register"
+  ],
+  "read_properties": [
+    "prepare_func"
+  ],
+  "support_level": "generatable"
+}

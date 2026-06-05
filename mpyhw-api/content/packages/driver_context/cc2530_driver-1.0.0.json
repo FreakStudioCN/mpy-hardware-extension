@@ -1,0 +1,79 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "CC253xTTL(uart, wake, baud, channel, panid, seek_time, query_interval_ms)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "cc253x_ttl.py",
+      "type": "source"
+    },
+    {
+      "path": "coord_to_node.py",
+      "type": "source"
+    },
+    {
+      "path": "node_to_coord.py",
+      "type": "source"
+    },
+    {
+      "path": "node_to_node.py",
+      "type": "source"
+    },
+    {
+      "path": "transparent.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import time\nfrom machine import UART, Pin\nfrom cc253x_ttl import CC253xTTL\n\n# 初始化UART\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))  # 协调器UART\nuart1 = UART(1, baudrate=9600, tx=Pin(8), rx=Pin(9))    # 节点UART\n\n# 创建实例\ncor = CC253xTTL(uart0)  # 协调器\nenv = CC253xTTL(uart1)  # 节点\n\n# 配置相同PANID和信道\npamid, ch = cor.read_panid_channel()\nenv.set_panid(int(pamid, 16))\nenv.set_channel(int(ch, 16))\nenv.set_custom_short_addr(0xFFFF)  # 设置节点短地址\n\n# 主循环:协调器向节点发送数据\nwhile True:\n    cor.send_coord_to_node(0xFFFF, \"coord_to_node\")  # 向短地址0xFFFF的节点发送\n    time.sleep(0.5)\n    \n    # 节点接收并解析\n    mode, data, addr1, addr2 = env.recv_frame()\n    print(f\"Mode: {mode}, Data: {data}, Addr1: {addr1}, Addr2: {addr2}\")\n    time.sleep(1)",
+    "import time\nfrom machine import UART, Pin\nfrom cc253x_ttl import CC253xTTL\n\n# 初始化UART\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))  # 协调器UART\nuart1 = UART(1, baudrate=9600, tx=Pin(8), rx=Pin(9))    # 节点UART\n\n# 创建实例\ncor = CC253xTTL(uart0)  # 协调器\nenv = CC253xTTL(uart1)  # 节点\n\n# 配置相同PANID和信道\npamid, ch = cor.read_panid_channel()\nenv.set_panid(int(pamid, 16))\nenv.set_channel(int(ch, 16))\n\n# 主循环:节点向协调器发送数据\nwhile True:\n    env.send_node_to_coord(\"node_to_coord\")  # 节点向协调器发送\n    time.sleep(0.5)\n    \n    # 协调器接收并解析\n    mode, data, addr1, addr2 = cor.recv_frame()\n    print(f\"Mode: {mode}, Data: {data}, Addr1: {addr1}, Addr2: {addr2}\")\n    time.sleep(1)",
+    "import time\nfrom machine import UART, Pin\nfrom cc253x_ttl import CC253xTTL\n\n# 初始化UART\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))  # 节点1 UART\nuart1 = UART(1, baudrate=9600, tx=Pin(8), rx=Pin(9))    # 节点2 UART\n\n# 创建实例\nenv1 = CC253xTTL(uart0)  # 节点1\nenv2 = CC253xTTL(uart1)  # 节点2\n\n# 配置相同PANID和信道\npamid = 0xC535\nch = 0x0B\nenv1.set_panid(pamid)\nenv1.set_channel(ch)\nenv2.set_panid(pamid)\nenv2.set_channel(ch)\n\n# 设置短地址\nenv1.set_custom_short_addr(0xAAFF)\nenv2.set_custom_short_addr(0xFFAA)\n\n# 主循环:节点2向节点1发送数据\nwhile True:\n    env2.send_node_to_node(source_addr=0xAAFF, target_addr=0xFFAA, data=\"node_to_node\")\n    time.sleep(0.5)\n    \n    # 节点1接收并解析\n    mode, data, addr1, addr2 = env1.recv_frame()\n    print(f\"Mode: {mode}, Data: {data}, Addr1: {addr1}, Addr2: {addr2}\")\n    time.sleep(1)",
+    "import time\nfrom machine import UART, Pin\nfrom cc253x_ttl import CC253xTTL\n\n# 初始化UART\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))  # 协调器UART\nuart1 = UART(1, baudrate=9600, tx=Pin(8), rx=Pin(9))    # 节点UART\n\n# 创建实例\ncor = CC253xTTL(uart0)  # 协调器\nenv = CC253xTTL(uart1)  # 节点\n\n# 配置相同PANID和信道\npamid, ch = cor.read_panid_channel()\nenv.set_panid(int(pamid, 16))\nenv.set_channel(int(ch, 16))\n\n# 主循环:透明传输\nwhile True:\n    cor.send_transparent(b\"Here is transparent\")  # 协调器发送透明数据\n    time.sleep(0.5)\n    \n    # 节点接收并解析\n    mode, data, addr1, addr2 = env.recv_frame()\n    print(f\"Mode: {mode}, Data: {data}, Addr1: {addr1}, Addr2: {addr2}\")\n    time.sleep(1)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "cc253x_ttl",
+    "coord_to_node",
+    "node_to_coord",
+    "node_to_node",
+    "transparent"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/cc2530_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "enter_lowpower",
+    "read_mac",
+    "read_panid_channel",
+    "read_short_addr",
+    "read_status",
+    "recv_frame",
+    "reset_factory",
+    "send_coord_to_node",
+    "send_node_to_coord",
+    "send_node_to_node",
+    "send_transparent",
+    "set_baud",
+    "set_channel",
+    "set_custom_short_addr",
+    "set_panid",
+    "set_query_interval",
+    "set_seek_time"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

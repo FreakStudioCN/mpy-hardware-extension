@@ -19,12 +19,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createAgentBackedLoop } from "../core/agent-backed-loop.ts";
+import { createAgentBackedLoop, DEV_API_BASE_URL } from "../core/agent-backed-loop.ts";
 import { createDeviceShim } from "../extension/device-shim.ts";
 import { writeProjectFile as writeContainedProjectFile } from "../extension/workspace-writer.ts";
 
 const intent = process.argv.slice(2).join(" ") || "ESP32-S3：每 2 秒读 AHT20 温湿度并显示在 SSD1306 OLED 上";
-const apiBaseUrl = (process.env.MPYHW_API_BASE ?? "http://127.0.0.1:8787").replace(/\/$/, "");
+const apiBaseUrl = (process.env.MPYHW_API_BASE ?? DEV_API_BASE_URL).replace(/\/$/, "");
 const jwt = process.env.MPYHW_DEV_JWT;
 if (!jwt) {
   console.error("MPYHW_DEV_JWT not set. Mint a dev token (see header) and export it first.");

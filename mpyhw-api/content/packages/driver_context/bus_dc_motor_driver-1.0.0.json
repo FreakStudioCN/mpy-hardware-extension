@@ -1,40 +1,48 @@
 {
-  "import_names": [
-    "bus_dc_motor",
-    "pca9685"
-  ],
-  "constructors": [
-    "PCA9685(i2c)"
-  ],
-  "read_methods": [
-    "break_motor",
-    "duty",
-    "freq",
-    "pwm",
-    "reset",
-    "set_motor_speed",
-    "stop_motor"
-  ],
-  "read_properties": [],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.8,
+  "constructors": [
+    "PCA9685(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bus_dc_motor.py",
+      "type": "source"
+    },
+    {
+      "path": "pca9685.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import time\nfrom machine import Pin, I2C\nfrom pca9685 import PCA9685\nfrom bus_dc_motor import BusDCMotor\n\n# 初始化I2C\ni2c = I2C(id=0, sda=Pin(4), scl=Pin(5), freq=400000)\ndevices = i2c.scan()\naddr = devices[0]\npca9685 = PCA9685(i2c, addr)\n\n# 创建直流电机控制器\nmotor = BusDCMotor(pca9685, 4)\n\n# 演示电机控制\nprint(\"Motor 4 started: Speed = 4000, Direction = 0\")\nmotor.set_motor_speed(4, 4000, 0)\ntime.sleep(10)\nmotor.stop_motor(4)\nprint(\"Motor 4 stopped successfully\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "pca9685",
+    "bus_dc_motor"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/motor_drivers/bus_dc_motor_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/bus_dc_motor_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "bus_dc_motor.py"
-    }
+  "read_methods": [
+    "duty",
+    "freq",
+    "pwm",
+    "reset"
   ],
-  "confidence": 0.75,
+  "read_properties": [],
   "support_level": "generatable"
 }

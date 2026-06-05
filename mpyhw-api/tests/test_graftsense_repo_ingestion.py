@@ -57,18 +57,20 @@ def test_repo_ingestion_leaves_busless_driver_installable(tmp_path):
     assert not (tmp_path / "driver_context" / "fix_data_pack-1.0.0.json").exists()
 
 
-def test_repo_ingestion_prunes_fake_seed_and_supersedes_weaker_upypi(tmp_path):
-    # Pre-seed the index with the fake graftsense seed + a weak upypi record that
-    # points at the same repo driver as the real sensors/aht20.
+def test_repo_ingestion_prunes_fake_seed_and_dedupes_overlapping_upypi(tmp_path):
+    # Pre-seed the index with the legacy fake graftsense seed (must be pruned) and
+    # a weak upypi record whose name canonically collides with a real generatable
+    # fixture driver (fix_aht20_driver -> fix_aht20). finalize_index must collapse
+    # them, keep the stronger graftsense record, and fold the upypi install URL
+    # into alt_install_urls.
     (tmp_path / "driver_context").mkdir(parents=True)
     seed = [
         {"name": "graftsense_aht20", "version": "1.0.0", "source": "graftsense",
          "package_json_url": "https://graftsense.example/aht20/package.json",
          "support_level": "generatable", "urls": []},
-        {"name": "aht20_upypi", "version": "1.0.0", "source": "upypi",
-         "package_json_url": "https://upypi.net/pkgs/aht20_upypi/1.0.0/package.json",
-         "support_level": "installable",
-         "urls": [["aht20.py", "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/aht20/code/aht20.py"]]},
+        {"name": "fix_aht20_driver", "version": "1.0.0", "source": "upypi",
+         "package_json_url": "https://upypi.net/pkgs/fix_aht20_driver/1.0.0/package.json",
+         "support_level": "installable", "urls": []},
     ]
     (tmp_path / "package_index.json").write_text(json.dumps(seed), encoding="utf-8")
 
@@ -76,8 +78,9 @@ def test_repo_ingestion_prunes_fake_seed_and_supersedes_weaker_upypi(tmp_path):
     index = json.loads((tmp_path / "package_index.json").read_text(encoding="utf-8"))
     names = [record["name"] for record in index]
 
-    # Fake seed gone; the weak upypi dup superseded by the real generatable record.
+    # Fake seed gone; the weak upypi dup collapsed into the generatable fix_aht20.
     assert "graftsense_aht20" not in names
-    assert "aht20_upypi" not in names
+    assert "fix_aht20_driver" not in names
     assert names.count("fix_aht20") == 1
-    assert _by_name(index)["fix_aht20"]["support_level"] == "generatable"
+    winner = _by_name(index)["fix_aht20"]
+    assert winner["support_level"] == "generatable"

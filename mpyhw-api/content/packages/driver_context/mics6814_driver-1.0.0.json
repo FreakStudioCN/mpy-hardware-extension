@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "MICS6814(co_pin, nh3_pin, no2_pin, vref, load_resistor, samples)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mics6814.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import mip\nmip.install(\"github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mics6814_driver\")",
+    "from mics6814 import MICS6814\n\ngas = MICS6814(co_pin=26, nh3_pin=27, no2_pin=28)\n\nreadings = gas.read_all()\nprint(readings)\n# CO: 12345.67 Ohms\n# NH3: 23456.78 Ohms\n# NO2: 34567.89 Ohms\n\nprint(gas.read_co())\nprint(gas.read_nh3())\nprint(gas.read_no2())"
+  ],
+  "import_names": [
+    "mics6814"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mics6814_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "read_all",
+    "read_co",
+    "read_nh3",
+    "read_no2",
+    "read_raw_all",
+    "read_voltage_all"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

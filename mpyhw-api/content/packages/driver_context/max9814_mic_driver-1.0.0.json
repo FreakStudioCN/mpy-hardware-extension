@@ -1,0 +1,58 @@
+{
+  "bus": [
+    "analog"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "MAX9814Mic(adc, gain_pin, shdn_pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "max9814_mic.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, ADC\nfrom max9814_mic import MAX9814Mic\n\n# 初始化ADC（示例:ESP32 GPIO26对应ADC0）\nadc = ADC(26)\n# 初始化增益控制引脚\ngain_pin = Pin(6, Pin.OUT)\n# 初始化麦克风实例\nmic = MAX9814Mic(adc=adc, gain_pin=gain_pin)",
+    "raw_value = mic.read()\nprint(f\"ADC原始值: {raw_value}\")",
+    "normalized_val = mic.read_normalized()\nprint(f\"归一化值: {normalized_val:.3f}\")",
+    "voltage = mic.read_voltage(vref=3.3)\nprint(f\"信号电压: {voltage:.3f}V\")",
+    "mic.set_gain(high=True)  # 高增益对应60dB，低增益对应40dB\nprint(\"当前增益状态: 高增益\")",
+    "baseline = mic.calibrate_baseline(samples=200)\nprint(f\"环境噪声基线: {baseline}\")",
+    "is_sound = mic.detect_sound_level(threshold=baseline + 5000, samples=10)\nprint(f\"是否检测到声音: {is_sound}\")",
+    "def test_basic_reading() -> None:\n    time.sleep(3)\n    print(\"FreakStudio:max9814_mic_driver test start\")\n    print(\"=== Basic Reading Test ===\")\n    adc = ADC(26)\n    mic = MAX9814Mic(adc=adc)\n    print(\"Microphone initialized on ADC0 (GP26)\")\n    print(\"State:\", mic.get_state())\n    print(\"Reading values for ~10 seconds...\")\n    try:\n        for i in range(100):\n            raw_value = mic.read()\n            normalized = mic.read_normalized()\n            voltage = mic.read_voltage()\n            print(f\"[{get_formatted_time()}] Raw:{:5d} | Norm:{:.3f} | Volt:{:.3f}V\".format(\n                raw_value, normalized, voltage\n            ))\n            time.sleep(0.5)\n    except KeyboardInterrupt:\n        print(\"\\n[{}] Basic test interrupted\".format(get_formatted_time()))",
+    "def test_with_gain_control() -> None:\n    time.sleep(3)\n    print(\"=== Gain Control Test ===\")\n    adc = ADC(26)\n    gain_pin = Pin(6, Pin.OUT)\n    mic = MAX9814Mic(adc=adc, gain_pin=gain_pin)\n    try:\n        # 低增益模式（40dB）\n        print(\"=== LOW GAIN mode (40dB) ===\")\n        mic.set_gain(False)\n        print(\"State:\", mic.get_state())\n        for i in range(50):\n            print(f\"[LOW] {mic.read():5d}\", end=\" \")\n            if (i + 1) % 5 == 0:\n                print()\n            time.sleep(0.6)\n        \n        # 高增益模式（60dB）\n        print(\"\\n=== HIGH GAIN mode (60dB) ===\")\n        mic.set_gain(True)\n        print(\"State:\", mic.get_state())\n        for i in range(50):\n            print(f\"[HIGH]{mic.read():5d}\", end=\" \")\n            if (i + 1) % 5 == 0:\n                print()\n            time.sleep(0.6)\n    except KeyboardInterrupt:\n        print(\"\\n[{}] Gain test interrupted\".format(get_formatted_time()))",
+    "def test_sound_detection() -> None:\n    time.sleep(3)\n    print(\"=== Sound Detection Test ===\")\n    adc = ADC(26)\n    mic = MAX9814Mic(adc=adc)\n    print(\"Calibrating baseline noise level...\")\n    baseline = mic.calibrate_baseline(samples=200)\n    threshold = baseline + 5000\n    print(f\"Baseline: {baseline} | Threshold: {threshold}\")\n    print(\"Make some noise near the mic! (Ctrl+C to stop)\")\n    try:\n        silent_count = 0\n        while True:\n            current_value = mic.read()\n            is_sound = mic.detect_sound_level(threshold=threshold, samples=10)\n            if is_sound:\n                peak = mic.get_peak_reading(samples=20)\n                print(f\"[{get_formatted_time()}] SOUND! Current: {current_value} Peak: {peak}\")\n                silent_count = 0\n            else:\n                silent_count += 1\n                if silent_count % 50 == 0:\n                    print(f\"[{get_formatted_time()}] Silent... Current: {current_value} (Th: {threshold})\")\n            time.sleep(0.6)\n    except KeyboardInterrupt:\n        print(\"\\n[{}] Detection stopped\".format(get_formatted_time()))",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "max9814_mic"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/max9814_mic_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "adc_in"
+  ],
+  "read_methods": [
+    "calibrate_baseline",
+    "detect_sound_level",
+    "disable",
+    "enable",
+    "get_average_reading",
+    "get_peak_reading",
+    "get_state",
+    "read",
+    "read_normalized",
+    "read_voltage",
+    "set_gain"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

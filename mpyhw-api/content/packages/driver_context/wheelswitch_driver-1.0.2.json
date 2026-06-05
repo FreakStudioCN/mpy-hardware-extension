@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "EncoderWheelSwitch(pin_up, pin_down, debounce_ms, idle_state, callback_up, callback_down)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "encoder_wheel_switch.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from encoder_wheel_switch import WheelSwitch",
+    "# Python env   : MicroPython v1.23.0 on Raspberry Pi Pico\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/06\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : 拨轮开关库函数（适配Raspberry Pi Pico）\n\n# ======================================== 导入相关模块 ========================================\n\nimport time\nfrom encoder_wheel_switch import EncoderWheelSwitch\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n\n# 测试回调函数\ndef on_up_trigger():\n    print(\"UP wheel triggered!\")\n\n\ndef on_down_trigger():\n    print(\"DOWN wheel triggered!\")\n\n\n# ======================================== 自定义类 ============================================\n\n\n# ======================================== 初始化配置 ==========================================\n\n# 初始化拨轮开关（示例引脚：UP=16，DOWN=17，空闲高电平，消抖20ms）\nencoder = EncoderWheelSwitch(\n    pin_up=14, pin_down=15, debounce_ms=20, idle_state=EncoderWheelSwitch.high, callback_up=on_up_trigger, callback_down=on_down_trigger\n)\n\n# 读取原始状态\nraw_state = encoder.get_raw_state()\nprint(f\"Raw state - UP: {raw_state[0]}, DOWN: {raw_state[1]}\")\n\n# 开启中断\nif encoder.enable_irq():\n    print(\"IRQ enabled, test encoder wheel...\")\nelse:\n    print(\"IRQ enable failed!\")\n\n# ========================================  主程序  ============================================\n\n# 保持程序运行\ntry:\n    while True:\n        time.sleep(0.1)\nexcept KeyboardInterrupt:\n    # 关闭中断\n    encoder.disable_irq()\n    print(\"\\nProgram exited, IRQ disabled\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+  ],
+  "import_names": [
+    "encoder_wheel_switch"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/wheelswitch_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "disable_irq",
+    "enable_irq",
+    "get_raw_state"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

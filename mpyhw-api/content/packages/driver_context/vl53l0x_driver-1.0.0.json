@@ -1,9 +1,36 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "VL53L0X(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "vl53l0x.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# 导入驱动模块\nimport time\nimport machine\nfrom vl53l0x import VL53L0X\n\n# 初始化I2C（树莓派Pico示例）\ni2c = machine.I2C(0, scl=5, sda=4, freq=100000)\n\n# 扫描I2C设备并获取传感器地址\ndevices = i2c.scan()\nsensor_addr = next((d for d in devices if d == 0x29), None)\n\nif sensor_addr:\n    # 初始化VL53L0X传感器\n    tof = VL53L0X(i2c, sensor_addr)\n    print(\"传感器初始化成功\")\n    \n    try:\n        # 启动连续测距模式\n        tof.start()\n        while True:\n            distance = tof.read()\n            if 0 < distance < 2000:\n                print(f\"当前距离:{distance} mm\")\n            else:\n                print(\"超出测量范围或读取错误\")\n            time.sleep(0.5)\n    except KeyboardInterrupt:\n        print(\"程序终止\")\n    finally:\n        tof.stop()\n        print(\"测距停止\")\nelse:\n    print(\"未检测到VL53L0X传感器\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "vl53l0x"
   ],
-  "constructors": [
-    "VL53L0X(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/vl53l0x_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "calc_macro_period",
@@ -26,25 +53,5 @@
     "timeout_microseconds_to_Mclks"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/vl53l0x_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "vl53l0x.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

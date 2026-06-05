@@ -7,12 +7,14 @@ import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
-import { createAgentBackedLoop } from "../core/agent-backed-loop.ts";
+import { createAgentBackedLoop, DEV_API_BASE_URL } from "../core/agent-backed-loop.ts";
 import { createDeviceShim } from "../extension/device-shim.ts";
 import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { CANONICAL_TOOLS } from "../core/tool-registry.ts";
+import { BUNDLED_TOOLCHAIN_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
+import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void };
 
@@ -47,7 +49,7 @@ export function createViewProvider(vscode: any, extensionUri: any, deps: PanelDe
 function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDeps) {
   const html = readWebviewHtml();
   webview.html = html.replaceAll("${webviewCspSource}", webview.cspSource ?? "");
-  const apiBaseUrl = (deps.apiBaseUrl ?? process.env.MPYHW_API_BASE ?? "http://127.0.0.1:8787").replace(/\/$/, "");
+  const apiBaseUrl = resolveApiBaseUrl(vscode, deps.apiBaseUrl);
   const fetchImpl = deps.fetchImpl ?? fetch;
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
@@ -58,9 +60,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // trace logs stay at the workspace root under .mpyhw, not mixed into the project.
   const projectFolder = workspaceFolder ? join(workspaceFolder, PROJECT_SUBDIR) : undefined;
   let availableBoards: any[] = [];
+  let toolchainChecked = false;
   const controller = new SessionController({
     postMessage: (message) => webview.postMessage(message),
-    loop: createLoop({ ...deps, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), projectRoot: projectFolder }),
+    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), projectRoot: projectFolder }),
     recorderFactory: workspaceFolder ? (traceId) => new JsonlSessionRecorder({ workspaceFolder, traceId }) : undefined,
     writeFiles: async (files) => {
       const result = await writeGeneratedFiles({
@@ -123,6 +126,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         webview.postMessage({ type: "session_error", error: "tool_registry_mismatch" });
         webview.postMessage({ type: "session_done", terminal: "session_error" });
         return;
+      }
+      // Non-blocking toolchain skew check (once per window): if the live API expects
+      // a newer toolchain than this VSIX bundles, the frozen scaffold/wiring scripts
+      // may be off-contract. Fire-and-forget so it never adds a round-trip to
+      // time-to-first-token; warn (once) if the server advertises a newer toolchain.
+      if (!toolchainChecked) {
+        toolchainChecked = true;
+        void fetchToolchainVersion(apiBaseUrl, fetchImpl).then((serverToolchain) => {
+          if (toolchainOutdated(serverToolchain)) {
+            vscode.window?.showWarningMessage?.(
+              `Blockless: your extension's bundled toolchain (v${BUNDLED_TOOLCHAIN_VERSION}) is older than the server's (v${serverToolchain}). Update the extension to avoid scaffold/wiring errors.`,
+            );
+          }
+        });
       }
       // Login up front: a real VS Code host must have a GitHub session before the
       // metered loop runs. Headless/test hosts (no vscode.authentication) skip this.
@@ -202,6 +219,17 @@ async function checkToolRegistry(apiBaseUrl: string, fetchImpl: typeof fetch) {
   }
 }
 
+async function fetchToolchainVersion(apiBaseUrl: string, fetchImpl: typeof fetch): Promise<string | undefined> {
+  try {
+    const res = await fetchImpl(`${apiBaseUrl}/v1/skills`);
+    if (!res.ok) return undefined;
+    const body: any = await res.json();
+    return body?.toolchain_version;
+  } catch {
+    return undefined;
+  }
+}
+
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
 function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; projectRoot?: string }) {
@@ -268,7 +296,7 @@ function readWebviewHtml(): string {
 }
 
 function createApiPipelineLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch }) {
-  const apiBaseUrl = deps.apiBaseUrl ?? process.env.MPYHW_API_BASE ?? "http://127.0.0.1:8787";
+  const apiBaseUrl = deps.apiBaseUrl ?? process.env.MPYHW_API_BASE ?? DEV_API_BASE_URL;
   const fetchImpl = deps.fetchImpl ?? fetch;
   return async function apiPipelineLoop(input: { intent: string; boardId: string; onEvent: (event: any) => void }) {
     input.onEvent({ type: "trace", text: `API pipeline started: ${input.intent}` });

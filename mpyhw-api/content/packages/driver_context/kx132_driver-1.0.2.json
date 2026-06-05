@@ -1,49 +1,53 @@
 {
-  "import_names": [
-    "__init__",
-    "micropython_kx132",
-    "typing"
+  "bus": [
+    "i2c"
   ],
+  "confidence": 0.7,
   "constructors": [
-    "KX132(i2c)"
+    "KX132(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    },
+    {
+      "path": "kx132.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "kx132",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/kx132_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
+    "interrupt_release",
+    "soft_reset"
+  ],
+  "read_properties": [
     "acc_range",
     "acceleration",
     "adp_enabled",
     "advanced_data_path",
     "free_fall_enabled",
     "free_fall_threshold",
-    "interrupt_release",
     "output_data_rate",
     "performance_mode",
     "previous_tilt_position",
-    "soft_reset",
     "tap_doubletap_enable",
     "tap_doubletap_report",
     "tilt_position",
     "tilt_position_enable"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/kx132_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "__init__.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

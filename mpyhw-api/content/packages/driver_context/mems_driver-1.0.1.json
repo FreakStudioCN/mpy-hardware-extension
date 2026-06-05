@@ -1,11 +1,37 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "AirQualityMonitor(i2c, pca_addr)",
+    "MEMSGasSensor(i2c, sensor_type, addr7)",
+    "PCA9546ADR(i2c, addr)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mems_air_module.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/12/22 下午2:21\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : MEMS气体传感器多通道读取示例代码，实现VOC/CO/H2S/NO2四种气体的校准和实时浓度读取\n\nfrom machine import Pin, SoftI2C\nimport time\nfrom mems_air_module import MEMSGasSensor, PCA9546ADR, AirQualityMonitor\n\n# 延时等待设备初始化\ntime.sleep(3)\nprint(\"FreakStudio : Using IIC to read MEMS sensor\")\n\n# 初始化I2C总线\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=100000)\nmonitor = AirQualityMonitor(i2c)\n\n# 注册并校准各通道传感器\nmonitor.register_sensor(0, MEMSGasSensor.TYPE_VOC)\nmonitor.calibrate_sensor(MEMSGasSensor.TYPE_VOC)\n\nmonitor.register_sensor(1, MEMSGasSensor.TYPE_CO)\nmonitor.calibrate_sensor(MEMSGasSensor.TYPE_CO)\n\nmonitor.register_sensor(2, MEMSGasSensor.TYPE_H2S)\nmonitor.calibrate_sensor(MEMSGasSensor.TYPE_H2S)\n\nmonitor.register_sensor(3, MEMSGasSensor.TYPE_NO2)\nmonitor.calibrate_sensor(MEMSGasSensor.TYPE_NO2)\n\n# 实时读取并打印浓度值\nprint(\"\\nStart reading gas concentration (press Ctrl+C to stop)...\")\nprint(\"-\" * 50)\nwhile True:\n    try:\n        results = monitor.read_all()\n        print(f\"VOC concentration: {results[MEMSGasSensor.TYPE_VOC]}\")\n        print(f\"CO concentration: {results[MEMSGasSensor.TYPE_CO]}\")\n        print(f\"H2S concentration: {results[MEMSGasSensor.TYPE_H2S]}\")\n        print(f\"NO2 concentration: {results[MEMSGasSensor.TYPE_NO2]}\")\n        print(\"-\" * 50)\n    except Exception as e:\n        print(f\"Error reading concentration: {str(e)}\")\n        print(\"-\" * 50)\n    time.sleep(1)"
+  ],
   "import_names": [
     "mems_air_module"
   ],
-  "constructors": [
-    "AirQualityMonitor(i2c)",
-    "MEMSGasSensor(i2c)",
-    "PCA9546ADR(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mems_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "calibrate_sensor",
@@ -23,25 +49,5 @@
     "write_ctl"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mems_driver/1.0.1/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mems_air_module.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

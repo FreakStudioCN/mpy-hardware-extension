@@ -1,0 +1,92 @@
+{
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)",
+    "SpiAdapter(bus, data_mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "hscdtd008a.py",
+      "type": "source"
+    },
+    {
+      "path": "averager.py",
+      "type": "source"
+    },
+    {
+      "path": "base_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "bitfield.py",
+      "type": "source"
+    },
+    {
+      "path": "bus_service.py",
+      "type": "source"
+    },
+    {
+      "path": "converter.py",
+      "type": "source"
+    },
+    {
+      "path": "crc_mod.py",
+      "type": "source"
+    },
+    {
+      "path": "geosensmod.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "hscdtd008a_driver/\n├── code/\n│   ├── hscdtd008a.py          # 核心驱动\n│   ├── main.py                # 测试示例\n│   └── sensor_pack/           # 依赖库\n│       ├── bus_service.py     # 总线适配器\n│       ├── base_sensor.py     # 传感器基类\n│       ├── geosensmod.py      # 地磁传感器基类\n│       ├── averager.py        # 均值滤波工具\n│       ├── bitfield.py        # 位域工具\n│       ├── converter.py       # 单位转换工具\n│       ├── crc_mod.py         # CRC 校验工具\n│       ├── __init__.py        # 包初始化\n│       ├── LICENSE.md         # sensor_pack 许可\n│       └── README.md          # sensor_pack 说明\n├── LICENSE                    # 驱动许可协议\n└── README.md                  # 本文档",
+    "hscdtd008a.py\nsensor_pack/（整个目录）",
+    "from machine import Pin, SoftI2C\nimport hscdtd008a\nfrom sensor_pack.bus_service import I2cAdapter\n\ni2c_bus = SoftI2C(sda=Pin(4), scl=Pin(5), freq=400_000)\nadapter = I2cAdapter(i2c_bus)\nsensor = hscdtd008a.HSCDTD008A(adapter)\n\nsensor.start_measure(continuous_mode=True)\nfield = sensor.get_axis(-1)\nprint(\"X:%d Y:%d Z:%d\" % (field[0], field[1], field[2]))\nsensor.deinit()",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/4/21 17:30\n# @Author  : goctaprog\n# @File    : main.py\n# @Description : Test code for HSCDTD008A geomagnetic sensor driver\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nimport math\nimport sys\nfrom machine import Pin, SoftI2C\nimport hscdtd008a\nfrom sensor_pack.bus_service import I2cAdapter\n\n# ======================================== 全局变量 ============================================\n\n# I2C 引脚与频率配置\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 400_000\n\n# 目标传感器 I2C 地址列表\nTARGET_SENSOR_ADDRS = [0x0C]\n\n# 期望的芯片 ID（用于 ID 验证）\nEXPECTED_CHIP_ID = 0x49\n\n# 测量循环参数\nMEAS_DELAY_MS = 250\nMEAS_MAX_COUNT = 30\n\n# ======================================== 功能函数 ============================================\n\ndef show_state(sen: hscdtd008a.HSCDTD008A) -> None:\n    \"\"\"打印传感器当前工作模式状态\"\"\"\n    print(\"in standby mode: %s; hi_dynamic_range: %s\" % (sen.in_standby_mode(), sen.hi_dynamic_range))\n    print(\"single meas mode: %s; continuous meas mode: %s\" % (sen.is_single_meas_mode(), sen.is_continuous_meas_mode()))\n\n\ndef test_temperature(sen: hscdtd008a.HSCDTD008A, count: int = MEAS_MAX_COUNT) -> None:\n    \"\"\"测试温度测量功能，循环读取 count 次\"\"\"\n    sen.enable_temp_meas(True)\n    print(\"--- Temperature measurement test ---\")\n    show_state(sen)\n    print(16 * \"_\")\n    cnt = 0\n    while cnt < count:\n        status = sen.get_status()\n        # 检查温度数据就绪标志（TRDY，bit1）\n        if status[3]:\n            temp = sen.get_temperature()\n            print(\"Sensor temperature: %d C\" % temp)\n            # 重新触发下一次温度测量\n            sen.enable_temp_meas(True)\n        else:\n            print(\"status: %s\" % str(status))\n        time.sleep_ms(MEAS_DELAY_MS)\n        cnt += 1\n\n\ndef test_force_mode(sen: hscdtd008a.HSCDTD008A, count: int = MEAS_MAX_COUNT) -> None:\n    \"\"\"测试单次（Force）测量模式，循环读取 count 次\"\"\"\n    print(\"--- Magnetic field measurement: Force mode ---\")\n    show_state(sen)\n    print(16 * \"_\")\n    # 启动单次测量模式\n    sen.start_measure(continuous_mode=False)\n    cnt = 0\n    while cnt < count:\n        status = sen.get_status()\n        # 检查数据就绪（DRDY）或数据溢出（DOR）标志\n        if status[0] or status[1]:\n            field = sen.get_axis(-1)\n            # 触发下一次单次测量\n            sen.start_measure(continuous_mode=False)\n            print(\"magnetic field: X:%d Y:%d Z:%d\" % (field[0], field[1], field[2]))\n        else:\n            print(\"status: %s\" % str(status))\n        time.sleep_ms(MEAS_DELAY_MS)\n        cnt += 1\n\n\ndef test_continuous_mode(sen: hscdtd008a.HSCDTD008A, count: int = MEAS_MAX_COUNT) -> None:\n    \"\"\"测试周期（Continuous）测量模式，循环读取 count 次，叠加偏移量\"\"\"\n    print(\"--- Magnetic field measurement: Continuous mode ---\")\n    # 启用偏移量叠加\n    sen.use_offset = True\n    sen.start_measure(continuous_mode=True)\n    cnt = 0\n    while cnt < count:\n        status = sen.get_status()\n        # 检查数据就绪标志（DRDY）\n        if status[0]:\n            field = sen.get_axis(-1)\n            # 计算合磁场强度（三轴平方和开根号）\n            mag_strength = math.sqrt(field[0] ** 2 + field[1] ** 2 + field[2] ** 2)\n            print(\"magnetic field: X:%d Y:%d Z:%d strength:%.2f\" % (field[0], field[1], field[2], mag_strength))\n        time.sleep_ms(MEAS_DELAY_MS)\n        cnt += 1\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: HSCDTD008A geomagnetic sensor test starting ...\")\n\n# 初始化 I2C 总线\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 扫描 I2C 总线，检查设备是否存在\ndevices_list = i2c_bus.scan()\nprint(\"I2C scan result: %s\" % [hex(d) for d in devices_list])\n\nif len(devices_list) == 0:\n    raise RuntimeError(\"I2C scan found no devices\")\n\n# 在扫描结果中查找目标传感器地址\nsensor = None\nfor device_addr in devices_list:\n    if device_addr in TARGET_SENSOR_ADDRS:\n        print(\"Target sensor found at address: %s\" % hex(device_addr))\n        adapter = I2cAdapter(i2c_bus)\n        sensor = hscdtd008a.HSCDTD008A(adapter)\n        break\n\nif sensor is None:\n    raise RuntimeError(\"Target sensor not found on I2C bus\")\n\n# 读取并验证芯片 ID\nchip_id = sensor.get_id()\nprint(\"Chip ID: %s (expected: %s)\" % (hex(chip_id), hex(EXPECTED_CHIP_ID)))\nif chip_id != EXPECTED_CHIP_ID:\n    raise RuntimeError(\"Chip ID mismatch: got %s, expected %s\" % (hex(chip_id), hex(EXPECTED_CHIP_ID)))\n\n# 打印初始偏移量\nprint(\"Offset drift values: %s\" % str(sensor.offset_drift_values))\nprint(16 * \"_\")\nshow_state(sensor)\nprint(16 * \"_\")\n\n# 执行自检（必须在激活模式下）\nsensor.start_measure(active_pwr_mode=True)\ntest_result = sensor.perform_self_test()\nif not test_result:\n    print(\"Sensor self-test FAILED: broken sensor or invalid mode\")\n    sys.exit(1)\nprint(\"Sensor self-test passed\")\n\n# ========================================  主程序  ===========================================\n\ntry:\n    while True:\n        # 依次执行三类测试场景\n        test_temperature(sensor)\n        print(16 * \"_\")\n        test_force_mode(sensor)\n        print(16 * \"_\")\n        test_continuous_mode(sensor)\n        print(16 * \"_\")\n        # 所有测试完成后退出循环\n        break\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    sensor.deinit()\n    del sensor\n    print(\"Program exited\")"
+  ],
+  "import_names": [
+    "bus_service",
+    "hscdtd008a",
+    "averager",
+    "base_sensor",
+    "bitfield",
+    "converter",
+    "crc_mod",
+    "geosensmod"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/hscdtd008a_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "get_bus_type",
+    "read",
+    "read_buf_from_mem",
+    "read_register",
+    "readinto",
+    "write",
+    "write_and_read",
+    "write_buf_to_mem",
+    "write_const",
+    "write_register"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

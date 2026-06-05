@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "MGX(adc, comp_pin, user_cb, rl_ohm, vref, irq_trigger)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mgx.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, ADC\nimport time\nfrom time import sleep\nfrom mgx import MGX\n\n# 中断回调函数\ndef mg_callback(voltage: float) -> None:\n    print(\"[IRQ] Voltage: {:.3f} V\".format(voltage))\n\n# 初始化配置\ntime.sleep(3)\nprint(\"Measuring Gas Concentration with MG Series Gas Sensor Modules\")\n\nadc = ADC(Pin(26))\ncomp = Pin(19, Pin.IN)\nmg = MGX(adc, comp, mg_callback, rl_ohm=10000, vref=3.3)\nmg.select_builtin(\"MG811\")\n\n# 主程序\nprint(\"===== MG Sensor Test Program Started =====\")\ntry:\n    while True:\n        v = mg.read_voltage()\n        print(\"Voltage: {:.3f} V\".format(v))\n        \n        ppm = mg.read_ppm(samples=5, delay_ms=200)\n        print(\"Gas concentration: {:.2f} ppm\".format(ppm))\n        \n        print(\"-\" * 40)\n        sleep(2)\nexcept KeyboardInterrupt:\n    print(\"User interrupted, exiting program...\")\nfinally:\n    mg.deinit()\n    print(\"Sensor resources released.\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "mgx"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mgx_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "adc_raw_to_voltage",
+    "deinit",
+    "read_ppm",
+    "read_voltage",
+    "select_builtin",
+    "set_custom_polynomial"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

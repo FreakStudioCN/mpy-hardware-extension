@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -13,6 +13,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.package_store import normalize_record, safe_context_filename
+from scripts.finalize_catalog import finalize_index, write_evidence
 from scripts.normalize_driver_context import extract_driver_context
 
 UPYPI_BASE = "https://upypi.net"
@@ -101,60 +102,6 @@ def version_key(version: str) -> tuple[tuple[int, int | str], ...]:
     return tuple(parts)
 
 
-def parse_upypi_package_json_url(url: str) -> tuple[str, str] | None:
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme != "https" or parsed.netloc != "upypi.net":
-        return None
-    parts = parsed.path.strip("/").split("/")
-    if len(parts) != 4 or parts[0] != "pkgs" or parts[3] != "package.json":
-        return None
-    return urllib.parse.unquote(parts[1]), urllib.parse.unquote(parts[2])
-
-
-def reconcile_driver_context_refs(output_dir: str | Path, records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    output_dir = Path(output_dir)
-    write_index = records is None
-    records = list(records) if records is not None else read_existing_records(output_dir)
-    by_key = {(record.get("name"), record.get("version")): record for record in records if record.get("name") and record.get("version")}
-    context_dir = output_dir / "driver_context"
-    if not context_dir.exists():
-        return records
-
-    for context_path in sorted(context_dir.glob("*.json")):
-        try:
-            context = json.loads(context_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        install = context.get("install") if isinstance(context, dict) else None
-        install_url = install.get("url") if isinstance(install, dict) else ""
-        parsed = parse_upypi_package_json_url(str(install_url or ""))
-        if parsed is None:
-            continue
-        name, version = parsed
-        ref = f"driver_context/{context_path.name}"
-        record = by_key.get((name, version))
-        if record is None:
-            record = normalize_record(
-                {
-                    "name": name,
-                    "version": version,
-                    "source": "upypi",
-                    "package_json_url": install_url,
-                    "support_level": context.get("support_level", "generatable"),
-                    "description": context.get("description", ""),
-                    "cached": True,
-                }
-            )
-            records.append(record)
-            by_key[(name, version)] = record
-        record["driver_context_ref"] = ref
-        if context.get("support_level"):
-            record["support_level"] = context["support_level"]
-    if write_index:
-        (output_dir / "package_index.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
-    return records
-
-
 def fetch_source(pkg: dict[str, Any], name: str, version: str, get_text=_http_get) -> str:
     """Concatenate the package's source files (urls entries) for context extraction."""
     parts: list[str] = []
@@ -174,14 +121,32 @@ def ingest_live(output_dir: str | Path, get_json=_http_get_json, get_text=_http_
     context (generatable), others stay installable."""
     output_dir = Path(output_dir)
     (output_dir / "driver_context").mkdir(parents=True, exist_ok=True)
-    records = read_existing_records(output_dir)
+    # Rebuild the upypi slice from the live registry; other sources are left
+    # untouched and cross-source dedup happens in finalize_index. Keep the prior
+    # upypi rows indexed so a transient per-package fetch failure does not delete
+    # a previously valid package.
+    previous_records = read_existing_records(output_dir)
+    records = [record for record in previous_records if record.get("source") != "upypi"]
+    previous_upypi = {
+        (record["name"], record["version"]): record
+        for record in previous_records
+        if record.get("source") == "upypi" and record.get("name") and record.get("version")
+    }
     existing = {(record["name"], record["version"]) for record in records}
     written = 0
     contexts: list[str] = []
-    for name, version in discover_packages(get_json).items():
+    discovered = discover_packages(get_json)
+    # Deterministic fingerprint of the registry snapshot we ingested, so the
+    # freshness guard can detect that upypi published new versions.
+    snapshot_sha256 = hashlib.sha256(json.dumps(sorted(discovered.items())).encode("utf-8")).hexdigest()
+    for name, version in discovered.items():
         try:
             pkg = get_json(f"{UPYPI_BASE}/pkgs/{name}/{version}/package.json")
         except (urllib.error.URLError, OSError, ValueError):
+            prior = previous_upypi.get((name, version))
+            if prior and (name, version) not in existing:
+                records.append(prior)
+                existing.add((name, version))
             continue
         version = pkg.get("version", version)
         if (name, version) in existing:
@@ -201,11 +166,16 @@ def ingest_live(output_dir: str | Path, get_json=_http_get_json, get_text=_http_
         records.append(record)
         existing.add((name, version))
         written += 1
-    records = reconcile_driver_context_refs(output_dir, records)
     (output_dir / "package_index.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
-    evidence = {"source": "upypi-live", "records_written": written, "driver_contexts": contexts}
-    (output_dir / "ingestion_evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
-    return evidence
+    summary = finalize_index(output_dir)
+    block = {
+        "snapshot_sha256": snapshot_sha256,
+        "records_written": written,
+        "driver_contexts": sorted(contexts),
+        "invalid_contexts": summary["invalid_contexts"],
+    }
+    write_evidence(output_dir, "upypi", block)
+    return block
 
 
 def main() -> None:

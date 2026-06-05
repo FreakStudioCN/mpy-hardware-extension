@@ -1,9 +1,36 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "SSD1306_I2C(i2c, addr, width, height, external_vcc)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ssd1306.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from ssd1306 import SSD1306_I2C\nfrom machine import I2C, Pin\nimport time, os\n\n# 延时等待设备上电\ntime.sleep(3)\nprint(\"FreakStudio: Testing OLED display\")\n\n# 初始化I2C\ni2c = I2C(id=0, sda=Pin(4), scl=Pin(5), freq=400000)\n\n# 扫描I2C设备\ndevices_list = i2c.scan()\nOLED_ADDRESS = 0\nfor device in devices_list:\n    if device == 0x3c or device == 0x3d:\n        OLED_ADDRESS = device\n\n# 初始化OLED\noled = SSD1306_I2C(i2c, OLED_ADDRESS, 128, 64, False)\noled.fill(0)\noled.rect(0, 0, 64, 32, 1)  # 绘制矩形外框\noled.text('Freak', 10, 5)    # 显示文字\noled.text('Studio', 10, 15)\noled.show()\n\n# 主循环\nwhile True:\n    time.sleep(0.1)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "ssd1306"
   ],
-  "constructors": [
-    "SSD1306_I2C(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/ssd1306_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "contrast",
@@ -16,25 +43,5 @@
     "write_data"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/ssd1306_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "ssd1306.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

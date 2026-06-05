@@ -1,0 +1,67 @@
+{
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)",
+    "SpiAdapter(bus, data_mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "base_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "bus_service.py",
+      "type": "source"
+    },
+    {
+      "path": "veml6040mod.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "veml6040_driver/\n├── code/\n│   ├── veml6040mod.py                 # 核心驱动\n│   ├── main.py                        # 测试示例\n│   └── sensor_pack_2/                 # 基础传感器框架包\n│       ├── __init__.py                # 包初始化\n│       ├── base_sensor.py             # 传感器基类与总线抽象\n│       └── bus_service.py             # I2C/SPI 总线适配器\n├── LICENSE\n└── README.md                          # 说明文档",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/4/21 下午\n# @Author  : FreakStudio\n# @File    : main.py\n# @Description : VEML6040 RGBW 颜色传感器读取示例\n\n# ======================================== 导入相关模块 =========================================\n\nfrom machine import I2C, Pin\nfrom sensor_pack_2.bus_service import I2cAdapter\nfrom veml6040mod import VEML6040, get_g_max_lux\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# VEML6040 默认 I2C 地址\nTARGET_SENSOR_ADDRS = [0x10]\n\n# I2C 数据线连接到 Pico GPIO4\nI2C_SDA_PIN = 4\n\n# I2C 时钟线连接到 Pico GPIO5\nI2C_SCL_PIN = 5\n\n# I2C 通信频率设置为 400kHz\nI2C_FREQ = 400000\n\n# 积分时间配置为 80ms\nINTEGRATION_TIME = 1\n\n# ======================================== 功能函数 ============================================\n\n\ndef get_als_lux(green_channel: int, sensitivity: float) -> float:\n    \"\"\"\n    根据绿色通道计算环境光照度。\n    Args:\n        green_channel (int): 绿色通道原始值。\n        sensitivity (float): 当前积分时间对应的灵敏度。\n\n    Raises:\n        ValueError: 参数为空或取值非法时抛出。\n        TypeError: 参数类型非法时抛出。\n\n    Notes:\n        VEML6040 使用绿色通道估算环境光照度。\n\n    ==========================================\n    Calculate ambient light lux from green channel.\n    Args:\n        green_channel (int): Green channel raw value.\n        sensitivity (float): Sensitivity for current integration time.\n\n    Raises:\n        ValueError: Raised when parameter is None or invalid.\n        TypeError: Raised when parameter type is invalid.\n\n    Notes:\n        VEML6040 estimates ambient lux from green channel.\n    \"\"\"\n    if green_channel is None:\n        raise ValueError(\"Green channel cannot be None\")\n\n    if sensitivity is None:\n        raise ValueError(\"Sensitivity cannot be None\")\n\n    if not isinstance(green_channel, int):\n        raise TypeError(\"Green channel must be integer\")\n\n    if sensitivity < 0:\n        raise ValueError(\"Sensitivity must not be negative\")\n\n    return sensitivity * green_channel\n\n\ndef detect_color(red: int, green: int, blue: int, white: int) -> str:\n    \"\"\"\n    根据 RGBW 原始通道识别基础颜色。\n    Args:\n        red (int): 红色通道原始值。\n        green (int): 绿色通道原始值。\n        blue (int): 蓝色通道原始值。\n        white (int): 白光通道原始值。\n\n    Raises:\n        ValueError: 参数为空或取值非法时抛出。\n        TypeError: 参数类型非法时抛出。\n\n    Notes:\n        该算法用于基础颜色判断，实际项目可按光源和外壳校准阈值。\n\n    ==========================================\n    Detect basic color from RGBW raw channels.\n    Args:\n        red (int): Red channel raw value.\n        green (int): Green channel raw value.\n        blue (int): Blue channel raw value.\n        white (int): White channel raw value.\n\n    Raises:\n        ValueError: Raised when parameter is None or invalid.\n        TypeError: Raised when parameter type is invalid.\n\n    Notes:\n        This algorithm is for basic color detection and can be calibrated.\n    \"\"\"\n    channels = (red, green, blue, white)\n\n    for value in channels:\n        if value is None:\n            raise ValueError(\"Color channel cannot be None\")\n\n        if not isinstance(value, int):\n            raise TypeError(\"Color channel must be integer\")\n\n        if value < 0:\n            raise ValueError(\"Color channel must not be negative\")\n\n    rgb_max = max(red, green, blue)\n    rgb_min = min(red, green, blue)\n    rgb_sum = red + green + blue\n\n    if white < 20 or rgb_max < 10:\n        return \"Black\"\n\n    if rgb_sum == 0:\n        return \"Black\"\n\n    balance = rgb_max - rgb_min\n\n    if balance < rgb_max * 0.18:\n        if white > rgb_max * 1.2:\n            return \"White\"\n\n        return \"Gray\"\n\n    red_ratio = red / rgb_sum\n    green_ratio = green / rgb_sum\n    blue_ratio = blue / rgb_sum\n\n    if red_ratio > 0.45 and green_ratio > 0.35:\n        return \"Yellow\"\n\n    if green_ratio > 0.42 and blue_ratio > 0.32:\n        return \"Cyan\"\n\n    if red_ratio > 0.42 and blue_ratio > 0.32:\n        return \"Magenta\"\n\n    if red_ratio > green_ratio and red_ratio > blue_ratio:\n        return \"Red\"\n\n    if green_ratio > red_ratio and green_ratio > blue_ratio:\n        return \"Green\"\n\n    if blue_ratio > red_ratio and blue_ratio > green_ratio:\n        return \"Blue\"\n\n    return \"Unknown\"\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: VEML6040 RGBW color sensor\")\n\n# 初始化 I2C 总线\ni2c_bus = I2C(id=0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n\n# 扫描 I2C 总线设备\ndevices_list = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\n# 判断是否扫描到 I2C 设备\nif len(devices_list) == 0:\n    print(\"No i2c device\")\n    raise SystemExit(\"I2C scan found no devices\")\n\n# 判断是否扫描到 VEML6040 默认地址\nif TARGET_SENSOR_ADDRS[0] not in devices_list:\n    print(\"VEML6040 address not found\")\n    raise SystemExit(\"No VEML6040 device found\")\n\n# 打印 VEML6040 地址\nprint(\"I2C hexadecimal address:\", hex(TARGET_SENSOR_ADDRS[0]))\n\n# 创建 I2C 适配器\nadapter = I2cAdapter(i2c_bus)\n\n# 创建 VEML6040 传感器对象\nsensor = VEML6040(adapter)\n\n# 确保传感器处于工作状态\nif sensor.shutdown:\n    sensor.shutdown = False\n\n# 启动单次测量模式\nsensor.start_measurement(integr_time=INTEGRATION_TIME, auto_mode=False)\n\n# 获取测量等待时间\nwait_time_ms = sensor.get_conversion_cycle_time()\n\n# 获取当前积分时间对应的光照灵敏度\ngreen_sensitivity, max_lux = get_g_max_lux(sensor.integration_time)\n\n# 打印初始化信息\nprint(\"Sensor initialization successful\")\nprint(\"Integration time:\", sensor.integration_time)\nprint(\"Wait time ms:\", wait_time_ms)\nprint(\"Green sensitivity:\", green_sensitivity)\nprint(\"Max detectable lux:\", max_lux)\n\n# ========================================  主程序  ============================================\n\ntry:\n    while True:\n        # 等待单次测量完成\n        time.sleep_ms(wait_time_ms)\n\n        # 读取 RGBW 原始通道\n        red, green, blue, white = sensor.get_colors()\n\n        # 根据绿色通道计算 lux\n        lux = get_als_lux(green, green_sensitivity)\n\n        # 根据 RGBW 原始通道识别颜色\n        color_name = detect_color(red, green, blue, white)\n\n        # 打印英文格式的颜色和光照数据\n        print(\n            \"Red: {}  Green: {}  Blue: {}  White: {}  Lux: {:.2f}  Color: {}\".format(\n                red,\n                green,\n                blue,\n                white,\n                lux,\n                color_name,\n            )\n        )\n\n        # 再次启动单次测量\n        sensor.start_measurement(integr_time=INTEGRATION_TIME, auto_mode=False)\nexcept KeyboardInterrupt:\n    # 关闭传感器\n    sensor.shutdown = True\n\n    # 打印停止提示\n    print(\"Measurement stopped\")"
+  ],
+  "import_names": [
+    "bus_service",
+    "base_sensor",
+    "veml6040mod"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/veml6040_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "get_bus_type",
+    "read",
+    "read_buf_from_memory",
+    "read_register",
+    "read_to_buf",
+    "write",
+    "write_and_read",
+    "write_buf_to_memory",
+    "write_const",
+    "write_register"
+  ],
+  "read_properties": [
+    "prepare_func"
+  ],
+  "support_level": "generatable"
+}

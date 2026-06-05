@@ -1,133 +1,183 @@
-# mpy-hardware-extension
+# Blockless
 
-一句话生硬件 · MicroPython 硬件扩展项目工作空间。
+Blockless 可以把一句自然语言硬件想法变成一个 MicroPython 项目。你描述想做什么，VS Code 扩展里的 AI agent 会选择器件、生成项目 manifest、推导接线、生成固件、审计代码，并在你确认后部署到连接的 MicroPython 开发板。
 
-通过自然语言生成 MicroPython 硬件代码、对接 uPyPi 包仓库、一键烧录到开发板。
+本仓库包含产品的两部分：
 
-## 快速开始（从零跑起来当前版本）
+- `mpyhw-api/`：FastAPI 后端，负责认证、积分、包/目录内容、skill 加载、遥测和 LLM 流式生成。
+- `mpy-hardware-extension/`：VS Code 扩展和 webview 用户界面。
 
-当前版本由两部分组成，要一起跑：
+## 当前状态
 
-- `mpyhw-api/` —— 本地后端服务（FastAPI），提供板子列表、包仓库、LLM agent，监听 `127.0.0.1:8787`；数据落在本地 Postgres
-- `mpy-hardware-extension/` —— VS Code 扩展（唯一的用户界面）
+- 本地端到端开发流程已可用。
+- 后端已准备 Fly.io + 托管 Postgres 部署配置。
+- 扩展使用 `@vscode/vsce` 打包。
+- 真板烧录验证仍是独立验证线；当前自动化测试使用 mock/shim 的设备流程。
 
-**前置**：Python 3.10+、Node.js、VS Code ≥ 1.90、**Docker Desktop**（后端用容器跑 Postgres）。
+## 前置要求
 
-### 1. 启动后端 API（含 Postgres）
+- Python 3.10+
+- Node.js 22+
+- Docker Desktop
+- VS Code 1.90+
+- Windows PowerShell
 
-```sh
-cd mpyhw-api
-pip install -r requirements.txt        # fastapi / uvicorn / psycopg / pydantic …
+## 启动本地服务
 
-# 配置 mpyhw-api/.env（此文件已被 .gitignore，不会进仓）：
-#   DATABASE_URL=postgresql://USER:PASS@127.0.0.1:55432/mpyhw   # 必填，必须是 postgres:// 或 postgresql://
-#   DEEPSEEK_API_KEY=sk-xxxx                                    # 真实 LLM 必填（stub 模式除外）
-#   MPYHW_JWT_SECRET=...                                        # 会话/计量 token 签名密钥
-#   MPYHW_LLM_MODEL=deepseek-v4-pro                             # 可选，默认 deepseek-v4-pro
+创建 `mpyhw-api/.env`：
 
-pwsh scripts/dev-up.ps1                 # 确保 Docker 就绪 → 起/复用容器 mpyhw-pg(postgres:16) → 起 uvicorn
+```env
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/mpyhw
+MPYHW_JWT_SECRET=dev-local-secret-change-me
+MPYHW_ADMIN_TOKEN=dev-admin-token
+DEEPSEEK_API_KEY=sk-...
+MPYHW_LLM_MODEL=deepseek-chat
 ```
 
-> `dev-up.ps1` 读取 `.env`，把 `DATABASE_URL` 指向的 Postgres 带起来再启动 API。
-> 没有真实 LLM key 也能跑：`$env:MPYHW_LLM_STUB=1; pwsh scripts/dev-up.ps1` 用桩 LLM。
-> 注意：后端**强制 Postgres**——`DATABASE_URL` 缺失或是 SQLite 会直接拒绝启动（不再有 SQLite 回退）。
-
-探活（返回 `ok` 即就绪）：
+如果本地开发时没有真实 LLM key，可以用 stub 模式启动：
 
 ```powershell
-(Invoke-RestMethod http://127.0.0.1:8787/v1/health).status
+$env:MPYHW_LLM_STUB = "1"
+powershell -ExecutionPolicy Bypass -File mpyhw-api/scripts/dev-up.ps1
 ```
 
-### 2. 构建并加载扩展
+`dev-up.ps1` 会读取 `mpyhw-api/.env`，启动或复用 Docker 里的 `postgres:16` 容器，等待 Postgres 就绪，然后运行：
 
-```sh
+```powershell
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8787
+```
+
+健康检查：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8787/v1/health
+Invoke-RestMethod http://127.0.0.1:8787/v1/health/ready
+```
+
+预期返回：
+
+```json
+{"status":"ok"}
+{"status":"ok","db":"ok"}
+```
+
+## 运行测试
+
+后端测试需要真实 Postgres URL。不要把真实 `DEEPSEEK_API_KEY` 继承进后端测试进程，除非你明确要测真实上游调用；测试里有一个用例专门验证“未配置上游时返回错误”的路径。
+
+```powershell
+cd mpyhw-api
+python -m pytest -q
+```
+
+最近一次全量结果：
+
+```text
+145 passed
+```
+
+扩展测试：
+
+```powershell
+cd mpy-hardware-extension
+npm test
+```
+
+最近一次全量结果：
+
+```text
+254 passed, 0 failed, 0 skipped
+```
+
+部分扩展测试会启动 Python 子进程。如果看到 `spawn EPERM`，说明当前沙箱阻止了子进程启动，请在普通终端或批准权限下重跑。
+
+## 构建和打包扩展
+
+```powershell
 cd mpy-hardware-extension
 npm install
-npm run build                        # esbuild 打包到 dist/extension/activate.cjs
+npm run build
+npm run package
 ```
 
-两种加载方式，任选其一：
+`npm run package` 会运行 `scripts/prepare-vsce.mjs`，它会：
 
-**方式 A — F5 调试（开发迭代用）**：用 VS Code 打开**仓库根目录**（不是 `mpy-hardware-extension/` 子文件夹，否则 `.vscode/launch.json` 的 F5 配置不生效），按 `F5` 启动 Extension Development Host。会新开一个标题带 `[Extension Development Host]` 的窗口，Blockless 图标在那个新窗口里。前端 `src/webview/index.html` 在此模式下实时读取，改完直接重开面板即可。
+- 将 `src/extension/activate.ts` 打包为 `dist/extension/activate.cjs`；
+- 将 VSIX 运行时需要的 `third_party/MicroPython_Skills` toolchain 子集 vendoring 进扩展包；
+- 将 VSIX 写入 `mpy-hardware-extension/build/`。
 
-**方式 B — 打包安装到你日常的 VS Code（自测用）**：
+扩展默认连接托管后端：
+
+```text
+https://blockless-api.fly.dev
+```
+
+本地开发时可以用 VS Code 设置 `mpyhw.apiBaseUrl` 覆盖，或设置环境变量：
+
+```powershell
+$env:MPYHW_API_BASE = "http://127.0.0.1:8787"
+```
+
+## 安装本地 VSIX
+
+```powershell
+cd mpy-hardware-extension
+code --install-extension build/mpy-hardware-extension-0.3.0.vsix --force
+```
+
+重新安装构建后的 VSIX 后，建议完全退出并重启 VS Code。仅 `Reload Window` 往往不足以刷新 extension host/module 变更。
+
+## 后端部署
+
+完整部署文档在 `mpyhw-api/DEPLOY.md`。
+
+简版流程：
 
 ```sh
-npm run package                      # 生成 build/mpy-hardware-extension-<version>.vsix
-code --install-extension build/mpy-hardware-extension-<version>.vsix --force
+git submodule update --init --recursive
+fly launch --no-deploy --config mpyhw-api/fly.toml --name blockless-api
+fly postgres create --name blockless-db --region iad
+fly postgres attach blockless-db --app blockless-api
+fly secrets set --app blockless-api \
+  MPYHW_JWT_SECRET="$(openssl rand -hex 32)" \
+  DEEPSEEK_API_KEY="sk-..." \
+  MPYHW_ADMIN_TOKEN="$(openssl rand -hex 24)"
+fly deploy --config mpyhw-api/fly.toml --dockerfile mpyhw-api/Dockerfile
 ```
 
-> 重装注意：每次重新打包前先 bump `package.json` 的 `version`，否则 VS Code 认为版本未变、不会真正更新；安装后要**完全退出并重启 VS Code**（`Reload Window` 不够）。vsix 是打包那一刻的冻结快照——前端改动必须重新 `package` 才会进安装版。
-
-### 3. 使用
-
-1. 在活动栏点 **Blockless** 图标打开侧边面板。
-2. 确认 API 已在跑；否则板卡列表、配额和生成流程无法加载。
-3. 在输入框描述设备要做什么（中英文皆可），点 **Generate**。如果需求或板卡选择不明确，agent 会在 Activity 里用可回答的问题让你确认。
-4. 在 Activity / Code / Serial / Wiring 四个标签里看生成过程与结果。Activity 默认只展示用户可理解的阶段、问题和确认项；`generate_code` / `ask_user` 这类内部 tool 名称只进入日志和开发者 trace，不直接展示给普通用户。
-
-> 生成产物（`firmware/`、`project-manifest.json` 等）会写进你**当前打开的工作区文件夹**。开发本仓库时，建议另开一个空文件夹做生成测试，别在本仓库根目录直接跑生成。
-
-**常用环境变量**
-
-| 变量 | 作用 | 默认 |
-|------|------|------|
-| `DATABASE_URL` | 后端 Postgres 连接串（写在 `.env`），必须是 `postgres://`/`postgresql://` | 必填 |
-| `DEEPSEEK_API_KEY` | 后端 DeepSeek 密钥（写在 `.env`） | 必填（stub 模式除外） |
-| `MPYHW_JWT_SECRET` | 会话/计量 token 的签名密钥（写在 `.env`） | 必填 |
-| `MPYHW_LLM_STUB=1` | 后端用桩 LLM，无需真实 key | 不设=连 DeepSeek |
-| `MPYHW_API_BASE` | 扩展连接的 API 地址 | `http://127.0.0.1:8787` |
-| `MPYHW_LOOP=template` | 用离线确定性流水线代替真实 LLM | 不设=真实 agent |
-| `MPYHW_ADMIN_TOKEN` | 运维指标接口 `/v1/admin/metrics` 的访问密钥，请求带 `X-Admin-Token` 头 | 不设=该接口对外关闭 |
-
-> 注意：`dist/` 不进仓（`src` 为唯一真相），所以克隆后必须先 `npm install && npm run build` 才能跑扩展。
+生产环境启动时会校验必需 secret。如果缺失或仍使用 dev 默认值，后端会直接启动失败，避免错误配置上线。
 
 ## 目录结构
 
-```
+```text
 .
-├── mpyhw-api/                    本地后端服务（FastAPI）：板子/包仓库/LLM agent
-├── mpy-hardware-extension/       VS Code 扩展（用户界面，src 为唯一真相）
-│
-├── dev/                          MicroPython 硬件扩展核心技术资料
-│   ├── prd.md                    一句话生硬件 完整 PRD
-│   ├── *.pdf                     5 份原始资料（Thonny 插件、uPyPi、应用商城、SOP …）
-│   └── extracted/                PDF 转 Markdown 后的可检索版本
-│       ├── INDEX.md              索引 + 13 个 GitHub 仓库 + 27 个外链汇总
-│       ├── thonny-upypi-需求规格.md
-│       ├── thonny-mpy-安装使用.md
-│       ├── upystore-应用商城.md
-│       ├── 一句话生硬件-资料汇总.md
-│       ├── 开发生产宣传SOP.md
-│       └── *_images/             每篇配套的图片 + OCR 文本
-│
-├── docs/
-│   ├── product/                  产品文档：core / idea / prd / appstore（中英）
-│   ├── research/                 调研与设计笔记
-│   │   ├── project_*.md          各子主题分析（商业模式、定位、护城河 …）
-│   │   ├── feedback_*.md         用户/市场反馈笔记
-│   │   ├── phase2/               二阶段调研材料
-│   │   └── pitch-archive/        早期 pitch 调研归档
-│   ├── pitch/                    对外材料
-│   │   ├── NVSC Coaching Presentation.md
-│   │   └── deck/                 中英文 pitch deck
-│   └── legal/                    法务（联合创始人协议等）
-│
-└── assets/                       图片等静态资源
+|-- mpyhw-api/                  FastAPI 后端
+|   |-- app/                    routes、auth、credits、DB、LLM、telemetry
+|   |-- content/                boards、packages、driver context catalog
+|   |-- scripts/                dev-up、ingestion、catalog 工具
+|   |-- tests/                  后端 pytest 测试
+|   |-- Dockerfile
+|   |-- fly.toml
+|   `-- DEPLOY.md
+|-- mpy-hardware-extension/     VS Code 扩展
+|   |-- src/                    extension host、core loop、webview
+|   |-- python/shim/            mpremote/serial 设备辅助进程
+|   |-- scripts/                构建和 VSIX 准备脚本
+|   |-- test/                   node:test 测试
+|   `-- package.json
+|-- third_party/
+|   |-- MicroPython_Skills/     已服务的 skills 和打包用 toolchain 脚本
+|   `-- GraftSense-Drivers-MicroPython/
+|-- content/                    根目录生成的 package catalog mirror
+|-- docs/                       产品、调研、pitch、法务文档
+|-- contracts/                  共享 tool contract
+`-- dev/                        原始调研资料和提取后的参考文档
 ```
 
-## 快速入口
+## 贡献注意事项
 
-- 想了解项目背景与目标 → `docs/product/core.md`、`dev/prd.md`
-- 想了解 Thonny + uPyPi 插件方案 → `dev/extracted/INDEX.md`
-- 想了解商业/融资视角 → `docs/research/research-INDEX.md`
-
-## 相关上游仓库
-
-- https://github.com/FreakStudioCN/upypi —— uPyPi 包仓库后端
-- https://github.com/FreakStudioCN/thonny-upypi-manager —— Thonny 包管理插件
-- https://github.com/FreakStudioCN/MicroPython_Skills —— MicroPython 技能库
-- https://github.com/MicroPythonOS/MicroPythonOS
-- https://github.com/thonny/thonny
-
-完整链接见 `dev/extracted/INDEX.md`。
+- 保持改动外科手术式；这个仓库在活跃开发时经常有较大的 dirty worktree。
+- 不要提交 `mpyhw-api/.env` 里的 secret。
+- `dist/` 是生成产物；源码真相在 `mpy-hardware-extension/src/`。
+- 后端实际服务的 skill 列表由 `mpyhw-api/app/skill_catalog.py` 控制。
+- 如果某个 served skill 引用了 host-side 脚本，必须确认该脚本要么通过 canonical tool 暴露，要么由 `prepare-vsce.mjs` 打包进 VSIX。

@@ -1,9 +1,36 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "ADS1219(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ads1219.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/23 下午2:23\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : ADS1219模数转换器单-shot转换模式数据读取，实现I2C设备扫描、传感器初始化及电压数据采集\n\n# ======================================== 导入相关模块 =========================================\n\n# 从machine模块导入Pin类，用于配置硬件引脚\nfrom machine import Pin\n\n# 从machine模块导入I2C类，用于I2C总线通信控制\nfrom machine import I2C\n\n# 从ads1219模块导入ADS1219类，用于操作ADS1219模数转换器\nfrom ads1219 import ADS1219\n\n# 导入utime模块，用于实现延时等时间相关操作\nimport utime\n\n# ======================================== 全局变量 ============================================\n\n# 定义I2C总线SCL引脚编号（对应Raspberry Pi Pico的GPIO5）\nI2C_SCL_PIN = 5\n# 定义I2C总线SDA引脚编号（对应Raspberry Pi Pico的GPIO4）\nI2C_SDA_PIN = 4\n# 定义I2C总线通信频率（标准100kHz，符合I2C总线规范）\nI2C_FREQ = 100000\n# 定义ADS1219的目标I2C地址列表（ADDR引脚可配置为0x40-0x43）\nTARGET_SENSOR_ADDR_LIST = [0x40, 0x41, 0x42, 0x43]\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 延时3秒，确保硬件设备完成上电稳定过程\nutime.sleep(3)\n# 打印初始化提示信息，标识功能用途\nprint(\"FreakStudio: ADS1219 I2C sensor initialization and data acquisition\")\n\n# 初始化I2C总线0，配置SCL/SDA引脚及通信频率\ni2c_bus = I2C(0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n\n# 扫描I2C总线上连接的所有设备，返回设备地址列表\ndevices_list: list[int] = i2c_bus.scan()\n# 打印I2C扫描启动提示\nprint(\"START I2C SCANNER\")\n\n# 检查I2C扫描结果，若未发现任何设备则终止程序\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    # 打印扫描到的I2C设备数量\n    print(\"i2c devices found:\", len(devices_list))\n\n# 初始化ADC变量，用于存储ADS1219传感器实例\nadc = None\n# 遍历扫描到的I2C设备地址，匹配目标传感器地址\nfor device in devices_list:\n    if device in TARGET_SENSOR_ADDR_LIST:\n        # 打印匹配到的I2C设备十六进制地址\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            # 初始化ADS1219传感器实例\n            adc = ADS1219(i2c_bus)\n            # 打印传感器初始化成功提示\n            print(\"ADS1219 sensor initialization successful\")\n            break\n        except Exception as e:\n            # 打印传感器初始化失败信息及异常详情\n            print(f\"ADS1219 Initialization failed: {e}\")\n            continue\nelse:\n    # 未找到目标传感器时抛出异常，包含目标地址和已发现地址信息\n    raise Exception(\n        f\"No ADS1219 found! Target addresses: {[hex(addr) for addr in TARGET_SENSOR_ADDR_LIST]}, \"\n        f\"Found addresses: {[hex(addr) for addr in devices_list]}\"\n    )\n\n# ========================================  主程序  ============================================\n\n# 设置ADS1219的采样通道为AIN0通道\nadc.set_channel(ADS1219.CHANNEL_AIN0)\n# 设置ADS1219的转换模式为单次转换模式\nadc.set_conversion_mode(ADS1219.CM_SINGLE)\n# 设置ADS1219的增益为1倍增益\nadc.set_gain(ADS1219.GAIN_1X)\n# 设置ADS1219的数据率为20 SPS（该速率下转换精度最高）\nadc.set_data_rate(ADS1219.DR_20_SPS)\n# 设置ADS1219的参考电压为内部参考电压\nadc.set_vref(ADS1219.VREF_INTERNAL)\n\n# 无限循环读取ADS1219转换数据并打印\nwhile True:\n    # 读取ADS1219单次转换后的数据\n    result = adc.read_data()\n    # 打印原始转换数据及转换后的毫伏值\n    print(\"result = {}, mV = {:.2f}\".format(result, result * ADS1219.VREF_INTERNAL_MV / ADS1219.POSITIVE_CODE_RANGE))\n    # 延时0.1秒，控制数据读取频率\n    utime.sleep(0.1)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "ads1219"
   ],
-  "constructors": [
-    "ADS1219(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/signal_acquisition/ads1219_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "powerdown",
@@ -20,25 +47,5 @@
     "start_sync"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/ads1219_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "ads1219.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

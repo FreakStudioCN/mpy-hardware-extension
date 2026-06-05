@@ -1,0 +1,126 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "MSESoilSensor(slave_addr, baudrate, uart_id, tx_pin, rx_pin)",
+    "ModbusRTU(addr, baudrate, data_bits, stop_bits, parity, pins, ctrl_pin, uart_id)",
+    "Serial(uart_id, baudrate, data_bits, stop_bits, parity, pins, ctrl_pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mse_soil_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "common.py",
+      "type": "source"
+    },
+    {
+      "path": "const.py",
+      "type": "source"
+    },
+    {
+      "path": "functions.py",
+      "type": "source"
+    },
+    {
+      "path": "modbus.py",
+      "type": "source"
+    },
+    {
+      "path": "serial.py",
+      "type": "source"
+    },
+    {
+      "path": "tcp.py",
+      "type": "source"
+    },
+    {
+      "path": "typing.py",
+      "type": "source"
+    },
+    {
+      "path": "version.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mse_soil_sensor",
+    "serial",
+    "common",
+    "const",
+    "functions",
+    "modbus",
+    "tcp",
+    "typing",
+    "version"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mse_soil_sensor_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "add_coil",
+    "add_hreg",
+    "add_ireg",
+    "add_ist",
+    "get_coil",
+    "get_hreg",
+    "get_ireg",
+    "get_ist",
+    "get_request",
+    "process",
+    "read_avg_window_size",
+    "read_cap_center",
+    "read_cap_range",
+    "read_capacitance",
+    "read_coils",
+    "read_device_uid",
+    "read_discrete_inputs",
+    "read_filter_count",
+    "read_firmware_version",
+    "read_holding_registers",
+    "read_hw_version",
+    "read_input_registers",
+    "read_node_address",
+    "read_temp_comp_A",
+    "read_temp_comp_B",
+    "read_temperature",
+    "remove_coil",
+    "remove_hreg",
+    "remove_ireg",
+    "remove_ist",
+    "send_exception_response",
+    "send_response",
+    "set_coil",
+    "set_hreg",
+    "set_ireg",
+    "set_ist",
+    "setup_registers",
+    "write_avg_window_size",
+    "write_filter_count",
+    "write_multiple_coils",
+    "write_multiple_registers",
+    "write_single_coil",
+    "write_single_register",
+    "write_temp_comp_A",
+    "write_temp_comp_B"
+  ],
+  "read_properties": [
+    "changed_coils",
+    "changed_hregs",
+    "changed_registers",
+    "coils",
+    "hregs",
+    "iregs",
+    "ists"
+  ],
+  "support_level": "generatable"
+}

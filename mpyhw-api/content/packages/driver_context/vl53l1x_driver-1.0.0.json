@@ -1,9 +1,38 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "VL53L1X(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "vl53l1x.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "vl53l1x_driver/\n├── code/\n│   ├── vl53l1x.py    # 核心驱动\n│   └── main.py       # 测试示例\n├── package.json      # mip 包配置\n├── README.md         # 本文档\n└── LICENSE           # 许可协议",
+    "vl53l1x.py",
+    "from machine import Pin, SoftI2C\nfrom vl53l1x import VL53L1X\n\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=400_000)\nsensor = VL53L1X(i2c=i2c)\nprint(\"Range: %d mm\" % sensor.read())\nsensor.deinit()",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/05/06 07:00\n# @Author  : FreakStudio\n# @File    : main.py\n# @Description : 测试VL53L1X激光测距传感器驱动类的代码\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import Pin, SoftI2C\nfrom vl53l1x import VL53L1X\n\n# ======================================== 全局变量 ============================================\n\nTARGET_SENSOR_ADDRS = [0x29]\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 400_000\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: Using VL53L1X ToF distance sensor ...\")\n\n# 初始化软件I2C总线\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 扫描I2C总线设备\ndevices_list = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\nif len(devices_list) == 0:\n    raise RuntimeError(\"I2C scan found no devices\")\nprint(\"I2C devices found: %d\" % len(devices_list))\n\n# 遍历扫描结果，初始化目标传感器\nsensor = None\nfor device in devices_list:\n    if device in TARGET_SENSOR_ADDRS:\n        print(\"I2C address: %s\" % hex(device))\n        sensor = VL53L1X(i2c=i2c_bus, address=device)\n        print(\"Sensor initialization successful\")\n        break\n\nif sensor is None:\n    raise RuntimeError(\"No target sensor found on I2C bus\")\n\n# ========================================  主程序  ===========================================\n\ntry:\n    while True:\n        distance_mm = sensor.read()\n        print(\"Range: %d mm\" % distance_mm)\n        time.sleep_ms(50)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    sensor.deinit()\n    del sensor\n    print(\"Program exited\")"
+  ],
   "import_names": [
     "vl53l1x"
   ],
-  "constructors": [
-    "VL53L1X(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/vl53l1x_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "deinit",
@@ -16,25 +45,5 @@
     "write_reg_16bit"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/vl53l1x_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "vl53l1x.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

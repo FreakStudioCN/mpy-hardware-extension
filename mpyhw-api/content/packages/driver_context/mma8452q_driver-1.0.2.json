@@ -1,13 +1,44 @@
 {
-  "import_names": [
-    "mma8452q",
-    "micropython_mma8452q",
-    "typing"
+  "bus": [
+    "i2c"
   ],
+  "confidence": 0.7,
   "constructors": [
-    "MMA8452Q(i2c)"
+    "MMA8452Q(i2c, address)"
   ],
-  "read_methods": [
+  "evidence_refs": [
+    {
+      "path": "mma8452q.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from code.mma8452q import MMA8452Q",
+    "from machine import I2C, Pin\nfrom code.mma8452q import MMA8452Q\n\n# 初始化I2C（引脚号根据实际开发板调整）\ni2c = I2C(0, scl=Pin(22), sda=Pin(21))\n# 初始化MMA8452Q传感器\nsensor = MMA8452Q(i2c)",
+    "x, y, z = sensor.read_acceleration()\nprint(f\"X轴加速度：{x} g, Y轴加速度：{y} g, Z轴加速度：{z} g\")",
+    "sensor.set_range(MMA8452Q.RANGE_2G)  # 配置为2g量程",
+    "sensor.set_mode(MMA8452Q.MODE_ACTIVE)  # 激活传感器\nsensor.set_mode(MMA8452Q.MODE_STANDBY)  # 待机模式（配置时需切换）",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/12 下午5:20\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : MMA8452Q 加速度计测试 配置工作模式、量程、数据速率并读取加速度数据\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import Pin, I2C, SoftI2C\nfrom mma8452q import MMA8452Q\n\n# ======================================== 全局变量 ============================================\n\n# I2C configuration for Raspberry Pi Pico\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 400000\n# 自动识别传感器地址，定义全局目标地址列表（支持多地址，单个也用[]）\n# MMA8452Q target I2C address (0x1C default, 0x1D if ADDR pin connected to VCC)\nTARGET_SENSOR_ADDRS = [0x1C, 0x1D]\n\n\n# ======================================== 功能函数 ============================================\ndef print_separator(title):\n    \"\"\"Print separator line to optimize output readability\"\"\"\n    print(\"\n\" + \"=\" * 60)\n    print(f\"=== {title}\")\n    print(\"=\" * 60)\n\n\ndef safe_read_acceleration(mma):\n    \"\"\"Safely read acceleration data with I2C exception handling\"\"\"\n    try:\n        accx, accy, accz = mma.acceleration\n        return (accx, accy, accz), True\n    except OSError as e:\n        if \"EIO\" in str(e):\n            print(f\"  I2C communication error (Errno 5): {e}\")\n        else:\n            print(f\"  Failed to read acceleration: {e}\")\n        return (0.0, 0.0, 0.0), False\n    except Exception as e:\n        print(f\"  Unknown error: {e}\")\n        return (0.0, 0.0, 0.0), False\n\n\ndef safe_set_param(mma, param_name, value, valid_values):\n    \"\"\"Safely set sensor parameters with validation and exception handling\"\"\"\n    try:\n        if value not in valid_values:\n            print(f\"  Invalid value {bin(value)}, skip setting\")\n            return False\n\n        # Set parameter (MMA8452Q driver handles standby/active mode switch internally)\n        setattr(mma, param_name, value)\n        current_value = getattr(mma, param_name)\n        print(f\"  Set successfully - Current {param_name}: {current_value} (value: {bin(value)})\")\n        return True\n    except ValueError as e:\n        print(f\"  Invalid parameter value: {e}\")\n        return False\n    except OSError as e:\n        print(f\"  I2C error when setting {param_name}: {e}\")\n        return False\n    except Exception as e:\n        print(f\"  Failed to set {param_name}: {e}\")\n        return False\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\ntime.sleep(3)\nprint(\"FreakStudio: MMA8452Q accelerometer configuration and data reading demo\")\n\n# Initialize I2C bus\ntry:\n    # I2C初始化（兼容I2C/SoftI2C）\n    i2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n    \n    # 开始扫描I2C总线上的设备\n    devices_list: list[int] = i2c_bus.scan()\n    print(\"START I2C SCANNER\")\n\n    # 检查I2C设备扫描结果\n    if len(devices_list) == 0:\n        print(\"No i2c device !\")\n        raise SystemExit(\"I2C scan found no devices, program exited\")\n    else:\n        print(\"i2c devices found:\", len(devices_list))\n\n    # 遍历地址列表初始化目标传感器\n    mma_sensor = None  # 初始化传感器对象占位符\n    for device in devices_list:\n        if device in TARGET_SENSOR_ADDRS:\n            print(\"I2c hexadecimal address:\", hex(device))\n            try:\n                # 自动识别并初始化对应传感器\n                mma_sensor = MMA8452Q(i2c_bus, address=device)\n                print(\"Sensor initialization successful\")\n                break\n            except Exception as e:\n                print(f\"Sensor Initialization failed: {e}\")\n                continue\n    else:\n        # 未找到目标设备，抛出异常\n        raise Exception(\"No target sensor device found in I2C bus\")\n\nexcept Exception as e:\n    print(f\"Initialization error: {e}\")\n    raise SystemExit(\"Program exited due to initialization failure\")\n\n# ========================================  主程序  ============================================\nif __name__ == \"__main__\":\n    # 1. Demonstrate operation mode configuration (standby/active)\n    print_separator(\"1. Operation Mode Configuration Demo\")\n    for mode in MMA8452Q.operation_mode_values:\n        if safe_set_param(mma_sensor, \"operation_mode\", mode, MMA8452Q.operation_mode_values):\n            acc_data, success = safe_read_acceleration(mma_sensor)\n            if success:\n                accx, accy, accz = acc_data\n                print(f\"    Acceleration: X={accx:0.1f} m/s², Y={accy:0.1f} m/s², Z={accz:0.1f} m/s²\")\n            else:\n                print(f\"    [Cannot read data in standby mode]\")\n        time.sleep(1)\n\n    # Restore active mode for subsequent demos\n    safe_set_param(mma_sensor, \"operation_mode\", MMA8452Q.ACTIVE_MODE, MMA8452Q.operation_mode_values)\n\n    # 2. Demonstrate acceleration scale range configuration (2G/4G/8G)\n    print_separator(\"2. Acceleration Scale Range Configuration Demo\")\n    for scale in MMA8452Q.scale_range_values:\n        if safe_set_param(mma_sensor, \"scale_range\", scale, MMA8452Q.scale_range_values):\n            acc_data, success = safe_read_acceleration(mma_sensor)\n            if success:\n                accx, accy, accz = acc_data\n                print(f\"    Acceleration: X={accx:0.1f} m/s², Y={accy:0.1f} m/s², Z={accz:0.1f} m/s²\")\n        time.sleep(1)\n\n    # 3. Demonstrate output data rate configuration (800Hz ~ 1.56Hz)\n    print_separator(\"3. Output Data Rate Configuration Demo\")\n    for dr in MMA8452Q.data_rate_values:\n        if safe_set_param(mma_sensor, \"data_rate\", dr, MMA8452Q.data_rate_values):\n            # Read data 3 times to observe different data rate effects\n            print(\"    Continuous 3 readings:\")\n            for _ in range(3):\n                acc_data, success = safe_read_acceleration(mma_sensor)\n                if success:\n                    accx, accy, accz = acc_data\n                    print(f\"      X={accx:0.1f}, Y={accy:0.1f}, Z={accz:0.1f} m/s²\")\n                time.sleep(0.2)\n        time.sleep(0.5)\n\n    # 4. Demonstrate high pass filter switch configuration (enable/disable)\n    print_separator(\"4. High Pass Filter Switch Configuration Demo\")\n    for hpf in MMA8452Q.high_pass_filter_values:\n        if safe_set_param(mma_sensor, \"high_pass_filter\", hpf, MMA8452Q.high_pass_filter_values):\n            acc_data, success = safe_read_acceleration(mma_sensor)\n            if success:\n                accx, accy, accz = acc_data\n                print(f\"    Acceleration: X={accx:0.1f} m/s², Y={accy:0.1f} m/s², Z={accz:0.1f} m/s²\")\n        time.sleep(1)\n\n    # Enable high pass filter first, then demonstrate cutoff frequency\n    safe_set_param(mma_sensor, \"high_pass_filter\", MMA8452Q.HPF_ENABLED, MMA8452Q.high_pass_filter_values)\n\n    # 5. Demonstrate high pass filter cutoff frequency configuration (16Hz/8Hz/4Hz/2Hz)\n    print_separator(\"5. High Pass Filter Cutoff Frequency Configuration Demo\")\n    for cutoff in MMA8452Q.high_pass_filter_cutoff_values:\n        if safe_set_param(mma_sensor, \"high_pass_filter_cutoff\", cutoff, MMA8452Q.high_pass_filter_cutoff_values):\n            acc_data, success = safe_read_acceleration(mma_sensor)\n            if success:\n                accx, accy, accz = acc_data\n                print(f\"    Acceleration: X={accx:0.1f} m/s², Y={accy:0.1f} m/s², Z={accz:0.1f} m/s²\")\n        time.sleep(1)\n\n    # Final status summary\n    print_separator(\"6. Sensor Final Configuration Summary\")\n    try:\n        print(f\"Operation Mode: {mma_sensor.operation_mode}\")\n        print(f\"Acceleration Scale Range: {mma_sensor.scale_range}\")\n        print(f\"Output Data Rate: {mma_sensor.data_rate}\")\n        print(f\"High Pass Filter Status: {mma_sensor.high_pass_filter}\")\n        print(f\"High Pass Filter Cutoff Frequency: {mma_sensor.high_pass_filter_cutoff}\")\n\n        acc_data, success = safe_read_acceleration(mma_sensor)\n        if success:\n            accx, accy, accz = acc_data\n            print(f\"Current Acceleration: X={accx:0.1f} m/s², Y={accy:0.1f} m/s², Z={accz:0.1f} m/s²\")\n    except Exception as e:\n        print(f\"Failed to read final configuration: {e}\")\n\n    print(\"\n=== Demo completed ===\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "mma8452q"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mma8452q_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [],
+  "read_properties": [
     "acceleration",
     "data_rate",
     "high_pass_filter",
@@ -15,26 +46,5 @@
     "operation_mode",
     "scale_range"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mma8452q_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mma8452q.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

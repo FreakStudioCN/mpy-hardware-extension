@@ -1,0 +1,42 @@
+# Build context for mpyhw-api/Dockerfile is the REPO ROOT (the image needs the
+# third_party/MicroPython_Skills submodule). This ignore file keeps the context
+# small and — critically — keeps secrets (**/.env holds the live DeepSeek key)
+# and the large GraftSense drivers submodule out of the image.
+#
+# Lives at the context root so both the classic and BuildKit builders honor it.
+
+.git
+.github
+.claude
+.vscode
+
+# secrets — never bake into an image
+**/.env
+.env
+
+# the API image only needs mpyhw-api/{app,content,requirements.txt,pyproject.toml}
+# + third_party/MicroPython_Skills; everything else is dead weight.
+mpy-hardware-extension/
+build/
+dist/
+dev/
+docs/
+assets/
+contracts/
+tmp/
+test/
+.tmp-mpremote-venv/
+
+# API tests / local virtualenvs are not part of the runtime image
+mpyhw-api/tests/
+mpyhw-api/.venv/
+
+# the large drivers submodule is NOT served by the API (only MicroPython_Skills is)
+third_party/GraftSense*
+
+# python / node / editor cruft
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/node_modules/
+**/*.vsix

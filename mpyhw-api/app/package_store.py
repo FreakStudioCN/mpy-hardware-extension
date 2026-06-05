@@ -1,7 +1,12 @@
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
+
+from app.schema_validate import validate_driver_context
+
+logger = logging.getLogger(__name__)
 
 
 def safe_context_filename(name: str, version: str) -> str:
@@ -69,6 +74,10 @@ class PackageStore:
             "version": "phase1-curated",
             "sources": [{"source": "curated", "package_count": len(self.records), "last_synced_at": "2026-06-01T00:00:00Z"}],
             "total_packages": len(self.records),
+            # Honest split: only generatable/verified packages can have code generated;
+            # the rest are install-only. Surfaced so UIs don't imply the whole catalog
+            # is code-genable.
+            "generatable_count": counts.get("generatable", 0) + counts.get("verified", 0),
             "support_level_counts": counts,
             "cached": True,
         }
@@ -132,6 +141,12 @@ class PackageStore:
                 context = json.loads(context_path.read_text(encoding="utf-8"))
         if not context:
             raise ValueError("driver_context_missing")
+        # Soft serve-time check: ingest already hard-gates, so a failure here means
+        # a schema bump landed ahead of a content regen. Log it but still serve —
+        # a schema nit must not break codegen (and it is NOT a 404 "not found").
+        errors = validate_driver_context(context)
+        if errors:
+            logger.warning("driver_context schema-invalid for %s@%s: %s", name, version, "; ".join(errors[:3]))
         return {"package": self._package_record(record), **context}
 
     def _package_record(self, record: dict[str, Any]) -> dict[str, Any]:
@@ -168,6 +183,68 @@ def support_weight(level: str) -> float:
         "discoverable": 1.0,
         "experimental": 0.0,
     }.get(level, 0.0)
+
+
+# GraftSense (rich AST-extracted contexts) wins ties over uPyPI when the same chip
+# is ingested from both; curated stays highest. Used only as a tiebreaker after
+# support_level / confidence / having a driver_context.
+SOURCE_PRIORITY = {"curated": 3, "graftsense": 2, "upypi": 1}
+
+
+def canonical_chip_id(name: str) -> str:
+    """Cross-source identity for one physical device, so the same chip ingested
+    from GraftSense (`bmp280_driver`) and uPyPI (`bmp280`) collapse to a single
+    catalog entry. Deliberately conservative — lowercase, '-'->'_', strip a
+    trailing '_driver' — so near-names (bmp280 vs bmp390, ssd1306 vs ssd1327)
+    stay distinct."""
+    slug = name.strip().lower().replace("-", "_")
+    if slug.endswith("_driver"):
+        slug = slug[: -len("_driver")]
+    return slug
+
+
+def version_key(version: str) -> tuple[tuple[int, Any], ...]:
+    """Sortable key for a version string: numeric segments compare as ints,
+    everything else as lowercase strings (so 1.0.10 > 1.0.2)."""
+    parts: list[tuple[int, Any]] = []
+    for token in re.split(r"([0-9]+)", str(version)):
+        if not token or token in {".", "-", "_"}:
+            continue
+        for part in re.split(r"[._-]+", token):
+            if not part:
+                continue
+            parts.append((0, int(part)) if part.isdigit() else (1, part.lower()))
+    return tuple(parts)
+
+
+def _chip_strength(record: dict[str, Any]) -> tuple:
+    """Total ordering used to pick the surviving record within a chip group.
+    Strongest support_level first, then confidence, then having a driver_context,
+    then source priority, then newest version, then name (final deterministic
+    tiebreak)."""
+    return (
+        support_weight(record.get("support_level", "discoverable")),
+        float(record.get("confidence", 0.0)),
+        1 if (record.get("driver_context_ref") or record.get("driver_context")) else 0,
+        SOURCE_PRIORITY.get(record.get("source", ""), 0),
+        version_key(record.get("version", "")),
+        record.get("name", ""),
+    )
+
+
+def dedupe_by_chip(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse records describing the same physical chip (canonical_chip_id) to the
+    single strongest one (see _chip_strength). Losing duplicates are dropped — group
+    order is preserved by first appearance so the result is deterministic."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    for record in records:
+        cid = canonical_chip_id(record["name"])
+        if cid not in groups:
+            groups[cid] = []
+            order.append(cid)
+        groups[cid].append(record)
+    return [max(groups[cid], key=_chip_strength) for cid in order]
 
 
 def primary_resolution_capabilities(capabilities: list[str]) -> list[str]:

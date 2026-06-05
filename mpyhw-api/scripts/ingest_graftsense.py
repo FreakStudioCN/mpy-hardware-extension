@@ -2,14 +2,30 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.package_store import normalize_record, safe_context_filename, support_weight
+from app.package_store import normalize_record, safe_context_filename
+from scripts.finalize_catalog import finalize_index, write_evidence
 from scripts.normalize_driver_context import extract_driver_context, extract_graftsense_context
+
+
+def _git_commit(repo_root: Path) -> str | None:
+    """HEAD sha of the GraftSense submodule checkout, so the freshness guard can
+    assert the committed content was generated from the pinned source. None when
+    repo_root isn't a git checkout (e.g. the test fixture dir)."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None if result.returncode == 0 else None
 
 CANONICAL_GH = "github:FreakStudioCN/GraftSense-Drivers-MicroPython"
 REPO_URL = "https://github.com/FreakStudioCN/GraftSense-Drivers-MicroPython"
@@ -50,28 +66,6 @@ def _is_fake_seed(record: dict[str, Any]) -> bool:
     return record.get("name") == "graftsense_aht20" or str(record.get("package_json_url", "")).startswith("https://graftsense.example")
 
 
-def _repo_path_key(record: dict[str, Any]) -> str | None:
-    """The `<category>/<driver>` this record points at inside the GraftSense repo,
-    drawn from either its github package_json_url or a github: url entry. Lets a
-    graftsense record supersede an upypi record that points at the same driver
-    even when their package names differ."""
-    marker = "GraftSense-Drivers-MicroPython/"
-    candidates = [str(record.get("package_json_url", ""))]
-    candidates += [str(entry[1]) for entry in (record.get("urls") or []) if isinstance(entry, list) and len(entry) >= 2]
-    for target in candidates:
-        if marker in target:
-            parts = target.split(marker, 1)[1].split("/")
-            if len(parts) >= 2:
-                return f"{parts[0]}/{parts[1]}"
-    return None
-
-
-def _conflicts(existing: dict[str, Any], record: dict[str, Any], path_key: str | None) -> bool:
-    if existing["name"] == record["name"] and existing["version"] == record["version"]:
-        return True
-    return path_key is not None and _repo_path_key(existing) == path_key
-
-
 def ingest_repo_dir(repo_root: str | Path, output_dir: str | Path) -> dict[str, Any]:
     """Walk a local GraftSense-Drivers-MicroPython checkout and emit real catalog
     records. Every `<category>/<driver>/` with a package.json + code/ becomes a
@@ -83,13 +77,19 @@ def ingest_repo_dir(repo_root: str | Path, output_dir: str | Path) -> dict[str, 
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "driver_context").mkdir(exist_ok=True)
 
-    records = [record for record in read_existing_records(output_dir) if not _is_fake_seed(record)]
+    # Rebuild the graftsense slice from scratch each run (drop our own prior
+    # records + the legacy fake seed); other sources are left untouched and
+    # cross-source dedup happens in finalize_index. This per-source rebuild is
+    # what makes re-runs idempotent instead of self-superseding the whole index.
+    records = [
+        record for record in read_existing_records(output_dir)
+        if record.get("source") != "graftsense" and not _is_fake_seed(record)
+    ]
     stale = output_dir / "driver_context" / "graftsense_aht20-1.0.0.json"
     if stale.exists():
         stale.unlink()
 
     written = generatable = installable = 0
-    superseded: list[str] = []
     driver_contexts: list[str] = []
     for package_path in sorted(repo_root.glob("*/*/package.json")):
         driver_dir = package_path.parent
@@ -125,14 +125,6 @@ def ingest_repo_dir(repo_root: str | Path, output_dir: str | Path) -> dict[str, 
         is_generatable = bool(context["constructors"] and context["bus"])
         record["support_level"] = context["support_level"] if is_generatable else "installable"
 
-        path_key = _repo_path_key(record)
-        conflicts = [existing for existing in records if _conflicts(existing, record, path_key)]
-        if conflicts and max(support_weight(existing["support_level"]) for existing in conflicts) > support_weight(record["support_level"]):
-            continue  # a stronger record already covers this driver
-        if conflicts:
-            superseded.extend(f"{existing['name']}@{existing['version']}" for existing in conflicts)
-            records = [existing for existing in records if not _conflicts(existing, record, path_key)]
-
         if is_generatable:
             context_name = safe_context_filename(package["name"], package["version"])
             (output_dir / "driver_context" / context_name).write_text(json.dumps(context, indent=2), encoding="utf-8")
@@ -145,16 +137,17 @@ def ingest_repo_dir(repo_root: str | Path, output_dir: str | Path) -> dict[str, 
         written += 1
 
     (output_dir / "package_index.json").write_text(json.dumps(records, indent=2), encoding="utf-8")
-    evidence = {
-        "source": "graftsense-repo",
+    summary = finalize_index(output_dir)
+    block = {
+        "commit": _git_commit(repo_root),
         "records_written": written,
         "generatable": generatable,
         "installable": installable,
-        "superseded": superseded,
-        "driver_contexts": driver_contexts,
+        "driver_contexts": sorted(driver_contexts),
+        "invalid_contexts": summary["invalid_contexts"],
     }
-    (output_dir / "ingestion_evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")
-    return evidence
+    write_evidence(output_dir, "graftsense", block)
+    return block
 
 
 def main() -> None:

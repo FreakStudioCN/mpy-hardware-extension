@@ -1,0 +1,39 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "TouchKey(pin_num, idle_state, debounce_time, press_callback, release_callback)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "touchkey.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# 导入驱动模块\nimport time\nfrom touchkey import TouchKey\n\n# 自定义回调函数\ndef on_press():\n    print(\"Button pressed\")\n\ndef on_release():\n    print(\"Button released\")\n\n# 初始化触控按键（GPIO 15，空闲电平为高，消抖50ms）\nbutton = TouchKey(\n    pin_num=15,\n    idle_state=TouchKey.high,\n    debounce_time=50,\n    press_callback=on_press,\n    release_callback=on_release\n)\n\ntry:\n    while True:\n        # 查询当前状态\n        state = button.get_state()\n        print(\"Current button state:\", \"Pressed\" if state else \"Released\")\n        time.sleep(0.5)\nexcept KeyboardInterrupt:\n    print(\"Exit button test program\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "touchkey"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/button_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "get_state"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

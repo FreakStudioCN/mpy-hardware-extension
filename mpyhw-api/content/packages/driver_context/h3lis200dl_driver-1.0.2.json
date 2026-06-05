@@ -1,14 +1,44 @@
 {
-  "import_names": [
-    "__init__",
-    "collections",
-    "micropython_h3lis200dl",
-    "typing"
+  "bus": [
+    "i2c"
   ],
+  "confidence": 0.7,
   "constructors": [
-    "H3LIS200DL(i2c)"
+    "H3LIS200DL(i2c, address)"
   ],
-  "read_methods": [
+  "evidence_refs": [
+    {
+      "path": "h3lis200dl.py",
+      "type": "source"
+    },
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/27 下午8:45\n# @Author  : Jose D. Montoya\n# @File    : main.py\n# @Description : H3LIS200DL加速度传感器数据读取程序\n\n# ======================================== 导入相关模块 =========================================\nimport time\nfrom machine import Pin, I2C\nfrom micropython_h3lis200dl import h3lis200dl\n\n# ======================================== 全局变量 ============================================\n# 定义传感器目标I2C地址列表\nTARGET_H3LIS200DL_ADDRS = [0x18, 0x19]\n\n# ======================================== 功能函数 ============================================\n\n\n# ======================================== 自定义类 ============================================\n\n\n# ======================================== 初始化配置 ===========================================\ntime.sleep(3)\nprint(\"FreakStudio: H3LIS200DL accelerometer initialization\")\n\n# 初始化I2C总线\ni2c_bus = I2C(0, sda=Pin(4), scl=Pin(5), freq=400000)\n\n# 扫描I2C总线上的所有设备\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\n# 检查是否扫描到I2C设备\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(\"i2c devices found:\", len(devices_list))\n\n# 初始化传感器对象占位符\nsensor = None\n\n# 遍历设备列表匹配传感器地址\nfor device in devices_list:\n    if device in TARGET_H3LIS200DL_ADDRS:\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            # 初始化传感器\n            sensor = h3lis200dl.H3LIS200DL(i2c_bus)\n            print(\"Sensor initialization successful\")\n            break\n        except Exception as e:\n            print(f\"Sensor Initialization failed: {e}\")\n            continue\nelse:\n    # 未找到目标传感器\n    raise Exception(\"No target sensor device found in I2C bus\")\n\n# ========================================  主程序  ============================================\nwhile True:\n    # 获取三轴加速度数据\n    accx, accy, accz = sensor.acceleration\n    # 打印格式化的加速度数据\n    print(f\"x:{accx:.2f}g, y:{accy:.2f}g, z:{accz:.2f}g\")\n    print()\n    # 延时0.5秒\n    time.sleep(0.5)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "h3lis200dl",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/h3lis200dl_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [],
+  "read_properties": [
     "acceleration",
     "data_rate",
     "full_scale_selection",
@@ -29,26 +59,5 @@
     "y_enabled",
     "z_enabled"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/h3lis200dl_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "__init__.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

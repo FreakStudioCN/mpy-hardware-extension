@@ -1,41 +1,48 @@
 {
-  "import_names": [
-    "ds3502"
-  ],
-  "constructors": [
-    "DS3502(i2c)"
-  ],
-  "read_methods": [
-    "generate_samples",
-    "read_control_register",
-    "read_wiper",
-    "set_mode",
-    "start",
-    "stop",
-    "to_dac_value",
-    "update",
-    "write_wiper"
-  ],
-  "read_properties": [],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.8,
+  "constructors": [
+    "DS3502(i2c, addr)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "dac_waveformgenerator.py",
+      "type": "source"
+    },
+    {
+      "path": "ds3502.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import ADC, Timer, Pin, I2C, UART\nimport time\nimport micropython\nfrom ds3502 import DS3502\nfrom dac_waveformgenerator import WaveformGenerator\n\n# 全局配置\nDAC_ADDRESS = 0x00\nadc_conversion_factor = 3.3 / 65535\n\ndef timer_callback(timer: Timer):\n    \"\"\"定时器回调，定时读取ADC数据\"\"\"\n    global adc, adc_conversion_factor\n    value = adc.read_u16() * adc_conversion_factor\n    micropython.schedule(user_callback, value)\n\ndef user_callback(value: float):\n    \"\"\"用户回调，处理ADC数据并通过串口发送\"\"\"\n    global uart\n    formatted_value = \"{:.2f}\".format(value)\n    uart.write(str(formatted_value) + '\\r\\n')\n\n# 初始化配置\ntime.sleep(3)\nprint(\"FreakStudio : Using Digital Potentiometer chip DS3502 to generate differential waveform\")\n\n# 初始化I2C总线（SDA=Pin2, SCL=Pin3, 频率400kHz）\ni2c = I2C(id=1, sda=Pin(2), scl=Pin(3), freq=400000)\n\n# 扫描I2C设备，定位DS3502地址\ndevices_list = i2c.scan()\nprint('START I2C SCANNER')\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\nelse:\n    print('i2c devices found:', len(devices_list))\n    for device in devices_list:\n        if 0x28 <= device <= 0x2B:\n            print(\"I2C hexadecimal address: \", hex(device))\n            DAC_ADDRESS = device\n\n# 初始化DS3502，设置为快速模式（仅写入WR）\ndac = DS3502(i2c, DAC_ADDRESS)\ndac.set_mode(1)\n\n# 初始化串口、ADC和定时器\nuart = UART(0, 115200)\nuart.init(baudrate=115200, bits=8, parity=None, stop=1, tx=0, rx=1, timeout=100)\nadc = ADC(2)\ntimer = Timer(-1)\ntimer.init(period=10, mode=Timer.PERIODIC, callback=timer_callback)\n\n# 生成正弦波（5Hz，幅度1.5V，偏移1.5V）\nprint(\"FreakStudio : Generate Sine Waveform : 5Hz, 1.5V, 1.5V\")\nwave = WaveformGenerator(dac, frequency=5, amplitude=1.5, offset=1.5, waveform='sine')\nwave.start()\ntime.sleep(6)\nwave.stop()\n\n# 生成方波（5Hz，幅度1.5V，偏移1.5V）\nprint(\"FreakStudio : Generate Square Waveform : 5Hz, 1.5V, 1.5V\")\nwave = WaveformGenerator(dac, frequency=5, amplitude=1.5, offset=1.5, waveform='square')\nwave.start()\ntime.sleep(6)\nwave.stop()\n\n# 生成三角波（5Hz，幅度1.5V，偏移1.5V，上升沿比例0.8）\nprint(\"FreakStudio : Generate Triangle Waveform : 5Hz, 1.5V, 1.5V, 0.8\")\nwave = WaveformGenerator(dac, frequency=5, amplitude=1.5, offset=1.5, waveform='triangle', rise_ratio=0.8)\nwave.start()\ntime.sleep(6)\nwave.stop()\n\n# 停止ADC采集\ntimer.deinit()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "ds3502",
+    "dac_waveformgenerator"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/signal_generation/ds3502_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/ds3502_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "ds3502.py"
-    }
+  "read_methods": [
+    "read_control_register",
+    "read_wiper",
+    "set_mode",
+    "write_wiper"
   ],
-  "confidence": 0.75,
+  "read_properties": [],
   "support_level": "generatable"
 }

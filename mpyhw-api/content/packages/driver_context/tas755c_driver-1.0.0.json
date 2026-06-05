@@ -1,0 +1,144 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "TAS_755C_ETH(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "dns.py",
+      "type": "source"
+    },
+    {
+      "path": "http_test.py",
+      "type": "source"
+    },
+    {
+      "path": "tas_755c_eth.py",
+      "type": "source"
+    },
+    {
+      "path": "tcp_client.py",
+      "type": "source"
+    },
+    {
+      "path": "tcp_server.py",
+      "type": "source"
+    },
+    {
+      "path": "udp_client.py",
+      "type": "source"
+    },
+    {
+      "path": "udp_server.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import time\nfrom machine import UART, Pin\nfrom tas755c_eth import TAS_755C_ETH\n\n# 初始化 UART（按实际接线调整 TX/RX）\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n# 创建 TAS_755C 实例\ntas = TAS_755C_ETH(uart0)\n# 进入命令模式\ntas.enter_command_mode()\n\n# 配置 IP 参数（静态模式）\ntas.set_ip_config(\n    mode=0,  # 0=静态, 1=DHCP\n    ip=\"192.168.2.251\",\n    gateway=\"192.168.2.1\",\n    subnet=\"255.255.255.0\",\n    dns=\"223.5.5.5\"  # 阿里云公共 DNS\n)\n\n# 配置 TCP 客户端参数\ntas.set_tcp_config(\n    local_port=8080,\n    remote_port=9000,\n    mode=0,  # 0=TCP Client\n    remote_address='\"www.cnblogs.com\"'  # 域名需加引号，IP 地址不加引号\n)\n\n# 保存配置并重启生效\ntas.save()\ntas.restart()\ntime.sleep(5)\n\n# 切换回数据模式\ntas.enter_data_mode()",
+    "while True:\n    if tas.has_data():\n        recv_data = tas.read_data().decode('utf-8')\n        print(\"Received:\", recv_data)\n        tas.send_data(\"Data received!\".encode())\n    time.sleep(0.1)",
+    "import time\nfrom machine import UART, Pin\nfrom tas755c_eth import TAS_755C_ETH\n\ntime.sleep(3)print(\"FreakStudio:tas755c dns test\")\n\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\ntas = TAS_755C_ETH(uart0)\ntas.enter_command_mode()# 配置 IP\ntas.set_ip_config(mode=0, ip=\"192.168.2.251\", gateway=\"192.168.2.1\", subnet=\"255.255.255.0\", dns=\"223.5.5.5\")# 配置 TCP 客户端（域名解析）\ntas.set_tcp_config(local_port=8080, remote_port=9000, mode=0, remote_address='\"www.cnblogs.com\"')\n\ntas.save()\ntas.restart()\ntime.sleep(5)\n\ntas.enter_command_mode()print(tas.get_ip_config())print(tas.get_tcp_config())while True:\n    tas.enter_command_mode()if tas.enter_command_mode()[0]:\n        tcp_cfg = tas.get_tcp_config()[1]\n        parts = tcp_cfg.split(',')\n        ip = parts[3]\n        domain = parts[4].strip('\"')print(\"IP:\", ip)print(\"Domain Name:\", domain)\n        time.sleep(5)",
+    "import time\nfrom machine import UART, Pin\nfrom tas755c_eth import TAS_755C_ETH\n\ntime.sleep(3)print(\"FreakStudio:tas755c http test\")\n\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\ntas = TAS_755C_ETH(uart0)\ntas.enter_command_mode()# 配置 IP\ntas.set_ip_config(mode=0, ip=\"192.168.2.251\", gateway=\"192.168.2.1\", subnet=\"255.255.255.0\", dns=\"223.5.5.5\")# 配置 HTTP 模式\ntas.set_tcp_config(local_port=8080, remote_port=8080, mode=8, remote_address='192.168.2.97')\ntas.set_http_config(net_status=1, method=0, header_return=1)  # 启用网络，POST 方法，返回 Header\n\ntas.save()\ntas.restart()\ntime.sleep(5)\n\ntas.enter_command_mode()print(tas.get_ip_config())print(tas.get_tcp_config())\n\ntas.enter_data_mode()\ntas.send_data(\"http.request.test\".encode())while True:if tas.has_data():print(tas.read_data().decode('utf-8'))\n        time.sleep(5)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "tas_755c_eth",
+    "dns",
+    "http_test",
+    "tcp_client",
+    "tcp_server",
+    "udp_client",
+    "udp_server"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/tas755c_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "enter_command_mode",
+    "enter_data_mode",
+    "get_ack_time",
+    "get_all",
+    "get_ciphead",
+    "get_disconnect_time",
+    "get_dtu_cloud",
+    "get_http_config",
+    "get_http_header",
+    "get_http_path",
+    "get_ip_config",
+    "get_keepalive",
+    "get_link_delay",
+    "get_log",
+    "get_mac_address",
+    "get_modbus",
+    "get_mqtt_clean_session",
+    "get_mqtt_client_id",
+    "get_mqtt_keepalive",
+    "get_mqtt_pubtopic",
+    "get_mqtt_retain",
+    "get_mqtt_subtopic",
+    "get_mqtt_userpwd",
+    "get_pinmux",
+    "get_poll",
+    "get_poll_str",
+    "get_port_time",
+    "get_register",
+    "get_restart_time",
+    "get_secondary_server",
+    "get_status",
+    "get_tcp_config",
+    "get_uart_config",
+    "get_uart_time",
+    "get_web_login",
+    "has_data",
+    "read_data",
+    "restart",
+    "save",
+    "send_data",
+    "set_ack_time",
+    "set_ciphead",
+    "set_disconnect_time",
+    "set_dtu_cloud",
+    "set_http_config",
+    "set_http_header",
+    "set_http_path",
+    "set_ip_config",
+    "set_keepalive",
+    "set_link_delay",
+    "set_log",
+    "set_mac_address",
+    "set_modbus",
+    "set_mqtt_clean_session",
+    "set_mqtt_client_id",
+    "set_mqtt_keepalive",
+    "set_mqtt_pubtopic",
+    "set_mqtt_retain",
+    "set_mqtt_subtopic",
+    "set_mqtt_userpwd",
+    "set_pinmux",
+    "set_poll",
+    "set_poll_str",
+    "set_port_time",
+    "set_register",
+    "set_restart_time",
+    "set_secondary_server",
+    "set_status",
+    "set_tcp_config",
+    "set_uart_config",
+    "set_uart_time",
+    "set_web_login"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

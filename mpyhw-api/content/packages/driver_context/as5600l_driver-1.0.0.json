@@ -1,9 +1,38 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "AS5600(i2c, device, debug)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "as5600.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "as5600l_driver/\n├── code/\n│   ├── as5600.py      # 核心驱动\n│   └── main.py        # 测试示例\n├── README.md          # 说明文档\n├── package.json       # mip 包配置\n└── LICENSE            # 许可证文件",
+    "bash\nmpremote cp as5600.py :as5600.py",
+    "bash\nmpremote run main.py",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/05/15\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : 测试 AS5600/AS5600L 12位磁性旋转编码器驱动类\n# @License : MIT\n\n__version__ = \"1.0.0\"\n__author__ = \"hogeiha\"\n__license__ = \"MIT\"\n__platform__ = \"MicroPython v1.23\"\n\nimport time\nfrom machine import I2C, Pin\nfrom as5600 import AS5600\n\nI2C_ID = 0\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 400000\n\nAS5600_ADDR = 0x40\n\nDEVICE_VERIFY_REG = 0x1B\nDEVICE_VERIFY_MASK = 0xC7\nDEVICE_VERIFY_EXPECTED = 0x00\n\nPRINT_INTERVAL_MS = 1000\nlast_print_time = time.ticks_ms()\n\ndef print_realtime_angle():\n    \"\"\"高频读取实时角度（默认注释执行，可在 REPL 手动调用）\"\"\"\n    raw = sensor.rawangle()\n    mapped = sensor.angle()\n    print(\"Raw: %d  Angle: %d  (%.2f deg)\" % (raw, mapped, mapped * 360.0 / 4096.0))\n\ndef print_status():\n    \"\"\"打印磁铁状态、AGC 与磁场强度\"\"\"\n    md = sensor.md()\n    ml = sensor.ml()\n    mh = sensor.mh()\n    agc = sensor.agc()\n    mag = sensor.magnitude()\n    print(\"Magnet: detected=%d weak=%d strong=%d  AGC=%d  Magnitude=%d\"\n          % (md, ml, mh, agc, mag))\n\ndef print_config():\n    \"\"\"打印当前配置寄存器（ZMCO/ZPOS/MPOS/MANG/CONF 各位域）\"\"\"\n    zmco = sensor.zmco()\n    zpos = sensor.zpos()\n    mpos = sensor.mpos()\n    mang = sensor.mang()\n    pm = sensor.pm()\n    hyst = sensor.hyst()\n    outs = sensor.outs()\n    pwmf = sensor.pwmf()\n    sf = sensor.sf()\n    fth = sensor.fth()\n    wd = sensor.watchdog()\n    print(\"ZMCO=%d ZPOS=%d MPOS=%d MANG=%d\" % (zmco, zpos, mpos, mang))\n    print(\"CONF: PM=%d HYST=%d OUTS=%d PWMF=%d SF=%d FTH=%d WD=%d\"\n          % (pm, hyst, outs, pwmf, sf, fth, wd))\n\ndef test_boundary_write():\n    \"\"\"边界参数场景：ZPOS 写入 0 与 4095（12 位最小/最大）\"\"\"\n    sensor.zpos(0)\n    v0 = sensor.zpos()\n    sensor.zpos(4095)\n    v1 = sensor.zpos()\n    print(\"Boundary ZPOS write: 0 -> %d, 4095 -> %d\" % (v0, v1))\n\ndef test_invalid_args():\n    \"\"\"异常参数场景：验证非法参数能正确抛出 ValueError\"\"\"\n    try:\n        sensor.readwrite(0x100, 7, 0)\n    except ValueError as e:\n        print(\"Caught register out-of-range: %s\" % e)\n    try:\n        sensor.readwrite(0x07, 3, 5)\n    except ValueError as e:\n        print(\"Caught invalid bitfield: %s\" % e)\n    try:\n        sensor.zpos(0x10000)\n    except ValueError as e:\n        print(\"Caught value out-of-range: %s\" % e)\n    try:\n        sensor.zpos(\"bad\")\n    except ValueError as e:\n        print(\"Caught wrong type: %s\" % e)\n\ndef burn_angle_once():\n    \"\"\"烧录角度（ZPOS/MPOS）到 OTP，不可逆，仅 REPL 手动触发\"\"\"\n    sensor.burn_angle()\n    print(\"burn_angle issued\")\n\ndef burn_setting_once():\n    \"\"\"烧录配置（MANG/CONF）到 OTP，不可逆，仅 REPL 手动触发\"\"\"\n    sensor.burn_setting()\n    print(\"burn_setting issued\")\n\ntime.sleep(3)\nprint(\"FreakStudio: AS5600/AS5600L magnetic encoder driver test\")\n\ni2c = I2C(I2C_ID, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n\ndevices = i2c.scan()\nif not devices:\n    raise RuntimeError(\"No I2C device found\")\nprint(\"I2C scan result: %s\" % [hex(d) for d in devices])\n\nif AS5600_ADDR not in devices:\n    raise RuntimeError(\"Device not found at expected address 0x%02X\" % AS5600_ADDR)\nprint(\"Target device 0x%02X present on bus\" % AS5600_ADDR)\n\n_probe = i2c.readfrom_mem(AS5600_ADDR, DEVICE_VERIFY_REG, 1)[0]\nif (_probe & ~DEVICE_VERIFY_MASK) == DEVICE_VERIFY_EXPECTED:\n    print(\"Device found (STATUS=0x%02X)\" % _probe)\nelse:\n    print(\"Device not found (STATUS=0x%02X, unexpected reserved bits)\" % _probe)\n\nsensor = AS5600(i2c, device=AS5600_ADDR, debug=False)\n\ntry:\n    print_config()\n    print_status()\n    while True:\n        current_time = time.ticks_ms()\n        if time.ticks_diff(current_time, last_print_time) >= PRINT_INTERVAL_MS:\n            raw = sensor.rawangle()\n            mapped = sensor.angle()\n            md = sensor.md()\n            print(\"Angle raw=%d mapped=%d (%.2f deg)  magnet=%d\"\n                  % (raw, mapped, mapped * 360.0 / 4096.0, md))\n            last_print_time = current_time\n        # print_realtime_angle()\n        # print_status()\n        # print_config()\n        # test_boundary_write()\n        # test_invalid_args()\n        # burn_angle_once()\n        # burn_setting_once()\n        time.sleep_ms(10)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    try:\n        sensor.deinit()\n    except Exception:\n        pass\n    del sensor\n    print(\"Program exited\")"
+  ],
   "import_names": [
     "as5600"
   ],
-  "constructors": [
-    "AS5600(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/as5600l_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "agc",
@@ -30,25 +59,5 @@
     "zpos"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/as5600l_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "as5600.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

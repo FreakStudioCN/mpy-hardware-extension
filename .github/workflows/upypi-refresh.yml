@@ -1,0 +1,44 @@
+name: uPyPI refresh
+
+# uPyPI is a live external registry, so re-ingesting it is non-deterministic and
+# must NOT gate PR CI. This runs out-of-band: re-pull the uPyPI slice, re-finalize
+# the GraftSense slice (canonical dedup + evidence), and open a PR if anything
+# actually changed. peter-evans/create-pull-request is a no-op when there's no diff.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: mpyhw-api/requirements.txt
+      - name: Install API deps
+        run: pip install -r mpyhw-api/requirements.txt
+      - name: Re-ingest uPyPI (live), then re-finalize GraftSense
+        working-directory: mpyhw-api
+        run: |
+          python scripts/ingest_upypi.py --live --output-dir content/packages
+          python scripts/ingest_graftsense.py --repo-dir ../third_party/GraftSense-Drivers-MicroPython --output-dir content/packages
+      - name: Open a PR if the catalog changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/upypi-refresh
+          title: "chore: refresh uPyPI catalog snapshot"
+          commit-message: "chore: refresh uPyPI catalog snapshot"
+          body: |
+            Automated weekly uPyPI re-ingest + GraftSense re-finalize.
+            Review the `mpyhw-api/content/packages` diff (new/updated/removed packages).
+          add-paths: mpyhw-api/content/packages

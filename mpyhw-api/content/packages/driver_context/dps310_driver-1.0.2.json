@@ -1,44 +1,53 @@
 {
-  "import_names": [
-    "__init__",
-    "micropython_dps310"
+  "bus": [
+    "i2c"
   ],
+  "confidence": 0.8,
   "constructors": [
-    "DPS310(i2c)"
+    "DPS310(i2c, address)"
   ],
-  "read_methods": [
+  "evidence_refs": [
+    {
+      "path": "dps310.py",
+      "type": "source"
+    },
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/30 下午6:10\n# @Author  : Jose D. Montoya\n# @File    : main.py\n# @Description : DPS310气压传感器I2C自动扫描识别与气压数据实时读取程序\n\n# ======================================== 导入相关模块 =========================================\nimport time\nfrom machine import Pin, SoftI2C\nfrom micropython_dps310 import dps310\n\n# ======================================== 全局变量 ============================================\n\nTARGET_DPS310_ADDRS = [0x76,0x77]\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: DPS310 Pressure Sensor I2C Auto Scan and Read\")\n\nI2C_SDA_PIN = 4\nI2C_SCL_PIN = 5\nI2C_FREQ = 100_000\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(f\"i2c devices found: {len(devices_list)}\")\n\nsensor = None\nfor device in devices_list:\n    if device in TARGET_DPS310_ADDRS:\n        print(f\"I2c hexadecimal address: {hex(device)}\")\n        try:\n            sensor = dps310.DPS310(i2c=i2c_bus,address = device)\n            print(\"Sensor initialization successful\")\n            break\n        except Exception as e:\n            print(f\"Sensor Initialization failed: {e}\")\n            continue\nelse:\n    raise Exception(\"No target sensor device found in I2C bus\")\n\n# ========================================  主程序  ============================================\nwhile True:\n    print(f\"Pressure: {sensor.pressure}HPa\")\n    print()\n    time.sleep(1)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "dps310",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/dps310_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [],
+  "read_properties": [
     "altitude",
     "mode",
     "pressure",
     "pressure_oversample",
     "pressure_rate",
     "sea_level_pressure",
+    "temperature",
     "temperature_oversample",
-    "temperature_rate",
-    "twos_complement"
+    "temperature_rate"
   ],
-  "read_properties": [
-    "temperature"
-  ],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/dps310_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "__init__.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

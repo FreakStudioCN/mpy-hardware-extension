@@ -1,0 +1,72 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "Player(uart, volume)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "jq6500.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/16 下午3:30\n# @Author  : rdagger\n# @File    : main.py\n# @Description : JQ6500播放器内部FLASH模式功能演示（精简版）\n\n# ======================================== 导入相关模块 =========================================\n\nfrom machine import UART, Pin\nfrom jq6500 import Player\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n\ndef demo_jq6500_flash():\n    \"\"\"\n    JQ6500内部FLASH模式核心功能演示函数（精简版）\n    Args:无\n\n    Raises:\n    Exception - 演示过程中出现的通用异常\n    AttributeError - Player类中SRC_FLASH常量未定义时触发的异常\n\n    Notes:\n    1. 需提前将MP3文件烧录到JQ6500内部FLASH；\n    2. 内部FLASH无文件夹功能，文件按烧录顺序编号；\n    3. 已移除play_by_number方式，仅保留按索引播放\n\n    ==========================================\n    Core function demonstration for JQ6500 internal FLASH mode (simplified version)\n    Args:None\n\n    Raises:\n    Exception - General exceptions during demonstration\n    AttributeError - Exception triggered when SRC_FLASH constant is not defined in Player class\n\n    Notes:\n    1. MP3 files must be burned to JQ6500 internal FLASH in advance;\n    2. Internal FLASH has no folder function, files are numbered in burning order;\n    3. Removed play_by_number method, only keep playback by index\n    \"\"\"\n    try:\n        print(\"===== JQ6500 internal FLASH mode demonstration started =====\")\n\n        # 1. 基础配置（切换为内部FLASH音源）\n        print(\"\n【1. Basic configuration】\")\n        # 设置EQ为摇滚模式\n        player.set_equalizer(Player.EQ_ROCK)\n        print(f\"Current EQ mode: {player.get_equalizer()} (2=Rock mode)\")\n\n        # 设置循环模式为单曲循环\n        player.set_looping(Player.LOOP_ONE)\n        print(f\"Current looping mode: {player.get_looping()} (2=Single loop)\")\n\n        # 切换音源为内部FLASH（核心改动！替换SD卡为FLASH）\n        player.set_source(Player.SRC_BUILTIN)  # SRC_BUILTIN为内部FLASH常量（需确认类中定义）\n        print(\"Audio source switched to internal FLASH\")\n\n        # 2. 播放控制\n        print(\"\n【2. Playback control】\")\n        # 播放当前文件（默认从烧录的第一个文件开始）\n        player.play()\n        print(\"Start playback, current status:\", player.get_status())  # 1=Playing\n        time.sleep(3)  # 播放3秒\n\n        # 暂停播放\n        player.pause()\n        print(\"Pause playback, current status:\", player.get_status())  # 2=Paused\n        time.sleep(2)\n\n        # 恢复播放\n        player.play()\n        time.sleep(3)\n\n        # 音量调节（加2次，减1次）\n        player.volume_up()\n        player.volume_up()\n        player.volume_down()\n        print(f\"Current volume: {player.get_volume()} (Expected 16)\")\n\n        # 切换到下一曲（内部FLASH按烧录顺序切换）\n        player.next()\n        print(\"Switch to next track (Internal FLASH)\")\n        time.sleep(3)\n\n        # 切换到上一曲\n        player.prev()\n        print(\"Switch to previous track (Internal FLASH)\")\n        time.sleep(3)\n\n        # 3. 定位播放（内部FLASH按文件编号播放）\n        print(\"\n【3. Position playback】\")\n\n        # 按索引播放（和烧录顺序一致）\n        player.play_by_index(file_index=1)\n        print(\"Play internal FLASH file by index 1\")\n        time.sleep(3)\n\n        # 4. 信息查询（适配内部FLASH）\n        print(\"\n【4. Device information query】\")\n        # 查询内部FLASH文件总数（替换SD卡为FLASH）\n        print(f\"Total files in internal FLASH: {player.get_file_count(Player.SRC_BUILTIN)}\")\n        print(f\"Current file playback progress: {player.get_position()} seconds\")\n        print(f\"Current file total duration: {player.get_length()} seconds\")\n        print(f\"Firmware version: {player.get_version()}\")\n\n        # 5. 循环模式切换\n        print(\"\n【5. Looping mode switch】\")\n        player.set_looping(Player.LOOP_ALL)  # 全部循环\n        print(f\"Switched to all loop mode: {player.get_looping()} (0=All loop)\")\n        time.sleep(3)\n\n        # 6. 重置与暂停\n        player.pause()\n        player.reset()  # 软复位\n        print(\"\nDemonstration ended, device paused and reset\")\n\n    except Exception as e:\n        print(f\"Error during demonstration: {e}\")\n    # 兼容处理：若Player类中SRC_FLASH未定义，用数值替代（通常FLASH=1，SD卡=2）\n    except AttributeError:\n        print(\"Tip: SRC_FLASH constant not defined, try replacing with value 1\")\n        player.set_source(1)  # 1=Internal FLASH，2=SD card (General value definition)\n\n    finally:\n        # 清理资源\n        player.clean_up()\n        uart.deinit()\n        print(\"Resources cleaned up\")\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 初始化延迟，确保硬件就绪\ntime.sleep(3)\n# 打印初始化完成提示\nprint(\"FreakStudio: JQ6500 internal FLASH playback demo initialization completed\")\n\n# 初始化UART（Raspberry Pi Pico的UART0，TX=16, RX=17，波特率固定9600）\nuart = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17), timeout=100)\n\n# 初始化JQ6500播放器，初始音量设为15（音量范围0-30）\nplayer = Player(uart, volume=15)\n\n# ========================================  主程序  ============================================\n\nif __name__ == \"__main__\":\n    demo_jq6500_flash()\nwhile True:\n    pass  # 主循环保持运行，等待用户操作或其他事件",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+  ],
+  "import_names": [
+    "jq6500"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/jq6500_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "clean_up",
+    "get_equalizer",
+    "get_file_count",
+    "get_file_index",
+    "get_folder_count",
+    "get_length",
+    "get_looping",
+    "get_name",
+    "get_position",
+    "get_status",
+    "get_version",
+    "get_volume",
+    "next",
+    "next_folder",
+    "pause",
+    "play",
+    "play_by_index",
+    "play_by_number",
+    "play_pause",
+    "prev",
+    "prev_folder",
+    "read_buffer",
+    "read_bytes",
+    "reset",
+    "restart",
+    "set_equalizer",
+    "set_looping",
+    "set_source",
+    "set_volume",
+    "sleep",
+    "volume_down",
+    "volume_up",
+    "write_bytes"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

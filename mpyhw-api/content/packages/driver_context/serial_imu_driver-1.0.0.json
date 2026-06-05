@@ -1,0 +1,43 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "IMU(UART_Obj)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "imu.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import UART\nfrom imu import IMU\n\n# 创建串口对象，设置波特率为115200\nuart = UART(1, 115200)\nuart.init(bits=8, parity=None, stop=1, tx=8, rx=9, timeout=5)\n\n# 初始化IMU对象（自动执行加速度校准和Z轴清零）\nimu_obj = IMU(uart)",
+    "import time\nfrom machine import UART\nfrom imu import IMU\n\n# 初始化串口\nuart = UART(1, 115200)\nuart.init(bits=8, parity=None, stop=1, tx=8, rx=9, timeout=5)\n\n# 初始化IMU\nimu_obj = IMU(uart)\n\n# 上电延时3s\ntime.sleep(3)\nprint(\"FreakStudio: Using UART to communicate with IMU\")\n\n# 循环读取姿态数据\nwhile True:\n    # 接收并解析数据\n    acc_x, acc_y, acc_z, temp, gyro_x, gyro_y, gyro_z, angle_x, angle_y, angle_z = imu_obj.RecvData()\n    \n    # 打印角度数据\n    print(\"X-axis angle:\", angle_x)\n    print(\"Y-axis angle:\", angle_y)\n    print(\"Z-axis angle:\", angle_z)\n    \n    time.sleep(0.1)",
+    "import time\nfrom machine import UART, Pin\nimport gc\nfrom imu import IMU\n\n# 初始化串口\nuart = UART(1, 115200)\nuart.init(bits=8, parity=None, stop=1, tx=8, rx=9, timeout=5)\n\n# 初始化上位机串口\nuart_pc = UART(0, 115200)\nuart_pc.init(bits=8, parity=None, stop=1, tx=0, rx=1, timeout=5)\n\n# 初始化LED\nLED = Pin(25, Pin.OUT, Pin.PULL_DOWN)\n\n# 初始化IMU\nimu_obj = IMU(uart)\n\ntry:\n    while True:\n        LED.on()\n        # 接收陀螺仪数据\n        imu_obj.RecvData()\n        LED.off()\n\n        # 打印角度数据\n        print(\"X-axis angle:\", imu_obj.angle_x)\n        print(\"Y-axis angle:\", imu_obj.angle_y)\n        print(\"Z-axis angle:\", imu_obj.angle_z)\n        print(\"Free RAM:\", gc.mem_free())\n\n        # 格式化并转发角度数据到上位机\n        angle_data = \"{:.2f}, {:.2f}, {:.2f}\\r\\n\".format(imu_obj.angle_x, imu_obj.angle_y, imu_obj.angle_z)\n        uart_pc.write(angle_data)\n\n        # 内存不足时触发垃圾回收\n        if gc.mem_free() < 220000:\n            gc.collect()\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nfinally:\n    LED.off()\n    print(\"LED off, program exited.\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "imu"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/serial_imu_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "RecvData",
+    "SendCMD"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

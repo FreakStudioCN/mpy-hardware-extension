@@ -1,0 +1,57 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "HC14_Lora(uart, baud)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "hc14_lora.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import UART, Pin\nfrom hc14_lora import HC14_Lora\n\n# 初始化UART（波特率默认9600，按模块实际配置调整）\nuart = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n\n# 创建HC14_Lora实例\nlora = HC14_Lora(uart)",
+    "# 检测AT通信是否正常\nok, resp = lora.test_comm()\nprint(\"AT通信检测:\", ok, resp)\n\n# 查询当前信道\nok, channel = lora.get_channel()\nprint(\"当前信道:\", channel)\n\n# 设置信道为7\nok, resp = lora.set_channel(7)\nprint(\"设置信道:\", ok, resp)\n\n# 设置发射功率为20dBm\nok, resp = lora.set_power(20)\nprint(\"设置功率:\", ok, resp)\n\n# 查询固件版本\nok, version = lora.get_version()\nprint(\"固件版本:\", version)",
+    "# 发送透传数据（自动分包）\ndata = b\"Hello, LoRa!\"\nok, result = lora.transparent_send(data)\nprint(\"发送结果:\", ok, result)\n\n# 接收透传数据（超时5000ms，静默2300ms判断包结束）\nok, received = lora.transparent_recv(timeout_ms=5000, quiet_ms=2300)\nif ok:\n    print(\"接收数据:\", received)",
+    "import time\nfrom machine import UART, Pin\nimport urandom\nfrom hc14_lora import HC14_Lora\n\n# LoRa参数配置\nchannel = 7\ndata_len = 80\nreply = bytes([urandom.getrandbits(8) for _ in range(data_len)])\npower = 20\nrate = 7\n\n# 上电延时3s\ntime.sleep(3)\nprint(\"FreakStudio: HC14_Lora Test Start\")\n\n# 初始化UART（按硬件实际接线调整TX/RX）\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\nuart1 = UART(1, baudrate=9600, tx=Pin(8), rx=Pin(9))\n\n# 创建HC14_Lora实例（接收端和发送端）\nhc0 = HC14_Lora(uart0)\nhc1 = HC14_Lora(uart1)\n\n# 保持按下两个模块按钮进入AT配置模式\n# 测试接收端AT通信\nok, resp0 = hc0.test_comm()\nif ok:\n    print(\"[OK] AT通信正常:\", resp0)\n    hc0.set_channel(channel)\n    hc0.set_rate(rate)\n    hc0.set_power(power)\nelse:\n    print(\"[ERR] AT通信失败\")\n\n# 获取接收端版本和参数\nok, resp = hc0.get_version()\nif ok:\n    print(\"接收端固件版本:\", resp)\nok, params = hc0.get_params()\nif ok:\n    print(\"接收端当前参数:\", params)\n\n# 测试发送端AT通信\nok, resp1 = hc1.test_comm()\nif ok:\n    print(\"[OK] AT通信正常:\", resp1)\n    hc1.set_channel(channel)\n    hc1.set_rate(rate)\n    hc1.set_power(power)\nelse:\n    print(\"[ERR] AT通信失败\")\n\n# 获取发送端版本和参数\nok, resp = hc1.get_version()\nif ok:\n    print(\"发送端固件版本:\", resp)\nok, params = hc1.get_params()\nif ok:\n    print(\"发送端当前参数:\", params)\n\n# 等待用户松开按钮进入透传模式\ntime.sleep(2)\nprint(\"进入透传模式，等待数据...\")\n\n# 发送数据并记录时间\nhc1.transparent_send(reply)\nprint(\"发送数据:\", reply)\nstart_ms = time.ticks_ms()\nprint(f\"发送时间: {start_ms} ms\")\n\n# 循环接收数据\nwhile True:\n    ok, resp = hc0.transparent_recv()\n    if not ok:\n        continue\n    else:\n        try:\n            msg = resp.decode(\"utf-8\")\n        except UnicodeError:\n            msg = str(resp)\n        end_ms = time.ticks_ms()\n        elapsed_ms = time.ticks_diff(end_ms, start_ms)\n        print(\"接收数据:\", msg)\n        print(f\"耗时: {elapsed_ms} ms\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "hc14_lora"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/hc14_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "close",
+    "get_baud",
+    "get_channel",
+    "get_params",
+    "get_power",
+    "get_rate",
+    "get_version",
+    "reset_defaults",
+    "set_baud",
+    "set_channel",
+    "set_power",
+    "set_rate",
+    "test_comm",
+    "transparent_recv",
+    "transparent_send"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

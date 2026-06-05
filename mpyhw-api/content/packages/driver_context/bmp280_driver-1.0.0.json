@@ -1,38 +1,46 @@
 {
-  "import_names": [
-    "bmp280_float"
-  ],
-  "constructors": [
-    "BMP280(i2c)"
-  ],
-  "read_methods": [
-    "altitude",
-    "dew_point",
-    "read_compensated_data",
-    "read_raw_data",
-    "sealevel",
-    "values"
-  ],
-  "read_properties": [],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.7,
+  "constructors": [
+    "BMP280(mode, address, i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bmp280_float.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import time\nfrom machine import I2C\nfrom bmp280_float import BMP280\n\n# 初始化配置\ntime.sleep(3)\nprint(\"FreakStudio:Testing BMP280 pressure, temperature, and humidity sensor\")\n\n# 初始化I2C总线（I2C1，SCL=3，SDA=2，100kHz）\ni2c = I2C(1, scl=3, sda=2, freq=100000)\n\n# 扫描I2C设备，获取BMP280地址\ndevices_list = i2c.scan()\nprint('START I2C SCANNER')\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\nelse:\n    print('i2c devices found:', len(devices_list))\n    for device in devices_list:\n        if 0x60 <= device <= 0x7A:\n            print(\"I2c hexadecimal address:\", hex(device))\n            bmp_addr = device\n\n# 创建BMP280传感器实例\nbmp = BMP280(i2c=i2c, address=bmp_addr)\n\n# 主循环:持续采集温压湿并计算海拔\ntry:\n    print(\"FreakStudio: Testing BMP280 sensor (Temperature, Humidity, Pressure)\")\n    while True:\n        # 获取校准后的温压湿数据\n        temp, press, hum = bmp.read_compensated_data()\n        # 转换气压为百帕（hPa）\n        press_hpa = press / 100.0\n        # 计算海拔高度（基于默认海平面气压1013.25 hPa）\n        altitude = 44330.0 * (1.0 - (press_hpa / 1013.25) ** 0.1903)\n        \n        # 打印结果\n        print(\"Temperature: {:.2f} °C | Humidity: {:.2f}% | Pressure: {:.2f} hPa\".format(\n            temp, hum, press_hpa\n        ))\n        print(\"Altitude: {:.2f} m\".format(altitude))\n        time.sleep(2)\nexcept KeyboardInterrupt:\n    print(\"\\nTest stopped\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "bmp280_float"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/bmp280_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/bmp280_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "bmp280_float.py"
-    }
+  "read_methods": [
+    "read_compensated_data",
+    "read_raw_data"
   ],
-  "confidence": 0.75,
+  "read_properties": [
+    "altitude",
+    "dew_point",
+    "sealevel",
+    "values"
+  ],
   "support_level": "generatable"
 }

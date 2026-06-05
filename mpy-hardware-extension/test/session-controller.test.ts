@@ -62,6 +62,42 @@ test("session controller rejects a concurrent start while a run is in flight", a
   assert.equal(firstResult.terminal, "success");
 });
 
+test("reset() supersedes the in-flight run: late messages are dropped and a new start is accepted", async () => {
+  const messages: any[] = [];
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent, signal }) => {
+      onEvent({ type: "trace", text: "early" });   // before reset -> should be posted
+      await gate;                                    // park the run in flight
+      onEvent({ type: "trace", text: "late" });      // after reset -> must be dropped
+      return { terminal: signal?.aborted ? "cancelled" : "success" };
+    },
+  });
+
+  const first = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  await Promise.resolve();                            // let the loop reach `await gate`
+  controller.reset();                                // supersede + abort the in-flight run
+  release();
+  const firstResult = await first;
+
+  // The superseded run emits NO terminal and NO late events into the cleared feed.
+  assert.equal(messages.some((m) => m.type === "session_done"), false, "superseded run posts no session_done");
+  assert.equal(
+    messages.some((m) => m.type === "trace_event" && /late/.test(m.event?.text ?? "")),
+    false,
+    "superseded run's late events are dropped",
+  );
+  assert.equal(firstResult.terminal, "cancelled");
+
+  // A fresh start right after reset is accepted (not rejected as session_busy).
+  messages.length = 0;
+  const second = await controller.start({ intent: "b", boardId: "esp32-s3-devkitc-1" });
+  assert.notEqual(second.terminal, "session_busy");
+  assert.equal(messages.some((m) => m.type === "session_done"), true, "the new run posts its own session_done");
+});
+
 test("session controller writes generated files after code and manifest are available", async () => {
   const written: any[] = [];
   const messages: any[] = [];

@@ -1,36 +1,44 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "SI1145(i2c, addr)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "si1145.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "si1145_driver/\n├── code/\n│   ├── si1145.py                  # 标准版驱动（含命名常量）\n│   ├── si1145_lowmem.py           # 低内存版驱动\n│   ├── si1145_microbit.py         # BBC micro:bit 专用版\n│   ├── si1145_microbit_lowmem.py  # BBC micro:bit 低内存版\n│   └── main.py                    # 测试示例代码\n├── README.md                      # 本说明文档\n└── LICENSE                        # MIT 许可协议",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/05/06\n# @Author  : Nelio Goncalves Godoi\n# @File    : main.py\n# @Description : 测试SI1145紫外线/可见光/红外光/接近度传感器驱动类的代码\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nimport micropython\nfrom machine import Pin, SoftI2C\nfrom si1145 import (\n    SI1145,\n    SI1145_ADDR,\n    SI1145_REG_PARTID,\n    SI1145_PSALS_PAUSE,\n    SI1145_PSALS_AUTO,\n    SI1145_PS_FORCE,\n    SI1145_ALS_FORCE,\n    SI1145_PSALS_FORCE,\n    SI1145_RESET,\n    SI1145_REG_COMMAND,\n)\n\n# ======================================== 全局变量 ============================================\n\n# I2C 引脚与频率配置\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 100_000\n\n# SI1145 设备可能的 I2C 地址列表\nTARGET_SENSOR_ADDRS = [0x60, 0x74]\n\n# 设备 ID 寄存器与期望值（SI1145 PART_ID = 0x45）\nDEVICE_ID_REG = SI1145_REG_PARTID\nDEVICE_ID_EXPECTED = 0x45\n\n# 打印间隔（ms）\nlast_print_time = 0\nprint_interval = 2000\n\n# ======================================== 功能函数 ============================================\n\ndef print_realtime_data():\n    \"\"\"打印实时高频数据（高频，默认注释调用，可REPL手动调用）\"\"\"\n    # 读取四路高频数据并打印\n    print(\"UV index: %.2f\" % sensor.read_uv)\n    print(\"Visible: %d\" % sensor.read_visible)\n    print(\"IR: %d\" % sensor.read_ir)\n    print(\"Proximity: %d\" % sensor.read_prox)\n\n\ndef switch_to_pause_mode():\n    \"\"\"切换到暂停测量模式（模式切换，默认注释调用，可REPL手动触发）\"\"\"\n    # 写入 PSALS_PAUSE 命令暂停自动测量\n    sensor._write8(SI1145_REG_COMMAND, SI1145_PSALS_PAUSE)\n    print(\"Sensor switched to PSALS pause mode\")\n\n\ndef switch_to_auto_mode():\n    \"\"\"切换回自动连续测量模式（模式切换，默认注释调用，可REPL手动触发）\"\"\"\n    # 写入 PSALS_AUTO 命令恢复自动测量\n    sensor._write8(SI1145_REG_COMMAND, SI1145_PSALS_AUTO)\n    print(\"Sensor switched to PSALS auto mode\")\n\n\ndef force_single_measurement():\n    \"\"\"触发一次强制单次 PS+ALS 测量（批量操作，可REPL一键调用）\"\"\"\n    # 发送强制单次测量命令\n    sensor._write8(SI1145_REG_COMMAND, SI1145_PSALS_FORCE)\n    # 等待测量完成\n    time.sleep_ms(50)\n    print(\"Forced single measurement done\")\n    print(\"UV: %.2f, Visible: %d, IR: %d, Prox: %d\" % (\n        sensor.read_uv, sensor.read_visible, sensor.read_ir, sensor.read_prox))\n\n\ndef reset_sensor():\n    \"\"\"软件复位传感器（批量操作，可REPL一键调用）\"\"\"\n    # 发送复位命令并重新加载校准\n    sensor._reset()\n    sensor._load_calibration()\n    print(\"Sensor reset and recalibrated\")\n\n\ndef test_boundary_address():\n    \"\"\"边界参数场景：使用合法地址边界值实例化（可REPL手动调用）\"\"\"\n    # SI1145 地址固定为 0x60，测试默认地址作为边界\n    try:\n        tmp = SI1145(i2c=i2c_bus, addr=0x60)\n        print(\"Boundary address 0x60 init ok\")\n        del tmp\n    except Exception as e:\n        print(\"Boundary address init failed: %s\" % str(e))\n\n\ndef test_invalid_args():\n    \"\"\"异常参数场景：传入非法 i2c 参数，验证 ValueError 抛出（可REPL手动调用）\"\"\"\n    # 传 None 应触发 ValueError\n    try:\n        SI1145(i2c=None)\n        print(\"Invalid arg test failed: no exception raised\")\n    except ValueError as e:\n        print(\"Invalid arg test passed: ValueError caught - %s\" % str(e))\n    except Exception as e:\n        print(\"Invalid arg test got unexpected exception: %s\" % str(e))\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\n# 上电延时，等待外设稳定\ntime.sleep(3)\nprint(\"FreakStudio: Using SI1145 UV/Visible/IR/Proximity sensor ...\")\n\n# 初始化软件 I2C 总线\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 扫描 I2C 总线设备\nprint(\"START I2C SCANNER\")\ndevices_list = i2c_bus.scan()\n\n# 若总线无设备则报错\nif len(devices_list) == 0:\n    raise RuntimeError(\"No I2C device found\")\nprint(\"I2C devices found: %d\" % len(devices_list))\n\n# 遍历扫描结果，匹配目标地址列表\nsensor = None\nmatched_addr = None\nfor device in devices_list:\n    print(\"I2C address: %s\" % hex(device))\n    if device in TARGET_SENSOR_ADDRS:\n        matched_addr = device\n\n# 未找到任何目标地址则报错\nif matched_addr is None:\n    raise RuntimeError(\"Device not found at expected address\")\n\n# 读取 PART_ID 寄存器并与期望值比对（SI1145 复位前可能返回 0x00，仅作参考）\npart_id = i2c_bus.readfrom_mem(matched_addr, DEVICE_ID_REG, 1)[0]\nif part_id == DEVICE_ID_EXPECTED:\n    print(\"Device found: SI1145 PART_ID=0x%02X at %s\" % (part_id, hex(matched_addr)))\nelse:\n    print(\"PART_ID=0x%02X (expected 0x%02X), attempting init anyway...\" % (part_id, DEVICE_ID_EXPECTED))\n\n# 实例化 SI1145 传感器（构造内部已自动复位+加载校准）\nsensor = SI1145(i2c=i2c_bus, addr=matched_addr)\nprint(\"SI1145 initialization successful\")\n\n# 记录首次打印时间\nlast_print_time = time.ticks_ms()\n\n# ========================================  主程序  ===========================================\n\ntry:\n    while True:\n        current_time = time.ticks_ms()\n        # 低频核心数据采集：每 print_interval 毫秒打印一次\n        if time.ticks_diff(current_time, last_print_time) >= print_interval:\n            # 读取紫外线指数\n            uv = sensor.read_uv\n            # 读取可见光强度\n            vis = sensor.read_visible\n            # 读取红外光强度\n            ir = sensor.read_ir\n            # 读取接近度\n            prox = sensor.read_prox\n            print(\"UV: %.2f | Visible: %d | IR: %d | Prox: %d\" % (uv, vis, ir, prox))\n            last_print_time = current_time\n\n        # 高频函数，注释默认执行，可REPL手动调用\n        # print_realtime_data()\n        # 模式切换，注释默认执行，可REPL手动触发\n        # switch_to_pause_mode()\n        # switch_to_auto_mode()\n        # 批量操作，可REPL一键调用\n        # force_single_measurement()\n        # reset_sensor()\n        # 边界参数场景，可REPL手动调用\n        # test_boundary_address()\n        # 异常参数场景，可REPL手动调用\n        # test_invalid_args()\n\n        time.sleep_ms(10)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    # SI1145 驱动未提供 close/deinit，发送复位命令使设备进入低功耗待机\n    try:\n        sensor._write8(SI1145_REG_COMMAND, SI1145_RESET)\n    except Exception:\n        pass\n    del sensor\n    print(\"Program exited\")",
+    "FreakStudio: Testing SI1145 UV/light/proximity sensor driver\nI2C devices found: ['0x60']\nSI1145 found at address: 0x60\nSI1145 initialized successfully\nUV: 0.12, Visible: 1234, IR: 567, Proximity: 89\nUV: 0.13, Visible: 1245, IR: 572, Proximity: 91\n..."
+  ],
   "import_names": [
     "si1145"
   ],
-  "constructors": [
-    "SI1145(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/si1145_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
-  "read_methods": [
+  "read_methods": [],
+  "read_properties": [
     "read_ir",
     "read_prox",
     "read_uv",
     "read_visible"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/si1145_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "si1145.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

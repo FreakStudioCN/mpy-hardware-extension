@@ -1,41 +1,51 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "MLX90614(i2c, address)",
+    "MLX90615(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mlx90614.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import I2C, Pin\nfrom mlx90614 import MLX90614\n\n# 初始化I2C（以ESP32 I2C0为例）\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=100000)\n\n# 扫描I2C地址，获取模块实际地址\ndevices = i2c.scan()\nmlx_addr = next(addr for addr in devices if 0x5A <= addr <= 0x5D)\n\n# 初始化MLX90614传感器\nsensor = MLX90614(i2c, mlx_addr)",
+    "# 读取环境温度\nambient_temp = sensor.read_ambient()\nprint(f\"环境温度: {ambient_temp:.2f}℃\")\n\n# 读取物体温度1\nobject_temp1 = sensor.read_object()\nprint(f\"物体温度1: {object_temp1:.2f}℃\")\n\n# 双温区型号读取物体温度2\nif sensor.dual_zone:\n    object_temp2 = sensor.read_object2()\n    print(f\"物体温度2: {object_temp2:.2f}℃\")\n\n# 通过属性访问温度\nprint(f\"环境温度（属性）: {sensor.ambient:.2f}℃\")\nprint(f\"物体温度（属性）: {sensor.object:.2f}℃\")\n\n# 一次性读取所有数据\nall_data = sensor.read()\nprint(\"所有温度数据:\", all_data)",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/8/27 上午11:50\n# @Author  : 缪贵成\n# @File    : main.py\n# @Description : mlx90614双温区温度传感器测试文件\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import I2C, Pin\nfrom mlx90614 import MLX90614, MLX90615\n\n# ======================================== 全局变量 =============================================\n\nmlx61xaddr=None\n\n# ======================================== 功能函数 =============================================\n\ndef test_sensor_realtime(sensor, name=\"Sensor\", interval=1.0):\n    \"\"\"\n    实时显示传感器温度数据，覆盖所有功能测试。\n    \"\"\"\n    print(\"\\n=== Realtime testing {} ===\".format(name))\n    print(\"Dual zone:\", sensor.dual_zone)\n    print(\"Press Ctrl+C to stop\")\n\n    try:\n        while True:\n            # ================= 内部方法测试 =================\n            try:\n                raw_ambient = sensor._read16(sensor._REGISTER_TA)\n                raw_object = sensor._read16(sensor._REGISTER_TOBJ1)\n                temp_ambient_internal = sensor._read_temp(sensor._REGISTER_TA)\n                temp_object_internal = sensor._read_temp(sensor._REGISTER_TOBJ1)\n            except Exception as e:\n                print(\"[Internal] Error:\", e)\n                raw_ambient = raw_object = temp_ambient_internal = temp_object_internal = None\n\n            # ================= 公共方法测试 =================\n            ambient = sensor.read_ambient()\n            obj = sensor.read_object()\n            obj2 = sensor.read_object2() if sensor.dual_zone else None\n\n            # ================= 属性访问测试 =================\n            ambient_prop = sensor.ambient\n            obj_prop = sensor.object\n            obj2_prop = sensor.object2 if sensor.dual_zone else None\n\n            # ================= 一次性读取功能测试 =================\n            try:\n                all_data = sensor.read()\n            except Exception as e:\n                all_data = None\n\n            # ================= 数据输出 =================\n            print(\"\\n[{}] Data Snapshot\".format(name))\n            print(\"Raw ambient (internal):\", raw_ambient)\n            print(\"Raw object (internal):\", raw_object)\n            if temp_ambient_internal is not None:\n                print(\"Temp ambient via _read_temp: {:.2f} °C\".format(temp_ambient_internal))\n            if temp_object_internal is not None:\n                print(\"Temp object via _read_temp: {:.2f} °C\".format(temp_object_internal))\n            print(\"Ambient: {:.2f} °C\".format(ambient))\n            print(\"Object: {:.2f} °C\".format(obj))\n            if sensor.dual_zone:\n                print(\"Object2: {:.2f} °C\".format(obj2))\n            print(\"Property ambient: {:.2f} °C\".format(ambient_prop))\n            print(\"Property object: {:.2f} °C\".format(obj_prop))\n            if sensor.dual_zone:\n                print(\"Property object2: {:.2f} °C\".format(obj2_prop))\n            print(\"Read all:\", all_data)\n\n            time.sleep(interval)\n\n    except KeyboardInterrupt:\n        print(\"\\nRealtime testing stopped\")\n\n# ======================================== 初始化配置 ===========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: MLX90614 test start \")\n\ni2c = I2C(0, scl=5, sda=4, freq=100000)\ndevices_list: list[int] = i2c.scan()\nprint('START I2C SCANNER')\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\nelse:\n    print('i2c devices found:', len(devices_list))\nfor device in devices_list:\n    if 0x5A <= device <= 0x5D:\n        print(\"I2c hexadecimal address:\", hex(device))\n        mlx61xaddr = device\n\n# 初始化传感器\nsensor14 = MLX90614(i2c, mlx61xaddr)\nprint(\"[MLX90614] Sensor initialized.\")\nsensor15 = MLX90615(i2c, mlx61xaddr)\nprint(\"[MLX90615] Sensor initialized.\")\n\n# ======================================== 主程序 ==============================================\n\nprint(\"\\n--- Starting MLX90614 Realtime Test ---\")\ntest_sensor_realtime(sensor14, \"MLX90614\", interval=1.0)\n\nprint(\"\\n--- Starting MLX90615 Realtime Test ---\")\ntest_sensor_realtime(sensor15, \"MLX90615\", interval=1.0)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "mlx90614"
   ],
-  "constructors": [
-    "MLX90614(i2c)",
-    "MLX90615(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mlx90614_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
-    "ambient",
     "get",
-    "object",
-    "object2",
     "read",
     "read_ambient",
     "read_object",
     "read_object2"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
+  "read_properties": [
+    "ambient",
+    "object",
+    "object2"
   ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mlx90614_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mlx90614.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

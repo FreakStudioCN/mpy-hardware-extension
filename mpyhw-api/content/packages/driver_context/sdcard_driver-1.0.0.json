@@ -1,0 +1,59 @@
+{
+  "bus": [
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "SDCard(spi, cs, baudrate)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "AbstractBlockDevInterface.py",
+      "type": "source"
+    },
+    {
+      "path": "sd_block_dev.py",
+      "type": "source"
+    },
+    {
+      "path": "sdcard.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-        \n# @Time    : 2024/9/30 下午12:13   \n# @Author  : 李清水            \n# @File    : main.py       \n# @Description : 文件系统类实验，使用SD卡挂载文件系统并读写\n\n# ======================================== 导入相关模块 ========================================\n\n# 导入硬件相关模块\nfrom machine import SPI, Pin\n# 导入时间相关模块\nimport time\n# 导入自定义SD卡块设备类\nfrom sd_block_dev import SDCARDBlockDevice\n# 导入自定义SD卡读写类\nfrom sdcard import SDCard\n# 导入虚拟文件类\nimport vfs\n# 导入文件系统操作类\nimport os\n\n# ======================================== 全局变量 ============================================\n\n# 定义嵌入式知识学习网站及其网址\nwebsites = [\n    (\"Embedded.com\", \"https://www.embedded.com\"),\n    (\"Microchip\", \"https://www.microchip.com\"),\n    (\"ARM Developer\", \"https://developer.arm.com\"),\n    (\"SparkFun\", \"https://www.sparkfun.com\"),\n    (\"Adafruit\", \"https://www.adafruit.com\"),\n    (\"Embedded Systems Academy\", \"https://www.esacademy.com\"),\n    (\"Electronics Hub\", \"https://www.electronicshub.org\"),\n]\n\n# 定义CSV文件地址\ncsv_file_path = '/sdcard/embedded_websites.csv'\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\n# 上电延时3s\ntime.sleep(3)\n# 打印调试消息\nprint(\"FreakStudio: Mount the SD Card to the file system\")\n\n# 初始化SPI类，设置波特率、极性、相位、时钟引脚、数据引脚\nspi = SPI(1, baudrate=1320000, polarity=0, phase=0, sck=Pin(10), mosi=Pin(11), miso=Pin(12))\n# 初始化SD卡类，使用GPIO13作为片选引脚\nsdcard = SDCard(spi, cs=Pin(13))\n\n# 创建块设备，使用SD卡，块大小为512个字节\nblock_device = SDCARDBlockDevice(sdcard = sdcard)\n# 在块设备上创建一个 FAT 文件系统\nvfs.VfsFat.mkfs(block_device)\n# 将块设备挂载到虚拟文件系统的 /sdcard 目录\nvfs.mount(block_device, '/sdcard')\n# 打印当前目录\nprint(\"Current Directory : \",os.listdir())\n\n# ========================================  主程序  ============================================\n\n# 写入 CSV 文件\nwith open(csv_file_path, 'w') as f:\n    # 写入表头\n    f.write(\"Website Name,URL\\n\")\n    for name, url in websites:\n        # 写入每一行\n        f.write(f\"{name},{url}\\n\")\n\n# 打印文件位置\nprint(f\"CSV file written to SD card as '{csv_file_path}'.\")"
+  ],
+  "import_names": [
+    "sdcard",
+    "AbstractBlockDevInterface",
+    "sd_block_dev"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/storage/sdcard_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "cmd",
+    "erase_block",
+    "init_card",
+    "init_card_v1",
+    "init_card_v2",
+    "init_spi",
+    "readinto",
+    "write",
+    "write_token"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

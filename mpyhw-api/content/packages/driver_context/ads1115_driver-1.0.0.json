@@ -1,9 +1,37 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "ADS1115(i2c, address, gain, alert_pin, callback)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ads1115.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, I2C\nfrom ads1115 import ADS1115\n\n# 初始化I2C（SDA=4, SCL=5, 400KHz）\ni2c = I2C(id=0, sda=Pin(4), scl=Pin(5), freq=400000)\n# 扫描I2C总线获取设备地址\nADC_ADDRESS = i2c.scan()[0]\n# 初始化ADS1115（增益1x，±4.096V）\nadc = ADS1115(i2c, ADC_ADDRESS, 1)",
+    "from machine import Pin, I2C, Timer, UART\nimport time\nfrom ads1115 import ADS1115\nimport struct\n\n# 全局变量\nADC_ADDRESS = 0\nPOT_CHANNEL = 0  # 电位器连接AIN0\nFILTER_SIZE = 20\nfilter_buffer = []\nfilter_sum = 0\n\n# 定时器回调:定时采集ADC数据\ndef timer_callback(timer):\n    global adc, POT_CHANNEL, FILTER_SIZE\n    try:\n        # 设置860 SPS采样率，采集AIN0通道\n        adc.set_conv(rate=7, channel1=POT_CHANNEL)\n        raw_adc = adc.read_rev()\n        voltage = adc.raw_to_v(raw_adc)\n        print(f\"Channel AIN{POT_CHANNEL}: {voltage:.4f} V (Raw: {raw_adc})\")\n        \n        # 滑动均值滤波\n        average = moving_average_filter(raw_adc, FILTER_SIZE)\n        # 串口发送数据帧\n        send_data_frames(raw_adc, average)\n    except Exception as e:\n        print(\"Error in timer_callback:\", e)\n\n# 串口数据帧发送\ndef send_data_frames(raw_adc, average):\n    global uart\n    try:\n        # 帧头0xAA 0xBB + 原始值 + 滤波值（小端模式）\n        frame_header = struct.pack('<2B', 0xAA, 0xBB)\n        frame_data = struct.pack('<2H', raw_adc & 0xFFFF, average & 0xFFFF)\n        uart.write(frame_header + frame_data)\n    except Exception as e:\n        print(\"Error in send_data_frames:\", e)\n\n# 滑动均值滤波\ndef moving_average_filter(new_value, filter_size):\n    global filter_buffer, filter_sum\n    filter_buffer.append(new_value)\n    filter_sum += new_value\n    if len(filter_buffer) > filter_size:\n        removed = filter_buffer.pop(0)\n        filter_sum -= removed\n    return filter_sum // len(filter_buffer)\n\n# 初始化配置\ntime.sleep(3)\nprint(\"FreakStudio: Using ADS1115 acquire signal\")\n\n# 初始化UART（波特率256000）\nuart = UART(0, 256000)\nuart.init(baudrate=256000, bits=8, parity=None, stop=1, tx=0, rx=1, timeout=100)\n\n# 初始化I2C（SDA=4, SCL=5, 400KHz）\ni2c = I2C(id=0, sda=Pin(4), scl=Pin(5), freq=400000)\ndevices_list = i2c.scan()\nprint('i2c devices found:', len(devices_list))\nfor device in devices_list:\n    print(\"ADC I2C address:\", hex(device))\n    ADC_ADDRESS = device\n\n# 初始化ADS1115（增益1x，±4.096V）\nadc = ADS1115(i2c, ADC_ADDRESS, 1)\n\n# 初始化定时器（10ms周期，100Hz采集）\ntimer = Timer(-1)\ntimer.init(period=10, mode=Timer.PERIODIC, callback=timer_callback)\n\n# 主循环\nwhile True:\n    time.sleep(1)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "ads1115"
   ],
-  "constructors": [
-    "ADS1115(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/signal_acquisition/ads1115_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "alert_read",
@@ -15,25 +43,5 @@
     "set_conv"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/ads1115_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "ads1115.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

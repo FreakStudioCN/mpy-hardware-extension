@@ -1,14 +1,45 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "MAX44009(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "max44009.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "max44009_driver/\n├── code/\n│   ├── max44009.py    # 核心驱动\n│   └── main.py        # 测试示例\n├── package.json       # mip 包配置\n├── README.md          # 本文档\n└── LICENSE            # 许可协议",
+    "max44009.py",
+    "from machine import I2C, Pin\nfrom max44009 import MAX44009\n\ni2c = I2C(0, sda=Pin(4), scl=Pin(5), freq=100000)\nsensor = MAX44009(i2c)\nprint(\"Lux: %.2f lx\" % sensor.lux)\nsensor.deinit()",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/04/22 14:15\n# @Author  : FreakStudio\n# @File    : main.py\n# @Description : 测试MAX44009环境光传感器驱动类的代码\n# @License : MIT\n\nfrom machine import I2C, Pin\nfrom max44009 import MAX44009\nimport time\n\nI2C_ID = 0\nI2C_SDA_PIN = 4\nI2C_SCL_PIN = 5\nI2C_FREQ = 100000\nMAX44009_ADDR_LIST = (0x4A, 0x4B)\nI2C_MUX_ADDR = 0x70\nI2C_MUX_CHANNELS = 8\nREAD_INTERVAL = 1\n\ntime.sleep(3)\nprint(\"FreakStudio: Using MAX44009 ambient light sensor ...\")\n\ni2c = I2C(I2C_ID, sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\nsensor_address, mux_channel = find_sensor_with_mux(i2c)\nsensor = MAX44009(i2c, address=sensor_address)\nsensor.continuous = 1\n\ntry:\n    while True:\n        print(\"Lux: %.2f lx  Fast: %.2f lx  Interrupt: %d\" % (\n            sensor.lux, sensor.lux_fast, sensor.int_status))\n        time.sleep(READ_INTERVAL)\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nfinally:\n    sensor.deinit()\n    del sensor\n    print(\"Program exited\")"
+  ],
   "import_names": [
     "max44009"
   ],
-  "constructors": [
-    "MAX44009(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/max44009_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
+    "deinit"
+  ],
+  "read_properties": [
     "continuous",
     "current_division_ratio",
-    "deinit",
     "int_enable",
     "int_status",
     "integration_time",
@@ -19,26 +50,5 @@
     "threshold_timer",
     "upper_threshold"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/max44009_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "max44009.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

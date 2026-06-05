@@ -1,0 +1,57 @@
+{
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)",
+    "SpiAdapter(bus, data_mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bmp390.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/9/8 下午4:52\n# @Author  : octaprog7\n# @File    : main.py\n# @Description : BMP390 压力传感器测试程序\n\n# ======================================== 导入相关模块 =========================================\nfrom machine import I2C, Pin\nimport bmp390\nimport time\nfrom bmp390 import I2cAdapter\n\n# ======================================== 全局变量 ============================================\n# 定义I2C配置常量\nI2C_SCL_PIN = 5  # SCL引脚（针对Raspberry Pi Pico）\nI2C_SDA_PIN = 4  # SDA引脚（针对Raspberry Pi Pico）\nI2C_FREQ = 400_000  # I2C通信频率\nTARGET_SENSOR_ADDR = 0x77  # BMP390默认I2C地址（可选0x76，根据硬件接线调整）\n\n\n# ======================================== 功能函数 ============================================\ndef pa_mmhg(value: float) -> float:\n    \"\"\"\n    将大气压力从帕斯卡转换为毫米汞柱。\n    Args:\n        value: 压力值，单位帕斯卡\n\n    Returns:\n        转换后的压力值，单位毫米汞柱\n\n    Notes:\n        转换系数为 7.50062e-3\n\n    ==========================================\n    Convert air pressure from Pascal to mm Hg.\n    Args:\n        value: pressure in Pascal\n\n    Returns:\n        pressure in mm Hg\n\n    Notes:\n        conversion factor is 7.50062e-3\n    \"\"\"\n    return 7.50062e-3 * value\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\ntime.sleep(3)\nprint(\"FreakStudio: BMP390 sensor test starting...\")\n\n# 按示例风格初始化I2C总线 + 扫描I2C设备\n# 1. 初始化I2C总线\ni2c_bus = I2C(0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n# 2. 开始扫描I2C总线上的设备\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\n# 3. 检查I2C设备扫描结果\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(\"i2c devices found:\", len(devices_list))\n\n# 4. 遍历地址列表初始化目标传感器（匹配示例逻辑）\nps = None  # 传感器对象初始化\nfor device in devices_list:\n    if device == TARGET_SENSOR_ADDR:\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            # 初始化I2C适配器和BMP390传感器\n            adaptor = I2cAdapter(i2c_bus)\n            ps = bmp390.Bmp390(adaptor)\n            print(\"Target sensor (BMP390) initialization successful\")\n            break\n        except Exception as e:\n            print(f\"Sensor Initialization failed: {e}\")\n            continue\nelse:\n    # 遍历完未找到目标地址时抛出异常\n    raise Exception(f\"No BMP390 found (target address: {hex(TARGET_SENSOR_ADDR)}, found addresses: {[hex(d) for d in devices_list]})\")\n\n# 读取传感器 ID\nres = ps.get_id()\nprint(f\"chip_id: {res}\")\n# 软件复位传感器，确保进入已知状态\nps.soft_reset()\nprint(f\"pwr mode: {ps.get_power_mode()}\")\n\n# 读取校准系数\ncalibration_data = [ps.get_calibration_coefficient(index) for index in range(14)]\nprint(f\"Calibration data: {calibration_data}\")\n\n# 获取事件、中断状态和 FIFO 长度\nprint(f\"Event: {ps.get_event()}; Int status: {ps.get_int_status()}; FIFO length: {ps.get_fifo_length()}\")\n\n# 设置延时函数别名\ndelay_func = time.sleep_ms\n\n# 配置传感器参数\nps.set_oversampling(pressure_oversampling=2, temperature_oversampling=3)\nps.set_sampling_period(5)\nps.set_iir_filter(2)\n\n# ========================================  主程序  ============================================\nprint(\"Single-shot measurement mode on demand!\")\nprint(f\"pwr mode: {ps.get_power_mode()}\")\nprint(f\"conversion time in [us]: {ps.get_conversion_cycle_time()}\")\nfor _ in range(20):\n    # 启动单次测量模式\n    ps.start_measurement(enable_press=True, enable_temp=True, mode=1)\n    delay_func(300)\n    # 读取数据就绪状态\n    temperature_ready, pressure_ready, cmd_ready = ps.get_data_status()\n    if cmd_ready and pressure_ready:\n        t, p = ps.get_temperature(), ps.get_pressure()\n        pm = ps.get_power_mode()\n        print(f\"Temperature: {t} \\xB0C; pressure: {p} Pa ({pa_mmhg(p)} mm Hg); pwr_mode: {pm} \")\n    else:\n        print(f\"Data ready: temp {temperature_ready}, press {pressure_ready}\")\n\nprint(\"Continuous periodic measurement mode!\")\n# 启动连续测量模式\nps.start_measurement(enable_press=True, enable_temp=True, mode=2)\nprint(f\"pwr mode: {ps.get_power_mode()}\")\nfor values in ps:\n    delay_func(300)\n    d_status = ps.get_data_status()\n    if d_status.cmd_decoder_ready and d_status.press_ready:\n        t, p, tme = values.T, values.P, ps.get_sensor_time()\n        pm = ps.get_power_mode()\n        print(f\"Temperature: {t} \\xB0C; pressure: {p} Pa ({pa_mmhg(p)} mm Hg); pwr_mode: {pm}\")\n    else:\n        print(f\"Data ready: temp {d_status.temp_ready}, press {d_status.press_ready}\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "bmp390"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/bmp390_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "get_bus_type",
+    "read",
+    "read_buf_from_memory",
+    "read_register",
+    "read_to_buf",
+    "write",
+    "write_and_read",
+    "write_buf_to_memory",
+    "write_const",
+    "write_register"
+  ],
+  "read_properties": [
+    "prepare_func"
+  ],
+  "support_level": "generatable"
+}

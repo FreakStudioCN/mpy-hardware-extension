@@ -1,0 +1,40 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "DS1232(wdi_pin, feed_interval)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ds1232.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, Timer\nimport time\nfrom ds1232 import DS1232\n\n# 全局配置\nWDI_PIN = 7          # WDI引脚连接的GPIO\nRST_PIN = 6          # RST引脚连接的GPIO\nFEED_INTERVAL = 300  # 喂狗间隔（ms）\nSTOP_FEED_DELAY = 10000  # 延迟停止喂狗时间（ms）\n\n# 全局变量\nwdg = None\nstop_feed_timer = None\nsystem_reset_flag = False  # 复位触发标志\n\ndef rst_callback(pin: Pin):\n    \"\"\"RST引脚触发回调函数\"\"\"\n    global system_reset_flag\n    system_reset_flag = True\n    print(\"DS1232 RST pin triggered.\")\n\ndef stop_feed_callback(t: Timer):\n    \"\"\"定时器回调:停止自动喂狗，模拟喂狗失败触发复位\"\"\"\n    global wdg, stop_feed_timer\n    print(\"Stop feeding watchdog.\")\n    wdg.stop()\n    stop_feed_timer.deinit()\n\n# 初始化配置\ntime.sleep(3)\nprint(\"FreakStudio:: DS1232 Watchdog Test Program.\")\n\n# 初始化DS1232看门狗\nwdg = DS1232(wdi_pin=WDI_PIN, feed_interval=FEED_INTERVAL)\nwdg.kick()  # 立即手动喂狗\n\n# 配置RST引脚中断\nrst_pin = Pin(RST_PIN, Pin.IN, Pin.PULL_UP)\nrst_pin.irq(trigger=Pin.IRQ_FALLING, handler=rst_callback)\n\n# 定义定时器，延迟停止喂狗\nstop_feed_timer = Timer()\nstop_feed_timer.init(period=STOP_FEED_DELAY, mode=Timer.ONE_SHOT, callback=stop_feed_callback)\n\n# 主程序\nprint(\"Start feeding watchdog.\")\ntry:\n    while True:\n        current_time = time.ticks_ms()\n        print(f\"System running... Time: {current_time} ms\")\n\n        if system_reset_flag:\n            print(\"System starting reset...\")\n            break\n\n        time.sleep(1)\nexcept KeyboardInterrupt:\n    print(\"Program interrupted.\")\nfinally:\n    wdg.stop()\n    stop_feed_timer.deinit()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "ds1232"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/ds1232_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "kick",
+    "stop"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

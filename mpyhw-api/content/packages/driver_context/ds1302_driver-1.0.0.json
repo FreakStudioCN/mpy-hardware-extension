@@ -1,0 +1,68 @@
+{
+  "bus": [
+    "gpio",
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "DS1302(clk, dio, cs)",
+    "SSD1306_I2C(i2c, addr, width, height, external_vcc)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ds1302.py",
+      "type": "source"
+    },
+    {
+      "path": "SSD1306.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, RTC\n   from ds1302 import DS1302\n   rtc = RTC()\n   year, month, day, weekday, hour, minute, second, _ = rtc.datetime()\n   ds1302 = DS1302(clk=Pin(10), dio=Pin(11), cs=Pin(12))\n   ds1302.date_time([year, month, day, weekday, hour, minute, second])",
+    "# 导入核心模块\nfrom machine import Pin, I2C, Timer, PWM\nfrom ds1302 import DS1302\nfrom SSD1306 import SSD1306_I2C\n\n# 初始化DS1302\nds1302 = DS1302(clk=Pin(10), dio=Pin(11), cs=Pin(12))\n\n# 初始化I2C和OLED\ni2c = I2C(id=1, sda=Pin(6), scl=Pin(7), freq=400000)\noled = SSD1306_I2C(i2c, 0x3c, 128, 64, False)\n\n# 初始化闹钟（蜂鸣器Pin9）\nclass AlarmClock:\n    def __init__(self, oled, buzzer_pin):\n        self.oled = oled\n        self.buzzer = PWM(buzzer_pin, freq=1000, duty_u16=0)\n        self.alarms = []\n    def set_alarm(self, hours, minutes):\n        if 0<=hours<=23 and 0<=minutes<=59:\n            self.alarms.append((hours, minutes))\n    def check_alarms(self, current_time):\n        ch, cm = current_time[4], current_time[5]\n        for (h, m) in self.alarms:\n            if h == ch and m == cm:\n                self.buzzer.duty_u16(32000)\n                self.oled.text(\"Alarm!\", 0, 48)\n                return True\n        self.buzzer.duty_u16(0)\n        return False\n\nalarm_clock = AlarmClock(oled, Pin(9))\nalarm_clock.set_alarm(18, 3)  # 设置18:03的闹钟\n\n# 定时器刷新显示\ndef display_time(timer):\n    current_time = ds1302.date_time()\n    oled.fill(0)\n    # 显示标题\n    oled.text(\"RTC Clock\", (128 - 6*8)//2, 0)\n    # 显示日期\n    date_str = f\"{current_time[0]:04}-{current_time[1]:02}-{current_time[2]:02}\"\n    oled.text(date_str, (128 - len(date_str)*8)//2, 16)\n    # 显示时间\n    time_str = f\"{current_time[4]:02}:{current_time[5]:02}:{current_time[6]:02}\"\n    oled.text(time_str, (128 - len(time_str)*8)//2, 32)\n    # 检查闹钟\n    alarm_clock.check_alarms(current_time)\n    oled.show()\n\n# 启动定时器（100ms刷新一次）\ntimer = Timer(-1)\ntimer.init(period=100, mode=Timer.PERIODIC, callback=display_time)\n\n# 主循环\nwhile True:\n    pass",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "ds1302",
+    "SSD1306"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/ds1302_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio",
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "contrast",
+    "date_time",
+    "init_display",
+    "invert",
+    "poweroff",
+    "poweron",
+    "ram",
+    "show",
+    "start",
+    "stop",
+    "write_cmd",
+    "write_data"
+  ],
+  "read_properties": [
+    "day",
+    "hour",
+    "minute",
+    "month",
+    "second",
+    "weekday",
+    "year"
+  ],
+  "support_level": "generatable"
+}

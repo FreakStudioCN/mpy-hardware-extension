@@ -1,9 +1,40 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "PCA9546ADR(i2c, addr7)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "pca9546adr.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, I2C\nimport time\nfrom pca9546adr import PCA9546ADR\n\n# 初始化 I2C（Raspberry Pi Pico I2C1，SCL=GP2，SDA=GP3）\ni2c = I2C(1, scl=Pin(2), sda=Pin(3))",
+    "# 创建 PCA9546ADR 实例，默认地址 0x70\npca = PCA9546ADR(i2c)",
+    "# 关闭所有通道，避免干扰\npca.disable_all()# 选择通道 0，操作该通道上的设备\npca.select_channel(0)print(\"通道 0 上的 I2C 设备:\", i2c.scan())# 关闭所有通道，切换到通道 1\npca.disable_all()\npca.select_channel(1)print(\"通道 1 上的 I2C 设备:\", i2c.scan())",
+    "# 获取当前通道掩码（低 4 位表示通道使能状态）\ncurrent_mask = pca.current_mask()\nprint(\"当前通道掩码:\", bin(current_mask))",
+    "# -*- coding: utf-8 -*-\nfrom machine import Pin, I2C\nimport time\nfrom pca9546adr import PCA9546ADR\n\n# 上电延时\ntime.sleep(3)\nprint(\"FreakStudio: Testing PCA9546ADR4 I2C Multiplexer Modules\")\n\n# 初始化 I2C\ni2c = I2C(1, scl=Pin(2), sda=Pin(3))\npca = PCA9546ADR(i2c)\n\n# 循环切换通道并扫描设备\nwhile True:\n    # 关闭所有通道，切换到通道 0\n    pca.disable_all()\n    pca.select_channel(0)\n    print(\"通道 0 设备地址:\", i2c.scan())\n    time.sleep(4)\n    \n    # 关闭所有通道，切换到通道 1\n    pca.disable_all()\n    pca.select_channel(1)\n    print(\"通道 1 设备地址:\", i2c.scan())\n    time.sleep(4)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "pca9546adr"
   ],
-  "constructors": [
-    "PCA9546ADR(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/pca9546_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "current_mask",
@@ -13,25 +44,5 @@
     "write_ctl"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/pca9546_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "pca9546adr.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

@@ -1,9 +1,36 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "Radio(i2c, addr, freq, band, stereo, soft_mute, noise_cancel, high_cut)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "tea5767.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/9/9\n# @Author  : hogeiha\n# @File    : tea5767_search_max_signal_simple.py\n# @Description : 基于原有Radio类搜索最高信号频率（无新增类）\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import I2C, Pin\n\n# 导入原有Radio类\nfrom tea5767 import Radio\n\n# ======================================== 全局变量 ============================================\n\n# Pico I2C SCL引脚\nI2C_SCL = 5\n# Pico I2C SDA引脚\nI2C_SDA = 4\n# Tea5767默认I2C地址\nRADIO_ADDR = 0x60\n# 搜索频段：US(87.5-108.0) / JP(76.0-91.0)\nSEARCH_BAND = \"US\"\n# FM频率步进（固定0.1MHz）\nSTEP = 0.1\n# 2. 定义频段范围\nfreq_min, freq_max = Radio.FREQ_RANGE_US if SEARCH_BAND == \"US\" else Radio.FREQ_RANGE_JP\ncurrent_freq = freq_min\nmax_signal_freq = current_freq\nmax_signal_level = 0\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\n# 补充项目要求的初始化配置\ntime.sleep(3)\nprint(\"FreakStudio: Tea5767 max signal search start\")\n\n# 1. 初始化I2C和Radio实例\ni2c = I2C(0, scl=Pin(I2C_SCL), sda=Pin(I2C_SDA), freq=400000)\ndevices_list: list[int] = i2c.scan()\n\nprint(\"START I2C SCANNER\")\n\n# 若devices list为空，则没有设备连接到I2C总线上\nif len(devices_list) == 0:\n    # 若非空，则打印从机设备地址\n    print(\"No i2c device !\")\nelse:\n    # 遍历从机设备地址列表\n    print(\"i2c devices found:\", len(devices_list))\nfor device in devices_list:\n    # 判断设备地址是否为的RADIO地址\n    if device == 0x60:\n        # 找到的设备是RADIO地址\n        print(\"I2c hexadecimal address:\", hex(device))\n        RADIO_ADDR = device\n\nif RADIO_ADDR not in i2c.scan():\n    print(f\"Error: Tea5767 module not detected (I2C address {hex(RADIO_ADDR)})\")\nelse:\n    # 初始化Radio（关闭干扰检测的功能，保证信号读取准确）\n    radio = Radio(\n        i2c=i2c, addr=RADIO_ADDR, freq=87.5 if SEARCH_BAND == \"US\" else 76.0, band=SEARCH_BAND, soft_mute=False, noise_cancel=False, high_cut=False\n    )\n    print(f\"Starting {SEARCH_BAND} band scanning...\")\n\n# ========================================  主程序  ===========================================\n\n# 3. 逐频率扫描信号强度\nwhile current_freq <= freq_max:\n    # 设置当前频率并等待稳定\n    radio.set_frequency(current_freq)\n    time.sleep_ms(20)\n    # 读取最新状态\n    radio.read()\n\n    # 更新最高信号记录\n    if radio.signal_adc_level > max_signal_level:\n        max_signal_level = radio.signal_adc_level\n        max_signal_freq = current_freq\n\n    # 频率步进（保留1位小数避免浮点误差）\n    current_freq = round(current_freq + STEP, 1)\n\n# 4. 切换到最高信号频率并输出结果\nradio.set_frequency(max_signal_freq)\ntime.sleep_ms(50)\nradio.read()\n\n# 恢复优化配置（软静音/降噪）\nradio.soft_mute_mode = True\nradio.stereo_noise_cancelling_mode = True\nradio.update()\n\n# 打印最终结果\nprint(\"=\" * 40)\nprint(\"Scanning completed!\")\nprint(f\"Max signal frequency: {max_signal_freq} MHz\")\nprint(f\"Signal strength level: {max_signal_level} (0-15, higher is stronger)\")\nprint(f\"Stereo mode: {'Yes' if radio.is_stereo else 'No'}\")\nprint(\"=\" * 40)\n\nwhile True:\n    pass",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "tea5767"
   ],
-  "constructors": [
-    "Radio(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/tea5767_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "change_freqency",
@@ -15,25 +42,5 @@
     "update"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/tea5767_driver/1.0.1/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "tea5767.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

@@ -1,0 +1,89 @@
+{
+  "bus": [
+    "spi",
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "IMU(UART_Obj)",
+    "ST7789(spi, width, height, reset, dc, cs, backlight, rotation, color_order, custom_init, custom_rotations)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "IMU.py",
+      "type": "source"
+    },
+    {
+      "path": "st7789.py",
+      "type": "source"
+    },
+    {
+      "path": "vga1_16x16.py",
+      "type": "source"
+    },
+    {
+      "path": "vga1_16x32.py",
+      "type": "source"
+    },
+    {
+      "path": "vga1_8x8.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# MicroPython v1.23.0\nfrom machine import SPI, Pin, UART\nfrom st7789 import ST7789\nfrom main import LCD\nfrom IMU import IMU\nimport time\n\n# 1. 初始化SPI与LCD\nspi = SPI(1, baudrate=40000000, sck=Pin(18), mosi=Pin(23))\ndc = Pin(21)\ncs = Pin(22)\nreset = Pin(19)\nbacklight = Pin(5)\nlcd = LCD(spi, 240, 320, reset=reset, dc=dc, cs=cs, backlight=backlight, rotation=0)\n\n# 2. 初始化UART与IMU\nuart = UART(2, baudrate=115200, tx=Pin(17), rx=Pin(16))\nimu = IMU(uart)\n\n# 3. IMU校准（可选）\nimu.SendCMD(imu.ACCCALBCMD)  # 加速度校准\ntime.sleep(2)\nimu.SendCMD(imu.ZAXISCLEARCMD)  # Z轴角度清零\n\n# 4. 采集IMU数据并在LCD显示\nlcd.fill(lcd.WHITE)  # 清屏为白色\nwhile True:\n    # 采集IMU数据（加速度、角速度、角度）\n    acc, gyro, angle = imu.ReceiveData()\n    \n    # 显示数据（居中对齐，不同字体大小）\n    lcd.line_center_text(f\"Acc: {acc[0]:.2f}g\", 20, color=lcd.RED, size=lcd.mediumsize)\n    lcd.line_center_text(f\"Gyro: {gyro[1]:.2f}°/s\", 50, color=lcd.GREEN, size=lcd.mediumsize)\n    lcd.line_center_text(f\"Angle: {angle[2]:.2f}°\", 80, color=lcd.BLUE, size=lcd.mediumsize)\n    \n    time.sleep(0.1)\n    lcd.fill(lcd.WHITE)  # 清屏准备下一次显示",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "IMU",
+    "st7789",
+    "vga1_16x16",
+    "vga1_16x32",
+    "vga1_8x8"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/st7789_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs",
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "RecvData",
+    "SendCMD",
+    "bitmap",
+    "blit_buffer",
+    "fill",
+    "fill_rect",
+    "hard_reset",
+    "hline",
+    "init",
+    "inversion_mode",
+    "line",
+    "pbitmap",
+    "pixel",
+    "polygon",
+    "rect",
+    "rotation",
+    "sleep_mode",
+    "soft_reset",
+    "text",
+    "vline",
+    "vscrdef",
+    "vscsad",
+    "write",
+    "write_width"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

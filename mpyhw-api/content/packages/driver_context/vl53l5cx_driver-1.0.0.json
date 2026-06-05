@@ -1,52 +1,55 @@
 {
-  "import_names": [
-    "__init__",
-    ""
-  ],
-  "constructors": [
-    "VL53L5CX(i2c)"
-  ],
-  "read_methods": [
-    "check_data_ready",
-    "default_config_data",
-    "deinit",
-    "fw_data",
-    "get_ranging_data",
-    "init",
-    "integration_time_ms",
-    "is_alive",
-    "power_mode",
-    "ranging_freq",
-    "ranging_mode",
-    "reset",
-    "resolution",
-    "sharpener_percent",
-    "start_ranging",
-    "stop_ranging",
-    "target_order",
-    "xtalk4x4_data",
-    "xtalk_data"
-  ],
-  "read_properties": [],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.7,
+  "constructors": [
+    "VL53L5CXCP(i2c, addr, lpn)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_config_bytes.py",
+      "type": "source"
+    },
+    {
+      "path": "_config_file.py",
+      "type": "source"
+    },
+    {
+      "path": "cp.py",
+      "type": "source"
+    },
+    {
+      "path": "mp.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "vl53l5cx_driver/\n├── code/\n│   ├── vl53l5cx/\n│   │   ├── __init__.py          # 驱动基类（VL53L5CX）\n│   │   ├── mp.py                # MicroPython I2C 子类（VL53L5CXMP）\n│   │   ├── _config_file.py      # 固件数据加载器\n│   │   └── vl_fw_config.bin     # 固件资源文件（88KB）\n│   └── main.py                  # 测试示例\n├── package.json                 # 包配置文件\n├── README.md                    # 说明文档\n└── LICENSE                      # MIT 许可证",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/05/06 09:00\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : 测试VL53L5CX 8x8多区域ToF距离传感器驱动类的代码\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import I2C, Pin\nfrom os import stat\nfrom vl53l5cx.mp import VL53L5CXMP\nfrom vl53l5cx import DATA_DISTANCE_MM, DATA_TARGET_STATUS\nfrom vl53l5cx import RESOLUTION_4X4, STATUS_VALID, STATUS_VALID_LARGE_PULSE\n\n# ======================================== 全局变量 ============================================\n\nVL53L5CX_ADDR = 0x29\nI2C_SDA_PIN = 4\nI2C_SCL_PIN = 5\nLPN_PIN = 6\nI2C_FREQ = 1_000_000\nSENSOR_RESOLUTION = RESOLUTION_4X4\nGRID_SIZE = 4\nRANGING_FREQ = 2\nFIRMWARE_FILE = \"vl53l5cx/vl_fw_config.bin\"\n\n# ======================================== 功能函数 ============================================\n\n\ndef print_distance_grid(distance, status, grid_size: int) -> None:\n    \"\"\"\n    打印距离网格，无效点显示为 xxxx\n    \"\"\"\n    if distance is None:\n        raise ValueError(\"Distance cannot be None\")\n    if status is None:\n        raise ValueError(\"Status cannot be None\")\n    if grid_size is None:\n        raise ValueError(\"Grid size cannot be None\")\n    if not isinstance(grid_size, int):\n        raise TypeError(\"Grid size must be integer\")\n    if grid_size <= 0:\n        raise ValueError(\"Grid size must be greater than zero\")\n\n    for index, value in enumerate(distance):\n        if status[index] in (STATUS_VALID, STATUS_VALID_LARGE_PULSE):\n            print(\"{:4}\".format(value), end=\" \")\n        else:\n            print(\"xxxx\", end=\" \")\n        if (index + 1) % grid_size == 0:\n            print(\"\")\n    print(\"\")\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: Using VL53L5CX 8x8 multi-zone ToF distance sensor ...\")\n\n# 检查固件资源文件是否存在\ntry:\n    stat(FIRMWARE_FILE)\nexcept OSError:\n    raise SystemExit(\"Missing firmware file: %s\" % FIRMWARE_FILE)\n\n# 初始化 I2C 总线\ni2c_bus = I2C(0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n\n# 扫描 I2C 总线设备\ndevices_list = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\nif len(devices_list) == 0:\n    raise RuntimeError(\"I2C scan found no devices\")\nprint(\"I2C devices found: %d\" % len(devices_list))\n\nif VL53L5CX_ADDR not in devices_list:\n    raise RuntimeError(\"VL53L5CX not found on I2C bus\")\nprint(\"I2C address: %s\" % hex(VL53L5CX_ADDR))\n\n# 初始化 LPn 复位控制引脚\nlpn_pin = Pin(LPN_PIN, Pin.OUT, value=1)\n\n# 创建传感器对象\ntof = VL53L5CXMP(i2c_bus, addr=VL53L5CX_ADDR, lpn=lpn_pin)\n\n# 复位传感器\ntof.reset()\n\n# 检查传感器是否在线\nif not tof.is_alive():\n    raise RuntimeError(\"VL53L5CX not detected\")\nprint(\"Sensor initialization successful\")\n\n# 初始化传感器固件和配置\ntof.init()\n\n# 设置测距分辨率和频率\ntof.resolution = SENSOR_RESOLUTION\ntof.ranging_freq = RANGING_FREQ\n\n# 启动测距，启用距离和目标状态输出\ntof.start_ranging({DATA_DISTANCE_MM, DATA_TARGET_STATUS})\nprint(\"Start ranging\")\n\n# ========================================  主程序  ===========================================\n\ntry:\n    while True:\n        # 检查是否有新的测距数据\n        if tof.check_data_ready():\n            results = tof.get_ranging_data()\n            print_distance_grid(results.distance_mm, results.target_status, GRID_SIZE)\n        time.sleep_ms(50)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    tof.deinit()\n    del tof\n    print(\"Program exited\")"
+  ],
+  "import_names": [
+    "cp",
+    "_config_bytes",
+    "_config_file",
+    "mp"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/vl53l5cx_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/vl53l5cx_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "__init__.py"
-    }
+  "read_methods": [
+    "reset"
   ],
-  "confidence": 0.75,
+  "read_properties": [],
   "support_level": "generatable"
 }

@@ -1,38 +1,48 @@
 {
-  "import_names": [
-    "tsl2561"
-  ],
-  "constructors": [
-    "TSL2561(i2c)"
-  ],
-  "read_methods": [
-    "get_id",
-    "get_lumi",
-    "lux",
-    "read_raw",
-    "set_power_up",
-    "set_timing_gain"
-  ],
-  "read_properties": [],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.7,
+  "constructors": [
+    "TSL2561(i2c, addr)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "tsl2561.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import mip\nmip.install(\"github:FreakStudioCN/MicroPython_Drivers/sensors/tsl2561_driver\")",
+    "from machine import Pin, SoftI2C\nfrom tsl2561 import TSL2561, T_SLOW\n\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=100000)\nsensor = TSL2561(i2c, addr=0x39)\n\n# 读取 lux\nprint(sensor.lux)\n\n# 读取原始双通道数据\nch0, ch1 = sensor.read_raw()\nprint(\"CH0:\", ch0, \"CH1:\", ch1)",
+    "TSL2561(i2c, addr=0x39)",
+    "from machine import Pin, SoftI2C\nfrom tsl2561 import TSL2561, T_FAST\nimport time\n\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=100000)\nsensor = TSL2561(i2c, addr=0x39)\n\n# 切换为快速积分 + 16x 增益\nsensor.set_timing_gain(T_FAST, gain=True)\n\nwhile True:\n    print(\"Lux: {:.2f}\".format(sensor.lux))\n    time.sleep(1)"
+  ],
+  "import_names": [
+    "tsl2561"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/tsl2561_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/tsl2561_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "tsl2561.py"
-    }
+  "read_methods": [
+    "get_id",
+    "get_lumi",
+    "read_raw",
+    "set_power_up",
+    "set_timing_gain"
   ],
-  "confidence": 0.75,
+  "read_properties": [
+    "lux"
+  ],
   "support_level": "generatable"
 }

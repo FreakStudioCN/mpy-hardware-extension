@@ -417,7 +417,7 @@ test("trace_event drives one working spinner — raw reasoning never leaks; a kn
   post(dom, { type: "session_done", terminal: "generated" }); // ends the run
 });
 
-test("New session wipes the feed and every tab back to its empty state", async () => {
+test("Restart is available mid-run and wipes the feed and every tab back to its empty state", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
@@ -431,13 +431,32 @@ test("New session wipes the feed and every tab back to its empty state", async (
   assert.ok(activity.querySelector(".ev-card"), "a reply card is present before reset");
   assert.equal(document.getElementById("wiringEmpty")!.classList.contains("hidden"), true, "wiring empty hidden once a manifest rendered");
 
-  (document.getElementById("newSession") as any).click();
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "next project";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  const restart = document.getElementById("newSession") as HTMLButtonElement;
+  assert.equal(restart.textContent?.trim(), "Restart");
+  assert.equal(restart.disabled, false, "restart stays clickable while a session is running");
+
+  posted.length = 0;
+  restart.click();
 
   assert.equal(posted[0]?.type, "reset_session", "host state reset is requested");
   assert.equal(activity.innerHTML, "", "the feed is wiped");
   assert.equal(document.getElementById("activityEmpty")!.classList.contains("hidden"), false, "activity empty state restored");
   assert.equal(document.getElementById("wiring")!.innerHTML, "", "wiring view wiped");
   assert.equal(document.getElementById("wiringEmpty")!.classList.contains("hidden"), false, "wiring empty state restored");
+  assert.equal((document.getElementById("generate") as HTMLButtonElement).textContent, "Generate", "running state is cleared locally");
+});
+
+test("a session_busy message clears the local running state so the UI can't hang", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "x";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal((document.getElementById("generate") as HTMLButtonElement).textContent, "Stop", "running after generate");
+
+  post(dom, { type: "session_busy" });
+  assert.equal((document.getElementById("generate") as HTMLButtonElement).textContent, "Generate", "session_busy clears the running spinner");
 });
 
 test("a summary message renders exactly one final result card", async () => {

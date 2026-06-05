@@ -1,9 +1,37 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "SI5351_I2C(i2c, crystal, load, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "silicon5351.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, I2C\nfrom silicon5351 import SI5351_I2C\n\n# 初始化 I2C 总线（树莓派 Pico I2C0，SDA=GP4，SCL=GP5，频率 100kHz）\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=100000)\n\n# 初始化 SI5351 芯片（晶振 25MHz，负载 10pF，I2C 地址 0x60）\nsi = SI5351_I2C(i2c, crystal=25e6, load=SI5351_I2C.SI5351_CRYSTAL_LOAD_10PF)\n\n# 配置 PLL0（PLLA）倍频:25MHz * 15 = 375MHz\nsi.setup_pll(pll=0, mul=15)\n\n# 初始化输出通道 0，使用 PLL0，驱动强度 8mA，不启用正交/反相输出\nsi.init_clock(output=0, pll=0, drive_strength=SI5351_I2C.SI5351_CLK_DRIVE_STRENGTH_8MA)\n\n# 设置输出频率:基于固定 PLL0，分频得到 2MHz 输出\nsi.set_freq_fixedpll(output=0, freq=2.0e6)",
+    "from machine import Pin, I2C\nimport time\nfrom silicon5351 import SI5351_I2C\n\n# 全局配置\ncrystal = 25e6    # 晶振频率 25MHz\nmul = 15           # PLL 倍频系数（25MHz * 15 = 375MHz）\nfreq = 2.0e6       # 目标输出频率 2MHz\nquadrature = True  # 正交输出标志\ninvert = False     # 反相输出标志\n\n# 上电延时\ntime.sleep(3)\nprint(\"FreakStudio: Use silicon5351 to output clock signals.\")\n\n# 初始化 I2C\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=100000)\n\n# 初始化 SI5351\nsi = SI5351_I2C(i2c, crystal=crystal)\n\n# 配置 PLL0\nsi.setup_pll(pll=0, mul=mul)\n\n# 初始化输出通道 0\nsi.init_clock(output=0, pll=0)\n\n# 设置输出频率\nsi.set_freq_fixedpll(output=0, freq=freq)\n\n# 使能输出通道 0\nsi.enable_output(output=0)\nprint(f'done freq={freq} mul={mul} quadrature={quadrature} invert={invert}')\n\n# 保持输出 20 秒\ntime.sleep(20)\n\n# 禁用输出通道 0\nsi.disable_output(output=0)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "silicon5351"
   ],
-  "constructors": [
-    "SI5351_I2C(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/signal_generation/si5351_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "approximate_fraction",
@@ -22,25 +50,5 @@
     "write_config"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/si5351_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "silicon5351.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

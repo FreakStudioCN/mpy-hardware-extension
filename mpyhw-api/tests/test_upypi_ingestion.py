@@ -8,7 +8,6 @@ from scripts.ingest_upypi import (
     ingest_fixture_dir,
     ingest_live,
     normalize_upypi_package,
-    reconcile_driver_context_refs,
 )
 
 
@@ -75,56 +74,6 @@ def test_discover_packages_keeps_highest_version_when_feed_is_unsorted():
     }
 
 
-def test_reconcile_driver_context_refs_indexes_orphan_context(tmp_path):
-    (tmp_path / "driver_context").mkdir()
-    (tmp_path / "package_index.json").write_text(
-        json.dumps(
-            [
-                normalize_upypi_package(
-                    {
-                        "name": "ads1015_driver",
-                        "version": "1.0.2",
-                        "description": "Existing description",
-                    }
-                )
-            ],
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    (tmp_path / "driver_context" / "ads1015_driver-1.0.2.json").write_text(
-        json.dumps(
-            {
-                "install": {"url": "https://upypi.net/pkgs/ads1015_driver/1.0.2/package.json"},
-                "support_level": "generatable",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (tmp_path / "driver_context" / "orphan_driver-2.0.0.json").write_text(
-        json.dumps(
-            {
-                "install": {"url": "https://upypi.net/pkgs/orphan_driver/2.0.0/package.json"},
-                "support_level": "generatable",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    records = reconcile_driver_context_refs(tmp_path)
-
-    by_name = {record["name"]: record for record in records}
-    assert by_name["ads1015_driver"]["description"] == "Existing description"
-    assert by_name["ads1015_driver"]["support_level"] == "generatable"
-    assert by_name["ads1015_driver"]["driver_context_ref"] == "driver_context/ads1015_driver-1.0.2.json"
-    assert by_name["orphan_driver"]["source"] == "upypi"
-    assert by_name["orphan_driver"]["package_json_url"] == "https://upypi.net/pkgs/orphan_driver/2.0.0/package.json"
-    assert by_name["orphan_driver"]["driver_context_ref"] == "driver_context/orphan_driver-2.0.0.json"
-
-    written = json.loads((tmp_path / "package_index.json").read_text(encoding="utf-8"))
-    assert {record["name"] for record in written} == {"ads1015_driver", "orphan_driver"}
-
-
 def test_ingest_live_links_generated_driver_contexts_in_package_index(tmp_path):
     package = {
         "name": "aht20_driver",
@@ -156,3 +105,28 @@ class AHT20:
     records = json.loads((tmp_path / "package_index.json").read_text(encoding="utf-8"))
     assert records[0]["driver_context_ref"] == "driver_context/aht20_driver-1.0.0.json"
     assert records[0]["support_level"] == "generatable"
+
+
+def test_ingest_live_preserves_existing_upypi_record_when_package_fetch_fails(tmp_path):
+    existing = normalize_upypi_package(
+        {
+            "name": "aht20_driver",
+            "version": "1.0.0",
+            "description": "previously ingested",
+            "package_json_url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json",
+        }
+    )
+    (tmp_path / "package_index.json").write_text(json.dumps([existing], indent=2), encoding="utf-8")
+
+    def get_json(url):
+        if url == "https://upypi.net/packages.json":
+            return {"packages": [{"name": "aht20_driver", "version": "1.0.0"}]}
+        if url == "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json":
+            raise OSError("temporary network failure")
+        raise AssertionError(f"unexpected URL {url}")
+
+    result = ingest_live(tmp_path, get_json=get_json, get_text=lambda url: "")
+
+    records = json.loads((tmp_path / "package_index.json").read_text(encoding="utf-8"))
+    assert result["records_written"] == 0
+    assert records == [existing]

@@ -1,0 +1,54 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "OneWire(pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ds18x20.py",
+      "type": "source"
+    },
+    {
+      "path": "onewire.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin\nimport time\nfrom onewire import OneWire\nfrom ds18x20 import DS18X20\n\n# 初始化配置\ntime.sleep(3)  # 上电延时，等待模块稳定\nprint('FreakStudio : Using OneWire to read DS18B20 temperature')\n\n# 定义单总线通信引脚（GPIO6）\now_pin = OneWire(Pin(6))\n# 定义温度传感器实例\nds18x20 = DS18X20(ow_pin)\n\n# 扫描总线上的DS18B20，获取设备地址列表\nroms_list = ds18x20.scan()\n# 打印设备地址列表\nfor rom in roms_list:\n    print('ds18b20 sensor devices rom id:', rom)\n\n# 让所有挂载在总线上的DS18B20启动温度转换\nds18x20.convert_temp()\n\n# 主循环:循环读取温度\nwhile True:\n    time.sleep_ms(500)  # 等待温度转换完成\n    for rom in roms_list:\n        # 读取并打印温度\n        temp = ds18x20.read_temp(rom)\n        print('ds18b20 sensor {} devices temp {}'.format(rom, temp))\n    # 再次启动温度转换，为下一次读取做准备\n    ds18x20.convert_temp()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "onewire",
+    "ds18x20"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ds18b20_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "crc8",
+    "readbit",
+    "readbyte",
+    "readbytes",
+    "readinto",
+    "reset",
+    "scan",
+    "select_rom",
+    "write",
+    "writebit",
+    "writebyte"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

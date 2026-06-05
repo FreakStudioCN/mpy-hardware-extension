@@ -1,0 +1,45 @@
+{
+  "bus": [
+    "analog"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "Potentiometer(adc, vref)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "potentiometer.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import time\nfrom machine import ADC\nfrom potentiometer import Potentiometer\n\n# 读取间隔时间（秒）\ninterval = 0.5\n\n# 上电延时，等待模块稳定\ntime.sleep(3)\nprint(\"FreakStudio:Sliding rheostat module testing\")\n\n# 滑动变阻器电压输出端接在 ADC0（GPIO26）\nadc = ADC(26)\npot = Potentiometer(adc)\n\ntry:\n    while True:\n        # 获取当前状态字典\n        state = pot.get_state()\n        # 打印当前状态\n        print(f\"State: raw={state['raw']}, voltage={state['voltage']:.3f} V, ratio={state['ratio']:.3f}\")\n        # 等待下一次读取\n        time.sleep(interval)\n\nexcept KeyboardInterrupt:\n    print(\"\\nTest terminated by user.\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "potentiometer"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/potentiometer_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "adc_in"
+  ],
+  "read_methods": [
+    "get_state",
+    "read_ratio",
+    "read_raw",
+    "read_voltage"
+  ],
+  "read_properties": [
+    "adc",
+    "vref"
+  ],
+  "support_level": "generatable"
+}

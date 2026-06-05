@@ -1,15 +1,41 @@
 {
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "TCS34725(i2c, address, int_pin, led_pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "tcs34725_color.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import machine\nfrom tcs34725_color import TCS34725, html_hex\n\n# 初始化 I2C 总线\ni2c = machine.I2C(id=0, sda=machine.Pin(4), scl=machine.Pin(5), freq=400000)\n\n# 初始化 TCS34725 传感器（地址 0x29，补光 LED 引脚为 GP25）\nsensor = TCS34725(i2c, address=0x29, led_pin=25)\n\n# 设置积分时间 50ms，增益 4x\nsensor.integration_time(50)\nsensor.gain(4)",
+    "# 读取原始 RGBC 数据\nr, g, b, c = sensor.read(raw=True)\nprint(f\"Raw RGBC: R={r}, G={g}, B={b}, C={c}\")\n\n# 读取色温和亮度\ncct, lux = sensor.read()\nprint(f\"Color Temperature: {cct:.2f}K, Illuminance: {lux:.2f}\")\n\n# 转换为 HTML 颜色代码\nrgb_data = sensor.read(raw=True)\nhex_color = html_hex(rgb_data)\nprint(f\"HTML Color: #{hex_color}\")",
+    "import machine\nimport time\nfrom tcs34725_color import TCS34725, html_hex\n\n# 初始化 I2C\ni2c = machine.I2C(id=0, sda=machine.Pin(4), scl=machine.Pin(5), freq=400000)\n\n# 初始化传感器，启用补光 LED\nsensor = TCS34725(i2c, address=0x29, led_pin=25)\nsensor.active(True)  # 激活传感器并点亮补光 LED\n\n# 配置检测参数\nsensor.integration_time(100)  # 积分时间 100ms\nsensor.gain(16)               # 增益 16x\n\ntry:\n    while True:\n        # 读取颜色数据\n        r, g, b, c = sensor.read(raw=True)\n        cct, lux = sensor.read()\n        hex_color = html_hex((r, g, b, c))\n        \n        # 打印结果\n        print(f\"RGBC: R={r:4d}, G={g:4d}, B={b:4d}, C={c:4d} | \"\n              f\"CCT: {cct:5.1f}K, Lux: {lux:6.1f} | \"\n              f\"Color: #{hex_color}\")\n        \n        time.sleep(1)\n\nexcept KeyboardInterrupt:\n    sensor.active(False)  # 关闭传感器并熄灭补光 LED\n    print(\"Color sensing stopped.\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "tcs34725_color"
   ],
-  "constructors": [
-    "TCS34725(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/tcs34725_color_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
   ],
   "read_methods": [
     "active",
     "gain",
-    "html_hex",
-    "html_rgb",
     "integration_time",
     "interrupt",
     "read",
@@ -17,25 +43,5 @@
     "threshold"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/tcs34725_color_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "tcs34725_color.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

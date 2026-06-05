@@ -1,36 +1,42 @@
 {
-  "import_names": [
-    "mpl3115a2"
-  ],
-  "constructors": [
-    "MPL3115A2(i2c)"
-  ],
-  "read_methods": [
-    "altitude",
-    "pressure"
-  ],
-  "read_properties": [
-    "temperature"
-  ],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.7,
+  "constructors": [
+    "MPL3115A2(i2c, mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mpl3115a2.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/12 下午4:00\n# @Author  : PinsonJonas\n# @File    : main.py\n# @Description : MPL3115A2传感器测试 读取气压海拔温度 异常处理演示\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import I2C, Pin\nfrom mpl3115a2 import MPL3115A2, MPL3115A2exception\n\n# ======================================== 全局变量 ============================================\n\n# I2C配置（Raspberry Pi Pico专属）\nI2C_BUS = 0  # Pico的I2C总线编号\nI2C_SCL_PIN = 5  # I2C时钟引脚\nI2C_SDA_PIN = 4  # I2C数据引脚\nI2C_FREQ = 400000  # MPL3115A2支持的400kHz高速I2C频率\n# MPL3115A2传感器参数\nMPL3115A2_ADDR = 0x60  # 传感器默认I2C地址\nSAMPLING_INTERVAL = 0.6  # 最小采样间隔（需大于传感器512ms的采样时间）\nLONG_MONITOR_DURATION = 10  # 长期监测总时长(秒)\nLONG_MONITOR_INTERVAL = 2  # 长期监测采样间隔(秒)\n\n# ======================================== 功能函数 ============================================\n\n\ndef init_i2c():\n    \"\"\"\n    初始化I2C总线（适配Raspberry Pi Pico硬件）\n    Initialize I2C bus (adapted for Raspberry Pi Pico hardware)\n\n    Args:\n        None\n\n    Returns:\n        I2C: 初始化成功返回I2C对象；初始化失败返回None\n        I2C: Return I2C object if initialization succeeds; return None if fails\n\n    Notes:\n        1. 仅适配Raspberry Pi Pico的I2C0总线，如需使用I2C1需修改引脚（SCL=15, SDA=14）\n        2. 初始化时会扫描I2C总线上的设备，并检查MPL3115A2默认地址是否存在\n        1. Only adapted for I2C0 bus of Raspberry Pi Pico, modify pins (SCL=15, SDA=14) if using I2C1\n        2. Scan I2C bus devices during initialization and check if MPL3115A2 default address exists\n    \"\"\"\n    try:\n        # 初始化Pico的I2C0总线\n        i2c = I2C(I2C_BUS, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n        detected_devices = [hex(addr) for addr in i2c.scan()]\n        print(f\"I2C initialization successful, detected device addresses: {', '.join(detected_devices)}\")\n\n        # 检查MPL3115A2传感器是否存在\n        if hex(MPL3115A2_ADDR) not in detected_devices:\n            print(\"Warning: MPL3115A2 sensor not detected (default address 0x60)\")\n            return None\n        return i2c\n    except Exception as e:\n        print(f\"I2C initialization failed: {e}\")\n        return None\n\n\ndef print_separator(title):\n    \"\"\"\n    打印分隔符，优化输出可读性\n    Print separator to optimize output readability\n\n    Args:\n        title (str): 分隔符标题/演示模块名称\n        title (str): Separator title / demonstration module name\n\n    Returns:\n        None\n\n    Notes:\n        输出格式为65个等号组成的分隔线，中间显示传入的标题文本\n        Output format is a separator line composed of 65 equal signs with the incoming title text in the middle\n    \"\"\"\n    print(\"\n\" + \"=\" * 65)\n    print(f\"=== {title}\")\n    print(\"=\" * 65)\n\n\ndef safe_measure(func, desc=\"measurement\"):\n    \"\"\"\n    安全执行测量函数，捕获各类异常并返回结果状态\n    Safely execute measurement function, catch all types of exceptions and return result status\n\n    Args:\n        func (function): 要执行的测量函数（如mpl.pressure/mpl.altitude/mpl.temperature）\n        func (function): Measurement function to execute (e.g. mpl.pressure/mpl.altitude/mpl.temperature)\n        desc (str): 测量操作描述文本，用于异常提示（默认值：measurement）\n        desc (str): Measurement operation description text for exception prompt (default: measurement)\n\n    Returns:\n        tuple: (测量结果, 执行状态)\n               - 执行成功：(测量数值, True)\n               - 执行失败：(None, False)\n        tuple: (measurement result, execution status)\n               - Success: (measurement value, True)\n               - Failure: (None, False)\n\n    Notes:\n        1. 捕获MPL3115A2传感器专属异常、I2C通信异常、通用异常\n        2. 所有异常信息均以英文输出，便于调试定位问题\n        1. Catch MPL3115A2 sensor-specific exceptions, I2C communication exceptions, and general exceptions\n        2. All exception information is output in English for easy debugging and problem location\n    \"\"\"\n    try:\n        result = func()\n        return result, True\n    except MPL3115A2exception as e:\n        print(f\"   {desc} failed - sensor exception: {e}\")\n    except OSError as e:\n        if \"EIO\" in str(e):\n            print(f\"   {desc} failed - I2C communication error(Errno 5): {e}\")\n        else:\n            print(f\"   {desc} failed - I2C error: {e}\")\n    except Exception as e:\n        print(f\"   {desc} failed - unknown error: {e}\")\n    return None, False\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: MPL3115A2 sensor test - read pressure/altitude/temperature with exception handling\")\n# 初始化I2C总线\ni2c = init_i2c()\nif not i2c:\n    print(\"I2C initialization failed, program exit\")\n    raise SystemExit(1)\n\n# ========================================  主程序  ============================================\n\n# 1. 气压计模式功能演示\nprint_separator(\"1. Pressure mode demonstration\")\ntry:\n    # 初始化气压模式传感器对象\n    mpl_pressure = MPL3115A2(i2c, mode=MPL3115A2.PRESSURE)\n    print(\"   MPL3115A2 pressure mode initialized successfully\")\n\n    # 连续5次气压+温度测量\n    print(\"\n   5 consecutive pressure + temperature measurements:\")\n    for i in range(5):\n        pressure, p_ok = safe_measure(mpl_pressure.pressure, \"pressure reading\")\n        temp, t_ok = safe_measure(mpl_pressure.temperature, \"temperature reading\")\n\n        if p_ok and t_ok:\n            pressure_kpa = pressure / 4000.0  # 转换为kPa（原始值精度0.25Pa）\n            print(f\"     Measurement {i+1} - Pressure: {pressure_kpa:.2f} kPa | Temperature: {temp:.2f} °C\")\n        time.sleep(SAMPLING_INTERVAL)\n\n    # 测试错误场景：气压模式下读取海拔（预期触发异常）\n    print(\"\n   Test error scenario: Read altitude in pressure mode (expected exception):\")\n    alt, a_ok = safe_measure(mpl_pressure.altitude, \"altitude reading\")\n\nexcept MPL3115A2exception as e:\n    print(f\"   Pressure mode initialization failed: {e}\")\nexcept Exception as e:\n    print(f\"   Pressure mode operation failed: {e}\")\n\n# 2. 海拔模式功能演示\nprint_separator(\"2. Altitude mode demonstration\")\ntry:\n    # 初始化海拔模式传感器对象\n    mpl_altitude = MPL3115A2(i2c, mode=MPL3115A2.ALTITUDE)\n    print(\"   MPL3115A2 altitude mode initialized successfully\")\n\n    # 连续5次海拔+温度测量\n    print(\"\n   5 consecutive altitude + temperature measurements:\")\n    for i in range(5):\n        altitude, a_ok = safe_measure(mpl_altitude.altitude, \"altitude reading\")\n        temp, t_ok = safe_measure(mpl_altitude.temperature, \"temperature reading\")\n\n        if a_ok and t_ok:\n            print(f\"     Measurement {i+1} - Altitude: {altitude:.2f} m | Temperature: {temp:.2f} °C\")\n        time.sleep(SAMPLING_INTERVAL)\n\n    # 测试错误场景：海拔模式下读取气压（预期触发异常）\n    print(\"\n   Test error scenario: Read pressure in altitude mode (expected exception):\")\n    press, p_ok = safe_measure(mpl_altitude.pressure, \"pressure reading\")\n\nexcept MPL3115A2exception as e:\n    print(f\"   Altitude mode initialization failed: {e}\")\nexcept Exception as e:\n    print(f\"   Altitude mode operation failed: {e}\")\n\n# 3. 传感器异常处理演示\nprint_separator(\"3. Sensor exception handling demonstration\")\n# 测试无效模式初始化（预期触发异常）\nprint(\"   Test error scenario: Initialize with invalid mode (expected exception):\")\ntry:\n    mpl_invalid = MPL3115A2(i2c, mode=99)  # 传入无效模式值\nexcept MPL3115A2exception as e:\n    print(f\"   Expected exception caught: {e}\")\nexcept Exception as e:\n    print(f\"   Unexpected exception caught: {e}\")\n\n# 4. 长期监测功能演示\nprint_separator(\"4. Long-term monitoring demonstration (10 seconds, 2s interval)\")\ntry:\n    # 重新初始化气压计模式用于长期监测\n    mpl_monitor = MPL3115A2(i2c, mode=MPL3115A2.PRESSURE)\n    print(f\"   Start {LONG_MONITOR_DURATION}s long-term monitoring (pressure + temperature):\")\n\n    start_time = time.time()\n    while (time.time() - start_time) < LONG_MONITOR_DURATION:\n        pressure, p_ok = safe_measure(mpl_monitor.pressure, \"pressure reading\")\n        temp, t_ok = safe_measure(mpl_monitor.temperature, \"temperature reading\")\n\n        if p_ok and t_ok:\n            pressure_kpa = pressure / 4000.0\n            current_time = time.localtime()\n            time_str = f\"{current_time[3]:02d}:{current_time[4]:02d}:{current_time[5]:02d}\"\n            print(f\"     [{time_str}] Pressure: {pressure_kpa:.2f} kPa | Temperature: {temp:.2f} °C\")\n\n        time.sleep(LONG_MONITOR_INTERVAL)\n\nexcept Exception as e:\n    print(f\"   Long-term monitoring failed: {e}\")\n\n# 程序结束提示\nprint_separator(\"Demonstration completed\")\nprint(\"   All MPL3115A2 function demonstrations finished\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "mpl3115a2"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mpl3115a2_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mpl3115a2_driver/1.0.1/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mpl3115a2.py"
-    }
+  "read_methods": [
+    "altitude",
+    "pressure",
+    "temperature"
   ],
-  "confidence": 0.75,
+  "read_properties": [],
   "support_level": "generatable"
 }

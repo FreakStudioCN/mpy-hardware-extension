@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "GP2Y0A21YK(distance_pin, vcc_pin, adc_ref_voltage, debug)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "gp2y0a21yk.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "gp2y0a21yk_driver/\n├── code/\n│   ├── gp2y0a21yk.py   # 核心驱动\n│   └── main.py          # 测试示例\n├── LICENSE\n├── package.json\n└── README.md            # 说明文档",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/04/22 14:15\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : GP2Y0A21YK0F红外测距传感器读取示例\n# @License : MIT\n\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom gp2y0a21yk import GP2Y0A21YK\n\n\n# ======================================== 全局变量 ============================================\n\n# 传感器模拟输出接入的Pico ADC引脚\nDISTANCE_ADC_PIN = 26\n\n# Pico ADC参考电压\nADC_REF_VOLTAGE = 3.3\n\n# 采样平均次数\nAVERAGE_COUNT = 5\n\n# 数据读取间隔时间（毫秒）\nPRINT_INTERVAL = 500\n\n# 近距离判断阈值（厘米）\nCLOSE_THRESHOLD_CM = 20\n\n# 远距离判断阈值（厘米）\nFAR_THRESHOLD_CM = 40\n\n\n# ======================================== 功能函数 ============================================\n\n\n# ======================================== 自定义类 ============================================\n\n\n# ======================================== 初始化配置 ===========================================\n\n# 等待系统和传感器上电稳定\ntime.sleep(3)\n\n# 打印程序功能提示\nprint(\"FreakStudio: GP2Y0A21YK distance sensor\")\n\n# 创建GP2Y0A21YK0F传感器对象\nsensor = GP2Y0A21YK(distance_pin=DISTANCE_ADC_PIN)\n\n# 设置ADC参考电压\nsensor.set_ref_voltage(ADC_REF_VOLTAGE)\n\n# 设置采样平均次数\nsensor.set_averaging(AVERAGE_COUNT)\n\n# 启用传感器读取\nsensor.set_enabled(True)\n\n# 初始化上次打印时间戳\nlast_print_time = time.ticks_ms()\n\n\n# ========================================  主程序  ============================================\n\ntry:\n    while True:\n\n        # 获取当前时间戳\n        current_time = time.ticks_ms()\n\n        # 按间隔时间读取并打印传感器数据\n        if time.ticks_diff(current_time, last_print_time) >= PRINT_INTERVAL:\n\n            # 读取ADC原始值\n            raw = sensor.get_distance_raw()\n\n            # 读取传感器输出电压\n            voltage = sensor.get_distance_volt()\n\n            # 读取估算距离\n            distance = sensor.get_distance_centimeter()\n\n            # 打印测量结果\n            print(\n                \"Raw: {}, Voltage: {:.1f} mV, Distance: {} cm\".format(\n                    raw,\n                    voltage,\n                    distance,\n                )\n            )\n\n            # 判断物体是否小于近距离阈值\n            if sensor.is_closer(CLOSE_THRESHOLD_CM):\n                print(\"Object is close\")\n\n            # 判断物体是否大于远距离阈值\n            if sensor.is_farther(FAR_THRESHOLD_CM):\n                print(\"Object is far\")\n\n            # 更新上次打印时间戳\n            last_print_time = current_time\n\n        # 短暂休眠降低CPU占用\n        time.sleep_ms(10)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    sensor.deinit()\n    del sensor\n    print(\"Program exited\")"
+  ],
+  "import_names": [
+    "gp2y0a21yk"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/gp2y0a21yk_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "begin",
+    "deinit",
+    "get_distance_centimeter",
+    "get_distance_raw",
+    "get_distance_volt",
+    "is_closer",
+    "is_farther",
+    "set_averaging",
+    "set_enabled",
+    "set_ref_voltage"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

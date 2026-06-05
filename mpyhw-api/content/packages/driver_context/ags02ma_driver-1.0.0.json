@@ -1,36 +1,45 @@
 {
-  "import_names": [
-    "ags02ma"
-  ],
-  "constructors": [
-    "AGS02MA(i2c)"
-  ],
-  "read_methods": [
-    "debug_read_raw",
-    "deinit",
-    "firmware_version",
-    "gas_resistance"
-  ],
-  "read_properties": [],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.7,
+  "constructors": [
+    "AGS02MA(i2c, addr, debug)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ags02ma.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import mip\nmip.install(\"github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ags02ma_driver\")",
+    "import machine\nfrom ags02ma import AGS02MA\n\ni2c = machine.SoftI2C(scl=machine.Pin(5), sda=machine.Pin(4), freq=20000)\nags = AGS02MA(i2c)\n\nprint(ags.TVOC)           # TVOC 浓度，单位 ppb\nprint(ags.gas_resistance) # 气敏电阻，单位 0.1 kΩ"
+  ],
+  "import_names": [
+    "ags02ma"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ags02ma_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/ags02ma_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "ags02ma.py"
-    }
+  "read_methods": [
+    "debug_read_raw",
+    "deinit",
+    "firmware_version"
   ],
-  "confidence": 0.75,
+  "read_properties": [
+    "TVOC",
+    "gas_resistance"
+  ],
   "support_level": "generatable"
 }

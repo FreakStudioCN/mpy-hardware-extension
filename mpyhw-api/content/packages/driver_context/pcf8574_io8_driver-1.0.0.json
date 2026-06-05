@@ -1,47 +1,52 @@
 {
-  "import_names": [
-    "pcf8574_io8",
-    "pcf8574"
-  ],
-  "constructors": [
-    "PCF8574(i2c)"
-  ],
-  "read_methods": [
-    "check",
-    "configure_port",
-    "deinit",
-    "get_pin",
-    "get_port",
-    "pin",
-    "port",
-    "ports_state",
-    "read_all",
-    "refresh",
-    "set_pin",
-    "set_port",
-    "toggle",
-    "write_all"
-  ],
-  "read_properties": [],
   "bus": [
     "i2c"
   ],
+  "confidence": 0.8,
+  "constructors": [
+    "PCF8574(i2c, address, int_pin, callback, trigger)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "pcf8574.py",
+      "type": "source"
+    },
+    {
+      "path": "pcf8574_io8.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import I2C, Pin\nfrom pcf8574 import PCF8574\nfrom pcf8574_io8 import PCF8574IO8\n\n# 初始化 I2C 总线\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=100000)\n\n# 扫描 I2C 设备，获取 PCF8574 地址（0x20-0x27）\ndevices = i2c.scan()\npcf_addr = next((d for d in devices if 0x20 <= d <= 0x27), None)\n\nif not pcf_addr:\n    raise OSError(\"PCF8574 not found on I2C bus\")\n\n# 初始化底层驱动\npcf = PCF8574(i2c, pcf_addr)\n\n# 初始化上层端口封装，配置默认端口状态\nports_init = {0: (1, 1), 1: (1, 1), 2: (1, 1), 3: (1, 1)}  # 所有端口默认高阻态\nio8 = PCF8574IO8(pcf, ports_init=ports_init)",
+    "io8.set_port(1, 2)  # 设置 PORT1 为 2（二进制 10，对应 P3=1, P2=0）",
+    "port0_state = io8.get_port(0)  # 读取 PORT0 状态（0-3）",
+    "io8.set_pin(0, 0)  # 设置 P0 为低电平\npin0_state = io8.get_pin(0)  # 读取 P0 电平（0/1）",
+    "import time\nfrom machine import I2C, Pin\nfrom pcf8574 import PCF8574\nfrom pcf8574_io8 import PCF8574IO8\n\n# 初始化 I2C\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=100000)\n\n# 扫描并检测 PCF8574\ndevices = i2c.scan()\npcf_addr = next((d for d in devices if 0x20 <= d <= 0x27), None)\nif not pcf_addr:\n    raise OSError(\"PCF8574 not found\")\n\n# 初始化驱动\npcf = PCF8574(i2c, pcf_addr)\nio8 = PCF8574IO8(pcf, ports_init={0: (1,1), 1: (1,1), 2: (1,1), 3: (1,1)})\n\n# 测试端口闪烁\nio8.set_port(1, 0)\ntime.sleep(1)\nio8.set_port(1, 2)\ntime.sleep(1)\n\n# 按键检测循环\nwhile True:\n    if not io8.get_pin(0):  # 检测 P0 低电平（按键触发）\n        io8.set_port(1, 2)\n        print(\"Button triggered, set PORT1 to 2\")\n    else:\n        io8.set_port(1, 0)\n    time.sleep(0.1)"
+  ],
+  "import_names": [
+    "pcf8574",
+    "pcf8574_io8"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/pcf8574_io8_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/pcf8574_io8_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "pcf8574_io8.py"
-    }
+  "read_methods": [
+    "check",
+    "pin",
+    "toggle"
   ],
-  "confidence": 0.75,
+  "read_properties": [
+    "port"
+  ],
   "support_level": "generatable"
 }

@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "HX711(clock, data, gain)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "hx711_gpio.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "hx711_driver/\n├── code/\n│   ├── hx711_gpio.py   # 核心驱动\n│   └── main.py         # 校准与测量示例\n├── package.json        # mip 包配置\n└── README.md           # 说明文档",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/1/15 下午2:30\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : HX711称重传感器校准与测量程序，支持去皮、标定和实时重量显示\n\n# ======================================== 导入相关模块 =========================================\nfrom hx711_gpio import HX711\nfrom machine import Pin\nimport time\n\n# ======================================== 全局变量 ============================================\n# 校准砝码重量，单位克\nCAL_WEIGHT = 100\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n# 等待系统稳定\ntime.sleep(3)\nprint(\"FreakStudio: HX711 sensor initialization starting\")\n\n# 定义数据引脚和时钟引脚\n# 6 = DATA, 7 = SCK\npin_DATA = Pin(7, Pin.IN, pull=Pin.PULL_DOWN)\npin_SCK = Pin(6, Pin.OUT)\n\n# 初始化HX711传感器\ntry:\n    hx = HX711(pin_SCK, pin_DATA, gain=128)\n    print(\"HX711 initialization successful\")\n    time.sleep(1)\nexcept Exception as e:\n    print(\"Sensor initialization failed:\", e)\n    while True:\n        pass\n\n# ========================================  主程序  ============================================\n# 执行去皮操作\nprint(\"Please keep no load, starting tare...\")\ntime.sleep(2)\n\n# 读取20次平均值作为偏移量\noffset = hx.read_average(times=20)\nhx.set_offset(offset)\n# 同步滤波基线值\nhx.filtered = offset\nprint(\"Tare completed\")\nprint(\"Zero offset value:\", offset)\n\n# 校准流程：放置标准砝码\ninput(\"Please put the standard weight and press Enter to continue...\")\ntime.sleep(2)\n\n# 读取加载砝码后的20次平均值\ncal_raw = hx.read_average(times=20)\nnet_raw = cal_raw - hx.OFFSET\n\nprint(\"Raw value after loading:\", cal_raw)\nprint(\"Net increment:\", net_raw)\n\n# 检查校准增量是否过小\nif abs(net_raw) < 1000:\n    raise ValueError(\"Calibration increment too small, please check HX711 wiring, sensor connection or weight correctness\")\n\n# 计算转换系数并设置\nscale_factor = net_raw / CAL_WEIGHT\nhx.set_scale(scale_factor)\n\nprint(\"Calibration completed\")\nprint(\"SCALE =\", scale_factor)\nprint(\"----------------------------------------\")\n\n# 再次同步滤波，避免刚校准完前几次读数漂移\nhx.filtered = hx.read_average(times=10)\n\n# 主循环：持续读取并显示重量\nwhile True:\n    raw_value = hx.read()\n    weight = hx.get_units()\n    print(\"Raw value: {:>10.0f} | Weight: {:>8.2f} g\".format(raw_value, weight))\n    time.sleep(0.2)"
+  ],
+  "import_names": [
+    "hx711_gpio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/hx711_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "conversion_done_cb",
+    "get_units",
+    "get_value",
+    "power_down",
+    "power_up",
+    "read",
+    "read_average",
+    "read_lowpass",
+    "set_gain",
+    "set_offset",
+    "set_scale",
+    "set_time_constant",
+    "tare"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

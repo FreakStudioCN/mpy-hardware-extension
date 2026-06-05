@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import http.client
 import json
+import logging
 import os
+import threading
+import time
 import uuid
 import urllib.error
 import urllib.request
@@ -23,6 +26,75 @@ from app.tool_registry import CANONICAL_TOOL_DESCRIPTIONS, CANONICAL_TOOL_INPUT_
 
 router = APIRouter()
 ROOT = Path(__file__).resolve().parents[1]
+logger = logging.getLogger("mpyhw.llm")
+
+
+class _CircuitBreaker:
+    """Minimal in-process breaker for the DeepSeek upstream.
+
+    Per-worker (NOT distributed): local stampede protection so a provider outage
+    doesn't make every request reserve-then-refund a credit and churn session slots.
+    After `threshold` consecutive failures it opens for `cooldown` seconds. While
+    open, is_open() admits exactly ONE probe per cooldown window — it re-arms the
+    timer as it admits, so concurrent callers in the same window are still blocked
+    (no stampede onto a dead upstream). The probe's outcome closes the breaker
+    (recovered) or keeps it open. If a probe's outcome is never recorded (e.g. the
+    request fails earlier on out-of-credits), the next probe is auto-admitted after
+    another cooldown, so the breaker can never get stuck disabled.
+    """
+
+    def __init__(self, threshold: int = 5, cooldown: float = 30.0):
+        self._threshold = threshold
+        self._cooldown = cooldown
+        self._failures = 0
+        self._state = "closed"  # closed | open
+        self._opened_at = 0.0
+        self._lock = threading.Lock()
+
+    def is_open(self) -> bool:
+        """Whether to short-circuit this request. NOTE: not side-effect-free —
+        admitting a probe re-arms the cooldown so only the single admitted caller
+        sees False until the window expires again."""
+        with self._lock:
+            if self._state != "open":
+                return False
+            if time.monotonic() - self._opened_at >= self._cooldown:
+                self._opened_at = time.monotonic()  # re-arm: admit exactly one probe
+                logger.info("deepseek circuit breaker probing (single probe admitted)")
+                return False
+            return True
+
+    def record_success(self) -> None:
+        with self._lock:
+            if self._state != "closed":
+                logger.info("deepseek circuit breaker closed (recovered)")
+            self._failures = 0
+            self._state = "closed"
+
+    def record_failure(self) -> None:
+        with self._lock:
+            self._failures += 1
+            if self._state != "open" and self._failures >= self._threshold:
+                logger.warning("deepseek circuit breaker opened", extra={"failures": self._failures})
+                self._state = "open"
+                self._opened_at = time.monotonic()
+            elif self._state == "open":
+                self._opened_at = time.monotonic()  # a probe failed; restart the cooldown
+
+    def reset(self) -> None:
+        with self._lock:
+            self._failures = 0
+            self._state = "closed"
+            self._opened_at = 0.0
+
+
+# A status that signals a transient upstream OUTAGE (worth tripping the breaker),
+# as opposed to a 4xx config/auth error (bad key, bad request) which should not.
+def _is_outage_status(status: int) -> bool:
+    return status == 0 or status == 429 or status >= 500
+
+
+_deepseek_breaker = _CircuitBreaker()
 
 SYSTEM_PROMPT = """You are a MicroPython hardware coding agent.
 Stay inside this product path: intent -> capabilities -> API-backed Package Intelligence -> driver context -> manifest -> code -> audit -> shim loop -> runtime observation.
@@ -81,6 +153,14 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
             llm_sessions.release(session_id, "not_configured")
             raise
 
+        is_deepseek = getattr(provider, "name", "") == "deepseek"
+        # Fail fast during an upstream outage: short-circuit BEFORE reserving a
+        # credit (and release the slot), so a provider incident doesn't churn
+        # reserve/refund or leak session slots across every request.
+        if is_deepseek and _deepseek_breaker.is_open():
+            llm_sessions.release(session_id, "upstream_unavailable")
+            raise HTTPException(status_code=503, detail={"error": "llm_upstream_unavailable"})
+
         reserved_remaining = credit_store.reserve(user, 1)
         if reserved_remaining is None:
             llm_sessions.release(session_id, "out_of_credits")
@@ -119,6 +199,11 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
         try:
             upstream = await to_thread(provider.open_stream, body)
         except UpstreamError as error:
+            # Only a transient outage (timeout/5xx/429) trips the breaker; a 4xx
+            # (bad key/request) is a config error that retrying won't fix.
+            if is_deepseek and _is_outage_status(error.status):
+                _deepseek_breaker.record_failure()
+            logger.warning("llm upstream error", extra={"status": error.status})
             credit_store.refund(user, 1)
             analytics.record_llm_turn(
                 trace_id=body.get("trace_id"),
@@ -133,6 +218,8 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
             )
             llm_sessions.release(session_id, "upstream_error")
             raise HTTPException(status_code=502, detail={"error": "llm_upstream_error", "status": error.status})
+        if is_deepseek:
+            _deepseek_breaker.record_success()
         return StreamingResponse(_release_after(provider.translate_stream(upstream, meter), session_id), media_type="text/event-stream")
     except Exception:
         llm_sessions.release(session_id, "setup_error")
@@ -257,12 +344,26 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str):
         },
         method="POST",
     )
-    try:
-        return urllib.request.urlopen(request, timeout=60)
-    except urllib.error.HTTPError as error:
-        raise UpstreamError(error.code)
-    except urllib.error.URLError:
-        raise UpstreamError(0)
+    # Retry only the connect / pre-first-byte phase: this returns BEFORE any SSE
+    # byte is yielded and before the turn is metered, so a retry can never
+    # double-charge. A mid-stream drop is handled downstream and is NOT retried.
+    # Runs inside to_thread, so the blocking sleep is off the event loop.
+    attempts = 2
+    for attempt in range(attempts):
+        try:
+            return urllib.request.urlopen(request, timeout=60)
+        except urllib.error.HTTPError as error:
+            if _is_outage_status(error.code) and attempt + 1 < attempts:
+                logger.warning("deepseek open retry", extra={"status": error.code, "attempt": attempt + 1})
+                time.sleep(0.5)
+                continue
+            raise UpstreamError(error.code)
+        except urllib.error.URLError:
+            if attempt + 1 < attempts:
+                logger.warning("deepseek open retry", extra={"status": 0, "attempt": attempt + 1})
+                time.sleep(0.5)
+                continue
+            raise UpstreamError(0)
 
 
 def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):

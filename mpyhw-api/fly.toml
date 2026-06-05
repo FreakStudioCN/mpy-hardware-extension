@@ -1,0 +1,48 @@
+# Fly.io config for mpyhw-api.
+#
+# Deploy from the REPO ROOT (the image needs the third_party/MicroPython_Skills
+# submodule, which lives above this directory):
+#
+#   fly deploy --config mpyhw-api/fly.toml --dockerfile mpyhw-api/Dockerfile
+#
+# There is intentionally no [build] section: the --dockerfile flag (resolved
+# against the repo-root build context) is the single source of truth, so a stray
+# `fly deploy` from the wrong directory can't silently build the wrong context.
+
+app = "blockless-api"
+primary_region = "iad"
+
+[env]
+  PORT = "8080"
+  WEB_CONCURRENCY = "2"
+  MPYHW_ENV = "prod"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # Keep one machine warm: SSE streams (the LLM route) dislike cold starts.
+  min_machines_running = 1
+
+  # Coarse per-machine shed valve. The AUTHORITATIVE backpressure is the
+  # Postgres-enforced global session cap (MPYHW_GLOBAL_CONCURRENCY_LIMIT, default
+  # 30) which returns 429 from llm_sessions.acquire — this just keeps a single
+  # machine from queueing unboundedly.
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 25
+    hard_limit = 30
+
+  # Readiness check (checks DB connectivity) so the LB only routes to machines
+  # that can actually serve. Liveness (/v1/health) stays cheap for uptime pings.
+  [[http_service.checks]]
+    method = "GET"
+    path = "/v1/health/ready"
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

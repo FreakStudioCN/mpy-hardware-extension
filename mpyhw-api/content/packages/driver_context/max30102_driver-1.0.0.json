@@ -1,21 +1,65 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "MAX30102(i2c, i2c_hex_address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "basic_usage.py",
+      "type": "source"
+    },
+    {
+      "path": "circular_buffer.py",
+      "type": "source"
+    },
+    {
+      "path": "heart_rate.py",
+      "type": "source"
+    },
+    {
+      "path": "heart_rate_monitor.py",
+      "type": "source"
+    },
+    {
+      "path": "max30102.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import I2C, Pin\nimport time\nfrom max30102 import MAX30102, MAX30105_PULSE_AMP_MEDIUM\nfrom heartratemonitor import HeartRateMonitor\n\n# 初始化 I2C（Raspberry Pi Pico 示例:I2C0，SDA=GP4，SCL=GP5，400kHz）\ni2c = I2C(0, sda=Pin(4), scl=Pin(5), freq=400000)\n\n# 扫描 I2C 总线，确认传感器连接\ndevices = i2c.scan()\nif 0x57 not in devices:\n    raise RuntimeError(\"MAX30102 sensor not found on I2C bus!\")\n\n# 创建传感器实例，初始化默认配置\nsensor = MAX30102(i2c=i2c)\nsensor.setup_sensor(\n    led_mode=2,          # 红光 + 红外模式\n    adc_range=16384,     # ADC 量程 16384\n    sample_rate=400,     # 采样率 400 SPS\n    led_power=MAX30105_PULSE_AMP_MEDIUM,  # LED 电流中档\n    sample_avg=8,        # FIFO 平均 8 个样本\n    pulse_width=411      # 脉冲宽度 411 μs\n)\n\n# 初始化心率监测器（采样率 = 400 / 8 = 50 Hz）\nactual_rate = int(400 / 8)\nhr_monitor = HeartRateMonitor(\n    sample_rate=actual_rate,\n    window_size=int(actual_rate * 3)  # 3 秒窗口\n)",
+    "ref_time = time.ticks_ms()\nwhile True:\n    # 轮询 FIFO 数据\n    sensor.check()\n    if sensor.available():\n        red = sensor.pop_red_from_storage()\n        ir = sensor.pop_ir_from_storage()\n        temp = sensor.read_temperature()\n        print(f\"RED: {red}, IR: {ir}, TEMP: {temp:.2f}°C\")\n        \n        # 添加样本到心率计算\n        hr_monitor.add_sample(ir)\n    \n    # 每 2 秒计算一次心率\n    if time.ticks_diff(time.ticks_ms(), ref_time) / 1000 > 2:\n        hr = hr_monitor.calculate_heart_rate()\n        if hr:\n            print(f\"Heart Rate: {hr:.0f} BPM\")\n        else:\n            print(\"Not enough data for HR calculation\")\n        ref_time = time.ticks_ms()\n    \n    time.sleep(0.5)",
+    "from machine import I2C, Pin\nimport time\nfrom max30102 import MAX30102, MAX30105_PULSE_AMP_MEDIUM\nfrom heartratemonitor import HeartRateMonitor\n\ntime.sleep(3)\nprint(\"FreakStudio: Use MAX30102 to read heart rate and temperature.\")\n\n# 初始化 I2C\ni2c = I2C(0, sda=Pin(4), scl=Pin(5), freq=400000)\nsensor = MAX30102(i2c=i2c)\nsensor.setup_sensor()\n\n# 设置采样率与 FIFO 平均\nsensor.set_sample_rate(400)\nsensor.set_fifo_average(8)\nsensor.set_active_leds_amplitude(MAX30105_PULSE_AMP_MEDIUM)\nactual_rate = int(400 / 8)\n\n# 初始化心率监测器\nhr_monitor = HeartRateMonitor(\n    sample_rate=actual_rate,\n    window_size=int(actual_rate * 3)\n)\nref_time = time.ticks_ms()\n\nwhile True:\n    sensor.check()\n    if sensor.available():\n        red = sensor.pop_red_from_storage()\n        ir = sensor.pop_ir_from_storage()\n        temp = sensor.read_temperature()\n        print(f\"RED: {red}, IR: {ir}, TEMP: {temp:.2f}°C\")\n        hr_monitor.add_sample(ir)\n    \n    if time.ticks_diff(time.ticks_ms(), ref_time) / 1000 > 2:\n        hr = hr_monitor.calculate_heart_rate()\n        if hr:\n            print(f\"Heart Rate: {hr:.0f} BPM\")\n        else:\n            print(\"Not enough data to calculate heart rate\")\n        ref_time = time.ticks_ms()\n    \n    time.sleep(0.5)",
+    "from machine import SoftI2C, Pin\nfrom time import ticks_diff, ticks_us\nimport time\nfrom max30102 import MAX30102, MAX30105_PULSE_AMP_MEDIUM\n\n# 初始化 I2C\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=400000)\nsensor = MAX30102(i2c=i2c)\n\n# 检查传感器连接\nif sensor.i2c_address not in i2c.scan():\n    print(\"Sensor not found.\")\nelif not sensor.check_part_id():\n    print(\"I2C device ID not corresponding to MAX30102.\")\nelse:\n    print(\"Sensor connected and recognized.\")\n\n# 初始化传感器\nsensor.setup_sensor()\nsensor.set_sample_rate(400)\nsensor.set_fifo_average(8)\nsensor.set_active_leds_amplitude(MAX30105_PULSE_AMP_MEDIUM)\ntime.sleep(1)\n\n# 读取温度\nprint(\"Temperature:\", sensor.read_temperature(), \"°C\")\n\n# 采集 PPG 数据\nt_start = ticks_us()\nsamples_n = 0\nwhile True:\n    sensor.check()\n    if sensor.available():\n        red = sensor.pop_red_from_storage()\n        ir = sensor.pop_ir_from_storage()\n        print(red, \",\", ir)\n        \n        # 计算采集频率\n        if ticks_diff(ticks_us(), t_start) >= 999999:\n            print(\"Acquisition frequency:\", samples_n, \"Hz\")\n            samples_n = 0\n            t_start = ticks_us()\n        else:\n            samples_n += 1\n    \n    time.sleep(0.01)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "max30102",
+    "basic_usage",
     "circular_buffer",
-    "ucollections"
+    "heart_rate",
+    "heart_rate_monitor"
   ],
-  "constructors": [
-    "MAX30102(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/max30102_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
-    "add_sample",
-    "append",
     "available",
     "bitmask",
-    "calculate_heart_rate",
     "check",
     "check_part_id",
-    "clear",
     "clear_fifo",
     "disable_a_full",
     "disable_alc_ovf",
@@ -32,7 +76,6 @@
     "enable_prox_int",
     "enable_slot",
     "fifo_bytes_to_int",
-    "find_peaks",
     "get_acquisition_frequency",
     "get_green",
     "get_int_1",
@@ -44,11 +87,8 @@
     "get_write_pointer",
     "i2c_read_register",
     "i2c_set_register",
-    "is_empty",
     "next_sample",
-    "pop",
     "pop_green_from_storage",
-    "pop_head",
     "pop_ir_from_storage",
     "pop_red_from_storage",
     "read_part_id",
@@ -75,25 +115,5 @@
     "wakeup"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/max30102_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "max30102.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

@@ -26,6 +26,10 @@ test("webview start_session runs API-backed pipeline and renders generated outpu
   };
   const fetchImpl = async (url: string, init?: RequestInit) => {
     requested.push(url);
+    if (url === "http://api.test/v1/skills") {
+      // Toolchain handshake: server == bundled, so no skew warning.
+      return jsonResponse({ toolchain_version: "1", skills: [] });
+    }
     if (url === "http://api.test/v1/packages/resolve") {
       const body = JSON.parse(String(init?.body));
       assert.deepEqual(body.capabilities, ["temperature_sensing", "digital_output"]);
@@ -46,6 +50,7 @@ test("webview start_session runs API-backed pipeline and renders generated outpu
   assert.match(panel.webview.html, /id="intent"/);
   assert.deepEqual(requested, [
     "http://api.test/v1/tools",
+    "http://api.test/v1/skills",
     "http://api.test/v1/packages/resolve",
     "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context",
     "http://api.test/v1/boards/esp32-s3-devkitc-1",

@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "UVMatrix(pin, pwm_freq)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "uv_matrix.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from uv_matrix import UVMatrix\n\n# 初始化 UV 矩阵:控制引脚为 26，PWM 频率 1000Hz（默认）\nuv = UVMatrix(pin=26, pwm_freq=1000)",
+    "# 全亮（注意:避免长时间运行）\nuv.on()\n\n# 半亮调节（占空比 512，对应 50% 亮度）\nuv.set_brightness(512)\n\n# 关闭 UV 矩阵\nuv.off()\n\n# 切换状态（亮 ↔ 灭）\nuv.toggle()\n\n# 获取当前状态（True=亮，False=灭）\nprint(uv.get_state())",
+    "import time\nfrom uv_matrix import UVMatrix\n\ntime.sleep(3)\nprint(\"Freak_studio:UV matrix test\")\n\n# 初始化 UVMatrix，控制引脚为 26，PWM 频率 1000Hz\nuv = UVMatrix(pin=26, pwm_freq=1000)\n\nprint(\"status:\", uv.get_state())\n\n# 打开 UVMatrix（全亮）\nuv.on()\nprint(\"UV is light full:\", uv.get_state())\ntime.sleep(2)\n\n# 半亮调节（占空比 512）\nuv.set_brightness(512)\nprint(\"UV PWM duty=512\")\ntime.sleep(2)\n\n# 关闭 UVMatrix\nuv.off()\nprint(\"UV status:\", uv.get_state())\ntime.sleep(2)\n\n# 切换状态测试 toggle\nuv.toggle()\nprint(\"UV toggle:\", uv.get_state())\ntime.sleep(2)\nuv.toggle()\nprint(\"UV toggle:\", uv.get_state())",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "uv_matrix"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/uv_matrix"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "get_state",
+    "off",
+    "on",
+    "set_brightness",
+    "toggle"
+  ],
+  "read_properties": [
+    "digital",
+    "pwm"
+  ],
+  "support_level": "generatable"
+}

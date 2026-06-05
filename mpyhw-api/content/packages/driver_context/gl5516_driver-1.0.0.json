@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "GL5516(analog_pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "gl5516.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from gl5516 import GL5516\nimport time\n\n# 初始化GL5516光强度传感器，连接到GPIO26引脚\nsensor = GL5516(26)\n\n# 校准光强度传感器\n# 在最暗光照环境下设置最小值\ninput(\"Place sensor in LOW light environment and press Enter to set minimum light...\")\nsensor.set_min_light()\nprint(f'min_light: {sensor.min_light}')\ntime.sleep(1)\n\n# 在最亮光照环境下设置最大值\ninput(\"Place sensor in HIGH light environment and press Enter to set maximum light...\")\nsensor.set_max_light()\nprint(f'max_light: {sensor.max_light}')\ntime.sleep(1)\n\n# 主循环读取光强数据\nwhile True:\n    # 读取光强度数据\n    voltage, adc_value = sensor.read_light_intensity()\n    print(\"Light Intensity - Voltage: {} V, ADC Value: {}\".format(voltage, adc_value))\n    # 获取校准后的光强百分比\n    light_level = sensor.get_calibrated_light()\n    print(\"Calibrated Light Level: {:.2f}%\".format(light_level))\n    time.sleep(2)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "gl5516"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/gl5516_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "get_calibrated_light",
+    "read_light_intensity",
+    "set_max_light",
+    "set_min_light"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,0 +1,35 @@
+# What NOT to ship in the VSIX. The runtime ships from dist/ (bundled by
+# vscode:prepublish), plus media/, docs/, python/shim/, and the vendored
+# third_party/ toolchain subset.
+
+# TypeScript sources — bundled into dist/, EXCEPT the webview HTML, which is read
+# from disk at runtime (readWebviewHtml resolves ../../src/webview/index.html).
+src/**
+!src/webview/index.html
+
+# tests, build scripts, tooling
+test/**
+scripts/**
+**/*.test.ts
+tsconfig*.json
+.vscodeignore
+.gitignore
+
+# device shim: keep serve.py + requirements.txt; drop tests/fakes/caches
+python/shim/test_*.py
+python/shim/shim_fake_driver.py
+**/__pycache__/**
+**/.pytest_cache/**
+
+# dev/build cruft
+node_modules/**
+build/**
+package-lock.json
+**/*.map
+**/*.vsix
+
+# runtime/dev artifacts that may sit in the working tree
+tmp/**
+.mpyhw/**
+*.log
+**/*.log

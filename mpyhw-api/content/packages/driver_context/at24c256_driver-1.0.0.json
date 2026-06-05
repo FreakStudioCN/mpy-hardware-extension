@@ -1,9 +1,36 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "AT24CXX(i2c, chip_size, addr)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "at24c256.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import I2C, Pin\nfrom at24c256 import AT24CXX\nimport time\n\n# 全局变量\nAT24C256_ADDRESS = 0x50\nDATA_SIZE = 128\ndata_to_write = bytes(range(DATA_SIZE))  # 生成0-127的字节序列\n\n# 擦除指定区域数据（写入0xFF）\ndef erase_data(at24cxx, start_address, length):\n    data_to_erase = bytes([0xFF] * length)\n    at24cxx.write_page(start_address, data_to_erase)\n\n# 初始化配置\ntime.sleep(3)\nprint(\"FreakStudio: Read and Write AT24C256\")\n\n# 初始化I2C（SDA=4, SCL=5, 100KHz）\ni2c_at24c256 = I2C(id=0, sda=Pin(4), scl=Pin(5), freq=100000)\n# 创建AT24C256实例（32KB容量，地址0x50）\nat24c256 = AT24CXX(i2c_at24c256, AT24CXX.AT24C256, AT24C256_ADDRESS)\n\n# 验证掉电存储:若地址0为0xAB且后续128字节匹配，则数据已保存\nif at24c256.read_byte(0) == 0xAB and list(at24c256.read_sequence(1, DATA_SIZE)) == list(data_to_write):\n    print(\"Data verification successful. Data retained after power cycle.\")\n    erase_data(at24c256, 0, DATA_SIZE + 1)  # 擦除数据\nelse:\n    # 初次写入实验\n    print(\"Erase the data of the first three pages\")\n    erase_data(at24c256, 0, DATA_SIZE + 1)  # 先擦除前129字节\n\n    # 单字节写入:地址0写入0xAB\n    print(\"Writing single byte...\")\n    at24c256.write_byte(0x00, 0xAB)\n    print(\"Written single byte 0xAB at address 0x00.\")\n\n    # 单字节读取:地址0读取数据\n    print(\"Reading single byte...\")\n    single_byte = at24c256.read_byte(0x00)\n    print(f\"Read single byte: {single_byte:#04x}\")\n\n    # 页写入:地址1开始写入128字节（0-127）\n    print(\"Writing 128 bytes...\")\n    at24c256.write_page(0x01, data_to_write)\n    print(\"Written 128 bytes starting at address 0x01.\")\n\n    # 顺序读取:地址1开始读取128字节\n    print(\"Reading 128 bytes...\")\n    read_data = at24c256.read_sequence(0x01, DATA_SIZE)\n    print(f\"Read 128 bytes: {list(read_data)}\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "at24c256"
   ],
-  "constructors": [
-    "AT24CXX(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/storage/at24c256_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "read_byte",
@@ -12,25 +39,5 @@
     "write_page"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/at24c256_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "at24c256.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

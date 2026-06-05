@@ -1,0 +1,88 @@
+{
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)",
+    "SpiAdapter(bus, data_mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "opt3001mod.py",
+      "type": "source"
+    },
+    {
+      "path": "adcmod.py",
+      "type": "source"
+    },
+    {
+      "path": "base_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "bitfield.py",
+      "type": "source"
+    },
+    {
+      "path": "bus_service.py",
+      "type": "source"
+    },
+    {
+      "path": "dacmod.py",
+      "type": "source"
+    },
+    {
+      "path": "regmod.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, SoftI2C\nfrom sensor_pack_2.bus_service import I2cAdapter\nfrom opt3001mod import OPT3001\n\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=100_000)\nsensor = OPT3001(I2cAdapter(i2c), address=0x44)\n\n# 单次测量\nsensor.start_measurement(continuously=False, lx_range_index=12)\nimport time; time.sleep_ms(150)\nds = sensor.get_data_status()\nif ds.conversion_ready:\n    result = sensor.get_measurement_value(value_index=1)\n    print(\"Lux:\", result.lux)\n\nsensor.deinit()",
+    "OPT3001(adapter, address=0x44)",
+    "opt3001_id(manufacturer_id, device_id)\nopt3001_meas_raw(exponent, fractional)\nopt3001_meas_data(lux, full_scale_range)\nOPT3001_data_status(conversion_ready, overflow)"
+  ],
+  "import_names": [
+    "bus_service",
+    "opt3001mod",
+    "adcmod",
+    "base_sensor",
+    "bitfield",
+    "dacmod",
+    "regmod"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/opt3001_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "get_bus_type",
+    "read",
+    "read_buf_from_memory",
+    "read_register",
+    "read_to_buf",
+    "write",
+    "write_and_read",
+    "write_buf_to_memory",
+    "write_const",
+    "write_register"
+  ],
+  "read_properties": [
+    "prepare_func"
+  ],
+  "support_level": "generatable"
+}

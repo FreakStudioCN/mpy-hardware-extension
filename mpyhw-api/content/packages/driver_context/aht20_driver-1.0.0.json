@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "AHT10(i2c, address, debug)",
+    "AHT20(i2c, address, debug)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ahtx0.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import mip\nmip.install(\"github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/aht20_driver\")",
+    "bash\nmpremote cp ahtx0.py :ahtx0.py",
+    "from machine import I2C\nimport utime\nimport ahtx0\n\nI2C_ID      = 1\nINTERVAL_MS = 2500\n\ni2c = I2C(I2C_ID)\nsensor = ahtx0.AHT20(i2c)\n\nprint(\"AHT20 sensor test started\")\n\nwhile True:\n    try:\n        temp = sensor.temperature\n        humi = sensor.relative_humidity\n        print(\"Temperature : %5.1f C\" % temp)\n        print(\"  Humidity  : %5.1f %%rH\" % humi)\n        print(\"-\" * 28)\n    except RuntimeError as e:\n        print(\"Sensor runtime error: %s\" % e)\n    except OSError as e:\n        print(\"Sensor OS error: %s\" % e)\n    utime.sleep_ms(INTERVAL_MS)",
+    "import mip\nmip.install(\"github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/aht20_driver\")",
+    "bash\nmpremote cp ahtx0.py :ahtx0.py",
+    "from machine import I2C\nimport utime\nimport ahtx0\n\nI2C_ID      = 1\nINTERVAL_MS = 2500\n\ni2c = I2C(I2C_ID)\nsensor = ahtx0.AHT20(i2c)\n\nprint(\"AHT20 sensor test started\")\n\nwhile True:\n    try:\n        temp = sensor.temperature\n        humi = sensor.relative_humidity\n        print(\"Temperature : %5.1f C\" % temp)\n        print(\"  Humidity  : %5.1f %%rH\" % humi)\n        print(\"-\" * 28)\n    except RuntimeError as e:\n        print(\"Sensor runtime error: %s\" % e)\n    except OSError as e:\n        print(\"Sensor OS error: %s\" % e)\n    utime.sleep_ms(INTERVAL_MS)"
+  ],
+  "import_names": [
+    "ahtx0"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/aht20_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "deinit",
+    "initialize",
+    "reset"
+  ],
+  "read_properties": [
+    "relative_humidity",
+    "status",
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

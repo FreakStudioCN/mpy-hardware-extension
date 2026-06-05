@@ -1,0 +1,41 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "Buzzer(pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "buzzer.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# 导入驱动模块\nfrom buzzer import Buzzer\nimport time\n\n# 初始化蜂鸣器（GPIO 6）\nbuzzer = Buzzer(pin=6)\n\n# 自定义旋律示例:《两只老虎》片段\nCUSTOM_MELODY = [\n    ('C4', 400), ('D4', 400), ('E4', 400), ('C4', 400),\n    ('C4', 400), ('D4', 400), ('E4', 400), ('C4', 400),\n    ('E4', 400), ('F4', 400), ('G4', 800),\n    ('E4', 400), ('F4', 400), ('G4', 800)\n]\n\ntry:\n    # 播放自定义旋律\n    buzzer.play_melody(CUSTOM_MELODY)\n    # 播放单个音符（A4，持续1秒）\n    buzzer.play_tone(440, 1000)\nfinally:\n    # 确保蜂鸣器停止发声\n    buzzer.stop_tone()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "buzzer"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/passive_buzzer_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "play_melody",
+    "play_tone",
+    "stop_tone"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
+import threading
 from contextlib import contextmanager
 from typing import Any, Iterator
+
+logger = logging.getLogger("mpyhw.db")
 
 _initialized: set[str] = set()
 write_failure_count = 0
@@ -42,6 +46,7 @@ def execute(conn: Any, sql: str, params: tuple[Any, ...] = ()):
         global write_failure_count
         if sql.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE", "CREATE")):
             write_failure_count += 1
+            logger.warning("db write failed", exc_info=True)
         raise
 
 
@@ -54,6 +59,41 @@ def fetchone(conn: Any, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any
 
 def fetchall(conn: Any, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     return [dict(row) for row in execute(conn, sql, params).fetchall()]
+
+
+_readiness_lock = threading.Lock()
+_readiness_conn: Any = None
+
+
+def ping() -> None:
+    """Cheap readiness check: confirm the DB is reachable. Raises on failure.
+
+    The readiness probe fires every ~15s, so reuse one lazily-created connection
+    instead of paying a fresh connect handshake each time. A dropped/stale connection
+    is transparently reconnected once before the failure propagates. The probe route
+    is sync (threadpool) and this is lock-guarded, so the shared connection is only
+    ever touched by one caller at a time."""
+    global _readiness_conn
+    import psycopg
+
+    with _readiness_lock:
+        for attempt in range(2):
+            try:
+                if _readiness_conn is None or _readiness_conn.closed:
+                    initialize()
+                    _readiness_conn = psycopg.connect(_database_url())
+                _readiness_conn.execute("SELECT 1")
+                _readiness_conn.commit()
+                return
+            except Exception:
+                if _readiness_conn is not None:
+                    try:
+                        _readiness_conn.close()
+                    except Exception:
+                        pass
+                    _readiness_conn = None
+                if attempt == 1:
+                    raise
 
 
 def _sql(sql: str) -> str:
@@ -177,4 +217,11 @@ def _schema() -> list[str]:
 
 
 def reset_for_tests() -> None:
+    global _readiness_conn
     _initialized.clear()
+    if _readiness_conn is not None:
+        try:
+            _readiness_conn.close()
+        except Exception:
+            pass
+        _readiness_conn = None

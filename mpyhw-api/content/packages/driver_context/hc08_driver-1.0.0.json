@@ -1,0 +1,62 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "HC08(uart, rx_timeout_ms)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "hc08.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import UART, Pin\nfrom hc08 import HC08\n\n# 初始化UART（波特率默认9600，按模块实际配置调整）\nuart = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n\n# 创建HC08实例\nhc08 = HC08(uart)",
+    "# 检测模块通信是否正常\nok, resp = hc08.check()\nprint(\"通信检测:\", ok, resp)\n\n# 查询蓝牙名称\nok, name = hc08.get_name()\nprint(\"蓝牙名称:\", name)\n\n# 设置蓝牙名称\nok, resp = hc08.set_name(\"GraftSense-BLE\")\nprint(\"设置名称:\", ok, resp)\n\n# 切换为主机模式\nok, resp = hc08.set_role(HC08.Role['MASTER'])\nprint(\"切换角色:\", ok, resp)\n\n# 查询固件版本\nok, version = hc08.get_version()\nprint(\"固件版本:\", version)",
+    "# 发送透传数据\nhc08.send_data(\"Hello, BLE!\")\n\n# 阻塞接收透传数据（超时200ms）\nok, data = hc08.recv_data(timeout_ms=200)\nif ok:\n    print(\"接收数据:\", data)\n    # 回传数据\n    hc08.send_data(\"Received: \" + data.decode())",
+    "import time\nfrom machine import UART, Pin\nfrom hc08 import HC08\n\n# 上电延时3s\ntime.sleep(3)\nprint(\"FreakStudio:HC08 test\")\n\n# 初始化UART通信（按硬件实际接线调整TX/RX）\nuart0 = UART(0, baudrate=9600, tx=Pin(16), rx=Pin(17))\n# 创建HC08实例\nhc0 = HC08(uart0)\n\n# 查询基础参数\nok, resp = hc0.get_name()\nprint(f'hc0 Name   :{resp}')\nok, resp = hc0.get_version()\nprint(f'hc0 Version:{resp}')\nok, resp = hc0.get_role()\nprint(f'hc0 Role   :{resp}')\n\n# 主循环透传数据收发\nwhile True:\n    # 阻塞接收透传数据（超时200ms）\n    ok, data = hc0.recv_data(timeout_ms=200)\n    # 当有数据成功接收时打印并回传\n    if ok:\n        print(data)\n        hc0.send_data(\"get data:\")\n        hc0.send_data(data)\n    time.sleep(0.05)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "hc08"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/hc08_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "check",
+    "clear",
+    "factory_default",
+    "get_addr",
+    "get_baud",
+    "get_name",
+    "get_rfpm",
+    "get_role",
+    "get_rx",
+    "get_version",
+    "recv_data",
+    "recv_until",
+    "reset",
+    "send_data",
+    "set_addr",
+    "set_baud",
+    "set_name",
+    "set_rfpm",
+    "set_role",
+    "wake_from_sleep"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

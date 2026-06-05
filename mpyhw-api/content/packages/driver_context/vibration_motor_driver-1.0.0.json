@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "VibrationMotor(pin, pwm_freq)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "vibration_motor.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from vibration_motor import VibrationMotor\n\n# 初始化震动马达:DOUT接GP6，PWM频率默认1000Hz\nmotor = VibrationMotor(pin=6, pwm_freq=1000)",
+    "import time\nfrom vibration_motor import VibrationMotor\n\n# 初始化马达\nmotor = VibrationMotor(pin=6)\n\n# 全速运行2秒\nmotor.on()\nprint(\"Motor running at full speed...\")\ntime.sleep(2)\nmotor.off()\nprint(\"Motor stopped\")\n\n# 半速运行2秒\nmotor.set_brightness(512)\nprint(\"Motor running at half speed...\")\ntime.sleep(2)\nmotor.off()\nprint(\"Motor stopped\")\n\n# 切换状态\nmotor.toggle()  # 启动\ntime.sleep(1)\nmotor.toggle()  # 停止",
+    "import time\nfrom vibration_motor import VibrationMotor\n\ndef demo_full() -> None:\n    print(\">>> Motor running at full speed for 2 seconds\")\n    motor.on()\n    time.sleep(2)\n    motor.off()\n    print(\">>> Motor stopped\")\n\ndef demo_half() -> None:\n    print(\">>> Motor running at half speed for 2 seconds\")\n    motor.set_brightness(512)\n    time.sleep(2)\n    motor.off()\n    print(\">>> Motor stopped\")\n\ndef demo_low() -> None:\n    print(\">>> Motor running at low speed for 2 seconds\")\n    motor.set_brightness(400)\n    time.sleep(2)\n    motor.off()\n    print(\">>> Motor stopped\")\n\ndef show_methods() -> None:\n    print(\"Available methods:\")\n    print(\"motor.on()\")\n    print(\"motor.off()\")\n    print(\"motor.toggle()\")\n    print(\"motor.set_brightness(duty)\")\n    print(\"motor.get_state()\")\n    print(\"demo_full()\")\n    print(\"demo_half()\")\n    print(\"demo_low()\")\n    print(\"show_methods()\")\n\n# 上电延时\ntime.sleep(3)\nprint(\"FreakStudio:Vibration motor test\")\n\n# 初始化马达\nmotor = VibrationMotor(pin=6)\n\n# 打印可用方法\nshow_methods()\n\n# 执行演示\ndemo_full()\ndemo_half()\ndemo_low()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "vibration_motor"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/motor_drivers/vibration_motor_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "get_state",
+    "off",
+    "on",
+    "set_brightness",
+    "toggle"
+  ],
+  "read_properties": [
+    "digital",
+    "pwm"
+  ],
+  "support_level": "generatable"
+}

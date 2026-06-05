@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -20,6 +22,7 @@ from app import session_token
 
 JWT_TTL_SECONDS = int(os.getenv("MPYHW_JWT_TTL", str(24 * 3600)))
 DEFAULT_JWT_SECRET = "dev-insecure-secret"
+logger = logging.getLogger("mpyhw.auth")
 
 
 def _jwt_secret() -> str:
@@ -74,7 +77,12 @@ def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
 
 
 def verify_github_token(access_token: str) -> dict[str, Any]:
-    """Exchange a GitHub access token for the stable user id/login/email."""
+    """Exchange a GitHub access token for the stable user id/login/email.
+
+    Retries transient failures (network errors, GitHub 5xx) with short backoff so a
+    momentary blip doesn't block every login. A 4xx (e.g. a bad/expired token) is
+    not retried — it won't succeed on a second try.
+    """
     request = urllib.request.Request(
         "https://api.github.com/user",
         headers={
@@ -83,11 +91,21 @@ def verify_github_token(access_token: str) -> dict[str, Any]:
             "accept": "application/vnd.github+json",
         },
     )
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        raise HTTPException(status_code=401, detail={"error": "github_auth_failed", "status": error.code})
-    except urllib.error.URLError:
-        raise HTTPException(status_code=502, detail={"error": "github_unreachable"})
-    return {"id": str(data["id"]), "login": data.get("login"), "email": data.get("email")}
+    backoffs = (0.25, 0.5)  # 3 attempts total
+    for attempt in range(len(backoffs) + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            return {"id": str(data["id"]), "login": data.get("login"), "email": data.get("email")}
+        except urllib.error.HTTPError as error:
+            if error.code >= 500 and attempt < len(backoffs):
+                logger.warning("github verify retry", extra={"status": error.code, "attempt": attempt + 1})
+                time.sleep(backoffs[attempt])
+                continue
+            raise HTTPException(status_code=401, detail={"error": "github_auth_failed", "status": error.code})
+        except urllib.error.URLError:
+            if attempt < len(backoffs):
+                logger.warning("github verify retry", extra={"status": 0, "attempt": attempt + 1})
+                time.sleep(backoffs[attempt])
+                continue
+            raise HTTPException(status_code=502, detail={"error": "github_unreachable"})

@@ -1,9 +1,36 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "Accelerometer(i2c, address, interrupts)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mma7660.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/20 下午5:30\n# @Author  : Developer\n# @File    : main.py\n# @Description : 基于Raspberry Pi Pico的MMA7660三轴加速度传感器数据读取程序，实现I2C通信、设备扫描、传感器初始化和加速度数据循环读取\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入I2C和Pin模块，用于硬件I2C通信\nfrom machine import I2C, Pin\n\n# 导入sleep模块，用于程序延时\nfrom time import sleep\n\n# 导入MMA7660加速度传感器驱动类\nfrom mma7660 import Accelerometer\n\n# ======================================== 全局变量 ============================================\n\n# 定义I2C通信的SCL引脚编号（对应Raspberry Pi Pico的GP5）\nI2C_SCL_PIN = 5\n# 定义I2C通信的SDA引脚编号（对应Raspberry Pi Pico的GP4）\nI2C_SDA_PIN = 4\n# 定义I2C通信频率（400kHz为Pico常用频率）\nI2C_FREQ = 400000\n# 定义MMA7660加速度传感器的目标I2C地址\nTARGET_SENSOR_ADDR = 0x4C\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 程序启动后延时3秒，确保硬件稳定\nsleep(3)\n# 打印程序启动提示信息\nprint(\"FreakStudio: MMA7660 accelerometer data reading program started\")\n\n# 初始化I2C总线0，配置SCL、SDA引脚和通信频率\ni2c_bus = I2C(0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n\n# 扫描I2C总线上的所有设备，返回设备地址列表并添加类型注解\ndevices_list: list[int] = i2c_bus.scan()\n# 打印I2C扫描启动提示\nprint(\"START I2C SCANNER\")\n\n# 检查I2C设备扫描结果，若未扫描到任何设备则退出程序\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    # 打印扫描到的I2C设备数量\n    print(\"i2c devices found:\", len(devices_list))\n\n# 初始化传感器变量为None，用于后续接收传感器实例\naccel = None\n# 遍历扫描到的I2C设备地址列表，查找目标传感器地址\nfor device in devices_list:\n    # 判断当前设备地址是否为MMA7660的目标地址\n    if device == TARGET_SENSOR_ADDR:\n        # 打印找到的目标传感器十六进制地址\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            # 初始化MMA7660加速度传感器\n            accel = Accelerometer(i2c=i2c_bus)\n            # 打印传感器初始化成功提示\n            print(\"Target sensor initialization successful\")\n            # 找到并初始化成功后退出循环\n            break\n        except Exception as e:\n            # 打印传感器初始化失败的异常信息\n            print(f\"Sensor Initialization failed: {e}\")\n            # 继续遍历下一个设备地址\n            continue\nelse:\n    # 遍历完所有地址未找到目标传感器，抛出异常\n    raise Exception(\"No MMA7660 Accelerometer found on I2C bus\")\n\n# ========================================  主程序  ============================================\n\n# 无限循环读取加速度传感器数据\nwhile True:\n    # 读取X/Y/Z轴的加速度值（单位：g）\n    x_g, y_g, z_g = accel.getXYZ()\n    # 读取X/Y/Z轴的加速度值（单位：m/s²）\n    x, y, z = accel.getAcceleration()\n\n    # 打印加速度值（单位：g），保留两位小数\n    print(f\"Acceleration(g): X={x_g:.2f}, Y={y_g:.2f}, Z={z_g:.2f}\")\n    # 打印加速度值（单位：m/s²），保留两位小数\n    print(f\"Acceleration(m/s²): X={x:.2f}, Y={y:.2f}, Z={z:.2f}\")\n    # 打印分隔线，提升输出可读性\n    print(\"-\" * 30)\n    # 延时0.5秒后继续读取数据\n    sleep(0.5)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "mma7660"
   ],
-  "constructors": [
-    "Accelerometer(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mma7660_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "getAcceleration",
@@ -16,25 +43,5 @@
     "write"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mma7660_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mma7660.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

@@ -1,0 +1,60 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "PN532_UART(uart, reset, debug)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "pn532.py",
+      "type": "source"
+    },
+    {
+      "path": "pn532_uart.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# MicroPython v1.23.0\n# -*- coding: utf-8 -*-   \n# @Time    : 2025/9/4 下午3:50\n# @Author  : 缪贵成\n# @File    : main.py\n# @Description : 基于PN532的NFC模块驱动测试文件   测试 Mifare Classic 类型（公交卡等）ID读取、Block4认证、读写\n\n# ======================================== 导入相关模块 =========================================\n\nimport time\nfrom machine import UART, Pin\nfrom pn532_uart import PN532_UART\nfrom pn532 import MIFARE_CMD_AUTH_A\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 上电延时3s\ntime.sleep(3)\n# 打印调试信息\nprint(\"FreakStudio: Test NFC module functionality\")\n\n# 初始化UART1端口，波特率115200（PN532串口默认波特率），TX=Pin8，RX=Pin9\nuart = UART(1, baudrate=115200, tx=Pin(8), rx=Pin(9))\n# 可选:Reset引脚（若硬件接了复位引脚，取消注释并修改引脚号）\n# reset_pin = Pin(15, Pin.OUT)\n\n# 创建 PN532 实例:传入串口对象，不使用复位引脚，启用调试模式（打印收发数据）\nnfc = PN532_UART(uart, reset=None, debug=True)\n\n# 打印初始化提示，告知用户正在初始化PN532模块\nprint(\"Initializing PN532...\")\n# 可选:硬件复位PN532（若复位引脚已配置，取消注释）\n# nfc.reset()\n\n# 获取固件版本\ntry:\n    # 读取PN532固件版本（返回元组:硬件版本、固件版本、支持的卡类型）\n    version = nfc.firmware_version\n    # 打印固件版本信息，确认模块正常响应\n    print(\"PN532 firmware version:\", version)\nexcept RuntimeError as e:\n    # 捕获通信异常，打印错误信息\n    print(\"Failed to read firmware version:\", e)\n    # 延时3秒后继续，避免频繁报错\n    time.sleep(3)\n\n# 配置 SAM (Secure Access Module):启用读卡模式，必须调用才能检测卡片\nnfc.SAM_configuration()\n# 打印SAM配置完成提示\nprint(\"PN532 SAM configured\")\n# 延时3秒，确保SAM配置生效\ntime.sleep(3)\n\n# ======================================== 主程序 =============================================\n\n# 无限循环:持续检测NFC卡片，实现卡片读写测试\nwhile True:\n    try:\n        # 打印等待卡片提示，明确当前状态\n        print(\"---- Waiting for card (Mifare Classic) ----\")\n        # 被动读取卡片UID:超时1000ms，无卡片返回None，有卡片返回UID字节串\n        uid = nfc.read_passive_target(timeout=1000)\n\n        # 判断是否检测到卡片（UID为None表示无卡片）\n        if uid is None:\n            print(\"No card detected\")\n            time.sleep(2)\n            continue\n\n        # 打印检测到的卡片UID（转换为十六进制列表，便于查看）\n        print(\"Card detected UID:\", [hex(i) for i in uid])\n        time.sleep(2)\n\n        # ==================== Mifare Classic 测试 ====================\n        # Mifare Classic卡默认A密钥（6字节），多数空白卡/公交卡使用此密钥\n        key_default = b\"\\xFF\\xFF\\xFF\\xFF\\xFF\\xFF\"\n        # 测试操作的块号:Block4为Mifare Classic 1K卡的第一个数据块（前3块为厂商块）\n        block_num = 4\n\n        # 认证Block4:使用A密钥、卡片UID认证，认证成功才能读写\n        if nfc.mifare_classic_authenticate_block(uid, block_num, MIFARE_CMD_AUTH_A, key_default):\n            print(f\"Block {block_num} authentication successful\")\n            time.sleep(1)\n\n            # 读取Block4数据:成功返回16字节数据，失败返回None\n            data = nfc.mifare_classic_read_block(block_num)\n            # 判断是否读取到有效数据\n            if data:\n                print(f\"Read block {block_num} data:\", [hex(i) for i in data])\n            time.sleep(1)\n\n            test_data = bytes([0x01] * 16)\n            if nfc.mifare_classic_write_block(block_num, test_data):\n                print(f\"Successfully wrote block {block_num}: {[hex(i) for i in test_data]}\")\n            time.sleep(1)\n        else:\n            print(f\"Block {block_num} authentication failed\")\n            time.sleep(1)\n\n        # ==================== 低功耗测试 ====================\n        print(\"Entering low power mode...\")\n        if nfc.power_down():\n            print(\"PN532 entered low power mode\")\n        time.sleep(2)\n\n        print(\"Waking up...\")\n        nfc.reset()\n        print(\"Wake up complete\")\n        time.sleep(2)\n\n    except Exception as e:\n        print(\"Error:\", e)\n        time.sleep(2)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "pn532_uart",
+    "pn532"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/pn532_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "SAM_configuration",
+    "call_function",
+    "get_passive_target",
+    "listen_for_passive_target",
+    "mifare_classic_authenticate_block",
+    "mifare_classic_read_block",
+    "mifare_classic_write_block",
+    "ntag2xx_read_block",
+    "ntag2xx_write_block",
+    "power_down",
+    "process_response",
+    "read_passive_target",
+    "reset",
+    "send_command"
+  ],
+  "read_properties": [
+    "firmware_version"
+  ],
+  "support_level": "generatable"
+}

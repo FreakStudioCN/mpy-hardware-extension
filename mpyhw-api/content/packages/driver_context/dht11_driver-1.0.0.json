@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "DHT11(pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "dht11.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin\nimport time\nfrom dht11 import DHT11\n\n# 初始化配置\ntime.sleep(3)  # 上电延时，等待模块稳定\nprint('FreakStudio : Using OneWire to read DHT11 sensor')\n\ntime.sleep(1)  # 等待DHT11传感器上电完成\nDHT11_PIN = Pin(6, Pin.OUT, Pin.PULL_UP)  # 初始化单总线通信引脚（GPIO6）\ndht11 = DHT11(DHT11_PIN)  # 创建DHT11实例\n\n# 主循环:实时采集温湿度\nwhile True:\n    try:\n        dht11.measure()  # 触发一次温湿度采集\n        temperature = dht11.temperature  # 获取温度值\n        humidity = dht11.humidity        # 获取湿度值\n        print(\"temperature: {}℃, humidity: {}%\".format(temperature, humidity))\n        time.sleep(2)  # 间隔2秒采集一次\n    except Exception as e:\n        print(f\"Error: {e}\")\n        time.sleep(2)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "dht11"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/dht11_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "measure"
+  ],
+  "read_properties": [
+    "humidity",
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

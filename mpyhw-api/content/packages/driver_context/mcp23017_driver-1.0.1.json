@@ -1,51 +1,62 @@
 {
+  "bus": [
+    "gpio",
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "MCP23017(i2c, address)",
+    "VirtualPin(pin, port)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mcp23017.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/13 下午6:20\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : MCP23017测试  配置I2C扫描、引脚输入输出、虚拟引脚操作、极性反转验证\n\n# ======================================== 导入相关模块 =========================================\n\nfrom machine import SoftI2C, Pin\nimport mcp23017  # 导入MCP23017驱动模块\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# I2C硬件配置常量\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 100000\n# MCP23017目标I2C地址\nTARGET_SENSOR_ADDR = 0x20\n# 引脚定义常量\nA1_PIN = 1  # A1引脚编号（输出）\nA3_PIN = 3  # A3引脚编号（输入）\n# 全局MCP23017对象\nmcp = None\n\n# ======================================== 功能函数 ============================================\n\n\ndef test_mcp_functions():\n    \"\"\"\n    演示MCP23017核心功能：基本电平读写、虚拟引脚操作、寄存器批量操作、输入极性反转\n    Args:\n        无\n\n    Raises:\n        无\n\n    Notes:\n        依次验证不同功能模块，输出关键调试信息\n\n    ==========================================\n\n    Demonstrate MCP23017 core functions: basic level read/write, virtual pin operation, batch register operation, input polarity inversion\n    Args:\n        None\n\n    Raises:\n        None\n\n    Notes:\n        Verify different function modules in sequence and output key debugging information\n    \"\"\"\n    # ---------- 演示1：基本读写（A3输出，A3读取） ----------\n    print(\"\n=== Demo 1: Basic Level Read/Write ===\")\n    # 切换A3电平为高，读取A3验证（短接后A3应同步为高）\n    mcp.pin(A1_PIN, value=1)\n    a3_val = mcp.pin(A3_PIN)  # 读取A3电平（返回True/False）\n    print(f\"A3 Output Level: HIGH (1) | A3 Read Level: {'HIGH (1)' if a3_val else 'LOW (0)'}\")\n\n    # 切换A3电平为低，读取A3验证\n    mcp.pin(A1_PIN, value=0)\n    a3_val = mcp.pin(A3_PIN)\n    print(f\"A3 Output Level: LOW (0) | A3 Read Level: {'HIGH (1)' if a3_val else 'LOW (0)'}\")\n\n    # ---------- 演示2：虚拟引脚用法（更直观的引脚操作） ----------\n    print(\"\n=== Demo 2: Virtual Pin Operation ===\")\n    # 获取A3和A3的虚拟引脚对象\n    A3_vpin = mcp[A1_PIN]\n    a3_vpin = mcp[A3_PIN]\n\n    # 用虚拟引脚设置A3为高\n    A3_vpin.output(val=1)  # 等价于mcp.pin(A1_PIN, mode=0, value=1)\n    a3_val = a3_vpin.value()  # 读取A3电平\n    print(f\"Virtual Pin A3 Output: HIGH (1) | Virtual Pin A3 Read: {'HIGH (1)' if a3_val else 'LOW (0)'}\")\n\n    # ---------- 演示3：批量配置/读取寄存器（进阶） ----------\n    print(\"\n=== Demo 3: Batch Register Operation ===\")\n    # 读取PortA（A0-A7）的整体模式（IODIR寄存器）\n    porta_mode = mcp.porta.mode\n    print(f\"PortA Mode Register Value: 0x{porta_mode:02X} (A3=Output(0), A3=Input(1) As Expected)\")\n\n    # 读取PortA的上拉电阻配置（GPPU寄存器）\n    porta_pullup = mcp.porta.pullup\n    print(f\"PortA Pullup Register Value: 0x{porta_pullup:02X} (A3 Pullup Enabled(1) As Expected)\")\n\n    # ---------- 演示4：输入极性反转（可选，取消注释后验证） ----------\n    print(\"\n=== Demo 4: Input Polarity Inversion ===\")\n    # 启用A3极性反转\n    mcp.pin(A3_PIN, polarity=1)\n    # 再次设置A3为高，A3读取应为低（因为极性反转）\n    mcp.pin(A1_PIN, value=1)\n    a3_val = mcp.pin(A3_PIN)\n    print(f\"A3 Output: HIGH (1) | A3 Inverted Read: {'HIGH (1)' if a3_val else 'LOW (0)'} (Expected LOW)\")\n\n    # 恢复A3极性为正常\n    mcp.pin(A3_PIN, polarity=0)\n\n\ndef loop_verify():\n    \"\"\"\n    循环验证A3输出与A3输入的电平同步性，每1秒切换一次A3电平\n    Args:\n        无\n\n    Raises:\n        无\n\n    Notes:\n        循环5次，输出每次的电平匹配结果，需短接A3和A3引脚\n\n    ==========================================\n\n    Cyclically verify the level synchronization between A3 output and A3 input, switch A3 level every 1 second\n    Args:\n        None\n\n    Raises:\n        None\n\n    Notes:\n        Loop 5 times, output the level matching result each time, need to short-circuit A3 and A3 pins\n    \"\"\"\n    print(\"\n=== Loop Verification (Switch A3 Level Every 1 Second) ===\")\n    print(\"Short-circuit A3 and A3, observe if A3 synchronizes with A3 level changes...\")\n    count = 0\n    while count < 5:  # 循环5次\n        # 切换A3电平\n        current_val = count % 2  # 0/1交替\n        mcp.pin(A1_PIN, value=current_val)\n        # 读取A3\n        a3_val = mcp.pin(A3_PIN)\n        # 打印结果\n        print(f\"Round {count+1} - A3 Output: {current_val} | A3 Read: {1 if a3_val else 0} | Matched: {current_val == a3_val}\")\n        time.sleep(1)\n        count += 1\n\n\n# ======================================== 自定义类 ============================================\n\n\n# ======================================== 初始化配置 ===========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: MCP23017 I2C Expander Function Test - Short A3 and A3 Pins\")\n\n# 初始化I2C总线（适配Raspberry Pi Pico）\ni2c_bus = SoftI2C(scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n\n# 开始扫描I2C总线上的设备\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\n# 检查I2C设备扫描结果\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(\"i2c devices found:\", len(devices_list))\n\n# 遍历地址列表初始化目标传感器（MCP23017）\nfor device in devices_list:\n    if device == TARGET_SENSOR_ADDR:\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            # 初始化MCP23017\n            mcp = mcp23017.MCP23017(i2c=i2c_bus, address=TARGET_SENSOR_ADDR)\n            print(\"Target sensor initialization successful\")\n            break\n        except Exception as e:\n            print(f\"Sensor Initialization failed: {e}\")\n            continue\nelse:\n    # 未找到目标地址时抛出明确异常\n    raise Exception(\"No MCP23017 found at target address 0x20\")\n\n# 配置引脚（核心：A3输出，A3输入）\n# 配置A3为输出模式（mode=0），初始电平低（value=0）\nmcp.pin(A1_PIN, mode=0, value=0)\n# 配置A3为输入模式（mode=1），启用内部上拉电阻（pullup=1）\nmcp.pin(A3_PIN, mode=1, pullup=1)\n\n# ========================================  主程序  ============================================\n\nif __name__ == \"__main__\":\n    try:\n        # 执行核心功能测试\n        test_mcp_functions()\n        # 执行循环验证\n        loop_verify()\n        print(\"\nProgram execution completed successfully!\")\n    except OSError as e:\n        print(f\"Error: {e}, Please check I2C wiring or MCP23017 address!\")\n    except Exception as e:\n        print(f\"Initialization Error: {e}\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "mcp23017"
   ],
-  "constructors": [
-    "MCP23017(i2c)"
-  ],
-  "read_methods": [
-    "config",
-    "default_value",
-    "gpio",
-    "init",
-    "input",
-    "input_polarity",
-    "interrupt_captured",
-    "interrupt_captured_gpio",
-    "interrupt_compare_default",
-    "interrupt_enable",
-    "interrupt_flag",
-    "interrupt_triggered_gpio",
-    "io_config",
-    "mode",
-    "output",
-    "output_latch",
-    "pin",
-    "pullup",
-    "value"
-  ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/mcp23017_driver"
+  },
+  "known_issues": [],
   "pin_roles": [
+    "gpio",
     "i2c_sda",
     "i2c_scl"
   ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/mcp23017_driver/1.0.1/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "mcp23017.py"
-    }
+  "read_methods": [
+    "config",
+    "init",
+    "input",
+    "interrupt_captured_gpio",
+    "interrupt_triggered_gpio",
+    "output",
+    "pin",
+    "value"
   ],
-  "confidence": 0.75,
+  "read_properties": [
+    "default_value",
+    "gpio",
+    "input_polarity",
+    "interrupt_captured",
+    "interrupt_compare_default",
+    "interrupt_enable",
+    "interrupt_flag",
+    "io_config",
+    "mode",
+    "output_latch",
+    "pullup"
+  ],
   "support_level": "generatable"
 }

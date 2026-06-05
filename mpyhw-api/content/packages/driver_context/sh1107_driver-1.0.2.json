@@ -1,14 +1,46 @@
 {
-  "import_names": [
-    "sh1107",
-    "framebuf2"
+  "bus": [
+    "i2c",
+    "spi"
   ],
+  "confidence": 0.7,
   "constructors": [
-    "SH1107_I2C(i2c)"
+    "SH1107_I2C(width, height, i2c, res, address, rotate, external_vcc, delay_ms)",
+    "SH1107_SPI(width, height, spi, dc, res, cs, rotate, external_vcc, delay_ms)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "sh1107.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "OLED VCC → 3.3V\nOLED GND → GND\nOLED SCL → GPIO5 (代码中 I2C_SCL_PIN)\nOLED SDA → GPIO4 (代码中 I2C_SDA_PIN)",
+    "import sh1107\nfrom machine import I2C, Pin\n\n# 初始化 I2C 总线\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=400000)\n\n# 初始化 OLED（128x64 分辨率，I2C 地址 0x3C/0x3D，0° 旋转）\noled = sh1107.SH1107_I2C(128, 64, i2c, address=0x3C, rotate=0)",
+    "# 清屏\noled.fill(0)\n# 绘制文本\noled.text(\"Hello SH1107\", 10, 10, 1)\n# 绘制直线\noled.line(0, 0, 127, 63, 1)\n# 刷新到屏幕\noled.show()\n\n# 调整对比度（0-255）\noled.contrast(127)\n# 反转显示\noled.invert(True)\n# 软件滚动\noled.scroll(0, 1)\noled.show()\n# 关机\noled.poweroff()"
+  ],
+  "import_names": [
+    "sh1107"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/sh1107_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
   ],
   "read_methods": [
     "blit",
-    "circle",
     "contrast",
     "display_start_line",
     "ellipse",
@@ -18,8 +50,6 @@
     "hline",
     "init_display",
     "invert",
-    "is_awake",
-    "large_text",
     "line",
     "pixel",
     "poly",
@@ -32,31 +62,12 @@
     "show",
     "sleep",
     "text",
-    "triangle",
     "vline",
     "write_command",
     "write_data"
   ],
-  "read_properties": [],
-  "bus": [
-    "i2c"
+  "read_properties": [
+    "is_awake"
   ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/sh1107_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "sh1107.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

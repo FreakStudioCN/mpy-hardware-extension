@@ -1,0 +1,49 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "FanPWM(pin, pwm_freq)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "fan_pwm.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from fan_pwm import FanPWM\nimport time",
+    "# 初始化风扇控制:DOUT 接 GP6，PWM 频率默认 25kHz\nfan = FanPWM(pin=6)",
+    "# 获取当前占空比\nprint(\"当前占空比:\", fan.get_speed())\n\n# 获取引脚对象（直接操作引脚）\npin_obj = fan.digital\n\n# 获取 PWM 对象（直接操作 PWM）\npwm_obj = fan.pwm",
+    "# 获取当前占空比print(\"当前占空比:\", fan.get_speed())# 获取引脚对象（直接操作引脚）\npin_obj = fan.digital\n\n# 获取 PWM 对象（直接操作 PWM）\npwm_obj = fan.pwm",
+    "# -*- coding: utf-8 -*-\nimport time\nfrom fan_pwm import FanPWM\n\n# 上电延时\ntime.sleep(3)\nprint(\"FreakStudio:Testing PWM cooling fans\")\n\n# 创建风扇实例\nfan = FanPWM(pin=6)\n\ntry:\n    print(\"\\n[Step 1] Turning fan ON (full speed)...\")\n    fan.on()\n    print(f\"Current duty: {fan.get_speed()}\")\n    time.sleep(5)\n\n    print(\"\\n[Step 2] Turning fan OFF...\")\n    fan.off()\n    print(f\"Current duty: {fan.get_speed()}\")\n    time.sleep(5)\n\n    # 测试不同占空比\n    for duty in [256, 512, 768, 1023]:\n        print(f\"\\n[Step] Setting fan duty to {duty}...\")\n        fan.set_speed(duty)\n        print(f\"Current duty: {fan.get_speed()}\")\n        time.sleep(5)\n\n    print(\"\\n[Step 3] Testing digital property (Pin object)...\")\n    pin_obj = fan.digital\n    print(f\"Pin object: {pin_obj}\")\n    time.sleep(5)\n\n    print(\"\\n[Step 4] Testing pwm property (PWM object)...\")\n    pwm_obj = fan.pwm\n    print(f\"PWM object: {pwm_obj}\")\n    time.sleep(5)\n\nexcept KeyboardInterrupt:\n    print(\"\\nTest interrupted by user.\")\n\nfinally:\n    print(\"\\n[Cleanup] Turning fan OFF...\")\n    fan.off()\n    print(\"Test complete.\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "fan_pwm"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/motor_drivers/fan_pwm_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "get_speed",
+    "off",
+    "on",
+    "set_speed"
+  ],
+  "read_properties": [
+    "digital",
+    "pwm"
+  ],
+  "support_level": "generatable"
+}

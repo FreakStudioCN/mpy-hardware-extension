@@ -1,15 +1,43 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "PCF8563(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "pcf8563.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from pcf8563 import PCF8563\nfrom machine import I2C, Pin",
+    "# 以 ESP32 为例，SDA=21, SCL=22\ni2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)\nrtc = PCF8563(i2c)",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/16 下午8:00\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : PCF8563实时时钟模块完整使用示例，包含时间读写、时钟输出配置、闹钟功能等核心操作\n\n# ======================================== 导入相关模块 ========================================\n\nfrom machine import SoftI2C, Pin\nimport time\nimport pcf8563  # 导入PCF8563 RTC模块驱动\n\n# ======================================== 全局变量 ============================================\n\n# SCL引脚编号\nI2C_SCL_PIN = 5  \n# SDA引脚编号\nI2C_SDA_PIN = 4  \n# I2C通信频率\nI2C_FREQ = 400000  \n# PCF8563默认I2C地址\nTARGET_RTC_ADDR = 0x51  \n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\ntime.sleep(3)\nprint(\"FreakStudio: Initialize PCF8563 RTC module\")\n\n# 初始化SoftI2C\ni2c_bus = SoftI2C(scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n\n# 执行I2C设备扫描\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n\n# 3. 检查扫描结果是否为空\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(\"i2c devices found:\", len(devices_list))\n\n# 4. 遍历地址列表匹配目标RTC地址\nrtc = None  # 初始化rtc变量\nfor device in devices_list:\n    if device == TARGET_RTC_ADDR:\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            rtc = pcf8563.PCF8563(i2c_bus)\n            print(\"Target RTC (PCF8563) initialization successful\")\n            break\n        except Exception as e:\n            print(f\"RTC Initialization failed: {e}\")\n            continue\nelse:\n    # 遍历结束未找到目标地址则抛出异常\n    raise Exception(\"No PCF8563 RTC module found at I2C address 0x51\")\n\n# ========================================  主程序  ============================================\nprint(\"\\n=== 2. Basic time operations ===\")\n\n# 同步系统时间到 RTC 模块\nprint(\"Synchronize system time to RTC...\")\nrtc.write_now()\ntime.sleep(0.1)\n\n# 读取完整时间\ndt = rtc.datetime()\nprint(f\"Complete time tuple: {dt} → Format: 20{dt[0]} year {dt[1]} month {dt[2]} day Week {dt[3]} {dt[4]}:{dt[5]}:{dt[6]}\")\n\n# 单独读取各时间字段\nprint(f\"Read separately - Year: {rtc.year()} | Month: {rtc.month()} | Date: {rtc.date()}\")\nprint(f\"Read separately - Hours: {rtc.hours()} | Minutes: {rtc.minutes()} | Seconds: {rtc.seconds()} | Weekday: {rtc.day()}\")\n\n# 手动修改指定时间字段\nprint(\"\\nModify time manually: Set hours to 10, minutes to 30...\")\nrtc.write_all(hours=10, minutes=30)\nprint(f\"Time after modification: {rtc.hours()}:{rtc.minutes()} (Expected 10:30)\")\n\n# 设置完整的自定义时间\ncustom_dt = (25, 12, 25, 4, 18, 0, 0)  # 2025年12月25日 周四 18:00:00\nprint(f\"\\nSet complete time to: 20{custom_dt[0]} year {custom_dt[1]} month {custom_dt[2]} day {custom_dt[4]}:{custom_dt[5]}\")\nrtc.set_datetime(custom_dt)\nprint(f\"Verify setting result: {rtc.datetime()}\")\n\n# 时钟输出频率配置\nprint(\"\\n=== 3. Clock output configuration ===\")\nprint(\"Configure CLKOUT to output 1Hz square wave...\")\nrtc.set_clk_out_frequency(pcf8563.CLOCK_CLK_OUT_FREQ_1_HZ)\n\n# 闹钟功能操作\nprint(\"\\n=== 4. Alarm function operations ===\")\nrtc.clear_alarm()\nprint(\"Clear existing alarm configuration completed\")\n\n# 设置每日闹钟\nprint(\"Set daily alarm: Trigger at 10:30...\")\nrtc.set_daily_alarm(hours=10, minutes=30, date=None, weekday=None)\n\n# 启用闹钟中断\nprint(\"Enable alarm interrupt...\")\nrtc.enable_alarm_interrupt()\nprint(f\"Is alarm interrupt enabled: {rtc.check_for_alarm_interrupt()} (Expected True)\")\n\n# 模拟等待闹钟触发\nprint(\"\\nWaiting for alarm trigger (Simulate 5 seconds, modify time to trigger alarm)...\")\nfor i in range(5):\n    time.sleep(1)\n    if rtc.check_if_alarm_on():\n        print(f\"Second {i + 1}: Alarm triggered!\")\n        rtc.turn_alarm_off()\n        break\n    else:\n        print(f\"Second {i + 1}: Alarm not triggered\")\n\n# 禁用闹钟中断\nprint(\"\\nDisable alarm interrupt...\")\nrtc.disable_alarm_interrupt()\nprint(f\"Is alarm interrupt enabled: {rtc.check_for_alarm_interrupt()} (Expected False)\")\n\n# 清除所有闹钟配置\nprint(\"Clear all alarm configurations...\")\nrtc.clear_alarm()\n\n# 循环读取实时时间\nprint(\"\\n=== 5. Read real-time time in loop (Press Ctrl+C to stop) ===\")\ntry:\n    while True:\n        current_dt = rtc.datetime()\n        print(\n            f\"\\rReal-time time: 20{current_dt[0]} year {current_dt[1]} month {current_dt[2]} day Week {current_dt[3]} {current_dt[4]:02d}:{current_dt[5]:02d}:{current_dt[6]:02d}\",\n            end=\"\",\n        )\n        time.sleep(1)\nexcept KeyboardInterrupt:\n    print(\"\\nStop loop, example ended\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
   "import_names": [
     "pcf8563"
   ],
-  "constructors": [
-    "PCF8563(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/pcf8563_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "check_for_alarm_interrupt",
     "check_if_alarm_on",
     "clear_alarm",
-    "convert_sys_dt_to_rtc_dt",
     "date",
     "datetime",
     "day",
@@ -28,25 +56,5 @@
     "year"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/pcf8563_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "pcf8563.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

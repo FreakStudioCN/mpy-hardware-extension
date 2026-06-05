@@ -1,0 +1,60 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "SCD4X(i2c_bus, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "scd4x.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "scd41_driver/\n├── code/\n│   ├── scd4x.py    # 核心驱动\n│   └── main.py     # 测试示例\n├── package.json    # mip 包配置\n├── README.md       # 本文档\n└── LICENSE         # 许可协议",
+    "scd4x.py",
+    "from machine import Pin, SoftI2C\nfrom scd4x import SCD4X\n\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=100_000)\nsensor = SCD4X(i2c_bus=i2c)\nsensor.start_periodic_measurement()\n\nimport time\ntime.sleep(5)\nif sensor.data_ready:\n    print(\"CO2: %d ppm  Temp: %.2f C  RH: %.2f %%\" % (sensor.CO2, sensor.temperature, sensor.relative_humidity))\nsensor.deinit()",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/09/08 16:52\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : 测试SCD4X CO2/温湿度传感器驱动类的代码\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\n\nfrom machine import Pin, SoftI2C\nfrom scd4x import SCD4X\nimport time\n\n# ======================================== 全局变量 ============================================\n\nTARGET_SENSOR_ADDRS = [0x62]\nI2C_SDA_PIN = 4\nI2C_SCL_PIN = 5\nI2C_FREQ = 100_000\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: Using SCD4X CO2/temperature/humidity sensor ...\")\n\n# 初始化SoftI2C总线\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 扫描I2C总线设备\ndevices_list = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\nif len(devices_list) == 0:\n    raise RuntimeError(\"I2C scan found no devices\")\nprint(\"I2C devices found: %d\" % len(devices_list))\n\n# 遍历扫描结果，初始化目标传感器\nsensor = None\nfor device in devices_list:\n    if device in TARGET_SENSOR_ADDRS:\n        print(\"I2C address: %s\" % hex(device))\n        sensor = SCD4X(i2c_bus=i2c_bus, address=device)\n        print(\"Sensor initialization successful\")\n        break\n\nif sensor is None:\n    raise RuntimeError(\"No target sensor found on I2C bus\")\n\n# 打印序列号\nprint(\"SCD4X Serial Number: %s\" % str(sensor.serial_number))\n\n# 配置传感器参数\nsensor.altitude = 100\nsensor.temperature_offset = 2.0\nsensor.self_calibration_enabled = True\nsensor.persist_settings()\n\n# 启动周期测量模式\nsensor.start_periodic_measurement()\nprint(\"Start measuring...\")\n\n# ========================================  主程序  ===========================================\n\ntry:\n    while True:\n        if sensor.data_ready:\n            co2 = sensor.CO2\n            temp = sensor.temperature\n            humi = sensor.relative_humidity\n            print(\"CO2: %d ppm  Temp: %.2f C  RH: %.2f %%\" % (co2, temp, humi))\n        time.sleep(5)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    sensor.deinit()\n    del sensor\n    print(\"Program exited\")"
+  ],
+  "import_names": [
+    "scd4x"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/scd41_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "deinit",
+    "factory_reset",
+    "force_calibration",
+    "persist_settings",
+    "reinit",
+    "self_test",
+    "set_ambient_pressure",
+    "start_low_periodic_measurement",
+    "start_periodic_measurement",
+    "stop_periodic_measurement"
+  ],
+  "read_properties": [
+    "CO2",
+    "altitude",
+    "data_ready",
+    "relative_humidity",
+    "self_calibration_enabled",
+    "serial_number",
+    "temperature",
+    "temperature_offset"
+  ],
+  "support_level": "generatable"
+}

@@ -1,0 +1,86 @@
+{
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)",
+    "SpiAdapter(bus, data_mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bmp581mod.py",
+      "type": "source"
+    },
+    {
+      "path": "base_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "bus_service.py",
+      "type": "source"
+    },
+    {
+      "path": "converter.py",
+      "type": "source"
+    },
+    {
+      "path": "crc_mod.py",
+      "type": "source"
+    },
+    {
+      "path": "geosensmod.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from bmp581mod import BMP581\nfrom sensor_pack.bus_service import I2CService  # 若使用 I2C 接口\n# from sensor_pack.bus_service import SPIService  # 若使用 SPI 接口",
+    "# 示例：I2C 接口初始化\ni2c = I2CService(0, scl=Pin(17), sda=Pin(16), freq=400000)  # 替换为实际引脚与频率\nsensor = BMP581(i2c, address=0x47)  # 替换为实际 I2C 地址",
+    "from machine import Pin\nfrom bmp581mod import BMP581\nfrom sensor_pack.bus_service import I2CService\nimport time\n\n# 初始化 I2C 总线（根据实际硬件修改引脚）\ni2c = I2CService(0, scl=Pin(17), sda=Pin(16), freq=400000)\n\n# 初始化 BMP581 传感器（I2C 地址默认 0x47，可根据硬件修改）\nsensor = BMP581(i2c, address=0x47)\n\n# 循环读取并打印数据\nwhile True:\n    sensor.start_measurement()\n    temp = sensor.get_temperature()\n    pressure = sensor.get_pressure()\n    print(f\"温度: {temp:.2f} ℃, 气压: {pressure:.2f} Pa\")\n    time.sleep(1)  # 1 秒读取一次",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "bus_service",
+    "bmp581mod",
+    "base_sensor",
+    "converter",
+    "crc_mod",
+    "geosensmod"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/bmp581_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "get_bus_type",
+    "read",
+    "read_buf_from_mem",
+    "read_register",
+    "readfrom_into",
+    "readinto",
+    "write",
+    "write_and_read",
+    "write_buf_to_mem",
+    "write_const",
+    "write_register"
+  ],
+  "read_properties": [
+    "data_mode_pin",
+    "use_data_mode_pin"
+  ],
+  "support_level": "generatable"
+}

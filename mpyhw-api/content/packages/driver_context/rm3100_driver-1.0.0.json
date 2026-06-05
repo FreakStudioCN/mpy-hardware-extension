@@ -1,0 +1,91 @@
+{
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)",
+    "SpiAdapter(bus, data_mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "rm3100mod.py",
+      "type": "source"
+    },
+    {
+      "path": "averager.py",
+      "type": "source"
+    },
+    {
+      "path": "base_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "bitfield.py",
+      "type": "source"
+    },
+    {
+      "path": "bus_service.py",
+      "type": "source"
+    },
+    {
+      "path": "converter.py",
+      "type": "source"
+    },
+    {
+      "path": "crc_mod.py",
+      "type": "source"
+    },
+    {
+      "path": "geosensmod.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, SoftI2C\nfrom sensor_pack.bus_service import I2cAdapter\nfrom rm3100mod import RM3100, get_conversion_cycle_time\nimport time\n\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=400_000)\nsensor = RM3100(I2cAdapter(i2c), address=0x20)\n\nsensor.start_measure(axis=\"XYZ\", update_rate=6, single_mode=True)\ntime.sleep_us(get_conversion_cycle_time(6))\nif sensor.is_data_ready():\n    for axis in \"XYZ\":\n        print(\"%s: %d\" % (axis, sensor.get_meas_result(axis)))\n\nsensor.deinit()",
+    "RM3100(adapter, address=0x20)",
+    "(z_ok, y_ok, x_ok, timeout_period, lr_periods)"
+  ],
+  "import_names": [
+    "bus_service",
+    "rm3100mod",
+    "averager",
+    "base_sensor",
+    "bitfield",
+    "converter",
+    "crc_mod",
+    "geosensmod"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/rm3100_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "get_bus_type",
+    "read",
+    "read_buf_from_mem",
+    "read_register",
+    "readinto",
+    "write",
+    "write_and_read",
+    "write_buf_to_mem",
+    "write_const",
+    "write_register"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "DS1307(i2c_bus, addr)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ds1307.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from machine import Pin, I2C, RTC\nimport ds1307\nimport time\n\n# 初始化配置\ntime.sleep(3)\nprint(\"FreakStudio: test ds1307 RTC now\")\n\n# 初始化I2C总线（SCL=Pin5, SDA=Pin4, 频率100kHz）\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=100000)\n\n# 扫描I2C设备，定位DS1307地址\ndevices_list = i2c.scan()\nprint('START I2C SCANNER')\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\nelse:\n    print('i2c devices found:', len(devices_list))\n    for device in devices_list:\n        if 0x60 <= device <= 0x70:  # 筛选DS1307地址范围\n            print(\"I2c hexadecimal address:\", hex(device))\n            DS1307_ADDRESS = device\n\n# 初始化DS1307实例\nds1307rtc = ds1307.DS1307(i2c, DS1307_ADDRESS)\nprint(\"DS1307 attributes:\", dir(ds1307rtc))\n\n# 振荡器开关测试（禁用会停止计时）\nds1307rtc.disable_oscillator = True\nprint(\"disable_oscillator =\", ds1307rtc.disable_oscillator)\nds1307rtc.disable_oscillator = False\nprint(\"disable_oscillator =\", ds1307rtc.disable_oscillator, \"\\n\")\n\n# 读取当前时间\nprint(\"Current DS1307 datetime:\", ds1307rtc.datetime, \"\\n\")\n\n# 设置时间:(2025年9月17日 17:47:17，星期6)\nds1307rtc.datetime = (2025, 9, 17, 17, 47, 17, 6)\nprint(\"After setting datetime:\", ds1307rtc.datetime)\n\n# 等待3.9秒后再次读取，验证计时\ntime.sleep(3.9)\nprint(\"After 3.9s:\", ds1307rtc.datetime, \"\\n\")\n\n# 获取兼容Pico RTC的时间格式\nprint(\"DS1307 datetime formatted for Pico RTC:\", ds1307rtc.datetimeRTC, \"\\n\")\n\n# 同步到Pico内部RTC\nprint(\"Pico internal RTC time:\", time.localtime(), \"\\n\")\nrtc = RTC()\nrtc.datetime(ds1307rtc.datetimeRTC)\nprint(\"Pico RTC set from DS1307, now:\", time.localtime())",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "ds1307"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/DS1307_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [],
+  "read_properties": [
+    "datetime",
+    "datetimeRTC",
+    "disable_oscillator"
+  ],
+  "support_level": "generatable"
+}

@@ -1,0 +1,103 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "SIM7600(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "calling.py",
+      "type": "source"
+    },
+    {
+      "path": "GPS.py",
+      "type": "source"
+    },
+    {
+      "path": "HTTP.py",
+      "type": "source"
+    },
+    {
+      "path": "LBS.py",
+      "type": "source"
+    },
+    {
+      "path": "calling.py",
+      "type": "source"
+    },
+    {
+      "path": "core.py",
+      "type": "source"
+    },
+    {
+      "path": "http.py",
+      "type": "source"
+    },
+    {
+      "path": "location.py",
+      "type": "source"
+    },
+    {
+      "path": "sms.py",
+      "type": "source"
+    },
+    {
+      "path": "tcpip.py",
+      "type": "source"
+    },
+    {
+      "path": "sms.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from sim7600 import SIM7600\nfrom machine import UART\n\nuart = UART(1, baudrate=115200, tx=17, rx=16)  # 根据实际硬件修改引脚\nsim7600 = SIM7600(uart)\nsim7600.init()",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/9/8 下午4:52\n# @Author  : alankrantas\n# @File    : main.py\n# @Description : SIM7600模块短信功能示例，实现短信模式配置、发送短信、查询所有短信\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入SIM7600核心类\nfrom sim7600 import SIM7600\n\n# 从sim7600模块导入短信功能类\nfrom sim7600.sms import SMS\n\n# 从machine模块导入UART和Pin类，用于硬件引脚和串口配置\nfrom machine import UART, Pin\n\n# 导入time模块，用于延时操作\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 延时3秒，确保SIM7600模块完成初始化\ntime.sleep(3)\n# 打印短信模块初始化完成提示信息\nprint(\"FreakStudio: SIM7600 SMS module initialized successfully\")\n# 配置UART0串口，波特率115200，TX引脚16，RX引脚17（适配Raspberry Pi Pico）\nuart = UART(0, baudrate=115200, tx=Pin(16), rx=Pin(17))\n# 实例化SIM7600核心类，传入配置好的UART对象\nsim7600 = SIM7600(uart)\n# 实例化短信功能类，传入SIM7600核心实例\nsms = SMS(sim7600)\n\n# ========================================  主程序  ============================================\n\n# 配置短信模式参数（gmgf=1，csmp=17,11,0,0，字符集IRA）\nsms.set_sms_mode(gmgf=1, csmp=\"17,11,0,0\", CSCS=\"IRA\")\n# 发送短信到指定号码，内容为Hello, world!\nsms.send_sms(\"19524162399\", \"FreakStudio: SIM7600 SMS module initialized successfully\")\n\n# 再次配置短信模式参数（确保参数生效）\nsms.set_sms_mode(gmgf=1, csmp=\"17,11,0,0\", CSCS=\"IRA\")\n\n# 查询所有短信列表\nsms.list_sms(\"ALL\")",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2025/9/8 下午4:52\n# @Author  : alankrantas\n# @File    : main.py\n# @Description : SIM7600模块HTTP功能示例，实现HTTP POST/GET请求、响应解析及JSON数据保存\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入SIM7600核心类\nfrom sim7600 import SIM7600\n\n# 从sim7600模块导入HTTP功能类\nfrom sim7600.http import HTTP\n\n# 从machine模块导入UART和Pin类，用于硬件引脚和串口配置\nfrom machine import UART, Pin\n\n# 导入time模块，用于延时操作\nimport time\n\n# 导入json模块，用于JSON数据解析\nimport json\n\n# ======================================== 全局变量 ============================================\n\n# ======================================== 功能函数 ============================================\n\n\ndef http_post_demo():\n    \"\"\"\n    HTTP POST请求演示函数，完整实现HTTP服务开启、URL设置、POST数据发送、响应读取、服务关闭流程\n    Args:\n        无\n\n    Raises:\n        无\n\n    Notes:\n        步骤对应AT指令：HTTPINIT->HTTPPARA->HTTPDATA->HTTPACTION->HTTPHEAD->HTTPREAD->HTTPTERM\n\n    ==========================================\n    HTTP POST request demo function, fully implement HTTP service enable, URL setting, POST data sending, response reading, service shutdown process\n    Args:\n        None\n\n    Raises:\n        None\n\n    Notes:\n        Steps correspond to AT commands: HTTPINIT->HTTPPARA->HTTPDATA->HTTPACTION->HTTPHEAD->HTTPREAD->HTTPTERM\n    \"\"\"\n    # 步骤1：开启HTTP服务（对应 AT+HTTPINIT 指令）\n    print(\"=== Step 1: Enable HTTP Service ===\")\n    resp = http.enable_http()\n    print(resp)\n\n    # 步骤2：设置URL地址（对应 AT+HTTPPARA=\"URL\",\"http://transl...\" 指令）\n    print(\"\\n=== Step 2: Set Target URL ===\")\n    target_url = \"http://translate.google.cn/\"  # 替换为你的实际URL\n    resp = http.set_url(target_url)\n    print(resp)\n\n    # 步骤3：准备POST数据（对应 AT+HTTPDATA=4,1000 指令）\n    print(\"\\n=== Step 3: Prepare POST Data ===\")\n    post_data = \"Message=中国\"\n    data_len = len(post_data.encode(\"utf-8\"))  # 计算UTF-8编码后的字节长度\n    timeout = 1000  # 超时时间1000ms\n    resp = http.http_data(data_len, timeout)\n    http.sim7600.uart.write(post_data)\n    print(resp)\n\n    # 发送实际POST数据（对应 Message=中国）\n    if \"DOWNLOAD\" in resp:\n        print(\"Sending POST data content...\")\n        sim7600.uart.write(post_data)  # 直接通过UART发送数据内容\n\n    # 步骤4：发送HTTP POST请求（对应 AT+HTTPACTION=1 指令）\n    print(\"\\n=== Step 4: Execute POST Request ===\")\n    resp = http.send_head(1)  # 1代表POST请求\n    print(resp)\n    # 等待请求完成\n\n    # 步骤5：读取HTTP响应头（对应 AT+HTTPHEAD 指令）\n    print(\"\\n=== Step 5: Read Response Header ===\")\n    resp = http.get_head()\n    print(resp)\n\n    # 步骤6：读取HTTP响应信息（对应 AT+HTTPREAD=0,330 指令）\n    print(\"\\n=== Step 6: Read Response Data ===\")\n    resp = http.get_read(offset=0, length=330)\n    print(resp)\n\n    # 步骤7：结束HTTP服务（对应 AT+HTTPTERM 指令）\n    print(\"\\n=== Step 7: Disable HTTP Service ===\")\n    resp = http.disable_http()\n    print(resp)\n\n\ndef http_get_demo():\n    \"\"\"\n    HTTP GET请求演示函数，实现网络参数配置、HTTP GET请求、JSON数据解析及文件保存\n    Args:\n        无\n\n    Raises:\n        无\n\n    Notes:\n        包含APN配置、IP获取、JSON解析和文件保存功能，适配Raspberry Pi Pico文件系统\n\n    ==========================================\n    HTTP GET request demo function, implement network parameter configuration, HTTP GET request, JSON data parsing and file saving\n    Args:\n        None\n\n    Raises:\n        None\n\n    Notes:\n        Includes APN configuration, IP acquisition, JSON parsing and file saving functions, adapted to Raspberry Pi Pico file system\n    \"\"\"\n    # 设置APN并获取IP信息\n    print(\"=== 1. Configure Network Parameters ===\")\n    apn_result = http.set_apn(cid=1, pdp_type=\"IP\", apn=\"CMNET\")\n    print(f\"APN setting result: {apn_result}\")\n\n    # 获取IP地址信息\n    ip_info = http.get_ip()\n    print(f\"IP configuration info: {ip_info}\")\n\n    # 启用HTTP功能\n    print(\"\\n=== 2. Initialize HTTP Service ===\")\n    http_enable = http.enable_http()\n    print(f\"HTTP enable result: {http_enable}\")\n\n    # 设置请求URL\n    print(\"\\n=== 3. Set Request URL ===\")\n    url_result = http.set_url(\"https://upypi.net/pkgs/PIO_SPI_RP2040/1.0.1/package.json\")\n    print(f\"URL setting result: {url_result}\")\n\n    # 发送HEAD请求并获取响应头\n    print(\"\\n=== 4. Get HTTP Response Header ===\")\n    send_head = http.send_head(0)\n    print(f\"HEAD request send result: {send_head}\")\n\n    head_info = http.get_head()\n    print(f\"Response header info:\\n{head_info}\")\n\n    # 发送GET请求并读取数据\n    print(\"\\n=== 5. Read HTTP Response Content ===\")\n    send_get = http.send_head(0)  # 发送GET请求\n    print(f\"GET request send result: {send_get}\")\n\n    # 读取响应数据\n    raw_data = http.get_read(offset=0, length=512)\n    print(f\"Raw response data:\\n{raw_data}\")\n\n    # 解析JSON数据（提取有用信息）\n    print(\"\\n=== 6. Parse JSON Data ===\")\n    # 提取JSON部分（从{开始到}结束）\n    start_idx = raw_data.find(\"{\")\n    end_idx = raw_data.rfind(\"}\") + 1\n    if start_idx != -1 and end_idx != -1:\n        json_str = raw_data[start_idx:end_idx]\n        try:\n            # 解析JSON\n            json_data = json.loads(json_str)\n            # 打印解析后的信息\n            print(f\"Package name: {json_data.get('name')}\")\n            print(f\"Version: {json_data.get('version')}\")\n            print(f\"Author: {json_data.get('author')}\")\n            print(f\"Description: {json_data.get('description')}\")\n            print(f\"Supported chips: {json_data.get('chips')}\")\n            print(f\"File list: {json_data.get('urls')}\")\n\n            # ========== 核心新增：直接保存json_str到文件 ==========\n            print(\"\\n=== 7. Save JSON String to File ===\")\n            try:\n                # 以写入模式打开文件（不存在则创建，存在则覆盖）\n                with open(\"package.json\", \"w\", encoding=\"utf-8\") as f:\n                    f.write(json_str)  # 直接写入提取到的json_str\n                print(\"✅ JSON string saved to package.json successfully\")\n\n                # 验证保存结果（可选）\n                with open(\"package.json\", \"r\", encoding=\"utf-8\") as f:\n                    saved_content = f.read()\n                    print(f\"📄 Saved file content preview:\\n{saved_content[:100]}...\")  # 打印前100个字符\n            except Exception as e:\n                print(f\"❌ Failed to save file: {e}\")\n                # ========== 核心新增结束 ==========\n\n        except Exception as e:\n            print(f\"JSON parsing failed: {e}\")\n    else:\n        print(\"No JSON data found\")\n\n    # 关闭HTTP连接\n    print(\"\\n=== 8. Close HTTP Connection ===\")\n    disable_http = http.disable_http()\n    print(f\"HTTP disable result: {disable_http}\")\n\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 延时3秒，确保SIM7600模块完成初始化\ntime.sleep(3)\n# 打印HTTP模块初始化完成提示信息\nprint(\"FreakStudio: SIM7600 HTTP module initialized successfully\")\n# 配置UART0串口，波特率115200，TX引脚16，RX引脚17（适配Raspberry Pi Pico）\nuart = UART(0, baudrate=115200, tx=Pin(16), rx=Pin(17))\n# 实例化SIM7600核心类，传入配置好的UART对象\nsim7600 = SIM7600(uart)\n# 实例化HTTP功能类，传入SIM7600核心实例\nhttp = HTTP(sim7600)\n\n# ========================================  主程序  ============================================\n\n# 执行HTTP POST请求演示\nhttp_post_demo()\n# 执行HTTP GET请求演示\nhttp_get_demo()",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copyof this software and associated documentation files (the \"Software\"), to dealin the Software without restriction, including without limitation the rightsto use, copy, modify, merge, publish, distribute, sublicense, and/or sellcopies of the Software, and to permit persons to whom the Software isfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in allcopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS ORIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THEAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHERLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THESOFTWARE."
+  ],
+  "import_names": [
+    "core",
+    "calling",
+    "GPS",
+    "HTTP",
+    "LBS",
+    "http",
+    "location",
+    "sms",
+    "tcpip"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/communication/sim7600_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "check_network_attach",
+    "check_network_registration",
+    "check_sim_card",
+    "connect",
+    "disconnect",
+    "get_network_status",
+    "get_signal_quality",
+    "monitor_voltage",
+    "power_off",
+    "power_on",
+    "reset_module",
+    "send_command",
+    "set_flight_mode",
+    "set_power_mode"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

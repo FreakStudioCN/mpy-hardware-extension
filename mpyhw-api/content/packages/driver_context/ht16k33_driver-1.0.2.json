@@ -1,9 +1,46 @@
 {
-  "import_names": [
-    "ht16k33_matrix"
+  "bus": [
+    "i2c"
   ],
+  "confidence": 0.8,
   "constructors": [
-    "HT16K33(i2c)"
+    "HT16K33(i2c, address)",
+    "Matrix16x8(i2c, address)",
+    "Matrix8x8(i2c, address)",
+    "Matrix8x8x2(i2c, address)",
+    "Seg14x4(i2c, address)",
+    "Seg7x4(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ht16k33_matrix.py",
+      "type": "source"
+    },
+    {
+      "path": "ht16k33_seg.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/16 上午10:16\n# @Author  : mcauser\n# @File    : main.py\n# @Description : 基于HT16K33驱动的4位7段数码管显示测试程序\n\n# ======================================== 导入相关模块 =========================================\n\n# 从machine模块导入I2C和Pin类，用于硬件I2C通信和引脚控制\nfrom machine import I2C, Pin\n\n# 从ht16k33_seg模块导入Seg7x4类，用于控制4位7段数码管\nfrom ht16k33_seg import Seg7x4\n\n# 导入time模块，用于延时操作\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# 定义I2C相关常量（标准化配置参数）\nI2C_SCL_PIN = 5  # Pico I2C0的SCL引脚号\nI2C_SDA_PIN = 4  # Pico I2C0的SDA引脚号\nI2C_FREQ = 400000  # I2C通信频率（400KHz）\nTARGET_SENSOR_ADDR = 0x70  # HT16K33数码管的I2C目标地址（十进制112）\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\n# 程序启动后延时3秒，确保硬件初始化完成\ntime.sleep(3)\n# 打印功能提示信息\nprint(\"FreakStudio: HT16K33 7-segment display test\")\n\n# 初始化I2C总线\ni2c_bus = I2C(0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n# 开始扫描I2C总线上的设备\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n# 检查I2C设备扫描结果\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(\"i2c devices found:\", len(devices_list))\n# 遍历地址列表初始化目标数码管\nseg7 = None  # 初始化数码管对象变量\nfor device in devices_list:\n    if device == TARGET_SENSOR_ADDR:\n        print(\"I2c hexadecimal address:\", hex(device))\n        try:\n            seg7 = Seg7x4(i2c=i2c_bus)\n            print(\"Target sensor initialization successful\")\n            break\n        except Exception as e:\n            print(f\"Sensor Initialization failed: {e}\")\n            continue\nelse:\n    raise Exception(\"No TargetSensor found\")\n\n# ========================================  主程序  ============================================\n\n# 基础显示测试：显示数字1234\nprint(\"Display 1234\")\n# 清空数码管显示缓存\nseg7.fill(False)\n# 设置要显示的文本为\"1234\"\nseg7.text(\"1234\")\n# 将缓存内容输出到数码管显示\nseg7.show()\n# 保持显示2秒\ntime.sleep(2)\n\n# 显示带小数点的数字：显示8.888\nprint(\"Display 8.888\")\n# 清空数码管显示缓存\nseg7.fill(False)\n# 设置要显示的文本为\"8.888\"\nseg7.text(\"8.888\")\n# 将缓存内容输出到数码管显示\nseg7.show()\n# 保持显示2秒\ntime.sleep(2)\n\n# 显示十六进制数：显示0xFAB\nprint(\"Display hex 0xFAB\")\n# 清空数码管显示缓存\nseg7.fill(False)\n# 设置显示十六进制数0xFAB\nseg7.hex(0xFAB)\n# 将缓存内容输出到数码管显示\nseg7.show()\n# 保持显示2秒\ntime.sleep(2)\n\n# 显示单个字符：依次在4个位置显示9、8、7、6\nprint(\"Display number 9,8,7,6\")\n# 清空数码管显示缓存\nseg7.fill(False)\n# 在第0位显示字符'9'\nseg7.put(\"9\", index=0)\n# 在第1位显示字符'8'\nseg7.put(\"8\", index=1)\n# 在第2位显示字符'7'\nseg7.put(\"7\", index=2)\n# 在第3位显示字符'6'\nseg7.put(\"6\", index=3)\n# 将缓存内容输出到数码管显示\nseg7.show()\n# 保持显示2秒\ntime.sleep(2)\n\n# 亮度调节测试：循环调整亮度\nprint(\"Adjust brightness\")\n# 循环遍历亮度值，从0到15，步长为3\nfor brightness in range(0, 16, 3):\n    # 设置数码管亮度\n    seg7.brightness(brightness)\n    # 每个亮度等级保持0.5秒\n    time.sleep(0.5)\n\n# 清空显示测试\nprint(\"Clear display\")\n# 清空数码管显示缓存\nseg7.fill(False)\n# 将清空后的缓存输出到数码管，实现清屏\nseg7.show()",
+    "**MIT License**\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copyof this software and associated documentation files (the \"Software\"), to dealin the Software without restriction, including without limitation the rightsto use, copy, modify, merge, publish, distribute, sublicense, and/or sellcopies of the Software, and to permit persons to whom the Software isfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in allcopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS ORIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THEAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHERLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THESOFTWARE."
+  ],
+  "import_names": [
+    "ht16k33_matrix",
+    "ht16k33_seg"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/ht16k33_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "blink_rate",
@@ -19,25 +56,5 @@
     "text"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/ht16k33_driver/1.0.2/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "ht16k33_matrix.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

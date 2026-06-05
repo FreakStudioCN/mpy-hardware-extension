@@ -1,0 +1,56 @@
+{
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "OneWire(pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "my18e20.py",
+      "type": "source"
+    },
+    {
+      "path": "onewire.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "my18e20_driver/\n├── code/\n│   ├── my18e20.py     # MY18E20 传感器驱动\n│   ├── onewire.py     # 单总线协议底层驱动\n│   └── main.py        # 测试示例\n├── package.json       # mip 包配置\n├── README.md          # 本文档\n└── LICENSE            # 许可协议",
+    "my18e20.py\nonewire.py",
+    "from machine import Pin\nfrom onewire import OneWire\nfrom my18e20 import MY18E20\nimport time\n\now = OneWire(Pin(6))\nsensor = MY18E20(ow)\n\nroms = sensor.scan()\nsensor.convert_temp()\ntime.sleep_ms(750)\n\nfor rom in roms:\n    print(\"Temperature:\", sensor.read_temp(rom), \"C\")",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2024/7/22 15:01\n# @Author  : 李清水\n# @File    : main.py\n# @Description : 测试MY18E20温度传感器驱动类的代码\n# @License : MIT\n\nfrom machine import Pin\nimport time\nfrom onewire import OneWire\nfrom my18e20 import MY18E20\n\nPRINT_INTERVAL_MS = 500\n\ntime.sleep(3)\nprint(\"FreakStudio: Using MY18E20 OneWire temperature sensor ...\")\n\now_pin = OneWire(Pin(6))\nsensor = MY18E20(ow_pin)\n\nroms_list = sensor.scan()\nfor rom in roms_list:\n    print(\"Detected sensor ROM ID: %s\" % str(rom))\n\nsensor.convert_temp()\n\ntry:\n    while True:\n        time.sleep_ms(PRINT_INTERVAL_MS)\n        for rom in roms_list:\n            temp = sensor.read_temp(rom)\n            print(\"Sensor %s temperature: %s C\" % (str(rom), str(temp)))\n        sensor.convert_temp()\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    del sensor\n    del ow_pin\n    print(\"Program exited\")"
+  ],
+  "import_names": [
+    "onewire",
+    "my18e20"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/my18e20_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "crc8",
+    "readbit",
+    "readbyte",
+    "readbytes",
+    "readinto",
+    "reset",
+    "scan",
+    "select_rom",
+    "write",
+    "writebit",
+    "writebyte"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

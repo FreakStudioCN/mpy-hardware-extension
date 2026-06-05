@@ -1,36 +1,43 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "GP2Y0E03(i2c, address, shift)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "gp2y0e03.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "gp2y0e03_driver/\n├── code/\n│   ├── gp2y0e03.py    # 核心驱动文件\n│   └── main.py        # 测试示例代码\n├── README.md          # 本说明文档\n└── LICENSE            # MIT 许可协议",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/04/22 14:15\n# @Author  : FreakStudio\n# @File    : main.py\n# @Description : 测试 GP2Y0E03 数字红外测距传感器驱动的代码\n# @License : MIT\n\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入 MicroPython 硬件 I2C 与引脚控制模块\nfrom machine import I2C, Pin\n\n# 导入 GP2Y0E03 传感器驱动类\nfrom gp2y0e03 import GP2Y0E03\n\n# 导入时间控制模块\nimport time\n\n\n# ======================================== 全局变量 ============================================\n\n# I2C 总线编号\ni2c_id = 0\n\n# I2C 数据引脚编号\ni2c_sda_pin = 4\n\n# I2C 时钟引脚编号\ni2c_scl_pin = 5\n\n# I2C 通信频率（Hz）\ni2c_freq = 100000\n\n# GP2Y0E03 默认 I2C 地址\ngp2y0e03_addr = 0x40\n\n# 数据打印间隔时间（毫秒）\nprint_interval = 500\n\n# 上次打印时间戳（毫秒）\nlast_print_time = 0\n\n\n# ======================================== 功能函数 ============================================\n\n\n# ======================================== 自定义类 ============================================\n\n\n# ======================================== 初始化配置 ==========================================\n\n# 等待系统和传感器上电稳定\ntime.sleep(3)\n\n# 打印程序功能提示\nprint(\"FreakStudio: Testing GP2Y0E03 distance sensor driver\")\n\n# 初始化硬件 I2C 总线\ni2c = I2C(\n    i2c_id,\n    sda=Pin(i2c_sda_pin),\n    scl=Pin(i2c_scl_pin),\n    freq=i2c_freq,\n)\n\n# 扫描 I2C 总线设备\ndevices = i2c.scan()\n\n# 检查扫描结果是否为空\nif not devices:\n    raise RuntimeError(\"No I2C devices found on bus\")\n\n# 打印 I2C 设备扫描结果\nprint(\"I2C devices found: %s\" % [hex(addr) for addr in devices])\n\n# 检查 GP2Y0E03 是否在 I2C 总线上\nif gp2y0e03_addr not in devices:\n    raise RuntimeError(\"GP2Y0E03 not found at address 0x%02X\" % gp2y0e03_addr)\n\n# 打印 GP2Y0E03 地址确认\nprint(\"GP2Y0E03 found at address: 0x%02X\" % gp2y0e03_addr)\n\n# 创建 GP2Y0E03 传感器对象\nsensor = GP2Y0E03(i2c, address=gp2y0e03_addr)\n\n# 打印当前距离量程移位值\nprint(\"Shift: %d\" % sensor._shift)\n\n\n# ========================================  主程序  ===========================================\n\ntry:\n    while True:\n        # 获取当前时间戳\n        current_time = time.ticks_ms()\n\n        # 检查是否到达打印间隔\n        if time.ticks_diff(current_time, last_print_time) >= print_interval:\n            # 读取原始距离值\n            raw = sensor.read(raw=True)\n\n            # 读取厘米距离值\n            distance = sensor.read()\n\n            # 打印测量结果\n            print(\"Raw: %d, Distance: %.2f cm\" % (raw, distance))\n\n            # 更新上次打印时间\n            last_print_time = current_time\n\n        # 短暂延时避免 CPU 占用过高\n        time.sleep_ms(10)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    # 释放传感器对象\n    del sensor\n    # 释放 I2C 对象\n    del i2c\n    print(\"Program exited\")",
+    "FreakStudio: Testing GP2Y0E03 distance sensor driver\nI2C devices found: ['0x40']\nGP2Y0E03 found at address: 0x40\nShift: 2\nRaw: 384, Distance: 12.00 cm\nRaw: 391, Distance: 12.22 cm\n..."
+  ],
   "import_names": [
     "gp2y0e03"
   ],
-  "constructors": [
-    "GP2Y0E03(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/gp2y0e03_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
-    "const",
     "read",
     "read_raw",
     "shift"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/gp2y0e03_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "gp2y0e03.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

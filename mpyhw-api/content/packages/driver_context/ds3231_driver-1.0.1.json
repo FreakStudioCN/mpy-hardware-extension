@@ -1,0 +1,46 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ds3231maxim.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "from ds3231maxim import DS3231\nfrom machine import I2C, Pin",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/3/13 下午6:00\n# @Author  : octaprog7\n# @File    : main.py\n# @Description : DS3231实时时钟测试  设置并读取时间 读取温度状态等信息 配置闹钟并循环检测闹钟标志\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入I2C和Pin模块用于硬件通信\nfrom machine import I2C, Pin\n\n# 导入DS3231驱动相关类\nfrom ds3231maxim import DS3231, I2cAdapter\n\n# 导入时间模块用于延时和获取本地时间\nimport time\n\n# ======================================== 全局变量 ============================================\n\n# 定义I2C引脚和频率常量\nI2C_SCL_PIN = 5\nI2C_SDA_PIN = 4\nI2C_FREQ = 400_000\n# DS3231默认I2C地址\nTARGET_SENSOR_ADDR = 0x68\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ===========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: DS3231 RTC Clock Test and Alarm Configuration\")\n\n# 初始化I2C总线\ni2c_bus = I2C(0, scl=Pin(I2C_SCL_PIN), sda=Pin(I2C_SDA_PIN), freq=I2C_FREQ)\n# 开始扫描I2C总线上的设备\ndevices_list: list[int] = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\n# 检查I2C设备扫描结果\nif len(devices_list) == 0:\n    print(\"No i2c device !\")\n    raise SystemExit(\"I2C scan found no devices, program exited\")\nelse:\n    print(\"i2c devices found:\", len(devices_list))\n    # 遍历地址列表初始化目标传感器\n    clock = None\n    for device in devices_list:\n        if device == TARGET_SENSOR_ADDR:\n            print(\"I2c hexadecimal address:\", hex(device))\n            try:\n                # 创建I2C适配器对象\n                adaptor = I2cAdapter(i2c_bus)\n                # 创建DS3231实时时钟对象\n                clock = DS3231(adapter=adaptor)\n                print(\"Target sensor initialization successful\")\n                break\n            except Exception as e:\n                print(f\"Sensor Initialization failed: {e}\")\n                continue\n    if clock is None:\n        raise Exception(\"No DS3231 found\")\n\n# ========================================  主程序  ============================================\n\n# 获取当前本地时间\ntr = time.localtime()\n# 打印要设置的时间\nprint(f\"set time to actual value: {tr}\")\n# 将本地时间设置到DS3231时钟\nclock.set_time(tr)\n\n# 打印提示信息，调用get_time方法\nprint(\"Call get_time() method\")\n# 读取DS3231当前时间\ntr = clock.get_time()\n# 打印读取到的本地时间\nprint(f\"Local time: {tr}\")\n\n# 读取DS3231内部温度传感器数据\ntmp = clock.get_temperature()\n# 读取DS3231状态寄存器值\nstat = clock.get_status()\n# 读取DS3231控制寄存器值\nctrl = clock.get_control()\n# 读取DS3231老化偏移值\nao = clock.get_aging_offset()\n# 打印温度、状态、控制寄存器、老化偏移值\nprint(f\"Temperature: {tmp}\\tstatus: {hex(stat)}\\tcontrol: {hex(ctrl)}\\taging offset: {hex(ao)}\")\n\n# 打印提示信息，显示闹钟时间\nprint(\"Alarm times:\")\n# 读取并打印第一个闹钟（alarm 0）的配置\nprint(\"get_alarm(0):\", clock.get_alarm(0))\n# 读取并打印第二个闹钟（alarm 1）的配置\nprint(\"get_alarm(1):\", clock.get_alarm(1))\n\n# 定义闹钟时间元组（秒、分、时、日）\nat = (00, 10, 11, 12)\n# 设置闹钟匹配模式为0（每秒匹配，每分钟触发）\nk = 0\n# 打印提示信息，调用set_alarm方法\nprint(f\"Call: set_alarm({at}, {k})\")\n# 配置第一个闹钟（alarm 0）的时间和匹配模式\nclock.set_alarm(at, k, k)\n# 读取并打印配置后的第一个闹钟信息\nprint(f\"get_alarm({k}):\", clock.get_alarm(k))\n# 设置闹钟匹配模式为1\nk = 1\n# 配置第二个闹钟（alarm 1）的时间和匹配模式（时分匹配）\nclock.set_alarm(at, k, k)\n# 读取并打印配置后的第二个闹钟信息\nprint(f\"get_alarm({k}):\", clock.get_alarm(k))\n\n# 打印提示信息，使用迭代器读取时间\nprint(\"Using iterator...\")\n# 循环迭代读取DS3231时间并检测闹钟标志\nfor ltime in clock:\n    # 获取闹钟触发标志\n    f = clock.get_alarm_flags()\n    # 打印当前时间和闹钟标志\n    print(f\"Local time: {ltime}\\talarm flags: {f}\")\n    # 延时1秒\n    time.sleep_ms(1000)",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "ds3231maxim"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/ds3231_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "read",
+    "read_buf_from_mem",
+    "read_register",
+    "write",
+    "write_buf_to_mem",
+    "write_register"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

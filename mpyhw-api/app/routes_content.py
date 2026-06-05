@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Response
 
 from app import skill_catalog
+from app.toolchain import TOOLCHAIN_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,7 +59,11 @@ def skills():
             "body_url": f"/v1/skills/{name}",
             "body_sha256": hashlib.sha256(body.encode()).hexdigest(),
         })
-    return {"version": hashlib.sha256(json.dumps(summaries, sort_keys=True).encode()).hexdigest(), "skills": summaries}
+    return {
+        "version": hashlib.sha256(json.dumps(summaries, sort_keys=True).encode()).hexdigest(),
+        "toolchain_version": TOOLCHAIN_VERSION,
+        "skills": summaries,
+    }
 
 
 @router.get("/v1/skills/{name}")

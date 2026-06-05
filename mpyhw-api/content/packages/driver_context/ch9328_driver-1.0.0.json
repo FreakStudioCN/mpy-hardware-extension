@@ -1,0 +1,52 @@
+{
+  "bus": [
+    "uart"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "CH9328(uart)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ch9328.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "3. **ASCII 模式操作（Mode 0/1/2）**:",
+    "4. **透传模式操作（Mode 3）**:",
+    "# 设置为透传模式\n\nch9328.set_keyboard_mode(3)\n\n# 触发组合键（Ctrl+C）\n\nch9328.hotkey(CH9328.MODIFIER_LEFT_CTRL, CH9328.KEY_C)\n\n# 模拟打字输入\n\nch9328.type_text(\"Hello, Mode3!\")",
+    "# MicroPython v1.23.0\nimport time\nfrom machine import UART, Pin\nfrom ch9328 import CH9328\n\ntime.sleep(3)\nprint(\"FreakStudio: CH9328 USB-HID Module Test\")\n\n# 初始化 UART\nuart = UART(0, baudrate=9600, tx=Pin(0), rx=Pin(1))\nch9328 = CH9328(uart)\n\n# 测试 Mode 0（支持回车转义）\nch9328.set_keyboard_mode(0)\nch9328.send_string(\"Hello from Mode 0!\")\nch9328.crlf()\ntime.sleep(1)\n\n# 测试 Mode 3（透传模式，组合键）\nch9328.set_keyboard_mode(3)\ntime.sleep(3)  # 预留时间切换到目标窗口\nch9328.hotkey(CH9328.MODIFIER_LEFT_CTRL, CH9328.KEY_C)  # Ctrl+C\ntime.sleep_ms(500)\nch9328.type_text(\"Hello from Mode 3!\")",
+    "MIT License\n\nCopyright (c) 2026 FreakStudio\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  ],
+  "import_names": [
+    "ch9328"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/ch9328_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "uart_tx",
+    "uart_rx"
+  ],
+  "read_methods": [
+    "crlf",
+    "hotkey",
+    "press_key",
+    "release_key",
+    "send_ascii",
+    "send_hid_packet",
+    "send_string",
+    "set_keyboard_mode",
+    "tap_key",
+    "type_text"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

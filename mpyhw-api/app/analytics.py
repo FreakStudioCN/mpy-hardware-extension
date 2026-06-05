@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from app import db, llm_sessions
+
+logger = logging.getLogger("mpyhw.analytics")
 
 ALLOWED_EVENT_TYPES = {
     "auth_started",
@@ -83,6 +86,7 @@ def record_telemetry(events: list[dict[str, Any]]) -> None:
             conn.rollback()
             global ingestion_failure_count
             ingestion_failure_count += 1
+            logger.warning("telemetry ingestion failed; rolled back", exc_info=True)
             raise
 
 

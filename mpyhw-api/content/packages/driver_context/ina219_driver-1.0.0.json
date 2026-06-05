@@ -1,0 +1,83 @@
+{
+  "bus": [
+    "i2c",
+    "spi"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "I2cAdapter(bus)",
+    "SpiAdapter(bus, data_mode)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ina_ti.py",
+      "type": "source"
+    },
+    {
+      "path": "adcmod.py",
+      "type": "source"
+    },
+    {
+      "path": "base_sensor.py",
+      "type": "source"
+    },
+    {
+      "path": "bitfield.py",
+      "type": "source"
+    },
+    {
+      "path": "bus_service.py",
+      "type": "source"
+    },
+    {
+      "path": "regmod.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "ina219_driver/\n├── code/\n│   ├── ina_ti.py          # 核心驱动文件（INA219/INA226）\n│   ├── main.py            # 测试示例代码\n│   └── sensor_pack_2/     # 依赖框架（需单独安装）\n├── README.md              # 本说明文档\n└── LICENSE                # MIT 许可协议",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/05/06 10:45\n# @Author  : FreakStudio\n# @File    : main.py\n# @Description : 测试 INA219 电流电压功率监测驱动的代码\n# @License : MIT\n\n\n# ======================================== 导入相关模块 =========================================\n\n# 导入 MicroPython 硬件 I2C 与引脚控制模块\nfrom machine import I2C, Pin\n\n# 导入 I2C 总线适配器\nfrom sensor_pack_2.bus_service import I2cAdapter\n\n# 导入 INA219 驱动模块\nimport ina_ti\n\n# 导入时间控制模块\nimport time\n\n\n# ======================================== 全局变量 ============================================\n\n# I2C 总线编号\ni2c_id = 0\n\n# I2C 数据引脚编号\ni2c_sda_pin = 4\n\n# I2C 时钟引脚编号\ni2c_scl_pin = 5\n\n# I2C 通信频率（Hz）\ni2c_freq = 400000\n\n# INA219 默认 I2C 地址\nina219_addr = 0x40\n\n# INA219 模块常用分流电阻阻值（Ω）\nshunt_resistance = 0.1\n\n# 预期最大测量电流（A）\nmax_expected_current = 2.0\n\n# 数据打印间隔时间（秒）\nprint_interval = 1000\n\n# 上次打印时间戳（毫秒）\nlast_print_time = 0\n\n\n# ======================================== 功能函数 ============================================\n\n\n# ======================================== 自定义类 ============================================\n\n\n# ======================================== 初始化配置 ==========================================\n\n# 等待系统和传感器上电稳定\ntime.sleep(3)\n\n# 打印程序功能提示\nprint(\"FreakStudio: Testing INA219 power monitor driver\")\n\n# 初始化硬件 I2C 总线\ni2c = I2C(\n    i2c_id,\n    sda=Pin(i2c_sda_pin),\n    scl=Pin(i2c_scl_pin),\n    freq=i2c_freq,\n)\n\n# 扫描 I2C 总线设备\ndevices = i2c.scan()\n\n# 检查扫描结果是否为空\nif not devices:\n    raise RuntimeError(\"No I2C devices found on bus\")\n\n# 打印 I2C 设备扫描结果\nprint(\"I2C devices found: %s\" % [hex(addr) for addr in devices])\n\n# 检查 INA219 是否在 I2C 总线上\nif ina219_addr not in devices:\n    raise RuntimeError(\"INA219 not found at address 0x%02X\" % ina219_addr)\n\n# 打印 INA219 地址确认\nprint(\"INA219 found at address: 0x%02X\" % ina219_addr)\n\n# 创建驱动需要的 I2C 适配器\nadapter = I2cAdapter(i2c)\n\n# 创建 INA219 传感器对象\nina219 = ina_ti.INA219(\n    adapter=adapter,\n    address=ina219_addr,\n    shunt_resistance=shunt_resistance,\n)\n\n# 设置总线电压量程为 16V（False=16V, True=32V）\nina219.bus_voltage_range = False\n\n# 设置总线 ADC 为 12 位分辨率\nina219.bus_adc_resolution = 0x03\n\n# 设置分流 ADC 为 12 位分辨率\nina219.shunt_adc_resolution = 0x03\n\n# 设置预期最大测量电流\nina219.max_expected_current = max_expected_current\n\n# 启动连续测量并写入校准值\nina219.start_measurement(continuous=True, enable_calibration=True)\n\n# 获取单次转换等待时间（微秒）\nwait_time_us = ina219.get_conversion_cycle_time()\n\n# 打印当前配置寄存器信息\nprint(\"Configuration: %s\" % str(ina219.get_config()))\n\n# 打印转换等待时间\nprint(\"Conversion cycle time: %d us\" % wait_time_us)\n\n\n# ========================================  主程序  ===========================================\n\ntry:\n    while True:\n        # 获取当前时间戳\n        current_time = time.ticks_ms()\n\n        # 检查是否到达打印间隔\n        if time.ticks_diff(current_time, last_print_time) >= print_interval:\n            # 等待传感器完成一次转换\n            time.sleep_us(wait_time_us)\n\n            # 读取分流电压（V）\n            shunt_voltage = ina219.get_shunt_voltage()\n\n            # 读取总线电压（V）\n            bus_voltage = ina219.get_voltage()\n\n            # 读取电流（A）\n            current = ina219.get_current()\n\n            # 读取功率（W）\n            power = ina219.get_power()\n\n            # 打印完整测量结果\n            print(\"Bus: %.3f V, Shunt: %.6f V, Current: %.3f A, Power: %.3f W\" % (\n                bus_voltage, shunt_voltage, current, power\n            ))\n\n            # 更新上次打印时间\n            last_print_time = current_time\n\n        # 短暂延时避免 CPU 占用过高\n        time.sleep_ms(10)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    # 释放 INA219 对象\n    del ina219\n    # 释放适配器对象\n    del adapter\n    # 释放 I2C 对象\n    del i2c\n    print(\"Program exited\")",
+    "FreakStudio: Testing INA219 power monitor driver\nI2C devices found: ['0x40']\nINA219 found at address: 0x40\nConfiguration: config_ina219(BRNG=False, PGA=3, BADC=3, SADC=3, CNTNS=True, BADC_EN=True, SADC_EN=True)\nConversion cycle time: 532 us\nBus: 5.012 V, Shunt: 0.000120 V, Current: 0.012 A, Power: 0.060 W\nBus: 5.008 V, Shunt: 0.000118 V, Current: 0.012 A, Power: 0.060 W\n..."
+  ],
+  "import_names": [
+    "bus_service",
+    "ina_ti",
+    "adcmod",
+    "base_sensor",
+    "bitfield",
+    "regmod"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ina219_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl",
+    "spi_sck",
+    "spi_mosi",
+    "spi_miso",
+    "spi_cs"
+  ],
+  "read_methods": [
+    "get_bus_type",
+    "read",
+    "read_buf_from_memory",
+    "read_register",
+    "read_to_buf",
+    "write",
+    "write_and_read",
+    "write_buf_to_memory",
+    "write_const",
+    "write_register"
+  ],
+  "read_properties": [
+    "prepare_func"
+  ],
+  "support_level": "generatable"
+}

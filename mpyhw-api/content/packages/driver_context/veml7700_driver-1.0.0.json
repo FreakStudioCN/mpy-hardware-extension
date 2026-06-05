@@ -1,34 +1,43 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "VEML7700(i2c, address, it, gain)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "veml7700.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "veml7700_driver/\n├── code/\n│   ├── veml7700.py    # 核心驱动\n│   └── main.py        # 测试示例\n├── package.json       # mip 包配置\n├── README.md          # 本文档\n└── LICENSE            # 许可协议",
+    "veml7700.py",
+    "from machine import Pin, SoftI2C\nfrom veml7700 import VEML7700\n\ni2c = SoftI2C(sda=Pin(4), scl=Pin(5), freq=100000)\nsensor = VEML7700(i2c=i2c, it=100, gain=1/8)\nprint(\"Lux: %d lx\" % sensor.read_lux())\nsensor.deinit()",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/04/21 00:00\n# @Author  : FreakStudio\n# @File    : main.py\n# @Description : 测试VEML7700环境光传感器驱动类的代码\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\n\nfrom machine import Pin, SoftI2C\nfrom veml7700 import VEML7700\nimport time\n\n# ======================================== 全局变量 ============================================\n\nTARGET_SENSOR_ADDRS = [0x10]\nI2C_SDA_PIN = 4\nI2C_SCL_PIN = 5\nI2C_FREQ = 100000\nINTEGRATION_TIME = 100\nSENSOR_GAIN = 1 / 8\n\n# ======================================== 功能函数 ============================================\n\n# ======================================== 自定义类 ============================================\n\n# ======================================== 初始化配置 ==========================================\n\ntime.sleep(3)\nprint(\"FreakStudio: Using VEML7700 ambient light sensor ...\")\n\n# 初始化软件I2C总线\ni2c_bus = SoftI2C(sda=Pin(I2C_SDA_PIN), scl=Pin(I2C_SCL_PIN), freq=I2C_FREQ)\n\n# 扫描I2C总线设备\ndevices_list = i2c_bus.scan()\nprint(\"START I2C SCANNER\")\nif len(devices_list) == 0:\n    raise RuntimeError(\"I2C scan found no devices\")\nprint(\"I2C devices found: %d\" % len(devices_list))\n\n# 遍历扫描结果，初始化目标传感器\nsensor = None\nfor device in devices_list:\n    if device in TARGET_SENSOR_ADDRS:\n        print(\"I2C address: %s\" % hex(device))\n        sensor = VEML7700(\n            i2c=i2c_bus,\n            address=device,\n            it=INTEGRATION_TIME,\n            gain=SENSOR_GAIN,\n        )\n        print(\"Sensor initialization successful\")\n        break\n\nif sensor is None:\n    raise RuntimeError(\"No target sensor found on I2C bus\")\n\n# 等待第一次积分完成\ntime.sleep(0.2)\n\n# ========================================  主程序  ===========================================\n\ntry:\n    while True:\n        lux = sensor.read_lux()\n        print(\"Lux: %d lx\" % lux)\n        time.sleep(1)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nexcept OSError as e:\n    print(\"Hardware communication error: %s\" % str(e))\nexcept Exception as e:\n    print(\"Unknown error: %s\" % str(e))\nfinally:\n    print(\"Cleaning up resources...\")\n    sensor.deinit()\n    del sensor\n    print(\"Program exited\")"
+  ],
   "import_names": [
     "veml7700"
   ],
-  "constructors": [
-    "VEML7700(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/veml7700_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "deinit",
     "read_lux"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/veml7700_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "veml7700.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }

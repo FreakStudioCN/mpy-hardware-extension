@@ -1,9 +1,37 @@
 {
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "T117(i2c, addr, msb_first, debug)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "t117b.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "t117b_driver/\n├── code/\n│   ├── t117b.py        # 核心驱动\n│   └── main.py         # 测试示例\n├── package.json        # 包配置\n├── README.md           # 说明文档\n└── LICENSE             # MIT 许可证",
+    "from machine import I2C, Pin\nfrom t117b import T117\n\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=400000)\nsensor = T117(i2c=i2c, addr=T117.ADDR_VDD)\nprint(\"Temperature: %s C\" % sensor.get_temp())",
+    "# Python env   : MicroPython v1.23.0\n# -*- coding: utf-8 -*-\n# @Time    : 2026/05/26 12:00\n# @Author  : hogeiha\n# @File    : main.py\n# @Description : 测试 T117B 温度传感器驱动类的代码\n# @License : MIT\n\n# ======================================== 导入相关模块 =========================================\nfrom machine import I2C, Pin\nfrom t117b import T117\nimport time\n\n# ======================================== 全局变量 ============================================\nDEVICE_ADDR    = [0x40, 0x41, 0x42, 0x43]\nREG_ROM_ID     = 0x18\nPRINT_INTERVAL = 500\nALERT_TH       = 30.0\nALERT_TL       = 10.0\n\n# ======================================== 功能函数 ============================================\ndef scan_i2c(i2c: I2C) -> int:\n    \"\"\"扫描 I2C 总线，返回目标设备地址\"\"\"\n    devices = i2c.scan()\n    if not devices:\n        raise RuntimeError(\"No I2C device found on bus\")\n    print(\"I2C devices found: %s\" % [hex(d) for d in devices])\n    for addr in devices:\n        if addr in DEVICE_ADDR:\n            print(\"Target device found at 0x%02X\" % addr)\n            return addr\n    raise RuntimeError(\"Device not found at expected address 0x%02X\" % DEVICE_ADDR)\n\n\ndef read_rom_id(i2c: I2C, addr: int) -> None:\n    \"\"\"读取 ROM ID 寄存器并打印\"\"\"\n    try:\n        rom_id = i2c.readfrom_mem(addr, REG_ROM_ID, 4)\n        print(\"ROM ID: %s\" % [hex(b) for b in rom_id])\n    except OSError as e:\n        print(\"ROM ID read failed: %s\" % str(e))\n\n\ndef test_basic_read(sensor: T117) -> None:\n    temp = sensor.get_temp()\n    status = sensor.get_status()\n    print(\"Temperature: %s C  Status: %s\" % (temp, status))\n\n\n# ======================================== 初始化配置 ==========================================\ntime.sleep(3)\nprint(\"FreakStudio: Using T117B temperature sensor ...\")\n\ni2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=400000)\ndriver_addr = scan_i2c(i2c)\nread_rom_id(i2c, driver_addr)\n\nsensor = T117(i2c=i2c, addr=driver_addr)\nsensor.enable_alerts(th_temp=ALERT_TH, tl_temp=ALERT_TL,\n                     mps=T117.MPS_2_1, avg=T117.AVG_8)\nprint(\"Alert configured: TH=%s C, TL=%s C\" % (ALERT_TH, ALERT_TL))\n\nlast_print_time = time.ticks_ms()\n\n# ========================================  主程序  ===========================================\ntry:\n    while True:\n        current_time = time.ticks_ms()\n        if time.ticks_diff(current_time, last_print_time) >= PRINT_INTERVAL:\n            test_basic_read(sensor)\n            last_print_time = current_time\n        time.sleep_ms(10)\n\nexcept KeyboardInterrupt:\n    print(\"Program interrupted by user\")\nfinally:\n    print(\"Cleaning up resources...\")\n    sensor.deinit()\n    del sensor\n    print(\"Program exited\")"
+  ],
   "import_names": [
     "t117b"
   ],
-  "constructors": [
-    "T117(i2c)"
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/t117b_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
   ],
   "read_methods": [
     "deinit",
@@ -22,25 +50,5 @@
     "wait_conv_ready"
   ],
   "read_properties": [],
-  "bus": [
-    "i2c"
-  ],
-  "pin_roles": [
-    "i2c_sda",
-    "i2c_scl"
-  ],
-  "install": {
-    "method": "mpremote mip install",
-    "url": "https://upypi.net/pkgs/t117b_driver/1.0.0/package.json"
-  },
-  "examples": [],
-  "known_issues": [],
-  "evidence_refs": [
-    {
-      "type": "source",
-      "path": "t117b.py"
-    }
-  ],
-  "confidence": 0.75,
   "support_level": "generatable"
 }
