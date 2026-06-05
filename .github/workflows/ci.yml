@@ -38,7 +38,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+      # GraftSense upstream commits a corrupt symlink blob (a 12KB file stored with
+      # mode 120000); creating it as a real symlink fails on Linux with ENAMETOOLONG.
+      # core.symlinks=false materializes it as a plain file — matching the Windows
+      # checkout the committed content was generated from.
+      - name: Check out submodules without symlinks
+        run: |
+          git config --global core.symlinks false
+          git submodule update --init --recursive
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -83,7 +91,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+      # GraftSense upstream commits a corrupt symlink blob (a 12KB file stored with
+      # mode 120000); creating it as a real symlink fails on Linux with ENAMETOOLONG.
+      # core.symlinks=false materializes it as a plain file — matching the Windows
+      # checkout the committed content was generated from.
+      - name: Check out submodules without symlinks
+        run: |
+          git config --global core.symlinks false
+          git submodule update --init --recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -108,7 +124,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+      # GraftSense upstream commits a corrupt symlink blob (a 12KB file stored with
+      # mode 120000); creating it as a real symlink fails on Linux with ENAMETOOLONG.
+      # core.symlinks=false materializes it as a plain file — matching the Windows
+      # checkout the committed content was generated from.
+      - name: Check out submodules without symlinks
+        run: |
+          git config --global core.symlinks false
+          git submodule update --init --recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -142,7 +166,15 @@ jobs:
       # Build context is the repo root; the image needs the skills submodule.
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+      # GraftSense upstream commits a corrupt symlink blob (a 12KB file stored with
+      # mode 120000); creating it as a real symlink fails on Linux with ENAMETOOLONG.
+      # core.symlinks=false materializes it as a plain file — matching the Windows
+      # checkout the committed content was generated from.
+      - name: Check out submodules without symlinks
+        run: |
+          git config --global core.symlinks false
+          git submodule update --init --recursive
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - name: Deploy
         run: flyctl deploy --remote-only --config mpyhw-api/fly.toml --dockerfile mpyhw-api/Dockerfile
@@ -162,7 +194,15 @@ jobs:
       # vscode:prepublish vendors files from the repo-root skills submodule.
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+      # GraftSense upstream commits a corrupt symlink blob (a 12KB file stored with
+      # mode 120000); creating it as a real symlink fails on Linux with ENAMETOOLONG.
+      # core.symlinks=false materializes it as a plain file — matching the Windows
+      # checkout the committed content was generated from.
+      - name: Check out submodules without symlinks
+        run: |
+          git config --global core.symlinks false
+          git submodule update --init --recursive
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
