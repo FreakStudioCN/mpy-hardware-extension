@@ -58,6 +58,8 @@
       }
       .ph-text { min-width: 0; }
       .ph-title { font-size: 13px; font-weight: 600; color: var(--fg-bright); letter-spacing: .1px; }
+      .mode-badge { flex: 0 0 auto; font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: #1a1300; background: #e0a800; border-radius: 4px; padding: 1px 5px; cursor: default; }
+      .mode-badge.hidden { display: none; }
       .ph-device { margin-top: 3px; max-width: 100%; background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 5px; padding: 2px 6px; font-family: var(--ui); font-size: 11px; outline: none; }
       .ph-device:focus { border-color: var(--accent); }
       .ph-grow { flex: 1; }
@@ -231,6 +233,7 @@
       .pin-badge.power { color: #ff9a9a; background: #f14c4c14; border-color: #f14c4c33; }
       .pin-badge.ground { color: #b0b0b0; }
       .wire-note { font-size: 11px; color: var(--yellow); background: #d3a50a14; border: 1px solid #d3a50a33; padding: 6px 9px; border-radius: 6px; margin-top: 4px; }
+      .wire-provisional { font-size: 11px; color: var(--fg-muted); background: #ffffff08; border: 1px solid #ffffff14; padding: 6px 9px; border-radius: 6px; margin-bottom: 8px; }
 
       /* diagram (architecture layers + run flow) */
       #diagram { padding: 11px 12px 22px; }
@@ -244,6 +247,10 @@
       .diagram-flow { margin: 0; padding-left: 20px; color: var(--fg); font-size: 12px; }
       .diagram-flow li { padding: 3px 0; }
       .diagram-detail { color: var(--fg-muted); }
+      /* dependency + data-flow edges (LLM-authored diagram.json only) */
+      .diagram-edges { margin: 0; padding-left: 20px; color: var(--fg); font-size: 12px; }
+      .diagram-edges li { padding: 3px 0; }
+      .diagram-edge-node { font-family: var(--mono); color: var(--fg-bright); }
 
       /* composer */
       .composer { flex: 0 0 auto; border-top: 1px solid var(--vsc-border); padding: 10px 12px 12px; }
@@ -279,6 +286,7 @@
           <div class="ph-text">
             <div class="ph-title">Blockless</div>
           </div>
+          <span class="mode-badge hidden" id="modeBadge" data-i18n="stub_badge" data-i18n-title="stub_badge_tip">STUB</span>
           <div class="ph-grow"></div>
           <button class="newsession-btn" id="newSession" data-i18n-title="new_session_tip" title="Restart the project - clears the current conversation">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
@@ -350,9 +358,10 @@
       const I18N = {
         en: {
           credits: "Credits", lowCredits: "Running low on credits today.",
+          stub_badge: "Stub", stub_badge_tip: "This backend runs a stub LLM: it returns a fixed reply and never generates code. Restart the API without MPYHW_LLM_STUB=1 for real output.",
           tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram",
           empty_diagram_h: "No diagram yet", empty_diagram_p: "When the project architecture is generated, its module layers and run flow appear here.",
-          diagram_architecture: "Architecture", diagram_flow: "Run flow",
+          diagram_architecture: "Architecture", diagram_flow: "Run flow", diagram_deps: "Dependencies", diagram_dataflow: "Data flow",
           empty_activity_h: "Ready", empty_activity_p: "Describe what your device should do, then press Generate.",
           empty_serial_h: "No output", empty_serial_p: "Device output streams here after flashing.",
           empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
@@ -391,10 +400,12 @@
           device_selected: "Device selected: {p}", files_written: "Generated files written: {p}", files_write_failed: "Generated files not written: {e}",
           session_ended: "Session ended: {t}",
           target_board: "Target board", led_note: "⚠ LED needs a current-limiting resistor (≈220–330Ω).",
+          wiring_provisional: "Preview — pins not assigned yet",
           term_generated: "Done", term_success: "Done", term_cancelled: "Stopped",
           term_awaiting_user: "Waiting for your reply", term_max_turns: "Stopped (max turns)",
-          term_manifest_unresolved: "Couldn't finalize a valid wiring plan",
+          term_manifest_unresolved: "Couldn't finish the build",
           term_repair_exhausted: "Couldn't get it working", term_session_error: "Error",
+          term_sse_stream_interrupted: "Connection dropped — send again to continue",
           err_out_of_credits: "Out of credits — resets at midnight UTC",
           err_sign_in_required: "Sign in with GitHub to start",
           err_auth_provider_unavailable: "VS Code GitHub auth is unavailable",
@@ -406,9 +417,10 @@
         },
         zh: {
           credits: "额度", lowCredits: "今日额度快用完了。",
+          stub_badge: "桩", stub_badge_tip: "当前后端跑的是桩 LLM：只返回固定回复、不会真正生成代码。重启 API 时去掉 MPYHW_LLM_STUB=1 才是真实输出。",
           tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线", tab_diagram: "架构图",
           empty_diagram_h: "暂无架构图", empty_diagram_p: "生成项目架构后，模块分层与运行流程会在这里展示。",
-          diagram_architecture: "架构分层", diagram_flow: "运行流程",
+          diagram_architecture: "架构分层", diagram_flow: "运行流程", diagram_deps: "依赖关系", diagram_dataflow: "数据流",
           empty_activity_h: "就绪", empty_activity_p: "描述你想做的设备，然后点“生成”。",
           empty_serial_h: "暂无输出", empty_serial_p: "烧录后，设备输出会显示在这里。",
           empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
@@ -447,10 +459,12 @@
           device_selected: "已选择设备：{p}", files_written: "已写入生成文件：{p}", files_write_failed: "生成文件写入失败：{e}",
           session_ended: "会话结束：{t}",
           target_board: "目标开发板", led_note: "⚠ LED 需要串联一个限流电阻（约 220–330Ω）。",
+          wiring_provisional: "预览 — 引脚尚未分配",
           term_generated: "完成", term_success: "完成", term_cancelled: "已停止",
           term_awaiting_user: "等待你的回复", term_max_turns: "已停止（达到回合上限）",
-          term_manifest_unresolved: "无法确定可行的接线方案",
+          term_manifest_unresolved: "未能完成本次生成",
           term_repair_exhausted: "未能让它正常运行", term_session_error: "出错",
+          term_sse_stream_interrupted: "连接中断 — 再次发送即可继续",
           err_out_of_credits: "额度已用完——UTC 午夜重置",
           err_sign_in_required: "请用 GitHub 登录后开始",
           err_auth_provider_unavailable: "VS Code 的 GitHub 登录不可用",
@@ -1328,18 +1342,34 @@
         const host = $("wiring");
         if (!html) { $("wiringEmpty").classList.remove("hidden"); host.innerHTML = ""; return; }
         $("wiringEmpty").classList.add("hidden");
-        host.innerHTML = html;
+        // Before the select-hw turn assigns pins, the manifest carries derived bus/interface
+        // topology but no pinout[]; flag the diagram as a preview so it doesn't read as final.
+        const pinout = manifest && manifest.pinout;
+        const provisional = !Array.isArray(pinout) || pinout.length === 0;
+        host.innerHTML = (provisional ? '<div class="wire-provisional">' + tr("wiring_provisional") + "</div>" : "") + html;
         markNew("wiring");
       }
       function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 
       // ----- Diagram tab (renders upstream diagram.json architecture + run flow) -----
+      // An LLM-authored diagram.json edge ({from,to}) -> "from -> to (meta)" <li>.
+      // Skipped silently when both endpoints are missing so a malformed row can't
+      // render an orphan arrow.
+      function edgeRow(from, to, meta) {
+        if (!from && !to) return "";
+        return '<li><span class="diagram-edge-node">' + esc(from || "?") + '</span> &rarr; <span class="diagram-edge-node">' + esc(to || "?") + "</span>"
+          + (meta ? ' <span class="diagram-detail">' + esc(meta) + "</span>" : "") + "</li>";
+      }
       function diagramMarkup(diagram) {
         if (!diagram || typeof diagram !== "object") return "";
         const arch = diagram.architecture || {};
         const layers = Array.isArray(arch.layers) ? arch.layers : [];
+        // cross_layer_deps + data_flow only exist in the rich LLM-authored diagram.json
+        // (the upy-diagram skill); the manifest-derived diagram omits them.
+        const deps = Array.isArray(arch.cross_layer_deps) ? arch.cross_layer_deps : [];
+        const dataFlow = Array.isArray(diagram.data_flow) ? diagram.data_flow : [];
         const flow = Array.isArray(diagram.flow) ? diagram.flow : [];
-        if (!layers.length && !flow.length) return "";
+        if (!layers.length && !flow.length && !deps.length && !dataFlow.length) return "";
         let html = "";
         if (layers.length) {
           html += '<div class="diagram-section"><h4 class="diagram-h">' + esc(tr("diagram_architecture")) + "</h4>";
@@ -1354,6 +1384,11 @@
           }
           html += "</div>";
         }
+        if (deps.length) {
+          html += '<div class="diagram-section"><h4 class="diagram-h">' + esc(tr("diagram_deps")) + '</h4><ul class="diagram-edges">';
+          for (const d of deps) html += edgeRow(d && d.from, d && d.to, d && d.label);
+          html += "</ul></div>";
+        }
         if (flow.length) {
           html += '<div class="diagram-section"><h4 class="diagram-h">' + esc(tr("diagram_flow")) + '</h4><ol class="diagram-flow">';
           for (const step of flow) {
@@ -1361,6 +1396,14 @@
               + (step.detail ? ' — <span class="diagram-detail">' + esc(step.detail) + "</span>" : "") + "</li>";
           }
           html += "</ol></div>";
+        }
+        if (dataFlow.length) {
+          html += '<div class="diagram-section"><h4 class="diagram-h">' + esc(tr("diagram_dataflow")) + '</h4><ul class="diagram-edges">';
+          for (const f of dataFlow) {
+            const meta = [f && f.data, f && f.rate].filter(Boolean).join(" · ");
+            html += edgeRow(f && f.from, f && f.to, meta);
+          }
+          html += "</ul></div>";
         }
         return html;
       }
@@ -1388,9 +1431,16 @@
         updateGenerateEnabled();
       }
 
+      // Show the STUB badge only when the backend reports stub mode; live/unknown
+      // hides it. Surfacing this is what keeps a stub backend from reading as a hang.
+      function setServerMode(mode) {
+        $("modeBadge").classList.toggle("hidden", mode !== "stub");
+      }
+
       // ----- host messages (protocol unchanged) -----
       window.addEventListener("message", (event) => {
         const msg = event.data;
+        if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
           setCredits(msg.event.balance, msg.event.dailyGrant);
         }

@@ -75,14 +75,26 @@ def ensure_daily_grant(user: dict[str, Any], grant: int, now: datetime | None = 
     with db.connect() as conn:
         try:
             _upsert_user(conn, user, now)
-            row = db.fetchone(conn, "SELECT * FROM credit_balances WHERE user_id=?", (uid,))
-            if row is None:
+            # Atomic create so concurrent first-touch requests (the agent turn, the
+            # nested generate_code turn, and the webview's /v1/credits poll can all hit
+            # a brand-new user at once) don't race: exactly one INSERT wins. A losing
+            # creator's uncommitted INSERT blocks this one until it commits, so the row
+            # is always present for the locked SELECT below — never a missing-row read
+            # that the meter would later stream to the UI as a spurious `remaining: 0`.
+            inserted = db.execute(
+                conn,
+                "INSERT INTO credit_balances(user_id, balance, daily_grant, last_grant_date) "
+                "VALUES(?,?,?,?) ON CONFLICT(user_id) DO NOTHING",
+                (uid, grant, grant, today),
+            ).rowcount == 1
+            # Lock the row for the once-a-day refill read-modify-write.
+            row = db.fetchone(
+                conn,
+                "SELECT balance, daily_grant, last_grant_date FROM credit_balances WHERE user_id=? FOR UPDATE",
+                (uid,),
+            )
+            if inserted:
                 balance = grant
-                db.execute(
-                    conn,
-                    "INSERT INTO credit_balances(user_id, balance, daily_grant, last_grant_date) VALUES(?,?,?,?)",
-                    (uid, balance, grant, today),
-                )
                 _ledger(conn, uid, "grant", grant, balance, "posted", now)
             elif row["last_grant_date"] != today:
                 balance = grant
@@ -205,20 +217,23 @@ def reset() -> None:
 
 
 def _upsert_user(conn: Any, user: dict[str, Any], now: datetime) -> None:
+    # Race-safe upsert: concurrent first-touch requests for the same new user must not
+    # race a SELECT-then-INSERT into a PK-conflict 500. `ON CONFLICT DO NOTHING` with no
+    # target ignores BOTH unique constraints on this table (id PK and gh_user_id), so a
+    # losing creator no-ops instead of erroring; the UPDATE then refreshes the mutable
+    # fields whether the row was just inserted or already existed.
     uid = _user_id(user)
-    row = db.fetchone(conn, "SELECT id FROM users WHERE id=?", (uid,))
-    if row is None:
-        db.execute(
-            conn,
-            "INSERT INTO users(id, gh_user_id, login, email, created_at, last_seen_at) VALUES(?,?,?,?,?,?)",
-            (uid, uid, user.get("login"), user.get("email"), now.isoformat(), now.isoformat()),
-        )
-    else:
-        db.execute(
-            conn,
-            "UPDATE users SET login=COALESCE(?, login), email=COALESCE(?, email), last_seen_at=? WHERE id=?",
-            (user.get("login"), user.get("email"), now.isoformat(), uid),
-        )
+    db.execute(
+        conn,
+        "INSERT INTO users(id, gh_user_id, login, email, created_at, last_seen_at) "
+        "VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING",
+        (uid, uid, user.get("login"), user.get("email"), now.isoformat(), now.isoformat()),
+    )
+    db.execute(
+        conn,
+        "UPDATE users SET login=COALESCE(?, login), email=COALESCE(?, email), last_seen_at=? WHERE id=?",
+        (user.get("login"), user.get("email"), now.isoformat(), uid),
+    )
 
 
 def _balance(conn: Any, user_id: str) -> int:

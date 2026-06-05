@@ -41,8 +41,10 @@ manifest (exit 0) and fails a bad one (exit 1 with the precise missing-field err
 - Start Postgres (`docker start mpyhw-pg`; ensure `mpyhw_test` exists — conftest
   TRUNCATEs, so NEVER point at dev `mpyhw`). **Restart the API after the contract
   change** (no `--reload`; the registry hash gate 403s a stale tool list).
-- Start API loading `mpyhw-api/.env`, override `DATABASE_URL` → `…/mpyhw_test`,
-  `uvicorn app.main:app --port 8787` (see `mpyhw-api/scripts/serve.ps1`).
+- Start API with `DATABASE_URL` overridden → `…/mpyhw_test`, then
+  `uvicorn app.main:app --port 8787`. Run uvicorn **directly** here (set the env first):
+  the normal dev backend (`dev-up.ps1` → `api-daemon.ps1`) and `serve.ps1` both load
+  `mpyhw-api/.env`, which would reset `DATABASE_URL` back to the dev `mpyhw` db.
 - Mint a dev JWT, then `cd mpy-hardware-extension && MPYHW_DEV_JWT=<jwt> npm run
   live-gen -- "用 ssd1306 显示温度"` → inspect the generated project: a rich
   `project-manifest.json` whose `phase` advances, the derived wiring (one I²C bus,

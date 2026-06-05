@@ -184,6 +184,66 @@ test("a tool-less narration ends the turn without reaching the next turn", async
   assert.equal(dispatched, 0);
 });
 
+test("a tool-less stall right after the manifest (no code yet) is nudged onward", async () => {
+  // The desk-companion dead-end: after propose_manifest + the inline component card
+  // resolved, the model narrated the plan and handed back with no tool call,
+  // stranding the build at "analyze" before any code was generated. The loop must
+  // nudge it (one synthetic user turn) instead of ending as awaiting_user.
+  const state = { ...baseState(), manifest: { phase: "analyze" }, phase: "analyze", files: {} };
+  let turn = 0;
+  const result = await runAgentLoop({
+    state,
+    sseClient: async () => {
+      turn++;
+      // Turn 1: text-only stall. Turn 2 (post-nudge): proceeds to a real tool.
+      return turn === 1
+        ? [{ type: "text_delta", text: "Here's the plan. Confirm the parts above." }, { type: "message_stop" }]
+        : [{ type: "tool_use_complete", id: "1", name: "read_serial_until", input: {} }, { type: "message_stop" }];
+    },
+    dispatchTool: async () => ({ ok: true, lines: ["MPYHW_READY", "TEMP_C=24.0"] }),
+  });
+
+  assert.equal(result.terminal, "success");
+  assert.equal(turn, 2); // the nudge drove a second turn
+  assert.equal(state.stallNudges, 1);
+  // The nudge was appended as a string-content user message.
+  assert.equal(state.messages.filter((m: any) => m.role === "user" && typeof m.content === "string").length, 1);
+});
+
+test("the post-manifest stall nudge is bounded then hands back", async () => {
+  // If the model keeps narrating without generating code, the nudge fires at most
+  // MAX_STALL_NUDGES times and then the loop hands back instead of looping forever.
+  const state = { ...baseState(), manifest: { phase: "analyze" }, phase: "analyze", files: {} };
+  let turn = 0;
+  const result = await runAgentLoop({
+    state,
+    sseClient: async () => (turn++, [{ type: "text_delta", text: "still thinking out loud" }, { type: "message_stop" }]),
+    dispatchTool: async () => ({ ok: true }),
+  });
+
+  assert.equal(result.terminal, "awaiting_user");
+  assert.equal(state.stallNudges, 2); // capped
+  assert.equal(turn, 3); // initial stall + 2 nudged retries, then hand back
+});
+
+test("a tool-less hand-back AFTER code is generated is NOT nudged (no regression to the old re-ask bug)", async () => {
+  // A build that already produced code (state.files populated) but can't flash
+  // headless legitimately hands back. It must end as awaiting_user — re-nudging it
+  // is exactly the "what do you want to do next?" regression that got the blanket
+  // nudge removed.
+  const state = { ...baseState(), manifest: { phase: "deploy" }, phase: "deploy", files: { "main.py": "print('x')" } };
+  let turn = 0;
+  const result = await runAgentLoop({
+    state,
+    sseClient: async () => (turn++, [{ type: "text_delta", text: "Code is ready; flash when a board is connected." }, { type: "message_stop" }]),
+    dispatchTool: async () => ({ ok: true }),
+  });
+
+  assert.equal(result.terminal, "awaiting_user");
+  assert.equal(turn, 1); // ended on the first hand-back, no nudge
+  assert.equal(state.stallNudges ?? 0, 0); // never incremented
+});
+
 test("max turns and repair exhaustion are deterministic", async () => {
   // max_turns is reached by turns that keep calling tools but never hit the
   // success marker or repair exhaustion (a tool-less turn now ends as awaiting_user).
@@ -258,14 +318,96 @@ test("environment/user incapability is neutral and never trips manifest_unresolv
   assert.equal(result.terminal, "awaiting_user");
 });
 
-test("a turn without message_stop terminates as interrupted instead of looping", async () => {
+test("a turn that never reaches message_stop retries then ends as interrupted", async () => {
+  // A truncated turn (no message_stop) is transient: the loop retries it a bounded
+  // number of times, then ends as sse_stream_interrupted instead of looping forever.
+  let attempts = 0;
   const result = await runAgentLoop({
     state: baseState(),
-    sseClient: scripted([[{ type: "text_delta", text: "partial answer" }]]),
+    sseClient: async () => (attempts++, [{ type: "text_delta", text: "partial answer" }]),
     dispatchTool: async () => ({ ok: true }),
   });
 
   assert.equal(result.terminal, "sse_stream_interrupted");
+  assert.equal(attempts, 3); // 1 initial + MAX_STREAM_RETRIES (2)
+});
+
+test("a mid-stream throw retries the turn instead of crashing the loop", async () => {
+  // The production crash: the SSE body dropped mid-read (undici "terminated") while the
+  // model was streaming its next turn, and the throw escaped as a fatal session_error.
+  // The loop must catch it, re-issue the same turn (no durable state was committed), and
+  // a clean retry still drives the build to a normal terminal.
+  let attempt = 0;
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: async () => {
+      const n = attempt++;
+      return (async function* () {
+        if (n === 0) {
+          yield { type: "text_delta", text: "Now allocating pins and updating the manifest" };
+          throw new TypeError("terminated");
+        }
+        yield { type: "tool_use_complete", id: "1", name: "read_serial_until", input: {} };
+        yield { type: "message_stop" };
+      })();
+    },
+    dispatchTool: async () => ({ ok: true, lines: ["MPYHW_READY", "TEMP_C=24.0"] }),
+  });
+
+  assert.equal(result.terminal, "success");
+  assert.equal(attempt, 2); // first attempt threw, the single retry succeeded
+});
+
+test("a mid-stream throw that never recovers ends as sse_stream_interrupted", async () => {
+  let attempt = 0;
+  const result = await runAgentLoop({
+    state: baseState(),
+    sseClient: async () => {
+      attempt++;
+      return (async function* () {
+        yield { type: "text_delta", text: "partial" };
+        throw new TypeError("terminated");
+      })();
+    },
+    dispatchTool: async () => ({ ok: true }),
+  });
+
+  assert.equal(result.terminal, "sse_stream_interrupted");
+  assert.equal(attempt, 3); // 1 initial + MAX_STREAM_RETRIES (2)
+});
+
+test("an abort during the stream ends as cancelled, not interrupted", async () => {
+  // A user Cancel aborts the in-flight fetch, so the same read rejects. The loop must
+  // distinguish that from a transient drop and end as cancelled (no retry).
+  const signal = { aborted: false };
+  const result = await runAgentLoop({
+    state: baseState(),
+    signal,
+    sseClient: async () => (async function* () {
+      yield { type: "text_delta", text: "working" };
+      signal.aborted = true;
+      throw new TypeError("terminated");
+    })(),
+    dispatchTool: async () => ({ ok: true }),
+  });
+
+  assert.equal(result.terminal, "cancelled");
+});
+
+test("a non-200 from the LLM endpoint is not retried and surfaces as a thrown error", async () => {
+  // Application errors (out_of_credits, llm_upstream_error, …) are thrown by the client
+  // when the request itself fails (before any stream). Those must NOT be swallowed by the
+  // stream-drop retry: they propagate so session-controller surfaces the real detail.
+  let calls = 0;
+  await assert.rejects(
+    runAgentLoop({
+      state: baseState(),
+      sseClient: async () => { calls++; throw new Error("out_of_credits"); },
+      dispatchTool: async () => ({ ok: true }),
+    }),
+    /out_of_credits/,
+  );
+  assert.equal(calls, 1); // thrown from sseClient(), no retry
 });
 
 test("stream_error terminates as interrupted", async () => {

@@ -87,6 +87,43 @@ test("PWM/ADC interfaces map to their standalone gpio types", () => {
   ]);
 });
 
+test("standalone part role comes from the pinout pin types, not the GPIO interface", () => {
+  // Regression: every direct-GPIO part was forced to gpio_out, so a button (an input)
+  // and a passive buzzer (PWM) were both mislabeled as outputs. The pinout already
+  // carries the true per-pin role; derive from it and ignore power/ground pins.
+  const wiring = deriveWiring({
+    schema_version: "1.0",
+    devices: [
+      { name: "Button", type: "button", interface: "GPIO" },
+      { name: "Passive Buzzer", type: "buzzer", interface: "GPIO" },
+    ],
+    pinout: [
+      { device: "Button", pin_name: "IN", gpio: "GPIO7", type: "gpio_in_pullup" },
+      { device: "Button", pin_name: "GND", gpio: "GND", type: "gnd" },
+      { device: "Passive Buzzer", pin_name: "IO", gpio: "GPIO4", type: "pwm" },
+      { device: "Passive Buzzer", pin_name: "VCC", gpio: "3V3", type: "power_3v3" },
+      { device: "Passive Buzzer", pin_name: "GND", gpio: "GND", type: "gnd" },
+    ],
+  });
+
+  const byName = Object.fromEntries(wiring.standalone.map((s: any) => [s.name, s]));
+  assert.equal(byName["Button"].type, "gpio_in_pullup", "button is an input, not gpio_out");
+  assert.equal(byName["Passive Buzzer"].type, "pwm", "passive buzzer is PWM, not gpio_out");
+  // A part whose first pin happens to be power must still resolve to its signal role.
+  assert.equal(byName["Button"].pin, "GPIO7");
+});
+
+test("a standalone part with no pinout pin types falls back to the GPIO interface", () => {
+  // Back-compat: older manifests carry no per-pin `type`; the part still maps to
+  // gpio_out (or pwm/adc by interface) rather than dropping to a wrong role.
+  const wiring = deriveWiring({
+    schema_version: "1.0",
+    devices: [{ name: "Relay", type: "relay", interface: "GPIO" }],
+    pinout: [{ device: "Relay", pin_name: "IN", gpio: "GPIO7" }],
+  });
+  assert.equal(wiring.standalone[0].type, "gpio_out");
+});
+
 test("empty/partial manifest derives empty wiring without throwing", () => {
   assert.deepEqual(deriveWiring({}), { buses: [], standalone: [] });
   assert.deepEqual(deriveWiring({ devices: [] }), { buses: [], standalone: [] });

@@ -657,6 +657,84 @@ test("generate_code surfaces a persist rejection as its tool error_kind (in-loop
   assert.equal(result?.observation?.error_kind, "invalid_generated_path");
 });
 
+test("codegen retries once on a clean-but-empty stream and asks for a larger max_tokens", async () => {
+  // The failure that motivated this: a reasoning model finished its codegen turn
+  // cleanly (finish_reason "length") having spent the whole 4096 budget on reasoning,
+  // returning zero answer text. That empty-but-clean result must be retried once (and
+  // codegen asks for more output room than a normal agent turn).
+  let mainTurns = 0;
+  let codegenCalls = 0;
+  let codegenMaxTokens: number | undefined;
+  const events: any[] = [];
+  const turns = [{ name: "generate_code", input: { manifest: MANIFEST, target_path: "main.py" } }];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        codegenCalls += 1;
+        codegenMaxTokens = body.max_tokens;
+        const chunks = codegenCalls === 1
+          ? [{ type: "message_stop", finish_reason: "length" }] // clean completion, no text
+          : [
+              { type: "content_block_delta", delta: { type: "text_delta", text: "print('MPYHW_READY')\nwhile True:\n    pass\n" } },
+              { type: "message_stop", finish_reason: "stop" },
+            ];
+        const sse = chunks.map((d) => `data: ${JSON.stringify(d)}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "blink an LED", boardId: "esp32-s3-devkitc-1", onEvent: (e: any) => events.push(e) });
+
+  assert.equal(codegenCalls, 2, "an empty first generation is retried exactly once");
+  assert.equal(codegenMaxTokens, 8192, "codegen requests a larger output budget than a normal turn");
+  const code = events.find((e: any) => e.type === "code_updated");
+  assert.ok(code, "the retry produced a non-empty file");
+  assert.match(code.code, /MPYHW_READY/);
+});
+
+test("a codegen stream error surfaces as an upstream failure and is not retried", async () => {
+  // A mid-stream drop arrives as an `error` SSE event (mapped to stream_error), NOT a
+  // thrown error. It must be distinguished from a clean-empty result: surfaced as an
+  // upstream failure and NOT retried (a re-prompt won't fix a transport drop).
+  let mainTurns = 0;
+  let codegenCalls = 0;
+  const recorded: any[] = [];
+  const turns = [{ name: "generate_code", input: { manifest: MANIFEST, target_path: "main.py" } }];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        codegenCalls += 1;
+        const sse = [
+          { type: "content_block_delta", delta: { type: "text_delta", text: "import time\n" } },
+          { type: "error", error: { message: "upstream_stream_interrupted" } },
+        ].map((d) => `data: ${JSON.stringify(d)}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "blink an LED", boardId: "esp32-s3-devkitc-1", recorder: { record: async (e: any) => { recorded.push(e); } } });
+
+  assert.equal(codegenCalls, 1, "a stream error is a transport failure, not retried");
+  const result = recorded.find((e: any) => e.type === "tool_result" && e.name === "generate_code");
+  assert.equal(result?.observation?.ok, false);
+  assert.equal(result?.observation?.error_kind, "codegen_failed");
+  assert.equal(result?.observation?.output?.error, "codegen_upstream_unavailable");
+});
+
 test("read_workspace_file dispatches to the injected host reader (and reports unavailable without one)", async () => {
   const mkFetch = (turns: any[]) => {
     let i = 0;

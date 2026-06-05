@@ -55,7 +55,7 @@ def test_validate_config_rejects_nonpositive_concurrency_limit(monkeypatch):
 # --- readiness vs liveness --------------------------------------------------
 
 def test_liveness_is_db_free():
-    assert client.get("/v1/health").json() == {"status": "ok"}
+    assert client.get("/v1/health").json()["status"] == "ok"
 
 
 def test_readiness_ok_when_db_reachable():

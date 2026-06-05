@@ -102,6 +102,7 @@ function buildOpening(input: LoopInput): string {
     "",
     "[First make sure you understand the request. If the goal or the core behaviour is unclear, or it could be built more than one way, call the ask_user tool to clarify what device to build and what it should do BEFORE selecting hardware or generating code. Always ask via the ask_user tool, never as plain assistant text.]",
     "[Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its \"phase\" field each time you call propose_manifest: analyze (schema_version \"1.0\" + created_at as an ISO 8601 timestamp + project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. Carry the earlier fields (created_at, project_name, ...) forward unchanged on later calls. After analyze and select-hw, call run_validate to check the manifest against the schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then generate the task/driver code, then the device tools. Set phase to \"complete\" when the build is finished.]",
+    "[Drive the build forward in one continuous run. The component-confirmation card, the build-plan/credit card, and the deploy card are all host gates that resolve INLINE — the tool call that triggers each one (propose_manifest, generate_code, the device tools) returns the user's decision to you in its result. As soon as a result comes back, immediately call the next tool in the phase flow. Do NOT end your turn with a plain-text summary between phases to \"wait\" for the user; hand the turn back only when the build reaches phase \"complete\" or you genuinely need to ask a question (always via the ask_user tool).]",
     "[Do NOT call ask_user to confirm a device/component/BOM list. Put the proposed physical parts in manifest.devices during propose_manifest phase \"analyze\"; the host will automatically show a multi-select component confirmation card where the user can tick parts in or out and add missing parts.]",
     "[Structure the code to fit the project. A simple project can be a single main.py. For a more complex one, split it into main.py (the runnable entry) plus importable modules under lib/ or the firmware/ tree — call generate_code once per file, passing each file's target_path (e.g. lib/sensor.py). Keep it only as complex as the project needs.]",
     "[Mind each package's support_level: only \"generatable\"/\"verified\" packages carry a machine-readable driver context you can code against (call get_package_context and generate from it). An \"installable\" package can be mip-installed but has NO verified API surface — do not claim you can auto-generate its driver; say it must be wired/used manually or choose a generatable alternative.]",
@@ -116,6 +117,12 @@ function buildOpening(input: LoopInput): string {
   }
   return parts.join("\n");
 }
+
+// Codegen is the one output-heavy call: it must emit a whole file AFTER a reasoning
+// model has already spent part of its budget on reasoning_content. The default 4096
+// turn cap is too small here (an exhausted budget finishes cleanly with empty code),
+// so codegen asks for more — the backend still clamps to its anti-abuse ceiling.
+const CODEGEN_MAX_TOKENS = 8192;
 
 // LLMs often wrap code in ```python fences despite instructions; unwrap them.
 function stripCodeFences(text: string): string {
@@ -357,20 +364,46 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
         `Original hardware request: ${input.intent}`;
       const messages = [{ role: "user", content: user }];
       await input.recorder?.record({ type: "llm_request", kind: "codegen", messages, tools: [] });
-      try {
-        // Stream the generation so the code appears live in the activity feed
-        // (code_delta) instead of landing as one finished block. collectText wraps
-        // this same stream; we inline it to surface the deltas as they arrive.
+
+      // One streamed generation. The code appears live in the activity feed (code_delta)
+      // instead of landing as one finished block. A mid-stream upstream drop arrives as a
+      // stream_error EVENT (not a thrown error), so it is captured explicitly — otherwise a
+      // truncated stream is misread as "the model chose to emit nothing". finish_reason is
+      // recorded so a "length" truncation (reasoning model exhausting its budget before any
+      // answer) is diagnosable from the session log rather than an opaque empty result.
+      const attempt = async () => {
         let raw = "";
-        for await (const event of await llmClient.streamMessages({ messages, tools: [] }, input.signal)) {
+        let finishReason: string | null = null;
+        let streamError: string | null = null;
+        for await (const event of await llmClient.streamMessages({ messages, tools: [], max_tokens: CODEGEN_MAX_TOKENS }, input.signal)) {
           if (event.type === "text_delta") {
             raw += event.text;
             onEvent({ type: "code_delta", text: event.text, path: targetPath });
+          } else if (event.type === "stream_error") {
+            streamError = event.message ?? "stream_error";
+          } else if (event.type === "message_stop") {
+            finishReason = event.finishReason ?? null;
           }
         }
-        const code = stripCodeFences(raw.trim());
-        await input.recorder?.record({ type: "llm_response", kind: "codegen", text: code });
-        return code ? { ok: true as const, code } : { ok: false as const, error: "codegen_empty" };
+        return { code: stripCodeFences(raw.trim()), finishReason, streamError };
+      };
+
+      try {
+        let result = await attempt();
+        // Retry once only on a clean-but-empty generation. A stream_error is a transport
+        // failure (its own error_kind), not something a re-prompt fixes — so don't retry it.
+        if (!result.code && !result.streamError) {
+          result = await attempt();
+        }
+        await input.recorder?.record({
+          type: "llm_response", kind: "codegen", text: result.code,
+          finishReason: result.finishReason, streamError: result.streamError,
+        });
+        // A stream error wins over any partial text: a mid-stream drop leaves a truncated,
+        // unrunnable file, so it must not be persisted as a successful generation.
+        if (result.streamError) return { ok: false as const, error: "codegen_upstream_unavailable" };
+        if (result.code) return { ok: true as const, code: result.code };
+        return { ok: false as const, error: "codegen_empty" };
       } catch {
         await input.recorder?.record({ type: "llm_error", kind: "codegen", error: "codegen_upstream_unavailable" });
         return { ok: false as const, error: "codegen_upstream_unavailable" };

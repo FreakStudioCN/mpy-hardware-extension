@@ -89,7 +89,11 @@ class SseEventParser {
       return;
     }
     if (data.type === "message_stop") {
-      this.events.push({ type: "message_stop" });
+      // finishReason is added only when the server reported one, so a bare message_stop
+      // stays { type: "message_stop" } (the SSE golden / deepEqual contracts hold).
+      const event: any = { type: "message_stop" };
+      if (data.finish_reason != null) event.finishReason = data.finish_reason;
+      this.events.push(event);
     }
   }
 }

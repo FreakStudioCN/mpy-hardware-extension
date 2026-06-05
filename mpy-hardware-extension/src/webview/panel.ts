@@ -105,6 +105,17 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         webview.postMessage({ type: "boards", boards: [] });
       }
+      // Surface whether this backend runs the real LLM or the deterministic stub.
+      // The stub returns a fixed reply and never thinks, so without this the UI
+      // can't tell a stub instance from a hang. Best-effort: a server that doesn't
+      // report a mode leaves the badge hidden (assumed live).
+      try {
+        const res = await fetchImpl(`${apiBaseUrl}/v1/health`);
+        const body: any = await res.json();
+        webview.postMessage({ type: "server_mode", mode: body?.mode === "stub" ? "stub" : "live" });
+      } catch {
+        // health unreachable — leave the badge hidden
+      }
       // Credit balance for the bar. Only meaningful once signed in; silent auth
       // never prompts, so a signed-out user just leaves the bar hidden.
       if (vscode.authentication) {

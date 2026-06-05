@@ -19,6 +19,7 @@ test("session state starts with a fully deterministic initial shape", () => {
     repairRound: 0,
     noProgressStreak: 0,
     textOnlyTurns: 0,
+    stallNudges: 0,
     loadedSkills: [],
     skillBodies: {},
     messages: [],

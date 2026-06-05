@@ -33,6 +33,22 @@ function busTokenFromPinName(pinName: any): string | null {
   return m ? `${m[1]}${m[2]}` : null;
 }
 
+// Power/ground pins describe the supply, not the part's signal role. A standalone part's
+// role (input / output / pwm / adc) comes from its first SIGNAL pin's pinout `type`
+// (e.g. a button's IN pin is "gpio_in_pullup", a passive buzzer's IO is "pwm").
+const POWER_PIN_TYPES = new Set(["power_3v3", "power_5v", "power", "vcc", "vin", "gnd", "ground"]);
+
+function standaloneTypeFromPinType(pinType: any): string | null {
+  const t = String(pinType ?? "").toLowerCase();
+  if (!t || POWER_PIN_TYPES.has(t)) return null;
+  if (t === "pwm") return "pwm";
+  if (t === "adc" || t === "analog") return "adc";
+  if (t.startsWith("gpio_in") || t === "digital_in" || t === "input") {
+    return t.includes("pullup") ? "gpio_in_pullup" : "gpio_in";
+  }
+  return "gpio_out"; // gpio_out / digital_out / anything else the MCU drives
+}
+
 export function deriveWiring(manifest: any): { buses: any[]; standalone: any[] } {
   const devices: any[] = Array.isArray(manifest?.devices) ? manifest.devices : [];
   const pinout: any[] = Array.isArray(manifest?.pinout) ? manifest.pinout : [];
@@ -102,12 +118,18 @@ export function deriveWiring(manifest: any): { buses: any[]; standalone: any[] }
         ...(addr ? { addr: String(addr) } : {}),
       });
     } else {
-      const gpios = pinsForDevice(name).map((p) => String(p?.gpio ?? "")).filter(Boolean);
-      const gpioType = iface === "PWM" ? "pwm" : iface === "ADC" ? "adc" : "gpio_out";
+      const pins = pinsForDevice(name);
+      const gpios = pins.map((p) => String(p?.gpio ?? "")).filter(Boolean);
+      // The part's role comes from the pinout pin types (button IN -> gpio_in_pullup,
+      // buzzer IO -> pwm); fall back to device.interface only when the pinout carries no
+      // usable signal pin. Without this, every direct-GPIO part was forced to gpio_out,
+      // mislabeling inputs (buttons, PIR) as outputs.
+      const fromPins = pins.map((p) => standaloneTypeFromPinType(p?.type)).find((t) => t !== null) ?? null;
+      const gpioType = fromPins ?? (iface === "PWM" ? "pwm" : iface === "ADC" ? "adc" : "gpio_out");
       const entry: any = { name: name || "part", pin: gpios[0] ?? "", type: gpioType };
       // Multi-pin parts (HX711, stepper, RGB LED) keep every pin so none is dropped;
       // single-pin parts stay { name, pin, type } for the common case.
-      if (gpios.length > 1) entry.pins = pinsForDevice(name).filter((p) => p?.gpio).map((p) => ({ name: String(p?.pin_name ?? ""), gpio: String(p?.gpio ?? "") }));
+      if (gpios.length > 1) entry.pins = pins.filter((p) => p?.gpio).map((p) => ({ name: String(p?.pin_name ?? ""), gpio: String(p?.gpio ?? "") }));
       standalone.push(entry);
     }
   }

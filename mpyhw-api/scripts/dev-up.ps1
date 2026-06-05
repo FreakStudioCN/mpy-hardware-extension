@@ -1,8 +1,6 @@
 param(
   [string]$EnvFile,
   [switch]$PlanOnly,
-  [string]$ApiHost = "127.0.0.1",
-  [int]$ApiPort = 8787,
   [string]$ContainerName = "mpyhw-pg",
   [string]$PostgresImage = "postgres:16"
 )
@@ -164,8 +162,13 @@ if ($env:MPYHW_LLM_STUB -ne "1") {
 $pg = Parse-PostgresUrl $databaseUrl
 Ensure-Postgres $pg
 
-Set-Location $root
-Write-Host "API: python -m uvicorn app.main:app --host $ApiHost --port $ApiPort"
-if (-not $PlanOnly) {
-  python -m uvicorn app.main:app --host $ApiHost --port $ApiPort
+# Start the API as a DETACHED daemon (survives VS Code closing) rather than a foreground
+# uvicorn child, by delegating to api-daemon.ps1. It binds 127.0.0.1:8787, is idempotent
+# (no-op if already listening), forwards stub mode ($env:MPYHW_LLM_STUB), and logs to
+# mpyhw-api/tmp/api.log. Manage it afterward with: api-daemon.ps1 stop|restart|status|logs.
+$daemon = Join-Path $PSScriptRoot "api-daemon.ps1"
+if ($PlanOnly) {
+  Write-Host "Plan: $daemon start  (detached uvicorn on 127.0.0.1:8787)"
+} else {
+  & $daemon start
 }

@@ -304,6 +304,33 @@ test("diagram_updated renders the architecture layers + run flow in the Diagram 
   assert.match(diagram.innerHTML, /read -&gt; display/);
 });
 
+test("diagram_updated renders cross_layer_deps + data_flow from an LLM-authored diagram.json", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "diagram_updated",
+    diagram: {
+      architecture: {
+        layers: [{ id: "entry", label: "Entry Layer", modules: [{ name: "main", path: "firmware/main.py" }] }],
+        cross_layer_deps: [{ from: "main", to: "drivers.aht20_driver", label: "inject" }],
+      },
+      flow: [{ seq: 1, phase: "run", action: "loop", detail: "read -> display" }],
+      data_flow: [{ from: "tasks.sensor_task", to: "tasks.display_task", data: "temp reading", channel: "shared_dict", rate: "1Hz" }],
+    },
+  });
+
+  const diagram = document.getElementById("diagram")!;
+  // Dependencies section: heading + edge endpoints + label.
+  assert.match(diagram.innerHTML, /Dependencies/);
+  assert.match(diagram.innerHTML, /drivers\.aht20_driver/);
+  assert.match(diagram.innerHTML, /inject/);
+  // Data-flow section: heading + endpoints + "data · rate" meta.
+  assert.match(diagram.innerHTML, /Data flow/);
+  assert.match(diagram.innerHTML, /tasks\.sensor_task/);
+  assert.match(diagram.innerHTML, /temp reading · 1Hz/);
+});
+
 test("diagram_updated with an empty diagram keeps the empty state (no throw)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
@@ -377,6 +404,26 @@ test("credits message updates the quota label and gates Start", async () => {
   assert.equal(document.getElementById("qUsed")!.textContent, "0");
   assert.ok(document.getElementById("quota")!.classList.contains("exhausted"));
   assert.equal(generate.disabled, true, "out of credits -> Start disabled");
+});
+
+test("a stub server_mode reveals the STUB badge so a stub backend can't be mistaken for a hang", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const badge = document.getElementById("modeBadge")!;
+
+  // Hidden by default — most sessions talk to a live backend.
+  assert.ok(badge.classList.contains("hidden"), "badge hidden before any server_mode");
+
+  // A stub backend reveals the badge, with the localized label + a tooltip that
+  // explains how to get real output.
+  post(dom, { type: "server_mode", mode: "stub" });
+  assert.equal(badge.classList.contains("hidden"), false, "stub mode reveals the badge");
+  assert.equal(badge.textContent, "Stub");
+  assert.match(badge.getAttribute("title")!, /fixed reply|MPYHW_LLM_STUB/);
+
+  // Switching back to live hides it again.
+  post(dom, { type: "server_mode", mode: "live" });
+  assert.ok(badge.classList.contains("hidden"), "live mode hides the badge");
 });
 
 test("summary text is HTML-escaped, not injected as live markup (XSS guard)", async () => {

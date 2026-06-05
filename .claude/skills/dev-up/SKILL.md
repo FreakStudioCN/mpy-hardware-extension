@@ -30,13 +30,13 @@ argument-hint: "[f5|reinstall] [stub]"
 
 ## Phase 1 — 后端（探活优先，必要才起）
 
-**先探活，已在跑就别重起**（`dev-up.ps1` 只检查 Postgres 端口，不检查 8787，重复起 uvicorn 会撞端口）：
+**先探活，已在跑就别重起**（`api-daemon.ps1 start` 对已监听的 8787 是幂等 no-op，但探活能省掉多余的 Docker 检查）：
 
 ```powershell
 try { (Invoke-RestMethod http://127.0.0.1:8787/v1/health -TimeoutSec 2).status } catch { "down" }
 ```
 
-返回 `ok` → 直接跳 Phase 2。否则用 **run_in_background** 起后端（脚本最后是前台 uvicorn，必须后台跑，否则会一直占住）：
+返回 `ok` → 直接跳 Phase 2。否则起后端（`dev-up.ps1` 把 API 作为脱离进程的守护起起来后**立即返回**，不用 run_in_background）：
 
 ```powershell
 # 真实 LLM：
@@ -45,7 +45,7 @@ try { (Invoke-RestMethod http://127.0.0.1:8787/v1/health -TimeoutSec 2).status }
 $env:MPYHW_LLM_STUB = '1'; & .\mpyhw-api\scripts\dev-up.ps1
 ```
 
-`dev-up.ps1` 会：确保 Docker Desktop 就绪 → 起/复用容器 `mpyhw-pg`(postgres:16) → 等 PG 端口 → 起 uvicorn。
+`dev-up.ps1` 会：确保 Docker Desktop 就绪 → 起/复用容器 `mpyhw-pg`(postgres:16) → 等 PG 端口 → 调 `api-daemon.ps1 start` 把 uvicorn 脱离起在 `127.0.0.1:8787`（活过 VS Code，日志 `mpyhw-api/tmp/api.log`）。
 若 Docker 没装/没起，它会抛错；按提示让用户手动开 Docker Desktop 再重跑本 skill。
 
 ## Phase 2 — 健康探活（快）
@@ -105,8 +105,8 @@ code --install-extension "build/mpy-hardware-extension-$v.vsix" --force
 | 重装后扩展还是旧版 | 没 bump version，或只 Reload 没全退 | bump→package→install→**完全重启** VS Code |
 | 前端改了没生效（已装版） | vsix 是冻结快照 | 重新 `npm run package` 再装；或改用 f5 模式实时迭代 |
 | API health 30s 不 ok | DATABASE_URL 连不上 PG / 缺 DeepSeek key | 抓后台 uvicorn 输出；或加 stub 参数先桩跑 |
-| 改了后端代码不生效 | serve/dev-up 无 --reload | 停掉后台 API 进程，重跑 Phase 1 |
+| 改了后端代码不生效 | uvicorn 无 --reload | `api-daemon.ps1 restart` |
 
 ## 停止
 
-停后端：杀掉 Phase 1 的后台进程即可。Postgres 容器 `mpyhw-pg` 会留着（下次 `docker start` 复用），要彻底停用 `docker stop mpyhw-pg`。
+停后端：`& .\mpyhw-api\scripts\api-daemon.ps1 stop`（守护是脱离进程，关终端/退 VS Code 都停不掉它，必须用 stop）。Postgres 容器 `mpyhw-pg` 会留着（下次 `docker start` 复用），要彻底停用 `docker stop mpyhw-pg`。

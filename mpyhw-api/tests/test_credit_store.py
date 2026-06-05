@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from app import credit_store
@@ -119,3 +120,20 @@ def test_daily_reset_refills_on_new_utc_day():
 
     # Same UTC day later does not refill; a new day resets to the grant.
     assert credit_store.ensure_daily_grant(USER, 50, now=day2)["balance"] == 50
+
+
+def test_concurrent_first_grant_creates_exactly_one_row_no_error():
+    # Session start fires several authenticated calls at once (the agent turn, the nested
+    # generate_code turn, and the webview's /v1/credits poll), all hitting a brand-new
+    # user with no credit row yet. The atomic create must let exactly one grant land: no
+    # PK-conflict 500, no duplicate grants, and never a missing-row read (which the meter
+    # would stream to the UI as a spurious remaining: 0 -> false "running low").
+    new_user = {"id": "777", "login": "newcomer", "email": None}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        # list() re-raises the first worker exception, so this also asserts no thread 500s.
+        results = list(pool.map(lambda _: credit_store.ensure_daily_grant(new_user, 50), range(8)))
+
+    assert all(r["balance"] == 50 for r in results)
+    grants = [e for e in credit_store.ledger_for_user("777") if e["action"] == "grant"]
+    assert grants == [{"action": "grant", "credits": 50, "balance_after": 50, "status": "posted"}]

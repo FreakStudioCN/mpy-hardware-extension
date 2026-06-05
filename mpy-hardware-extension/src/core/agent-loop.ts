@@ -8,12 +8,27 @@ import { shouldTerminate } from "./termination.ts";
 // "manifest_unresolved". A declined deploy ends cleanly via state.deployDeclined.
 const NON_PROGRESS_NEUTRAL = new Set(["device_unavailable", "workspace_unavailable", "user_cancelled"]);
 
+// After the manifest + component-confirmation card resolve inline, the model
+// sometimes narrates the plan and hands back with no tool call — stranding the
+// build at "analyze" before any code is generated (the desk-companion dead-end).
+// This message nudges it to continue. Bounded by state.stallNudges, and gated on
+// "manifest exists but no files yet" so a finished build (code already generated,
+// just not flashable headless) is never re-nudged — that blanket nudge was
+// removed earlier because it re-asked "what do you want to do next?" when done.
+const STALL_NUDGE =
+  "The component list is confirmed and recorded in the manifest — propose_manifest already returned it to you. Continue the build now: call the next tool in the phase flow (hardware selection, then code generation, then deploy). Do not stop to summarize or wait for the user between phases; the build-plan/credit gate and the deploy gate prompt the user automatically when needed.";
+const MAX_STALL_NUDGES = 2;
+
 type Recorder = { record(event: Record<string, any>): Promise<void> };
 
 type EventSource = any[] | AsyncIterable<any>;
 
 export async function runAgentLoop(input: { state: any; sseClient: () => Promise<EventSource>; dispatchTool: (tool: any) => Promise<any>; onEvent?: (event: any) => void; signal?: { aborted: boolean }; recorder?: Recorder }) {
   const state = input.state;
+  // Bounded retry for a turn whose SSE stream drops or truncates mid-flight. Reset after
+  // any turn that completes (reaches message_stop).
+  let streamRetries = 0;
+  const MAX_STREAM_RETRIES = 2;
   while (true) {
     if (input.signal?.aborted) {
       return { terminal: "cancelled", state };
@@ -23,14 +38,29 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
       return { terminal: terminal.reason, state };
     }
     const events = asAsyncEvents(await input.sseClient());
+    const iterator = events[Symbol.asyncIterator]();
     let assistantText = "";
     let reasoningText = "";
     let sawStop = false;
     const toolUses: any[] = [];
     const toolResults: any[] = [];
-    for await (const event of events) {
+    // Manual iteration so a mid-stream rejection (e.g. undici "terminated" when the
+    // connection drops) is caught here instead of escaping runAgentLoop as a fatal
+    // session_error. A dropped read leaves sawStop false → the retry path below re-issues
+    // the turn. A user Cancel aborts the same read, so distinguish it.
+    while (true) {
+      let next: IteratorResult<any>;
+      try {
+        next = await iterator.next();
+      } catch {
+        if (input.signal?.aborted) return { terminal: "cancelled", state };
+        break;
+      }
+      if (next.done) break;
+      const event = next.value;
       input.onEvent?.(event);
       if (event.type === "stream_error") {
+        await iterator.return?.(undefined);
         return { terminal: "sse_stream_interrupted", state };
       }
       if (event.type === "text_delta") {
@@ -113,14 +143,39 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
       }
     }
     if (!sawStop) {
-      // A turn that never reached message_stop (truncated/interrupted stream)
-      // makes no progress; terminate instead of looping forever.
+      // The turn never reached message_stop: the stream dropped mid-read or ended
+      // truncated. Both are transient — retry the same request a bounded number of times
+      // (no durable state was committed, so re-issuing is safe) before giving up. The
+      // graceful terminal flows through session-controller's success branch, so state is
+      // saved and the user can resume by sending another message.
+      if (streamRetries < MAX_STREAM_RETRIES) {
+        streamRetries += 1;
+        input.onEvent?.({ type: "stream_retry", attempt: streamRetries });
+        continue;
+      }
       return { terminal: "sse_stream_interrupted", state };
     }
+    streamRetries = 0;
     if (toolUses.length === 0) {
       // No tool call = the model handed the turn back to the user (final summary,
       // answer, or decline). End here; the user can continue with a new message.
       // (A real ask_user is a tool call, so it never lands here.)
+      //
+      // EXCEPT the post-manifest stall: if a manifest exists but no code has been
+      // generated yet and the build isn't complete, the model stalled before doing
+      // the work (it narrated the plan after the inline component card instead of
+      // continuing to codegen/deploy). Nudge it onward, bounded, rather than dead-
+      // ending the user at the "analyze" phase. The "no files yet" gate keeps a
+      // finished build from being re-nudged, which is why the old blanket nudge was
+      // removed.
+      const stalledBeforeCodegen =
+        state.manifest != null && state.phase !== "complete" && Object.keys(state.files ?? {}).length === 0;
+      if (stalledBeforeCodegen && (state.stallNudges ?? 0) < MAX_STALL_NUDGES) {
+        state.stallNudges = (state.stallNudges ?? 0) + 1;
+        state.messages.push({ role: "user", content: STALL_NUDGE });
+        await input.recorder?.record({ type: "stall_nudge", turnSeq: state.turnSeq, attempt: state.stallNudges });
+        continue;
+      }
       return { terminal: "awaiting_user", state };
     }
   }

@@ -10,6 +10,10 @@ export function createSessionState(input: { traceId: string; intent: string; boa
     // validation failures fail fast instead of grinding to max_turns.
     noProgressStreak: 0,
     textOnlyTurns: 0,
+    // Times the loop has nudged the model onward after it handed back mid-build
+    // (a manifest exists but no code is generated yet). Bounded so a model that
+    // keeps narrating without acting eventually hands back instead of looping.
+    stallNudges: 0,
     loadedSkills: [] as string[],
     skillBodies: {} as Record<string, string>,
     messages: [] as any[],

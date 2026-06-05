@@ -103,10 +103,10 @@ Do not invent package APIs. Fetch package context before generating code. Prefer
 Understand the request before touching hardware: confirm what device to build and its core behaviour first. If a request is ambiguous or does not obviously map to hardware, do NOT refuse. Many requests CAN be hardware (e.g. an "AI companion" may be a desk robot or screen-faced device with sensors and sound). Clarify what physical device the user wants and what it should do (sensors, display, motors, sound, touch), then continue the workflow. Only decline after clarifying if the request truly involves no microcontroller or device at all.
 Whenever you need the user to choose, confirm, or answer anything, you MUST call the ask_user tool. NEVER ask a question only in plain assistant text: the user cannot reply to plain text, so a text-only question ends the turn with no answer and stalls the session.
 Never suggest bypassing audit_code. Do not use or recommend __import__, exec, or eval to hide imports. If audit_code rejects a module, either regenerate code using available modules, choose a compatible board/profile, or ask_user for a product-level tradeoff.
-Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its "phase" each time you call propose_manifest: analyze (schema_version "1.0" + created_at as an ISO 8601 timestamp + project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. Carry the earlier fields (created_at, project_name, ...) forward unchanged on every later call. After you propose the analyze manifest (devices[] populated), the host automatically shows the user a component-confirmation card to tick parts in or out; do NOT call ask_user to list or confirm the component selection. If propose_manifest returns error_kind "components_revision_requested", the user removed the parts listed in "removed" and/or wants to add the parts described in "add": update devices[] accordingly (and any dependent pinout/bom) and call propose_manifest again. After analyze and select-hw, call run_validate to gate the manifest against the canonical schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then call generate_code with that same latest rich project-manifest.json (schema_version "1.0", devices[] + pinout[]), then the device tools. Never pass a legacy thin manifest without schema_version to generate_code. Set phase to "complete" when the build is finished.
+Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its "phase" each time you call propose_manifest: analyze (schema_version "1.0" + created_at as an ISO 8601 timestamp + project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> diagram -> deploy -> complete. Carry the earlier fields (created_at, project_name, ...) forward unchanged on every later call. After you propose the analyze manifest (devices[] populated), the host automatically shows the user a component-confirmation card to tick parts in or out; do NOT call ask_user to list or confirm the component selection. If propose_manifest returns error_kind "components_revision_requested", the user removed the parts listed in "removed" and/or wants to add the parts described in "add": update devices[] accordingly (and any dependent pinout/bom) and call propose_manifest again. After analyze and select-hw, call run_validate to gate the manifest against the canonical schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then call generate_code with that same latest rich project-manifest.json (schema_version "1.0", devices[] + pinout[]), then the device tools. Never pass a legacy thin manifest without schema_version to generate_code. Set phase to "complete" when the build is finished.
 In requirements.description (and optionally a "summary" field) put a short, friendly explanation, in the user's language, of what the device will do, why you chose this board / these parts / these pins, the key wiring, and what the generated code will do. This text is shown to the user AS the build plan, so make it clear and specific (a few sentences or short bullets) rather than a bare restatement of the other fields — this is where you put the reasoning, since your step-by-step thinking is not shown to the user.
 Never use emoji in any text shown to the user (the build-plan summary, requirements.description, ask_user questions and options, and your final summary). Write plain text only.
-After you propose the manifest, the host shows the user a build plan (your summary + requirements + estimated credits) and gets their confirmation before you generate code — do NOT ask the user whether to generate; just call generate_code. If generate_code returns error_kind "plan_revision_requested", the user has requested changes in its "feedback": adjust the manifest accordingly (board, packages, pins, wiring, logic, and the summary) and call generate_code again — the host re-shows the plan. Do NOT call ask_user about this revision. The wiring diagram is rendered automatically from the manifest; never offer to "show wiring". The canonical project-manifest schema is the ONLY manifest contract: if a loaded skill's field names or pin-role names conflict with it, follow the schema. Do NOT hand-build a wiring object: the wiring diagram is DERIVED automatically from devices[] (one entry per physical part, with its interface + I2C addr) and pinout[] (device pin_name -> gpio). One physical device = one card, so list each part exactly once in devices[]. Once audit_code passes, continue by calling install_package, write_main_py, flash_and_run, then read_serial_until in order — but do NOT narrate this as if it deploys immediately: before the first device action the host shows a deploy-readiness checkpoint (a board-connection check plus the wiring diagram) and waits for the user to confirm. Do NOT ask the user whether to deploy or whether the board is connected — the host owns that checkpoint; just call the tools in order and let the host gate them. NEVER end your turn with a plain-text menu of next steps (e.g. "1. flash 2. install driver 3. view wiring 4. modify code"); drive the workflow by calling tools.
+After you propose the manifest, the host shows the user a build plan (your summary + requirements + estimated credits) and gets their confirmation before you generate code — do NOT ask the user whether to generate; just call generate_code. If generate_code returns error_kind "plan_revision_requested", the user has requested changes in its "feedback": adjust the manifest accordingly (board, packages, pins, wiring, logic, and the summary) and call generate_code again — the host re-shows the plan. Do NOT call ask_user about this revision. The wiring diagram is rendered automatically from the manifest; never offer to "show wiring". The canonical project-manifest schema is the ONLY manifest contract: if a loaded skill's field names or pin-role names conflict with it, follow the schema. Do NOT hand-build a wiring object: the wiring diagram is DERIVED automatically from devices[] (one entry per physical part, with its interface + I2C addr) and pinout[] (device pin_name -> gpio). One physical device = one card, so list each part exactly once in devices[]. Once audit_code passes, draw the software architecture diagram before deploying so the user sees the real module structure (not just the manifest-derived preview): call load_skill("upy-diagram") and follow it to read the firmware/ tree (main.py plus any drivers/, tasks/, lib/, board.py/conf.py) and author docs/diagram.json against the diagram schema — architecture.layers[] of the real modules (with cross_layer_deps for their dependencies) and a flow[] of the real main.py steps; if no firmware/ tree exists, base it on main.py and the manifest. Write it with write_project_file to docs/diagram.json (that populates the webview Diagram tab), then call run_validate with schema "diagram" and path "docs/diagram.json" and fix-and-rewrite until it passes; optionally call render_diagram (format "md") for the shareable Mermaid file. Keep the diagram concise (medium detail) and do NOT call ask_user about its complexity or whether to draw it. Its human-readable fields (layer labels, module roles, flow actions/details, dependency and data-flow descriptions) must be in the user's language, but keep code identifiers (module import paths, file paths, GPIO/bus tokens) unchanged. Then continue by calling install_package, write_main_py, flash_and_run, then read_serial_until in order — but do NOT narrate this as if it deploys immediately: before the first device action the host shows a deploy-readiness checkpoint (a board-connection check plus the wiring diagram) and waits for the user to confirm. Do NOT ask the user whether to deploy or whether the board is connected — the host owns that checkpoint; just call the tools in order and let the host gate them. NEVER end your turn with a plain-text menu of next steps (e.g. "1. flash 2. install driver 3. view wiring 4. modify code"); drive the workflow by calling tools.
 When the current request is complete (code delivered, question answered, or build verified), give the user a short summary in plain assistant text and then stop — that ends your turn and returns control to the user. Do NOT call ask_user just to ask "what would you like to do next" or to offer more help. Only call ask_user when you genuinely need an answer to make progress on the current request."""
 
 @router.post("/v1/llm/messages")
@@ -314,6 +314,15 @@ def _deepseek_payload(body: dict[str, Any]) -> dict[str, Any]:
     # timestamps, no set iteration, no per-round reordering. The enum schemas below
     # are sorted() and tools keep the client's fixed order; see the byte-stability
     # regression test in tests/test_llm_messages.py.
+    # Bound a single turn's output so an unbounded generation can't run up an
+    # arbitrary token bill (the credit floor would otherwise absorb the overage).
+    # The client may request more for an output-heavy call (codegen, which must emit a
+    # whole file AFTER the reasoning_content has already consumed part of the budget),
+    # but it is always clamped to a ceiling so the anti-abuse bound still holds.
+    default_max = int(os.getenv("MPYHW_LLM_MAX_TOKENS", "4096"))
+    ceiling = int(os.getenv("MPYHW_LLM_MAX_TOKENS_CEILING", "16384"))
+    requested = body.get("max_tokens")
+    max_tokens = min(int(requested), ceiling) if isinstance(requested, int) and requested > 0 else default_max
     payload = {
         "model": os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
         "messages": _deepseek_messages(body),
@@ -321,9 +330,7 @@ def _deepseek_payload(body: dict[str, Any]) -> dict[str, Any]:
         "stream": True,
         # Ask DeepSeek for a final usage chunk so we can token-meter the turn.
         "stream_options": {"include_usage": True},
-        # Bound a single turn's output so an unbounded generation can't run up an
-        # arbitrary token bill (the credit floor would otherwise absorb the overage).
-        "max_tokens": int(os.getenv("MPYHW_LLM_MAX_TOKENS", "4096")),
+        "max_tokens": max_tokens,
     }
     tools = _deepseek_tools(body.get("tools", []))
     if tools:
@@ -383,6 +390,7 @@ def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
     tool_calls: dict[int, dict[str, Any]] = {}
     order: list[int] = []
     usage_obj: dict[str, Any] = {}
+    finish_reason: str | None = None
     try:
         try:
             for raw_line in upstream:
@@ -402,6 +410,11 @@ def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
+                if choices[0].get("finish_reason"):
+                    # "length" here means the turn was truncated at max_tokens — for a
+                    # reasoning model the budget can be spent on reasoning_content with
+                    # no answer left, which surfaces downstream as an empty codegen.
+                    finish_reason = choices[0]["finish_reason"]
                 delta = choices[0].get("delta") or {}
                 reasoning = delta.get("reasoning_content")
                 if reasoning:
@@ -441,7 +454,13 @@ def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
                 yield _sse({"type": "content_block_stop"})
             if meter is not None:
                 yield _sse({"type": "credits", **meter(usage_obj)})
-            yield _sse({"type": "message_stop"})
+            # finish_reason is additive: only attached when the upstream reported one, so
+            # the no-finish_reason golden stays byte-identical and existing parsers are
+            # unaffected. A "length" here flags a max_tokens truncation downstream.
+            stop_event = {"type": "message_stop"}
+            if finish_reason is not None:
+                stop_event["finish_reason"] = finish_reason
+            yield _sse(stop_event)
         except (OSError, http.client.HTTPException):
             yield _sse({"type": "error", "error": {"message": "upstream_stream_interrupted"}})
     finally:

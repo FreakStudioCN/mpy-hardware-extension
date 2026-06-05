@@ -1,5 +1,7 @@
-# Launch mpyhw-api live against real DeepSeek.
-# Loads secrets from mpyhw-api/.env into the process env, then starts uvicorn.
+# DEPRECATED for normal local dev — use dev-up.ps1, which brings up Postgres and starts the
+# API as a DETACHED daemon (via api-daemon.ps1) that survives VS Code closing. This script
+# remains only as a minimal FOREGROUND launcher: it loads mpyhw-api/.env into the process
+# env, then runs uvicorn in the foreground (dies with the shell / VS Code). No Postgres mgmt.
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 $envFile = Join-Path $root ".env"

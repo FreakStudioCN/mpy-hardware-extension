@@ -33,6 +33,23 @@ def test_deepseek_payload_caps_output_tokens(monkeypatch):
     assert payload["max_tokens"] == 2048
 
 
+def test_deepseek_payload_honors_client_max_tokens_within_ceiling(monkeypatch):
+    # An output-heavy call (codegen must emit a whole file AFTER reasoning_content has
+    # already consumed part of the budget) may request more than the default turn cap,
+    # but the anti-abuse ceiling still bounds it. Below the ceiling is honored verbatim;
+    # above is clamped; absent/non-positive falls back to the default.
+    from app import routes_llm
+
+    monkeypatch.delenv("MPYHW_LLM_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("MPYHW_LLM_MAX_TOKENS_CEILING", raising=False)
+    base = {"messages": [{"role": "user", "content": "hi"}], "tools": []}
+
+    assert routes_llm._deepseek_payload({**base, "max_tokens": 8192})["max_tokens"] == 8192
+    assert routes_llm._deepseek_payload({**base, "max_tokens": 99999})["max_tokens"] == 16384
+    assert routes_llm._deepseek_payload(base)["max_tokens"] == 4096
+    assert routes_llm._deepseek_payload({**base, "max_tokens": 0})["max_tokens"] == 4096
+
+
 def test_deepseek_payload_is_byte_stable_for_prefix_caching():
     # DeepSeek's automatic prefix caching only hits when the leading bytes of the
     # request are identical across rounds. Lock the determinism so re-sent context
@@ -159,6 +176,33 @@ def test_llm_messages_streams_deepseek_text(monkeypatch):
     assert captured["first_message"] == "blink an ESP32 LED"
     assert "Use query_board_profile " in response.text
     assert "first." in response.text
+    assert "message_stop" in response.text
+
+
+def test_llm_stream_surfaces_finish_reason_on_message_stop(monkeypatch):
+    # finish_reason "length" means the turn was truncated at max_tokens — for a
+    # reasoning model the budget can be spent on reasoning_content leaving no answer,
+    # which surfaces downstream as an empty codegen. Expose it on message_stop so that
+    # case is diagnosable from the session log instead of an opaque empty result.
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    def fake_open(_body, _api_key):
+        return _sse_bytes(
+            {"choices": [{"delta": {"content": "partial"}}]},
+            {"choices": [{"delta": {}, "finish_reason": "length"}]},
+        )
+
+    monkeypatch.setattr("app.routes_llm._open_deepseek_stream", fake_open)
+
+    response = client.post(
+        "/v1/llm/messages",
+        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "query_board_profile"}]},
+    )
+
+    assert response.status_code == 200
+    assert '"finish_reason"' in response.text
+    assert '"length"' in response.text
     assert "message_stop" in response.text
 
 

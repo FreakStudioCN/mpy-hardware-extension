@@ -1,14 +1,24 @@
 {
   "name": "mpy-hardware-extension",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "publisher": "mpyhw",
   "displayName": "Blockless",
   "description": "Build MicroPython hardware projects from a sentence: an AI agent picks the board, wires the parts, and generates deployable code.",
   "license": "SEE LICENSE IN LICENSE.txt",
   "icon": "media/icon.png",
   "type": "module",
-  "categories": ["AI", "Education", "Other"],
-  "keywords": ["MicroPython", "hardware", "embedded", "IoT", "ESP32"],
+  "categories": [
+    "AI",
+    "Education",
+    "Other"
+  ],
+  "keywords": [
+    "MicroPython",
+    "hardware",
+    "embedded",
+    "IoT",
+    "ESP32"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ChrisWu132/mpy-hardware-extension.git"
