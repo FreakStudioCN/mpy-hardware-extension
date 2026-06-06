@@ -43,6 +43,8 @@ const files = [
   "upy-project-gen-toolchain-spec/diagram.schema.json",
   "upy-scaffold/scripts/init_scaffold.py",
   "upy-generate/scripts/download_drivers.py",
+  "upy-autofix/scripts/triage.py",
+  "upy-autofix/scripts/hardware_sanity.py",
   "upy-wiring/scripts/render_wiring_local.py",
   "upy-diagram/scripts/render_diagram_local.py",
   ...walk(join(upstreamRoot, "upy-scaffold", "templates")).map((abs) => relative(upstreamRoot, abs).replaceAll("\\", "/")),

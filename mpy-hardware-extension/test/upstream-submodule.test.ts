@@ -21,6 +21,8 @@ test("vendored upstream toolchain the shim runs + packages is present (submodule
     "upy-scaffold/templates/tasks/maintenance.py",
     "upy-scaffold/templates/lib/logger/__init__.py",
     "upy-generate/scripts/download_drivers.py",
+    "upy-autofix/scripts/triage.py",
+    "upy-autofix/scripts/hardware_sanity.py",
     "upy-wiring/scripts/render_wiring_local.py",
     "upy-diagram/scripts/render_diagram_local.py",
   ];
