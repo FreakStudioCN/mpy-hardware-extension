@@ -36,14 +36,20 @@ Visual Studio Marketplace 的流程。
 
 ## 0. 发布前提
 
-需要准备：
+需要准备（全程务必用**同一个微软账号**登录这几个站点，否则身份串不起来）：
 
-- 一个 Microsoft / Azure DevOps 账号。
-- 一个 Visual Studio Marketplace publisher，当前项目应使用 `blockless`。
-- 一个 Entra ID workload identity 自动发布身份。
+- 一个微软账号（Marketplace / Azure DevOps / Azure Portal 共用）。
+- 一个 Visual Studio Marketplace publisher：<https://marketplace.visualstudio.com/manage>，当前项目用 `blockless`。
+- 一个 Azure DevOps organization：<https://aex.dev.azure.com/>。
+- 一个 Azure subscription（用来承载 managed identity；没有就免费开一个）：<https://azure.microsoft.com/free/>。
+- 一个 Entra ID workload identity 自动发布身份（下面 1.4–1.6 创建）。
 - Node.js 和 npm。
 - 项目根目录的 Git submodule 已拉取完整。
 - Render 后端已经部署，并且扩展默认 API 指向线上后端。
+
+> 下面凡是出现 `{org}`、`{project}` 的链接，把它替换成你自己的 Azure DevOps
+> 组织名和项目名。例如组织叫 `blockless`、项目叫 `blockless-release`，则
+> `https://dev.azure.com/{org}/{project}` 就是 `https://dev.azure.com/blockless/blockless-release`。
 
 当前扩展默认后端在：
 
@@ -61,16 +67,11 @@ https://blockless-api.onrender.com
 
 第一次发布才需要做这一节。
 
-### 1.1 创建 Marketplace Publisher
+### 1.1 创建 Marketplace Publisher ✅（已完成）
 
-打开 publisher 管理页：
+publisher 管理页：<https://marketplace.visualstudio.com/manage>
 
-```text
-https://marketplace.visualstudio.com/manage/publishers/
-```
-
-创建 publisher 时，ID 必须和扩展 `package.json` 里的 `publisher` 一致。
-当前项目是：
+创建 publisher 时，ID 必须和扩展 `package.json` 里的 `publisher` 一致：
 
 ```json
 {
@@ -78,110 +79,139 @@ https://marketplace.visualstudio.com/manage/publishers/
 }
 ```
 
-如果 Marketplace 上还没有 `blockless` 这个 publisher，需要创建它；如果已经存在，
-需要让当前发布账号加入该 publisher，并拥有管理成员的权限。
+本项目的 `blockless` publisher 已创建好，直链：
+<https://marketplace.visualstudio.com/manage/publishers/blockless>。
+如果换账号操作，需要让该账号加入此 publisher 并拥有管理成员权限。
 
-### 1.2 创建 Azure DevOps 项目
+### 1.2 创建 Azure DevOps 组织、项目和订阅
 
-官方推荐的无 PAT 自动发布路径基于 Azure DevOps + Microsoft Entra ID：
+整条无 PAT 自动发布链是：
 
 ```text
 Azure Pipelines
-  -> Workload Identity Federation
+  -> Workload Identity Federation（service connection）
   -> User-assigned Managed Identity
-  -> Visual Studio Marketplace publisher contributor
+  -> 加为 Marketplace publisher 的 Contributor
   -> vsce publish --azure-credential
 ```
 
-先准备：
+需要三样东西，逐个建：
 
-1. Azure DevOps organization。
-2. Azure DevOps project，例如 `blockless-release`。
-3. Azure subscription。这个 subscription 主要用来承载 managed identity。
+**(a) Azure DevOps organization**
+
+打开 <https://aex.dev.azure.com/>，用你的微软账号登录。
+
+- 如果已有组织，会列出来，记下组织名（URL 里的 `{org}`）。
+- 如果没有，点 **Create new organization**，按引导建一个（名字会成为
+  `https://dev.azure.com/{org}` 里的 `{org}`，建议用 `blockless`）。
+
+**(b) Azure DevOps project**
+
+进入组织 <https://dev.azure.com/{org}>，点右上角 **+ New project**：
+
+- Project name：`blockless-release`
+- Visibility：Private
+- Create。
+
+建好后项目主页就是 `https://dev.azure.com/{org}/blockless-release`。
+
+**(c) Azure subscription**
+
+managed identity 必须挂在一个 Azure 订阅下。打开
+<https://portal.azure.com/#view/Microsoft_Azure_Billing/SubscriptionsBlade>
+看有没有订阅。
+
+- 有：记下 Subscription ID 和 Subscription name（1.6 要回填）。
+- 没有：去 <https://azure.microsoft.com/free/> 免费开一个（需要绑信用卡做身份
+  验证；本流程只用到极少量甚至零 Azure 资源费用）。
 
 ### 1.3 创建 Workload Identity Federation Service Connection
 
-在 Azure DevOps project 里：
+直接打开 service connections 页：
+<https://dev.azure.com/{org}/blockless-release/_settings/adminservices>
+（等价路径：项目主页 → 左下 **Project settings** → **Service connections**）。
 
-```text
-Project Settings
-  -> Service connections
-  -> New service connection
-  -> Azure Resource Manager
-  -> Workload Identity Federation (manual)
-```
+1. **New service connection** → 选 **Azure Resource Manager** → Next。
+2. 认证方式选 **Workload Identity federation (manual)** → Next。
+3. Service connection name 填 **`blockless-vsce-publish`**（务必和
+   `azure-pipelines.publish.yml` 里的 `azureServiceConnection` 一致）→ 先 **Save**
+   存成 draft。
 
-先保存为 draft，记下 Azure DevOps 生成的：
+存成 draft 后，页面会显示这两个值，**复制下来**（1.5 要填进 managed identity）：
 
-- `issuer`
-- `subject`
-- service connection name，例如 `blockless-vsce-publish`
+- **Issuer**（形如 `https://vstoken.dev.azure.com/{guid}`）
+- **Subject identifier**（形如 `sc://{org}/blockless-release/blockless-vsce-publish`）
 
-这些值后面要填到 Entra managed identity 的 federated credential 里。
+先别关这个页面，1.6 还要回来填值。
 
 ### 1.4 创建 User-assigned Managed Identity
 
-在 Azure Portal 里创建一个 user-assigned managed identity，例如：
+打开创建页：<https://portal.azure.com/#create/Microsoft.ManagedIdentity>
+（等价路径：portal 搜索框输入 **Managed Identities** → **+ Create**）。
 
-```text
-blockless-vsce-publisher
-```
+1. Subscription：选 1.2(c) 那个订阅。
+2. Resource group：没有就点 **Create new**，名字如 `blockless-rg`。
+3. Region：就近选（如 East Asia）。
+4. Name：**`blockless-vsce-publisher`**。
+5. Review + create → Create。
 
-记录这些值：
+创建完点 **Go to resource**，在 **Overview** 页记下（1.6 回填用）：
 
-- Client ID
-- Tenant ID
-- Subscription ID
-- Resource group
-- Managed identity resource name
+- **Client ID**
+- **Subscription ID** / Subscription name
+- **Resource group**、Name（`blockless-vsce-publisher`）
 
-给它最小 Azure 权限即可。官方示例会给 Reader role；它不是用来管理 Azure
-资源的，核心用途是让 Azure Pipeline 通过 federation 换到一个 Entra token，
-再用这个身份发布 VS Code 扩展。
+Tenant ID 在 portal 右上角账号 → **Switch directory**，或
+<https://portal.azure.com/#view/Microsoft_AAD_IAM/TenantPropertiesBlade> 可查。
+
+> 这个身份本身**不需要任何 Azure 角色权限**——它不去管理 Azure 资源，只是给
+> Azure Pipeline 一个可被 federation 信任的身份去发布扩展。所以不用给它 Reader
+> 之类的 role。
 
 ### 1.5 给 Managed Identity 添加 Federated Credential
 
-打开刚创建的 managed identity：
+还在 1.4 那个 managed identity 资源页，左侧菜单：
+**Settings → Federated credentials → + Add Credential**。
 
-```text
-Settings
-  -> Federated credentials
-  -> Add Credential
-```
+1. Federated credential scenario：选 **Other issuer**（不是 GitHub / Kubernetes）。
+2. **Issuer**：粘贴 1.3 draft 里的 Issuer。
+3. **Subject identifier**：粘贴 1.3 draft 里的 Subject identifier。
+4. Name：随便起个可读名，如 `blockless-devops`。
+5. Audience：保持默认 `api://AzureADTokenExchange`（与 Azure DevOps 默认一致）。
+6. Add。
 
-把 Azure DevOps service connection draft 里拿到的 `issuer` 和 `subject`
-填进去。Audience 使用 Azure DevOps / Azure 默认值即可，保持和 service
-connection 页面要求一致。
-
-保存后，Azure DevOps pipeline 就可以在不保存 secret 的情况下，以这个 managed
-identity 换取短期 Entra token。
+保存后，这个 managed identity 就信任由那条 service connection 签发的令牌，
+Azure Pipeline 即可在不存任何 secret 的前提下换取短期 Entra token。
 
 ### 1.6 回填并保存 Service Connection
 
-回到 Azure DevOps 的 service connection draft，填入：
+回到 1.3 的 service connection draft（
+<https://dev.azure.com/{org}/blockless-release/_settings/adminservices> →
+点开 `blockless-vsce-publish` → Edit），把 1.4 记下的值填进去：
 
-- Managed identity Client ID
-- Tenant ID
-- Subscription ID
-- Subscription name
+- **Service Principal Id**（即 managed identity 的 **Client ID**）
+- **Tenant ID**
+- **Subscription ID**
+- **Subscription Name**
 
-点击 Verify，再保存。
+点 **Verify**（应显示成功），再 **Save**。
 
-保存后打开该 service connection：
+保存后打开该 service connection 的 **…（更多）→ Security**：
 
-- 勾选或配置 Grant access permission to all pipelines，或者只授权发布 pipeline。
-- 名字建议固定为 `blockless-vsce-publish`，后续 YAML 会引用它。
+- 打开 **Grant access permission to all pipelines**（图省事），或单独授权发布
+  pipeline。
+- 确认名字是 `blockless-vsce-publish`——`azure-pipelines.publish.yml` 里的
+  `azureServiceConnection` 就引用它。
 
 ### 1.7 获取 Managed Identity 的 Marketplace Resource ID
 
-Visual Studio Marketplace publisher 添加成员时，需要的是该身份在 Marketplace /
-Azure DevOps 身份系统里的 resource ID。官方示例用 Azure CLI 调这个接口：
+把这个身份加到 Marketplace publisher 成员时，需要的是它在 Azure DevOps 身份系统
+里的 **profile id**。这个 id 必须**以 managed identity 自己的身份**去查，所以本机
+`az login`（那是你个人身份）查不到——只能在 pipeline 里通过 service connection 查。
 
-```text
-https://app.vssps.visualstudio.com/_apis/profile/profiles/me
-```
-
-先在 Azure Pipelines 里跑一次临时任务：
+打开 Pipelines：<https://dev.azure.com/{org}/blockless-release/_build> → **New
+pipeline** → 源选你的仓库 → 选 **Starter pipeline** → 把内容整段替换成下面这段 →
+**Save and run**（可先建一个 `ci/get-resource-id` 分支跑，不污染 main）：
 
 ```yaml
 trigger: none
@@ -195,92 +225,68 @@ steps:
     displayName: Get managed identity Marketplace resource ID
     inputs:
       azureSubscription: blockless-vsce-publish
-      scriptType: pscore
+      scriptType: bash
       scriptLocation: inlineScript
       inlineScript: |
-        az rest `
-          -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me `
+        az rest \
+          -u "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1" \
           --resource 499b84ac-1321-427f-aa17-267ca6975798
 ```
 
-输出 JSON 里会有一个 `id` 字段。保存这个 `id`。
+> `499b84ac-1321-427f-aa17-267ca6975798` 是 Azure DevOps 的固定 resource id，照抄。
+
+跑完点开这一步的日志，输出 JSON 里有个 **`id`** 字段（形如
+`aaaaaaaa-bbbb-...`）。**复制这个 `id`**，1.8 要用。用完这条临时 pipeline 可以删掉。
 
 ### 1.8 授权 Managed Identity 发布 Marketplace 扩展
 
-打开：
+打开 publisher 直链：
+<https://marketplace.visualstudio.com/manage/publishers/blockless> →
+顶部 **Members** 标签 → **Add**。
 
-```text
-https://marketplace.visualstudio.com/manage/publishers/
-```
-
-进入 `blockless` publisher，把上一步拿到的 managed identity resource ID 加为成员，
-角色给 `Contributor`。
+- 在用户框里粘贴 1.7 拿到的那个 **`id`**（managed identity 的 profile id）。
+- Role 选 **Contributor**（或更高）。
+- 添加。
 
 这一步完成后，pipeline 里的 `vsce publish --azure-credential` 才有权限把
-`blockless.mpy-hardware-extension` 发布到 Marketplace。
+`blockless.mpy-hardware-extension` 发布到 Marketplace。至此 1.x 全部配完。
 
 ## 2. Azure Pipelines 自动发布
 
-建议发布策略：
+发布策略：
 
-- PR 只跑测试、typecheck、package。
-- 正式发布用手动 `workflow_dispatch` 等价的 Azure Pipelines 手动运行，或用 tag
-  触发。
-- 发布凭证不使用 PAT，不保存长效 secret。
-- 使用 `vsce publish --azure-credential`。
+- 发布 = 手动跑仓库根目录的 `azure-pipelines.publish.yml`（`trigger: none`，只能手动点）。
+- 测试 = GitHub Actions（`.github/workflows/ci.yml`），**只测不发**。
+- 发布凭证走 workload identity federation，不用 PAT、不存长效 secret。
 
-示例 `azure-pipelines.publish.yml`：
+发布流水线已经提交在仓库里，不用再手抄 YAML：
 
-```yaml
-trigger: none
-pr: none
-
-pool:
-  vmImage: ubuntu-latest
-
-steps:
-  - checkout: self
-    submodules: recursive
-
-  - task: NodeTool@0
-    inputs:
-      versionSpec: "22.x"
-    displayName: Use Node.js
-
-  - script: npm ci
-    workingDirectory: mpy-hardware-extension
-    displayName: Install extension dependencies
-
-  - script: npm test
-    workingDirectory: mpy-hardware-extension
-    displayName: Run tests
-
-  - script: npm run typecheck
-    workingDirectory: mpy-hardware-extension
-    displayName: Typecheck
-
-  - script: npm run package
-    workingDirectory: mpy-hardware-extension
-    displayName: Package VSIX
-
-  - task: AzureCLI@2
-    displayName: Publish to Visual Studio Marketplace
-    inputs:
-      azureSubscription: blockless-vsce-publish
-      scriptType: pscore
-      scriptLocation: inlineScript
-      inlineScript: |
-        cd mpy-hardware-extension
-        npx vsce publish --azure-credential
+```text
+azure-pipelines.publish.yml
 ```
+
+> 它和官方示例有一处关键区别：用 `core.symlinks=false` + 手动
+> `git submodule update` 拉子模块。因为上游 GraftSense 提交了一个损坏的 symlink
+> blob，直接 `submodules: recursive` 在 Linux agent 上会以 ENAMETOOLONG 失败
+> （和 `.github/workflows/ci.yml` 同一处坑、同一个修法）。
+
+**在 Azure DevOps 里把它接成一条 pipeline（一次性）：**
+
+1. 打开 <https://dev.azure.com/{org}/blockless-release/_build> → **New pipeline**。
+2. 源选你的仓库（GitHub 仓库要先授权 Azure Pipelines 访问）。
+3. 选 **Existing Azure Pipelines YAML file**，路径选
+   `/azure-pipelines.publish.yml` → Continue → Save（先别 Run）。
+4. 以后要发版，进这条 pipeline 点 **Run pipeline** 即可。
 
 注意：
 
-- `azureSubscription` 必须是第 1.3 节创建的 service connection 名称。
-- 当前项目的 `@vscode/vsce` 是 devDependency，`npx vsce` 会使用项目内版本。
-- 官方要求 `vsce >= 2.26.1` 才支持这种发布方式；当前项目是 `^3.9.2`，满足。
-- `npm run package` 会先跑 `vscode:prepublish`，把扩展入口和工具链文件准备好。
-- 发布前必须已经递增 `package.json` 的 `version`，否则 Marketplace 会拒绝重复版本。
+- YAML 里的 `azureSubscription: blockless-vsce-publish` 必须等于 1.3 的 service
+  connection 名；不一致会在发布步报无权限。
+- `@vscode/vsce` 是 devDependency，`npx vsce` 用项目内版本（`^3.9.2`，满足
+  `--azure-credential` 要求的 ≥ 2.26.1）。
+- `npm run package` 会先跑 `vscode:prepublish`，bundle 入口并 vendor 工具链。
+- **首次发布**：publisher 是空的，`0.3.3` 还没发过，可直接发 0.3.3，无需 bump；
+  之后每次重发都要先递增 `package.json` 的 `version`（见第 4 节）。
 
 ## 3. 每次发布前检查
 
