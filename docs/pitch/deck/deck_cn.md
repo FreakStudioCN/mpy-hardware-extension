@@ -1,413 +1,211 @@
-# Blockless Pitch Deck - 中文最新版 v23
+# Pitch Deck - 中文比赛版 v22
 
-> 日期：2026-06-06  
-> 受众：中国落地合作方 / 比赛评委 / 早期投资人 / 美国 VC 中文沟通材料  
-> 定位：软件优先、硬件感知的 AI 嵌入式原型平台  
-> 与英文版差异：中文保留“中国先落地”的商业路径，但不把教育采购说成已经验证的收入。
+> 日期：2026-05-30
+> 受众：创业比赛 / 路演评委 / 创客教育合作方
+> 定位：AI 原生硬件创作入口，FabLab 认证节点路径 × 中国供应链交付
 
 ---
 
 ## Slide 1 - 封面
 
-# 嵌入式硬件的 AI Agent
+# 说一句话，造出能跑的硬件。
 
-软件开发有了 Cursor。  
-硬件原型还卡在选型、驱动、引脚、烧录和串口调试。
+软件有 Cursor / Lovable。
 
-**Blockless 把一句硬件需求，变成真实开发板上能运行的 MicroPython。**
-
-`[Logo]` | AI 原生嵌入式原型平台
+硬件也应该有一个同样低门槛的创作入口：用户说出想法，系统完成选型、驱动匹配、代码生成、依赖安装、本地烧录、串口调试，并把可运行项目连接到模块和供应链。
 
 ---
 
-## Slide 2 - 清晰类比
+## Slide 2 - 时代变化
 
-### Cursor 没有发明程序员，它商业化了一个已经存在的工作流。
+### AI 已经开始接管数字世界，但物理世界还停在手工拼装阶段。
 
-Cursor 之所以能卖，是因为开发者本来就在：
-
-- VS Code
-- GitHub
-- 包管理器
-- 测试 / 部署循环
-- Stack Overflow / 文档 / 示例代码
-
-硬件也有同样的“创作图谱”，只是还没有被 AI 串起来：
-
-- Adafruit / SparkFun / Seeed / DFRobot 模块
-- Arduino / MicroPython / CircuitPython 驱动
-- Hackster / Tindie / Kickstarter 创作者
-- 串口日志、烧录工具、板卡能力、真实接线
-
-> Cursor 站在软件创作图谱上。  
-> Blockless 站在嵌入式硬件创作图谱上。
-
----
-
-## Slide 3 - 核心判断
-
-### AI 已经改变软件，硬件下一个，但不能从 PCB 开始。
-
-- 软件 agent 能跑起来，是因为软件有快反馈和丰富包生态。
-- 嵌入式硬件的问题是：反馈慢、驱动碎片化、AI 看不见真实设备。
-- 第一代成功的 AI 硬件平台，不会先替代 Altium。
-- 它会先解决“从想法到真实硬件跑起来”的最短路径。
-
-> 我们不是做“AI 画 PCB”。  
-> 我们做的是 **AI 把硬件原型跑起来**。
-
----
-
-## Slide 4 - 问题
-
-### 嵌入式原型最容易坏在 AI 最不擅长的地方。
-
-一个简单项目仍然要：
-
-- 选开发板和模块
-- 找真实可用的驱动包
-- 确认合法引脚
-- 按真实 API 生成固件
-- 烧录、看串口、修错误
-
-LLM 可以写出“看起来对”的代码。  
-但它不知道哪个包真的存在、构造函数怎么写、哪些引脚能用。
-
-> 瓶颈不是想象力，而是包、板卡和设备的真实信息。
-
----
-
-## Slide 5 - 为什么现在
-
-### 四个条件同时成熟。
-
-1. **AI coding agent 已经成为主流。** 市场理解“Cursor for X”。
-2. **微控制器工具链正在靠近 Python。** Arduino 已经公开强调 Python、Linux、RTOS 和 AI 工作流。
-3. **模块化电子已经成熟。** Qwiic、STEMMA、Grove、Gravity、Modulino 已经证明物理模块模式。
-4. **AI 硬件工具已被资本验证。** Schematik 融资 $4.6M，Flux 融资 $37M。
-
-机会不是重新发明模块化硬件。  
-机会是让模块化硬件变成 AI 能读懂、能调用、能验证的系统。
-
----
-
-## Slide 6 - 我们做了什么
-
-### 一个被真实包、板卡和模块约束的 agent 闭环。
-
-**当前 MVP**
-
-- VS Code extension agent
-- 后端 Package Intelligence
-- board profile 和 import audit
-- 从包证据中抽取 driver context
-- 通过 MicroPython 工具链本地部署
-- 真实 demo 路径：需求 -> 包解析 -> 代码 -> 硬件运行
-
-**本地资产证据**
-
-- 209 条 package-index records
-- 166 条 GraftSense-sourced records
-- 157 条 `generatable` package records
-- 167 个 GraftSense driver `package.json`
-- 测试覆盖：温度意图能解析到 `aht20_driver`
-
-> 我们不让模型猜驱动 API。  
-> 我们给模型一个机器可读的硬件合同。
-
----
-
-## Slide 7 - Demo
-
-### “温度超过 30 度，点亮 LED。”
-
-1. 用户描述硬件需求。
-2. Agent 把需求映射为能力：温度感知、数字输出。
-3. Package Intelligence 解析温度驱动。
-4. Driver context 提供 import、构造函数、读取属性和引脚角色。
-5. Agent 生成经过 audit 的 MicroPython。
-6. 用户确认部署，代码跑在真实开发板上。
-
-示例解析包：`aht20_driver`。
-
-> 说出来。解析包。审计代码。跑起来。
-
----
-
-## Slide 8 - 产品
-
-### 软件优先，硬件感知。
-
-**核心付费产品**
-
-- AI 嵌入式 agent：固件生成、调试、修错
-- Package Intelligence 和 driver context
-- board / module manifest
-- 部署前 code audit
-- LLM 用量计费和团队工作流
-
-**硬件的角色**
-
-- starter kit 和 active module 用于可靠上手
-- 受控 demo 面，降低首次失败率
-- 未来沉淀自描述 module graph
-
-硬件让 agent 相信真实世界。  
-软件才是高毛利主收入。
-
----
-
-## Slide 9 - 早期用户
-
-### 从“原型跑不起来就有经济损失”的人开始。
-
-第一批用户优先级：
-
-1. **硬件创业团队 / 产品工作室**：需要快速做出联网设备 demo。
-2. **嵌入式 / IoT 咨询公司**：节省的时间可以直接变成利润。
-3. **Maker-pro / 独立硬件卖家**：在 Tindie、Crowd Supply、Kickstarter 上卖项目。
-4. **大学实验室 / 课程项目 / capstone 团队**：每学期重复做原型。
-5. **CTE / STEM 老师**：产品稳定后再做课程化。
-
-不是第一批：泛 hobbyist、大规模 K12 采购。
-
-> 早期用户不是“对硬件感兴趣的人”，而是“硬件原型延迟已经有成本的人”。
-
----
-
-## Slide 10 - 渠道数据
-
-### 渠道数据不等于收入，但证明人群可触达。
-
-美国公开渠道：
-
-- Hackster：2.5M+ members，44K+ open-source projects。
-- Adafruit：3M+ monthly uniques，8M+ pageviews/month，16.2K orders/month。
-- Tindie：489K+ orders shipped，19.9K+ products。
-- Crowd Supply：硬件众筹和交付平台，官方称 launched projects 90%+ 达成融资目标。
-- Kickstarter Technology：$1.95B pledged，59K+ launched projects。
-- 美国 CTE：11.2M students，Perkins V 约 $1.3B 投入。
-
-这些数字不能直接变成我们的收入。  
-它们说明哪里有正在买模块、做项目、发起硬件产品的人。
-
----
-
-## Slide 11 - 从渠道到销售
-
-### Adafruit 一个月 16.2K 单，不会自动变成我们的销售。
-
-正确路径是可验证漏斗：
-
-**第一步：设计伙伴**
-
-- 找 20 个真实硬件原型用户。
-- 用他们自己的项目跑 Blockless。
-- 记录省了多少时间、失败在哪里。
-- 转化 5 个付费试点。
-
-**第二步：公开 recipe**
-
-- 发布 10 个真实可复现项目。
-- 每个 recipe 包含 BOM、代码、视频、driver evidence。
-- 每个 recipe 两个 CTA：试用 agent、购买 starter kit。
-
-**第三步：渠道销售**
-
-- 把 starter kit 和教程放进创客渠道。
-- 对重复创作者、咨询公司、实验室卖软件。
-- 用硬件销售反哺更多 package / module truth。
-
-> 渠道数据证明“可以触达”。  
-> 付费试点和套件预售才证明“可以销售”。
-
----
-
-## Slide 12 - 第一年的销售验证
-
-### Seed 阶段不应该讲大 TAM，应该讲可证伪的销售实验。
-
-| 里程碑 | 证明什么 |
+| 数字世界 | 已发生的变化 |
 |---|---|
-| 20 个 design partners | 痛点真实、重复存在 |
-| 10 个 verified recipes | agent 能稳定复现有用项目 |
-| 5 个付费试点 | 团队愿意为原型速度付费 |
-| 100 套 starter kit 预售 | 硬件可以作为 onboarding 入口 |
-| 500 个 qualified signups | 公开渠道能产生需求 |
-| 50 次 active hardware runs | 用户不是只看 demo，而是真的跑硬件 |
+| 写代码 | 从补全，到 agent 自己改多文件、跑任务、修错误 |
+| 做网页 / app | 从手写页面，到一句话生成原型和完整页面 |
+| 做图像 / 视频 | 从工具操作，到自然语言生成资产 |
+| 做硬件 | 仍然要选型、接线、找库、烧录、看串口 |
 
-如果这些指标做不到，就不能靠 TAM 硬讲。
+下一代创作工具不应该只停在屏幕里。AI 真正进入物理世界，必须能把想法变成可运行的设备。
 
 ---
 
-## Slide 13 - 中国先落地的道理
+## Slide 3 - 用户痛点
 
-### 中文版可以更强调中国先做验证，但不能说教育采购已经验证。
+### 创作者不是没有想法，是卡在硬件落地链路。
 
-中国适合先落地的原因：
+- **选型难**：ESP32 / Arduino / STM32、传感器、执行器、通信方式，选择太多。
+- **接线难**：I2C / SPI / UART / ADC、电压、引脚复用，任何一步错都跑不起来。
+- **驱动难**：资料分散在 GitHub、厂商 PDF、论坛、示例代码里，AI 很容易编出不存在的 API。
+- **调试难**：硬件错误不是普通编译错误，而是串口日志、供电问题、接线问题、固件版本问题混在一起。
 
-- 深圳供应链能快速迭代模块、PCB、SMT、小批量。
-- Seeed / DFRobot / M5Stack / Yahboom 已经教育了模块化硬件市场。
-- 中国高校、创客空间、机器人竞赛、AI 教育基地有真实硬件实践需求。
-- 中文用户对“软硬结合课程 + 套件 + 服务”接受度高于纯 SaaS。
-
-中国不适合作为一开始的大规模公立学校采购故事：
-
-- 采购周期慢。
-- 地方关系和课程标准重要。
-- 需要套件、课程、培训、售后一起交付。
-
-> 中国先落地不是“先卖给全国学校”。  
-> 而是先用高校 / 实验室 / 创客课程 / 比赛训练营验证项目闭环。
+今天的门槛，不在“想象力”，而在“把东西真的跑起来”。
 
 ---
 
-## Slide 14 - 中国商业路径
+## Slide 4 - 为什么 AI 做硬件更难
 
-### 中国先从“课程化套件 + 软件 agent + 小批量交付”开始。
+### 普通软件 agent 到了硬件现场会失效，因为它缺三样东西。
 
-**第 1 阶段：高校 / FabLab / 创客空间**
-
-- 目标：课程、实验、竞赛、创新项目。
-- 收入：软件授权 + 套件 + 工作坊 / 培训。
-- 价值：快速获得真实项目、真实反馈、真实教学场景。
-
-**第 2 阶段：机器人 / AIoT / 科创教育机构**
-
-- 目标：重复开课、重复使用硬件。
-- 收入：课程包、套件包、机构授权。
-- 价值：比单个 hobbyist 更稳定。
-
-**第 3 阶段：学校和区域采购**
-
-- 前提：课程、稳定性、售后、教学成果已经跑通。
-- 收入：实验室套装、教师培训、年度软件服务。
-
-> 中国第一桶金更可能来自“套件 + 课程 + 服务”，不是纯软件订阅。
-
----
-
-## Slide 15 - 中美路径差异
-
-### 美国验证 VC 叙事，中国验证交付和供应链。
-
-| 维度 | 美国路径 | 中国路径 |
+| 缺口 | 具体表现 | 后果 |
 |---|---|---|
-| 首批用户 | startup、consultant、maker-pro、lab | 高校、FabLab、创客教育、AIoT 课程 |
-| 收入形态 | 软件订阅 / metered / team pilot | 软件 + 套件 + 课程 + 培训 |
-| 渠道 | Hackster、Adafruit、Tindie、Crowd Supply、Kickstarter | 高校实验室、创客空间、机器人竞赛、教育机构 |
-| 优势 | 高客单、VC 叙事清晰、软件付费更自然 | 供应链快、硬件套件落地快、课程场景密集 |
-| 风险 | 没有 early users 时容易被质疑需求 | 教育采购慢、服务重、区域差异大 |
+| 真实驱动知识 | MCU、传感器、库版本、固件能力高度碎片化 | LLM 容易幻觉 API 和安装方式 |
+| 本地执行权限 | 烧录、串口、文件上传必须访问用户电脑和开发板 | 纯网页 demo 很难形成闭环 |
+| 硬件状态感知 | 模块不会主动告诉系统“我是谁、能做什么、接在哪” | AI 只能猜引脚、猜协议、猜错误原因 |
 
-两条路不冲突：  
-美国证明软件平台价值，中国证明硬件和交付闭环。
+所以核心不是“让 AI 写一段代码”，而是给 AI 一套能读包、能连板、能看反馈、能识别模块的硬件运行系统。
 
 ---
 
-## Slide 16 - 竞品
+## Slide 5 - 市场与生态证据
 
-### 赛道已被验证，但最终层还没有定型。
+### 硬件创作生态足够大，工具链复杂度也在继续上升。
 
-| 类别 | 代表 | 解决什么 | 我们的切入 |
+- Arduino 官方 2024 开源报告显示，Library Manager 2024 年新增 **1,198** 个贡献库，总数达 **7,669** 个。
+- Arduino 2024 年发布 **3 个 Arduino Lab for MicroPython** 版本，MicroPython 已进入主流创客工具链。
+- Schematik 2026 年 4 月宣布完成 **$4.6M pre-seed**，说明“AI 原生硬件创作”已经被资本验证。
+- Kickstarter Technology 类项目累计获得 **$1.95B pledges**，说明技术硬件有成熟商业化通道。
+
+生态越大，库和设备越多，新手越需要一个能把链路串起来的入口。
+
+公开资料：Arduino Open Source Report 2024；Schematik 官方公告；Kickstarter Stats。
+
+---
+
+## Slide 6 - 一句话背后的真实数据流
+
+### “一句话造硬件”不是聊天框，而是一条可落地的工程流水线。
+
+1. 用户说需求：做一个温湿度监测器，超过阈值亮灯并显示数值。
+2. 系统获得硬件画像：绑定设备、I2C 扫描、手动勾选模块，或用自然语言描述硬件。
+3. Agent 做能力匹配：判断需要显示、传感、通信、执行器等 `hardware_tags`。
+4. 关联 Package Intelligence：读取 `package.json`、README、driver context、依赖、芯片支持和固件要求。
+5. 生成 MicroPython 项目：代码、驱动、资源、配置文件一起生成。
+6. 打包成 `.mpk`，写入 `MANIFEST.JSON`，可下载、推送设备、在线编辑、保存草稿或发布到 uPyStore。
+7. 本地 IDE / VS Code 插件调用 `mpremote`，安装依赖、上传代码、运行、读取串口输出并自动修复。
+
+一句话只是入口，真正的壁垒在后面的硬件画像、驱动检索、应用打包、本地运行和反馈修复。
+
+---
+
+## Slide 7 - 技术栈总览
+
+### 我们不是聊天框，而是一套 AI 原生硬件开发栈。
+
+| 层 | 作用 | 关键实现 |
+|---|---|---|
+| Agent / Skill 层 | 把自然语言拆成硬件任务和执行步骤 | 项目生成、错误修复、Arduino/PDF 驱动转换、测试生成 |
+| 知识与包层 | 让 AI 用真实驱动，不靠瞎猜 | Package Intelligence、uPyPI/GraftSense、driver context、deps、chips/fw 标签 |
+| 本地执行层 | 让 AI 能真的碰到开发板 | Thonny 插件、VS Code 插件、`mpremote run/exec/fs`、串口日志 |
+| 应用运行层 | 让项目可安装、可升级、可回滚 | uPyOS 0.9.0、LVGL、D-Shell、`.mpk`、`MANIFEST.JSON` |
+| 设备画像层 | 让系统知道真实硬件能力 | `device_fingerprint`、`device_profiles`、`hardware_tags`、modules 注册表 |
+| 模块交付层 | 让方案从 demo 变成套件 | GraftSense 传感器模块、GraftPort 扩展板、Dev Kit、生产 SOP |
+
+这套栈的价值是把 AI 从“写代码的人”变成“能交付硬件项目的操作员”。
+
+---
+
+## Slide 8 - Package Intelligence / IDE
+
+### Package Intelligence 解决“找包难、找包乱”，IDE 插件把包管理放进真实工作流。
+
+- uPyPI + GraftSense + curated recipes 可索引 **200+ 个 MicroPython 包/驱动**，覆盖传感器驱动、通信模块、人机交互等场景。
+- 包详情包含名称、版本、描述、作者、license、芯片支持、固件依赖、文件列表等机器可读信息。
+- Thonny 插件支持在 IDE 内搜索、查看元数据、下载缓存，并通过 `mpremote` 安装到开发板 `/lib`。
+- 插件处理多文件包、依赖、网络失败、`mpremote` 未配置、开发板未连接等错误场景。
+
+这意味着我们的 AI 不必凭空编驱动，而是可以调用一个结构化、可安装、可验证的 MicroPython 包生态。
+
+---
+
+## Slide 9 - 本地运行闭环
+
+### MicroPython + mpremote 更适合 AI 反复试错。
+
+| 闭环环节 | 传统 Arduino / C 路径 | 我们的 MicroPython 路径 |
+|---|---|---|
+| 写代码 | `.ino` 隐式规则、多文件拼接、C/C++ 依赖复杂 | Python 结构清晰，AI 更容易生成和修复 |
+| 安装依赖 | 手动找库、复制代码、处理版本冲突 | 包搜索 + IDE 内安装 + 依赖自动处理 |
+| 运行反馈 | 编译、烧录、串口监视器分散，改一次等一次 | `mpremote run/exec/fs`，上传、运行、读日志在一条链路 |
+| 自动修复 | 用户自己看串口和资料 | agent 读取错误输出后改代码、重跑、再验证 |
+
+硬件 AI 的关键差异不是“生成第一版代码”，而是把设备反馈纳入 agent 循环。
+
+---
+
+## Slide 10 - uPyOS / uPyStore 系统架构
+
+### 我们把一次性代码，变成 MCU 上可安装、可推荐、可分发的应用。
+
+| 组件 | 具体设计 | 价值 |
+|---|---|---|
+| uPyOS 0.9.0 | MicroPython + LVGL，运行于 ESP32 / ESP32-S3 等 MCU | 让单片机具备桌面启动器、应用安装卸载、系统设置、WiFi 管理 |
+| D-Shell | 搭载 uPyOS 的硬件终端设备 | 类比 Android 手机，是 uPyOS 的主要运行载体 |
+| `.mpk` | uPyOS 应用安装包，本质是固定结构压缩包 | 对标 APK，让硬件应用可以安装、更新、分发 |
+| `MANIFEST.JSON` | 声明应用名称、版本、入口、发布者等 | 对标 Android 清单文件，保证应用可被系统识别 |
+| `app_index.json` | 设备端商城静态入口文件，字段结构必须稳定 | 出厂设备依赖它拉取应用索引，不能随意破坏兼容 |
+
+V2 能力继续往前走：`device_fingerprint` 做匿名设备识别，`device_profiles` 保存硬件画像，`hardware_tags` 声明应用依赖，modules 注册表记录芯片、接口、能力、关联 package candidates 和蓝牙广播信息。
+
+---
+
+## Slide 11 - 竞品与路线差异
+
+### 赛道被验证，但谁能跑通真实设备还没有定型。
+
+| 维度 | Schematik / 网页类 AI 硬件工具 | 我们 |
+|---|---|---|
+| 输出物 | 代码、接线图、物料清单、教程 | 可运行 MicroPython 项目 + 模块组合 + 本地烧录调试 |
+| 驱动来源 | 依赖模型生成或公开示例 | Package Intelligence、真实包、README、`package.json`、driver context |
+| 执行闭环 | 多数停在生成和说明 | `mpremote` 连接开发板，读取串口，自动修复 |
+| 硬件抽象 | AI 选择元器件和引脚 | 主动模块自描述，系统读取能力后再生成方案 |
+| 交付路径 | 用户仍要采购、焊接、调试 | 模块、套件、小批量生产 SOP 接上供应链 |
+
+我们的判断是：AI 硬件不只需要“设计工具”，还需要“运行时、模块生态和交付链路”。
+
+---
+
+## Slide 12 - FabLab 认证节点路径 × 中国供应链
+
+### FabLab 不是一句“国际资源”，而是一条材料里已经写清楚的落地路径。
+
+| 资源 | 材料支持的事实 | 对项目的意义 |
+|---|---|---|
+| FabLab 国际体系 | FabLab 由 MIT 比特与原子研究中心发起，是全球创客教育与数字制造网络 | 可引入课程体系、技术文档、国际项目和创客社区资源 |
+| 申请运营资质 | 材料写明核心成员已完成 FabLab 官方认证课程，具备申请并运营 FabLab 节点的资质 | 不是泛泛合作想象，而是具备节点申报和运营能力 |
+| 联合高校落地 | 材料提出可依托中北大学，联合申请设立 FabLab 认证节点 | 可以把“一句话造硬件”放进高校新工科、实训、竞赛和创客空间 |
+| 中国供应链 | ESP32、传感器模块、PCB、SMT、小批量制造响应快 | FabLab 做教育和原型验证，中国供应链做套件与产品交付 |
+
+公开资料可说明 FabLab 的全球影响力；我们自己的材料则说明“怎么接入”：完成认证课程、具备申请运营资质、以高校为依托联合申请节点。
+
+---
+
+## Slide 13 - GraftSense/Port/Dev Kit 交付体系
+
+### 我们不是只有软件栈，也有模块、扩展板、套件和小批量生产 SOP。
+
+| 交付层 | 材料里的具体内容 | 说明什么能力 |
 |---|---|---|---|
-| AI PCB / EDA | Flux、Celus、CircuitMind、JITX | 原理图、BOM、PCB、layout | 在 PCB 之前，把原型跑起来 |
-| Prompt-to-hardware | Schematik | 代码、接线、物料、说明 | 受约束的 package + runtime truth |
-| 仿真 / 教育 | Wokwi、Tinkercad、MakeCode | 虚拟电路、教学和模拟 | 真实部署和包智能 |
-| 模块生态 | Seeed、DFRobot、M5Stack、Adafruit、SparkFun | 物理模块 | agent 可读的 module / package layer |
+| GraftSense | 系列传感器模块，硬件设计规范基于 Grove；已有 RCWL-9623 收发一体式超声波模块模板 | 有真实模块产品线，不是只做软件 demo |
+| GraftPort | 扩展板设计规范、成本和采购单 | 能把多个模块标准化接入开发板和教学场景 |
+| Dev Kit | GraftSense/Port Dev Kit 套件盒子、成本采购表、定价表、宣传单 | 能面向教育、比赛、课程做成套交付 |
+| 生产 SOP | 设计、验证、驱动、文档、小批量生产、商品页、推广、进度管理 | 从原型到商品页和小批量生产都有流程 |
 
-> 我们不替代 Altium。  
-> 我们做嵌入式原型的 AI 创建层。
-
----
-
-## Slide 17 - 为什么能赢
-
-### 我们给 agent 一个可闭环的栈。
-
-| 失败模式 | 普通 LLM 硬件工具 | Blockless |
-|---|---|---|
-| 不存在的库 | 猜 package name | 解析 indexed packages |
-| API 写错 | 幻觉 constructor | 使用 driver context |
-| import 不合法 | 部署后才发现 | 按 board profile 审计 |
-| 反馈慢 | compile / flash loop | MicroPython run loop |
-| 看不见硬件 | 猜 pin / module | manifest + 未来自描述模块 |
-| 示例碎片化 | web search | curated package intelligence |
-
-护城河不是 BLE 本身。  
-护城河是持续积累的 package、board、module 和 working-project truth。
+所以商业闭环不是“卖一个 AI 软件”：IDE / Skill 生成项目，uPyStore 分发应用，GraftSense/Port/Dev Kit 让项目买得到、拼得上、交付得出去。
 
 ---
 
-## Slide 18 - 商业模式
+## Slide 14 - 愿景
 
-### 软件是主收入，硬件是信任入口。
+### 未来每个智能设备，都可以被“说”出来。
 
-**主收入**
+我们要做的不是又一个代码生成器，而是下一代硬件创作入口：
 
-- 个人 / 团队订阅
-- metered agent runs / package intelligence calls
-- 面向咨询公司、创业团队、实验室的专业工作流
+- AI 理解意图，把想法拆成硬件任务。
+- Package Intelligence 和 uPyOS 提供可检索、可安装、可复用的软件生态。
+- 主动模块让硬件能被系统识别，而不是让 AI 盲猜。
+- 本地 IDE 和 `mpremote` 让 agent 真实运行、读取反馈、自动修复。
+- 中国供应链把 demo 变成套件、课程和小批量产品。
 
-**辅助收入**
-
-- starter kit 和 active module
-- 教育 / 实验室套装
-- 创作者小批量生产支持
-
-**社区层**
-
-- public recipes
-- 项目 fork
-- 反哺 package intelligence 的示例和数据
-
----
-
-## Slide 19 - 风险
-
-### 这个故事有空间，但还没有被证明。
-
-- 现在还没有 early users。
-- 硬件 agent 软件的付费意愿还没验证。
-- Arduino、Seeed、M5Stack、Flux 都可能加 AI。
-- 模块化硬件本身不是护城河。
-- 教育市场大，但慢。
-- 生产级嵌入式系统需要安全、合规和人工确认。
-
-可融资的窄主张是：
-
-> 在硬件生态变成 agent-native 之前，我们先成为嵌入式原型的默认 AI 工作流。
-
----
-
-## Slide 20 - 结尾
-
-# 硬件创作需要自己的 agent-native stack。
-
-物理世界不会靠通用代码补全被构建出来。
-
-它需要：
-
-- 真实 package truth
-- board 和 module context
-- 安全部署闭环
-- working-project memory
-- 中国供应链和套件交付能力
-
-**Blockless 正在构建这套栈。**
-
----
-
-## Sources
-
-- Schematik: https://www.schematik.io/blog/schematik-raises-4-6m-pre-seed
-- Flux: https://www.flux.ai/p/blog/we-raised-37m-to-take-the-hard-out-of-hardware
-- Hackster: https://www.hackster.io/about
-- Adafruit media kit: https://cdn-shop.adafruit.com/files/media.pdf
-- Tindie: https://www.tindie.com/about/
-- Crowd Supply: https://www.crowdsupply.com/apply
-- Kickstarter stats: https://www.kickstarter.com/help/stats
-- Advance CTE: https://careertech.org/our-vision/cte-in-your-state/
-- China MOE 2024: https://www.moe.gov.cn/jyb_sjzl/sjzl_fztjgb/202506/t20250611_1193760.html
-- Seeed: https://wiki.seeedstudio.com/About/
-- DFRobot: https://www.dfrobot.com/about-us
-- M5Stack: https://m5stack.com/about-us
+一句话，从想法到能跑、能复用、能交付的硬件。

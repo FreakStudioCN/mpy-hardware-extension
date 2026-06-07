@@ -49,10 +49,9 @@ bundled from `src/` via esbuild. The deterministic template pipeline is opt-in o
    The loop can generate files without a connected board, but install / flash /
    serial verification need the shim and a detected MicroPython device.
 2. **Codegen is grounded, not hardcoded.** `generate_code` now uses a nested LLM
-   call grounded on the board profile, manifest, sanitized phase profiles, and
-   resolved driver contexts. If driver context is missing or weak, the agent
-   should ask the user, use package intelligence, or mark the path experimental
-   instead of inventing APIs.
+   call grounded on the board profile, manifest, loaded skills, and resolved
+   driver contexts. If driver context is missing or weak, the agent should ask the
+   user, load a skill, or mark the path experimental instead of inventing APIs.
 3. **Logs are not the product UI.** Keep raw tool traffic, JSON arguments,
    observations, and terminal internals in recorder output / developer trace.
    The default Activity stream should stay readable for a hardware builder.
