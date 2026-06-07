@@ -10,7 +10,7 @@ Blockless 可以把一句自然语言硬件想法变成一个 MicroPython 项目
 ## 当前状态
 
 - 本地端到端开发流程已可用。
-- 后端已准备 Render + 托管 Postgres 的部署配置；正式上线前可继续本地自起后端（见下文）。
+- 后端已部署在 Render（+ 托管 Postgres，见 `mpyhw-api/DEPLOY.md`）；也可继续本地自起后端（见下文）。
 - 扩展使用 `@vscode/vsce` 打包。
 - 真板烧录验证仍是独立验证线；当前自动化测试使用 mock/shim 的设备流程。
 
@@ -145,6 +145,24 @@ npm test
 
 只有要验证“安装后的产物”或对外分发时，才需要下面的打 VSIX 流程。
 
+## 连云端后端测试（不起本地后端）
+
+只想验证「本地扩展 × 已部署的云端后端」这条线时，不必起 Docker/Postgres/本地后端。扩展的后端地址由 `mpyhw.apiBaseUrl` 设置（其次是 `MPYHW_API_BASE` 环境变量）决定，默认就是托管地址 `https://blockless-api.onrender.com`。
+
+用 Claude Code 时直接调 `/cloud-test`（定义在 `.claude/skills/cloud-test/`）：
+
+```text
+/cloud-test            # 切到云端 + 探活 + 加载扩展（F5，默认）
+/cloud-test reinstall  # 同上，但打 VSIX 装到日常 VS Code
+/cloud-test restore    # 测完一键切回本地 127.0.0.1:8787
+```
+
+手动等价操作：把 VS Code 设置 `mpyhw.apiBaseUrl` 指向云端地址即可（`.vscode/settings.json` 已 gitignore，改它是纯本地操作，不进 git），然后 F5 或重装扩展。
+
+`/cloud-test` 会在开会话前先探活云端 `/v1/health`、并比对云端 `/v1/tools` 与本地 `contracts/canonical_tools.json`，提前挡掉两个常见错误：后端不可达（“Cannot reach the auth API”）和工具契约漂移（“tool_registry_mismatch”）。
+
+> 云端是真后端：需要 GitHub 登录、消耗 credits、走真实 DeepSeek。要回到本地全栈开发，用 `/cloud-test restore` 切回，再配合 `dev-up.ps1`（或 `/dev-up`）起本地后端。
+
 ## 构建和打包扩展
 
 ```powershell
@@ -166,7 +184,7 @@ npm run package
 https://blockless-api.onrender.com
 ```
 
-> **注意：该托管后端目前尚未部署上线。** 在它上线前，仅安装 VSIX 无法连到可用后端——必须按上文「启动本地服务」自起后端，再把扩展指向它：用 VS Code 设置 `mpyhw.apiBaseUrl` 覆盖，或设置环境变量：
+> 该托管后端已部署上线（见 `mpyhw-api/DEPLOY.md`）；安装 VSIX 后默认即连它，也可用 `/cloud-test` 一键验证「本地扩展 × 云端后端」。如果想改连本地自起的后端，用 VS Code 设置 `mpyhw.apiBaseUrl` 覆盖，或设置环境变量：
 
 ```powershell
 $env:MPYHW_API_BASE = "http://127.0.0.1:8787"
