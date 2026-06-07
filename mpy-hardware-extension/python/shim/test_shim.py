@@ -13,6 +13,7 @@ from serve import (
     scripts_root,
     _ensure_utf8_io,
     _run_project_script,
+    _run_flash_device,
     _run_render,
     _run_simulate,
     _run_static_check,
@@ -293,17 +294,17 @@ def test_run_validate_maps_exit_codes_to_validity():
     assert bad["status"] == "ok" and bad["valid"] is False and bad["exit_code"] == 1
 
 
-def test_run_validate_joins_project_dir_and_rejects_unknown_schema():
+def test_run_validate_joins_project_dir_and_rejects_unknown_schema(tmp_path):
     captured = {}
 
     def runner(cmd, **_k):
         captured["cmd"] = cmd
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    _run_validate(Shim(runner=runner), {"project_dir": "/proj", "path": "wiring.json", "schema": "wiring"})
+    _run_validate(Shim(runner=runner), {"project_dir": str(tmp_path), "path": "wiring.json", "schema": "wiring"})
     # --json arg is project_dir joined with the relative path.
     json_arg = captured["cmd"][captured["cmd"].index("--json") + 1]
-    assert json_arg == os.path.join("/proj", "wiring.json")
+    assert json_arg == os.path.join(str(tmp_path), "wiring.json")
 
     assert _run_validate(Shim(runner=runner), {"schema": "nope"}) == {"status": "error", "error_kind": "unknown_schema"}
 
@@ -376,6 +377,27 @@ def test_run_render_builds_input_output_format_args():
 def test_run_render_maps_nonzero_to_error():
     fail = _run_render(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, "", "bad json")), "wiring", {"project_dir": "/p"})
     assert fail["status"] == "error" and fail["error_kind"] == "render_failed" and "bad json" in fail["message"]
+
+
+def test_run_flash_device_resets_without_recopy_or_rescan(tmp_path):
+    fw = tmp_path / "firmware"
+    fw.mkdir()
+    (fw / "main.py").write_text("print('MPYHW_READY')", encoding="utf-8")
+
+    def runner(cmd, **_k):
+        if "list" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "COM7 MicroPython\nCOM8 MicroPython\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    shim = Shim(runner=runner)
+    result = _run_flash_device(shim, {"project_dir": str(tmp_path), "path": "firmware/main.py", "port": "COM8"})
+
+    assert result["status"] == "ok"
+    # No project flash script: write_main_py already deployed the tree, so the fallback
+    # only resets the selected port. It must NOT re-copy main.py and NOT rescan ports.
+    assert ["mpremote", "connect", "COM8", "reset"] in shim.commands
+    assert not any(command[:6] == ["mpremote", "connect", "COM8", "resume", "fs", "cp"] for command in shim.commands)
+    assert not any(command == ["mpremote", "connect", "list"] for command in shim.commands)
 
 
 class FakeSerial:

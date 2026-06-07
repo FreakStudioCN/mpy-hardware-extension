@@ -15,7 +15,6 @@ export function createSessionState(input: { traceId: string; intent: string; boa
     // keeps narrating without acting eventually hands back instead of looping.
     stallNudges: 0,
     loadedSkills: [] as string[],
-    skillBodies: {} as Record<string, string>,
     messages: [] as any[],
     lastRuntimeMarker: undefined as string | undefined,
     runtimeVerified: false,

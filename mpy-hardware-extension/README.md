@@ -22,23 +22,19 @@ side panel.
 1. Install the extension and open the **Blockless** view from the activity bar.
 2. Sign in with GitHub when prompted (used for your free daily credits).
 3. Describe what you want to build and follow the build plan.
-4. To deploy to a real board, connect a MicroPython device over USB — the
-   extension provisions a small Python helper (the device shim) the first time.
+4. To deploy to a real board, connect a MicroPython device over USB. The
+   extension runs the local device helper for you.
 
 ## Requirements
 
-- A Python 3.10+ interpreter on PATH (or set `Blockless: Python Path`) for the
-  device shim that talks to your board over serial.
 - A GitHub account for sign-in and credits.
 
 ## Settings
 
 - `mpyhw.apiBaseUrl` — override the backend API URL (e.g. a self-hosted backend).
   Leave blank to use the default hosted backend.
-- `mpyhw.pythonPath` — path to the Python interpreter used for the device shim.
-  Leave blank to auto-detect.
-- `mpyhw.pipIndexUrl` — custom pip index URL for installing the shim's
-  `mpremote`/`pyserial` (e.g. a mirror).
+- `mpyhw.pythonPath` — developer override for the fallback local runner.
+- `mpyhw.pipIndexUrl` — developer override for fallback runner dependency setup.
 
 ## Privacy
 

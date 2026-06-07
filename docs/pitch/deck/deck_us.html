@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Blockless — Say it. Ship real hardware.</title>
+
+<!-- ===========================================================
+     FONTS — JetBrains Mono (terminal/code) + IBM Plex Sans (body)
+     A deliberate technical pairing; no system fonts.
+     =========================================================== -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+<style>
+/* ===========================================================
+   RESET
+   =========================================================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ===========================================================
+   VIEWPORT FITTING: MANDATORY BASE STYLES (verbatim)
+   Ensures every slide fits exactly within the viewport.
+   =========================================================== */
+html, body { height: 100%; overflow-x: hidden; }
+html { scroll-snap-type: y mandatory; scroll-behavior: smooth; }
+.slide {
+    width: 100vw; height: 100vh; height: 100dvh;
+    overflow: hidden;                 /* CRITICAL: no overflow ever */
+    scroll-snap-align: start;
+    display: flex; flex-direction: column; position: relative;
+}
+.slide-content {
+    flex: 1; display: flex; flex-direction: column; justify-content: center;
+    max-height: 100%; overflow: hidden; padding: var(--slide-padding);
+}
+:root {
+    --title-size: clamp(1.5rem, 5vw, 4rem);
+    --h2-size: clamp(1.25rem, 3.5vw, 2.5rem);
+    --h3-size: clamp(1rem, 2.5vw, 1.75rem);
+    --body-size: clamp(0.75rem, 1.5vw, 1.125rem);
+    --small-size: clamp(0.65rem, 1vw, 0.875rem);
+    --slide-padding: clamp(1rem, 4vw, 4rem);
+    --content-gap: clamp(0.5rem, 2vw, 2rem);
+    --element-gap: clamp(0.25rem, 1vw, 1rem);
+}
+.card, .container, .content-box { max-width: min(90vw, 1000px); max-height: min(80vh, 700px); }
+.feature-list, .bullet-list { gap: clamp(0.4rem, 1vh, 1rem); }
+.feature-list li, .bullet-list li { font-size: var(--body-size); line-height: 1.4; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: clamp(0.5rem, 1.5vw, 1rem); }
+img, .image-container { max-width: 100%; max-height: min(50vh, 400px); object-fit: contain; }
+
+@media (max-height: 700px) {
+    :root { --slide-padding: clamp(0.75rem, 3vw, 2rem); --content-gap: clamp(0.4rem, 1.5vw, 1rem); --title-size: clamp(1.25rem, 4.5vw, 2.5rem); --h2-size: clamp(1rem, 3vw, 1.75rem); }
+}
+@media (max-height: 600px) {
+    :root { --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem); --content-gap: clamp(0.3rem, 1vw, 0.75rem); --title-size: clamp(1.1rem, 4vw, 2rem); --body-size: clamp(0.7rem, 1.2vw, 0.95rem); }
+    .nav-dots, .keyboard-hint, .decorative { display: none; }
+}
+@media (max-height: 500px) {
+    :root { --slide-padding: clamp(0.4rem, 2vw, 1rem); --title-size: clamp(1rem, 3.5vw, 1.5rem); --h2-size: clamp(0.9rem, 2.5vw, 1.25rem); --body-size: clamp(0.65rem, 1vw, 0.85rem); }
+}
+@media (max-width: 600px) {
+    :root { --title-size: clamp(1.25rem, 7vw, 2.5rem); }
+    .grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.2s !important; }
+    html { scroll-behavior: auto; }
+}
+
+/* ===========================================================
+   THEME — Terminal / IDE  (overrides shared vars above)
+   Tweak everything from here.
+   =========================================================== */
+:root {
+    /* Palette */
+    --bg:        #0a0e0f;   /* near-black canvas        */
+    --bg-2:      #0e1416;   /* panels / chrome          */
+    --panel-bd:  rgba(0,255,156,0.16);
+    --line:      rgba(120,160,150,0.055);  /* faint grid */
+    --text:      #c9d6d0;   /* primary body             */
+    --text-dim:  #66786f;   /* captions / notes         */
+    --text-hi:   #eef6f2;   /* emphasis off-white       */
+    --accent:    #00ff9c;   /* electric green           */
+    --accent-so: rgba(0,255,156,0.14);
+    --amber:     #ffb454;   /* data / numbers           */
+    --cyan:      #5ad1ff;   /* secondary labels         */
+    --rule:      rgba(120,160,150,0.10);
+
+    /* Fonts */
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --sans: 'IBM Plex Sans', system-ui, sans-serif;
+
+    /* Type scale (override base) */
+    --title-size: clamp(2rem, 6.4vw, 5.2rem);
+    --h2-size:    clamp(1.2rem, 2.9vw, 2.2rem);
+    --eyebrow:    clamp(0.6rem, 1.05vw, 0.82rem);
+    --body-size:  clamp(0.8rem, 1.25vw, 1.04rem);
+    --tbl-size:   clamp(0.66rem, 1.05vw, 0.92rem);
+    --small-size: clamp(0.6rem, 0.95vw, 0.8rem);
+
+    --slide-padding: clamp(1.1rem, 4.2vw, 4.2rem);
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Fixed atmosphere layers: grid mesh + top glow + scanlines */
+body::before {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+        linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: radial-gradient(ellipse 120% 90% at 50% 40%, #000 55%, transparent 100%);
+}
+body::after {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+        radial-gradient(ellipse 70% 55% at 50% -12%, rgba(0,255,156,0.10), transparent 60%),
+        repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,0.10) 2px 3px);
+}
+.slide { z-index: 1; }
+
+/* ===========================================================
+   WINDOW CHROME — terminal title bar atop each slide
+   =========================================================== */
+.chrome {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: clamp(0.5rem, 1.4vw, 1rem);
+    padding: clamp(0.5rem, 1.2vh, 0.9rem) var(--slide-padding);
+    border-bottom: 1px solid var(--rule);
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+    font-family: var(--mono); font-size: var(--small-size);
+}
+.dots { display: inline-flex; gap: 6px; }
+.dots i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.dots i:nth-child(1){ background:#ff5f57; }
+.dots i:nth-child(2){ background:#febc2e; }
+.dots i:nth-child(3){ background:#28c840; }
+.chrome .path { color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chrome .path b { color: var(--cyan); font-weight: 500; }
+.chrome .idx { margin-left: auto; color: var(--accent); letter-spacing: 0.05em; }
+
+/* ===========================================================
+   TYPOGRAPHY — eyebrow / heading / notes
+   =========================================================== */
+.eyebrow {
+    font-family: var(--mono); font-size: var(--eyebrow);
+    color: var(--accent); letter-spacing: 0.14em; text-transform: uppercase;
+    margin-bottom: clamp(0.5rem, 1.4vh, 1rem); opacity: 0.9;
+}
+h2 {
+    font-family: var(--sans); font-weight: 700; font-size: var(--h2-size);
+    line-height: 1.14; letter-spacing: -0.012em; color: var(--text-hi);
+    max-width: 40ch; margin-bottom: clamp(0.7rem, 1.9vh, 1.4rem);
+}
+.note {
+    margin-top: clamp(0.6rem, 1.7vh, 1.3rem);
+    font-family: var(--mono); font-size: var(--small-size); line-height: 1.5;
+    color: var(--text-dim); border-left: 2px solid var(--accent-so);
+    padding-left: 0.85em; max-width: 78ch;
+}
+.note b { color: var(--text); font-weight: 600; }
+.sources {
+    margin-top: clamp(0.4rem, 1vh, 0.8rem);
+    font-family: var(--mono); font-size: clamp(0.55rem, 0.85vw, 0.72rem);
+    color: var(--text-dim); opacity: 0.7;
+}
+strong { color: var(--text-hi); font-weight: 700; }
+.num { color: var(--amber); font-weight: 700; }
+code, .mono { font-family: var(--mono); }
+h2 code, .note code, td code, li code {
+    font-family: var(--mono); font-size: 0.92em;
+    color: var(--cyan); background: rgba(90,209,255,0.08);
+    padding: 0.05em 0.35em; border-radius: 4px;
+}
+
+/* ===========================================================
+   DATA TABLES — terminal style
+   =========================================================== */
+.tbl-wrap { width: 100%; max-height: 72vh; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; }
+thead th {
+    font-family: var(--mono); font-size: var(--tbl-size);
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--accent); text-align: left; font-weight: 600;
+    padding: 0.5em 0.75em; border-bottom: 1px solid var(--panel-bd);
+}
+tbody td {
+    font-family: var(--sans); font-size: var(--tbl-size);
+    color: var(--text); padding: 0.55em 0.75em; line-height: 1.34;
+    border-bottom: 1px solid var(--rule); vertical-align: top;
+}
+tbody td:first-child {
+    font-family: var(--mono); font-weight: 600; color: var(--accent);
+    white-space: nowrap;
+}
+/* 3-column tables: middle column slightly dimmed (the "them"/symptom side) */
+table.cmp tbody td:nth-child(2) { color: var(--text-dim); }
+table.cmp tbody td:last-child { color: var(--text-hi); }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr { transition: background 0.2s; }
+tbody tr:hover { background: rgba(0,255,156,0.04); }
+
+/* ===========================================================
+   LISTS — bullets + numbered steps
+   =========================================================== */
+ul.bullets { list-style: none; display: flex; flex-direction: column; gap: clamp(0.45rem, 1.5vh, 1.05rem); max-width: 80ch; }
+ul.bullets li { position: relative; padding-left: 1.5em; font-size: var(--body-size); line-height: 1.45; }
+ul.bullets li::before { content: '▸'; position: absolute; left: 0; color: var(--accent); }
+
+ol.steps { list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: clamp(0.32rem, 1.1vh, 0.8rem); max-width: 86ch; }
+ol.steps li { counter-increment: s; position: relative; padding-left: 2.6em; font-size: var(--body-size); line-height: 1.4; }
+ol.steps li::before {
+    content: counter(s, decimal-leading-zero);
+    position: absolute; left: 0; top: 0.05em;
+    font-family: var(--mono); font-weight: 700; font-size: 0.82em; color: var(--accent);
+}
+.lead { font-size: var(--body-size); color: var(--text); line-height: 1.45; max-width: 70ch; margin-bottom: clamp(0.5rem, 1.4vh, 1rem); }
+
+/* Dense slides: tables with many rows need a touch less air */
+.slide.dense h2 { font-size: clamp(1.05rem, 2.4vw, 1.75rem); margin-bottom: clamp(0.5rem, 1.2vh, 0.9rem); }
+.slide.dense thead th, .slide.dense tbody td { padding: 0.4em 0.6em; font-size: clamp(0.6rem, 0.98vw, 0.85rem); }
+.slide.dense .eyebrow { margin-bottom: clamp(0.35rem, 1vh, 0.7rem); }
+
+/* ===========================================================
+   COVER SLIDE
+   =========================================================== */
+.cover .slide-content { gap: clamp(0.6rem, 1.8vh, 1.4rem); }
+.cover-brand {
+    font-family: var(--mono); font-weight: 800;
+    font-size: clamp(1.25rem, 3.8vw, 3.1rem);
+    line-height: 1; letter-spacing: 0.08em; text-transform: lowercase;
+    color: var(--accent); text-shadow: 0 0 18px rgba(0,255,156,0.28);
+}
+.cover .prompt-sm { font-family: var(--mono); font-size: var(--small-size); color: var(--text-dim); }
+.cover .prompt-sm b { color: var(--cyan); font-weight: 500; }
+.cover h1 {
+    font-family: var(--mono); font-weight: 800; font-size: var(--title-size);
+    line-height: 1.05; letter-spacing: -0.02em; color: var(--text-hi);
+}
+.cover h1 .g { color: var(--accent); }
+.caret {
+    display: inline-block; width: 0.55em; height: 0.95em; vertical-align: -0.06em;
+    background: var(--accent); margin-left: 0.1em; box-shadow: 0 0 14px var(--accent);
+    animation: blink 1.05s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.termlog {
+    font-family: var(--mono); font-size: clamp(0.66rem, 1.1vw, 0.95rem);
+    line-height: 1.7; color: var(--text-dim);
+    border: 1px solid var(--rule); border-left: 2px solid var(--accent-so);
+    border-radius: 8px; padding: clamp(0.7rem, 1.8vh, 1.2rem) clamp(0.9rem, 2vw, 1.4rem);
+    background: linear-gradient(180deg, rgba(255,255,255,0.015), transparent);
+    max-width: 56ch;
+}
+.termlog .ok { color: var(--accent); }
+.termlog .k { color: var(--cyan); display: inline-block; min-width: 7ch; }
+.cover-sub { font-size: var(--body-size); color: var(--text); line-height: 1.5; max-width: 62ch; }
+.cover-sub b { color: var(--text-hi); }
+
+/* ===========================================================
+   DEMO SLIDE — product screenshot + caption (two columns)
+   =========================================================== */
+.demo .demo-content { flex-direction: row; align-items: center; gap: clamp(1.2rem, 4vw, 3.6rem); }
+.demo-text { flex: 1 1 58%; min-width: 0; }
+.demo-text .dim { color: var(--text-dim); font-style: italic; }
+.demo-text .bullets { gap: clamp(0.4rem, 1.3vh, 0.95rem); }
+.demo-shot { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: clamp(0.3rem, 0.9vh, 0.6rem); }
+.demo-shot img {
+    height: auto; width: auto;
+    max-height: min(78vh, 720px); max-width: 30vw;
+    border-radius: 12px; border: 1px solid var(--panel-bd);
+    box-shadow: 0 16px 50px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4), 0 0 40px rgba(0,255,156,0.06);
+}
+.demo-shot figcaption { font-family: var(--mono); font-size: var(--small-size); color: var(--text-dim); letter-spacing: 0.03em; }
+/* Stack vertically on narrow or short viewports */
+@media (max-width: 920px), (max-height: 620px) {
+    .demo .demo-content { flex-direction: column; justify-content: center; gap: clamp(0.6rem, 2vh, 1.2rem); }
+    .demo-shot img { max-height: 42vh; max-width: 72vw; }
+    .demo-text { flex: none; }
+}
+
+/* ===========================================================
+   REVEAL ANIMATIONS — triggered by .visible (IntersectionObserver)
+   =========================================================== */
+.reveal { opacity: 0; transform: translateY(22px); transition: opacity 0.6s var(--ease), transform 0.6s var(--ease); }
+.slide.visible .reveal { opacity: 1; transform: none; }
+.slide.visible .reveal:nth-child(1) { transition-delay: 0.05s; }
+.slide.visible .reveal:nth-child(2) { transition-delay: 0.14s; }
+.slide.visible .reveal:nth-child(3) { transition-delay: 0.23s; }
+.slide.visible .reveal:nth-child(4) { transition-delay: 0.32s; }
+.slide.visible .reveal:nth-child(5) { transition-delay: 0.40s; }
+
+/* Staggered list items (bullets / steps) */
+.stagger > * { opacity: 0; }
+.slide.visible .stagger > * { animation: itemIn 0.5s var(--ease) both; }
+.slide.visible .stagger > *:nth-child(1){ animation-delay: 0.22s; }
+.slide.visible .stagger > *:nth-child(2){ animation-delay: 0.31s; }
+.slide.visible .stagger > *:nth-child(3){ animation-delay: 0.40s; }
+.slide.visible .stagger > *:nth-child(4){ animation-delay: 0.49s; }
+.slide.visible .stagger > *:nth-child(5){ animation-delay: 0.58s; }
+.slide.visible .stagger > *:nth-child(6){ animation-delay: 0.67s; }
+.slide.visible .stagger > *:nth-child(7){ animation-delay: 0.76s; }
+@keyframes itemIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+/* Table rows print in like a terminal */
+tbody tr { opacity: 0; transform: translateX(-6px); }
+.slide.visible tbody tr { animation: rowIn 0.45s var(--ease) forwards; }
+.slide.visible tbody tr:nth-child(1){ animation-delay: 0.24s; }
+.slide.visible tbody tr:nth-child(2){ animation-delay: 0.33s; }
+.slide.visible tbody tr:nth-child(3){ animation-delay: 0.42s; }
+.slide.visible tbody tr:nth-child(4){ animation-delay: 0.51s; }
+.slide.visible tbody tr:nth-child(5){ animation-delay: 0.60s; }
+.slide.visible tbody tr:nth-child(6){ animation-delay: 0.69s; }
+@keyframes rowIn { to { opacity: 1; transform: none; } }
+
+/* ===========================================================
+   CHROME: progress bar / nav dots / hint
+   =========================================================== */
+.progress-bar {
+    position: fixed; top: 0; left: 0; height: 2px; width: 0;
+    background: var(--accent); box-shadow: 0 0 10px var(--accent);
+    z-index: 50; transition: width 0.15s linear;
+}
+.nav-dots {
+    position: fixed; right: clamp(0.7rem, 1.6vw, 1.4rem); top: 50%;
+    transform: translateY(-50%); z-index: 40;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.nav-dots button {
+    width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--text-dim);
+    background: transparent; padding: 0; cursor: pointer; transition: all 0.25s;
+}
+.nav-dots button:hover { border-color: var(--accent); }
+.nav-dots button.active { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent); transform: scale(1.25); }
+.keyboard-hint {
+    position: fixed; bottom: clamp(0.6rem, 1.4vh, 1.1rem); left: var(--slide-padding);
+    z-index: 40; font-family: var(--mono); font-size: clamp(0.55rem, 0.85vw, 0.72rem);
+    color: var(--text-dim); opacity: 0.65;
+}
+.keyboard-hint kbd { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- Scroll progress + navigation -->
+<div class="progress-bar" id="progress"></div>
+<nav class="nav-dots" id="navDots" aria-label="Slide navigation"></nav>
+<div class="keyboard-hint decorative"><kbd>↑ ↓</kbd> / <kbd>space</kbd> to navigate</div>
+
+<!-- ===========================================================
+     SLIDE 01 — COVER
+     =========================================================== -->
+<section class="slide cover">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path"><b>blockless</b> ~ %</span>
+        <span class="idx">01 / 15</span>
+    </div>
+    <div class="slide-content cover-content">
+        <p class="cover-brand reveal">blockless</p>
+        <p class="prompt-sm reveal">$ blockless new <b>"desk-thermometer"</b></p>
+        <h1 class="reveal"><span class="g">&gt;</span>&nbsp;say it. ship real hardware.<span class="caret"></span></h1>
+        <div class="termlog reveal">
+            <div><span class="ok">✓</span> <span class="k">select</span> ESP32-S3 · SHT40 · SSD1306</div>
+            <div><span class="ok">✓</span> <span class="k">drivers</span> matched via Package Intelligence</div>
+            <div><span class="ok">✓</span> <span class="k">codegen</span> main.py + drivers + MANIFEST.JSON</div>
+            <div><span class="ok">✓</span> <span class="k">flash</span> mpremote · board connected</div>
+            <div><span class="ok">✓</span> <span class="k">serial</span> temp 24.8°C · running</div>
+        </div>
+        <p class="cover-sub reveal">Software has Cursor and Lovable. <b>Hardware deserves the same low-floor on-ramp:</b> describe the idea, and it's selected, wired, coded, flashed, and debugged — then connected to modules and fulfillment.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 02 — THE SHIFT
+     =========================================================== -->
+<section class="slide">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>02_the-shift.md</b></span>
+        <span class="idx">02 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// the shift</p>
+        <h2 class="reveal">AI is taking over the digital world. The physical world is still hand-assembled.</h2>
+        <div class="tbl-wrap reveal">
+            <table>
+                <thead><tr><th>Digital world</th><th>What already changed</th></tr></thead>
+                <tbody>
+                    <tr><td>Writing code</td><td>From autocomplete to agents editing multiple files, running tasks, and fixing errors</td></tr>
+                    <tr><td>Web / apps</td><td>From hand-coding pages to generating prototypes and full pages from a sentence</td></tr>
+                    <tr><td>Images / video</td><td>From operating tools to generating assets from natural language</td></tr>
+                    <tr><td>Hardware</td><td>Still part selection, wiring, library hunting, flashing, serial watching</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="note reveal">The next generation of creation tools shouldn't stop at the screen. For AI to truly reach the physical world, it has to turn ideas into <b>running devices</b>.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 03 — THE PAIN
+     =========================================================== -->
+<section class="slide">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>03_the-pain.md</b></span>
+        <span class="idx">03 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// the pain</p>
+        <h2 class="reveal">Makers don't lack ideas — they get stuck on the path to running hardware.</h2>
+        <ul class="bullets stagger">
+            <li><strong>Selection is hard:</strong> ESP32 / Arduino / STM32, sensors, actuators, comms — too many choices.</li>
+            <li><strong>Wiring is hard:</strong> I2C / SPI / UART / ADC, voltage, pin muxing — one wrong step and nothing runs.</li>
+            <li><strong>Drivers are hard:</strong> docs scattered across GitHub, vendor PDFs, forums, and sample code — AI happily hallucinates APIs that don't exist.</li>
+            <li><strong>Debugging is hard:</strong> hardware errors aren't normal compile errors — serial logs, power, wiring, and firmware versions all tangled together.</li>
+        </ul>
+        <p class="note reveal">Today's barrier isn't imagination. It's getting the thing to <b>actually run</b>.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 04 — WHY AI HARDWARE IS HARDER
+     =========================================================== -->
+<section class="slide">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>04_why-harder.md</b></span>
+        <span class="idx">04 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// why ai hardware is harder</p>
+        <h2 class="reveal">A generic software agent fails on the bench — it's missing three things.</h2>
+        <div class="tbl-wrap reveal">
+            <table class="cmp">
+                <thead><tr><th>Gap</th><th>Symptom</th><th>Consequence</th></tr></thead>
+                <tbody>
+                    <tr><td>Driver knowledge</td><td>MCUs, sensors, library versions, and firmware capabilities are deeply fragmented</td><td>The LLM hallucinates APIs and install steps</td></tr>
+                    <tr><td>Execution rights</td><td>Flashing, serial, and file upload need access to the user's computer and board</td><td>Pure web demos can't close the loop</td></tr>
+                    <tr><td>State awareness</td><td>Modules don't announce "who I am, what I do, where I'm wired"</td><td>AI guesses pins, protocols, and error causes</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="note reveal">The core isn't "make AI write some code." It's giving AI a <b>hardware runtime</b> that can read packages, connect to boards, see feedback, and identify modules.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 05 — MARKET & ECOSYSTEM EVIDENCE
+     =========================================================== -->
+<section class="slide">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>05_market-evidence.md</b></span>
+        <span class="idx">05 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// market &amp; ecosystem evidence</p>
+        <h2 class="reveal">The ecosystem is big enough — and the toolchain keeps getting more complex.</h2>
+        <ul class="bullets stagger">
+            <li>Arduino's 2024 Open Source Report: the Library Manager added <span class="num">1,198</span> new contributed libraries in 2024, reaching <span class="num">7,669</span> total.</li>
+            <li>Arduino shipped <span class="num">3</span> Arduino Lab for MicroPython releases in 2024 — MicroPython is now in the mainstream maker toolchain.</li>
+            <li>Schematik announced a <span class="num">$4.6M</span> pre-seed in April 2026 — "AI-native hardware creation" is already capital-validated.</li>
+            <li>Kickstarter Technology projects have drawn <span class="num">$1.95B</span> in cumulative pledges — hardware has a proven commercialization channel.</li>
+        </ul>
+        <p class="note reveal">The bigger the ecosystem and the more devices and libraries, the more newcomers need a <b>single on-ramp</b> that threads the whole chain together.</p>
+        <p class="sources reveal">Sources: Arduino Open Source Report 2024 · Schematik announcement · Kickstarter Stats</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 06 — THE DATA FLOW BEHIND ONE SENTENCE
+     =========================================================== -->
+<section class="slide dense">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>06_data-flow.md</b></span>
+        <span class="idx">06 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// the real data flow behind one sentence</p>
+        <h2 class="reveal">"Build hardware from a sentence" isn't a chat box — it's a shippable pipeline.</h2>
+        <ol class="steps stagger">
+            <li>User states the need: a temp/humidity monitor that lights up and shows the value above a threshold.</li>
+            <li>System gets a hardware picture: bind the device, run an I2C scan, check off modules, or describe the hardware in plain language.</li>
+            <li>The agent matches capabilities: it figures out the needed <code>hardware_tags</code> — display, sensing, comms, actuators.</li>
+            <li>It links Package Intelligence: <code>package.json</code>, READMEs, driver context, deps, chip support, firmware requirements.</li>
+            <li>It generates a MicroPython project: code, drivers, assets, and config files together.</li>
+            <li>It packages to <code>.mpk</code> and writes <code>MANIFEST.JSON</code> — downloadable, pushable, editable online, or published to the store.</li>
+            <li>The local IDE / VS Code extension calls <code>mpremote</code> — installs deps, uploads, runs, reads serial, auto-repairs.</li>
+        </ol>
+        <p class="note reveal">The sentence is just the entrance. The moat is behind it: <b>hardware profiling, driver retrieval, app packaging, local execution, and feedback-driven repair</b>.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 07 — THE PRODUCT, LIVE  (real screenshot)
+     =========================================================== -->
+<section class="slide demo">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>07_product-live.md</b></span>
+        <span class="idx">07 / 15</span>
+    </div>
+    <div class="slide-content demo-content">
+        <div class="demo-text">
+            <p class="eyebrow reveal">// the product, live</p>
+            <h2 class="reveal">From a sentence to a wired, deployable build — inside VS Code today.</h2>
+            <ul class="bullets stagger">
+                <li><strong>Say it:</strong> the prompt box takes plain English — <span class="dim">"light an LED when the temperature goes…"</span></li>
+                <li><strong>It picks the part:</strong> SSD1306 OLED on I²C <code>0x3C</code> — a real component, not a hallucination.</li>
+                <li><strong>It wires it:</strong> SDA → <code>GPIO5</code>, SCL → <code>GPIO6</code>, auto-mapped.</li>
+                <li><strong>It finds the board:</strong> detects <code>COM3</code> / <code>COM4</code> → one-click <strong>Deploy</strong>.</li>
+                <li><strong>Closed loop &amp; metered:</strong> credits, plus Serial / Wiring / Diagram tabs for live feedback.</li>
+            </ul>
+            <p class="note reveal">No datasheet, no manual pin-mapping, no flashing toolchain. <b>Speak → wire → deploy.</b></p>
+        </div>
+        <figure class="demo-shot reveal">
+            <img src="assets/blockless-deploy.png" alt="Blockless VS Code extension deploy card: SSD1306 OLED on I2C 0x3C, SDA to GPIO5, SCL to GPIO6, COM3/COM4 picker, Deploy button, and a natural-language Generate prompt." />
+            <figcaption>Blockless · VS Code extension</figcaption>
+        </figure>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 08 — TECH STACK OVERVIEW
+     =========================================================== -->
+<section class="slide dense">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>08_tech-stack.md</b></span>
+        <span class="idx">08 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// tech stack overview</p>
+        <h2 class="reveal">We're not a chat box. We're an AI-native hardware development stack.</h2>
+        <div class="tbl-wrap reveal">
+            <table class="cmp">
+                <thead><tr><th>Layer</th><th>Role</th><th>Key implementation</th></tr></thead>
+                <tbody>
+                    <tr><td>Agent / Skill</td><td>Decompose language into hardware tasks and steps</td><td>Project gen, error repair, Arduino/PDF driver conversion, test gen</td></tr>
+                    <tr><td>Knowledge</td><td>Let AI use real drivers, not guesses</td><td>Package Intelligence, uPyPI/GraftSense, driver context, deps, chips/fw tags</td></tr>
+                    <tr><td>Execution</td><td>Let AI actually touch the board</td><td>Thonny plugin, VS Code extension, mpremote run/exec/fs, serial logs</td></tr>
+                    <tr><td>App runtime</td><td>Installable, upgradable, rollback-able</td><td>uPyOS 0.9.0, LVGL, D-Shell, .mpk, MANIFEST.JSON</td></tr>
+                    <tr><td>Device profile</td><td>Know real hardware capabilities</td><td>device_fingerprint, device_profiles, hardware_tags, module registry</td></tr>
+                    <tr><td>Delivery</td><td>Turn a demo into a kit</td><td>GraftSense modules, GraftPort boards, Dev Kit, production SOP</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="note reveal">The value: turning AI from <b>"the person who writes code"</b> into <b>"the operator who delivers a hardware project."</b></p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 09 — PACKAGE INTELLIGENCE / IDE
+     =========================================================== -->
+<section class="slide">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>09_package-intelligence.md</b></span>
+        <span class="idx">09 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// package intelligence / ide</p>
+        <h2 class="reveal">"Finding packages is hard and messy." We put package management in the workflow.</h2>
+        <ul class="bullets stagger">
+            <li>uPyPI + GraftSense + curated recipes index <span class="num">200+</span> MicroPython packages/drivers — sensors, comms modules, and human-machine interaction.</li>
+            <li>Package details carry machine-readable info: name, version, description, author, license, chip support, firmware deps, file lists.</li>
+            <li>The Thonny plugin supports in-IDE search, metadata view, and download caching, and installs to the board's <code>/lib</code> via <code>mpremote</code>.</li>
+            <li>It handles multi-file packages, dependencies, network failures, unconfigured <code>mpremote</code>, and disconnected boards.</li>
+        </ul>
+        <p class="note reveal">Our AI doesn't invent drivers — it calls a <b>structured, installable, verifiable</b> MicroPython package ecosystem.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 10 — THE LOCAL EXECUTION LOOP
+     =========================================================== -->
+<section class="slide">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>10_execution-loop.md</b></span>
+        <span class="idx">10 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// the local execution loop</p>
+        <h2 class="reveal">MicroPython + mpremote is better suited to AI's trial-and-error loop.</h2>
+        <div class="tbl-wrap reveal">
+            <table class="cmp">
+                <thead><tr><th>Loop step</th><th>Arduino / C path</th><th>Our MicroPython path</th></tr></thead>
+                <tbody>
+                    <tr><td>Write code</td><td>.ino implicit rules, multi-file stitching, complex C/C++ deps</td><td>Python is clean-structured — easier for AI to generate and fix</td></tr>
+                    <tr><td>Install deps</td><td>Manual lib hunting, copy-paste, version conflicts</td><td>Package search + in-IDE install + automatic dep handling</td></tr>
+                    <tr><td>Run feedback</td><td>Compile, flash, serial monitor scattered; each change means a wait</td><td>mpremote run/exec/fs — upload, run, read logs in one chain</td></tr>
+                    <tr><td>Auto-repair</td><td>User reads serial and docs themselves</td><td>Agent reads error output, edits code, re-runs, re-verifies</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="note reveal">The key difference isn't "generating the first version." It's pulling <b>device feedback into the agent loop</b>.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 11 — uPyOS / uPyStore ARCHITECTURE
+     =========================================================== -->
+<section class="slide dense">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>11_upyos-architecture.md</b></span>
+        <span class="idx">11 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// upyos / upystore architecture</p>
+        <h2 class="reveal">We turn one-off code into installable, distributable apps on the MCU.</h2>
+        <div class="tbl-wrap reveal">
+            <table class="cmp">
+                <thead><tr><th>Component</th><th>Design</th><th>Value</th></tr></thead>
+                <tbody>
+                    <tr><td>uPyOS 0.9.0</td><td>MicroPython + LVGL on ESP32 / ESP32-S3</td><td>Desktop launcher, app install/uninstall, settings, WiFi management</td></tr>
+                    <tr><td>D-Shell</td><td>A hardware terminal device running uPyOS</td><td>Like an Android phone — the primary host for uPyOS</td></tr>
+                    <tr><td>.mpk</td><td>A uPyOS app install package — a fixed-structure archive</td><td>Like an APK — hardware apps install, update, distribute</td></tr>
+                    <tr><td>MANIFEST.JSON</td><td>Declares app name, version, entry, publisher</td><td>Like an Android manifest — apps recognizable to the system</td></tr>
+                    <tr><td>app_index.json</td><td>Device-side store entry, with a stable field structure</td><td>Shipped devices pull the app index — compatibility can't break</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="note reveal">V2 goes further: <b>device_fingerprint</b> (anonymous ID), <b>device_profiles</b> (hardware picture), <b>hardware_tags</b> (app deps), and a module registry of chips, interfaces, capabilities, package candidates, and BLE broadcast info.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 12 — COMPETITIVE LANDSCAPE
+     =========================================================== -->
+<section class="slide dense">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>12_landscape.md</b></span>
+        <span class="idx">12 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// competitive landscape</p>
+        <h2 class="reveal">The race is validated. Nobody has locked in who can run real devices.</h2>
+        <div class="tbl-wrap reveal">
+            <table class="cmp">
+                <thead><tr><th>Dimension</th><th>Web-class AI hardware tools</th><th>Us</th></tr></thead>
+                <tbody>
+                    <tr><td>Output</td><td>Code, wiring diagrams, BOM, tutorials</td><td>Runnable MicroPython project + module combo + local flash &amp; debug</td></tr>
+                    <tr><td>Driver source</td><td>Model-generated or public samples</td><td>Package Intelligence, real packages, README, package.json, driver context</td></tr>
+                    <tr><td>Execution loop</td><td>Mostly stops at generation and explanation</td><td>mpremote connects the board, reads serial, auto-repairs</td></tr>
+                    <tr><td>Abstraction</td><td>AI picks components and pins</td><td>Active modules self-describe; the system reads capability, then generates</td></tr>
+                    <tr><td>Delivery</td><td>User still buys, solders, debugs</td><td>Modules, kits, and small-batch production SOP plug into fulfillment</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="note reveal">Our bet: AI hardware needs not just a "design tool," but a <b>runtime, a module ecosystem, and a delivery chain</b>.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 13 — DISTRIBUTION (US channels)
+     =========================================================== -->
+<section class="slide dense">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>13_distribution.md</b></span>
+        <span class="idx">13 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// distribution: makerspaces, universities, fulfillment</p>
+        <h2 class="reveal">The on-ramp lands where American makers already are.</h2>
+        <div class="tbl-wrap reveal">
+            <table class="cmp">
+                <thead><tr><th>Channel</th><th>What it gives us</th><th>Why it lands</th></tr></thead>
+                <tbody>
+                    <tr><td>FabLab / makerspaces</td><td>Began at MIT's Center for Bits and Atoms — a global maker-education and digital-fab network with deep US roots</td><td>A ready-made surface: curriculum, technical docs, projects, community</td></tr>
+                    <tr><td>Universities</td><td>ECE/CS programs, capstones, and hackathons need a fast idea→running-device path</td><td>"Build hardware from a sentence" drops into coursework, labs, competitions</td></tr>
+                    <tr><td>Maker community</td><td>Hackster, Adafruit/SparkFun ecosystem, indie hardware creators</td><td>Organic top-of-funnel for both the tool and the kits</td></tr>
+                    <tr><td>Fulfillment</td><td>ESP32, sensor modules, PCB/SMT, fast small-batch turnaround</td><td>Validated prototypes become kits and products</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="note reveal">Makerspaces and universities do education and prototype validation; <b>fulfillment turns validated designs into kits and products</b>.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 14 — GRAFTSENSE / PORT / DEV KIT DELIVERY
+     =========================================================== -->
+<section class="slide dense">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>14_delivery.md</b></span>
+        <span class="idx">14 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// graftsense / port / dev kit delivery</p>
+        <h2 class="reveal">Not just a software stack — modules, boards, kits, and a production SOP.</h2>
+        <div class="tbl-wrap reveal">
+            <table class="cmp">
+                <thead><tr><th>Layer</th><th>Specifics</th><th>Capability it shows</th></tr></thead>
+                <tbody>
+                    <tr><td>GraftSense</td><td>Sensor module line, design spec based on Grove; an RCWL-9623 ultrasonic transceiver template is done</td><td>A real module product line, not just software demos</td></tr>
+                    <tr><td>GraftPort</td><td>Expansion-board design spec, cost and sourcing sheet</td><td>Standardizes modules onto boards and into teaching</td></tr>
+                    <tr><td>Dev Kit</td><td>Dev Kit boxes, cost/sourcing table, pricing table, flyer</td><td>Packaged delivery for education, competitions, courses</td></tr>
+                    <tr><td>Production SOP</td><td>Design, validation, drivers, docs, small-batch production, product page, promotion</td><td>A process from prototype to product page and small batch</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="note reveal">The loop isn't "sell an AI app": Skill <b>generates</b> the project, uPyStore <b>distributes</b> the app, GraftSense/Port/Dev Kit make it <b>buyable, assemblable, deliverable</b>.</p>
+    </div>
+</section>
+
+<!-- ===========================================================
+     SLIDE 15 — VISION
+     =========================================================== -->
+<section class="slide">
+    <div class="chrome">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="path">~/blockless/deck/<b>15_vision.md</b></span>
+        <span class="idx">15 / 15</span>
+    </div>
+    <div class="slide-content">
+        <p class="eyebrow reveal">// vision</p>
+        <h2 class="reveal">Every smart device, soon, can be spoken into existence.</h2>
+        <p class="lead reveal">Not another code generator — the next-generation on-ramp for hardware creation:</p>
+        <ul class="bullets stagger">
+            <li>AI understands intent and decomposes ideas into hardware tasks.</li>
+            <li>Package Intelligence and uPyOS provide a searchable, installable, reusable software ecosystem.</li>
+            <li>Active modules let hardware be recognized by the system instead of blind-guessed by AI.</li>
+            <li>The local IDE and <code>mpremote</code> let the agent actually run, read feedback, and auto-repair.</li>
+            <li>A maker + fulfillment channel turns demos into kits, courses, and small-batch products.</li>
+        </ul>
+        <p class="note reveal">In one sentence: <b>from idea to hardware that runs, reuses, and ships.</b></p>
+    </div>
+</section>
+
+<script>
+/* ===========================================================
+   SLIDE PRESENTATION CONTROLLER
+   - IntersectionObserver toggles .visible (drives all CSS reveals)
+   - Keyboard + nav-dot navigation (scroll-snap handles wheel/touch)
+   - Scroll progress bar
+   =========================================================== */
+class SlidePresentation {
+    constructor() {
+        this.slides = Array.from(document.querySelectorAll('.slide'));
+        this.current = 0;
+        this.progress = document.getElementById('progress');
+        this.navDotsContainer = document.getElementById('navDots');
+        this.numberSlides();
+        this.setupObserver();
+        this.setupNavDots();
+        this.setupKeyboard();
+        this.setupProgress();
+    }
+
+    /* Auto-fill the "NN / TOTAL" counter in each window-chrome bar,
+       so inserting or removing a slide never needs manual renumbering. */
+    numberSlides() {
+        const total = this.slides.length;
+        this.slides.forEach((s, i) => {
+            const idx = s.querySelector('.chrome .idx');
+            if (idx) idx.textContent = String(i + 1).padStart(2, '0') + ' / ' + total;
+        });
+    }
+
+    /* Add .visible when a slide is centered in the viewport */
+    setupObserver() {
+        const io = new IntersectionObserver((entries) => {
+            entries.forEach((e) => {
+                if (e.isIntersecting && e.intersectionRatio >= 0.5) {
+                    e.target.classList.add('visible');
+                    this.current = this.slides.indexOf(e.target);
+                    this.syncDots();
+                }
+            });
+        }, { threshold: [0.5] });
+        this.slides.forEach((s) => io.observe(s));
+        // Ensure the first slide animates immediately on load
+        this.slides[0].classList.add('visible');
+    }
+
+    /* Build clickable navigation dots */
+    setupNavDots() {
+        this.navDotsContainer.innerHTML = ''; // clear before building (avoid dupes on re-open)
+        this.slides.forEach((_, i) => {
+            const b = document.createElement('button');
+            b.setAttribute('aria-label', 'Go to slide ' + (i + 1));
+            if (i === 0) b.classList.add('active');
+            b.addEventListener('click', () => this.goTo(i));
+            this.navDotsContainer.appendChild(b);
+        });
+        this.dots = Array.from(this.navDotsContainer.children);
+    }
+
+    syncDots() {
+        if (!this.dots) return;
+        this.dots.forEach((d, i) => d.classList.toggle('active', i === this.current));
+    }
+
+    goTo(i) {
+        i = Math.max(0, Math.min(this.slides.length - 1, i));
+        this.slides[i].scrollIntoView({ behavior: 'smooth' });
+    }
+
+    /* Arrow keys / space / page / home / end */
+    setupKeyboard() {
+        document.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case 'ArrowDown': case 'ArrowRight': case 'PageDown': case ' ':
+                    e.preventDefault(); this.goTo(this.current + 1); break;
+                case 'ArrowUp': case 'ArrowLeft': case 'PageUp':
+                    e.preventDefault(); this.goTo(this.current - 1); break;
+                case 'Home': e.preventDefault(); this.goTo(0); break;
+                case 'End': e.preventDefault(); this.goTo(this.slides.length - 1); break;
+            }
+        });
+    }
+
+    /* Thin top progress bar tracks scroll position */
+    setupProgress() {
+        const update = () => {
+            const max = document.documentElement.scrollHeight - window.innerHeight;
+            const pct = max > 0 ? (window.scrollY / max) * 100 : 0;
+            this.progress.style.width = pct + '%';
+        };
+        window.addEventListener('scroll', update, { passive: true });
+        update();
+    }
+}
+
+new SlidePresentation();
+</script>
+</body>
+</html>

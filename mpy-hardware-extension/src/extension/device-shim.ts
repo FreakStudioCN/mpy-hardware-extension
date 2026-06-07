@@ -154,6 +154,34 @@ export class DeviceShim {
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "render_failed");
     return { output: r.output ?? "" };
   }
+
+  async runTriage(projectDir: string, target = "firmware"): Promise<{ exit_code: number; summary: string; logs: string[]; artifacts: string[] }> {
+    await this.ensure();
+    const r = await this.rpc("script.run_triage", { project_dir: projectDir, target });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "triage_failed");
+    return { exit_code: r.exit_code ?? 1, summary: r.summary ?? "", logs: r.logs ?? [], artifacts: r.artifacts ?? [] };
+  }
+
+  async runHardwareSanity(projectDir: string): Promise<{ exit_code: number; summary: string; observations: string[] }> {
+    await this.ensure();
+    const r = await this.rpc("script.run_hardware_sanity", { project_dir: projectDir });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "hardware_sanity_failed");
+    return { exit_code: r.exit_code ?? 1, summary: r.summary ?? "", observations: r.observations ?? [] };
+  }
+
+  async runExtractPdf(projectDir: string, path: string, outputPath?: string): Promise<{ exit_code: number; pages: any[]; output_path?: string }> {
+    await this.ensure();
+    const r = await this.rpc("script.run_extract_pdf", { project_dir: projectDir, path, output_path: outputPath });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "extract_pdf_failed");
+    return { exit_code: r.exit_code ?? 1, pages: r.pages ?? [], output_path: r.output_path };
+  }
+
+  async runFlashDevice(projectDir: string, path = "firmware/main.py"): Promise<{ exit_code: number; summary: string }> {
+    const port = await this.ensurePort();
+    const r = await this.rpc("script.run_flash_device", { project_dir: projectDir, path, port });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "flash_failed");
+    return { exit_code: r.exit_code ?? 1, summary: r.summary ?? "" };
+  }
 }
 
 // Spawn the Python shim and wire a DeviceShim to it. Everything is lazy: Python
@@ -233,7 +261,7 @@ function resolvePython(vscode: any): string {
 // jsonschema/flake8/requests for the upstream toolchain scripts (validate/scaffold/
 // download). A venv from an earlier version may have mpremote but not these, so
 // gate the install on the full set.
-const SHIM_IMPORT_PROBE = ["-c", "import mpremote, serial, jsonschema, flake8, pylint, requests"];
+const SHIM_IMPORT_PROBE = ["-c", "import mpremote, serial, jsonschema, flake8, pylint, requests, pypdf"];
 
 function ensureVenv(python: string, vscode: any, requirementsPath: string): string {
   const venvDir = join(homedir(), ".mpyhw", "venv");

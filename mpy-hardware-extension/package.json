@@ -1,6 +1,6 @@
 {
   "name": "mpy-hardware-extension",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "publisher": "mpyhw",
   "displayName": "Blockless",
   "description": "Build MicroPython hardware projects from a sentence: an AI agent picks the board, wires the parts, and generates deployable code.",
@@ -68,12 +68,12 @@
         "mpyhw.pythonPath": {
           "type": "string",
           "default": "",
-          "description": "Path to a Python 3.10+ interpreter used to create the device shim venv. Leave blank to auto-detect (python3 / python)."
+          "description": "Developer fallback runner Python path. Leave blank for the default local runner behavior."
         },
         "mpyhw.pipIndexUrl": {
           "type": "string",
           "default": "",
-          "description": "Custom pip index URL for installing the shim's mpremote/pyserial (e.g. a mirror). Leave blank for the default index."
+          "description": "Developer fallback runner package index override. Leave blank for default local runner behavior."
         }
       }
     }

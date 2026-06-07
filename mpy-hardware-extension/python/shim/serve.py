@@ -270,7 +270,10 @@ def _run_validate(shim, params):
         return {"status": "error", "error_kind": "unknown_schema"}
     project_dir = params.get("project_dir")
     rel = params.get("path", "project-manifest.json")
-    json_path = os.path.join(project_dir, rel) if project_dir else rel
+    try:
+        json_path = safe_workspace_path(project_dir, rel) if project_dir else rel
+    except ValueError:
+        return {"status": "error", "error_kind": "invalid_path"}
     r = shim.run_script(resolve_script("validate"), ["--schema", schema_path, "--json", json_path], timeout=60)
     rc = getattr(r, "returncode", 1)
     # validate_json.py: exit 0 = valid, 1 = validation errors, 2 = parse/not-found.
@@ -312,6 +315,103 @@ def _run_simulate(shim, params):
     return {"status": "ok", "passed": r["exit_code"] == 0, "no_tests": r["exit_code"] == 5, **r}
 
 
+def safe_workspace_path(project_dir: str, rel_path: str, default: str | None = None) -> str:
+    rel = rel_path or default
+    if not rel:
+        raise ValueError("path required")
+    rel = str(rel).replace("\\", "/")
+    if os.path.isabs(rel) or rel.startswith("/") or ".." in rel.split("/"):
+        raise ValueError("path must be workspace-relative")
+    root = os.path.abspath(project_dir)
+    path = os.path.abspath(os.path.join(root, rel))
+    if os.path.commonpath([root, path]) != root:
+        raise ValueError("path escapes workspace")
+    return path
+
+
+def _run_triage(shim, params):
+    project_dir = params["project_dir"]
+    target = params.get("target", "firmware")
+    try:
+        safe_workspace_path(project_dir, target)
+    except ValueError:
+        return {"status": "error", "error_kind": "invalid_path"}
+    flake = _module_result(shim.run_module("flake8", [target, "--max-line-length=120"], cwd=project_dir, timeout=120))
+    pytest_target = "test/pc"
+    pytest_out = _module_result(shim.run_module("pytest", [pytest_target, "-q"], cwd=project_dir, timeout=300))
+    logs = [line for line in [flake["output"], pytest_out["output"]] if line]
+    summary = "triage clean" if flake["exit_code"] == 0 and pytest_out["exit_code"] in (0, 5) else "triage found local issues"
+    return {"status": "ok", "exit_code": 0 if summary == "triage clean" else 1, "summary": summary, "logs": logs[:5], "artifacts": []}
+
+
+def _run_hardware_sanity(shim, params):
+    devices = shim.scan()
+    if not devices:
+        return {"status": "ok", "exit_code": 1, "summary": "no MicroPython device detected", "observations": []}
+    observations = [f"device:{port}" for port in devices]
+    return {"status": "ok", "exit_code": 0, "summary": "MicroPython device detected", "observations": observations}
+
+
+def _run_extract_pdf(_shim, params):
+    project_dir = params["project_dir"]
+    try:
+        pdf_path = safe_workspace_path(project_dir, params.get("path"))
+        output_path = safe_workspace_path(project_dir, params.get("output_path"), "docs/extracted-pdf.json")
+    except ValueError:
+        return {"status": "error", "error_kind": "invalid_path"}
+    if not os.path.exists(pdf_path):
+        return {"status": "error", "error_kind": "pdf_not_found"}
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return {"status": "error", "error_kind": "pdf_extractor_unavailable"}
+    reader = PdfReader(pdf_path)
+    pages = []
+    for index, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        pages.append({"page": index, "text": text[:4000]})
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as handle:
+        json.dump({"pages": pages}, handle, ensure_ascii=False, indent=2)
+    return {
+        "status": "ok",
+        "exit_code": 0,
+        "pages": pages,
+        "output_path": os.path.relpath(output_path, project_dir).replace("\\", "/"),
+    }
+
+
+def _run_flash_device(shim, params):
+    project_dir = params["project_dir"]
+    port = params.get("port")
+    try:
+        firmware_path = safe_workspace_path(project_dir, params.get("path"), "firmware/main.py")
+    except ValueError:
+        return {"status": "error", "error_kind": "invalid_path"}
+    flash_script = os.path.join(project_dir, "tools", "flash_device.py")
+    if os.path.exists(flash_script):
+        args = ["--path", firmware_path]
+        if port:
+            args.extend(["--port", port])
+        r = shim.run_script(flash_script, args, timeout=180)
+        rc = getattr(r, "returncode", 1)
+        if rc != 0:
+            return {"status": "error", "error_kind": "flash_failed", "exit_code": rc,
+                    "message": (getattr(r, "stderr", "") or getattr(r, "stdout", "") or "").strip()}
+        return {"status": "ok", "exit_code": 0, "summary": "project flash script completed"}
+    # No project flash script: the firmware is already on the device (write_main_py
+    # deployed the firmware/ tree), so just reset to run it. Do NOT re-copy main.py.
+    if not port:
+        devices = shim.scan()
+        if len(devices) != 1:
+            return {"status": "error", "error_kind": "device_selection_required" if devices else "device_unavailable"}
+        port = devices[0]
+    reset = shim.reset(port)
+    if getattr(reset, "returncode", 0) != 0:
+        return {"status": "error", "error_kind": map_install_error(getattr(reset, "stderr", "") or "")}
+    return {"status": "ok", "exit_code": 0, "summary": "board reset to run deployed firmware"}
+
+
 def _run_render(shim, kind, params):
     # Render docs/<kind>.json -> Mermaid .md via the upstream renderer. Default
     # format "md" keeps it offline (the "all"/"png" formats call mermaid.ink).
@@ -340,6 +440,14 @@ def _dispatch(shim, method, params):
         return _run_static_check(shim, params)
     if method == "script.run_simulate":
         return _run_simulate(shim, params)
+    if method == "script.run_triage":
+        return _run_triage(shim, params)
+    if method == "script.run_hardware_sanity":
+        return _run_hardware_sanity(shim, params)
+    if method == "script.run_extract_pdf":
+        return _run_extract_pdf(shim, params)
+    if method == "script.run_flash_device":
+        return _run_flash_device(shim, params)
     if method == "script.render_wiring":
         return _run_render(shim, "wiring", params)
     if method == "script.render_diagram":

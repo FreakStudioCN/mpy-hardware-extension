@@ -74,3 +74,22 @@ def skill(name: str):
     body = path.read_text(encoding="utf-8")
     headers = {"ETag": hashlib.sha256(body.encode()).hexdigest()}
     return Response(content=body, media_type="text/markdown; charset=utf-8", headers=headers)
+
+
+@router.get("/v1/phase-profiles")
+def phase_profiles():
+    profiles = [skill_catalog.phase_profile(phase) for phase in skill_catalog.served_phase_names()]
+    profiles = [profile for profile in profiles if profile is not None]
+    return {
+        "version": hashlib.sha256(json.dumps(profiles, sort_keys=True).encode()).hexdigest(),
+        "toolchain_version": TOOLCHAIN_VERSION,
+        "phases": [{"phase": profile["phase"], "goal": profile["goal"]} for profile in profiles],
+    }
+
+
+@router.get("/v1/phase-profiles/{phase}")
+def phase_profile(phase: str):
+    profile = skill_catalog.phase_profile(phase)
+    if profile is None:
+        raise HTTPException(status_code=404, detail={"error": "phase_profile_not_found"})
+    return profile

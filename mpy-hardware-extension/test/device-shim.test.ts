@@ -165,3 +165,29 @@ test("DeviceShim maps render_wiring / render_diagram to script.* RPC (default md
   assert.deepEqual(calls.find((c) => c.method === "script.render_wiring").params, { project_dir: "C:/proj/app", format: "md" });
   assert.deepEqual(calls.find((c) => c.method === "script.render_diagram").params, { project_dir: "C:/proj/app", format: "md" });
 });
+
+test("DeviceShim maps canonical triage, sanity, pdf extraction, and flash tools to script RPC", async () => {
+  const calls: any[] = [];
+  const responses: Record<string, any> = {
+    "script.run_triage": { status: "ok", exit_code: 0, summary: "flake8 failed", logs: ["E501"], artifacts: ["reports/triage.json"] },
+    "script.run_hardware_sanity": { status: "ok", exit_code: 0, summary: "device reachable", observations: ["COM3"] },
+    "script.run_extract_pdf": { status: "ok", exit_code: 0, pages: [{ page: 1, text: "datasheet facts" }], output_path: "docs/datasheet.extract.json" },
+    "script.run_flash_device": { status: "ok", exit_code: 0, summary: "flashed firmware/main.py" },
+  };
+  const shim = new DeviceShim(async (method: string, params: any) => { calls.push({ method, params }); return responses[method]; });
+
+  assert.equal((await shim.runTriage("C:/proj/app", "firmware")).summary, "flake8 failed");
+  assert.equal((await shim.runHardwareSanity("C:/proj/app")).summary, "device reachable");
+  assert.equal((await shim.runExtractPdf("C:/proj/app", "docs/datasheet.pdf", "docs/datasheet.extract.json")).pages[0].text, "datasheet facts");
+  shim.setPort("COM8");
+  assert.equal((await shim.runFlashDevice("C:/proj/app", "firmware/main.py")).summary, "flashed firmware/main.py");
+
+  assert.deepEqual(calls.find((c) => c.method === "script.run_triage").params, { project_dir: "C:/proj/app", target: "firmware" });
+  assert.deepEqual(calls.find((c) => c.method === "script.run_hardware_sanity").params, { project_dir: "C:/proj/app" });
+  assert.deepEqual(calls.find((c) => c.method === "script.run_extract_pdf").params, {
+    project_dir: "C:/proj/app",
+    path: "docs/datasheet.pdf",
+    output_path: "docs/datasheet.extract.json",
+  });
+  assert.deepEqual(calls.find((c) => c.method === "script.run_flash_device").params, { project_dir: "C:/proj/app", path: "firmware/main.py", port: "COM8" });
+});

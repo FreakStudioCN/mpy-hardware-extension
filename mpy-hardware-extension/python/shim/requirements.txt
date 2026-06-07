@@ -5,3 +5,4 @@ jsonschema
 flake8
 pylint
 requests
+pypdf

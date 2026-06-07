@@ -25,7 +25,7 @@ const LED_BUILTIN_CONTEXT = {
 
 // Device-touching tools. Before the first one runs, the host shows a single
 // deploy-readiness checkpoint (board connection + wiring) and confirms once.
-const DEPLOY_TOOLS = new Set(["install_package", "write_main_py", "flash_and_run"]);
+const DEPLOY_TOOLS = new Set(["install_package", "write_main_py", "flash_and_run", "run_flash_device"]);
 
 function detectUserLanguage(text: string): "zh" | "en" {
   return /[一-鿿]/.test(text) ? "zh" : "en";
@@ -241,7 +241,6 @@ function userVisibleToolPhase(toolName: string): string | null {
     write_main_py: "Writing to device",
     flash_and_run: "Running on device",
     read_serial_until: "Reading serial output",
-    load_skill: "Loading hardware rules",
     read_workspace_file: "Reading workspace file",
     write_project_file: "Writing project file",
     run_validate: "Validating against schema",
@@ -251,6 +250,11 @@ function userVisibleToolPhase(toolName: string): string | null {
     run_simulate: "Running PC simulation",
     render_wiring: "Rendering wiring diagram",
     render_diagram: "Rendering architecture diagram",
+    get_phase_profile: "Reading phase profile",
+    run_triage: "Running local triage",
+    run_hardware_sanity: "Checking hardware",
+    run_extract_pdf: "Extracting PDF",
+    run_flash_device: "Flashing device",
     scan_device: "Scanning devices",
   };
   return phases[toolName] ?? null;
@@ -293,21 +297,12 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
 
     const state = input.state ?? createSessionState({ traceId: input.traceId ?? "session", intent: input.intent, boardId: input.boardId });
     state.loadedSkills ??= [];
-    state.skillBodies ??= {};
+    state.phaseProfiles ??= {};
     state.driverContexts ??= [];
     // Generated project files by path (main.py + any lib/ modules), so the device
     // deploy can push the whole set without the model re-sending file contents.
     state.files ??= {};
     state.messages.push({ role: "user", content: input.state ? userTurnContent(input.intent) : buildOpening(input) });
-    // Fold the (static) skill catalog into the durable opening so it lives in the
-    // byte-stable request prefix and is re-sent every round as a cache HIT — instead
-    // of being re-prepended at the front each turn (which shifted the prefix and
-    // busted DeepSeek's automatic prefix cache). Only on a fresh conversation (the
-    // opening is the first message); a continuation already carries it in message[0].
-    if (state.messages.length === 1) {
-      const catalog = await skillCatalog.renderCatalog();
-      if (catalog) state.messages[0].content += `\n\n${catalog}`;
-    }
     if (input.state) {
       // Continuing a prior conversation: keep the history and derived hardware
       // context (board, driverContexts), but reset the per-message loop-control
@@ -346,7 +341,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     // can't handle. A nested, tool-free /v1/llm/messages call grounded on the
     // board profile + resolved driver contexts so it isn't hardcoded to one part.
     async function generateCodeViaLlm(manifest: any, contexts: any[], targetPath = "main.py") {
-      const loadedSkillText = renderLoadedSkillBodies(state);
+      const phaseProfileText = renderPhaseProfiles(state);
       // Target-aware so multi-file projects work: main.py is the runnable entry
       // (the deploy loop watches for MPYHW_READY); any other path is an importable
       // module. Single-file projects (the default) keep the original main.py rules.
@@ -357,7 +352,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       const user =
         `You are a MicroPython hardware codegen assistant. Output ONLY the complete contents of ${targetPath} — no markdown fences, no prose.\n` +
         `Rules: import only modules on the board profile or the provided driver import_names; use the given constructors; never use __import__, exec, or eval to bypass audit; if a needed module is not available, report that constraint or ask_user instead of bypassing it; ${fileRules}\n\n` +
-        (loadedSkillText ? `Loaded MicroPython skills:\n${loadedSkillText}\n\n` : "") +
+        (phaseProfileText ? `Sanitized phase profiles:\n${phaseProfileText}\n\n` : "") +
         `Board profile:\n${JSON.stringify(state.board ?? { board_id: manifest?.board_id ?? input.boardId })}\n\n` +
         `Resolved driver contexts:\n${JSON.stringify(contexts)}\n\n` +
         `Hardware manifest (pins already allocated):\n${JSON.stringify(manifest)}\n\n` +
@@ -527,19 +522,15 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           const audit = auditCode(auditContent, { board: state.board, driverContexts: contextsForCodegen({ capabilities: ["digital_output"] }) });
           return audit.ok ? { ok: true } : { ok: false, error_kind: "audit_failed", disallowed_imports: audit.disallowed_imports };
         }
-        if (name === "load_skill") {
-          const skillName = String(toolInput.skill ?? "");
-          if (state.loadedSkills.includes(skillName)) {
-            return { ok: true, skill: skillName, loaded: true, noop: true };
+        if (name === "get_phase_profile") {
+          const phase = String(toolInput.phase ?? "");
+          if (state.phaseProfiles[phase]) {
+            return { ok: true, phase, loaded: true, noop: true, profile: state.phaseProfiles[phase] };
           }
-          const body = await skillCatalog.fetchBody(skillName);
-          if (body == null) return { ok: false, error_kind: "skill_not_found" };
-          state.loadedSkills.push(skillName);
-          state.skillBodies[skillName] = body;
-          // Return the body in the tool_result so it enters the conversation at the
-          // tail, once, and is re-sent as a stable cache hit thereafter — rather than
-          // being re-rendered into a front block every round (which busts the cache).
-          return { ok: true, skill: skillName, loaded: true, body };
+          const profile = await skillCatalog.fetchPhaseProfile(phase);
+          if (profile == null) return { ok: false, error_kind: "phase_profile_not_found" };
+          state.phaseProfiles[phase] = profile;
+          return { ok: true, phase, loaded: true, profile };
         }
         if (name === "read_workspace_file") {
           // The host (extension) owns the read + path containment to the workspace
@@ -649,7 +640,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
             if (!projectDir) return { ok: false, error_kind: "project_dir_unavailable" };
             return { ok: true, output: (await shim.renderDiagram(projectDir, toolInput.format ?? "md")).output };
           }
-          if (name === "run_validate" || name === "run_scaffold" || name === "run_download_drivers" || name === "run_static_check" || name === "run_simulate") {
+          if (name === "run_validate" || name === "run_scaffold" || name === "run_download_drivers" || name === "run_static_check" || name === "run_simulate" || name === "run_triage" || name === "run_hardware_sanity" || name === "run_extract_pdf" || name === "run_flash_device") {
             const projectDir = state.projectDir ?? deps.projectRoot;
             if (!projectDir) return { ok: false, error_kind: "project_dir_unavailable" };
             if (name === "run_validate") {
@@ -670,8 +661,24 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
               const r = await shim.runStaticCheck(projectDir, toolInput.target ?? "firmware");
               return { ok: true, clean: r.clean, flake8: r.flake8, pylint: r.pylint };
             }
-            const sim = await shim.runSimulate(projectDir, toolInput.target ?? "test/pc");
-            return { ok: true, passed: sim.passed, no_tests: sim.noTests, exit_code: sim.exitCode, output: sim.output };
+            if (name === "run_simulate") {
+              const sim = await shim.runSimulate(projectDir, toolInput.target ?? "test/pc");
+              return { ok: true, passed: sim.passed, no_tests: sim.noTests, exit_code: sim.exitCode, output: sim.output };
+            }
+            if (name === "run_triage") {
+              return { ok: true, ...(await shim.runTriage(projectDir, toolInput.path ?? toolInput.target ?? "firmware")) };
+            }
+            if (name === "run_hardware_sanity") {
+              return { ok: true, ...(await shim.runHardwareSanity(projectDir)) };
+            }
+            if (name === "run_extract_pdf") {
+              return { ok: true, ...(await shim.runExtractPdf(projectDir, toolInput.path, toolInput.output_path)) };
+            }
+            const generatedEntryPath =
+              typeof state.files?.["main.py"] === "string" ? "main.py"
+                : typeof state.files?.["firmware/main.py"] === "string" ? "firmware/main.py"
+                  : "firmware/main.py";
+            return { ok: true, ...(await shim.runFlashDevice(projectDir, toolInput.path ?? generatedEntryPath)) };
           }
           return { ok: false, error_kind: "UnknownToolError" };
         } catch (error: any) {
@@ -798,11 +805,10 @@ function isComponentListAsk(toolInput: any): boolean {
   return /器件清单|元件清单|部件清单|物料清单|零件清单|\bbom\b|bill of materials|component list|parts list|device list/.test(question);
 }
 
-function renderLoadedSkillBodies(state: any): string {
-  return (state.loadedSkills ?? [])
-    .map((name: string) => state.skillBodies?.[name] ? `# ${name}\n${state.skillBodies[name]}` : "")
-    .filter(Boolean)
-    .join("\n\n");
+function renderPhaseProfiles(state: any): string {
+  return Object.values(state.phaseProfiles ?? {})
+    .map((profile: any) => JSON.stringify(profile))
+    .join("\n");
 }
 
 function cloneJson<T>(value: T): T {

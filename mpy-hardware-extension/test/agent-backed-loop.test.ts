@@ -213,20 +213,26 @@ test("a continued session reuses the board profile and driver contexts without r
   assert.match(codegenBodyPhase2!, /aht20/);
 });
 
-test("load_skill persists the skill body into later agent and codegen requests", async () => {
+test("get_phase_profile persists only a sanitized phase profile into later requests", async () => {
   let turnIndex = 0;
   const agentRequestBodies: any[] = [];
   const codegenRequestBodies: any[] = [];
   const turns = [
-    { name: "load_skill", input: { skill: "upy-gen-main" } },
+    { name: "get_phase_profile", input: { phase: "generate" } },
     { name: "generate_code", input: { manifest: MANIFEST, target_path: "main.py" } },
   ];
   const fetchImpl = (async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/v1/skills")) {
-      return jsonResponse({ skills: [{ name: "upy-gen-main", description: "Generate MicroPython main.py" }] });
-    }
-    if (url.endsWith("/v1/skills/upy-gen-main")) {
-      return { ok: true, status: 200, text: async () => "# upy-gen-main\nAlways print MPYHW_READY." } as unknown as Response;
+    if (url.endsWith("/v1/phase-profiles/generate")) {
+      return jsonResponse({
+        phase: "generate",
+        goal: "Generate MicroPython firmware files.",
+        execution_mode: "hybrid",
+        decision_rules: ["Use package contexts for APIs."],
+        tools: ["generate_code", "audit_code", "run_static_check", "run_simulate"],
+        inputs: ["project-manifest.json", "driver_context"],
+        outputs: ["firmware/main.py"],
+        failure_strategy: ["Run local triage before asking for a cloud fix."],
+      });
     }
     if (url.endsWith("/v1/llm/messages")) {
       const body = JSON.parse(String(init?.body ?? "{}"));
@@ -249,21 +255,14 @@ test("load_skill persists the skill body into later agent and codegen requests",
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
   const result = await loop({ intent: "use the main.py conventions", boardId: "esp32-s3-devkitc-1", state });
 
-  assert.deepEqual(result.state.loadedSkills, ["upy-gen-main"]);
-  assert.match(JSON.stringify(agentRequestBodies[0].messages), /AVAILABLE SKILLS/);
-  // Append-only: the catalog lives in the durable opening (message[0]), so it is
-  // present every round — but as a byte-stable prefix (a cache HIT), not re-sent as
-  // a shifting front block. message[0] is therefore identical across rounds.
-  assert.match(JSON.stringify(agentRequestBodies[1].messages), /AVAILABLE SKILLS/);
-  assert.equal(
-    JSON.stringify(agentRequestBodies[1].messages[0]),
-    JSON.stringify(agentRequestBodies[0].messages[0]),
-    "the catalog-bearing opening must stay byte-identical round-over-round",
-  );
-  // The skill body reaches later agent requests via the load_skill tool_result
-  // (appended at the tail), and the codegen sub-call still grounds on it.
-  assert.match(JSON.stringify(agentRequestBodies[1].messages), /Always print MPYHW_READY/);
-  assert.match(JSON.stringify(codegenRequestBodies[0].messages), /Always print MPYHW_READY/);
+  assert.deepEqual(result.state.loadedSkills, []);
+  assert.deepEqual(Object.keys(result.state.phaseProfiles), ["generate"]);
+  const secondRound = JSON.stringify(agentRequestBodies[1].messages);
+  assert.doesNotMatch(secondRound, /AVAILABLE SKILLS|SKILL\.md|upy-gen-main|mpremote|python .*scripts/);
+  assert.match(secondRound, /Generate MicroPython firmware files/);
+  const codegenRound = JSON.stringify(codegenRequestBodies[0].messages);
+  assert.match(codegenRound, /Generate MicroPython firmware files/);
+  assert.doesNotMatch(codegenRound, /AVAILABLE SKILLS|SKILL\.md|mpremote|python .*scripts/);
 });
 
 test("agent requests stay append-only across rounds (prefix-stable for DeepSeek's cache)", async () => {
@@ -274,14 +273,13 @@ test("agent requests stay append-only across rounds (prefix-stable for DeepSeek'
   let turnIndex = 0;
   const agentRequests: any[] = [];
   const turns = [
-    { name: "load_skill", input: { skill: "upy-gen-main" } },          // mid-session skill load — the worst prior offender
+    { name: "get_phase_profile", input: { phase: "generate" } },
     { name: "query_board_profile", input: { board_id: "esp32-s3-devkitc-1" } },
     { name: "get_package_context", input: { name: "aht20_driver", version: "1.0.0" } },
     { name: "resolve_package_candidates", input: { intent: "x", capabilities: ["temperature_sensing"], board_id: "esp32-s3-devkitc-1" } },
   ];
   const fetchImpl = (async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/v1/skills")) return jsonResponse({ skills: [{ name: "upy-gen-main", description: "Generate MicroPython main.py" }] });
-    if (url.endsWith("/v1/skills/upy-gen-main")) return { ok: true, status: 200, text: async () => "# upy-gen-main\nAlways print MPYHW_READY." } as unknown as Response;
+    if (url.endsWith("/v1/phase-profiles/generate")) return jsonResponse({ phase: "generate", goal: "Generate firmware.", execution_mode: "hybrid", tools: ["generate_code"] });
     if (url.endsWith("/v1/llm/messages")) {
       agentRequests.push(JSON.parse(String(init?.body ?? "{}")));
       const turn = turns[turnIndex++];
@@ -309,10 +307,11 @@ test("agent requests stay append-only across rounds (prefix-stable for DeepSeek'
     }
   }
 
-  // The loaded skill body entered the history exactly once (the load_skill
-  // tool_result), not re-rendered into a front block that shifts every round.
+  // The sanitized profile entered the history exactly once, not as a re-rendered
+  // catalog or raw skill body that shifts the prefix.
   const finalJson = JSON.stringify(agentRequests.at(-1).messages);
-  assert.equal(finalJson.split("Always print MPYHW_READY").length - 1, 1, "skill body must appear exactly once (append-only)");
+  assert.equal(finalJson.split("Generate firmware.").length - 1, 1, "phase profile must appear exactly once (append-only)");
+  assert.doesNotMatch(finalJson, /AVAILABLE SKILLS|load_skill|SKILL\.md/);
 });
 
 test("thinking-mode reasoning round-trips: a thinking_delta is stored as a thinking block on the assistant turn", async () => {
@@ -359,20 +358,17 @@ test("thinking-mode reasoning round-trips: a thinking_delta is stored as a think
   assert.ok(assistantMsg.content.some((b: any) => b.type === "tool_use"), "assistant turn keeps its tool_use");
 });
 
-test("loading an already loaded skill is a noop and does not fetch the body again", async () => {
-  let skillBodyFetches = 0;
+test("loading an already loaded phase profile is a noop and does not fetch again", async () => {
+  let profileFetches = 0;
   let turnIndex = 0;
   const turns = [
-    { name: "load_skill", input: { skill: "upy-gen-main" } },
-    { name: "load_skill", input: { skill: "upy-gen-main" } },
+    { name: "get_phase_profile", input: { phase: "generate" } },
+    { name: "get_phase_profile", input: { phase: "generate" } },
   ];
   const fetchImpl = (async (url: string) => {
-    if (url.endsWith("/v1/skills")) {
-      return jsonResponse({ skills: [{ name: "upy-gen-main", description: "Generate MicroPython main.py" }] });
-    }
-    if (url.endsWith("/v1/skills/upy-gen-main")) {
-      skillBodyFetches += 1;
-      return { ok: true, status: 200, text: async () => "# upy-gen-main" } as unknown as Response;
+    if (url.endsWith("/v1/phase-profiles/generate")) {
+      profileFetches += 1;
+      return jsonResponse({ phase: "generate", goal: "Generate firmware.", execution_mode: "hybrid", tools: ["generate_code"] });
     }
     if (url.endsWith("/v1/llm/messages")) {
       const turn = turns[turnIndex++];
@@ -384,8 +380,8 @@ test("loading an already loaded skill is a noop and does not fetch the body agai
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
   const result = await loop({ intent: "x", boardId: "esp32-s3-devkitc-1" });
 
-  assert.deepEqual(result.state.loadedSkills, ["upy-gen-main"]);
-  assert.equal(skillBodyFetches, 1);
+  assert.deepEqual(Object.keys(result.state.phaseProfiles), ["generate"]);
+  assert.equal(profileFetches, 1);
 });
 
 test("a serial read that never sees its markers drives repair exhaustion, not max_turns", async () => {
@@ -1351,6 +1347,44 @@ test("write_main_py deploys generated main.py from local state, not the model ec
   await loop({ intent: "blink", boardId: "esp32-s3-devkitc-1" });
 
   assert.equal(mainWritten, "print('GENERATED_MAIN')");
+});
+
+test("run_flash_device defaults to the generated single-file entry path", async () => {
+  let turnIndex = 0;
+  let flashedPath = "";
+  const turns = [
+    { name: "generate_code", input: { manifest: MANIFEST, target_path: "main.py" } },
+    { name: "run_flash_device", input: {} },
+  ];
+
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('GENERATED_MAIN')" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const shim = {
+    scan: async () => ["COM3"],
+    runFlashDevice: async (_projectDir: string, path: string) => {
+      flashedPath = path;
+      return { exitCode: 0, output: "" };
+    },
+  };
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim, writeProjectFile: async (path: string) => ({ ok: true, path }), projectRoot: "C:/project" });
+  await loop({ intent: "desktop pet", boardId: "esp32-s3-devkitc-1" });
+
+  assert.equal(flashedPath, "main.py");
 });
 
 test("write_main_py deploys the firmware tree in one call; non-firmware artifacts never go through the loop", async () => {

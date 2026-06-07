@@ -147,7 +147,7 @@
           "required": ["schema_version", "phase", "created_at", "project_name", "requirements", "devices"],
           "additionalProperties": true
         },
-        "target_path": { "type": "string" }
+        "target_path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" }
       },
       "required": ["manifest", "target_path"],
       "additionalProperties": false
@@ -161,7 +161,7 @@
     "input_schema": {
       "type": "object",
       "properties": {
-        "path": { "type": "string" },
+        "path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
         "content": { "type": "string" }
       },
       "required": ["path", "content"],
@@ -169,16 +169,19 @@
     }
   },
   {
-    "name": "load_skill",
+    "name": "get_phase_profile",
     "executor_hint": "local",
     "requires_user_confirm": false,
-    "description": "Load a MicroPython hardware skill body by name.",
+    "description": "Fetch a sanitized product workflow profile for a build phase. The profile summarizes goals, decision rules, tools, inputs, outputs, and failure handling without exposing upstream skill markdown or local execution details.",
     "input_schema": {
       "type": "object",
       "properties": {
-        "skill": { "type": "string" }
+        "phase": {
+          "type": "string",
+          "description": "Product workflow phase name, for example analyze, generate, diagram, deploy, or autofix."
+        }
       },
-      "required": ["skill"],
+      "required": ["phase"],
       "additionalProperties": false
     }
   },
@@ -230,7 +233,7 @@
     "input_schema": {
       "type": "object",
       "properties": {
-        "path": { "type": "string" }
+        "path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" }
       },
       "required": ["path"],
       "additionalProperties": false
@@ -258,7 +261,7 @@
     "input_schema": {
       "type": "object",
       "properties": {
-        "path": { "type": "string" },
+        "path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+" },
         "content": { "type": "string" }
       },
       "required": ["path", "content"],
@@ -273,7 +276,7 @@
     "input_schema": {
       "type": "object",
       "properties": {
-        "path": { "type": "string", "description": "Workspace-relative path, for example lib/aht20.py." }
+        "path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative path, for example lib/aht20.py." }
       },
       "required": ["path"],
       "additionalProperties": false
@@ -287,7 +290,7 @@
     "input_schema": {
       "type": "object",
       "properties": {
-        "path": { "type": "string", "description": "Workspace-relative path, for example firmware/tasks/sensor.py or project-manifest.json." },
+        "path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative path, for example firmware/tasks/sensor.py or project-manifest.json." },
         "content": { "type": "string", "description": "Full file contents to write." }
       },
       "required": ["path", "content"],
@@ -303,7 +306,7 @@
       "type": "object",
       "properties": {
         "schema": { "type": "string", "enum": ["project-manifest", "wiring", "diagram"], "description": "Which canonical schema to validate against." },
-        "path": { "type": "string", "description": "Project-relative path of the JSON file to validate (default project-manifest.json)." }
+        "path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative path of the JSON file to validate (default project-manifest.json)." }
       },
       "required": ["schema"],
       "additionalProperties": false
@@ -341,7 +344,7 @@
     "input_schema": {
       "type": "object",
       "properties": {
-        "target": { "type": "string", "description": "Project-relative path to check (default firmware)." }
+        "target": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative path to check (default firmware)." }
       },
       "additionalProperties": false
     }
@@ -354,7 +357,7 @@
     "input_schema": {
       "type": "object",
       "properties": {
-        "target": { "type": "string", "description": "Project-relative test path (default test/pc)." }
+        "target": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative test path (default test/pc)." }
       },
       "additionalProperties": false
     }
@@ -381,6 +384,59 @@
       "type": "object",
       "properties": {
         "format": { "type": "string", "enum": ["md", "png", "all"], "description": "Output format (default md)." }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_triage",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Run local deterministic triage after generation or deploy failures. Returns structured summary, exit code, relative artifact paths, and short sanitized logs.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative path to triage (default firmware)." },
+        "target": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative target to triage (default firmware)." }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_hardware_sanity",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Run local hardware sanity checks such as device visibility and basic board responsiveness. Returns structured observations without exposing raw serial dumps.",
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_extract_pdf",
+    "executor_hint": "shim",
+    "requires_user_confirm": false,
+    "description": "Extract local PDF evidence into page-numbered JSON for cloud reasoning. The raw PDF stays local unless a separate explicit upload policy is used.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative PDF path." },
+        "output_path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative JSON output path." }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "run_flash_device",
+    "executor_hint": "shim",
+    "requires_user_confirm": true,
+    "description": "Run the generated firmware on the device through the local runner. Prefers the project's tools/flash_device.py when present, otherwise resets the board so the firmware already uploaded by write_main_py runs.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+", "description": "Workspace-relative firmware entry path (default firmware/main.py)." }
       },
       "additionalProperties": false
     }

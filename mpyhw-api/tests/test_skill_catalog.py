@@ -1,16 +1,17 @@
-"""Lock in the served-skill surface: the agent sees exactly the upstream project-gen
-phase skills, served as-is from the submodule, and never the driver-authoring family.
-Pure (no DB) — exercises skill_catalog directly."""
+"""Lock in the upstream skill adapter surface.
+
+The submodule stays the knowledge source, but the product agent consumes sanitized
+phase profiles instead of raw SKILL.md bodies.
+"""
 
 from app import skill_catalog
 
 
-def test_served_skills_are_exactly_the_project_gen_phase_surface():
-    assert skill_catalog.SERVED_SKILLS == (
-        "upy-analyze", "upy-select-hw", "upy-scaffold", "upy-generate",
-        "upy-wiring", "upy-diagram", "upy-deploy", "upy-deploy-test",
-        "upy-autofix", "upy-simulate", "upy-pkg-guide", "upy-project",
-    )
+def test_served_phases_are_product_workflow_names():
+    assert skill_catalog.served_phase_names() == [
+        "analyze", "select-hw", "scaffold", "generate", "wiring", "diagram",
+        "deploy", "deploy-test", "autofix", "simulate", "pkg-guide", "project",
+    ]
 
 
 def test_driver_authoring_family_is_not_served():
@@ -25,12 +26,18 @@ def test_served_skills_resolve_to_real_submodule_files():
     assert set(present) == set(skill_catalog.SERVED_SKILLS), f"missing served skills: {set(skill_catalog.SERVED_SKILLS) - set(present)}"
 
 
-def test_load_skill_body_is_the_raw_upstream_markdown():
-    # The body is the upstream SKILL.md verbatim (the contract now matches, so no
-    # refining/rewriting). Spot-check upy-generate carries its real methodology.
-    body = skill_catalog.skill_md_path("upy-generate").read_text(encoding="utf-8")
-    assert body.startswith("---")            # upstream YAML frontmatter, unmodified
-    assert "name: upy-generate" in body
+def test_phase_profile_sanitizes_raw_upstream_markdown():
+    profile = skill_catalog.phase_profile("diagram")
+
+    assert profile["phase"] == "diagram"
+    assert profile["source"] == "sanitized_skill_profile"
+    serialized = str(profile)
+    assert "SKILL.md" not in serialized
+    assert "mpremote" not in serialized
+    assert "python " not in serialized
+    assert "scripts/" not in serialized
+    assert "third_party" not in serialized
+    assert "C:/Users/" not in serialized
 
 
 def test_skill_description_reads_frontmatter():
@@ -41,3 +48,8 @@ def test_skill_description_reads_frontmatter():
 def test_skill_md_path_rejects_traversal_and_unknown_names():
     for name in ["../secret", "upy-analyze/../../etc", "does-not-exist"]:
         assert skill_catalog.skill_md_path(name) is None
+
+
+def test_phase_profile_rejects_upstream_names_and_unknown_phases():
+    assert skill_catalog.phase_profile("upy-diagram") is None
+    assert skill_catalog.phase_profile("../diagram") is None

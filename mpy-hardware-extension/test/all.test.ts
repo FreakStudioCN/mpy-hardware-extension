@@ -9,6 +9,7 @@ import "./pipeline-shim.test.ts";
 import "./termination.test.ts";
 import "./sse-client.test.ts";
 import "./tool-dispatch.test.ts";
+import "./observations.test.ts";
 import "./context-builder.test.ts";
 import "./agent-loop.test.ts";
 import "./agent-backed-loop.test.ts";

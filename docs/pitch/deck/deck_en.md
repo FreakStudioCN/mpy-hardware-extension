@@ -1,263 +1,402 @@
-# Pitch Deck — EN (US VC seed, Uber-style compression + US-market logic) · v12
+# Blockless Seed Deck - EN v14
 
-> Date: 2026-05-26 · v12
-> Audience: US VC, seed, no traction, American Dynamism aligned
-> Framework: Uber 2008 seed deck inspired — sparse bullets, bottoms-up comps, mechanism-heavy. Total body word count ~900 (vs v7.1 ~2500).
->
-> **v12 cumulative changes from v7.1:**
-> - **v8/v9** aligned with `docs/specs/` v0.2 (VS Code MVP + client-side ReAct agent + mpyhw-api proxy); Slide 4 rewritten to Schematik $4.6M as falsification case; Slide 14 dropped ASK (no longer a fundraising-specific deck)
-> - **v10** Major fact correction on CEO/CTO bios: CEO = USC + former Moorcubes CTO + Qiji Trampoline S26 + Future Stars; CTO = creator of MicroPython's only package management tool (uPyPI). Removed all "CEO is MicroPython core contributor" framing from v7 and earlier. CTO bio drops the long technology-stack list.
-> - **v11** Uber-style compression: every slide ≤ 6 bullets · each bullet ≤ 15 words; dropped unauditable claims (`50M+ people bought` · `~90% never shipped` · `100 dreamers` · speculative TAMs); kept only auditable single anchors (60M RPi shipped · 30M Arduino IDE · KS Hardware Top 5 $3.46–6.67M · KS Tech $706M / 35,512 projects).
-> - **v12** US-market logic thread now explicit through S3 / S5 / S10 / S13 (was missing in v11 — global stats with no US bridge for a US-VC audience). Adafruit / SparkFun / Hackster framed as US Year-1 channels; Conrad (EU) / Switch Science (JP) moved to 2028 international expansion.
+> Date: 2026-06-06  
+> Audience: US seed VC  
+> Position: software-first AI embedded prototyping platform  
+> Core change from v13: clearer analogy and channel-to-sales path.  
+> Status: latest pitch draft; founder review still required.
 
 ---
 
-## Slide 1 — Cover
+## Slide 1 - Cover
 
-# Software's Lovable moment was 2025.
-# Hardware's is now.
+# The AI agent for embedded hardware.
 
-*Building hardware should feel like snapping Lego together.*
+Software teams got Cursor.  
+Physical builders still debug pins, drivers, and flashing by hand.
 
-`[Logo]` · `The AI-native hardware creation platform`
+**Blockless turns an idea into running MicroPython on real hardware.**
+
+`[Logo]` | AI-native embedded prototyping platform
 
 ---
 
-## Slide 2 — The Thesis
+## Slide 2 - The Analogy
 
-### AI agents already ship software. The physical world has no agent.
+### Cursor did not invent programmers. It monetized an existing workflow.
 
-| Domain | Autonomous-agent era (2025–26) |
+Cursor won because developers were already inside:
+
+- VS Code
+- GitHub
+- package managers
+- test/deploy loops
+- Stack Overflow / docs / examples
+
+Hardware has the same ingredients, but they are not connected:
+
+- Adafruit / SparkFun / Seeed / DFRobot modules
+- Arduino / MicroPython / CircuitPython drivers
+- Hackster / Tindie / Kickstarter creators
+- serial logs, flashing tools, board profiles
+
+> Cursor sits on the software creation graph.  
+> Blockless sits on the embedded hardware creation graph.
+
+---
+
+## Slide 3 - Thesis
+
+### AI agents changed software. Hardware is next, but the stack is wrong.
+
+- AI coding agents work because software has fast loops and rich package context.
+- Embedded hardware has slow loops, fragmented drivers, and blind physical state.
+- The first winning AI hardware platform will not start with PCB layout.
+- It will start with the fastest path from intent to a working prototype.
+
+> The wedge is not "AI for Altium."  
+> The wedge is **AI for getting hardware running**.
+
+---
+
+## Slide 4 - Problem
+
+### Embedded prototyping breaks where AI is weakest.
+
+A simple project still requires:
+
+- choosing the right board and module
+- finding a real driver package
+- wiring legal pins
+- generating firmware against the real API
+- flashing, reading serial output, and fixing failures
+
+LLMs can write plausible code.  
+They cannot reliably know which driver exists, which constructor is valid, or which pin works.
+
+> The bottleneck is not imagination. It is package and device truth.
+
+---
+
+## Slide 5 - Why Now
+
+### Four forces landed at once.
+
+1. **AI coding agents are now normal.** The market understands "Cursor for X."
+2. **Microcontrollers are moving toward Python.** Arduino now markets Python, Linux, RTOS, and AI workflows.
+3. **Modular electronics are mainstream.** Qwiic, STEMMA, Grove, Gravity, and Modulino proved the physical pattern.
+4. **AI hardware design is fundable.** Schematik raised $4.6M; Flux raised $37M.
+
+The opportunity is not to invent modular hardware.  
+It is to make modular hardware legible to an agent.
+
+Sources: Qualcomm/Arduino 2025; SparkFun Qwiic; Adafruit STEMMA; Seeed Grove; DFRobot Gravity; Schematik 2026; Flux 2026.
+
+---
+
+## Slide 6 - What We Built
+
+### An agent loop grounded in real packages, boards, and modules.
+
+**Blockless MVP**
+
+- VS Code extension agent
+- backend package intelligence
+- board profiles and import audit
+- driver contexts extracted from package evidence
+- local deploy path through MicroPython tooling
+- real demo path: intent -> package resolution -> code -> hardware run
+
+**Local asset evidence**
+
+- 209 package-index records
+- 166 GraftSense-sourced records
+- 157 `generatable` package records
+- 167 GraftSense driver `package.json` descriptors
+- tests resolving temperature intent to `aht20_driver`
+
+> We do not ask the model to guess driver APIs.  
+> We give it a machine-readable contract.
+
+Sources: local repo package index and tests, 2026-06-05.
+
+---
+
+## Slide 7 - Demo
+
+### "Turn on an LED when temperature is over 30 C."
+
+1. User describes the hardware intent.
+2. Agent maps intent to required capabilities.
+3. Package intelligence resolves a temperature driver.
+4. Driver context gives import names, constructors, read properties, and pin roles.
+5. Agent generates audited MicroPython.
+6. User approves deploy; code runs on a real board.
+
+Example resolved package: `aht20_driver`.
+
+> Speak. Resolve. Audit. Run.
+
+---
+
+## Slide 8 - Product
+
+### Software-first, hardware-aware.
+
+**Core paid product**
+
+- AI embedded agent for firmware generation and debugging
+- package intelligence and driver-context retrieval
+- board/module manifest generation
+- code audit before deploy
+- metered LLM usage and team workflows
+
+**Hardware role**
+
+- starter kits and active modules for onboarding
+- controlled demo surface for reliability
+- future self-describing module graph
+
+Hardware helps the agent trust the physical world.  
+Software is the primary business model.
+
+---
+
+## Slide 9 - Beachhead Users
+
+### Start where time-to-working-prototype has economic value.
+
+Ranked first users:
+
+1. **Hardware startups and product studios** building connected-device demos.
+2. **Embedded/IoT consultants** who monetize saved engineering hours.
+3. **Maker-pros** selling through Tindie, Crowd Supply, or Kickstarter.
+4. **University labs and capstone teams** with repeated project cycles.
+5. **CTE/STEM educators** after the product becomes curriculum-stable.
+
+Not the initial wedge: general hobbyists and broad K-12 procurement.
+
+> Early adopters are people whose prototype delay already has a cost.
+
+---
+
+## Slide 10 - Channel Evidence
+
+### The US has visible hardware-creator channels.
+
+- Hackster: 2.5M+ members, 44K+ open-source projects.
+- Adafruit: 3M+ monthly uniques, 8M+ pageviews/month, 16.2K orders/month.
+- Tindie: 489K+ orders shipped, 19.9K+ products.
+- Crowd Supply: curated hardware launch platform; claims 90%+ launched-project funding success.
+- Kickstarter Technology: $1.95B pledged, 59K+ launched projects.
+- US CTE: 11.2M students; Perkins V investment around $1.3B.
+
+These are not sales forecasts.  
+They prove there are reachable buyers, projects, and distribution surfaces.
+
+Sources: Hackster; Adafruit media kit; Tindie; Crowd Supply; Kickstarter stats; Advance CTE; US Department of Education.
+
+---
+
+## Slide 11 - Sales Path
+
+### Channel data only matters if it becomes a repeatable funnel.
+
+**Stage 1 - Proof users**
+
+- recruit 20 design partners
+- run their real prototypes through Blockless
+- measure time saved and failure modes
+- convert 5 into paid pilots
+
+**Stage 2 - Public recipes**
+
+- publish 10 working recipes with BOM, code, video, and package evidence
+- each recipe has two calls to action: try the agent, buy the starter kit
+- target: qualified signups, hardware runs, paid pilots, kit preorders
+
+**Stage 3 - Channel sales**
+
+- place starter kits and tutorials in maker channels
+- sell software to repeat creators, consultants, and labs
+- use hardware sales to create more package and module truth
+
+> Adafruit's 16.2K orders/month does not become our revenue automatically.  
+> It tells us where to test whether hardware buyers convert into agent users.
+
+---
+
+## Slide 12 - Bottom-Up First-Year Test
+
+### A seed-stage plan should be a falsifiable sales experiment.
+
+| Milestone | What It Proves |
 |---|---|
-| Code | Claude Code · Cursor Agents · Codex — multi-file features |
-| Web apps | Lovable Agents — tests, bugfixes, full app shipping |
-| Image / Video | Sora 2 · Veo 3 — one-shot autonomous |
-| **Physical / Hardware** | **— still empty —** |
+| 20 design partners | there is real repeated pain |
+| 10 verified recipes | the agent can reproduce useful builds |
+| 5 paid pilots | teams will pay for prototype velocity |
+| 100 kit preorders | hardware can onboard users |
+| 500 qualified signups | public channels can create demand |
+| 50 active hardware runs | users move beyond demo interest |
 
-> **The last gap: agents that build things that move.**
-
----
-
-## Slide 3 — The Problem
-
-### Hardware is the last creative domain still gatekept.
-
-**The US has the strongest maker community in the world — and the deepest STEM education gap.**
-
-- **Adafruit · SparkFun · Hackster · Hackaday** — all US companies anchoring the global maker base
-- **30M Arduino IDE downloads** + **60M Raspberry Pi units shipped** *(Arduino 2024 · RPi PLC FY24)* — US is the single largest market
-- **US K-12 + post-secondary STEM enrollment: ~50M students** *(NCES 2023)* — AI is rewriting every creative tool except the one they need
-- Four walls: datasheets · driver code · soldering · PCB
-- Cursor democratized code. Lovable democratized web apps. **Nothing democratizes physical things — yet.**
-
-> The next US-led creator wave is blocked by I2C, not imagination.
-
-`Sources: Arduino Open Source Report 2024; RPi PLC FY24; NCES Digest 2023`
+If these fail, the company should not hide behind TAM.
 
 ---
 
-## Slide 4 — Why AI Hardware Is Failing Today
+## Slide 13 - Competition
 
-### Someone already tried "Cursor for hardware." It didn't work.
+### The market is validated, but the winning layer is unsettled.
 
-**Schematik · Lightspeed lead · $4.6M pre-seed · April 2026**
-
-- AI-generated Arduino code: ~20% of packages don't exist → users quit
-- Founder Sam Beek **shorted his house's wiring** in his own public demo
-- **$4.6M and a year. Even the founder can't run it.**
-
-### Three structural problems in the C / Arduino stack
-
-1. **Data sparsity** — embedded-C corpus thin · model fabricates
-2. **Loop break** — compile-flash ≥30 sec · agent's iterate loop dies
-3. **Hardware blindness** — no self-description protocol · agent guesses pins
-
-> Not a model problem. A stack problem.
-
-`Sources: Schematik blog 2026-04; siliconsnark 2026-04; arxiv 2509.09970`
-
----
-
-## Slide 5 — Why Now
-
-### Three forces missing 24 months ago. All landed this year — and all started in the US.
-
-**1 · US AI labs went from copilot to autonomous**
-- Anthropic · OpenAI · Cursor · Lovable — all US — ship multi-file features unattended (2025–26)
-- The capability now exists. Question is which domain absorbs it next. **Hardware is the only one still empty.**
-
-**2 · We own the package layer of MicroPython**
-- CTO is **the creator of MicroPython's only package manager (uPyPI)**
-- **200+ packages/drivers across uPyPI, GraftSense, and curated recipes**
-- LLMs write Python **10× more accurately than C** *(arxiv 2509.09970)*
-- The Python the agent writes runs on the registry we built. **Not replicable 1:1.**
-
-**3 · Hardware can finally host an agent**
-- BLE 5.x + ESP32-C3 (~$1 BOM) + MicroPython REPL over BLE = agent reads device state directly. **First time possible.**
-
-**Validation:** Schematik (Lightspeed · $4.6M · Apr 2026) confirms US VC appetite. They bet wrong (Slide 4). **We bet on the stack AI is growing into.**
-
-> US capability + US creator demand + US VC validation. All three converged this year.
-
-`Sources: Anthropic / OpenAI / Cursor public; arxiv 2509.09970; Schematik blog 2026-04`
-
----
-
-## Slide 6 — What We Built
-
-# Hardware should feel like snapping Lego together.
-
-### Three phases: MVP (VS Code extension) → Standalone IDE → Hardware shipments
-
-- **Skill** — AI compiler · intent → module bundle + code
-- **Package Intelligence** — uPyPI/GraftSense/curated packages · 200+ packages/drivers · driver context · *fixes #1*
-- **uPyOS** — module firmware + BLE · REPL hot-reload <1s · *fixes #2*
-- **Active modules** — ESP32-C3 + sensor/actuator · BLE self-describes · *fixes #3*
-- **Hardware App Store** — fork & install someone else's working build
-
-> Lego made plastic bricks the universal substrate for childhood.
-> **Active modules + agents = the substrate for the physical world.**
-
-`[Architecture diagram: User intent → Skill → Package Intelligence/uPyOS → Active modules → App Store]`
-
----
-
-## Slide 7 — The Demo
-
-### "Desk thermometer. Vibrate if temperature > 30°C."
-
-1. **Skill parses intent** · clarifies in plain English
-2. **Recommends a bundle** — temp/humidity + light + vibration · ships
-3. **User snaps modules** — BLE auto-pairs · capabilities self-describe
-4. **Skill pushes code** → motor vibrates above 30°C
-
-> **Speak. Snap. Run.**
-
-Inside VS Code (MVP). Standalone IDE — H1 2027.
-
-![Real hardware: piranha-LED light module (sample of a module we can ship)](dist/assets/piranha-led-module.gif)
-
-`[Architecture flow diagram. Full-flow demo video TBD at Kickstarter launch.]`
-
----
-
-## Slide 8 — The Product
-
-### Module library + AI-native IDE. **Hardware is the commercial core.**
-
-- **Hardware:** ESP32-C3 + sensor/actuator · BOM ~$1 · retail $15–$25
-- **Launch library:** ~15 modules — sensing + actuation
-- **Software:** MVP = VS Code extension · 2027 = standalone IDE
-- **App Store:** phone / web — fork working builds with one tap
-
-**Target users:** Adafruit/SparkFun makers · STEM educators · non-coders with ideas
-
-`[Module render — TBD]`
-
----
-
-## Slide 9 — Why This Wins
-
-### Same category. We win on the stack.
-
-Schematik (Lightspeed · $4.6M · Apr 2026) bets on C / Arduino. We bet on MicroPython + modular.
-
-| | Schematik | Us |
-|---|---|---|
-| Stack | C / Arduino — compile, retry, brick | **MicroPython + BLE** — no compile, no flash |
-| Drivers | LLM hallucinates libs (~20% don't exist) | Package Intelligence over 200+ real packages/drivers |
-| Iteration | ≥30 sec/cycle | **<1 sec hot-reload** |
-| Error recovery | C hardfault → brick | Python exception → catchable |
-| Hardware abstraction | LLM guesses pins | BLE self-describe |
-| **Package ecosystem** | Third-party (Arduino / ESP-IDF) | **uPyPI foundation + Package Intelligence layer** |
-| User path | Source + solder PCB | Snap modules |
-| LLM / IDE lock | Tied to Claude 3.5 | LLM- and IDE-agnostic |
-| Supply | Distributed (high BOM) | Vertically integrated (low BOM) |
-
-> They bet on the toolchain AI is replacing. **We bet on the one AI is growing into.**
-
-`Sources: Schematik blog 2026-04; arxiv 2509.09970; CACM "Nonsense and Malicious Packages"`
-
----
-
-## Slide 10 — Market
-
-### Bottoms-up. US-first. No TAM theater.
-
-**Direct US comparables (auditable):**
-- **2024 Kickstarter Hardware Top 5 raised $3.46M–$6.67M** *(SendFromChina KS 2024 — UGREEN NASync · eufy S1 Pro · Carvera Air)* — KS is a US platform, US backers dominate
-- **2024 Kickstarter Tech category: $706M total · 35,512 projects** *(Tubefilter 2025-03)*
-- **Adafruit + SparkFun + Hackster** = primary US maker retail channels we plan to enter (all US-founded, US-HQ)
-
-**Year 1 SOM (US-focused):** $5–15M revenue from US KS launch + early US B2B (educators · makerspaces · STEM programs)
-
-**Three-year scenarios:**
-- **Best** — US-led category default · $100M+ ARR · international channels follow
-- **Realistic** — profitable US hardware company · 50K active creators · $10–30M ARR
-- **Floor** — US dev-kit business · breakeven on 5K kits sold
-
-> We don't claim a TAM. We claim a US comp.
-
----
-
-## Slide 11 — Business Model
-
-### "Cursor for hardware" — but **hardware is the commercial core**.
-
-| Step | Layer | Revenue | Share |
+| Category | Examples | What they solve | Our wedge |
 |---|---|---|---|
-| **Speak** | Skill | SaaS / metered | ~15% |
-| **Build** | uPyPI + uPyOS + IDE | (in SaaS) | — |
-| **Run** | **Active modules + IDE bundle** | **Hardware sales** | **~70%** |
-| **Sell** | Small-batch manufacturing | Service + margin | ~15% |
+| AI PCB / EDA | Flux, Celus, CircuitMind, JITX | schematic, BOM, layout | after a prototype path exists |
+| Prompt-to-hardware | Schematik | code, parts, wiring, instructions | constrained package + runtime truth |
+| Simulation / education | Wokwi, Tinkercad, MakeCode | learning and virtual circuits | real deploy and package intelligence |
+| Modular ecosystems | Seeed, DFRobot, M5Stack, Adafruit, SparkFun | physical modules | agent-readable module/package layer |
 
-> Moat = three-layer coupling (hardware + software + AI) + integrated supply.
-
----
-
-## Slide 12 — Team
-
-### Two builders.
-
-**CEO**
-- USC
-- Former CTO · Moorcubes
-- Qiji Trampoline S26 — "Future Stars" track (Lu Qi's startup program)
-
-**CTO**
-- **Creator of MicroPython's only package manager — uPyPI**
-- 5 issued invention patents
-- 4 years lab project lead
-- Operates a hardware services company (K-12 STEM + custom robotics)
-- 13.6M+ developer-platform views
-
-> Software went AI-native in 5 years. Hardware is the last domain still locked behind I2C.
+> We are not replacing Altium.  
+> We are building the AI creation layer for embedded prototypes.
 
 ---
 
-## Slide 13 — GTM / Roadmap
+## Slide 14 - Why We Win
 
-### MVP → IDE → US-first hardware launch → International.
+### The stack gives the agent a closed loop.
 
-- **2026 Q4** — VS Code extension v0.2 · ESP32-S3 demo · US closed beta (Adafruit/SparkFun-tier maker advisors)
-- **2027 H1** — Standalone IDE α · **Kickstarter US launch** (target Hardware Top-5: $3–7M) · Adafruit/SparkFun/Hackster channel partnerships
-- **2027 H2** — 1,000+ orders shipped (US-majority) · library to 30+ modules
-- **2028** — International expansion: Conrad (EU) · Switch Science (JP) · manufacturing service opens for US creators ready to scale
-- **2029+** — Package Intelligence + uPyOS adopted as default stack in US K-12 and university STEM curricula
+| Failure mode | Generic LLM hardware tool | Blockless |
+|---|---|---|
+| nonexistent libraries | guesses package names | resolves indexed packages |
+| wrong APIs | hallucinates constructors | uses driver contexts |
+| invalid imports | discovers after deploy | audits against board profile |
+| slow iteration | compile/flash loop | MicroPython run loop |
+| blind hardware | assumes pins/modules | manifest + future self-description |
+| fragmented examples | web search | curated package intelligence |
 
-> KS Tech 2024: $706M · 35,512 projects · US-platform-dominant backer base. **Proven US channel.**
-
-`Sources: SendFromChina KS 2024; Tubefilter 2025-03`
+The moat is not BLE alone.  
+The moat is accumulated package, board, module, and working-project truth.
 
 ---
 
-## Slide 14 — Closing
+## Slide 15 - Business Model
 
-# "Every smart device may one day be 'spoken' into existence."
+### Cursor-style software revenue, hardware as the trust surface.
 
-We built this to make that real.
+**Primary revenue**
 
-> Not just an AI tool. Not just a hardware company.
-> **A complete stack for the agent era of physical creation.**
+- individual and team subscriptions
+- metered agent runs / package intelligence calls
+- paid professional workflows for consultants and startups
 
-`[Contact · website · email]`
+**Secondary revenue**
+
+- starter kits and active modules
+- education/lab bundles
+- small-batch manufacturing support when creators graduate
+
+**Free/community layer**
+
+- public recipes and project forks
+- examples that improve package intelligence and distribution
+
+> Hardware makes the workflow real. Software captures the margin.
+
+---
+
+## Slide 16 - GTM
+
+### Design partners first. Community channels second. Education later.
+
+**Next 90 days**
+
+- recruit 20 design partners across startups, consultants, maker-pro sellers, and university labs
+- measure time from idea to running hardware
+- ship 10 repeatable recipes with real packages and hardware evidence
+- publish technical demos through Hackster / GitHub / Adafruit-style tutorials
+
+**2027**
+
+- paid beta for teams and consultants
+- starter kit for reliable onboarding
+- channel pilots with maker retailers and university labs
+
+**Later**
+
+- CTE/STEM curriculum packages
+- China/Shenzhen supply-chain partnerships
+- module ecosystem expansion
+
+---
+
+## Slide 17 - China Strategy
+
+### China is a supply-chain and ecosystem edge, not the US deck's first revenue proof.
+
+China brings:
+
+- Shenzhen rapid prototyping and small-batch manufacturing
+- Seeed / DFRobot / M5Stack / Yahboom-style modular ecosystems
+- large education and robotics tailwinds
+- fast module iteration and BOM pressure
+
+But China education procurement is slow, local, and policy-sensitive.
+
+For a US seed deck, China should support:
+
+- lower hardware iteration cost
+- module sourcing
+- future international expansion
+
+Not the core first-market claim.
+
+---
+
+## Slide 18 - Risks We Will Not Hide
+
+### The story is promising, not yet proven.
+
+- No early users yet.
+- Willingness to pay for hardware-agent software is untested.
+- Arduino, Seeed, M5Stack, or Flux could add adjacent AI features.
+- Modular hardware alone is not defensible.
+- Education is attractive but slow.
+- Production-grade embedded systems need safety, compliance, and human review.
+
+The fundable claim is narrower:
+
+> We can become the default AI workflow for embedded prototyping before incumbents make their ecosystems agent-native.
+
+---
+
+## Slide 19 - Closing
+
+# Hardware creation needs its own agent-native stack.
+
+The physical world will not be built by generic code completion.
+
+It needs:
+
+- real package truth
+- board and module context
+- safe deploy loops
+- working-project memory
+
+**Blockless is building that stack.**
+
+---
+
+## Source Notes
+
+- Schematik: https://www.schematik.io/blog/schematik-raises-4-6m-pre-seed
+- Flux: https://www.flux.ai/p/blog/we-raised-37m-to-take-the-hard-out-of-hardware
+- Hackster: https://www.hackster.io/about
+- Adafruit media kit: https://cdn-shop.adafruit.com/files/media.pdf
+- Tindie: https://www.tindie.com/about/
+- Crowd Supply: https://www.crowdsupply.com/apply
+- Kickstarter stats: https://www.kickstarter.com/help/stats
+- Advance CTE: https://careertech.org/our-vision/cte-in-your-state/
+- US Department of Education FY2024 AFR: https://www.ed.gov/media/document/fy24-afr-108470.pdf
+- Arduino / Qualcomm: https://www.qualcomm.com/news/releases/2025/10/qualcomm-to-acquire-arduino-accelerating-developers--access-to-i
+- SparkFun Qwiic: https://www.sparkfun.com/qwiic
+- Adafruit STEMMA: https://www.adafruit.com/stemma
+- Seeed Grove: https://wiki.seeedstudio.com/Grove_System/
+- DFRobot Gravity: https://www.dfrobot.com/gravity

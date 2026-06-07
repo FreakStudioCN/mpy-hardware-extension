@@ -64,7 +64,7 @@ def test_deepseek_payload_is_byte_stable_for_prefix_caching():
             {"role": "assistant", "content": [{"type": "tool_use", "id": "c1", "name": "query_board_profile", "input": {"board_id": "esp32-s3-devkitc-1"}}]},
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "{\"ok\": true}"}]},
         ],
-        "tools": [{"name": "query_board_profile"}, {"name": "search_packages"}, {"name": "load_skill"}],
+        "tools": [{"name": "query_board_profile"}, {"name": "search_packages"}, {"name": "get_phase_profile"}],
     }
 
     first = routes_llm._deepseek_payload(body)
@@ -74,7 +74,7 @@ def test_deepseek_payload_is_byte_stable_for_prefix_caching():
     assert json.dumps(first.get("tools")) == json.dumps(second.get("tools"))
     assert first["messages"][0]["role"] == "system"
     assert first["messages"][0]["content"].startswith(routes_llm.SYSTEM_PROMPT)
-    assert [tool["function"]["name"] for tool in first["tools"]] == ["query_board_profile", "search_packages", "load_skill"]
+    assert [tool["function"]["name"] for tool in first["tools"]] == ["query_board_profile", "search_packages", "get_phase_profile"]
 
 
 def test_llm_messages_rejects_noncanonical_tool():
@@ -536,14 +536,37 @@ def test_propose_manifest_schema_is_byte_stable():
     assert json.dumps(first) == json.dumps(second)
 
 
-def test_llm_load_skill_schema_comes_from_skill_catalog():
+def test_llm_phase_profile_schema_comes_from_skill_catalog():
     from app import routes_llm, skill_catalog
 
-    tools = routes_llm._deepseek_tools([{"name": "load_skill"}])
+    tools = routes_llm._deepseek_tools([{"name": "get_phase_profile"}])
     parameters = tools[0]["function"]["parameters"]
 
-    assert parameters["required"] == ["skill"]
-    # The load_skill enum is exactly the served project-gen surface.
-    assert parameters["properties"]["skill"]["enum"] == skill_catalog.served_skill_names()
-    assert "upy-wiring" in parameters["properties"]["skill"]["enum"]
-    assert "upy-norm-driver" not in parameters["properties"]["skill"]["enum"]
+    assert parameters["required"] == ["phase"]
+    assert parameters["properties"]["phase"]["enum"] == skill_catalog.served_phase_names()
+    assert "diagram" in parameters["properties"]["phase"]["enum"]
+    assert "upy-diagram" not in parameters["properties"]["phase"]["enum"]
+
+
+def test_cloud_prompt_and_tools_do_not_expose_raw_skill_or_local_execution_details():
+    from app import routes_llm
+
+    payload = routes_llm._deepseek_payload({
+        "messages": [{"role": "user", "content": "blink an LED"}],
+        "tools": [{"name": "get_phase_profile"}, {"name": "run_flash_device"}, {"name": "run_extract_pdf"}],
+    })
+    serialized = json.dumps(payload, ensure_ascii=False)
+
+    forbidden = [
+        "AVAILABLE SKILLS",
+        "SKILL.md",
+        "load_skill",
+        "mpremote",
+        "python ",
+        "/scripts",
+        "C:/Users/",
+        "G:/MicroPython_Skills",
+        "third_party/MicroPython_Skills",
+    ]
+    for needle in forbidden:
+        assert needle not in serialized
