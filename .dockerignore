@@ -22,7 +22,6 @@ dist/
 dev/
 docs/
 assets/
-contracts/
 tmp/
 test/
 .tmp-mpremote-venv/

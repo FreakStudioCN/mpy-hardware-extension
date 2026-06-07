@@ -2,10 +2,11 @@
 #
 # IMPORTANT: build from the REPO ROOT, not mpyhw-api/ —
 #   docker build -f mpyhw-api/Dockerfile -t mpyhw-api .
-# The app resolves the skills submodule via parents[2] of app/skill_catalog.py
-# (the repo root) and content/ via parents[1] of app/. The COPY layout below
-# reproduces that geometry inside the image (/app/app, /app/content,
-# /third_party/MicroPython_Skills) so those path lookups still resolve.
+# The app resolves the skills submodule and the tool contract via parents[2] of
+# app/skill_catalog.py and app/tool_registry.py (the repo root), and content/ via
+# parents[1] of app/. The COPY layout below reproduces that geometry inside the
+# image (/app/app, /app/content, /third_party/MicroPython_Skills, /contracts) so
+# those path lookups still resolve.
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -26,6 +27,7 @@ COPY mpyhw-api/app /app/app
 COPY mpyhw-api/content /app/content
 COPY mpyhw-api/pyproject.toml /app/pyproject.toml
 COPY third_party/MicroPython_Skills /third_party/MicroPython_Skills
+COPY contracts /contracts
 
 # Drop privileges. Code is read-only at runtime (state lives in Postgres).
 RUN useradd --create-home --uid 10001 app
