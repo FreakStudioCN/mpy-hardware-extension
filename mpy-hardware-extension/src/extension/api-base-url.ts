@@ -9,7 +9,7 @@
 // A published extension can never default to localhost (no backend there), so the
 // fallback is the hosted URL. The setting defaults to "" (see package.json) rather
 // than carrying the hosted URL, so the env dev-override below is still reachable.
-export const DEFAULT_API_BASE_URL = "https://blockless-api.fly.dev";
+export const DEFAULT_API_BASE_URL = "https://blockless-api.onrender.com";
 
 export function resolveApiBaseUrl(vscode: any, override?: string): string {
   const configured = vscode?.workspace?.getConfiguration?.("mpyhw")?.get?.("apiBaseUrl");

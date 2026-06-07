@@ -41,6 +41,7 @@ test("defaults to the hosted backend (never localhost) when nothing is set", () 
   withEnv(undefined, () => {
     assert.equal(resolveApiBaseUrl(vscodeWith(undefined), undefined), DEFAULT_API_BASE_URL);
   });
+  assert.equal(DEFAULT_API_BASE_URL, "https://blockless-api.onrender.com");
   assert.ok(!DEFAULT_API_BASE_URL.includes("127.0.0.1"));
   assert.ok(DEFAULT_API_BASE_URL.startsWith("https://"));
 });

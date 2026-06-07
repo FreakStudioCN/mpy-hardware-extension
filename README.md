@@ -10,7 +10,7 @@ Blockless 可以把一句自然语言硬件想法变成一个 MicroPython 项目
 ## 当前状态
 
 - 本地端到端开发流程已可用。
-- 后端已准备 Fly.io + 托管 Postgres 的部署配置，但**尚未部署上线**；现阶段需要本地自起后端（见下文）。
+- 后端已准备 Render + 托管 Postgres 的部署配置；正式上线前可继续本地自起后端（见下文）。
 - 扩展使用 `@vscode/vsce` 打包。
 - 真板烧录验证仍是独立验证线；当前自动化测试使用 mock/shim 的设备流程。
 
@@ -163,7 +163,7 @@ npm run package
 扩展代码里默认连接的托管后端地址是：
 
 ```text
-https://blockless-api.fly.dev
+https://blockless-api.onrender.com
 ```
 
 > **注意：该托管后端目前尚未部署上线。** 在它上线前，仅安装 VSIX 无法连到可用后端——必须按上文「启动本地服务」自起后端，再把扩展指向它：用 VS Code 设置 `mpyhw.apiBaseUrl` 覆盖，或设置环境变量：
@@ -191,14 +191,9 @@ code --install-extension build/mpy-hardware-extension-0.3.2.vsix --force
 
 ```sh
 git submodule update --init --recursive
-fly launch --no-deploy --config mpyhw-api/fly.toml --name blockless-api
-fly postgres create --name blockless-db --region iad
-fly postgres attach blockless-db --app blockless-api
-fly secrets set --app blockless-api \
-  MPYHW_JWT_SECRET="$(openssl rand -hex 32)" \
-  DEEPSEEK_API_KEY="sk-..." \
-  MPYHW_ADMIN_TOKEN="$(openssl rand -hex 24)"
-fly deploy --config mpyhw-api/fly.toml --dockerfile mpyhw-api/Dockerfile
+# In Render, create a Blueprint from the repo-root render.yaml.
+# Fill DEEPSEEK_API_KEY and MPYHW_ADMIN_TOKEN when Render prompts for secrets.
+# Render creates blockless-api and blockless-db, then injects DATABASE_URL.
 ```
 
 生产环境启动时会校验必需 secret。如果缺失或仍使用 dev 默认值，后端会直接启动失败，避免错误配置上线。
