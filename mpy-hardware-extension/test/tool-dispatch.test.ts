@@ -20,9 +20,11 @@ test("every canonical tool routes to exactly one executor", async () => {
     await dispatchTool({ name: tool, input: {} }, executors);
   }
 
-  // Exactly one executor fired per tool. The specific tool->executor mapping is
-  // covered exhaustively by the contract-driven routeForTool test below.
-  assert.equal(seen.length, CANONICAL_TOOLS.length);
+  // dispatchTool must route each tool to exactly the executor routeForTool dictates
+  // — not merely fire *some* executor. This is the integration check that the
+  // dispatcher honors the routing table; routeForTool's own mapping is covered below.
+  const expected = CANONICAL_TOOLS.map((tool) => `${routeForTool(tool)}:${tool}`);
+  assert.deepEqual(seen.sort(), expected.sort());
 });
 
 test("unknown tool returns structured observation instead of throwing", async () => {

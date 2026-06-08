@@ -36,8 +36,12 @@ function languageInstruction(intent: string): string {
   return `[Use ${language} for all user-visible prose in this turn: assistant text, ask_user questions, final summaries, manifest requirements.description, and manifest summary. Keep code, package names, board ids, file paths, pin names, JSON keys, and protocol/tool identifiers unchanged.]`;
 }
 
-function userTurnContent(intent: string): string {
-  return `${intent}\n\n${languageInstruction(intent)}`;
+// The displayed message is always the current turn's intent, but the language
+// directive is keyed on `langBasis` — the session's FIRST intent — so a follow-up
+// typed in another language doesn't flip the per-turn directive against the
+// backend's session-pinned language (which stays on the first message).
+function userTurnContent(intent: string, langBasis: string = intent): string {
+  return `${intent}\n\n${languageInstruction(langBasis)}`;
 }
 
 type LoopDeps = {
@@ -302,7 +306,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     // Generated project files by path (main.py + any lib/ modules), so the device
     // deploy can push the whole set without the model re-sending file contents.
     state.files ??= {};
-    state.messages.push({ role: "user", content: input.state ? userTurnContent(input.intent) : buildOpening(input) });
+    state.messages.push({ role: "user", content: input.state ? userTurnContent(input.intent, state.intent) : buildOpening(input) });
     if (input.state) {
       // Continuing a prior conversation: keep the history and derived hardware
       // context (board, driverContexts), but reset the per-message loop-control

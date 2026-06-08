@@ -10,6 +10,10 @@ services:
     envVars:
       - key: PORT
         value: "8080"
+      # Load-bearing: the circuit breaker (_deepseek_breaker) and the per-user LLM
+      # session limiter (llm_sessions) are in-process state. More than one worker
+      # would give each its own copy, silently breaking rate-limiting and the
+      # upstream-outage breaker. Scaling out requires moving that state to the DB.
       - key: WEB_CONCURRENCY
         value: "1"
       - key: MPYHW_ENV

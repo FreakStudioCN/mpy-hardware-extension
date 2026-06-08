@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SHIM_DIR = Path(__file__).resolve().parent
 
 
@@ -35,6 +37,7 @@ def _req(rid: int, method: str, params: dict | None = None) -> str:
     return json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}})
 
 
+@pytest.mark.subprocess
 def test_stdio_dispatches_real_methods_with_jsonrpc_envelope():
     responses = _drive(
         _req(1, "device.scan"),
@@ -48,6 +51,7 @@ def test_stdio_dispatches_real_methods_with_jsonrpc_envelope():
     assert by_id[2]["result"] == {"ok": True, "lines": ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]}
 
 
+@pytest.mark.subprocess
 def test_stdio_unknown_method_and_malformed_line_do_not_kill_the_loop():
     responses = _drive(
         _req(1, "device.totally_unknown"),

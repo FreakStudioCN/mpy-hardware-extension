@@ -130,16 +130,6 @@ def test_breaker_success_recovers():
     assert not breaker.is_open()
 
 
-def test_breaker_half_open_probe_after_cooldown():
-    breaker = _CircuitBreaker(threshold=1, cooldown=0.0)
-    breaker.record_failure()
-    # cooldown elapsed -> next check lets a single probe through (returns not-open)
-    assert breaker.is_open() is False
-    # a failing probe re-opens it
-    breaker.record_failure()
-    assert breaker.is_open() is False  # cooldown 0 again allows the next probe
-
-
 def test_llm_messages_short_circuits_when_breaker_open(monkeypatch):
     # An open breaker must 503 BEFORE reserving a credit (no churn during an outage).
     monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)

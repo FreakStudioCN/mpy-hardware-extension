@@ -9,7 +9,7 @@ import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { createAgentBackedLoop, DEV_API_BASE_URL } from "../core/agent-backed-loop.ts";
 import { createDeviceShim } from "../extension/device-shim.ts";
-import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
+import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { CANONICAL_TOOLS } from "../core/tool-registry.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
@@ -61,10 +61,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const projectFolder = workspaceFolder ? join(workspaceFolder, PROJECT_SUBDIR) : undefined;
   let availableBoards: any[] = [];
   let toolchainChecked = false;
+  const recorderFactory = workspaceFolder || vscode.authentication
+    ? (traceId: string) => {
+      const recorders = [];
+      if (workspaceFolder) recorders.push(new JsonlSessionRecorder({ workspaceFolder, traceId }));
+      if (vscode.authentication) recorders.push(new CloudTelemetryRecorder({ traceId, apiBaseUrl, fetchImpl, getAuthToken: () => auth.getToken(false), log: deps.log }));
+      return recorders.length === 1 ? recorders[0] : new CompositeSessionRecorder(recorders);
+    }
+    : undefined;
   const controller = new SessionController({
     postMessage: (message) => webview.postMessage(message),
     loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), projectRoot: projectFolder }),
-    recorderFactory: workspaceFolder ? (traceId) => new JsonlSessionRecorder({ workspaceFolder, traceId }) : undefined,
+    recorderFactory,
     writeFiles: async (files) => {
       const result = await writeGeneratedFiles({
         workspaceFolder: projectFolder,

@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from threading import Barrier
 
 from app import credit_store
 
@@ -22,6 +23,30 @@ def test_record_tokens_charges_only_on_threshold_crossing():
     assert credit_store.record_tokens(USER, 9_000) == 0   # 0 -> 9000: no full credit yet
     assert credit_store.record_tokens(USER, 2_000) == 1   # 9000 -> 11000: crosses 10k
     assert credit_store.record_tokens(USER, 500) == 0     # 11000 -> 11500: no new crossing
+
+
+def test_record_tokens_preserves_concurrent_small_usage(monkeypatch):
+    # Concurrent small turns must add to the same daily tally before deciding
+    # whether a whole credit boundary was crossed.
+    credit_store.ensure_daily_grant(USER, 50)
+    original_fetchone = credit_store.db.fetchone
+    unlocked_read_barrier = Barrier(4)
+
+    def slow_token_tally_read(conn, sql, params=()):
+        row = original_fetchone(conn, sql, params)
+        if "FROM token_tallies" in sql and "last_tally_date" in sql and "FOR UPDATE" not in sql:
+            unlocked_read_barrier.wait(timeout=5)
+        return row
+
+    monkeypatch.setattr(credit_store.db, "fetchone", slow_token_tally_read)
+
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        charged = list(pool.map(lambda _: credit_store.record_tokens(USER, 500), range(40)))
+
+    assert sum(charged) == 2
+    with credit_store.db.connect() as conn:
+        row = credit_store.db.fetchone(conn, "SELECT total_tokens FROM token_tallies WHERE user_id=?", (USER["id"],))
+    assert row["total_tokens"] == 20_000
 
 
 def test_record_tokens_resets_on_new_utc_day():

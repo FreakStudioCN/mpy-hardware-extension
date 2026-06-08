@@ -223,6 +223,8 @@ def test_serial_read_until_times_out_when_markers_never_appear():
     assert result == {"ok": False, "error": "timeout", "lines": []}
 
 
+@pytest.mark.slow
+@pytest.mark.serial
 def test_serial_read_until_drives_a_real_pyserial_loopback_port():
     # Exercise the REAL pyserial API surface the fakes bypass: serial_for_url, the
     # `with` context manager, reset_input_buffer (the getattr-guard the fakes never

@@ -47,6 +47,9 @@ test("github auth can force-refresh a cached backend session token", async () =>
   });
 
   assert.equal(await auth.getToken(true), "jwt-1");
+  assert.equal(calls, 1, "first call hits the backend");
   assert.equal(await auth.getToken(true), "jwt-1");
+  assert.equal(calls, 1, "second call serves the cached token without re-fetching");
   assert.equal(await auth.getToken(true, { forceRefresh: true }), "jwt-2");
+  assert.equal(calls, 2, "forceRefresh re-fetches");
 });

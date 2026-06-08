@@ -15,6 +15,13 @@ def _api_env(monkeypatch):
         pytest.fail("DATABASE_URL must point to Postgres; SQLite fallback is not supported")
     monkeypatch.setenv("DATABASE_URL", url)
     monkeypatch.setenv("MPYHW_JWT_SECRET", "test-secret")
+    # Safety net: never let a test reach the live DeepSeek provider via a real key
+    # in the developer's mpyhw-api/.env. Tests that exercise the LLM either set
+    # MPYHW_LLM_STUB themselves or monkeypatch the provider; a forgotten one must
+    # NOT silently bill the real account. Tests that need the stub re-set it after
+    # this autouse fixture runs.
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
     db.reset_for_tests()
     db.initialize()
     _truncate_postgres()

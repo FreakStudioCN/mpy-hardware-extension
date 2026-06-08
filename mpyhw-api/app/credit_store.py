@@ -45,21 +45,24 @@ def record_tokens(user: dict[str, Any], tokens: int, now: datetime | None = None
     with db.connect() as conn:
         try:
             _upsert_user(conn, user, now)
-            row = db.fetchone(conn, "SELECT total_tokens, last_tally_date FROM token_tallies WHERE user_id=?", (uid,))
-            before = 0 if row is None or row["last_tally_date"] != today else row["total_tokens"]
+            db.execute(
+                conn,
+                "INSERT INTO token_tallies(user_id, total_tokens, last_tally_date) VALUES(?,?,?) "
+                "ON CONFLICT(user_id) DO NOTHING",
+                (uid, 0, today),
+            )
+            row = db.fetchone(
+                conn,
+                "SELECT total_tokens, last_tally_date FROM token_tallies WHERE user_id=? FOR UPDATE",
+                (uid,),
+            )
+            before = 0 if row["last_tally_date"] != today else row["total_tokens"]
             after = before + tokens
-            if row is None:
-                db.execute(
-                    conn,
-                    "INSERT INTO token_tallies(user_id, total_tokens, last_tally_date) VALUES(?,?,?)",
-                    (uid, after, today),
-                )
-            else:
-                db.execute(
-                    conn,
-                    "UPDATE token_tallies SET total_tokens=?, last_tally_date=? WHERE user_id=?",
-                    (after, today, uid),
-                )
+            db.execute(
+                conn,
+                "UPDATE token_tallies SET total_tokens=?, last_tally_date=? WHERE user_id=?",
+                (after, today, uid),
+            )
             conn.commit()
         except Exception:
             conn.rollback()

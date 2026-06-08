@@ -11,10 +11,16 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: nothing here needs to write to the repo. Publishing uses a PAT
+# (secrets.VSCE_PAT), not the workflow GITHUB_TOKEN, so read is sufficient.
+permissions:
+  contents: read
+
 jobs:
   extension:
     name: extension (node + cross-process)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: mpy-hardware-extension
@@ -72,6 +78,7 @@ jobs:
   api:
     name: api + device-shim (pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -121,6 +128,7 @@ jobs:
   content-freshness:
     name: content freshness (regen drift)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -159,6 +167,7 @@ jobs:
   publish-extension:
     name: publish extension to Marketplace
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [extension]
     # Only on a version tag push (e.g. v0.3.0). vsce publishes the package.json
     # version. Tag pushes require repo write access, so fork PRs can't reach the

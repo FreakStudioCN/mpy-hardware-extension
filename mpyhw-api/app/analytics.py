@@ -161,6 +161,7 @@ def telemetry_events(*, trace_id: str) -> list[dict[str, Any]]:
 
 def metrics_snapshot() -> dict[str, Any]:
     llm_counts = llm_sessions.counts()
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     with db.connect() as conn:
         llm_durations = [row["duration_ms"] for row in db.fetchall(conn, "SELECT duration_ms FROM llm_turns WHERE duration_ms IS NOT NULL")]
         session_durations = [
@@ -178,10 +179,26 @@ def metrics_snapshot() -> dict[str, Any]:
             "SELECT COALESCE(terminal, 'active') AS key, COUNT(*) AS count FROM sessions GROUP BY COALESCE(terminal, 'active')",
         )
         event_counts = _counts(conn, "SELECT event_type AS key, COUNT(*) AS count FROM telemetry_events GROUP BY event_type")
-        users = db.fetchall(conn, "SELECT id, created_at, last_seen_at FROM users")
         tokens_session = db.fetchone(conn, "SELECT AVG(total_tokens) AS avg FROM llm_turns WHERE total_tokens IS NOT NULL")["avg"]
         credits_session = db.fetchone(conn, "SELECT AVG(credits_charged) AS avg FROM llm_turns WHERE credits_charged IS NOT NULL")["avg"]
-        credits_day = db.fetchone(conn, "SELECT AVG(-credits) AS avg FROM credit_ledger WHERE credits < 0")["avg"]
+        credits_day = db.fetchone(
+            conn,
+            """
+            SELECT AVG(spent) AS avg FROM (
+                SELECT user_id, created_at::date AS day, SUM(-credits) AS spent
+                FROM credit_ledger
+                WHERE credits < 0
+                GROUP BY user_id, created_at::date
+            ) user_days
+            """,
+        )["avg"]
+        daily_active_users = db.fetchone(conn, "SELECT COUNT(*) AS count FROM users WHERE last_seen_at::timestamptz >= ?::timestamptz", (day_start,))["count"]
+        new_users_day = db.fetchone(conn, "SELECT COUNT(*) AS count FROM users WHERE created_at::timestamptz >= ?::timestamptz", (day_start,))["count"]
+        returning_users_day = db.fetchone(
+            conn,
+            "SELECT COUNT(*) AS count FROM users WHERE last_seen_at::timestamptz >= ?::timestamptz AND created_at::timestamptz < ?::timestamptz",
+            (day_start, day_start),
+        )["count"]
     return {
         "active_sse_count": llm_counts["global"],
         "active_sessions": llm_counts,
@@ -202,9 +219,9 @@ def metrics_snapshot() -> dict[str, Any]:
         "auth_failure_rate": _rate(event_counts.get("auth_failed", 0), event_counts.get("auth_completed", 0)),
         "postgres_write_failure_count": db.write_failure_count,
         "telemetry_ingestion_failure_count": ingestion_failure_count,
-        "daily_active_users": len({row["id"] for row in users if row.get("last_seen_at")}),
-        "new_users_day": len({row["id"] for row in users if row.get("created_at")}),
-        "returning_users_day": len({row["id"] for row in users if row.get("last_seen_at") and row.get("created_at") != row.get("last_seen_at")}),
+        "daily_active_users": daily_active_users,
+        "new_users_day": new_users_day,
+        "returning_users_day": returning_users_day,
         "activation_funnel": {
             "auth": event_counts.get("auth_completed", 0),
             "intent": event_counts.get("intent_submitted", 0),
@@ -231,10 +248,11 @@ def _update_session(conn: Any, event: dict[str, Any], payload: dict[str, Any]) -
             (trace_id, user_id, payload.get("board_id"), payload.get("intent_hash"), event["timestamp"]),
         )
     elif event_type in {"session_finished", "session_error", "session_cancelled", "repair_exhausted", "max_turns", "terminal"}:
+        terminal = payload.get("terminal") if event_type == "session_finished" else None
         db.execute(
             conn,
             "UPDATE sessions SET ended_at=?, terminal=? WHERE trace_id=?",
-            (event["timestamp"], event_type, trace_id),
+            (event["timestamp"], terminal or event_type, trace_id),
         )
     elif event_type == "llm_turn_finished":
         db.execute(conn, "UPDATE sessions SET turn_count=turn_count + 1 WHERE trace_id=?", (trace_id,))

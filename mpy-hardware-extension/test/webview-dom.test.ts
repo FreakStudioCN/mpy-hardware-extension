@@ -780,6 +780,40 @@ test("an English request keeps the chrome in English (no Chinese leaks)", async 
   assert.doesNotMatch(activity, /[一-鿿]/, "no Chinese chrome in an English session");
 });
 
+test("the session locale locks at the first request — a later same-session request in another language does not flip the chrome", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  // Turn 1: Chinese → the whole chrome localizes to Chinese.
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "做一个温度计";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(document.querySelector('.tab[data-tab="activity"]')!.textContent, "动态", "turn 1 localizes to Chinese");
+
+  // The run ends; the user continues the SAME conversation (no Restart) with an
+  // English follow-up. The session language is already locked, so the chrome must
+  // stay Chinese — flipping it would leave the turn-1 Chinese cards beside English chrome.
+  post(dom, { type: "session_done", terminal: "generated" });
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "make it blink faster";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(document.querySelector('.tab[data-tab="activity"]')!.textContent, "动态", "chrome stays Chinese for the follow-up");
+});
+
+test("Restart unlocks the session locale — a fresh project in another language re-detects", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "做一个温度计";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(document.querySelector('.tab[data-tab="activity"]')!.textContent, "动态", "first project is Chinese");
+
+  // Restart clears the conversation; the next project is brand-new and may use a
+  // different language, so detection runs again.
+  (document.getElementById("newSession") as HTMLButtonElement).click();
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "build a thermometer";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(document.querySelector('.tab[data-tab="activity"]')!.textContent, "Activity", "new English project re-detects to English");
+});
+
 test("code card shows a filename header + Copy button and finalizes with line-numbered rows", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

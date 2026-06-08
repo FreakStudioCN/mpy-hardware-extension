@@ -89,3 +89,28 @@ def test_skill_route_rejects_path_traversal():
     response = client.get("/v1/skills/..%5C..%5Cpackages%5Cpackage_index")
 
     assert response.status_code == 404
+
+
+def test_phase_profiles_listing_and_detail_are_served():
+    listing = client.get("/v1/phase-profiles")
+
+    assert listing.status_code == 200
+    body = listing.json()
+    assert body["version"]
+    assert body["toolchain_version"]
+    assert body["phases"], "at least one phase profile is served"
+    assert all({"phase", "goal"} <= set(profile) for profile in body["phases"])
+
+    # Detail for a real phase comes back in full (drive the name off the listing so
+    # this doesn't pin a specific phase that a content refresh could rename).
+    known = body["phases"][0]["phase"]
+    detail = client.get(f"/v1/phase-profiles/{known}")
+    assert detail.status_code == 200
+    assert detail.json()["phase"] == known
+
+
+def test_phase_profile_unknown_phase_returns_404():
+    response = client.get("/v1/phase-profiles/not-a-real-phase")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error"] == "phase_profile_not_found"

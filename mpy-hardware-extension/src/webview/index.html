@@ -355,6 +355,10 @@
       // more English labels around a Chinese summary (or vice-versa).
       function detectLocale(text) { return /[一-鿿]/.test(String(text == null ? "" : text)) ? "zh" : "en"; }
       let LOCALE = "en";
+      // The session's language is detected once (from the first request) and locked.
+      // A later same-session request in another language must not flip the chrome.
+      // Restart (clearConversation) resets this so the next project re-detects.
+      let localeLocked = false;
       const I18N = {
         en: {
           credits: "Credits", lowCredits: "Running low on credits today.",
@@ -585,9 +589,11 @@
         if (!intent) return;
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
-        // Lock the session's UI language to the request's language before anything
-        // renders, so chrome + the model's prose stay in one language.
-        setLocale(detectLocale(intent));
+        // Lock the session's UI language to the FIRST request's language before
+        // anything renders, so chrome + the model's prose stay in one language. A
+        // later same-session request in another language keeps the locked language
+        // (the backend pins prose to the first message too); Restart re-detects.
+        if (!localeLocked) { setLocale(detectLocale(intent)); localeLocked = true; }
         currentThink = null;
         addUserMessage(intent);
         $("intent").value = "";
@@ -613,6 +619,7 @@
         $("diagramEmpty").classList.remove("hidden");
         currentThink = null; currentCode = null; currentSummary = null;
         currentDeployCard = null; pendingCard = null; pendingLabel = "";
+        localeLocked = false; // next project re-detects its language (LOCALE left as-is until then)
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
         setTab("activity");

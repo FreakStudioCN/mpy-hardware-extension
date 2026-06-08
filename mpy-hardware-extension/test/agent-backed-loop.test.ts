@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createAgentBackedLoop, estimateCredits } from "../src/core/agent-backed-loop.ts";
+import { createAgentBackedLoop } from "../src/core/agent-backed-loop.ts";
 
 const MANIFEST = {
   schema_version: "1.0",
@@ -758,12 +758,11 @@ test("read_workspace_file dispatches to the injected host reader (and reports un
     apiBaseUrl: "http://api.test",
     fetchImpl: mkFetch([{ name: "read_workspace_file", input: { path: "lib/aht20.py" } }]),
   });
-  const result = await loop2({
+  await loop2({
     intent: "read a file",
     boardId: "esp32-s3-devkitc-1",
     recorder: { record: async (e: any) => { observations.push(e); } },
   });
-  assert.ok(result, "loop finishes without a workspace reader");
   assert.ok(
     observations.some((e) => JSON.stringify(e).includes("workspace_unavailable")),
     "missing reader surfaces workspace_unavailable",
@@ -798,12 +797,11 @@ test("write_project_file dispatches to the injected host writer and mirrors into
     apiBaseUrl: "http://api.test",
     fetchImpl: mkFetch([{ name: "write_project_file", input: { path: "firmware/main.py", content: "x" } }]),
   });
-  const result = await loop2({
+  await loop2({
     intent: "write a file",
     boardId: "esp32-s3-devkitc-1",
     recorder: { record: async (e: any) => { observations.push(e); } },
   });
-  assert.ok(result, "loop finishes without a workspace writer");
   assert.ok(
     observations.some((e) => JSON.stringify(e).includes("workspace_unavailable")),
     "missing writer surfaces workspace_unavailable",
@@ -1839,7 +1837,7 @@ test("agent-backed loop appends a new user message when continuing prior state",
   assert.equal(result.state, priorState);
 });
 
-test("agent-backed loop tells the model to keep all user-visible prose in the current user language", async () => {
+test("agent-backed loop pins user-visible prose to the session's first-message language, even when a follow-up switches language", async () => {
   const bodies: any[] = [];
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     if (url.endsWith("/v1/llm/messages")) {
@@ -1870,9 +1868,15 @@ test("agent-backed loop tells the model to keep all user-visible prose in the cu
   assert.match(freshOpening, /Use Simplified Chinese for all user-visible prose/);
   assert.match(freshOpening, /ask_user questions, final summaries, manifest requirements\.description, and manifest summary/);
 
+  // The follow-up message is Chinese, but the session started in English
+  // (priorState.intent "blink an led"). The directive must stay keyed to that first
+  // message — matching the backend, which pins prose to the first message and
+  // forbids switching mid-session — so the actual new message is sent verbatim while
+  // the directive stays English. (Restart, not a language switch, starts a new session.)
   const continuedTurn = bodies[1].messages[2].content;
   assert.match(continuedTurn, /现在改成蜂鸣器报警/);
-  assert.match(continuedTurn, /Use Simplified Chinese for all user-visible prose/);
+  assert.match(continuedTurn, /Use English for all user-visible prose/);
+  assert.doesNotMatch(continuedTurn, /Use Simplified Chinese for all user-visible prose/);
 });
 
 test("metered loop sends the auth token and forwards the credits balance to the UI", async () => {

@@ -81,6 +81,29 @@ def test_store_tolerates_partial_index_records(tmp_path, monkeypatch):
     assert partial["capabilities"] == []
 
 
+def test_packages_index_route_returns_catalog_summary():
+    response = client.get("/v1/packages/index")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body["total_packages"], int)
+    assert body["total_packages"] > 0
+
+
+def test_packages_search_route_wraps_results_and_hides_confidence():
+    response = client.post(
+        "/v1/packages/search",
+        json={"query": "temperature", "capabilities": ["temperature_sensing"]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["cached"] is True
+    assert isinstance(body["results"], list) and body["results"]
+    # The internal ranking signal must never cross the wire boundary.
+    assert all("confidence" not in hit for hit in body["results"])
+
+
 def test_temperature_resolve_selects_aht20():
     response = client.post(
         "/v1/packages/resolve",

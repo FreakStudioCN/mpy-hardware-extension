@@ -26,8 +26,14 @@ logger = logging.getLogger("mpyhw.auth")
 
 
 def _jwt_secret() -> str:
+    # Fail closed in EVERY environment, not only prod: the default is the public
+    # source-code value, so anyone could forge a JWT for any user id (and mint
+    # unlimited users to drain the free daily grant) the moment a deploy runs with
+    # it. Refusing a missing/empty/default secret unconditionally removes the
+    # footgun where a non-prod env (a second service, a manual deploy) silently
+    # falls back to it. Tests and local dev set a real non-default value.
     secret = os.getenv("MPYHW_JWT_SECRET", DEFAULT_JWT_SECRET)
-    if os.getenv("MPYHW_ENV") == "prod" and secret == DEFAULT_JWT_SECRET:
+    if not secret or secret == DEFAULT_JWT_SECRET:
         raise HTTPException(status_code=500, detail={"error": "jwt_secret_not_configured"})
     return secret
 

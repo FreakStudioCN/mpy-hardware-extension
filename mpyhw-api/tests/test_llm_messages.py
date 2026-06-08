@@ -3,6 +3,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app import credit_store
 from app.auth import get_current_user
 from app.main import app
 
@@ -149,6 +150,24 @@ def _sse_bytes(*chunks: dict) -> list[bytes]:
     return lines
 
 
+def _sse_events(text: str) -> list[dict]:
+    """Parse a text/event-stream body into its ordered list of JSON event objects.
+
+    Lets tests assert frame ordering and reassembled payloads instead of substring
+    matches, which pass even on malformed or out-of-order frames.
+    """
+    events = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[len("data:"):].strip()
+        if payload == "[DONE]":
+            continue
+        events.append(json.loads(payload))
+    return events
+
+
 def test_llm_messages_streams_deepseek_text(monkeypatch):
     monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
@@ -174,9 +193,16 @@ def test_llm_messages_streams_deepseek_text(monkeypatch):
     assert response.headers["content-type"].startswith("text/event-stream")
     assert captured["api_key"] == "test-key"
     assert captured["first_message"] == "blink an ESP32 LED"
-    assert "Use query_board_profile " in response.text
-    assert "first." in response.text
-    assert "message_stop" in response.text
+
+    events = _sse_events(response.text)
+    assert events[-1]["type"] == "message_stop", "stream terminates cleanly"
+    assert all(e["type"] != "error" for e in events), "no error frame on a clean stream"
+    text = "".join(
+        e["delta"]["text"]
+        for e in events
+        if e["type"] == "content_block_delta" and e["delta"].get("type") == "text_delta"
+    )
+    assert text == "Use query_board_profile first.", "text deltas reassemble in order"
 
 
 def test_llm_stream_surfaces_finish_reason_on_message_stop(monkeypatch):
@@ -228,10 +254,22 @@ def test_llm_messages_translates_deepseek_tool_calls(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert "content_block_start" in response.text
-    assert "query_board_profile" in response.text
-    assert "esp32-s3-devkitc-1" in response.text
-    assert "content_block_stop" in response.text
+
+    events = _sse_events(response.text)
+    starts = [e for e in events if e["type"] == "content_block_start"]
+    assert len(starts) == 1, "the two fragments collapse into a single tool_use block"
+    assert starts[0]["content_block"]["type"] == "tool_use"
+    assert starts[0]["content_block"]["name"] == "query_board_profile"
+    # The arguments arrive split across two upstream chunks; they must reassemble into
+    # one input_json_delta that parses as valid JSON (a single-tool client can't repair
+    # interleaved/partial fragments).
+    partial = "".join(
+        e["delta"]["partial_json"]
+        for e in events
+        if e["type"] == "content_block_delta" and e["delta"].get("type") == "input_json_delta"
+    )
+    assert json.loads(partial) == {"board_id": "esp32-s3-devkitc-1"}
+    assert [e["type"] for e in events if e["type"] == "content_block_stop"], "block is closed"
 
 
 def test_llm_stream_emits_error_event_on_midstream_failure(monkeypatch):
@@ -256,6 +294,46 @@ def test_llm_stream_emits_error_event_on_midstream_failure(monkeypatch):
     assert "partial" in response.text
     assert "upstream_stream_interrupted" in response.text
     assert "message_stop" not in response.text
+    # Contract (routes_llm._translate_deepseek_stream docstring): an interrupted stream
+    # KEEPS the one-credit reservation as the minimum paid-call cost — it does NOT refund
+    # mid-stream (unlike a pre-stream UpstreamError, which does refund). Lock it so a
+    # refactor can't silently flip to refunding or double-charging on an upstream drop.
+    assert client.get("/v1/credits").json()["balance"] == credit_store.DAILY_GRANT - 1
+
+
+def test_successful_turn_is_persisted_to_llm_turns(monkeypatch):
+    # A metered turn must leave an auditable row in llm_turns with the charge and
+    # outcome — the analytics write path (routes_llm -> record_llm_turn) was otherwise
+    # only ever exercised, never read back.
+    from app import db
+
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.routes_llm._open_deepseek_stream",
+        lambda _body, _key: _sse_bytes(
+            {"choices": [{"delta": {"content": "ok"}}]},
+            {"choices": [], "usage": {"total_tokens": 25_000}},
+        ),
+    )
+
+    response = client.post(
+        "/v1/llm/messages",
+        json={"messages": [{"role": "user", "content": "blink"}], "tools": [], "trace_id": "t-persist"},
+    )
+    assert response.status_code == 200
+    _ = response.text  # drain the stream so the meter + record_llm_turn run
+
+    with db.connect() as conn:
+        rows = db.fetchall(
+            conn,
+            "SELECT status, credits_charged, total_tokens FROM llm_turns WHERE trace_id=?",
+            ("t-persist",),
+        )
+    assert len(rows) == 1
+    assert rows[0]["status"] == "success"
+    assert rows[0]["credits_charged"] == 2  # 25k tokens -> 2 credits
+    assert rows[0]["total_tokens"] == 25_000
 
 
 def test_llm_stream_buffers_interleaved_tool_calls(monkeypatch):
