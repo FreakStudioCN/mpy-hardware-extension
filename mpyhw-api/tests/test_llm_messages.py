@@ -20,6 +20,84 @@ def _bypass_auth():
     app.dependency_overrides.pop(get_current_user, None)
 
 
+class _PassthroughProvider:
+    """A non-deepseek provider whose paid path reaches the credit reserve."""
+
+    name = "fake"
+
+    def ensure_configured(self):
+        return None
+
+    def open_stream(self, body):
+        return ["raw"]
+
+    def translate_stream(self, upstream, meter=None):
+        yield 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fake-provider"}}\n\n'
+        if meter is not None:
+            yield 'data: {"type":"credits","remaining":49,"daily_grant":50,"resets_at":"2026-06-03T00:00:00+00:00"}\n\n'
+        yield 'data: {"type":"message_stop"}\n\n'
+
+
+def test_llm_messages_503_when_global_daily_budget_exhausted(monkeypatch):
+    # Once today's free-tier global spend reaches MPYHW_DAILY_GLOBAL_BUDGET, new paid
+    # turns are refused with 503 BEFORE reserving — so abuse can't push the free tier
+    # into DeepSeek's hard console cap and DoS everyone. The session slot is released.
+    from app import llm_sessions
+
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setenv("MPYHW_DAILY_GLOBAL_BUDGET", "5")
+    monkeypatch.setattr("app.routes_llm.get_llm_provider", lambda: _PassthroughProvider())
+
+    spender = {"id": "spender", "login": "spender", "email": None}
+    credit_store.ensure_daily_grant(spender, 50)
+    credit_store.debit(spender, 5)
+    assert credit_store.global_spend_today() == 5
+
+    response = client.post(
+        "/v1/llm/messages",
+        json={"messages": [{"role": "user", "content": "blink an LED"}], "tools": []},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"] == "daily_free_budget_exhausted"
+    assert response.json()["detail"]["resets_at"]
+    assert llm_sessions.counts()["global"] == 0
+
+
+def test_llm_messages_not_gated_when_global_budget_unset(monkeypatch):
+    # Default (env unset / <=0) means unlimited: the breaker must not change behavior.
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.delenv("MPYHW_DAILY_GLOBAL_BUDGET", raising=False)
+    monkeypatch.setattr("app.routes_llm.get_llm_provider", lambda: _PassthroughProvider())
+
+    response = client.post(
+        "/v1/llm/messages",
+        json={"messages": [{"role": "user", "content": "blink an LED"}], "tools": []},
+    )
+
+    assert response.status_code == 200
+    assert "fake-provider" in response.text
+
+
+def test_stub_path_not_gated_by_global_budget(monkeypatch):
+    # Stub mode makes no paid upstream call (0 cost), so the breaker must not block it
+    # even with the budget exhausted — CI and local dev depend on the stub path.
+    monkeypatch.setenv("MPYHW_LLM_STUB", "1")
+    monkeypatch.setenv("MPYHW_DAILY_GLOBAL_BUDGET", "1")
+
+    spender = {"id": "spender2", "login": "spender2", "email": None}
+    credit_store.ensure_daily_grant(spender, 50)
+    credit_store.debit(spender, 5)
+
+    response = client.post(
+        "/v1/llm/messages",
+        json={"messages": [{"role": "user", "content": "blink an LED"}], "tools": []},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+
+
 def test_deepseek_payload_caps_output_tokens(monkeypatch):
     # An unbounded turn could spend arbitrarily many tokens (and the metering floor
     # absorbs the overage). The payload must carry a max_tokens ceiling.
@@ -549,6 +627,19 @@ def test_system_prompt_omits_removed_not_hardware_refusal():
     # The <not_hardware> refusal was deliberately removed (ambiguous intents are
     # clarified via ask_user, not refused). Guard against it being reintroduced.
     assert "<not_hardware>" not in routes_llm.SYSTEM_PROMPT
+
+
+def test_system_prompt_owns_the_static_behaviour_rules():
+    from app import routes_llm
+
+    # These rules used to be duplicated in the client's buildOpening and drifted.
+    # They now live ONLY here (the system prompt is the single home, re-sent every
+    # round), so pin that the consolidation didn't drop them — that drift is exactly
+    # what the refactor closed.
+    prompt = routes_llm.SYSTEM_PROMPT
+    assert "support_level" in prompt  # package support-level guidance (was client-only)
+    assert "single main.py" in prompt  # multi-file code-structure guidance (was client-only)
+    assert "one continuous run" in prompt  # don't-stall-between-phases rule (was client-only)
 
 
 def test_llm_local_tools_expose_parameter_schemas():

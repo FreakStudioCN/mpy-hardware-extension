@@ -146,6 +146,7 @@ def debit(user: dict[str, Any], credits: int) -> int:
             )
             remaining = _balance(conn, uid)
             if amount:
+                _bump_global_spend(conn, amount, now)
                 _ledger(conn, uid, "debit", -amount, remaining, "posted", now)
             conn.commit()
         except Exception:
@@ -172,6 +173,7 @@ def reserve(user: dict[str, Any], credits: int) -> int | None:
                 return None
             remaining = _balance(conn, uid)
             if amount:
+                _bump_global_spend(conn, amount, now)
                 _ledger(conn, uid, "reserve", -amount, remaining, "reserved", now)
             conn.commit()
         except Exception:
@@ -191,12 +193,28 @@ def refund(user: dict[str, Any], credits: int) -> int:
             db.execute(conn, "UPDATE credit_balances SET balance=balance + ? WHERE user_id=?", (amount, uid))
             remaining = _balance(conn, uid)
             if amount:
+                _bump_global_spend(conn, -amount, now)
                 _ledger(conn, uid, "refund", amount, remaining, "posted", now)
             conn.commit()
         except Exception:
             conn.rollback()
             raise
     return remaining
+
+
+def global_spend_today(now: datetime | None = None) -> int:
+    """Today's cumulative free-tier credit outflow (reserve + debit, net of refund),
+    keyed by UTC date so it resets at midnight without an explicit job. The free-tier
+    daily-budget breaker reads this before reserving to keep abusive free traffic from
+    pushing the whole tier into DeepSeek's hard console cap (a global DoS)."""
+    now = now or _now()
+    with db.connect() as conn:
+        row = db.fetchone(
+            conn,
+            "SELECT credits_spent FROM daily_global_spend WHERE spend_date=?",
+            (now.date().isoformat(),),
+        )
+    return row["credits_spent"] if row else 0
 
 
 def get_user(user_id: str) -> dict[str, Any] | None:
@@ -236,6 +254,26 @@ def _upsert_user(conn: Any, user: dict[str, Any], now: datetime) -> None:
         conn,
         "UPDATE users SET login=COALESCE(?, login), email=COALESCE(?, email), last_seen_at=? WHERE id=?",
         (user.get("login"), user.get("email"), now.isoformat(), uid),
+    )
+
+
+def _bump_global_spend(conn: Any, amount: int, now: datetime) -> None:
+    # Accumulate the day's free-tier credit outflow in the SAME transaction as the
+    # balance change, so a rollback of the debit/reserve/refund rolls back the count
+    # too — the global tally never drifts from credits actually committed. Hooked on
+    # reserve (+) and refund (-) too, not only debit, so a turn that disconnects before
+    # metering (reserve kept, never debited) still counts against the budget.
+    if amount == 0:
+        return
+    # Floor the tally at 0: a refund that crosses the UTC-day boundary (credit reserved
+    # before midnight, refunded after) lands a -1 on a fresh day's row with no matching
+    # +1. GREATEST(0, ...) keeps that from driving the day negative and silently
+    # weakening the breaker — a negative tally would never trip the >= budget gate.
+    db.execute(
+        conn,
+        "INSERT INTO daily_global_spend(spend_date, credits_spent) VALUES(?,?) "
+        "ON CONFLICT(spend_date) DO UPDATE SET credits_spent = GREATEST(0, daily_global_spend.credits_spent + ?)",
+        (now.date().isoformat(), max(0, amount), amount),
     )
 
 

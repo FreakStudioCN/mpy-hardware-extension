@@ -1,6 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Barrier
+
+import pytest
 
 from app import credit_store
 
@@ -145,6 +147,74 @@ def test_daily_reset_refills_on_new_utc_day():
 
     # Same UTC day later does not refill; a new day resets to the grant.
     assert credit_store.ensure_daily_grant(USER, 50, now=day2)["balance"] == 50
+
+
+def test_reserve_and_debit_accumulate_global_daily_spend():
+    # The global free-tier budget breaker tracks every credit that leaves a balance:
+    # reserve (1) + debit (3) == 4 against today's global tally.
+    credit_store.ensure_daily_grant(USER, 50)
+
+    credit_store.reserve(USER, 1)
+    credit_store.debit(USER, 3)
+
+    assert credit_store.global_spend_today() == 4
+
+
+def test_reserve_alone_counts_toward_global_spend():
+    # A turn that disconnects before metering never calls debit, yet the user still
+    # lost the reserved credit and DeepSeek still billed the input. Counting at reserve
+    # (not only at debit) keeps the breaker honest against disconnect-amplification.
+    credit_store.ensure_daily_grant(USER, 50)
+
+    credit_store.reserve(USER, 1)
+
+    assert credit_store.global_spend_today() == 1
+
+
+def test_refund_decrements_global_daily_spend():
+    # A reserved-then-refunded turn (zero billable tokens / pre-stream upstream error)
+    # nets zero against the global budget, mirroring the user's own balance.
+    credit_store.ensure_daily_grant(USER, 50)
+
+    credit_store.reserve(USER, 1)
+    credit_store.refund(USER, 1)
+
+    assert credit_store.global_spend_today() == 0
+
+
+def test_global_spend_resets_across_utc_day_boundary():
+    # No reset job: the tally is keyed by UTC date, so the day after spend reads zero.
+    credit_store.ensure_daily_grant(USER, 50)
+    credit_store.reserve(USER, 1)
+    credit_store.debit(USER, 2)
+
+    now = credit_store._now()
+    assert credit_store.global_spend_today(now=now) == 3
+    assert credit_store.global_spend_today(now=now + timedelta(days=1)) == 0
+
+
+def test_global_spend_rolls_back_with_the_failed_balance_op(monkeypatch):
+    # The counter increments in the SAME transaction as the balance change, so a
+    # failure later in that transaction (here the ledger insert) rolls back the bump
+    # too — the global tally never drifts above credits actually committed.
+    credit_store.ensure_daily_grant(USER, 50)
+    credit_store.reserve(USER, 1)
+    assert credit_store.global_spend_today() == 1
+
+    original_execute = credit_store.db.execute
+
+    def fail_on_ledger_insert(conn, sql, params=()):
+        if "INSERT INTO credit_ledger" in sql:
+            raise RuntimeError("boom")
+        return original_execute(conn, sql, params)
+
+    monkeypatch.setattr(credit_store.db, "execute", fail_on_ledger_insert)
+    with pytest.raises(RuntimeError):
+        credit_store.debit(USER, 3)
+
+    # global_spend_today only SELECTs, so it runs fine through the patched execute;
+    # it must read 1 (the reserve), proving the failed debit's +3 bump rolled back.
+    assert credit_store.global_spend_today() == 1
 
 
 def test_concurrent_first_grant_creates_exactly_one_row_no_error():

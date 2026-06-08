@@ -1837,7 +1837,7 @@ test("agent-backed loop appends a new user message when continuing prior state",
   assert.equal(result.state, priorState);
 });
 
-test("agent-backed loop pins user-visible prose to the session's first-message language, even when a follow-up switches language", async () => {
+test("agent-backed loop sends the raw user intent with no client-side language directive (server owns language pinning)", async () => {
   const bodies: any[] = [];
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     if (url.endsWith("/v1/llm/messages")) {
@@ -1864,19 +1864,19 @@ test("agent-backed loop pins user-visible prose to the session's first-message l
   };
   await loop({ intent: "现在改成蜂鸣器报警", boardId: "esp32-s3-devkitc-1", state: priorState });
 
+  // The opening message carries the raw intent only. The language directive now
+  // lives solely in the server SYSTEM_PROMPT (re-sent every round and pinned to the
+  // first user message), so the client must NOT inject any per-turn "Use <language>
+  // for all user-visible prose" text — doing so would resurrect the duplication.
   const freshOpening = bodies[0].messages[0].content;
-  assert.match(freshOpening, /Use Simplified Chinese for all user-visible prose/);
-  assert.match(freshOpening, /ask_user questions, final summaries, manifest requirements\.description, and manifest summary/);
+  assert.match(freshOpening, /做一个温度计/);
+  assert.doesNotMatch(freshOpening, /for all user-visible prose/);
 
-  // The follow-up message is Chinese, but the session started in English
-  // (priorState.intent "blink an led"). The directive must stay keyed to that first
-  // message — matching the backend, which pins prose to the first message and
-  // forbids switching mid-session — so the actual new message is sent verbatim while
-  // the directive stays English. (Restart, not a language switch, starts a new session.)
+  // A continued turn appends the new user message verbatim, again with no client
+  // language directive.
   const continuedTurn = bodies[1].messages[2].content;
   assert.match(continuedTurn, /现在改成蜂鸣器报警/);
-  assert.match(continuedTurn, /Use English for all user-visible prose/);
-  assert.doesNotMatch(continuedTurn, /Use Simplified Chinese for all user-visible prose/);
+  assert.doesNotMatch(continuedTurn, /for all user-visible prose/);
 });
 
 test("metered loop sends the auth token and forwards the credits balance to the UI", async () => {

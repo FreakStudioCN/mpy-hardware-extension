@@ -39,6 +39,7 @@ def _truncate_postgres():
                 credit_ledger,
                 credit_balances,
                 token_tallies,
+                daily_global_spend,
                 active_llm_sessions,
                 telemetry_events,
                 llm_turns,

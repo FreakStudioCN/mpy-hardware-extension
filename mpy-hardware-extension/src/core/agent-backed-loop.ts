@@ -27,23 +27,6 @@ const LED_BUILTIN_CONTEXT = {
 // deploy-readiness checkpoint (board connection + wiring) and confirms once.
 const DEPLOY_TOOLS = new Set(["install_package", "write_main_py", "flash_and_run", "run_flash_device"]);
 
-function detectUserLanguage(text: string): "zh" | "en" {
-  return /[一-鿿]/.test(text) ? "zh" : "en";
-}
-
-function languageInstruction(intent: string): string {
-  const language = detectUserLanguage(intent) === "zh" ? "Simplified Chinese" : "English";
-  return `[Use ${language} for all user-visible prose in this turn: assistant text, ask_user questions, final summaries, manifest requirements.description, and manifest summary. Keep code, package names, board ids, file paths, pin names, JSON keys, and protocol/tool identifiers unchanged.]`;
-}
-
-// The displayed message is always the current turn's intent, but the language
-// directive is keyed on `langBasis` — the session's FIRST intent — so a follow-up
-// typed in another language doesn't flip the per-turn directive against the
-// backend's session-pinned language (which stays on the first message).
-function userTurnContent(intent: string, langBasis: string = intent): string {
-  return `${intent}\n\n${languageInstruction(langBasis)}`;
-}
-
 type LoopDeps = {
   apiBaseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -94,22 +77,17 @@ type LoopInput = {
   availableBoards?: Array<{ board_id: string; display_name?: string }>;
 };
 
-// Opening turn: requirement-first. Make the agent confirm WHAT to build before
-// picking hardware; then handle the board (use the chosen one / auto-adopt the
-// only one / recommend-and-confirm among several). Every clarification goes
-// through the ask_user tool so the user gets a real, answerable prompt.
+// Opening turn: carries the raw user intent plus the dynamic board-selection
+// context the server can't reconstruct (use the chosen one / auto-adopt the only
+// one / recommend among several). The static behaviour contract — requirement-first
+// clarification, the phase flow, code structure, support_level, language — lives in
+// the server SYSTEM_PROMPT (re-sent every round), so it is not repeated here.
 function buildOpening(input: LoopInput): string {
   const boards = input.availableBoards ?? [];
   const boardKnown = input.boardId && input.boardId !== "auto";
   const parts = [
-    userTurnContent(input.intent),
+    input.intent,
     "",
-    "[First make sure you understand the request. If the goal or the core behaviour is unclear, or it could be built more than one way, call the ask_user tool to clarify what device to build and what it should do BEFORE selecting hardware or generating code. Always ask via the ask_user tool, never as plain assistant text.]",
-    "[Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its \"phase\" field each time you call propose_manifest: analyze (schema_version \"1.0\" + created_at as an ISO 8601 timestamp + project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> deploy -> complete. Carry the earlier fields (created_at, project_name, ...) forward unchanged on later calls. After analyze and select-hw, call run_validate to check the manifest against the schema; then run_scaffold and run_download_drivers to lay down the firmware/ skeleton and drivers, then generate the task/driver code, then the device tools. Set phase to \"complete\" when the build is finished.]",
-    "[Drive the build forward in one continuous run. The component-confirmation card, the build-plan/credit card, and the deploy card are all host gates that resolve INLINE — the tool call that triggers each one (propose_manifest, generate_code, the device tools) returns the user's decision to you in its result. As soon as a result comes back, immediately call the next tool in the phase flow. Do NOT end your turn with a plain-text summary between phases to \"wait\" for the user; hand the turn back only when the build reaches phase \"complete\" or you genuinely need to ask a question (always via the ask_user tool).]",
-    "[Do NOT call ask_user to confirm a device/component/BOM list. Put the proposed physical parts in manifest.devices during propose_manifest phase \"analyze\"; the host will automatically show a multi-select component confirmation card where the user can tick parts in or out and add missing parts.]",
-    "[Structure the code to fit the project. A simple project can be a single main.py. For a more complex one, split it into main.py (the runnable entry) plus importable modules under lib/ or the firmware/ tree — call generate_code once per file, passing each file's target_path (e.g. lib/sensor.py). Keep it only as complex as the project needs.]",
-    "[Mind each package's support_level: only \"generatable\"/\"verified\" packages carry a machine-readable driver context you can code against (call get_package_context and generate from it). An \"installable\" package can be mip-installed but has NO verified API surface — do not claim you can auto-generate its driver; say it must be wired/used manually or choose a generatable alternative.]",
   ];
   if (boardKnown) {
     parts.push(`[Target board already selected by the user: ${input.boardId}. Use this board and pass this board_id to query_board_profile. Do NOT ask the user which board to use.]`);
@@ -306,7 +284,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     // Generated project files by path (main.py + any lib/ modules), so the device
     // deploy can push the whole set without the model re-sending file contents.
     state.files ??= {};
-    state.messages.push({ role: "user", content: input.state ? userTurnContent(input.intent, state.intent) : buildOpening(input) });
+    state.messages.push({ role: "user", content: input.state ? input.intent : buildOpening(input) });
     if (input.state) {
       // Continuing a prior conversation: keep the history and derived hardware
       // context (board, driverContexts), but reset the per-message loop-control

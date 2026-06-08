@@ -159,6 +159,12 @@ def _schema() -> list[str]:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS daily_global_spend (
+            spend_date TEXT PRIMARY KEY,
+            credits_spent INTEGER NOT NULL
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS active_llm_sessions (
             session_id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
