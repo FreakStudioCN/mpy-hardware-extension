@@ -1,9 +1,9 @@
 {
   "name": "mpy-hardware-extension",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "blockless",
   "displayName": "Blockless",
-  "description": "Build MicroPython hardware projects from a sentence: an AI agent picks the board, wires the parts, and generates deployable code.",
+  "description": "Turn a sentence into a wired, deployable MicroPython hardware project.",
   "license": "SEE LICENSE IN LICENSE.txt",
   "icon": "media/icon.png",
   "type": "module",
