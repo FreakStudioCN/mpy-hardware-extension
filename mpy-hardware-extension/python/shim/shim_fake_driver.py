@@ -21,6 +21,9 @@ def _fake_runner(command, **_kwargs):
         return subprocess.CompletedProcess(command, 0, " ".join(command), "")
     if "list" in command:
         stdout = "COM3 303A:1001 MicroPython\n"
+    elif "exec" in command:
+        # A live MicroPython REPL echoes whatever the exec'd print emits.
+        stdout = "mpy-ok\r\n"
     else:
         stdout = ""
     return subprocess.CompletedProcess(command, 0, stdout, "")

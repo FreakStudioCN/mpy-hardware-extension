@@ -95,6 +95,18 @@ class Shim:
         result = self._run(["mpremote", "connect", "list"])
         return parse_scan_output(result.stdout)
 
+    def probe_micropython(self, port: str, timeout: float = 5):
+        # `scan` only lists serial ports — a raw/unflashed board still shows up. Confirm
+        # a LIVE MicroPython REPL by execing a print and checking the marker echoes back.
+        # An unresponsive board makes mpremote hang, so absorb the timeout as "no REPL"
+        # rather than letting it bubble up as a transport error.
+        try:
+            result = self._run(["mpremote", "connect", port, "exec", "print('mpy-ok')"], timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return {"has_micropython": False}
+        out = getattr(result, "stdout", "") or ""
+        return {"has_micropython": getattr(result, "returncode", 1) == 0 and "mpy-ok" in out}
+
     def install_package(self, port: str, package_json_url: str):
         self._run(["mpremote", "connect", port, "resume", "fs", "mkdir", ":/lib"])
         result = self._run(["mpremote", "connect", port, "resume", "mip", "install", package_json_url], timeout=120)
@@ -454,6 +466,8 @@ def _dispatch(shim, method, params):
         return _run_render(shim, "diagram", params)
     if method == "device.scan":
         return {"status": "ok", "devices": [{"port": p} for p in shim.scan()]}
+    if method == "device.probe_micropython":
+        return {"status": "ok", **shim.probe_micropython(params["port"], float(params.get("timeout_sec", 5)))}
     if method == "device.health_check":
         return _health_check()
     if method == "device.list_files":

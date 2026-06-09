@@ -31,6 +31,24 @@ test("DeviceShim resolves+caches the port from device.scan and maps loop methods
   assert.equal(calls.find((c) => c.method === "device.write_main_py").params.code, "print('hi')");
 });
 
+test("DeviceShim.probeMicroPython asks the shim and returns the has_micropython boolean", async () => {
+  const calls: any[] = [];
+  const shim = new DeviceShim(async (method: string, params: any) => {
+    calls.push({ method, params });
+    return method === "device.probe_micropython" ? { status: "ok", has_micropython: true } : {};
+  });
+
+  assert.equal(await shim.probeMicroPython("COM7"), true);
+  // The caller already knows the port (from scan) — probe must NOT re-scan or gate on
+  // device_selection_required; it just checks the port it was handed.
+  assert.deepEqual(calls, [{ method: "device.probe_micropython", params: { port: "COM7" } }]);
+});
+
+test("DeviceShim.probeMicroPython reports false when the board has no live REPL", async () => {
+  const shim = new DeviceShim(async () => ({ status: "ok", has_micropython: false }));
+  assert.equal(await shim.probeMicroPython("COM7"), false);
+});
+
 test("DeviceShim requires an explicit choice when multiple ports are scanned", async () => {
   const shim = new DeviceShim(async () => ({ status: "ok", devices: [{ port: "COM7" }, { port: "COM8" }] }));
 

@@ -34,6 +34,77 @@ function post(dom: JSDOM, data: unknown): void {
   dom.window.dispatchEvent(new dom.window.MessageEvent("message", { data }));
 }
 
+test("the Doctor tab requests a check on load and renders results as localized status cards", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // The tab + its container ship in the chrome, empty until results arrive.
+  assert.ok(document.querySelector('.tab[data-tab="doctor"]'), "Doctor tab button present");
+  const view = document.getElementById("doctor")!;
+  assert.ok(view, "Doctor view container present");
+  assert.equal(document.getElementById("doctorEmpty")!.classList.contains("hidden"), false);
+  // The check is kicked off on load, alongside the board fetch.
+  assert.ok(posted.some((m) => m.type === "run_doctor_check"), "a doctor check is requested on load");
+
+  post(dom, {
+    type: "doctor_results",
+    items: [
+      { id: "python", status: "ok", messageKey: "doc_python_ok", detail: "Python 3.12.1" },
+      { id: "deps", status: "ok", messageKey: "doc_deps_ok" },
+      { id: "device", status: "warn", messageKey: "doc_device_none", errorKind: "device_unavailable" },
+      { id: "micropython", status: "warn", messageKey: "doc_mpy_need_device" },
+    ],
+  });
+
+  assert.equal(document.getElementById("doctorEmpty")!.classList.contains("hidden"), true, "empty state hidden once results render");
+  assert.equal(view.querySelectorAll(".doc-row").length, 4, "one row per check");
+  assert.match(view.textContent!, /Python ready/, "ok headline localized from messageKey");
+  assert.match(view.textContent!, /Python 3\.12\.1/, "version detail shown");
+  assert.ok(view.querySelector(".doc-row.doc-ok"), "ok status styled");
+  assert.ok(view.querySelector(".doc-row.doc-warn"), "warn status styled");
+});
+
+test("a failing Doctor check offers an install button and guide links wired to the host (no raw error_kind)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+
+  post(dom, {
+    type: "doctor_results",
+    items: [
+      { id: "python", status: "error", messageKey: "doc_python_missing", errorKind: "python_not_found", link: "https://www.python.org/downloads/" },
+      { id: "deps", status: "error", messageKey: "doc_deps_missing", errorKind: "shim_dependency_install_failed", action: "install_deps" },
+      { id: "micropython", status: "warn", messageKey: "doc_mpy_missing", errorKind: "no_micropython", link: "https://micropython.org/download/ESP32_GENERIC/" },
+    ],
+  });
+
+  // Human headline, never the raw machine error_kind.
+  assert.match(view.textContent!, /Python not found/);
+  assert.doesNotMatch(view.textContent!, /python_not_found/, "raw error_kind never shown to the user");
+  assert.ok(
+    [...view.querySelectorAll("a.doc-link")].some((a) => /python\.org/.test(a.getAttribute("href") || "")),
+    "a Python download link is offered",
+  );
+
+  // Deps missing → an Install button that asks the host to install.
+  posted.length = 0;
+  const fix = view.querySelector(".doc-fix") as any;
+  assert.ok(fix, "an install button is offered for the missing deps");
+  fix.click();
+  assert.ok(
+    posted.some((m) => m.type === "doctor_action" && m.action === "install_deps"),
+    "clicking Install asks the host to install deps",
+  );
+
+  // Firmware guide link for a board with no MicroPython.
+  assert.ok(
+    [...view.querySelectorAll("a.doc-link")].some((a) => /micropython\.org\/download/.test(a.getAttribute("href") || "")),
+    "a firmware download link is offered",
+  );
+});
+
 test("code streams into the activity feed and finalizes as highlighted MicroPython (no Code tab)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

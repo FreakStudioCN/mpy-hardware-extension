@@ -33,6 +33,16 @@ export class DeviceShim {
     return (r?.devices ?? []).map((d: any) => d.port).filter(Boolean);
   }
 
+  // True only if the given port answers a live MicroPython REPL. `scan` lists serial
+  // ports (an unflashed board still shows up), so the doctor probes the scanned port
+  // to tell "no board" apart from "board with no MicroPython". Takes an explicit port
+  // (the caller already scanned) — it never re-scans or gates on a port choice.
+  async probeMicroPython(port: string): Promise<boolean> {
+    await this.ensure();
+    const r = await this.rpc("device.probe_micropython", { port });
+    return !!r?.has_micropython;
+  }
+
   private async ensurePort(): Promise<string> {
     await this.ensure();
     if (this.port) return this.port;
@@ -257,17 +267,46 @@ function resolvePython(vscode: any): string {
   throw new Error("python_not_found");
 }
 
+// Non-throwing counterpart of resolvePython for the doctor: reports whether a usable
+// Python is on PATH (or configured), its version banner, and the resolved command —
+// instead of throwing python_not_found.
+export function detectPython(vscode: any): { ok: boolean; version?: string; command?: string } {
+  const setting = vscode?.workspace?.getConfiguration?.("mpyhw")?.get?.("pythonPath");
+  for (const candidate of [setting, "python3", "python"]) {
+    if (!candidate) continue;
+    const r = spawnSync(candidate, ["--version"], { encoding: "utf8", timeout: 15_000 });
+    if (r.status === 0) {
+      // Older CPython prints "--version" to stderr; newer to stdout. Read both.
+      const version = ((r.stdout || "") + (r.stderr || "")).trim() || undefined;
+      return { ok: true, version, command: candidate };
+    }
+  }
+  return { ok: false };
+}
+
 // Probe that ALL shim runtime deps import, not just mpremote: the venv also needs
 // jsonschema/flake8/requests for the upstream toolchain scripts (validate/scaffold/
 // download). A venv from an earlier version may have mpremote but not these, so
 // gate the install on the full set.
 const SHIM_IMPORT_PROBE = ["-c", "import mpremote, serial, jsonschema, flake8, pylint, requests, pypdf"];
 
+function venvPaths(): { dir: string; python: string } {
+  const dir = join(homedir(), ".mpyhw", "venv");
+  const python = process.platform === "win32"
+    ? join(dir, "Scripts", "python.exe")
+    : join(dir, "bin", "python");
+  return { dir, python };
+}
+
+// Non-throwing probe of the managed venv: true once it exists AND every shim runtime
+// dep imports. The doctor calls this to decide whether to offer "Install dependencies".
+export function venvReady(): boolean {
+  const { python } = venvPaths();
+  return existsSync(python) && canRun(python, SHIM_IMPORT_PROBE);
+}
+
 function ensureVenv(python: string, vscode: any, requirementsPath: string): string {
-  const venvDir = join(homedir(), ".mpyhw", "venv");
-  const venvPython = process.platform === "win32"
-    ? join(venvDir, "Scripts", "python.exe")
-    : join(venvDir, "bin", "python");
+  const { dir: venvDir, python: venvPython } = venvPaths();
   if (!existsSync(venvPython)) {
     const result = spawnSync(python, ["-m", "venv", venvDir], { stdio: "ignore", timeout: 30_000 });
     if (result.error || result.status !== 0) throw new Error("python_venv_failed");
@@ -282,6 +321,41 @@ function ensureVenv(python: string, vscode: any, requirementsPath: string): stri
     }
   }
   return venvPython;
+}
+
+// Async (non-blocking) installer behind the doctor's "Install dependencies" button.
+// Mirrors ensureVenv but spawns instead of spawnSync — a pip install can take minutes
+// and spawnSync would freeze the extension host — and returns a status error_kind
+// instead of throwing. The lazy createDeviceShim path keeps its synchronous ensureVenv.
+export async function installVenvAsync(opts: { vscode: any; extensionUri: any }): Promise<{ ok: boolean; errorKind?: string }> {
+  const py = detectPython(opts.vscode);
+  if (!py.ok || !py.command) return { ok: false, errorKind: "python_not_found" };
+  const { dir: venvDir, python: venvPython } = venvPaths();
+  const requirementsPath = join(opts.extensionUri?.fsPath ?? process.cwd(), "python", "shim", "requirements.txt");
+  if (!existsSync(venvPython)) {
+    if ((await runAsync(py.command, ["-m", "venv", venvDir], 30_000)) !== 0) {
+      return { ok: false, errorKind: "python_venv_failed" };
+    }
+  }
+  const indexUrl = opts.vscode?.workspace?.getConfiguration?.("mpyhw")?.get?.("pipIndexUrl");
+  const args = ["-m", "pip", "install", "--upgrade", "-r", requirementsPath];
+  if (indexUrl) args.push("--index-url", indexUrl);
+  if ((await runAsync(venvPython, args, 300_000)) !== 0 || !canRun(venvPython, SHIM_IMPORT_PROBE)) {
+    return { ok: false, errorKind: "shim_dependency_install_failed" };
+  }
+  return { ok: true };
+}
+
+function runAsync(command: string, args: string[], timeout: number): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: "ignore" });
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch { /* already gone */ }
+      resolve(-1);
+    }, timeout);
+    child.on("error", () => { clearTimeout(timer); resolve(-1); });
+    child.on("exit", (code) => { clearTimeout(timer); resolve(code ?? -1); });
+  });
 }
 
 function canRun(command: string, args: string[]): boolean {

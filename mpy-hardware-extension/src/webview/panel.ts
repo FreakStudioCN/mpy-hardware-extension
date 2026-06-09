@@ -8,7 +8,8 @@ import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { createAgentBackedLoop, DEV_API_BASE_URL } from "../core/agent-backed-loop.ts";
-import { createDeviceShim } from "../extension/device-shim.ts";
+import { createDeviceShim, detectPython, venvReady, installVenvAsync } from "../extension/device-shim.ts";
+import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { CANONICAL_TOOLS } from "../core/tool-registry.ts";
@@ -199,6 +200,22 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         webview.postMessage({ type: "deploy_ports_updated", ports: [] });
       }
+    }
+    if (message.type === "run_doctor_check" || message.type === "doctor_action") {
+      // Environment preflight for the Doctor tab. "install_deps" runs the async (non-
+      // blocking) venv installer first; every action then re-runs the same checks and
+      // posts the fresh structured results. detectPython/venvReady are host-side probes
+      // bound here; scan/probe drive the shim (runDoctor skips them until deps are ready).
+      if (message.type === "doctor_action" && message.action === "install_deps") {
+        await installVenvAsync({ vscode, extensionUri });
+      }
+      const items = await runDoctor({
+        detectPython: () => detectPython(vscode),
+        venvReady,
+        scan: () => shim.scan(),
+        probeMicroPython: (port: string) => shim.probeMicroPython(port),
+      }, { probe: message.probe === true }); // probe only on an explicit Re-check — it interrupts a running board
+      webview.postMessage({ type: "doctor_results", items });
     }
     if (message.type === "copy_code") {
       // Copy the code card's source to the clipboard via the host (reliable in the

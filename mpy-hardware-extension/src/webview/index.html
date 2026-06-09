@@ -101,6 +101,23 @@
       .tabwrap::-webkit-scrollbar { width: 10px; }
       .tabwrap::-webkit-scrollbar-thumb { background: #ffffff1a; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
       .tabwrap::-webkit-scrollbar-thumb:hover { background: #ffffff33; background-clip: padding-box; }
+      .doc-head { display: flex; justify-content: flex-end; padding: 10px 12px 0; }
+      .doc-recheck { background: #ffffff14; color: inherit; border: 1px solid #ffffff26; border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
+      .doc-recheck:hover { background: #ffffff22; }
+      #doctor { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+      .doc-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: #ffffff0a; border: 1px solid #ffffff14; }
+      .doc-ico { flex: none; width: 18px; text-align: center; font-weight: 700; }
+      .doc-row.doc-ok .doc-ico { color: #4ec9b0; }
+      .doc-row.doc-warn .doc-ico { color: #e2c08d; }
+      .doc-row.doc-error .doc-ico { color: #f48771; }
+      .doc-body { flex: 1; min-width: 0; }
+      .doc-msg { font-weight: 600; }
+      .doc-hint { margin-top: 2px; font-size: 12px; opacity: 0.75; }
+      .doc-actions { flex: none; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+      .doc-fix { background: #2d7d46; color: #fff; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
+      .doc-fix:disabled { opacity: 0.6; cursor: default; }
+      .doc-link { color: #4daafc; text-decoration: none; font-size: 12px; white-space: nowrap; }
+      .doc-link:hover { text-decoration: underline; }
       .hidden { display: none !important; }
 
       .empty { padding: 40px 22px; text-align: center; color: var(--fg-dim); }
@@ -305,6 +322,7 @@
         <button class="tab" data-tab="serial" data-i18n="tab_serial">Serial</button>
         <button class="tab" data-tab="wiring" data-i18n="tab_wiring">Wiring</button>
         <button class="tab" data-tab="diagram" data-i18n="tab_diagram">Diagram</button>
+        <button class="tab" data-tab="doctor" data-i18n="tab_doctor">Environment</button>
       </div>
 
       <div class="tabwrap">
@@ -330,6 +348,12 @@
         <div class="view hidden" data-view="diagram">
           <div id="diagram"></div>
           <div class="empty" id="diagramEmpty"><h4 data-i18n="empty_diagram_h">No diagram yet</h4><p data-i18n="empty_diagram_p">When the project architecture is generated, its module layers and run flow appear here.</p></div>
+        </div>
+        <!-- Environment (Doctor) -->
+        <div class="view hidden" data-view="doctor">
+          <div class="doc-head"><button id="doctorRecheck" class="doc-recheck" data-i18n="doc_recheck">Re-check</button></div>
+          <div id="doctor"></div>
+          <div class="empty" id="doctorEmpty"><h4 data-i18n="empty_doctor_h">Checking your setup…</h4><p data-i18n="empty_doctor_p">Blockless verifies what's needed to flash code to a board: Python, device tools, a connected board, and MicroPython.</p></div>
         </div>
       </div>
 
@@ -363,7 +387,16 @@
         en: {
           credits: "Credits", lowCredits: "Running low on credits today.",
           stub_badge: "Stub", stub_badge_tip: "This backend runs a stub LLM: it returns a fixed reply and never generates code. Restart the API without MPYHW_LLM_STUB=1 for real output.",
-          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram",
+          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram", tab_doctor: "Environment",
+          empty_doctor_h: "Checking your setup…", empty_doctor_p: "Blockless verifies what's needed to flash code to a board: Python, device tools, a connected board, and MicroPython.",
+          doc_recheck: "Re-check", doc_install: "Install dependencies", doc_installing: "Installing…",
+          doc_link_python: "Download Python", doc_link_firmware: "Download MicroPython", doc_open: "Open",
+          doc_python_ok: "Python ready", doc_python_missing: "Python not found",
+          doc_deps_ok: "Device tools ready", doc_deps_missing: "Device tools not installed", doc_deps_blocked: "Install Python first",
+          doc_device_ok: "Board connected", doc_device_none: "No board connected", doc_device_multiple: "Multiple boards connected", doc_device_error: "Couldn't read the device",
+          doc_mpy_ok: "MicroPython detected", doc_mpy_missing: "Board has no MicroPython",
+          doc_mpy_need_device: "Connect a board to check", doc_mpy_need_port: "Pick one board to check", doc_blocked_deps: "Waiting on device tools",
+          doc_mpy_recheck: "Connected — Re-check to test MicroPython", doc_mpy_probe_failed: "Couldn't check the board",
           empty_diagram_h: "No diagram yet", empty_diagram_p: "When the project architecture is generated, its module layers and run flow appear here.",
           diagram_architecture: "Architecture", diagram_flow: "Run flow", diagram_deps: "Dependencies", diagram_dataflow: "Data flow",
           empty_activity_h: "Ready", empty_activity_p: "Describe what your device should do, then press Generate.",
@@ -424,7 +457,16 @@
         zh: {
           credits: "额度", lowCredits: "今日额度快用完了。",
           stub_badge: "桩", stub_badge_tip: "当前后端跑的是桩 LLM：只返回固定回复、不会真正生成代码。重启 API 时去掉 MPYHW_LLM_STUB=1 才是真实输出。",
-          tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线", tab_diagram: "架构图",
+          tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线", tab_diagram: "架构图", tab_doctor: "环境",
+          empty_doctor_h: "正在检查环境…", empty_doctor_p: "Blockless 会检查把代码烧进开发板所需的一切：Python、设备工具、已连接的开发板，以及 MicroPython。",
+          doc_recheck: "重新检测", doc_install: "安装依赖", doc_installing: "正在安装…",
+          doc_link_python: "下载 Python", doc_link_firmware: "下载 MicroPython", doc_open: "打开",
+          doc_python_ok: "Python 就绪", doc_python_missing: "未找到 Python",
+          doc_deps_ok: "设备工具就绪", doc_deps_missing: "设备工具未安装", doc_deps_blocked: "请先安装 Python",
+          doc_device_ok: "已连接开发板", doc_device_none: "未检测到开发板", doc_device_multiple: "检测到多块开发板", doc_device_error: "无法读取设备",
+          doc_mpy_ok: "已检测到 MicroPython", doc_mpy_missing: "开发板未刷 MicroPython",
+          doc_mpy_need_device: "连接开发板后检测", doc_mpy_need_port: "请选择一块开发板检测", doc_blocked_deps: "等待设备工具就绪",
+          doc_mpy_recheck: "已连接——点「重新检测」测试 MicroPython", doc_mpy_probe_failed: "无法检测开发板",
           empty_diagram_h: "暂无架构图", empty_diagram_p: "生成项目架构后，模块分层与运行流程会在这里展示。",
           diagram_architecture: "架构分层", diagram_flow: "运行流程", diagram_deps: "依赖关系", diagram_dataflow: "数据流",
           empty_activity_h: "就绪", empty_activity_p: "描述你想做的设备，然后点“生成”。",
@@ -1449,8 +1491,82 @@
       }
 
       // ----- host messages (protocol unchanged) -----
+      // ----- Environment doctor -----
+      // Turns each raw error_kind into an actionable, localized hint line so the user
+      // never sees a bare machine code (python_not_found, device_unavailable, …).
+      const DOC_HINTS = {
+        en: {
+          python_not_found: "Install Python 3.10+ and reopen VS Code.",
+          shim_dependency_install_failed: "If it keeps failing, set a pip mirror in mpyhw.pipIndexUrl.",
+          device_unavailable: "Check the USB cable and the serial driver (CP210x/CH340).",
+          device_selection_required: "Unplug the extra boards, or pick one to use.",
+          device_scan_failed: "Replug the board and click Re-check.",
+          no_micropython: "Flash MicroPython with the link below, then re-check.",
+        },
+        zh: {
+          python_not_found: "安装 Python 3.10+ 后重开 VS Code。",
+          shim_dependency_install_failed: "若反复失败，可在 mpyhw.pipIndexUrl 设置 pip 镜像。",
+          device_unavailable: "检查 USB 线和串口驱动（CP210x/CH340）。",
+          device_selection_required: "拔掉多余开发板，或选择一块使用。",
+          device_scan_failed: "重新插拔开发板后点「重新检测」。",
+          no_micropython: "用下面的链接刷好 MicroPython，然后重新检测。",
+        },
+      };
+      function docHint(kind) { const m = DOC_HINTS[LOCALE] || DOC_HINTS.en; return m[kind] || DOC_HINTS.en[kind] || ""; }
+      const DOC_ICON = { ok: "✓", warn: "⚠", error: "✗" };
+      function renderDoctor(items) {
+        if (!Array.isArray(items)) return;
+        const view = $("doctor");
+        view.innerHTML = "";
+        for (const it of items) {
+          const row = document.createElement("div");
+          row.className = "doc-row doc-" + (it.status || "warn");
+          const ico = document.createElement("span");
+          ico.className = "doc-ico";
+          ico.textContent = DOC_ICON[it.status] || "•";
+          row.appendChild(ico);
+          const body = document.createElement("div");
+          body.className = "doc-body";
+          const msg = document.createElement("div");
+          msg.className = "doc-msg";
+          msg.textContent = tr(it.messageKey) + (it.detail ? " · " + it.detail : "");
+          body.appendChild(msg);
+          const hintText = it.errorKind ? docHint(it.errorKind) : "";
+          if (hintText) { const h = document.createElement("div"); h.className = "doc-hint"; h.textContent = hintText; body.appendChild(h); }
+          if (it.ports && it.ports.length) { const p = document.createElement("div"); p.className = "doc-hint"; p.textContent = it.ports.join(sep()); body.appendChild(p); }
+          row.appendChild(body);
+          const actions = document.createElement("div");
+          actions.className = "doc-actions";
+          if (it.action === "install_deps") {
+            const btn = document.createElement("button");
+            btn.className = "doc-fix";
+            btn.textContent = tr("doc_install");
+            btn.addEventListener("click", () => {
+              btn.disabled = true; btn.textContent = tr("doc_installing");
+              vscode.postMessage({ type: "doctor_action", action: "install_deps" });
+            });
+            actions.appendChild(btn);
+          }
+          if (it.link) {
+            const a = document.createElement("a");
+            a.className = "doc-link";
+            a.setAttribute("href", it.link);
+            a.setAttribute("target", "_blank");
+            a.textContent = tr(it.id === "python" ? "doc_link_python" : it.id === "micropython" ? "doc_link_firmware" : "doc_open");
+            actions.appendChild(a);
+          }
+          if (actions.children.length) row.appendChild(actions);
+          view.appendChild(row);
+        }
+        $("doctorEmpty").classList.toggle("hidden", items.length > 0);
+      }
+      // Re-check is the explicit opt-in for the invasive MicroPython probe (it enters the
+      // board's REPL); the on-load check stays non-invasive and skips it.
+      $("doctorRecheck").addEventListener("click", () => vscode.postMessage({ type: "run_doctor_check", probe: true }));
+
       window.addEventListener("message", (event) => {
         const msg = event.data;
+        if (msg.type === "doctor_results") { renderDoctor(msg.items); }
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
           setCredits(msg.event.balance, msg.event.dailyGrant);
@@ -1521,6 +1637,8 @@
       applyStaticI18n();
       // Pull the real device list + credit balance from the extension host on load.
       vscode.postMessage({ type: "request_boards" });
+      // Run the environment preflight on load so issues surface before the first deploy.
+      vscode.postMessage({ type: "run_doctor_check" });
     </script>
   </body>
 </html>

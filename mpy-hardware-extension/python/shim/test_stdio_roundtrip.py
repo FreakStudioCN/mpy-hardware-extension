@@ -52,6 +52,15 @@ def test_stdio_dispatches_real_methods_with_jsonrpc_envelope():
 
 
 @pytest.mark.subprocess
+def test_stdio_probe_micropython_rides_the_envelope():
+    # The fake board echoes the marker on exec, so the probe confirms a live REPL
+    # across the real _dispatch wiring (status + has_micropython in the result shape).
+    responses = _drive(_req(1, "device.probe_micropython", {"port": "COM3"}))
+
+    assert responses[0]["result"] == {"status": "ok", "has_micropython": True}
+
+
+@pytest.mark.subprocess
 def test_stdio_unknown_method_and_malformed_line_do_not_kill_the_loop():
     responses = _drive(
         _req(1, "device.totally_unknown"),

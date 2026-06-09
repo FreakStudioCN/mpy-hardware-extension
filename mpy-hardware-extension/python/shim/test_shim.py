@@ -402,6 +402,45 @@ def test_run_flash_device_resets_without_recopy_or_rescan(tmp_path):
     assert not any(command == ["mpremote", "connect", "list"] for command in shim.commands)
 
 
+def test_probe_micropython_true_when_repl_echoes_marker():
+    shim = Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "mpy-ok\r\n", ""))
+
+    result = shim.probe_micropython("COM3")
+
+    assert result == {"has_micropython": True}
+    # A bare exec of a print is the cheapest way to confirm a live MicroPython REPL.
+    assert shim.commands[-1] == ["mpremote", "connect", "COM3", "exec", "print('mpy-ok')"]
+
+
+def test_probe_micropython_false_when_no_repl():
+    # Port has a board/adapter but it is NOT running MicroPython: mpremote cannot
+    # enter the REPL, exits non-zero, and never echoes the marker.
+    shim = Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, "", "could not enter raw repl"))
+
+    assert shim.probe_micropython("COM3") == {"has_micropython": False}
+
+
+def test_probe_micropython_false_on_timeout_without_raising():
+    # An unresponsive board makes mpremote hang; the probe must absorb the timeout
+    # and report "no MicroPython" rather than letting TimeoutExpired escape.
+    def runner(cmd, **_k):
+        raise subprocess.TimeoutExpired(cmd, 5)
+
+    assert Shim(runner=runner).probe_micropython("COM3") == {"has_micropython": False}
+
+
+def test_probe_micropython_uses_a_short_timeout():
+    calls = []
+
+    def runner(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return subprocess.CompletedProcess(cmd, 0, "mpy-ok\n", "")
+
+    Shim(runner=runner).probe_micropython("COM3")
+
+    assert calls[0][1]["timeout"] == 5
+
+
 class FakeSerial:
     def __init__(self, lines):
         self.lines = [f"{line}\n".encode() for line in lines]
