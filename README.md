@@ -226,7 +226,6 @@ git submodule update --init --recursive
 |   |-- scripts/                dev-up、ingestion、catalog 工具
 |   |-- tests/                  后端 pytest 测试
 |   |-- Dockerfile
-|   |-- fly.toml
 |   `-- DEPLOY.md
 |-- mpy-hardware-extension/     VS Code 扩展
 |   |-- src/                    extension host、core loop、webview

@@ -1,239 +1,59 @@
-# Handoff
+# Handoff — "Cannot reach the auth API" 排障 + 清理 Fly 残留
 
 ## Goal
 
-Continue market and narrative research for Blockless / Cursor-for-hardware.
+定位并修复:部署后用户用 Blockless VS Code 扩展报 **"无法连接鉴权 API / Cannot reach the auth API" → "会话结束:出错 / Session ended: Error"**;并按用户要求**删光仓库里所有 Fly.io 残留**(后端已迁 Render)。
 
-The current goal is not to write a deck. The user wants a rigorous Chinese research document that can support or reject the venture logic with data, self-critique, and a clear market narrative.
+## Current Progress（已完成）
 
-The current strongest direction is:
+**后端健康已坐实**（Render `https://blockless-api.onrender.com`，plan=`starter` 不休眠）:
+- `/v1/health` → `{"status":"ok","mode":"live"}` 0.4s
+- `/v1/health/ready` → `{"status":"ok","db":"ok"}`（DB 也好）
+- `POST /v1/auth/github` 假 token → 401 0.4s;**真 token → 200 铸出 JWT**（`MPYHW_JWT_SECRET` 在 prod 确实配好）。
+- 结论:后端三条路径全绿，URL/配置都对。**病不在后端。**
 
-```text
-Blockless is not a maker community story.
-It is an AI-native physical prototyping tool.
+**错误语义已钉死**:
+- 报错 key `github_token_exchange_unreachable` = [github-auth.ts:59](mpy-hardware-extension/src/extension/github-auth.ts#L59) 的 catch，**只在客户端 fetch 完全收不到响应（连接层抛异常）时触发**;服务端只要回任何状态码（含 500）走的是 `_failed`。
+- 生产用全局 `fetch` = Node/undici（[panel.ts:53](mpy-hardware-extension/src/webview/panel.ts#L53)），**不是浏览器**。
+- 一次 `getToken` 失败就**致命中止整段会话**（[panel.ts:166-169](mpy-hardware-extension/src/webview/panel.ts#L166-L169)）。fetch **无超时、无重试**。
 
-AI coding made one-person software products possible.
-Blockless aims to make one-person physical product prototypes possible.
-```
+**找到本机真凶（仅限本机/旧 sideload）**:
+- dev 机器上有个**孤儿旧包** `mpyhw.mpy-hardware-extension-0.3.3`，其 dist 烤死了**废弃域名 `blockless-api.fly.dev`**（`curl` 实测 `Could not resolve host`）。默认 URL 在 commit `1cda212` 从 fly.dev 改成 onrender，但**没 bump 版本号**，靠版本号区分不了。
+- **但 Marketplace 发布的 `blockless` 包是对的**：拉下 vspackage 解包 grep，0.3.3 与 0.3.4 都烤 `onrender`、无 fly.dev。→ **外部商店用户的 URL 不是病因。**
+- 本仓库 [.vscode/settings.json:5](.vscode/settings.json#L5) 已把 `mpyhw.apiBaseUrl` 钉成 onrender → 开着本仓库时即使旧包也被 override 拉到 onrender;**fly.dev 只在 VS Code 没开本工作区时才咬人**（落回烤死默认）。
 
-More concretely:
-
-```text
-software prototype has been accelerated by AI
-+ hardware prototype is still blocked by module choice, drivers, wiring, flashing, serial debugging, and reproducibility
-+ China has the modular hardware supply-chain density
-+ Blockless standardizes the software/execution layer
-=> one person or a tiny team can build a working physical product prototype much faster
-```
-
-## Current Progress
-
-Main research file:
-
-```text
-docs/research/blockless_agent_hardware_embodied_ai_research_cn_2026-06-06.md
-```
-
-Important sections already added or rewritten:
-
-- `1.2 新逻辑：prototype-first，maker-secondary`
-- `1.2.1 为什么 maker 故事单独讲不起来`
-- `3.3 但这条关系必须被技术闭环证明`
-- `4.5 模块 TAM 现实：美国不能只靠 hobby module 消费讲大`
-- `4.6 Blockless 能占多少：不能从硬件 GMV 直接推`
-- `4.7 中国和美国的模块市场不是同一种打法`
-- `7.1 不要把 AppStore / Recipe 讲成 embodied AI 数据飞轮`
-- `8.0 Venture 是否成立：先说负面结论`
-- `8.1 成立条件：必须把中国供应链优势放进主叙事`
-- `8.2 重新排序后的短期 wedge`
-- `8.3 长期扩容必须依赖硬件交易或 vendor economics`
-- `8.4 Prototype-first 市场到底大不大`
-- `8.5 如果考虑 one-person company`
-- `12. 最终研究结论`
-
-Current conclusion:
-
-```text
-Initial wedge = prototype speed, not hobbyist module consumption.
-Supply-chain advantage = China, not the U.S.
-The U.S. is useful for AI-native workflow adoption, pro prototyping, fundraising narrative, and early adopter credibility.
-Maker is a secondary market stimulated after prototype friction collapses.
-```
+**已执行的修改**:
+- 删光 Fly:删除 `mpyhw-api/fly.toml`;清掉 [README.md](README.md)、[mpyhw-api/DEPLOY.md](mpyhw-api/DEPLOY.md)、[mpyhw-api/Dockerfile](mpyhw-api/Dockerfile) 三处 fly 引用。全仓库 grep 已无 fly 残留。
+- 本机配成普通用户:`rm` 掉孤儿 `mpyhw.*-0.3.3` 目录;`code --install-extension blockless.mpy-hardware-extension` 装上 **`blockless.mpy-hardware-extension@0.3.4`**（验证烤 onrender）。`code --list-extensions` 现仅此一个。
 
 ## What Worked
 
-1. Prototype-first is stronger than maker-first.
+- 直接探后端真实 endpoint（health + 假/真 token 两条 auth 路径）证明后端健康，而不是猜。
+- 抠错误语义:`unreachable`(fetch 抛异常) ≠ `_failed`(收到非 200)，把范围锁死到客户端连接层。
+- **直接 grep 真正发布的 VSIX 与已安装包里烤入的 URL**——正是这一步抓出了我之前的过度断言。
 
-   The user rejected maker as the main story. That rejection is correct. U.S. maker module consumption is not a strong enough TAM and does not prove SaaS ARPU.
+## What Did NOT Work（别重蹈）
 
-2. One-person company is closer than industrial software.
-
-   The user clarified "OPC" meant one-person company, not industrial OPC UA. The relevant market lens is:
-
-   ```text
-   one-person software company enabled by AI coding
-   -> one-person physical product prototype enabled by Blockless + China supply chain
-   ```
-
-3. Bottom-up market estimation is the right method.
-
-   Do not lead with broad market reports. Estimate:
-
-   ```text
-   serious physical prototype builders
-   x annual willingness to pay
-   + prototype attempts x usage/project
-   + BOM/kit GMV x margin/take
-   + module/kit vendors x verified recipe/support-reduction ACV
-   ```
-
-4. AppStore / recipe has value only as reproducibility and distribution infrastructure.
-
-   It should not be framed as marketplace take-rate or embodied AI training data.
-
-5. Technical support from the repo is real.
-
-   Useful local proof points:
-
-   - `docs/product/core.md`: natural language -> package/driver -> code -> local `mpremote` run/debug -> serial output -> fix loop.
-   - `docs/product/appstore.md`: uPyPI, uPyOS, `.mpk`, `app_index.json`, `hardware_tags`, device profiles, app install/update.
-   - `docs/specs/CURRENT-DECISIONS.md`: product boundary, board profiles, driver contexts, code audit, package intelligence, session flow.
-   - `mpyhw-api/content/packages/driver_context/*.json`: machine-readable driver context with imports, constructors, examples, install method, pin roles.
-   - `mpyhw-api/app/analytics.py`: telemetry events such as `package_resolved`, `driver_context_loaded`, `flash_finished`, `serial_marker_seen`, `runtime_error`, `repair_exhausted`.
-
-## What Did Not Work
-
-1. "U.S. maker market is large" does not hold.
-
-   Public evidence shows community activity, tutorials, and module buying, but not a large software TAM.
-
-2. U.S. hobby module TAM is probably weaker than U.S. educational robot market.
-
-   Narrow maker module commerce is likely low hundreds of millions or less. U.S. educational robot market has clearer reported numbers, but the buyer and use case are wrong for Blockless.
-
-3. Embodied AI cannot be the main market bridge.
-
-   Do not say recipe data is embodied AI data. Open X-Embodiment-style data is robot embodiment, action trajectories, perception, task outcomes, and policy learning. Blockless recipe data is board/module/driver/pin/firmware/run-log compatibility data.
-
-4. "Small embodied device" is bad language.
-
-   The user disliked it and it sounds toy-like. Avoid this phrase.
-
-5. Industrial software / product engineering services are too far as direct markets.
-
-   They can prove engineering/time-to-market budgets exist, but they are too broad and too enterprise-heavy to be the near-term market.
-
-6. Do not write deck copy unless explicitly asked.
-
-   The user repeatedly asked for research, not deck writing.
-
-## Current Market Estimation Frame
-
-Use a bottom-up model:
-
-```text
-Revenue pool =
-serious builders x $300-$800/year
-+ prototype attempts x $20-$200/project
-+ BOM/kit GMV x 5%-20% margin/take
-+ vendors x $5K-$50K/year
-```
-
-Suggested scenarios:
-
-| Scenario | Assumption | Annual revenue pool |
-|---|---|---:|
-| Conservative | 20K-50K serious builders, around $300/year ARPA | $6M-$15M software ARR pool |
-| Base | 100K-250K builders, $300-$800 ARPA, plus some kit/vendor revenue | $50M-$250M revenue pool |
-| Aggressive | AI makes 500K-1M people/tiny teams attempt physical product prototypes, with BOM/kit/vendor economics attached | $300M-$1B+ revenue pool |
-
-Important: the aggressive case requires Blockless to expand beyond code generation into:
-
-```text
-prototype -> verified recipe -> BOM -> kit -> small-batch fulfillment
-```
-
-## Useful Sources Already Used
-
-Market / community / bottom-up proxies:
-
-- Kickstarter stats: https://www.kickstarter.com/help/stats/
-- BackerBench Technology category: https://backerbench.com/benchmark/tech
-- Shopify 2024 10-K: https://s27.q4cdn.com/572064924/files/doc_financials/2024/q4/SHOP-10K-Q4-2024.pdf
-- Shopify stats proxy: https://www.demandsage.com/shopify-statistics/
-- Hackster about: https://www.hackster.io/about
-- Adafruit media overview: https://cdn-shop.adafruit.com/files/media.pdf
-- Raspberry Pi investor reports: https://investors.raspberrypi.com/reports
-- Raspberry Pi FY2025 results: https://www.investegate.co.uk/announcement/rns/raspberry-pi-holdings-wi---rpi/fy-2025-results/9499135
-- SparkFun online sales estimate: https://gripsintelligence.com/insights/retailers/sparkfun.com
-
-AI agent / hardware toolchain:
-
-- Espressif ESP-IDF Tools MCP: https://developer.espressif.com/blog/2026/04/esp-idf-tools-mcp-server/
-- Espressif Claude hardware interface news: https://www.espressif.com/en/node/10695
-- Espressif ESP-IoT-Solution MCP docs: https://docs.espressif.com/projects/esp-iot-solution/en/latest/ai/mcp.html
-- Arduino Cloud AI Assistant / Claude: https://blog.arduino.cc/2025/06/26/why-we-chose-claude-for-the-arduino-cloud-ai-assistant/
-- Skilled AI Agents for Embedded and IoT Systems Development: https://arxiv.org/abs/2603.19583
-
-Adjacent markets, use cautiously:
-
-- Product engineering services: https://www.grandviewresearch.com/industry-analysis/product-engineering-services-market-report
-- Industrial software market / IoT Analytics: https://iot-analytics.com/wp-content/uploads/2024/12/INSIGHTS-RELEASE-The-industrial-software-market-landscape-7-key-statistics-going-into-2025.pdf
-- IoT professional services proxy: https://www.psmarketresearch.com/market-analysis/iot-professional-services-market
-- 3D printing prototyping application proxy: https://www.bccresearch.com/public/RedactedRO/MFG074C.pdf
+1. 假设"国内/GFW 连不上 Render" → **被证伪**:出问题那台机器的**浏览器**能正常打开 `onrender.com/v1/health`。
+2. 假设"TLS 拦截，Node vs 浏览器证书库不同" → 合理但**未确认**，被后续证据取代。
+3. 一度断言"**100% 全是 fly.dev**" → **错**:那是本机一个 stale sideload;商店发布版是 onrender。教训:**永远 grep 真正发出去的 VSIX，别拿本机残留当发布版**。
+4. 用**浏览器 / curl / PowerShell Invoke-WebRequest 做诊断 → 会误导**:它们走 Windows 系统证书库(会信任拦截证书)。扩展走 Node/undici 自带 CA。**要用 `node` 或读「Blockless」输出通道**。
 
 ## Next Steps
 
-1. Tighten the one-person physical product prototype market estimate.
+1. **先验证当前修复**:在出错机器**完全重启 VS Code**(新装扩展要重启，reload 不够)→ 开 Blockless 面板 → 发个需求(如 "blink an LED")。
+   - **通了** = 之前就是旧 fly.dev 包 / 窗口没开本工作区。结案。
+   - **仍报 "Cannot reach the auth API"** = 跟 fly/旧包无关,是这台机器到 onrender 的**网络/代理/TLS**。下一步 →
+2. **若仍失败,取真实异常**:VS Code → 查看/Output → 右上下拉选 **`Blockless`** → 读 `[github-auth] GitHub token exchange request failed: <X>`。`<X>`(undici cause)直接定位:
+   - `unable to get local issuer certificate` / `self-signed certificate in certificate chain` → **TLS 拦截**(杀软/代理)。
+   - `UND_ERR_CONNECT_TIMEOUT` / `ETIMEDOUT` → 连接超时。 `ECONNRESET` → 被重置。 `ENOTFOUND` → DNS。
+3. **健壮性硬化（不管根因都该做）**:[github-auth.ts](mpy-hardware-extension/src/extension/github-auth.ts) 的 fetch 加 `AbortController` 超时 + 退避重试;鉴权失败**别一次就杀整段会话**;改掉误导文案"无法连接鉴权 API"(让它能区分"你的网络连不上我们服务器")。
+4. **发布防复发守卫**:`publish-extension` 预检加一条——grep 打好的 VSIX/dist，**断言烤入 onrender 且不含 fly.dev**，否则禁发(本次本机 0.3.3 就是 dist 与源码漂移、发出死地址)。
+5. **可观测性**:`github_token_exchange_unreachable` 目前只写本地输出通道，服务端看不到。加轻量客户端上报，让这类失败可见。
 
-   Find better data for:
+## 关键文件
 
-   - number of hardware/electronics Kickstarter/Indiegogo technology projects per year;
-   - number of hardware creators using Shopify/Amazon/TikTok Shop/Kickstarter;
-   - number of embedded/IoT freelancers or consultants;
-   - module/kit vendor count and likely ACV for verified recipes/support reduction;
-   - typical prototype agency/consultant project cost, to quantify time savings.
-
-2. Build a bottom-up TAM/SAM/SOM table.
-
-   Suggested rows:
-
-   - serious one-person physical product builders;
-   - AI hardware/AIoT prototype teams;
-   - hardware startup prototypes;
-   - module/kit vendors;
-   - workshops/applied hardware courses;
-   - embedded/IoT consultants.
-
-3. Define Blockless' capture layers.
-
-   Suggested layers:
-
-   - software seats / usage credits;
-   - project credits;
-   - verified recipe/vendor SaaS;
-   - BOM/kit attach margin;
-   - small-batch/fulfillment partner take-rate.
-
-4. Add a "venture成立/不成立" test.
-
-   Strong version:
-
-   ```text
-   If Blockless reduces first working hardware prototype time by 5-10x and connects recipes to BOM/kit/vendor economics, venture can be argued.
-   ```
-
-   Weak version:
-
-   ```text
-   If Blockless remains a MicroPython code generator for U.S. hobby makers, venture does not hold.
-   ```
-
-5. Keep the tone self-critical.
-
-   The user values direct pushback. Avoid optimism without evidence. Explicitly label:
-
-   - what the data proves;
-   - what it cannot prove;
-   - what must be validated by product metrics.
-
+- [mpy-hardware-extension/src/extension/github-auth.ts](mpy-hardware-extension/src/extension/github-auth.ts) — auth 流程，catch 在 :59
+- [mpy-hardware-extension/src/webview/panel.ts](mpy-hardware-extension/src/webview/panel.ts) — :53 用全局 fetch；:166-169 一次失败致命中止
+- [mpy-hardware-extension/src/extension/api-base-url.ts](mpy-hardware-extension/src/extension/api-base-url.ts) — :12 默认 URL(=onrender)，解析优先级 setting > env > default
+- [render.yaml](render.yaml) — plan=starter、env(MPYHW_JWT_SECRET generateValue 等)

@@ -74,7 +74,7 @@ Expected results:
 ## CI and production URL
 
 GitHub Actions still runs tests on pushes and PRs. Deployment is handled by
-Render Blueprint sync rather than the old Fly deploy job. The published VS Code
+Render Blueprint sync. The published VS Code
 extension defaults to:
 
 ```text
