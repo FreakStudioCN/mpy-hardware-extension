@@ -1,6 +1,6 @@
 {
   "name": "mpy-hardware-extension",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "publisher": "blockless",
   "displayName": "Blockless",
   "description": "Turn a sentence into a wired, deployable MicroPython hardware project.",
