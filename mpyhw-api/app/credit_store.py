@@ -1,6 +1,7 @@
 """Durable per-user credit balance, backed by Postgres via `DATABASE_URL`."""
 from __future__ import annotations
 
+import json
 import math
 import os
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,26 @@ from app import db
 
 CREDIT_TOKENS = 10_000
 DAILY_GRANT = int(os.getenv("MPYHW_DAILY_GRANT", "50"))
+
+
+def _parse_grant_overrides(raw: str) -> dict[str, int]:
+    """Map of GitHub login (lowercased) -> per-user daily grant, e.g.
+    MPYHW_GRANT_OVERRIDES='{"xinruili-git": 500}'."""
+    if not raw:
+        return {}
+    return {str(k).lower(): int(v) for k, v in json.loads(raw).items()}
+
+
+_GRANT_OVERRIDES = _parse_grant_overrides(os.getenv("MPYHW_GRANT_OVERRIDES", ""))
+
+
+def grant_for(user: dict[str, Any]) -> int:
+    """The daily grant to refill this user to: an env-configured per-login override,
+    else the global default. Resolving the grant at the call site (not by hand-editing
+    credit_balances.daily_grant) is what makes an override durable: the UTC-midnight
+    refill in `ensure_daily_grant` rewrites daily_grant from whatever grant is passed in,
+    so a raw DB edit would be clobbered the next day while this is reapplied every day."""
+    return _GRANT_OVERRIDES.get((user.get("login") or "").lower(), DAILY_GRANT)
 
 
 def _now() -> datetime:
@@ -220,6 +241,48 @@ def global_spend_today(now: datetime | None = None) -> int:
 def get_user(user_id: str) -> dict[str, Any] | None:
     with db.connect() as conn:
         return db.fetchone(conn, "SELECT * FROM users WHERE id=?", (str(user_id),))
+
+
+def get_user_by_login(login: str) -> dict[str, Any] | None:
+    """Look up a user by GitHub login (case-insensitive, matching `grant_for`). Returns
+    None if they've never logged in — there's no balance row to adjust yet."""
+    if not login:
+        return None
+    with db.connect() as conn:
+        return db.fetchone(conn, "SELECT * FROM users WHERE LOWER(login)=LOWER(?)", (login,))
+
+
+def set_balance(user: dict[str, Any], target: int, now: datetime | None = None) -> dict[str, Any]:
+    """Admin override: set this user's balance to exactly `target`, atomically, recording
+    the delta in the ledger. Idempotent (re-running lands the same balance), so it tops a
+    comped user up to a target today without waiting for the next UTC refill."""
+    target = max(0, target)
+    uid = _user_id(user)
+    now = now or _now()
+    today = now.date().isoformat()
+    with db.connect() as conn:
+        try:
+            _upsert_user(conn, user, now)
+            row = db.fetchone(
+                conn,
+                "SELECT balance FROM credit_balances WHERE user_id=? FOR UPDATE",
+                (uid,),
+            )
+            before = row["balance"] if row else 0
+            if row:
+                db.execute(conn, "UPDATE credit_balances SET balance=? WHERE user_id=?", (target, uid))
+            else:
+                db.execute(
+                    conn,
+                    "INSERT INTO credit_balances(user_id, balance, daily_grant, last_grant_date) VALUES(?,?,?,?)",
+                    (uid, target, grant_for(user), today),
+                )
+            _ledger(conn, uid, "admin_set", target - before, target, "posted", now)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return {"balance": target, "login": user.get("login")}
 
 
 def ledger_for_user(user_id: str) -> list[dict[str, Any]]:

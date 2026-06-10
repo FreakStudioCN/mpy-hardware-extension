@@ -232,3 +232,17 @@ def test_concurrent_first_grant_creates_exactly_one_row_no_error():
     assert all(r["balance"] == 50 for r in results)
     grants = [e for e in credit_store.ledger_for_user("777") if e["action"] == "grant"]
     assert grants == [{"action": "grant", "credits": 50, "balance_after": 50, "status": "posted"}]
+
+
+def test_grant_for_resolves_login_override_else_default(monkeypatch):
+    # Per-user override is keyed by lowercased GitHub login; everyone else gets the global.
+    monkeypatch.setattr(credit_store, "_GRANT_OVERRIDES", {"xinruili-git": 500})
+    assert credit_store.grant_for({"id": "9", "login": "xinruili-git"}) == 500
+    assert credit_store.grant_for({"id": "9", "login": "XinruiLi-Git"}) == 500  # case-insensitive
+    assert credit_store.grant_for({"id": "1", "login": "octocat"}) == credit_store.DAILY_GRANT
+    assert credit_store.grant_for({"id": "2", "login": None}) == credit_store.DAILY_GRANT
+
+
+def test_parse_grant_overrides_lowercases_and_coerces_int():
+    assert credit_store._parse_grant_overrides("") == {}
+    assert credit_store._parse_grant_overrides('{"XinruiLi-Git": "500"}') == {"xinruili-git": 500}

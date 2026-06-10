@@ -128,7 +128,7 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
     # Pre-flight credit check. Stub mode has no paid upstream call, so it reports
     # the balance without reserving. Real upstream turns reserve one credit before
     # spending tokens; final metering debits any additional usage.
-    state = credit_store.ensure_daily_grant(user, credit_store.DAILY_GRANT)
+    state = credit_store.ensure_daily_grant(user, credit_store.grant_for(user))
     if state["balance"] <= 0:
         llm_sessions.release(session_id, "out_of_credits")
         raise HTTPException(

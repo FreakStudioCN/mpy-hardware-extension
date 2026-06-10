@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta, timezone
 
-from app import analytics, db
+from app import analytics, credit_store, db
 from app.main import app
 
 
@@ -89,6 +89,39 @@ def test_admin_metrics_disabled_when_secret_unset(monkeypatch):
 
     assert response.status_code == 401
     assert response.json()["detail"]["error"] == "admin_disabled"
+
+
+def test_admin_set_credits_tops_up_existing_user_idempotently(monkeypatch):
+    monkeypatch.setenv("MPYHW_ADMIN_TOKEN", "s3cret")
+    credit_store.ensure_daily_grant({"id": "555", "login": "Xinruili-Git", "email": None}, 50)
+
+    # Case-insensitive login match; set-to-target lands exactly 500...
+    r1 = client.post("/v1/admin/credits", json={"login": "xinruili-git", "balance": 500}, headers={"X-Admin-Token": "s3cret"})
+    assert r1.status_code == 200
+    assert r1.json()["balance"] == 500
+
+    # ...and re-running is idempotent (still 500, not 950).
+    r2 = client.post("/v1/admin/credits", json={"login": "xinruili-git", "balance": 500}, headers={"X-Admin-Token": "s3cret"})
+    assert r2.json()["balance"] == 500
+    assert credit_store.get_user("555")  # user row untouched
+
+
+def test_admin_set_credits_404_for_unknown_login(monkeypatch):
+    monkeypatch.setenv("MPYHW_ADMIN_TOKEN", "s3cret")
+
+    response = client.post("/v1/admin/credits", json={"login": "nobody-here", "balance": 500}, headers={"X-Admin-Token": "s3cret"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error"] == "user_not_found"
+
+
+def test_admin_set_credits_requires_token(monkeypatch):
+    monkeypatch.setenv("MPYHW_ADMIN_TOKEN", "s3cret")
+
+    response = client.post("/v1/admin/credits", json={"login": "xinruili-git", "balance": 500})
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["error"] == "admin_unauthorized"
 
 
 def test_telemetry_rejects_malformed_timestamp():

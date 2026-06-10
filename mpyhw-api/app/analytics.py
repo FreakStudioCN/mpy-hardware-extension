@@ -187,7 +187,7 @@ def metrics_snapshot() -> dict[str, Any]:
             SELECT AVG(spent) AS avg FROM (
                 SELECT user_id, created_at::date AS day, SUM(-credits) AS spent
                 FROM credit_ledger
-                WHERE credits < 0
+                WHERE credits < 0 AND action <> 'admin_set'
                 GROUP BY user_id, created_at::date
             ) user_days
             """,
