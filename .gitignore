@@ -35,10 +35,14 @@ dev/.pdf-export/
 
 # Runtime / debug artifacts
 *.log
+tmp/
 mpy-hardware-extension/tmp/
 mpyhw-api/tmp/
 .mpyhw/
 mpyhw-api/credits.db
+
+# Local-only teaching/scratch material (never published)
+teach/
 
 # Generated codegen output dropped at repo root during e2e runs
 /main.py

@@ -26,6 +26,7 @@ test("session state starts with a fully deterministic initial shape", () => {
     runtimeVerified: false,
     deployDeclined: false,
     componentsConfirmed: false,
+    scaffolded: false,
     board: undefined,
     driverContexts: [],
     projectDir: undefined,

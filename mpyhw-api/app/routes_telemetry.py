@@ -8,7 +8,11 @@ from app import analytics
 from app.auth import get_optional_user
 
 router = APIRouter()
-MAX_TELEMETRY_BYTES = 64 * 1024
+# Raised from 64KB now that telemetry is stored raw (intent/code/serial): a single
+# event can legitimately carry a whole generated file or a serial burst. Per-field
+# truncation (analytics.sanitize_payload / telemetry.ts) keeps individual events well
+# under this; this is just the backstop against a pathological batch.
+MAX_TELEMETRY_BYTES = 256 * 1024
 
 
 class TelemetryEvent(BaseModel):
@@ -43,7 +47,7 @@ class TelemetryRequest(BaseModel):
 
 @router.post("/v1/telemetry", status_code=204)
 def telemetry(request: TelemetryRequest, user: dict[str, Any] | None = Depends(get_optional_user)):
-    size = len(request.model_dump_json())
+    size = len(request.model_dump_json().encode("utf-8"))
     if size > MAX_TELEMETRY_BYTES:
         raise HTTPException(status_code=413, detail={"error": "payload_too_large"})
     # Identity is server-derived, never client-supplied: a verified bearer token

@@ -16,8 +16,42 @@ def test_telemetry_accepts_valid_event_batch():
     assert rows == [{"event_type": "tool_dispatch", "payload": {"tool": "search_packages"}, "user_id": None}]
 
 
-def test_telemetry_rejects_oversized_payload():
-    response = client.post("/v1/telemetry", json={"events": [event("tool_dispatch", {"blob": "x" * 70_000})]})
+def test_telemetry_rejects_oversized_batch():
+    # Backstop only: a batch over the raised 256KB cap is still refused.
+    response = client.post("/v1/telemetry", json={"events": [event("tool_dispatch", {"blob": "x" * 300_000})]})
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["error"] == "payload_too_large"
+
+
+def test_telemetry_truncates_oversized_field_instead_of_dropping():
+    # Under the 256KB batch cap but over the 48KB per-field budget: stored truncated,
+    # flagged, never dropped — so a serial flood can't lose the event.
+    response = client.post("/v1/telemetry", json={"events": [event("runtime_error", {"error": "y" * 60_000})]})
+
+    assert response.status_code == 204
+    payload = analytics.telemetry_events(trace_id="trace-1")[0]["payload"]
+    assert len(payload["error"]) < 60_000
+    assert payload["_truncated"] is True
+
+
+def test_telemetry_field_guard_counts_utf8_bytes_not_chars():
+    # 20k CJK chars = 60KB UTF-8 but only 20k code points: a char-based check would wave
+    # it past the 48KB per-field budget. Guard on real byte size so CJK intent/serial
+    # can't smuggle 3x the documented budget into storage.
+    response = client.post("/v1/telemetry", json={"events": [event("runtime_error", {"error": "晶" * 20_000})]})
+
+    assert response.status_code == 204
+    payload = analytics.telemetry_events(trace_id="trace-1")[0]["payload"]
+    assert len(payload["error"].encode("utf-8")) <= 48 * 1024
+    assert len(payload["error"]) < 20_000
+    assert payload["_truncated"] is True
+
+
+def test_telemetry_batch_guard_counts_utf8_bytes_not_chars():
+    # 100k CJK chars = ~300KB UTF-8 but ~100k code points: a char-based size check slips
+    # past the 256KB backstop. Reject on real byte size.
+    response = client.post("/v1/telemetry", json={"events": [event("runtime_error", {"error": "晶" * 100_000})]})
 
     assert response.status_code == 413
     assert response.json()["detail"]["error"] == "payload_too_large"
@@ -35,7 +69,9 @@ def test_telemetry_allows_64kb_batches():
     assert response.status_code == 204
 
 
-def test_telemetry_sanitizes_private_payload_fields():
+def test_telemetry_stores_raw_payload_fields():
+    # Raw storage (no hashing/dropping): a trace must be replayable, so the actual
+    # code, prompt, and serial survive verbatim.
     response = client.post(
         "/v1/telemetry",
         json={"events": [event("code_generated", {"code": "print('secret')", "prompt": "make a secret sensor", "serial_log": "secret data"})]},
@@ -43,12 +79,52 @@ def test_telemetry_sanitizes_private_payload_fields():
 
     assert response.status_code == 204
     payload = analytics.telemetry_events(trace_id="trace-1")[0]["payload"]
-    assert "code" not in payload
-    assert "prompt" not in payload
-    assert "serial_log" not in payload
-    assert payload["code_sha256"]
-    assert payload["code_length"] == len("print('secret')")
-    assert payload["intent_hash"]
+    assert payload["code"] == "print('secret')"
+    assert payload["prompt"] == "make a secret sensor"
+    assert payload["serial_log"] == "secret data"
+    assert "code_sha256" not in payload
+    assert "intent_hash" not in payload
+
+
+def test_telemetry_ingests_diagnostic_events_queryable_by_trace():
+    client.post("/v1/telemetry", json={"events": [
+        event("tool_dispatch", {"tool": "write_main_py"}),
+        event("runtime_error", {"error_kind": "runtime_error", "error": "ImportError: ssd1306", "lines": ["MPYHW_READY"]}),
+        event("audit_failed", {"error_kind": "audit_failed", "disallowed_imports": ["socket"]}),
+        event("serial_output", {"lines": ["MPYHW_READY", "TEMP_C=24.0"]}),
+    ]})
+
+    rows = analytics.telemetry_events(trace_id="trace-1")
+    assert [r["event_type"] for r in rows] == ["tool_dispatch", "runtime_error", "audit_failed", "serial_output"]
+    runtime = next(r for r in rows if r["event_type"] == "runtime_error")
+    assert runtime["payload"]["error"] == "ImportError: ssd1306"
+
+
+def test_admin_sessions_returns_full_trace(monkeypatch):
+    monkeypatch.setenv("MPYHW_ADMIN_TOKEN", "s3cret")
+    client.post("/v1/telemetry", json={"events": [
+        event("session_started", {"board_id": "esp32-c3"}),
+        event("runtime_error", {"error_kind": "runtime_error", "error": "boom"}),
+        event("session_finished", {"terminal": "repair_exhausted"}),
+    ]})
+
+    response = client.get("/v1/admin/sessions/trace-1", headers={"X-Admin-Token": "s3cret"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session"]["terminal"] == "repair_exhausted"
+    assert body["session"]["repair_count"] == 1  # the runtime_error event incremented it
+    assert [e["event_type"] for e in body["events"]] == ["session_started", "runtime_error", "session_finished"]
+    assert body["llm_turns"] == []
+
+
+def test_admin_sessions_requires_token(monkeypatch):
+    monkeypatch.setenv("MPYHW_ADMIN_TOKEN", "s3cret")
+
+    response = client.get("/v1/admin/sessions/trace-1")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["error"] == "admin_unauthorized"
 
 
 def test_admin_metrics_returns_operational_snapshot(monkeypatch):

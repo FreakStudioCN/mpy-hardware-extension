@@ -1,63 +1,139 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { createPanel, createViewProvider } from "../src/webview/panel.ts";
 
 test("webview start_session runs API-backed pipeline and renders generated outputs", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    const requested: string[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:",
+        html: "",
+        postMessage: (message: any) => posted.push(message),
+        onDidReceiveMessage: (next: any) => {
+          handler = next;
+        },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: {
+        createWebviewPanel: () => panel,
+        showWarningMessage: async (message: string) => message.startsWith("Overwrite ") ? "Overwrite" : "Cancel",
+      },
+    };
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      requested.push(url);
+      if (url === "http://api.test/v1/skills") {
+        // Toolchain handshake: server == bundled, so no skew warning.
+        return jsonResponse({ toolchain_version: "1", skills: [] });
+      }
+      if (url === "http://api.test/v1/packages/resolve") {
+        const body = JSON.parse(String(init?.body));
+        assert.deepEqual(body.capabilities, ["temperature_sensing", "digital_output"]);
+        return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+      }
+      if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") {
+        return jsonResponse(aht20Context());
+      }
+      if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") {
+        return jsonResponse(board());
+      }
+      throw new Error(`unexpected URL ${url}`);
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+
+    assert.match(panel.webview.html, /id="intent"/);
+    assert.deepEqual(requested, [
+      "http://api.test/v1/tools",
+      "http://api.test/v1/skills",
+      "http://api.test/v1/packages/resolve",
+      "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context",
+      "http://api.test/v1/boards/esp32-s3-devkitc-1",
+    ]);
+    assert.deepEqual(posted.map((message) => message.type), ["trace_event", "manifest_updated", "code_updated", "trace_event", "files_written", "session_done"]);
+    assert.equal(posted.at(-1).terminal, "generated");
+    assert.match(posted.find((message) => message.type === "code_updated").code, /MPYHW_READY/);
+    // Files land under the open workspace (not a fallback), so no "saved here" notice.
+    assert.ok(existsSync(join(ws, "blockless-project", "main.py")));
+    assert.ok(!posted.some((m) => m.type === "session_event" && m.event?.kind === "saved_location"));
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("with no workspace open, generation saves to the globalStorage fallback and tells the user where, with a reveal action", async () => {
+  const gs = mkdtempSync(join(tmpdir(), "mpyhw-gs-"));
+  try {
+    const posted: any[] = [];
+    const revealed: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:",
+        html: "",
+        postMessage: (message: any) => posted.push(message),
+        onDidReceiveMessage: (next: any) => { handler = next; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+      commands: { executeCommand: (cmd: string, arg: any) => { revealed.push({ cmd, arg }); } },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+      // no workspace.workspaceFolders → the globalStorage fallback is used
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: pipelineFetch, loopMode: "template", globalStoragePath: gs });
+    await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+
+    const projectDir = join(gs, "blockless-project");
+    const saved = posted.find((m) => m.type === "session_event" && m.event?.kind === "saved_location");
+    assert.ok(saved, "a saved_location notice is posted so the user can find their project");
+    assert.equal(saved.event.path, projectDir);
+    assert.ok(existsSync(join(projectDir, "main.py")), "files actually landed in the fallback dir");
+    assert.ok(posted.some((m) => m.type === "files_written"), "files_written still posts (no regression)");
+    assert.equal(posted.at(-1).terminal, "generated");
+
+    // The reveal button's action opens that folder in the OS file manager.
+    await handler?.({ type: "open_path", path: projectDir });
+    assert.deepEqual(revealed, [{ cmd: "revealFileInOS", arg: { fsPath: projectDir } }]);
+  } finally {
+    rmSync(gs, { recursive: true, force: true });
+  }
+});
+
+test("with neither a workspace nor globalStorage, generation reports workspace_unavailable instead of writing to process.cwd()", async () => {
   const posted: any[] = [];
-  const requested: string[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;
   const panel = {
     webview: {
       cspSource: "vscode-resource:",
       html: "",
       postMessage: (message: any) => posted.push(message),
-      onDidReceiveMessage: (next: any) => {
-        handler = next;
-      },
+      onDidReceiveMessage: (next: any) => { handler = next; },
     },
   };
   const vscode = {
     ViewColumn: { One: 1 },
-    window: {
-      createWebviewPanel: () => panel,
-      showWarningMessage: async (message: string) => message.startsWith("Overwrite ") ? "Overwrite" : "Cancel",
-    },
-  };
-  const fetchImpl = async (url: string, init?: RequestInit) => {
-    requested.push(url);
-    if (url === "http://api.test/v1/skills") {
-      // Toolchain handshake: server == bundled, so no skew warning.
-      return jsonResponse({ toolchain_version: "1", skills: [] });
-    }
-    if (url === "http://api.test/v1/packages/resolve") {
-      const body = JSON.parse(String(init?.body));
-      assert.deepEqual(body.capabilities, ["temperature_sensing", "digital_output"]);
-      return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
-    }
-    if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") {
-      return jsonResponse(aht20Context());
-    }
-    if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") {
-      return jsonResponse(board());
-    }
-    throw new Error(`unexpected URL ${url}`);
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
   };
 
-  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: pipelineFetch, loopMode: "template" });
   await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
 
-  assert.match(panel.webview.html, /id="intent"/);
-  assert.deepEqual(requested, [
-    "http://api.test/v1/tools",
-    "http://api.test/v1/skills",
-    "http://api.test/v1/packages/resolve",
-    "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context",
-    "http://api.test/v1/boards/esp32-s3-devkitc-1",
-  ]);
-  assert.deepEqual(posted.map((message) => message.type), ["trace_event", "manifest_updated", "code_updated", "trace_event", "files_written", "session_done"]);
-  assert.equal(posted.at(-1).terminal, "generated");
-  assert.match(posted.find((message) => message.type === "code_updated").code, /MPYHW_READY/);
+  assert.ok(posted.some((m) => m.type === "files_write_failed" && m.error === "workspace_unavailable"), "no writable root → a clean workspace_unavailable, never a cwd write");
+  assert.ok(!posted.some((m) => m.type === "files_written"));
 });
 
 test("webview defaults to the LLM agent loop and forwards its terminal", async () => {
@@ -306,6 +382,17 @@ test("request_boards treats a backend that omits a mode as live (badge stays hid
 
   assert.deepEqual(posted.find((message) => message.type === "server_mode"), { type: "server_mode", mode: "live" });
 });
+
+// The template pipeline's API calls (minus the assertions in the first test).
+// /v1/tools is intentionally unhandled → it throws, which checkToolRegistry
+// swallows (couldn't check → proceed), matching the first test's behaviour.
+const pipelineFetch = (async (url: string) => {
+  if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+  if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+  if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+  if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") return jsonResponse(board());
+  throw new Error(`unexpected URL ${url}`);
+}) as unknown as typeof fetch;
 
 function jsonResponse(body: unknown, status = 200) {
   return {

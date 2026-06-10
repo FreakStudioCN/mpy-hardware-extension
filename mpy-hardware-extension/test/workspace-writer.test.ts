@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planWorkspaceWrites, writeGeneratedFiles } from "../src/extension/workspace-writer.ts";
+import { planWorkspaceWrites, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
 
 test("workspace writer plans main.py and manifest.json in selected workspace", () => {
   const plan = planWorkspaceWrites({ workspaceFolder: "C:/project", files: { "main.py": "print(1)", "manifest.json": "{}" } });
@@ -53,6 +53,35 @@ test("workspace writer allows main, manifest, and lib python artifacts", () => {
   });
 
   assert.deepEqual(plan.map((item) => item.path), ["C:/project/main.py", "C:/project/manifest.json", "C:/project/lib/aht20.py"]);
+});
+
+test("batch writer turns a filesystem write error into file_write_failed (not an uncaught throw)", async () => {
+  // A protected/full disk (e.g. EPERM when cwd is System32) must surface as a
+  // readable error result, never an exception the caller has to catch.
+  const result = await writeGeneratedFiles({
+    workspaceFolder: "C:/project",
+    files: { "main.py": "print(1)" },
+    exists: async () => false,
+    writeFile: async () => { throw new Error("EPERM: operation not permitted"); },
+    confirmOverwrite: async () => true,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "file_write_failed");
+  assert.equal(result.path, "C:/project/main.py");
+});
+
+test("write_project_file turns a filesystem write error into file_write_failed", async () => {
+  const result = await writeProjectFile({
+    workspaceFolder: "C:/project",
+    path: "firmware/main.py",
+    content: "print(1)",
+    writeFile: async () => { throw new Error("EACCES"); },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "file_write_failed");
+  assert.equal(result.path, "C:/project/firmware/main.py");
 });
 
 test("post-loop batch writer keeps its narrow allowlist (no firmware/ tree leak)", async () => {

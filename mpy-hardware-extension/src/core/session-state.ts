@@ -24,6 +24,12 @@ export function createSessionState(input: { traceId: string; intent: string; boa
     // The user confirmed the component list at the one-shot gate in propose_manifest.
     // Persists across continuation so a follow-up message doesn't re-prompt.
     componentsConfirmed: false,
+    // The upstream scaffold (init_scaffold.py's firmware/ tree) has been laid down
+    // for this session. Set once — in ensureScaffold (the forced step before the
+    // first generate_code) OR when the model calls run_scaffold explicitly — and
+    // NEVER reset on continuation: init_scaffold unconditionally overwrites
+    // firmware/main.py with a skeleton, so re-running it would clobber real code.
+    scaffolded: false,
     // Derived session context built up by tool executions. Lives on state so it
     // survives multi-turn continuation (a follow-up message reuses the same state).
     board: undefined as any,

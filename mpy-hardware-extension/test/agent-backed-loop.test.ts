@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createAgentBackedLoop } from "../src/core/agent-backed-loop.ts";
+import { createAgentBackedLoop, deriveScaffoldMode } from "../src/core/agent-backed-loop.ts";
 
 const MANIFEST = {
   schema_version: "1.0",
@@ -263,6 +263,45 @@ test("get_phase_profile persists only a sanitized phase profile into later reque
   const codegenRound = JSON.stringify(codegenRequestBodies[0].messages);
   assert.match(codegenRound, /Generate MicroPython firmware files/);
   assert.doesNotMatch(codegenRound, /AVAILABLE SKILLS|SKILL\.md|mpremote|python .*scripts/);
+});
+
+test("trace_id is threaded into both agent and codegen LLM request bodies (top-level, for llm_turns attribution)", async () => {
+  // Server reads body.trace_id to attribute llm_turns to a session; it must ride at
+  // the body top level (NOT inside messages) so DeepSeek's prefix cache still hits.
+  let turnIndex = 0;
+  const bodies: any[] = [];
+  const turns = [
+    { name: "get_phase_profile", input: { phase: "generate" } },
+    { name: "generate_code", input: { manifest: MANIFEST, target_path: "main.py" } },
+  ];
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/phase-profiles/generate")) {
+      return jsonResponse({ phase: "generate", goal: "Generate MicroPython firmware files.", execution_mode: "hybrid", tools: ["generate_code"] });
+    }
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      bodies.push(body);
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('MPYHW_READY')\n" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = turns[turnIndex++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const state = { traceId: "trace-xyz", intent: "x", boardId: "esp32-s3-devkitc-1", turnSeq: 0, repairRound: 0, textOnlyTurns: 0, loadedSkills: [], messages: [], board: BOARD, driverContexts: [AHT20_CONTEXT] };
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
+  await loop({ intent: "use the main.py conventions", boardId: "esp32-s3-devkitc-1", traceId: "trace-xyz", state });
+
+  assert.ok(bodies.length >= 2, "should have captured agent + codegen requests");
+  assert.ok(bodies.some((b) => Array.isArray(b.tools) && b.tools.length === 0), "codegen request present");
+  assert.ok(bodies.some((b) => Array.isArray(b.tools) && b.tools.length > 0), "agent request present");
+  assert.ok(bodies.every((b) => b.trace_id === "trace-xyz"), "every /v1/llm body carries trace_id at top level");
 });
 
 test("agent requests stay append-only across rounds (prefix-stable for DeepSeek's cache)", async () => {
@@ -614,6 +653,110 @@ test("generate_code persists through the injected writeProjectFile and emits fil
   assert.deepEqual(writes.map((w) => w.path), ["firmware/main.py"], "generate_code persists its output during the loop");
   assert.match(writes[0].content, /MPYHW_READY/);
   assert.deepEqual(events.find((e) => e.type === "file_written"), { type: "file_written", path: "C:/project/firmware/main.py" });
+});
+
+// A codegen sub-call (tools:[]) that streams a one-line main.py, for the scaffold tests.
+function codegenSse(): Response {
+  const sse = [
+    JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "print('MPYHW_READY')\n" } }),
+    JSON.stringify({ type: "message_stop" }),
+  ].map((d) => `data: ${d}`).join("\n\n");
+  return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+}
+
+function scaffoldFetch(turns: Array<{ name: string; input: any }>): typeof fetch {
+  let mainTurns = 0;
+  return (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) return codegenSse();
+      const turn = turns[mainTurns++];
+      return { ok: true, status: 200, text: async () => (turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+}
+
+test("generate_code forces scaffold exactly once before codegen, with the manifest written first", async () => {
+  // Two generate_code turns: scaffold (init_scaffold via the shim) must run ONCE, with
+  // project-manifest.json re-written before the firmware tree lands so init_scaffold
+  // reads the validated manifest. The second turn finds scaffolded=true and skips it.
+  const writes: Array<{ path: string }> = [];
+  const scaffolds: Array<{ projectDir: string; mode: string }> = [];
+  const shim = { runScaffold: async (projectDir: string, mode: string) => { scaffolds.push({ projectDir, mode }); return { output: "scaffold ok" }; } };
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: scaffoldFetch([
+      { name: "generate_code", input: { manifest: MANIFEST } }, // default target -> firmware/main.py
+      { name: "generate_code", input: { manifest: MANIFEST, target_path: "firmware/lib/sensor.py" } },
+    ]),
+    shim,
+    projectRoot: "C:/proj",
+    writeProjectFile: async (path: string) => { writes.push({ path }); return { ok: true, path: `C:/proj/${path}` }; },
+  });
+  const result = await loop({ intent: "blink", boardId: "esp32-s3-devkitc-1" });
+
+  assert.deepEqual(scaffolds, [{ projectDir: "C:/proj", mode: "timer" }], "scaffold runs once with the workspace root + derived timer mode");
+  assert.equal(result.state.scaffolded, true);
+  assert.deepEqual(writes.map((w) => w.path), ["project-manifest.json", "firmware/main.py", "firmware/lib/sensor.py"], "manifest re-written before the first firmware file; no second scaffold-manifest write");
+});
+
+test("an explicit run_scaffold makes generate_code skip the forced scaffold (no double run)", async () => {
+  const scaffolds: Array<{ mode: string }> = [];
+  const shim = { runScaffold: async (_dir: string, mode: string) => { scaffolds.push({ mode }); return { output: "ok" }; } };
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: scaffoldFetch([
+      { name: "run_scaffold", input: { mode: "async" } },
+      { name: "generate_code", input: { manifest: MANIFEST } },
+    ]),
+    shim,
+    projectRoot: "C:/proj",
+    writeProjectFile: async (path: string) => ({ ok: true, path }),
+  });
+  const result = await loop({ intent: "blink", boardId: "esp32-s3-devkitc-1" });
+
+  assert.deepEqual(scaffolds, [{ mode: "async" }], "scaffold ran once (the explicit call, async mode honored), not again inside generate_code");
+  assert.equal(result.state.scaffolded, true);
+});
+
+test("generate_code skips scaffold in headless/offline (no projectRoot or shim) and still generates", async () => {
+  const events: any[] = [];
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: scaffoldFetch([{ name: "generate_code", input: { manifest: MANIFEST, target_path: "main.py" } }]),
+  });
+  const result = await loop({ intent: "blink", boardId: "esp32-s3-devkitc-1", onEvent: (e: any) => events.push(e) });
+
+  assert.ok(events.find((e) => e.type === "code_updated"), "code still generated without scaffold");
+  assert.equal(result.state.scaffolded, false, "scaffold skipped when there is no projectDir/shim");
+});
+
+test("a scaffold failure surfaces as scaffold_failed and blocks codegen", async () => {
+  const recorded: any[] = [];
+  const shim = { runScaffold: async () => { throw new Error("init_scaffold crashed"); } };
+  const loop = createAgentBackedLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: scaffoldFetch([{ name: "generate_code", input: { manifest: MANIFEST } }]),
+    shim,
+    projectRoot: "C:/proj",
+    writeProjectFile: async (path: string) => ({ ok: true, path }),
+  });
+  await loop({ intent: "blink", boardId: "esp32-s3-devkitc-1", recorder: { record: async (e: any) => { recorded.push(e); } } });
+
+  const result = recorded.find((e) => e.type === "tool_result" && e.name === "generate_code");
+  assert.equal(result?.observation?.ok, false);
+  assert.equal(result?.observation?.error_kind, "scaffold_failed");
+});
+
+test("deriveScaffoldMode picks async for display/network/lvgl builds and timer otherwise", () => {
+  assert.equal(deriveScaffoldMode({ requirements: { network: "wifi" } }), "async");
+  assert.equal(deriveScaffoldMode({ requirements: { network: "mqtt" } }), "async");
+  assert.equal(deriveScaffoldMode({ requirements: { output: ["display_oled"] } }), "async");
+  assert.equal(deriveScaffoldMode({ devices: [{ type: "display" }] }), "async");
+  assert.equal(deriveScaffoldMode({ devices: [{ name: "screen", driver: { package_name: "lvgl_binding" } }] }), "async");
+  assert.equal(deriveScaffoldMode({ devices: [{ type: "led" }], requirements: { network: "none" } }), "timer");
+  assert.equal(deriveScaffoldMode(MANIFEST), "timer");
 });
 
 test("generate_code surfaces a persist rejection as its tool error_kind (in-loop, not silent post-loop)", async () => {
@@ -1909,6 +2052,47 @@ test("missing LLM key surfaces the upstream error instead of hanging", async () 
   const fetchImpl = (async () => jsonResponse({ detail: { error: "llm_upstream_not_configured" } }, false)) as unknown as typeof fetch;
   const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl });
   await assert.rejects(() => loop({ intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" }), /llm_upstream_not_configured/);
+});
+
+test("Stop during an in-flight deploy interrupts the flash and ends the run as cancelled", { timeout: 3000 }, async () => {
+  // Repro of the reported bug: while flash_and_run is running on the device (a
+  // blocking mpremote subprocess inside the shim), the user clicks Stop. Stop must
+  // interrupt the in-flight call immediately and end the run as "cancelled" — not
+  // wait for the subprocess to finish (it may never), and not advance to a new turn.
+  const controller = new AbortController();
+  let killed = false;
+  let rejectFlash: any = null;
+  const shim = {
+    scan: async () => ["COM3"],
+    // The deploy blocks until something interrupts it (mirrors mpremote sitting on
+    // the serial port). It never resolves on its own.
+    flashAndRun: () => new Promise<void>((_resolve, reject) => { rejectFlash = reject; }),
+    // Stop kills the shim; killing the Python process unblocks the pending RPC
+    // (here, modelled by rejecting it — in production handleExit rejects pending).
+    kill: () => { killed = true; rejectFlash?.(new Error("shim exited with code null")); },
+  };
+
+  const fetchImpl = (async (url: string) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      return { ok: true, status: 200, text: async () => sseForTurn({ name: "flash_and_run", input: { path: "main.py", port: "COM3" } }) } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
+  const run = loop({ intent: "blink an led", boardId: "esp32-s3-devkitc-1", signal: controller.signal, confirmDeploy: async () => true });
+
+  // Wait until the deploy is actually in flight, then click Stop.
+  while (!rejectFlash) await new Promise((r) => setImmediate(r));
+  controller.abort();
+
+  const result = (await Promise.race([
+    run,
+    new Promise((_resolve, reject) => setTimeout(() => reject(new Error("run did not settle after Stop — the deploy was not interruptible")), 1500)),
+  ])) as { terminal: string };
+
+  assert.equal(killed, true, "Stop should kill the shim to interrupt the in-flight deploy");
+  assert.equal(result.terminal, "cancelled");
 });
 
 test("a stalled LLM request times out instead of hanging the session forever", { timeout: 2000 }, async () => {

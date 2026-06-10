@@ -638,7 +638,7 @@ def test_system_prompt_owns_the_static_behaviour_rules():
     # what the refactor closed.
     prompt = routes_llm.SYSTEM_PROMPT
     assert "support_level" in prompt  # package support-level guidance (was client-only)
-    assert "single main.py" in prompt  # multi-file code-structure guidance (was client-only)
+    assert "firmware/main.py" in prompt  # multi-file code-structure guidance (was client-only)
     assert "one continuous run" in prompt  # don't-stall-between-phases rule (was client-only)
 
 

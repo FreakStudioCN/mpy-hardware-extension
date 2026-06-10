@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -38,6 +37,7 @@ ALLOWED_EVENT_TYPES = {
     "flash_started",
     "flash_finished",
     "serial_marker_seen",
+    "serial_output",
     "runtime_error",
     "session_finished",
     "session_error",
@@ -90,18 +90,50 @@ def record_telemetry(events: list[dict[str, Any]]) -> None:
             raise
 
 
+# Telemetry is stored RAW (intent, generated code, serial, error text) so a trace is
+# replayable. The only bound is a size guard: a single oversized field (a flapping
+# device's serial flood, a giant file) is truncated — flagged `_truncated` — rather
+# than dropped or 413'd. Backstop to the client-side guard in telemetry.ts; the route
+# still enforces MAX_TELEMETRY_BYTES on the whole batch.
+FIELD_BYTE_BUDGET = 48 * 1024
+
+
 def sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    clean = dict(payload)
-    code = clean.pop("code", None) or clean.pop("generated_code", None)
-    if isinstance(code, str):
-        clean.setdefault("code_sha256", hashlib.sha256(code.encode("utf-8")).hexdigest())
-        clean.setdefault("code_length", len(code))
-    prompt = clean.pop("prompt", None) or clean.pop("intent", None)
-    if isinstance(prompt, str):
-        clean.setdefault("intent_hash", hashlib.sha256(prompt.encode("utf-8")).hexdigest())
-    clean.pop("serial_log", None)
-    clean.pop("serial_output", None)
-    return clean
+    guarded, truncated = _guard_size(payload)
+    if truncated:
+        guarded["_truncated"] = True
+    return guarded
+
+
+def _guard_size(value: Any) -> tuple[Any, bool]:
+    if isinstance(value, str):
+        if len(value.encode("utf-8")) > FIELD_BYTE_BUDGET:
+            return value.encode("utf-8")[:FIELD_BYTE_BUDGET].decode("utf-8", "ignore"), True
+        return value, False
+    if isinstance(value, list):
+        # Keep the tail within budget (recent serial lines matter most).
+        kept: list[Any] = []
+        truncated = False
+        size = 0
+        for element in reversed(value):
+            guarded, element_truncated = _guard_size(element)
+            truncated = truncated or element_truncated
+            length = len(json.dumps(guarded, ensure_ascii=False, default=str).encode("utf-8"))
+            if size + length > FIELD_BYTE_BUDGET and kept:
+                truncated = True
+                break
+            kept.insert(0, guarded)
+            size += length
+        return kept, truncated
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        truncated = False
+        for key, inner in value.items():
+            guarded, inner_truncated = _guard_size(inner)
+            out[key] = guarded
+            truncated = truncated or inner_truncated
+        return out, truncated
+    return value, False
 
 
 def record_llm_turn(
@@ -157,6 +189,24 @@ def telemetry_events(*, trace_id: str) -> list[dict[str, Any]]:
         {"event_type": row["event_type"], "payload": _json(row["payload_json"]), "user_id": row["user_id"]}
         for row in rows
     ]
+
+
+def llm_turns_for(*, trace_id: str) -> list[dict[str, Any]]:
+    with db.connect() as conn:
+        return db.fetchall(
+            conn,
+            """
+            SELECT kind, model, status, error_kind, total_tokens, credits_charged,
+                   duration_ms, started_at, ended_at
+            FROM llm_turns WHERE trace_id=? ORDER BY id
+            """,
+            (trace_id,),
+        )
+
+
+def session_for(*, trace_id: str) -> dict[str, Any] | None:
+    with db.connect() as conn:
+        return db.fetchone(conn, "SELECT * FROM sessions WHERE trace_id=?", (trace_id,))
 
 
 def metrics_snapshot() -> dict[str, Any]:

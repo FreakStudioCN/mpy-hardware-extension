@@ -254,6 +254,19 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
       // already gone
     }
   };
+  // Hard-interrupt an in-flight operation (user pressed Stop): kill the Python shim
+  // so its blocked subprocess (mpremote / flake8 / pytest) dies now instead of
+  // running to completion. The child's exit handler rejects every pending RPC and
+  // clears proc/child/starting, so the next device touch lazily respawns a clean
+  // shim. Same mechanism as dispose, but kept distinct: dispose is teardown, kill is
+  // a mid-session interrupt the shim is expected to recover from.
+  (shim as any).kill = () => {
+    try {
+      child?.kill();
+    } catch {
+      // already gone
+    }
+  };
   return shim;
 }
 

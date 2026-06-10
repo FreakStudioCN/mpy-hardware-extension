@@ -9,6 +9,9 @@ export function activate(context: any, vscode: any = undefined) {
   // Dock the UI as a side-bar view (see contributes.views in package.json).
   const provider = createViewProvider(api, context.extensionUri, {
     log: (message: string) => output?.appendLine(message),
+    // Guaranteed-writable per-extension dir; the fallback project root when no
+    // workspace folder is open, so generation never writes to process.cwd().
+    globalStoragePath: context.globalStorageUri?.fsPath,
   });
   // retainContextWhenHidden keeps the webview's DOM + script state alive when the
   // view is hidden (user switches sidebar views / collapses it). Without it VS Code

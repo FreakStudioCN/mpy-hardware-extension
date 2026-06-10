@@ -477,6 +477,28 @@ test("credits message updates the quota label and gates Start", async () => {
   assert.equal(generate.disabled, true, "out of credits -> Start disabled");
 });
 
+test("a saved_location event tells the user where the project went and offers a reveal button wired to the host", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  post(dom, { type: "session_event", event: { kind: "saved_location", path: "C:/gs/blockless-project" } });
+
+  // The exact path is shown so a user with no folder open can still find the code.
+  assert.match(activity.textContent!, /C:\/gs\/blockless-project/);
+  // The reveal button asks the host to open it in the OS file manager.
+  posted.length = 0;
+  const btn = activity.querySelector(".doc-fix") as any;
+  assert.ok(btn, "a reveal-in-file-manager button is offered");
+  btn.click();
+  // Built in the jsdom realm (different Array/Object prototype), so assert fields
+  // individually rather than deepEqual against a host-realm literal.
+  const open = posted.find((m) => m.type === "open_path");
+  assert.ok(open, "clicking reveal posts an open_path message to the host");
+  assert.equal(open.path, "C:/gs/blockless-project");
+});
+
 test("a stub server_mode reveals the STUB badge so a stub backend can't be mistaken for a hang", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

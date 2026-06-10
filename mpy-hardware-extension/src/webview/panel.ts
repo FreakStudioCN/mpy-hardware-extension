@@ -17,7 +17,7 @@ import { BUNDLED_TOOLCHAIN_VERSION, toolchainOutdated } from "../core/toolchain-
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
-type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void };
+type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string };
 
 // All generation output is contained under <workspace>/<PROJECT_SUBDIR>, never the
 // workspace root. The scaffold (init_scaffold.py) writes README.md/LICENSE/.flake8
@@ -59,7 +59,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const workspaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
   // Project output goes into a dedicated subfolder (see PROJECT_SUBDIR); session
   // trace logs stay at the workspace root under .mpyhw, not mixed into the project.
-  const projectFolder = workspaceFolder ? join(workspaceFolder, PROJECT_SUBDIR) : undefined;
+  // With no workspace open, fall back to the extension's guaranteed-writable
+  // globalStorage dir (never process.cwd(), which may be System32/Program Files
+  // → EPERM, or an unfindable hidden dir). usingFallback drives the "saved here"
+  // notice so the user can find their project.
+  const fallbackRoot = deps.globalStoragePath ? join(deps.globalStoragePath, PROJECT_SUBDIR) : undefined;
+  const projectFolder = workspaceFolder ? join(workspaceFolder, PROJECT_SUBDIR) : fallbackRoot;
+  const usingFallback = !workspaceFolder && !!fallbackRoot;
   let availableBoards: any[] = [];
   let toolchainChecked = false;
   const recorderFactory = workspaceFolder || vscode.authentication
@@ -75,9 +81,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), projectRoot: projectFolder }),
     recorderFactory,
     writeFiles: async (files) => {
+      if (!projectFolder) return { ok: false, error_kind: "workspace_unavailable" };
       const result = await writeGeneratedFiles({
         workspaceFolder: projectFolder,
-        generatedRoot: projectFolder ? undefined : join(process.cwd(), ".mpyhw", "generated"),
         files,
         exists: async (path) => existsSync(path),
         writeFile: async (path, content) => {
@@ -97,6 +103,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           } catch {
             // opening the editor is a nicety; ignore failures (e.g. headless host)
           }
+        }
+        // No workspace open → files went to the globalStorage fallback. Tell the
+        // user where, with a one-click "reveal in file manager" so it's findable.
+        if (usingFallback) {
+          webview.postMessage({ type: "session_event", event: { kind: "saved_location", path: projectFolder } });
         }
       }
       return result;
@@ -217,6 +228,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }, { probe: message.probe === true }); // probe only on an explicit Re-check — it interrupts a running board
       webview.postMessage({ type: "doctor_results", items });
     }
+    if (message.type === "open_path" && typeof message.path === "string") {
+      // Reveal the fallback project folder in the OS file manager so the user can
+      // find code generated when no workspace was open. Best-effort.
+      try {
+        await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(message.path));
+      } catch {
+        // command/Uri unavailable (e.g. headless host) — ignore
+      }
+    }
     if (message.type === "copy_code") {
       // Copy the code card's source to the clipboard via the host (reliable in the
       // webview sandbox). Best-effort: a host without clipboard access is a no-op.
@@ -299,14 +319,14 @@ function makeWorkspaceReader(workspaceFolder?: string) {
 // write_project_file backing: writes a project-tree file (project-manifest.json +
 // firmware/ + test/) relative to the workspace root. Path safety (allowed-path set
 // + containment) lives in writeProjectFile; this only supplies the real fs writer
-// (mkdir -p + writeFile). Falls back to .mpyhw/generated when there is no
-// workspace folder, mirroring the post-loop writeGeneratedFiles fallback.
+// (mkdir -p + writeFile). Returns undefined when there is no project root (mirrors
+// makeWorkspaceReader) so write_project_file reports workspace_unavailable instead
+// of writing somewhere unfindable; the caller passes a globalStorage fallback root.
 function makeWorkspaceWriter(workspaceFolder?: string) {
-  const generatedRoot = workspaceFolder ? undefined : join(process.cwd(), ".mpyhw", "generated");
+  if (!workspaceFolder) return undefined;
   return (relPath: string, content: string) =>
     writeProjectFile({
       workspaceFolder,
-      generatedRoot,
       path: relPath,
       content,
       writeFile: async (path, fileContent) => {

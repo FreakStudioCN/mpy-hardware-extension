@@ -28,7 +28,13 @@ export async function writeGeneratedFiles(input: {
     if (await input.exists(item.path) && !await input.confirmOverwrite(item.path)) {
       return { ok: false, error_kind: "overwrite_rejected", path: item.path };
     }
-    await input.writeFile(item.path, item.content);
+    try {
+      await input.writeFile(item.path, item.content);
+    } catch {
+      // A protected/full/locked target (e.g. EPERM) must surface as a readable
+      // result, not an uncaught throw the caller turns into a raw session_error.
+      return { ok: false, error_kind: "file_write_failed", path: item.path };
+    }
     paths.push(item.path);
   }
   return { ok: true, paths };
@@ -75,7 +81,11 @@ export async function writeProjectFile(input: {
   const safe = normalizeGeneratedArtifactPath(input.path, { allowProjectTree: true });
   if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path };
   const target = joinPath(root, safe);
-  await input.writeFile(target, input.content);
+  try {
+    await input.writeFile(target, input.content);
+  } catch {
+    return { ok: false as const, error_kind: "file_write_failed", path: target };
+  }
   return { ok: true as const, path: target };
 }
 

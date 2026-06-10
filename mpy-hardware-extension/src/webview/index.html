@@ -437,6 +437,7 @@
           multiple_devices: "Multiple devices found — pick one:",
           copy: "Copy", copied: "Copied",
           device_selected: "Device selected: {p}", files_written: "Generated files written: {p}", files_write_failed: "Generated files not written: {e}",
+          saved_location: "No folder open — your project was saved to {p}", open_folder_btn: "Reveal in file manager",
           session_ended: "Session ended: {t}",
           target_board: "Target board", led_note: "⚠ LED needs a current-limiting resistor (≈220–330Ω).",
           wiring_provisional: "Preview — pins not assigned yet",
@@ -507,6 +508,7 @@
           multiple_devices: "发现多个设备——请选择一个：",
           copy: "复制", copied: "已复制",
           device_selected: "已选择设备：{p}", files_written: "已写入生成文件：{p}", files_write_failed: "生成文件写入失败：{e}",
+          saved_location: "未打开文件夹——项目已保存到 {p}", open_folder_btn: "在文件管理器中打开",
           session_ended: "会话结束：{t}",
           target_board: "目标开发板", led_note: "⚠ LED 需要串联一个限流电阻（约 220–330Ω）。",
           wiring_provisional: "预览 — 引脚尚未分配",
@@ -883,6 +885,27 @@
         }
         $("activity").appendChild(card);
         scroll();
+      }
+
+      // Fallback-save notice: no workspace was open, so the project went to the
+      // extension's globalStorage dir. Show where, with a button that asks the host
+      // to reveal it in the OS file manager (button → host action, like the doctor).
+      function addSavedLocation(path) {
+        if (!path) return;
+        clearPending();
+        $("activityEmpty").classList.add("hidden");
+        currentThink = null;
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">' + ICONS.result + '</div><div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_result") + '</span></div><div class="ev-sum"></div></div></div></div>';
+        card.querySelector(".ev-sum").textContent = tr("saved_location", { p: path });
+        const btn = document.createElement("button");
+        btn.className = "doc-fix";
+        btn.textContent = tr("open_folder_btn");
+        btn.addEventListener("click", () => vscode.postMessage({ type: "open_path", path }));
+        card.querySelector(".ev-main").appendChild(btn);
+        $("activity").appendChild(card);
+        const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
       }
 
       // ----- ask_user (interactive prompt; pauses the agent until answered) -----
@@ -1603,6 +1626,9 @@
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
           setCredits(msg.event.balance, msg.event.dailyGrant);
+        }
+        if (msg.type === "session_event" && msg.event && msg.event.kind === "saved_location") {
+          addSavedLocation(msg.event.path);
         }
         if (msg.type === "trace_event" && running) {
           // The agent's internal tool steps drive the single in-feed working

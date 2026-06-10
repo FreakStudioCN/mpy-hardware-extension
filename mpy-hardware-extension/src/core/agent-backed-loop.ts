@@ -27,6 +27,23 @@ const LED_BUILTIN_CONTEXT = {
 // deploy-readiness checkpoint (board connection + wiring) and confirms once.
 const DEPLOY_TOOLS = new Set(["install_package", "write_main_py", "flash_and_run", "run_flash_device"]);
 
+// Scheduling mode for init_scaffold.py, derived from the manifest (mirrors the
+// recommendation rules in upy-scaffold/SKILL.md). A display/network/LVGL build
+// gets asyncio; everything else gets the Timer-tick skeleton. Its only durable
+// effect is whether lib/scheduler/ is injected, since generate_code overwrites
+// the skeleton main.py — so a wrong guess is low-harm. We never auto-pick
+// "thread" (not derivable from the schema); leave that to an explicit run_scaffold.
+export function deriveScaffoldMode(manifest: any): "timer" | "async" | "thread" {
+  const req = manifest?.requirements ?? {};
+  const network = String(req.network ?? "").toLowerCase();
+  if (["wifi", "mqtt", "4g"].includes(network)) return "async";
+  if (Array.isArray(req.output) && req.output.some((o: any) => String(o).startsWith("display_"))) return "async";
+  if (Array.isArray(manifest?.devices) && manifest.devices.some((d: any) => String(d?.type) === "display")) return "async";
+  const blob = JSON.stringify(manifest ?? {}).toLowerCase();
+  if (blob.includes("lvgl")) return "async";
+  return "timer";
+}
+
 type LoopDeps = {
   apiBaseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -274,6 +291,19 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
 
   return async function agentBackedLoop(input: LoopInput) {
     const onEvent = input.onEvent ?? (() => {});
+    // Stop must interrupt an in-flight device/host operation immediately. Deploy,
+    // flash, lint, sim, etc. run as a blocking subprocess inside the Python shim
+    // (e.g. mpremote sitting on the serial port); neither the loop's between-turn
+    // abort check nor the RPC timeout can cut that short, so a Stop during a deploy
+    // would otherwise wait for the subprocess to finish (or time out) before taking
+    // effect. On abort, kill the shim: its exit handler rejects the pending RPC at
+    // once — surfacing as a runtime_error observation the loop ends as "cancelled"
+    // at the top of its next iteration — and resets it for a lazy restart.
+    if (input.signal && typeof (input.signal as any).addEventListener === "function" && shim && typeof shim.kill === "function") {
+      (input.signal as any).addEventListener("abort", () => {
+        try { shim.kill(); } catch { /* already gone */ }
+      }, { once: true });
+    }
     const apiClient = new ApiClient(apiBaseUrl, fetchWithTimeout);
     const boardClient = new BoardClient(apiBaseUrl, fetchWithTimeout);
 
@@ -319,6 +349,35 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       return contexts;
     }
 
+    // Forced scaffold: before the first generate_code, deterministically lay down
+    // the full upstream firmware/ skeleton (init_scaffold.py via the shim) so every
+    // build produces the complete project tree, not a lone main.py. Runs at most
+    // once per session (state.scaffolded) — init_scaffold overwrites firmware/main.py
+    // unconditionally, so re-running it would clobber already-generated code. In
+    // headless/offline (no projectDir or no shim) it silently skips, so the unit
+    // tests and the MPYHW_LOOP=template path are unaffected.
+    async function ensureScaffold(manifest: any): Promise<{ ok: true } | { ok: false; error_kind: string; error?: string }> {
+      if (state.scaffolded) return { ok: true };
+      const projectDir = state.projectDir ?? deps.projectRoot;
+      if (!projectDir || !shim || typeof shim.runScaffold !== "function") return { ok: true };
+      // Re-write the manifest we're about to generate from, so init_scaffold reads
+      // exactly this validated manifest (also covers a model that called generate_code
+      // without a prior propose_manifest, which is what persists it normally).
+      if (typeof deps.writeProjectFile === "function") {
+        const persisted = await deps.writeProjectFile("project-manifest.json", JSON.stringify(manifest, null, 2));
+        if (!persisted.ok) return { ok: false, error_kind: "scaffold_failed", error: persisted.error_kind };
+      }
+      try {
+        await shim.runScaffold(projectDir, deriveScaffoldMode(manifest));
+      } catch (error: any) {
+        return { ok: false, error_kind: "scaffold_failed", error: error?.message ?? "scaffold_failed" };
+      }
+      state.scaffolded = true;
+      const phase = userVisibleToolPhase("run_scaffold");
+      if (phase) onEvent({ type: "trace", text: phase, toolName: "run_scaffold" });
+      return { ok: true };
+    }
+
     // LLM-driven codegen for any board/part combo the deterministic template
     // can't handle. A nested, tool-free /v1/llm/messages call grounded on the
     // board profile + resolved driver contexts so it isn't hardcoded to one part.
@@ -326,8 +385,9 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       const phaseProfileText = renderPhaseProfiles(state);
       // Target-aware so multi-file projects work: main.py is the runnable entry
       // (the deploy loop watches for MPYHW_READY); any other path is an importable
-      // module. Single-file projects (the default) keep the original main.py rules.
-      const isEntry = targetPath === "main.py";
+      // module. The entry now lands under the scaffolded tree (firmware/main.py),
+      // so both spellings carry the entry rules; other paths are modules.
+      const isEntry = targetPath === "main.py" || targetPath === "firmware/main.py";
       const fileRules = isEntry
         ? "print 'MPYHW_READY' once at startup, then run a main loop that prints structured status lines; wrap the loop body in try/except."
         : "produce a focused, importable module consistent with the manifest and the entry main.py; define classes/functions only, with no top-level side effects.";
@@ -352,7 +412,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
         let raw = "";
         let finishReason: string | null = null;
         let streamError: string | null = null;
-        for await (const event of await llmClient.streamMessages({ messages, tools: [], max_tokens: CODEGEN_MAX_TOKENS }, input.signal)) {
+        for await (const event of await llmClient.streamMessages({ messages, tools: [], max_tokens: CODEGEN_MAX_TOKENS, trace_id: input.traceId }, input.signal)) {
           if (event.type === "text_delta") {
             raw += event.text;
             onEvent({ type: "code_delta", text: event.text, path: targetPath });
@@ -475,10 +535,18 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
             }
             state.planConfirmed = true;
           }
+          // Lay down the full firmware/ skeleton before the first codegen so every
+          // build produces the complete upstream project tree. Once per session; a
+          // failure blocks codegen so it surfaces instead of silently degrading to a
+          // lone main.py. Headless/offline skips inside ensureScaffold.
+          const scaffold = await ensureScaffold(manifest);
+          if (!scaffold.ok) return scaffold;
           // One path: grounded LLM generation for every part. No per-sensor
           // special-casing. (The deterministic template lives only in the
           // offline MPYHW_LOOP=template pipeline.)
-          const targetPath = toolInput.target_path ?? "main.py";
+          // Default into the scaffolded tree so the code fills firmware/main.py
+          // (and deploy ships the whole tree); an explicit target_path still wins.
+          const targetPath = toolInput.target_path ?? "firmware/main.py";
           const contexts = contextsForCodegen(manifest);
           const generated = await generateCodeViaLlm(manifest, contexts, targetPath);
           if (!generated.ok) return { ok: false, error_kind: "codegen_failed", error: generated.error };
@@ -499,7 +567,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           if (!state.board) {
             return { ok: false, error_kind: "audit_unavailable", message: "board profile not loaded" };
           }
-          const auditPath = toolInput.path ?? "main.py";
+          const auditPath = toolInput.path ?? "firmware/main.py";
           const auditContent = typeof state.files?.[auditPath] === "string" ? state.files[auditPath] : toolInput.content;
           const audit = auditCode(auditContent, { board: state.board, driverContexts: contextsForCodegen({ capabilities: ["digital_output"] }) });
           return audit.ok ? { ok: true } : { ok: false, error_kind: "audit_failed", disallowed_imports: audit.disallowed_imports };
@@ -632,7 +700,11 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
               return { ok: true, valid: r.valid, exit_code: r.exitCode, output: r.output };
             }
             if (name === "run_scaffold") {
-              return { ok: true, output: (await shim.runScaffold(projectDir, toolInput.mode ?? "timer")).output };
+              const output = (await shim.runScaffold(projectDir, toolInput.mode ?? "timer")).output;
+              // The model scaffolded explicitly — mark it so the forced ensureScaffold
+              // before generate_code doesn't run init_scaffold a second time.
+              state.scaffolded = true;
+              return { ok: true, output };
             }
             if (name === "run_download_drivers") {
               return { ok: true, output: (await shim.runDownloadDrivers(projectDir)).output };
@@ -705,7 +777,10 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       // re-rendered, reordered, or stubbed on re-send, so the leading bytes stay
       // byte-identical across rounds and DeepSeek's prefix cache keeps hitting.
       const messages = state.messages;
-      const body = { messages, tools };
+      // trace_id stays top-level (NOT inside messages): the server consumes it for
+      // llm_turns attribution before provider dispatch, so DeepSeek's prefix cache —
+      // which keys on the leading message bytes — is unaffected.
+      const body = { messages, tools, trace_id: input.traceId };
       await input.recorder?.record({ type: "llm_request", kind: "agent", messages: cloneJson(messages), tools: cloneJson(tools) });
       return llmClient.streamMessages(body, input.signal);
     };
