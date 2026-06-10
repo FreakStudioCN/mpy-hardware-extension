@@ -6,6 +6,7 @@ import pytest
 
 from serve import (
     Shim,
+    _dispatch,
     map_install_error,
     parse_scan_output,
     resolve_schema,
@@ -161,6 +162,39 @@ def test_install_errors_are_classified():
     assert map_install_error("device busy") == "port_busy"
     assert map_install_error("incompatible chip") == "incompatible_chip"
     assert map_install_error("other") == "mpremote_error"
+
+
+def test_install_failure_returns_classified_error_plus_raw_stderr():
+    # The classified category ("network") tells you the kind; the raw mpremote stderr
+    # tells you the actual cause (e.g. which host couldn't be resolved). Keep BOTH so a
+    # failed install is diagnosable, not just bucketed.
+    def runner(cmd, **_k):
+        if "mip" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "mpremote: network error: could not resolve host raw.githubusercontent.com")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    shim = Shim(runner=runner)
+    result = shim.install_package("COM3", "github:org/repo/sensors/dht11_driver")
+
+    assert result["ok"] is False
+    assert result["error"] == "network"
+    assert "raw.githubusercontent.com" in result["message"]
+
+
+def test_dispatch_install_failure_propagates_error_kind_and_raw_message():
+    # The JSON-RPC layer must forward the raw stderr too (not just the category), so the
+    # extension can show the real reason and the cloud telemetry can record it.
+    def runner(cmd, **_k):
+        if "mip" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "No such package: dht11_driver")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    shim = Shim(runner=runner)
+    res = _dispatch(shim, "device.install_package", {"port": "COM3", "url": "github:org/repo/x"})
+
+    assert res["status"] == "error"
+    assert res["error_kind"] == "package_not_found"
+    assert "No such package" in res["message"]
 
 
 def test_runner_captures_mpremote_output():

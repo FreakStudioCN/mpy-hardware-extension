@@ -57,7 +57,13 @@ export class DeviceShim {
   async installPackage(url: string): Promise<void> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.install_package", { url, port });
-    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "install_failed");
+    if (r?.status !== "ok") {
+      // Keep the raw shim message ("could not resolve host …") alongside the category,
+      // so the failure reaches the repair loop / telemetry / UI as a real reason rather
+      // than a bare "network" — the difference between diagnosable and a blank dead-end.
+      const kind = r?.error_kind ?? "install_failed";
+      throw new Error(r?.message ? `${kind}: ${r.message}` : kind);
+    }
   }
 
   async writeMainPy(content: string): Promise<void> {

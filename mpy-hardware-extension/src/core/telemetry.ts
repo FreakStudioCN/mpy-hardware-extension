@@ -130,14 +130,21 @@ function mapSessionEvent(event: Record<string, any>): { eventType: string; paylo
 // carries the disallowed imports; every other failure/success is a compact tool_result.
 function compactToolResult(name: string, obs: any): { eventType: string; payload: Record<string, any> } {
   const errorKind = obs?.error_kind;
+  // normalizeObservation nests the raw tool result under `output`, so the failure
+  // detail (a serial-timeout's `error`/`lines`, a thrown shim tool's `message`) lives
+  // there, not at the top level. Read through both, or a runtime_error landed in the DB
+  // as a blank { tool, error_kind } and repair_exhausted was undiagnosable.
+  const out = obs?.output ?? {};
+  const detail = obs?.error ?? out.error ?? out.message;
+  const lines = obs?.lines ?? out.lines;
   if (errorKind === "runtime_error") {
-    return { eventType: "runtime_error", payload: { error_kind: errorKind, error: obs.error, lines: obs.lines, tool: name } };
+    return { eventType: "runtime_error", payload: { error_kind: errorKind, error: detail, lines, tool: name } };
   }
   if (errorKind === "audit_failed") {
-    return { eventType: "audit_failed", payload: { error_kind: errorKind, disallowed_imports: obs.disallowed_imports, tool: name } };
+    return { eventType: "audit_failed", payload: { error_kind: errorKind, disallowed_imports: obs.disallowed_imports ?? out.disallowed_imports, tool: name } };
   }
   if (obs?.ok === false) {
-    return { eventType: "tool_result", payload: { tool: name, ok: false, error_kind: errorKind, error: obs.error } };
+    return { eventType: "tool_result", payload: { tool: name, ok: false, error_kind: errorKind, error: detail } };
   }
   return { eventType: "tool_result", payload: { tool: name, ok: true } };
 }

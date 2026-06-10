@@ -146,6 +146,48 @@ test("agent-backed loop runs intent -> packages -> manifest -> code -> deploy ->
   assert.deepEqual(serial.lines, ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]);
 });
 
+test("a thrown device tool (failed driver install) emits a user-visible isError trace carrying the real reason", async () => {
+  const events: any[] = [];
+  const shim = {
+    scan: async () => ["COM3"],
+    installPackage: async () => { throw new Error("network: could not resolve host raw.githubusercontent.com"); },
+    writeMainPy: async () => {},
+    flashAndRun: async () => {},
+    serialReadUntil: async () => ({ ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"] }),
+  };
+
+  let turnIndex = 0;
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (Array.isArray(body.tools) && body.tools.length === 0) {
+        const sse = [
+          JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "import time\nprint('MPYHW_READY')\n" } }),
+          JSON.stringify({ type: "message_stop" }),
+        ].map((d) => `data: ${d}`).join("\n\n");
+        return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+      }
+      const turn = TURNS[turnIndex++];
+      const text = turn ? sseForTurn(turn) : `data: ${JSON.stringify({ type: "message_stop" })}`;
+      return { ok: true, status: 200, text: async () => text } as unknown as Response;
+    }
+    if (url.endsWith("/v1/packages/resolve")) {
+      return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+    }
+    if (url.includes("/driver-context")) return jsonResponse(AHT20_CONTEXT);
+    if (url.includes("/v1/boards/")) return jsonResponse(BOARD);
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await loop({ intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1", onEvent: (event) => events.push(event) });
+
+  const errEvent = events.find((event) => event.type === "trace" && event.isError);
+  assert.ok(errEvent, "expected an isError trace event for the failed install");
+  assert.equal(errEvent.toolName, "install_package");
+  assert.match(errEvent.text, /could not resolve host raw\.githubusercontent\.com/);
+});
+
 test("a continued session reuses the board profile and driver contexts without re-querying", async () => {
   // Turn 1 builds successfully (board queried, driver context fetched). Turn 2 goes
   // STRAIGHT to generate_code -> audit_code without calling query_board_profile. It

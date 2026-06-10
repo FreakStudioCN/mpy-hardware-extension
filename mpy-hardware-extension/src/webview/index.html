@@ -438,7 +438,7 @@
           copy: "Copy", copied: "Copied",
           device_selected: "Device selected: {p}", files_written: "Generated files written: {p}", files_write_failed: "Generated files not written: {e}",
           saved_location: "No folder open — your project was saved to {p}", open_folder_btn: "Reveal in file manager",
-          session_ended: "Session ended: {t}",
+          session_ended: "Session ended: {t}", tool_failed: "Step failed: {e}",
           target_board: "Target board", led_note: "⚠ LED needs a current-limiting resistor (≈220–330Ω).",
           wiring_provisional: "Preview — pins not assigned yet",
           term_generated: "Done", term_success: "Done", term_cancelled: "Stopped",
@@ -509,7 +509,7 @@
           copy: "复制", copied: "已复制",
           device_selected: "已选择设备：{p}", files_written: "已写入生成文件：{p}", files_write_failed: "生成文件写入失败：{e}",
           saved_location: "未打开文件夹——项目已保存到 {p}", open_folder_btn: "在文件管理器中打开",
-          session_ended: "会话结束：{t}",
+          session_ended: "会话结束：{t}", tool_failed: "步骤失败：{e}",
           target_board: "目标开发板", led_note: "⚠ LED 需要串联一个限流电阻（约 220–330Ω）。",
           wiring_provisional: "预览 — 引脚尚未分配",
           term_generated: "完成", term_success: "完成", term_cancelled: "已停止",
@@ -1631,6 +1631,13 @@
           addSavedLocation(msg.event.path);
         }
         if (msg.type === "trace_event" && running) {
+          // A tool FAILURE carries the real reason (a device runtime error, a failed
+          // driver install). Surface it as a durable feed line so the user sees WHY a
+          // step broke, instead of a silent spinner that ends in a generic terminal
+          // message. The loop may still retry/repair after this.
+          if (msg.event && msg.event.isError && msg.event.text) {
+            addActivity({ text: tr("tool_failed", { e: String(msg.event.text) }) });
+          }
           // The agent's internal tool steps drive the single in-feed working
           // spinner — we show a curated, localized phase label (e.g. "Generating
           // code…"), never the model's raw reasoning (chain-of-thought is discarded

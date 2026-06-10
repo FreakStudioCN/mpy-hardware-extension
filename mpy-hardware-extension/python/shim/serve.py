@@ -111,7 +111,10 @@ class Shim:
         self._run(["mpremote", "connect", port, "resume", "fs", "mkdir", ":/lib"])
         result = self._run(["mpremote", "connect", port, "resume", "mip", "install", package_json_url], timeout=120)
         if result.returncode != 0:
-            return {"ok": False, "error": map_install_error(result.stderr)}
+            # Keep BOTH the classified category and the raw stderr: the category buckets
+            # the failure ("network"), the raw text names the cause (which host/package).
+            # Dropping stderr here is what made a failed install undiagnosable downstream.
+            return {"ok": False, "error": map_install_error(result.stderr), "message": (result.stderr or "").strip()}
         return {"ok": True}
 
     def write_main_py(self, port: str, local_main_py: str):
@@ -487,7 +490,7 @@ def _dispatch(shim, method, params):
         return {"status": "ok"}
     if method == "device.install_package":
         res = shim.install_package(params["port"], params["url"])
-        return {"status": "ok"} if res.get("ok") else {"status": "error", "error_kind": res.get("error")}
+        return {"status": "ok"} if res.get("ok") else {"status": "error", "error_kind": res.get("error"), "message": res.get("message")}
     if method == "device.serial_read_until":
         markers = params.get("markers") or ([params["pattern"]] if params.get("pattern") else [])
         return shim.serial_read_until(params["port"], markers, float(params.get("timeout_sec", 10)))

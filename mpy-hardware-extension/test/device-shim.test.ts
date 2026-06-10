@@ -70,6 +70,20 @@ test("DeviceShim throws the shim's error_kind on a failed device op", async () =
   await assert.rejects(() => shim.writeMainPy("x"), /port_busy/);
 });
 
+test("DeviceShim.installPackage carries the shim's raw message in the thrown error (not just the category)", async () => {
+  // A bare error_kind ("network") buckets the failure; the raw mpremote stderr names
+  // the cause. The thrown error must keep both so the loop/telemetry/UI can show why.
+  const shim = new DeviceShim(async (method: string) =>
+    method === "device.scan"
+      ? { devices: [{ port: "COM3" }] }
+      : { status: "error", error_kind: "network", message: "could not resolve host raw.githubusercontent.com" },
+  );
+  await assert.rejects(
+    () => shim.installPackage("github:org/repo/sensors/dht11_driver"),
+    /network: could not resolve host raw\.githubusercontent\.com/,
+  );
+});
+
 test("DeviceShim rejects unsafe extra device file paths before RPC", async () => {
   const calls: any[] = [];
   const shim = new DeviceShim(async (method: string, params: any) => {

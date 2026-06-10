@@ -62,6 +62,44 @@ test("maps a runtime_error tool_result to a runtime_error event with raw error +
   assert.equal(t?.payload.tool, "read_serial_until");
 });
 
+test("maps a runtime_error whose detail is nested under observation.output (the real normalized shape)", () => {
+  // normalizeObservation wraps the raw tool result under `output`; the serial-timeout
+  // path carries { error, lines } there. The mapper must read through `output`, not
+  // just the top level (top-level error/lines are undefined on a real observation).
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "read_serial_until",
+    observation: {
+      tool: "read_serial_until",
+      ok: false,
+      error_kind: "runtime_error",
+      output: { ok: false, error_kind: "runtime_error", error: "serial_read_timeout", lines: ["MPYHW_READY", "boom"] },
+    },
+  });
+  assert.equal(t?.event_type, "runtime_error");
+  assert.equal(t?.payload.error, "serial_read_timeout");
+  assert.deepEqual(t?.payload.lines, ["MPYHW_READY", "boom"]);
+});
+
+test("maps a runtime_error from a thrown shim tool (detail in output.message) so install failures are not blank in the DB", () => {
+  // The shim catch-all returns { error_kind:'runtime_error', message } — the install
+  // failure reason lives in `message`, nested under `output`. Without reading it, the
+  // cloud row was just { tool, error_kind } and repair_exhausted stayed undiagnosable.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "install_package",
+    observation: {
+      tool: "install_package",
+      ok: false,
+      error_kind: "runtime_error",
+      output: { ok: false, error_kind: "runtime_error", message: "network: could not resolve raw.githubusercontent.com" },
+    },
+  });
+  assert.equal(t?.event_type, "runtime_error");
+  assert.equal(t?.payload.error, "network: could not resolve raw.githubusercontent.com");
+  assert.equal(t?.payload.tool, "install_package");
+});
+
 test("maps an audit_failed tool_result to an audit_failed event with disallowed imports", () => {
   const t = sessionEventToTelemetry("trace-1", {
     type: "tool_result",

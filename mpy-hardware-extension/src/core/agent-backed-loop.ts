@@ -803,7 +803,16 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
         }
         state.deployConfirmed = true;
       }
-      return dispatchTool(tool, executors);
+      const result = await dispatchTool(tool, executors);
+      // A device/runtime failure (failed driver install, serial timeout, a thrown shim
+      // op) carries the real reason in error/message. Surface it to the UI as a visible
+      // feed line so the user sees WHY a step broke — not a silent spinner that ends in
+      // a generic "couldn't get it working". The loop still counts it toward repair.
+      if (result?.error_kind === "runtime_error") {
+        const detail = result.error ?? result.message;
+        if (detail) onEvent({ type: "trace", toolName: tool.name, isError: true, text: String(detail) });
+      }
+      return result;
     };
 
     // Stream the model's prose live, but only the FINAL reply is meant to survive.

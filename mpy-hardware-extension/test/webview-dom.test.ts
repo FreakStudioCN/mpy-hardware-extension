@@ -557,6 +557,22 @@ test("trace_event drives one working spinner — raw reasoning never leaks; a kn
   post(dom, { type: "session_done", terminal: "generated" }); // ends the run
 });
 
+test("a failing tool's runtime_error trace_event shows the real reason in the feed, not just a silent spinner", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "x"; // en locale
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // The device install failed; the loop will retry, but the user must SEE why instead
+  // of watching a blank spinner that ends in a generic "couldn't get it working".
+  post(dom, { type: "trace_event", event: { isError: true, toolName: "install_package", text: "network: could not resolve host raw.githubusercontent.com" } });
+  assert.match(activity.textContent!, /could not resolve host raw\.githubusercontent\.com/, "the real error reaches the feed");
+
+  post(dom, { type: "session_done", terminal: "repair_exhausted" });
+});
+
 test("Restart is available mid-run and wipes the feed and every tab back to its empty state", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
