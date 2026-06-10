@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createAgentBackedLoop, deriveScaffoldMode } from "../src/core/agent-backed-loop.ts";
+import { createAgentBackedLoop, deriveScaffoldMode, packageVersionForInstall } from "../src/core/agent-backed-loop.ts";
 
 const MANIFEST = {
   schema_version: "1.0",
@@ -144,6 +144,21 @@ test("agent-backed loop runs intent -> packages -> manifest -> code -> deploy ->
   const serial = events.find((event) => event.type === "serial_output");
   assert.ok(serial, "expected serial_output event");
   assert.deepEqual(serial.lines, ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]);
+});
+
+test("packageVersionForInstall reads the GraftSense driver's pinned version from the manifest (no hardcode)", () => {
+  const manifest = {
+    driver_context_refs: ["dht11_driver@2.3.0", "machine_pin_led@builtin"],
+    packages: [{ name: "ssd1306_driver", version: "1.4.0" }],
+  };
+  // github URL ends in the driver dir name == the catalog package name -> look it up.
+  assert.equal(packageVersionForInstall(manifest, "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/dht11_driver"), "2.3.0");
+  // falls back to packages[] when the ref isn't there.
+  assert.equal(packageVersionForInstall(manifest, "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/ssd1306_driver"), "1.4.0");
+  // a direct (non-github) URL needs no lookup; the shim installs it as-is.
+  assert.equal(packageVersionForInstall(manifest, "https://upypi.net/pkgs/aht20/1.0.0/package.json"), undefined);
+  // unknown driver -> undefined (shim then just installs the original github URL).
+  assert.equal(packageVersionForInstall(manifest, "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/unknown_driver"), undefined);
 });
 
 test("a thrown device tool (failed driver install) emits a user-visible isError trace carrying the real reason", async () => {

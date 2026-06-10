@@ -228,6 +228,28 @@ function requireRichManifest(manifest: any) {
   return null;
 }
 
+// The version the upypi mirror URL needs (see serve.py) is NOT in the github: install
+// URL the model passes — it lives in the manifest the model just built. A GraftSense
+// github URL ends in the driver's directory name, which is also its catalog package
+// name, so look that name up in the manifest's driver_context_refs ("name@version") or
+// packages[{name,version}]. Returns undefined for a non-github URL or an unknown driver
+// (the shim then just installs the original URL) — never a hardcoded version.
+export function packageVersionForInstall(manifest: any, url: string): string | undefined {
+  if (typeof url !== "string" || !url.startsWith("github:")) return undefined;
+  const name = url.replace(/\/+$/, "").split("/").pop();
+  if (!name) return undefined;
+  const refs: any[] = Array.isArray(manifest?.driver_context_refs) ? manifest.driver_context_refs : [];
+  for (const ref of refs) {
+    const [refName, refVersion] = String(ref).split("@");
+    if (refName === name && refVersion) return refVersion;
+  }
+  const packages: any[] = Array.isArray(manifest?.packages) ? manifest.packages : [];
+  for (const pkg of packages) {
+    if (pkg && typeof pkg === "object" && pkg.name === name && pkg.version) return String(pkg.version);
+  }
+  return undefined;
+}
+
 function userVisibleToolPhase(toolName: string): string | null {
   const phases: Record<string, string> = {
     query_board_profile: "Reading board profile",
@@ -623,7 +645,10 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
             return { ok: true, ports: await shim.scan() };
           }
           if (name === "install_package") {
-            await shim.installPackage(toolInput.package_json_url);
+            // Thread the driver's real pinned version (from the manifest) so the shim
+            // can build the China-reachable upypi mirror URL instead of a github one.
+            const version = packageVersionForInstall(state.manifest, toolInput.package_json_url);
+            await shim.installPackage(toolInput.package_json_url, version);
             return { ok: true };
           }
           if (name === "write_main_py") {

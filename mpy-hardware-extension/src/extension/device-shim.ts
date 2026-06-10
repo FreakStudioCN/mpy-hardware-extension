@@ -54,9 +54,11 @@ export class DeviceShim {
     return ports[0];
   }
 
-  async installPackage(url: string): Promise<void> {
+  async installPackage(url: string, version?: string): Promise<void> {
     const port = await this.ensurePort();
-    const r = await this.rpc("device.install_package", { url, port });
+    // version is the manifest's pinned package version, used by the shim to build the
+    // China-reachable upypi mirror URL for a GraftSense driver (never hardcoded).
+    const r = await this.rpc("device.install_package", { url, version, port });
     if (r?.status !== "ok") {
       // Keep the raw shim message ("could not resolve host …") alongside the category,
       // so the failure reaches the repair loop / telemetry / UI as a real reason rather

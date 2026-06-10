@@ -34,21 +34,21 @@ def map_install_error(stderr: str) -> str:
 GRAFTSENSE_GH_PREFIX = "github:FreakStudioCN/GraftSense-Drivers-MicroPython/"
 
 
-def upypi_mirror_url(install_url: str):
+def upypi_mirror_url(install_url: str, version):
     """GraftSense's install URL points at github (raw.githubusercontent), which
     mainland-China hosts can't reach — so `mip install` fails there. The same driver
     is mirrored on upypi (China-reachable AND self-hosted: its package.json's file
     urls are relative, never redirecting back to github), keyed by the driver's
-    directory name. Return that upypi package.json URL to try first, or None for any
-    non-GraftSense URL (left untouched)."""
-    if not install_url.startswith(GRAFTSENSE_GH_PREFIX):
+    directory name + its pinned version. `version` is the real version threaded from
+    the manifest (NOT hardcoded). Returns the upypi package.json URL to try first, or
+    None for a non-GraftSense URL, or when no version is known (don't fabricate one —
+    just install the original URL)."""
+    if not install_url.startswith(GRAFTSENSE_GH_PREFIX) or not version:
         return None
     pkg = install_url.rstrip("/").rsplit("/", 1)[-1]
     if not pkg:
         return None
-    # Every current GraftSense context pins 1.0.0; a version mismatch just 404s the
-    # mirror and falls through to the original github URL.
-    return "https://upypi.net/pkgs/{}/1.0.0/package.json".format(pkg)
+    return "https://upypi.net/pkgs/{}/{}/package.json".format(pkg, version)
 
 
 # ---------- upstream toolchain scripts (vendored MicroPython_Skills submodule) ----------
@@ -127,12 +127,13 @@ class Shim:
         out = getattr(result, "stdout", "") or ""
         return {"has_micropython": getattr(result, "returncode", 1) == 0 and "mpy-ok" in out}
 
-    def install_package(self, port: str, package_json_url: str):
+    def install_package(self, port: str, package_json_url: str, version=None):
         self._run(["mpremote", "connect", port, "resume", "fs", "mkdir", ":/lib"])
         # Try the China-reachable upypi mirror first for GraftSense drivers, then fall
         # back to the original URL — so mainland-China users get the driver while
-        # non-China users (and any unmirrored driver) are never regressed.
-        candidates = [url for url in (upypi_mirror_url(package_json_url), package_json_url) if url]
+        # non-China users (and any unmirrored driver) are never regressed. `version` is
+        # the manifest's pinned version, used to build the mirror URL.
+        candidates = [url for url in (upypi_mirror_url(package_json_url, version), package_json_url) if url]
         result = None
         for url in candidates:
             result = self._run(["mpremote", "connect", port, "resume", "mip", "install", url], timeout=120)
@@ -515,7 +516,7 @@ def _dispatch(shim, method, params):
             return {"status": "error", "error_kind": "mpremote_error", "message": (getattr(r, "stderr", "") or "").strip()}
         return {"status": "ok"}
     if method == "device.install_package":
-        res = shim.install_package(params["port"], params["url"])
+        res = shim.install_package(params["port"], params["url"], params.get("version"))
         return {"status": "ok"} if res.get("ok") else {"status": "error", "error_kind": res.get("error"), "message": res.get("message")}
     if method == "device.serial_read_until":
         markers = params.get("markers") or ([params["pattern"]] if params.get("pattern") else [])

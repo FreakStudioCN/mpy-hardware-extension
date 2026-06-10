@@ -70,6 +70,20 @@ test("DeviceShim throws the shim's error_kind on a failed device op", async () =
   await assert.rejects(() => shim.writeMainPy("x"), /port_busy/);
 });
 
+test("DeviceShim.installPackage threads the package version into the RPC (for the upypi mirror URL)", async () => {
+  const calls: any[] = [];
+  const rpc = async (method: string, params: any) => {
+    calls.push({ method, params });
+    return method === "device.scan" ? { devices: [{ port: "COM3" }] } : { status: "ok" };
+  };
+  const shim = new DeviceShim(rpc);
+
+  await shim.installPackage("github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/dht11_driver", "1.0.0");
+
+  const install = calls.find((c) => c.method === "device.install_package");
+  assert.equal(install.params.version, "1.0.0", "the real pinned version reaches the shim, not a hardcoded one");
+});
+
 test("DeviceShim.installPackage carries the shim's raw message in the thrown error (not just the category)", async () => {
   // A bare error_kind ("network") buckets the failure; the raw mpremote stderr names
   // the cause. The thrown error must keep both so the loop/telemetry/UI can show why.
