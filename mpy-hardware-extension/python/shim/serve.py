@@ -31,6 +31,26 @@ def map_install_error(stderr: str) -> str:
     return "mpremote_error"
 
 
+GRAFTSENSE_GH_PREFIX = "github:FreakStudioCN/GraftSense-Drivers-MicroPython/"
+
+
+def upypi_mirror_url(install_url: str):
+    """GraftSense's install URL points at github (raw.githubusercontent), which
+    mainland-China hosts can't reach — so `mip install` fails there. The same driver
+    is mirrored on upypi (China-reachable AND self-hosted: its package.json's file
+    urls are relative, never redirecting back to github), keyed by the driver's
+    directory name. Return that upypi package.json URL to try first, or None for any
+    non-GraftSense URL (left untouched)."""
+    if not install_url.startswith(GRAFTSENSE_GH_PREFIX):
+        return None
+    pkg = install_url.rstrip("/").rsplit("/", 1)[-1]
+    if not pkg:
+        return None
+    # Every current GraftSense context pins 1.0.0; a version mismatch just 404s the
+    # mirror and falls through to the original github URL.
+    return "https://upypi.net/pkgs/{}/1.0.0/package.json".format(pkg)
+
+
 # ---------- upstream toolchain scripts (vendored MicroPython_Skills submodule) ----------
 # The scripts/schemas live in the repo-root submodule. In a packaged VSIX they are
 # bundled under <ext>/third_party; in dev they sit at <repo>/third_party (one level
@@ -109,13 +129,19 @@ class Shim:
 
     def install_package(self, port: str, package_json_url: str):
         self._run(["mpremote", "connect", port, "resume", "fs", "mkdir", ":/lib"])
-        result = self._run(["mpremote", "connect", port, "resume", "mip", "install", package_json_url], timeout=120)
-        if result.returncode != 0:
-            # Keep BOTH the classified category and the raw stderr: the category buckets
-            # the failure ("network"), the raw text names the cause (which host/package).
-            # Dropping stderr here is what made a failed install undiagnosable downstream.
-            return {"ok": False, "error": map_install_error(result.stderr), "message": (result.stderr or "").strip()}
-        return {"ok": True}
+        # Try the China-reachable upypi mirror first for GraftSense drivers, then fall
+        # back to the original URL — so mainland-China users get the driver while
+        # non-China users (and any unmirrored driver) are never regressed.
+        candidates = [url for url in (upypi_mirror_url(package_json_url), package_json_url) if url]
+        result = None
+        for url in candidates:
+            result = self._run(["mpremote", "connect", port, "resume", "mip", "install", url], timeout=120)
+            if result.returncode == 0:
+                return {"ok": True}
+        # Keep BOTH the classified category and the raw stderr: the category buckets
+        # the failure ("network"), the raw text names the cause (which host/package).
+        # Dropping stderr here is what made a failed install undiagnosable downstream.
+        return {"ok": False, "error": map_install_error(result.stderr), "message": (result.stderr or "").strip()}
 
     def write_main_py(self, port: str, local_main_py: str):
         return self._run(["mpremote", "connect", port, "resume", "fs", "cp", local_main_py, ":main.py"])

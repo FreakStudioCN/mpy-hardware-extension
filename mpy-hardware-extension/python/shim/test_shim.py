@@ -181,6 +181,65 @@ def test_install_failure_returns_classified_error_plus_raw_stderr():
     assert "raw.githubusercontent.com" in result["message"]
 
 
+def test_install_graftsense_tries_upypi_mirror_first():
+    # GraftSense's github: install URL is unreachable from mainland China (raw.github
+    # usercontent is blocked). The same driver is mirrored on upypi (China-reachable,
+    # self-hosted), so try the upypi mirror FIRST; when it works, github is never hit.
+    cmds = []
+
+    def runner(cmd, **_k):
+        cmds.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    shim = Shim(runner=runner)
+    result = shim.install_package("COM3", "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/dht11_driver")
+
+    assert result["ok"] is True
+    mip = [c for c in cmds if "mip" in c]
+    assert mip[0][-1] == "https://upypi.net/pkgs/dht11_driver/1.0.0/package.json"
+    assert all("github:" not in c[-1] for c in mip), "github never attempted when the upypi mirror works"
+
+
+def test_install_graftsense_falls_back_to_github_when_upypi_misses():
+    # Not every GraftSense driver is mirrored on upypi (or the pinned version differs).
+    # When the upypi mirror 404s, fall back to the original github URL so non-China
+    # users (and unmirrored drivers) are never regressed.
+    cmds = []
+
+    def runner(cmd, **_k):
+        cmds.append(cmd)
+        if "mip" in cmd and "upypi.net" in cmd[-1]:
+            return subprocess.CompletedProcess(cmd, 1, "", "Package not found")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    shim = Shim(runner=runner)
+    result = shim.install_package("COM3", "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/passive_buzzer_driver")
+
+    assert result["ok"] is True
+    mip_targets = [c[-1] for c in cmds if "mip" in c]
+    assert mip_targets == [
+        "https://upypi.net/pkgs/passive_buzzer_driver/1.0.0/package.json",
+        "github:FreakStudioCN/GraftSense-Drivers-MicroPython/misc/passive_buzzer_driver",
+    ]
+
+
+def test_install_non_graftsense_url_is_attempted_directly_no_mirror():
+    # A direct package.json URL (e.g. upypi) has no GraftSense mirror to try — install
+    # it as-is, exactly once. Guards against rewriting unrelated install sources.
+    cmds = []
+
+    def runner(cmd, **_k):
+        cmds.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    shim = Shim(runner=runner)
+    shim.install_package("COM3", "https://upypi.net/pkgs/aht20/1.0.0/package.json")
+
+    mip = [c for c in cmds if "mip" in c]
+    assert len(mip) == 1
+    assert mip[0][-1] == "https://upypi.net/pkgs/aht20/1.0.0/package.json"
+
+
 def test_dispatch_install_failure_propagates_error_kind_and_raw_message():
     # The JSON-RPC layer must forward the raw stderr too (not just the category), so the
     # extension can show the real reason and the cloud telemetry can record it.
