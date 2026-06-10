@@ -27,7 +27,7 @@ export function shouldTerminate(state: { turnSeq: number; repairRound: number; n
   // static_check -> simulate -> render -> deploy -> read, plus repair rounds),
   // which legitimately exceeds the old single-main.py budget. repair_exhausted
   // and the no-progress streak above are the real early-exit signals.
-  if (state.turnSeq >= 40) {
+  if (state.turnSeq >= 80) {
     return { done: true, reason: "max_turns" };
   }
   return { done: false, reason: undefined };

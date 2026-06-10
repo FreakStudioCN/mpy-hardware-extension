@@ -59,7 +59,7 @@ type LoopInput = {
   state?: any;
   recorder?: { record(event: Record<string, any>): Promise<void> };
   onEvent?: (event: any) => void;
-  askUser?: (question: string, options?: string[]) => Promise<string | null>;
+  askUser?: (question: string, options?: string[], optionsRequiringText?: string[], textPlaceholder?: string) => Promise<string | null>;
   // Build-plan gate: the host shows the requirements + credit estimate and resolves
   // the user's choice — confirm (proceed to codegen), cancel, or revise (re-plan
   // with free-text feedback). Undefined (headless/test) = proceed.
@@ -101,10 +101,10 @@ function buildOpening(input: LoopInput): string {
 }
 
 // Codegen is the one output-heavy call: it must emit a whole file AFTER a reasoning
-// model has already spent part of its budget on reasoning_content. The default 4096
+// model has already spent part of its budget on reasoning_content. The default 8192
 // turn cap is too small here (an exhausted budget finishes cleanly with empty code),
 // so codegen asks for more — the backend still clamps to its anti-abuse ceiling.
-const CODEGEN_MAX_TOKENS = 8192;
+const CODEGEN_MAX_TOKENS = 16384;
 
 // LLMs often wrap code in ```python fences despite instructions; unwrap them.
 function stripCodeFences(text: string): string {
@@ -689,7 +689,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           // pauses here until the user answers. Falls back to a null answer for
           // headless contexts (tests / no UI).
           if (typeof input.askUser === "function") {
-            const answer = await input.askUser(toolInput.question, toolInput.options);
+            const answer = await input.askUser(toolInput.question, toolInput.options, toolInput.options_requiring_text, toolInput.text_placeholder);
             return answer == null
               ? { ok: true, answer: null, note: "ask_user_unanswered" }
               : { ok: true, answer };

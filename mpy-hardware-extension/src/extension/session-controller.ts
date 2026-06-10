@@ -82,7 +82,7 @@ export class SessionController {
         availableBoards: input.availableBoards,
         state: this.state,
         onEvent: (event: any) => { if (current()) this.postEvent(event); },
-        askUser: (question: string, options?: string[]) => this.askUser(question, options),
+        askUser: (question: string, options?: string[], optionsRequiringText?: string[], textPlaceholder?: string) => this.askUser(question, options, optionsRequiringText, textPlaceholder),
         confirmPlan: (plan: any) => this.confirmPlan(plan),
         confirmDeploy: () => this.confirmDeploy(),
         confirmComponents: (devices: any[]) => this.confirmComponents(devices),
@@ -149,13 +149,15 @@ export class SessionController {
   }
 
   // Send a question to the webview and resolve when the user answers. Optional
-  // options render as clickable choices in the conversation.
-  askUser(question: string, options?: string[]): Promise<string | null> {
+  // options render as clickable choices; optionsRequiringText marks the ones that
+  // need a typed value (a URL/number/path), so the webview holds that choice and
+  // waits for the value instead of ending the turn on the click.
+  askUser(question: string, options?: string[], optionsRequiringText?: string[], textPlaceholder?: string): Promise<string | null> {
     const promptId = `prompt-${++this.promptSeq}`;
     return new Promise((resolve) => {
       this.pendingPrompts.set(promptId, resolve);
-      this.record({ type: "ui_prompt", promptId, question, options });
-      this.deps.postMessage({ type: "ui_prompt_needed", promptId, question, options });
+      this.record({ type: "ui_prompt", promptId, question, options, optionsRequiringText, textPlaceholder });
+      this.deps.postMessage({ type: "ui_prompt_needed", promptId, question, options, optionsRequiringText, textPlaceholder });
     });
   }
 

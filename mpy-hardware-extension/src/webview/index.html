@@ -886,11 +886,20 @@
       }
 
       // ----- ask_user (interactive prompt; pauses the agent until answered) -----
-      function addAskPrompt(promptId, question, options) {
+      // options: clickable choices. optionsRequiringText: the subset of those that
+      // mean "I'll provide a value" — clicking one holds the choice and waits for the
+      // user to type that value (a URL/number/path) instead of ending the turn empty.
+      function addAskPrompt(promptId, question, options, optionsRequiringText, textPlaceholder) {
         currentThink = null;
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
+        const opts = Array.isArray(options) ? options : [];
+        const needsText = new Set((Array.isArray(optionsRequiringText) ? optionsRequiringText : []).map(String));
+        // The free-text row is the only way to answer an open question, and it's where
+        // a needs-text option's value goes — but for a pure either/or it only adds
+        // height, so drop it (the model uses an option-less question for free text).
+        const showInput = opts.length === 0 || needsText.size > 0;
         const card = document.createElement("div");
         card.className = "ev fade-in";
         card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
@@ -898,41 +907,65 @@
           '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_question") + '</span></div>' +
           '<div class="ev-sum ask-q"></div>' +
           '<div class="ask-options"></div>' +
-          '<div class="ask-row"><input class="ask-input" type="text" placeholder="' + tr("type_answer") + '"><button class="ask-send">' + tr("send") + '</button></div>' +
+          (showInput ? '<div class="ask-row"><input class="ask-input" type="text" placeholder="' + tr("type_answer") + '"><button class="ask-send">' + tr("send") + '</button></div>' : '') +
           "</div></div></div>";
         const askScroll = () => { $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight; };
         const askTyper = makeTypewriter(card.querySelector(".ask-q"), askScroll);
         askTyper.feed(question == null ? "" : String(question)); askTyper.end();
         const input = card.querySelector(".ask-input");
         const send = card.querySelector(".ask-send");
+        // Model-authored placeholder set as a property (never via innerHTML) so it
+        // can't break out of the attribute.
+        if (input && typeof textPlaceholder === "string" && textPlaceholder.trim()) input.placeholder = textPlaceholder;
         let answered = false;
-        const submit = (raw) => {
-          const answer = String(raw == null ? "" : raw).trim();
-          if (!answer || answered) return;
+        // A needs-text option, once clicked, is held here until its value is typed.
+        let pendingOption = null;
+        const lock = (shownAnswer) => {
           answered = true;
-          vscode.postMessage({ type: "ui_prompt_response", promptId, answer });
-          input.disabled = true; send.disabled = true; send.textContent = tr("sent");
-          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; if (b.textContent === answer) b.classList.add("chosen"); });
-          const a = document.createElement("div"); a.className = "ask-answer"; a.textContent = "• " + answer;
+          if (input) input.disabled = true;
+          if (send) { send.disabled = true; send.textContent = tr("sent"); }
+          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; if (b.textContent === shownAnswer || b.textContent === pendingOption) b.classList.add("chosen"); });
+          const a = document.createElement("div"); a.className = "ask-answer"; a.textContent = "• " + shownAnswer;
           card.querySelector(".ev-main").appendChild(a);
           setPending(tr("working"));
         };
-        // Choices presented in the conversation render as clickable options; the
-        // text box stays for a free-form answer.
-        const optHost = card.querySelector(".ask-options");
-        if (Array.isArray(options) && options.length) {
-          for (const opt of options) {
-            const b = document.createElement("button");
-            b.className = "ask-opt"; b.type = "button"; b.textContent = String(opt);
-            b.addEventListener("click", () => submit(opt));
-            optHost.appendChild(b);
+        const sendAnswer = (answer, selectedOption) => {
+          if (!answer || answered) return;
+          vscode.postMessage({ type: "ui_prompt_response", promptId, answer, selectedOption });
+          lock(answer);
+        };
+        // The text box submits either a free-form answer or the value for a held option.
+        const submitText = () => {
+          if (answered || !input) return;
+          const text = String(input.value == null ? "" : input.value).trim();
+          if (!text) { input.focus(); return; }
+          if (pendingOption) sendAnswer(pendingOption + "\n" + text, pendingOption);
+          else sendAnswer(text, null);
+        };
+        const pickOption = (opt) => {
+          if (answered) return;
+          const label = String(opt);
+          if (needsText.has(label)) {
+            // Hold the choice and wait for the required text — don't end the turn.
+            pendingOption = label;
+            card.querySelectorAll(".ask-opt").forEach((b) => b.classList.toggle("chosen", b.textContent === label));
+            if (input) input.focus();
+            return;
           }
+          sendAnswer(label, label);
+        };
+        const optHost = card.querySelector(".ask-options");
+        for (const opt of opts) {
+          const b = document.createElement("button");
+          b.className = "ask-opt"; b.type = "button"; b.textContent = String(opt);
+          b.addEventListener("click", () => pickOption(opt));
+          optHost.appendChild(b);
         }
-        send.addEventListener("click", () => submit(input.value));
-        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(input.value); } });
+        if (send) send.addEventListener("click", submitText);
+        if (input) input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitText(); } });
         $("activity").appendChild(card);
         $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
-        setTimeout(() => input.focus(), 0);
+        if (input) setTimeout(() => input.focus(), 0);
       }
 
       // ----- component confirmation (deterministic multi-select, host-owned) -----
@@ -1584,7 +1617,7 @@
         if (msg.type === "summary_discard") { discardSummary(); }
         if (msg.type === "summary_seal") { sealSummary(); }
         if (msg.type === "summary") { addSummary(msg.text); }
-        if (msg.type === "ui_prompt_needed") { addAskPrompt(msg.promptId, msg.question, msg.options); }
+        if (msg.type === "ui_prompt_needed") { addAskPrompt(msg.promptId, msg.question, msg.options, msg.optionsRequiringText, msg.textPlaceholder); }
         if (msg.type === "components_needed") { addComponentPrompt(msg.promptId, msg.devices); }
         if (msg.type === "plan_needed") { addPlanPrompt(msg.promptId, msg.plan); }
         if (msg.type === "deploy_needed") { addDeployPrompt(msg.promptId, msg.manifest); }

@@ -194,7 +194,9 @@
       "type": "object",
       "properties": {
         "question": { "type": "string" },
-        "options": { "type": "array", "items": { "type": "string" } }
+        "options": { "type": "array", "items": { "type": "string" } },
+        "options_requiring_text": { "type": "array", "items": { "type": "string" }, "description": "The subset of options that still need the user to type a value after choosing (e.g. an option meaning 'I will provide a URL'). Each entry MUST exactly match an options string. Picking one keeps the turn open for that value instead of submitting on the click; the typed value comes back appended to the option." },
+        "text_placeholder": { "type": "string", "description": "Hint shown in the free-text box, e.g. 'Paste the GitHub URL'." }
       },
       "required": ["question"],
       "additionalProperties": false

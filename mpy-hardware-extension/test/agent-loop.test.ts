@@ -247,7 +247,7 @@ test("a tool-less hand-back AFTER code is generated is NOT nudged (no regression
 test("max turns and repair exhaustion are deterministic", async () => {
   // max_turns is reached by turns that keep calling tools but never hit the
   // success marker or repair exhaustion (a tool-less turn now ends as awaiting_user).
-  const max = await runAgentLoop({ state: baseState(), sseClient: scripted(Array.from({ length: 41 }, (_, i) => [{ type: "tool_use_complete", id: String(i), name: "search_packages", input: {} }, { type: "message_stop" }])), dispatchTool: async () => ({ ok: true }) });
+  const max = await runAgentLoop({ state: baseState(), sseClient: scripted(Array.from({ length: 81 }, (_, i) => [{ type: "tool_use_complete", id: String(i), name: "search_packages", input: {} }, { type: "message_stop" }])), dispatchTool: async () => ({ ok: true }) });
   const repair = await runAgentLoop({
     state: baseState(),
     sseClient: scripted(Array.from({ length: 4 }, (_, index) => [{ type: "tool_use_complete", id: String(index), name: "flash_and_run", input: {} }, { type: "message_stop" }])),
@@ -269,7 +269,7 @@ test("repeated non-runtime tool failures stop fast as manifest_unresolved", asyn
   });
 
   assert.equal(result.terminal, "manifest_unresolved");
-  assert.ok(result.state.turnSeq < 40, "stops well before the max_turns cap");
+  assert.ok(result.state.turnSeq < 80, "stops well before the max_turns cap");
 });
 
 test("a success resets the no-progress streak so it does not fire", async () => {

@@ -105,7 +105,7 @@ def test_deepseek_payload_caps_output_tokens(monkeypatch):
 
     monkeypatch.delenv("MPYHW_LLM_MAX_TOKENS", raising=False)
     payload = routes_llm._deepseek_payload({"messages": [{"role": "user", "content": "hi"}], "tools": []})
-    assert payload["max_tokens"] == 4096
+    assert payload["max_tokens"] == 8192
 
     monkeypatch.setenv("MPYHW_LLM_MAX_TOKENS", "2048")
     payload = routes_llm._deepseek_payload({"messages": [{"role": "user", "content": "hi"}], "tools": []})
@@ -124,9 +124,9 @@ def test_deepseek_payload_honors_client_max_tokens_within_ceiling(monkeypatch):
     base = {"messages": [{"role": "user", "content": "hi"}], "tools": []}
 
     assert routes_llm._deepseek_payload({**base, "max_tokens": 8192})["max_tokens"] == 8192
-    assert routes_llm._deepseek_payload({**base, "max_tokens": 99999})["max_tokens"] == 16384
-    assert routes_llm._deepseek_payload(base)["max_tokens"] == 4096
-    assert routes_llm._deepseek_payload({**base, "max_tokens": 0})["max_tokens"] == 4096
+    assert routes_llm._deepseek_payload({**base, "max_tokens": 99999})["max_tokens"] == 32768
+    assert routes_llm._deepseek_payload(base)["max_tokens"] == 8192
+    assert routes_llm._deepseek_payload({**base, "max_tokens": 0})["max_tokens"] == 8192
 
 
 def test_deepseek_payload_is_byte_stable_for_prefix_caching():

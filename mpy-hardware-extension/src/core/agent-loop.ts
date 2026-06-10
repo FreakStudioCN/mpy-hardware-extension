@@ -16,7 +16,7 @@ const NON_PROGRESS_NEUTRAL = new Set(["device_unavailable", "workspace_unavailab
 // just not flashable headless) is never re-nudged — that blanket nudge was
 // removed earlier because it re-asked "what do you want to do next?" when done.
 const STALL_NUDGE =
-  "The component list is confirmed and recorded in the manifest — propose_manifest already returned it to you. Continue the build now: call the next tool in the phase flow (hardware selection, then code generation, then deploy). Do not stop to summarize or wait for the user between phases; the build-plan/credit gate and the deploy gate prompt the user automatically when needed.";
+  "The component list is confirmed and recorded in the manifest — propose_manifest already returned it to you. Continue the build by calling the next tool in the phase flow (hardware selection, then code generation, then deploy); the build-plan/credit gate and the deploy gate prompt the user automatically when needed. The one exception: if you are missing information you genuinely need to build correctly (a value the user said they would provide, or a real ambiguity only the user can resolve), call ask_user to get it instead of guessing — that is not stalling.";
 const MAX_STALL_NUDGES = 2;
 
 type Recorder = { record(event: Record<string, any>): Promise<void> };

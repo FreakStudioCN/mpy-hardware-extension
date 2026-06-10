@@ -1011,3 +1011,77 @@ test("component card renders devices as pre-ticked toggle chips; unticking one a
   assert.deepEqual([...confirm.devices], ["SSD1306 OLED 128x64"], "only the kept device names are sent");
   assert.equal(confirm.feedback, "加一个 DHT22 温湿度传感器");
 });
+
+test("an ask_user option that needs follow-up text focuses the input instead of ending the turn", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // The model offers a real A/B choice, but option B means "I will paste a URL".
+  post(dom, {
+    type: "ui_prompt_needed",
+    promptId: "p-need",
+    question: "你倾向哪个方案？",
+    options: ["方案A：内置 socket", "方案B：我提供 microflask 的 GitHub 地址"],
+    optionsRequiringText: ["方案B：我提供 microflask 的 GitHub 地址"],
+    textPlaceholder: "粘贴 microflask 的 GitHub 地址",
+  });
+
+  const card = document.querySelector(".ev-card.ask")!;
+  const optB = [...card.querySelectorAll(".ask-opt")].find((b) => b.textContent!.includes("方案B")) as HTMLButtonElement;
+  posted.length = 0;
+  optB.click();
+
+  // Clicking the needs-text option must NOT end the turn — it stays open for the URL.
+  assert.equal(posted.length, 0, "no response posted yet — waiting for the required text");
+  const input = card.querySelector(".ask-input") as HTMLInputElement;
+  assert.equal(document.activeElement, input, "the text box is focused so the user can paste the address");
+  assert.equal(input.placeholder, "粘贴 microflask 的 GitHub 地址", "placeholder guides what to paste");
+
+  // Providing the text + Send finally submits, carrying BOTH the choice and the URL.
+  input.value = "https://github.com/x/microflask";
+  (card.querySelector(".ask-send") as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response" && m.promptId === "p-need");
+  assert.ok(resp, "the response is posted once the required text is provided");
+  assert.match(resp.answer, /方案B/, "the chosen option is included in the answer");
+  assert.match(resp.answer, /github\.com\/x\/microflask/, "the provided URL is included in the answer");
+});
+
+test("an ask_user option with no required text still submits on a single click", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "ui_prompt_needed",
+    promptId: "p-plain",
+    question: "你倾向哪个方案？",
+    options: ["方案A：内置 socket", "方案B：我提供地址"],
+    optionsRequiringText: ["方案B：我提供地址"],
+  });
+  const card = document.querySelector(".ev-card.ask")!;
+  posted.length = 0;
+  ([...card.querySelectorAll(".ask-opt")].find((b) => b.textContent!.includes("方案A")) as HTMLButtonElement).click();
+
+  const resp = posted.find((m) => m.type === "ui_prompt_response" && m.promptId === "p-plain");
+  assert.ok(resp, "a plain (no-text) option submits immediately on click");
+  assert.match(resp.answer, /方案A/);
+});
+
+test("an options-only ask_user card hides the free-text row; open and needs-text cards keep it", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const lastAsk = () => [...document.querySelectorAll(".ev-card.ask")].at(-1)!;
+
+  // Pure either/or — there is nothing to type, so the input row is dropped (compact).
+  post(dom, { type: "ui_prompt_needed", promptId: "p-opt", question: "选哪个？", options: ["A", "B"] });
+  assert.equal(lastAsk().querySelector(".ask-row"), null, "options-only card has no free-text row");
+
+  // An open question (no options) — the input row is the only way to answer.
+  post(dom, { type: "ui_prompt_needed", promptId: "p-free", question: "用哪块板子？", options: [] });
+  assert.ok(lastAsk().querySelector(".ask-row"), "open question keeps the input row");
+
+  // Options where one needs follow-up text — the row stays so the text can be typed.
+  post(dom, { type: "ui_prompt_needed", promptId: "p-mix", question: "选哪个？", options: ["A", "B"], optionsRequiringText: ["B"] });
+  assert.ok(lastAsk().querySelector(".ask-row"), "needs-text card keeps the input row");
+});

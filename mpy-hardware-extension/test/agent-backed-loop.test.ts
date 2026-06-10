@@ -689,7 +689,7 @@ test("codegen retries once on a clean-but-empty stream and asks for a larger max
   await loop({ intent: "blink an LED", boardId: "esp32-s3-devkitc-1", onEvent: (e: any) => events.push(e) });
 
   assert.equal(codegenCalls, 2, "an empty first generation is retried exactly once");
-  assert.equal(codegenMaxTokens, 8192, "codegen requests a larger output budget than a normal turn");
+  assert.equal(codegenMaxTokens, 16384, "codegen requests a larger output budget than a normal turn");
   const code = events.find((e: any) => e.type === "code_updated");
   assert.ok(code, "the retry produced a non-empty file");
   assert.match(code.code, /MPYHW_READY/);

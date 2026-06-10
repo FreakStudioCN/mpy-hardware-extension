@@ -213,6 +213,27 @@ test("session controller routes ask_user to the webview and feeds the answer bac
   assert.equal(result.terminal, "generated");
 });
 
+test("session controller forwards an ask_user's needs-text options and placeholder to the webview", async () => {
+  const messages: any[] = [];
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    loop: async ({ askUser }) => {
+      await askUser("Which approach?", ["Built-in socket", "Provide a URL"], ["Provide a URL"], "Paste the GitHub URL");
+      return { terminal: "generated" };
+    },
+  });
+
+  const started = controller.start({ intent: "x", boardId: "b" });
+  const prompt = messages.find((m) => m.type === "ui_prompt_needed");
+  assert.ok(prompt, "expected a ui_prompt_needed message");
+  assert.deepEqual([...prompt.options], ["Built-in socket", "Provide a URL"]);
+  assert.deepEqual([...prompt.optionsRequiringText], ["Provide a URL"], "the needs-text option is forwarded");
+  assert.equal(prompt.textPlaceholder, "Paste the GitHub URL", "the placeholder is forwarded");
+
+  controller.resolvePrompt(prompt.promptId, "Provide a URL\nhttps://example.com/x");
+  await started;
+});
+
 test("session controller routes confirmPlan to the webview as plan_needed and resolves the choice", async () => {
   const messages: any[] = [];
   let decision: any = "unset";

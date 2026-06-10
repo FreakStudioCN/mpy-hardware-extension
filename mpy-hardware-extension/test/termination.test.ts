@@ -59,8 +59,8 @@ test("tool errors preserve error_kind and serialize as tool_result", () => {
 test("termination detects success, max turns, and repair exhaustion", () => {
   assert.equal(shouldTerminate({ turnSeq: 1, repairRound: 0, runtimeVerified: true }).reason, "success");
   assert.equal(shouldTerminate({ turnSeq: 1, repairRound: 0, lastRuntimeMarker: "TEMP_C=31.2 LED=ON" }).done, false);
-  assert.equal(shouldTerminate({ turnSeq: 39, repairRound: 0 }).done, false);
-  assert.equal(shouldTerminate({ turnSeq: 40, repairRound: 0 }).reason, "max_turns");
+  assert.equal(shouldTerminate({ turnSeq: 79, repairRound: 0 }).done, false);
+  assert.equal(shouldTerminate({ turnSeq: 80, repairRound: 0 }).reason, "max_turns");
   assert.equal(shouldTerminate({ turnSeq: 2, repairRound: 3 }).reason, "repair_exhausted");
 });
 
