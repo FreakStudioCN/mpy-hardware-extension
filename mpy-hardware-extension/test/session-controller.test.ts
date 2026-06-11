@@ -490,3 +490,71 @@ test("session controller reports loop crashes to the webview", async () => {
     { type: "session_done", terminal: "session_error" },
   ]);
 });
+
+test("a loop crash with an error cause surfaces the cause code in the message", async () => {
+  // undici buries the real network reason (ECONNRESET, ETIMEDOUT) in error.cause;
+  // discarding it left prod telemetry with an undebuggable bare "fetch failed".
+  const messages: any[] = [];
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    loop: async () => {
+      const error: any = new Error("fetch failed");
+      error.cause = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+      throw error;
+    },
+  });
+
+  const result = await controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
+
+  assert.equal(result.terminal, "session_error");
+  assert.match(String(result.error), /fetch failed/);
+  assert.match(String(result.error), /ECONNRESET/);
+});
+
+test("retry() re-enters the loop with the saved state and an empty intent", async () => {
+  // The manual-retry path: a session that ended llm_unreachable keeps its state;
+  // retry() must re-issue the interrupted turn (empty intent, same state) without
+  // recording a fake user_message.
+  const loopInputs: any[] = [];
+  const messages: any[] = [];
+  const records: any[] = [];
+  let mode: "down" | "up" = "down";
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    recorderFactory: () => ({ record: async (event: any) => void records.push(event) }) as any,
+    loop: async (input: any) => {
+      loopInputs.push({ intent: input.intent, state: input.state });
+      if (mode === "down") return { terminal: "llm_unreachable", state: { messages: [{ role: "user", content: "build it" }] } };
+      return { terminal: "awaiting_user", state: input.state };
+    },
+  });
+
+  const first = await controller.start({ intent: "build it", boardId: "auto" });
+  assert.equal(first.terminal, "llm_unreachable");
+
+  mode = "up";
+  const second = await controller.retry();
+  assert.equal(second.terminal, "awaiting_user");
+  assert.equal(loopInputs.length, 2);
+  assert.equal(loopInputs[1].intent, "");
+  assert.deepEqual(loopInputs[1].state, { messages: [{ role: "user", content: "build it" }] });
+  // Telemetry: the retry is visible as session_retry, not a fabricated user_message.
+  assert.ok(records.some((r) => r.type === "session_retry"), "expected a session_retry record");
+  assert.equal(records.filter((r) => r.type === "user_message").length, 1);
+  // The webview gets a normal terminal for the retried run.
+  assert.deepEqual(messages.filter((m) => m.type === "session_done").map((m) => m.terminal), ["llm_unreachable", "awaiting_user"]);
+});
+
+test("retry() without a saved session is a safe no-op", async () => {
+  const messages: any[] = [];
+  let loopStarts = 0;
+  const controller = new SessionController({
+    postMessage: (message) => messages.push(message),
+    loop: async () => { loopStarts++; return { terminal: "awaiting_user" }; },
+  });
+
+  const result = await controller.retry();
+
+  assert.equal(result.terminal, "nothing_to_retry");
+  assert.equal(loopStarts, 0);
+});

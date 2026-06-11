@@ -184,6 +184,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       await controller.start({ intent: message.intent, boardId: message.boardId, availableBoards });
     }
+    if (message.type === "retry_session") {
+      // Manual retry after a transport failure (the webview's Retry button).
+      // Re-run the auth gate with a forced refresh first: an expired token is
+      // itself one of the failure modes a long session can die on.
+      if (vscode.authentication) {
+        const jwt = await auth.getToken(true, { forceRefresh: true });
+        if (!jwt) {
+          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
+          webview.postMessage({ type: "session_done", terminal: "session_error" });
+          return;
+        }
+      }
+      await controller.retry();
+    }
     if (message.type === "select_device") {
       try {
         const ports = await shim.scan();

@@ -155,6 +155,9 @@
       .ask-send { flex: 0 0 auto; background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 0 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--ui); }
       .ask-send:hover:not(:disabled) { background: var(--accent-hover); }
       .ask-send:disabled { background: #3a3a3c; color: #8a8a8a; cursor: default; }
+      .retry-session { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 5px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--ui); margin: 2px 0 4px 28px; }
+      .retry-session:hover:not(:disabled) { background: var(--accent-hover); }
+      .retry-session:disabled { background: #3a3a3c; color: #8a8a8a; cursor: default; }
       .ask-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
       .ask-opt { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: var(--ui); }
       .plan-list { margin: 8px 0 0; padding-left: 16px; font-size: 12px; line-height: 1.6; }
@@ -446,6 +449,8 @@
           term_manifest_unresolved: "Couldn't finish the build",
           term_repair_exhausted: "Couldn't get it working", term_session_error: "Error",
           term_sse_stream_interrupted: "Connection dropped — send again to continue",
+          term_llm_unreachable: "Can't reach the server — your progress is saved",
+          retry_btn: "Retry", retrying: "Network unstable — retrying ({n}/{m})…",
           err_out_of_credits: "Out of credits — resets at midnight UTC",
           err_sign_in_required: "Sign in with GitHub to start",
           err_auth_provider_unavailable: "VS Code GitHub auth is unavailable",
@@ -517,6 +522,8 @@
           term_manifest_unresolved: "未能完成本次生成",
           term_repair_exhausted: "未能让它正常运行", term_session_error: "出错",
           term_sse_stream_interrupted: "连接中断 — 再次发送即可继续",
+          term_llm_unreachable: "无法连接服务器 — 进度已保留",
+          retry_btn: "重试", retrying: "网络不稳定，正在重试（{n}/{m}）…",
           err_out_of_credits: "额度已用完——UTC 午夜重置",
           err_sign_in_required: "请用 GitHub 登录后开始",
           err_auth_provider_unavailable: "VS Code 的 GitHub 登录不可用",
@@ -885,6 +892,25 @@
         }
         $("activity").appendChild(card);
         scroll();
+      }
+
+      // One-click retry after a transport failure (llm_unreachable / interrupted
+      // stream). The host kept the session state, so retry_session re-issues the
+      // interrupted turn; the button disables itself so it can't double-fire.
+      function addRetryCard() {
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        const btn = document.createElement("button");
+        btn.className = "retry-session";
+        btn.textContent = tr("retry_btn");
+        btn.addEventListener("click", () => {
+          btn.disabled = true;
+          setTab("activity"); setRunning(true);
+          vscode.postMessage({ type: "retry_session" });
+        });
+        card.appendChild(btn);
+        $("activity").appendChild(card);
+        const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
       }
 
       // Fallback-save notice: no workspace was open, so the project went to the
@@ -1689,6 +1715,14 @@
           // that aren't self-evident from the result (errors and a cancelled run).
           // A successful finish needs none — the summary + code cards say it.
           if (isError || t === "cancelled") addActivity({ text: tr("session_ended", { t: friendly }) });
+          // Transport failures keep the session state on the host, so the
+          // interrupted turn can be re-issued verbatim — offer a one-click retry.
+          if (t === "llm_unreachable" || t === "sse_stream_interrupted") addRetryCard();
+        }
+        if (msg.type === "connect_retry") {
+          // The host is auto-retrying a dropped connection; keep the spinner honest
+          // ("retrying 1/3") instead of leaving the user staring at silence.
+          setPending(tr("retrying", { n: msg.attempt, m: msg.maxAttempts }));
         }
         if (msg.type === "session_busy") {
           // The host rejected this start because a prior run is still unwinding.

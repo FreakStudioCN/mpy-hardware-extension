@@ -409,3 +409,39 @@ function aht20Context() {
 function board() {
   return { board_id: "esp32-s3-devkitc-1", pin_recommendations: { i2c_sda: "GPIO5", i2c_scl: "GPIO6", led_default: "GPIO2" }, pin_capabilities: { GPIO5: ["i2c_sda"], GPIO6: ["i2c_scl"], GPIO2: ["led_anode", "gpio_out"] }, available_modules: ["machine", "time"] };
 }
+
+test("retry_session re-enters the saved session without appending an empty user turn", async () => {
+  const posted: any[] = [];
+  const llmBodies: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    assert.match(url, /\/v1\/llm\/messages$/);
+    llmBodies.push(String(init?.body ?? "{}"));
+    const sse = [
+      JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "ok" } }),
+      JSON.stringify({ type: "message_stop" }),
+    ].map((data) => `data: ${data}`).join("\n\n");
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+  await handler?.({ type: "start_session", intent: "blink an led", boardId: "esp32-s3-devkitc-1" });
+  await handler?.({ type: "retry_session" });
+
+  const terminals = posted.filter((m) => m.type === "session_done").map((m) => m.terminal);
+  assert.equal(terminals.length, 2, "retry must run a second loop pass");
+  const retried = JSON.parse(llmBodies.at(-1)!);
+  assert.notEqual(retried.messages.at(-1).role, "user", "retry must not append an empty user message");
+});

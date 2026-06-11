@@ -23,12 +23,21 @@ type Recorder = { record(event: Record<string, any>): Promise<void> };
 
 type EventSource = any[] | AsyncIterable<any>;
 
-export async function runAgentLoop(input: { state: any; sseClient: () => Promise<EventSource>; dispatchTool: (tool: any) => Promise<any>; onEvent?: (event: any) => void; signal?: { aborted: boolean }; recorder?: Recorder }) {
+// Backoff before each connect retry. Connect failures (the request never reached the
+// server) are free to retry — nothing was billed, no state moved — but on a flaky
+// route (e.g. China → Render) an immediate reconnect usually fails again, so wait.
+const CONNECT_RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+export async function runAgentLoop(input: { state: any; sseClient: () => Promise<EventSource>; dispatchTool: (tool: any) => Promise<any>; onEvent?: (event: any) => void; signal?: { aborted: boolean }; recorder?: Recorder; connectRetryDelaysMs?: number[] }) {
   const state = input.state;
   // Bounded retry for a turn whose SSE stream drops or truncates mid-flight. Reset after
   // any turn that completes (reaches message_stop).
   let streamRetries = 0;
   const MAX_STREAM_RETRIES = 2;
+  // Separate counter for connect-time failures (sseClient() itself rejects with a
+  // retryable error before any stream exists). Reset once a connection succeeds.
+  const connectDelays = input.connectRetryDelaysMs ?? CONNECT_RETRY_DELAYS_MS;
+  let connectRetries = 0;
   while (true) {
     if (input.signal?.aborted) {
       return { terminal: "cancelled", state };
@@ -37,7 +46,31 @@ export async function runAgentLoop(input: { state: any; sseClient: () => Promise
     if (terminal.done) {
       return { terminal: terminal.reason, state };
     }
-    const events = asAsyncEvents(await input.sseClient());
+    let source: EventSource;
+    try {
+      source = await input.sseClient();
+    } catch (error: any) {
+      if (input.signal?.aborted) return { terminal: "cancelled", state };
+      // Only transport-level failures marked retryable by the LLM client are retried
+      // here. Application errors (out_of_credits, auth) still propagate to the
+      // session_error path so their dedicated UX keeps working.
+      if (error?.retryable !== true) throw error;
+      if (connectRetries < connectDelays.length) {
+        const delay = connectDelays[connectRetries];
+        connectRetries += 1;
+        const detail = String(error?.message ?? error);
+        input.onEvent?.({ type: "connect_retry", attempt: connectRetries, maxAttempts: connectDelays.length, detail });
+        await input.recorder?.record({ type: "connect_retry", attempt: connectRetries, detail });
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      // Retries exhausted: end gracefully so the caller's success branch saves the
+      // session state — the user resumes with a retry button or a new message. A
+      // thrown session_error here would discard the whole session's progress.
+      return { terminal: "llm_unreachable", state };
+    }
+    connectRetries = 0;
+    const events = asAsyncEvents(source);
     const iterator = events[Symbol.asyncIterator]();
     let assistantText = "";
     let reasoningText = "";

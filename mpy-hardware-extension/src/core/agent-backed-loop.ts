@@ -51,6 +51,9 @@ type LoopDeps = {
   // Backstop for a black-holed request (server alive, never responds). Default
   // 90s; set low in tests.
   requestTimeoutMs?: number;
+  // Backoff schedule for connect-level LLM request failures (length = max retries).
+  // Default lives in agent-loop; tests inject zeros.
+  connectRetryDelaysMs?: number[];
   // Resolves the session JWT for the metered /v1/llm/messages calls. Undefined in
   // headless/test contexts; the calls then go out without an Authorization header.
   getAuthToken?: () => Promise<string | undefined>;
@@ -336,7 +339,13 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
     // Generated project files by path (main.py + any lib/ modules), so the device
     // deploy can push the whole set without the model re-sending file contents.
     state.files ??= {};
-    state.messages.push({ role: "user", content: input.state ? input.intent : buildOpening(input) });
+    // An empty intent on a continued session is the manual-retry path: the prior
+    // request was interrupted before the model answered (llm_unreachable), so the
+    // history already ends with the content the model never saw. Re-issue it
+    // verbatim — appending an empty user message would corrupt the conversation.
+    if (!input.state || input.intent) {
+      state.messages.push({ role: "user", content: input.state ? input.intent : buildOpening(input) });
+    }
     if (input.state) {
       // Continuing a prior conversation: keep the history and derived hardware
       // context (board, driverContexts), but reset the per-message loop-control
@@ -852,6 +861,7 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
       signal: input.signal,
       dispatchTool: dispatch,
       recorder: input.recorder,
+      connectRetryDelaysMs: deps.connectRetryDelaysMs,
       onEvent: (event: any) => {
         if (event.type === "text_delta") {
           streamedThisTurn = true;
@@ -875,6 +885,10 @@ export function createAgentBackedLoop(deps: LoopDeps = {}) {
           streamedThisTurn = false;
         } else if (event.type === "credits") {
           onEvent({ kind: "credits", balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt });
+        } else if (event.type === "connect_retry") {
+          // Auto-retry of a connect-level failure: surface it so the spinner says
+          // "network unstable, retrying (1/3)…" instead of going silent.
+          onEvent(event);
         }
       },
     });

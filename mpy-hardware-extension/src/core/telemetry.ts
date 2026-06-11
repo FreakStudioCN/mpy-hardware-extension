@@ -109,6 +109,14 @@ function mapSessionEvent(event: Record<string, any>): { eventType: string; paylo
       payload: { balance: event.event.balance, daily_grant: event.event.dailyGrant, resets_at: event.event.resetsAt },
     };
   }
+  if (event.type === "connect_retry") {
+    // Auto-retry of a connect-level LLM request failure. Keeps the transport cause
+    // (ECONNRESET, ETIMEDOUT) in the DB so a network-flap session is diagnosable.
+    return { eventType: "connect_retry", payload: { attempt: event.attempt, detail: event.detail } };
+  }
+  if (event.type === "session_retry") {
+    return { eventType: "session_retry", payload: {} };
+  }
   if (event.type === "session_error") {
     return { eventType: "session_error", payload: { error: event.error } };
   }

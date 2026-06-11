@@ -1123,3 +1123,56 @@ test("an options-only ask_user card hides the free-text row; open and needs-text
   post(dom, { type: "ui_prompt_needed", promptId: "p-mix", question: "选哪个？", options: ["A", "B"], optionsRequiringText: ["B"] });
   assert.ok(lastAsk().querySelector(".ask-row"), "needs-text card keeps the input row");
 });
+
+test("an llm_unreachable end renders a localized line with a Retry button that posts retry_session", async () => {
+  // The transport-failure terminal: progress is saved server-side in the session
+  // state, so the user must get a one-click way to re-issue the interrupted turn.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "闪烁一个 LED";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  post(dom, { type: "session_done", terminal: "llm_unreachable" });
+
+  assert.match(activity.textContent!, /无法连接服务器/, "a friendly localized line, not the raw terminal id");
+  assert.doesNotMatch(activity.textContent!, /llm_unreachable/, "raw terminal id never reaches the user");
+  const retry = activity.querySelector(".retry-session") as HTMLButtonElement;
+  assert.ok(retry, "a Retry button renders with the failure line");
+  retry.click();
+  assert.ok(posted.some((m) => m.type === "retry_session"), "clicking Retry posts retry_session to the host");
+  assert.equal(retry.disabled, true, "the button disables after the click so it can't double-fire");
+});
+
+test("an sse_stream_interrupted end offers the same Retry button", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  post(dom, { type: "session_done", terminal: "sse_stream_interrupted" });
+
+  const retry = activity.querySelector(".retry-session") as HTMLButtonElement;
+  assert.ok(retry, "interrupted streams are retryable too");
+  retry.click();
+  assert.ok(posted.some((m) => m.type === "retry_session"));
+});
+
+test("connect_retry updates the working spinner so auto-retries are visible", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "闪烁一个 LED";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  post(dom, { type: "connect_retry", attempt: 1, maxAttempts: 3 });
+
+  const label = activity.querySelector(".feed-pending .pending-label")!.textContent!;
+  assert.match(label, /重试/, "the spinner says it's retrying, localized");
+  assert.match(label, /1\/3/, "with the attempt count");
+
+  post(dom, { type: "session_done", terminal: "generated" }); // ends the run
+});

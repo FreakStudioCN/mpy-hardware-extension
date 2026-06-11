@@ -21,6 +21,9 @@ export class SessionController {
   private generation = 0;
   private state: any = undefined;
   private boardId: string | null = null;
+  // Board list from the last start(), reused by retry() so the continued loop
+  // resolves "auto" the same way the original run did.
+  private availableBoards: any[] | undefined;
   private traceId: string | null = null;
   private recorder: SessionRecorder | undefined;
   private recordedStart = false;
@@ -66,6 +69,26 @@ export class SessionController {
       this.record({ type: "session_started", intent: input.intent, boardId: input.boardId, availableBoards: input.availableBoards ?? [] });
     }
     this.record({ type: "user_message", intent: input.intent, boardId: input.boardId });
+    this.availableBoards = input.availableBoards;
+    return this.run(input);
+  }
+
+  // Manual retry after a transport failure (llm_unreachable / interrupted stream):
+  // re-enter the loop with the SAVED state and an empty intent, so the interrupted
+  // turn is re-issued verbatim — no fabricated user message, no fake telemetry.
+  async retry() {
+    if (this.abort) {
+      this.deps.postMessage({ type: "session_busy" });
+      return { terminal: "session_busy" };
+    }
+    if (!this.state) {
+      return { terminal: "nothing_to_retry" };
+    }
+    this.record({ type: "session_retry" });
+    return this.run({ intent: "", boardId: this.boardId ?? "auto", availableBoards: this.availableBoards });
+  }
+
+  private async run(input: { intent: string; boardId: string; availableBoards?: any[] }) {
     this.latestManifest = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
@@ -97,7 +120,11 @@ export class SessionController {
       }
       return result;
     } catch (error: any) {
-      const message = error?.message ?? "session_error";
+      // undici buries the real network reason in error.cause; append it so the
+      // telemetry shows "fetch failed (ECONNRESET)" instead of a dead end.
+      const causeDetail = error?.cause?.code ?? error?.cause?.message;
+      const base = error?.message ?? "session_error";
+      const message = causeDetail && !String(base).includes(causeDetail) ? `${base} (${causeDetail})` : base;
       const result = { terminal: "session_error", error: message };
       await this.record({ type: "session_error", error: message });
       await this.record({ type: "session_finished", terminal: result.terminal });
@@ -289,6 +316,12 @@ export class SessionController {
     if (event.type === "summary") {
       this.record({ type: "summary", text: event.text });
       this.deps.postMessage({ type: "summary", text: event.text });
+      return;
+    }
+    if (event.type === "connect_retry") {
+      // Forward only: the agent loop already recorded this via its own recorder,
+      // so recording here again would double it in the telemetry.
+      this.deps.postMessage({ type: "connect_retry", attempt: event.attempt, maxAttempts: event.maxAttempts });
       return;
     }
     this.record({ type: "trace_event", event });

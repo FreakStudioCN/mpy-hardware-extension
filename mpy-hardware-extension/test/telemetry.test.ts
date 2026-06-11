@@ -148,3 +148,18 @@ test("session_started carries raw intent (no hash)", () => {
   assert.equal(t?.payload.intent, "blink an LED");
   assert.equal("intent_hash" in (t?.payload ?? {}), false);
 });
+
+test("maps connect_retry to a telemetry event carrying the transport cause", () => {
+  // Without this mapping the cloud recorder drops the auto-retry spine, and a
+  // session that died on network flaps shows nothing between the last tool_result
+  // and session_error — exactly the prod blind spot of 2026-06-11.
+  const t = sessionEventToTelemetry("trace-1", { type: "connect_retry", attempt: 2, detail: "fetch failed (ECONNRESET)" });
+  assert.equal(t?.event_type, "connect_retry");
+  assert.equal(t?.payload.attempt, 2);
+  assert.match(String(t?.payload.detail), /ECONNRESET/);
+});
+
+test("maps session_retry to a telemetry event", () => {
+  const t = sessionEventToTelemetry("trace-1", { type: "session_retry" });
+  assert.equal(t?.event_type, "session_retry");
+});

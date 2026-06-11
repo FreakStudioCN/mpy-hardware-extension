@@ -2152,17 +2152,79 @@ test("Stop during an in-flight deploy interrupts the flash and ends the run as c
   assert.equal(result.terminal, "cancelled");
 });
 
-test("a stalled LLM request times out instead of hanging the session forever", { timeout: 2000 }, async () => {
+test("a stalled LLM request times out, retries, then ends gracefully as llm_unreachable", { timeout: 2000 }, async () => {
   // The API process is alive but black-holes the request (never responds, never
-  // errors). Without a request timeout the loop awaits forever and the UI spins
-  // with no way to recover. A bounded timeout must reject so the session ends.
+  // errors). The bounded timeout must fire, the loop auto-retries (transient), and
+  // exhaustion ends as a graceful llm_unreachable — state preserved for a manual
+  // retry — instead of a thrown session_error that discards the session.
+  let calls = 0;
   const fetchImpl = (async (url: string) => {
     if (url.endsWith("/v1/llm/messages")) {
+      calls++;
       return new Promise(() => {}) as unknown as Response; // never settles
     }
     throw new Error(`unexpected url ${url}`);
   }) as unknown as typeof fetch;
 
-  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, requestTimeoutMs: 25 });
-  await assert.rejects(() => loop({ intent: "blink an led", boardId: "esp32-s3-devkitc-1" }), /request_timeout/);
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, requestTimeoutMs: 25, connectRetryDelaysMs: [0, 0, 0] });
+  const result = await loop({ intent: "blink an led", boardId: "esp32-s3-devkitc-1" });
+  assert.equal(result.terminal, "llm_unreachable");
+  assert.equal(calls, 4); // 1 initial + 3 auto-retries
+  assert.ok(result.state, "state must survive for the manual retry");
+});
+
+test("an unreachable LLM preserves state and an empty-intent retry re-issues the turn verbatim", async () => {
+  // The manual-retry path behind the webview's Retry button: the failed session's
+  // state is fed back with an EMPTY intent. The loop must not append an empty user
+  // message — the request history is byte-identical to the interrupted turn's.
+  let mode: "down" | "up" = "down";
+  const requestBodies: string[] = [];
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      if (mode === "down") {
+        const error: any = new TypeError("fetch failed");
+        error.cause = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+        throw error;
+      }
+      requestBodies.push(String(init?.body ?? "{}"));
+      return { ok: true, status: 200, text: async () => `data: ${JSON.stringify({ type: "message_stop" })}` } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, connectRetryDelaysMs: [0] });
+  const first = await loop({ intent: "做一个环境监测器", boardId: "auto" });
+  assert.equal(first.terminal, "llm_unreachable");
+  const savedMessages = JSON.parse(JSON.stringify(first.state.messages));
+
+  mode = "up";
+  const second = await loop({ intent: "", boardId: "auto", state: first.state });
+  assert.notEqual(second.terminal, "llm_unreachable");
+  const replayed = JSON.parse(requestBodies[0]);
+  assert.deepEqual(replayed.messages, savedMessages, "retry must not append an empty user message");
+});
+
+test("connect-retry attempts are forwarded to the host as connect_retry events", async () => {
+  let calls = 0;
+  const events: any[] = [];
+  const fetchImpl = (async (url: string) => {
+    if (url.endsWith("/v1/llm/messages")) {
+      if (calls++ === 0) {
+        const error: any = new TypeError("fetch failed");
+        error.cause = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+        throw error;
+      }
+      return { ok: true, status: 200, text: async () => `data: ${JSON.stringify({ type: "message_stop" })}` } as unknown as Response;
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as unknown as typeof fetch;
+
+  const loop = createAgentBackedLoop({ apiBaseUrl: "http://api.test", fetchImpl, connectRetryDelaysMs: [0, 0, 0] });
+  await loop({ intent: "blink an led", boardId: "esp32-s3-devkitc-1", onEvent: (event) => events.push(event) });
+
+  const retry = events.find((event) => event.type === "connect_retry");
+  assert.ok(retry, "expected a connect_retry event for the UI spinner");
+  assert.equal(retry.attempt, 1);
+  assert.equal(retry.maxAttempts, 3);
+  assert.match(String(retry.detail), /ECONNRESET/);
 });

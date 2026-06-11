@@ -410,6 +410,78 @@ test("a non-200 from the LLM endpoint is not retried and surfaces as a thrown er
   assert.equal(calls, 1); // thrown from sseClient(), no retry
 });
 
+test("a retryable connect failure is retried and the turn still succeeds", async () => {
+  // The production failure (trace session-mq9457jo-38vb1gaq): the POST to
+  // /v1/llm/messages failed at the connection level (undici "fetch failed") before
+  // the request ever reached the server. That is the SAFEST possible retry — nothing
+  // was sent, nothing was billed — yet it used to escape as a fatal session_error.
+  let attempts = 0;
+  const events: any[] = [];
+  const result = await runAgentLoop({
+    state: baseState(),
+    connectRetryDelaysMs: [0, 0, 0],
+    onEvent: (event: any) => events.push(event),
+    sseClient: async () => {
+      if (attempts++ === 0) {
+        const error: any = new TypeError("fetch failed (ECONNRESET)");
+        error.retryable = true;
+        throw error;
+      }
+      return [{ type: "tool_use_complete", id: "1", name: "read_serial_until", input: {} }, { type: "message_stop" }];
+    },
+    dispatchTool: async () => ({ ok: true, lines: ["MPYHW_READY"] }),
+  });
+
+  assert.equal(result.terminal, "success");
+  assert.equal(attempts, 2);
+  const retry = events.find((e) => e.type === "connect_retry");
+  assert.ok(retry, "a connect_retry event surfaces the auto-retry to the UI");
+  assert.equal(retry.attempt, 1);
+  assert.match(String(retry.detail), /ECONNRESET/);
+});
+
+test("retryable connect failures that never recover end as llm_unreachable, not a throw", async () => {
+  // Exhausted connect retries must flow through the graceful-terminal path so the
+  // session state survives and the user can retry manually — NOT the session_error
+  // catch that discards 7 minutes of progress.
+  let attempts = 0;
+  const state = baseState();
+  state.messages.push({ role: "user", content: "build it" });
+  const result = await runAgentLoop({
+    state,
+    connectRetryDelaysMs: [0, 0, 0],
+    sseClient: async () => {
+      attempts++;
+      const error: any = new TypeError("fetch failed (ETIMEDOUT)");
+      error.retryable = true;
+      throw error;
+    },
+    dispatchTool: async () => ({ ok: true }),
+  });
+
+  assert.equal(result.terminal, "llm_unreachable");
+  assert.equal(attempts, 4); // 1 initial + 3 retries
+  assert.equal(result.state.messages.length, 1); // history intact for resume
+});
+
+test("an abort during connect retries ends as cancelled", async () => {
+  const signal = { aborted: false };
+  const result = await runAgentLoop({
+    state: baseState(),
+    signal,
+    connectRetryDelaysMs: [0, 0, 0],
+    sseClient: async () => {
+      signal.aborted = true;
+      const error: any = new TypeError("fetch failed");
+      error.retryable = true;
+      throw error;
+    },
+    dispatchTool: async () => ({ ok: true }),
+  });
+
+  assert.equal(result.terminal, "cancelled");
+});
+
 test("stream_error terminates as interrupted", async () => {
   const result = await runAgentLoop({
     state: baseState(),
