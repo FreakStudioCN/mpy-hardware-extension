@@ -1,0 +1,120 @@
+{
+  "run_id": "EXAMPLE-NOT-EVIDENCE-pleasedontcode-task-01-temperature-fan",
+  "date": "2026-06-11",
+  "tester": "EXAMPLE-NOT-EVIDENCE",
+  "system": "pleasedontcode",
+  "system_version_or_url": "https://www.pleasedontcode.com/",
+  "task_id": "task-01-temperature-fan",
+  "prompt": "Temperature over 30 C turns on the fan.",
+  "hardware_inventory": [
+    {
+      "kind": "board",
+      "name": "TBD",
+      "version_or_variant": "TBD",
+      "notes": "Example only. Replace with exact hardware before running."
+    }
+  ],
+  "starting_condition": {
+    "tester_experience": "intermediate",
+    "prior_project_state": "Example blocked-access result. No benchmark was run.",
+    "network_available": true,
+    "notes": "This file demonstrates structure only and must not be cited as evidence."
+  },
+  "preregistration": {
+    "preregistration_file": "docs/research/blockless-benchmark/task-01-p0-preregistration.md",
+    "hardware_frozen_before_run": false,
+    "systems_planned_before_run": [
+      "blockless",
+      "chatgpt_cursor_platformio",
+      "agentic_ide_cli",
+      "pleasedontcode",
+      "tutorial"
+    ],
+    "systems_actually_run": [],
+    "deviations": [
+      "Example fixture only. No system was opened."
+    ],
+    "access_blockers": [
+      "Example blocker: account or payment access not available."
+    ],
+    "notes": "A real blocked run must record the exact access barrier and any inspectable public artifact."
+  },
+  "timeline": {
+    "started_at": "not-started",
+    "ended_at": "not-started",
+    "elapsed_minutes": 0,
+    "major_steps": [
+      "Example only. No benchmark steps executed."
+    ]
+  },
+  "counts": {
+    "prompts": 0,
+    "manual_docs_searches": 0,
+    "manual_code_edits": 0,
+    "manual_wiring_changes": 0,
+    "install_attempts": 0,
+    "flash_attempts": 0,
+    "repair_attempts": 0
+  },
+  "failure_labels": [
+    "unknown"
+  ],
+  "evidence": {
+    "prompt_log": "EXAMPLE-NOT-EVIDENCE",
+    "generated_code": "EXAMPLE-NOT-EVIDENCE",
+    "wiring_artifact": "EXAMPLE-NOT-EVIDENCE",
+    "install_log": "EXAMPLE-NOT-EVIDENCE",
+    "flash_log": "EXAMPLE-NOT-EVIDENCE",
+    "serial_log": "EXAMPLE-NOT-EVIDENCE",
+    "run_log": "EXAMPLE-NOT-EVIDENCE",
+    "screenshots_or_video": [],
+    "recipe_artifact": "EXAMPLE-NOT-EVIDENCE",
+    "notes": "A real result must point to saved files in the run folder."
+  },
+  "artifact_audit": {
+    "primary_output_type": "unknown",
+    "machine_readable": false,
+    "second_user_artifact_scope": "No artifact. Example only.",
+    "preserved_context": {
+      "board_profile": false,
+      "module_variants": false,
+      "pin_assignments": false,
+      "wiring": false,
+      "code": false,
+      "package_versions": false,
+      "install_flash_run_methods": false,
+      "logs": false,
+      "repair_history": false,
+      "endpoint_manifest": false,
+      "compatibility_matrix": false,
+      "rerun_history": false
+    },
+    "notes": "This example should score zero because it preserves no evidence."
+  },
+  "score": {
+    "intent": 0,
+    "selection": 0,
+    "wiring": 0,
+    "dependencies": 0,
+    "flash_run": 0,
+    "logs": 0,
+    "repair": 0,
+    "recipe": 0,
+    "reproducibility": 0,
+    "penalties": 0,
+    "total": 0
+  },
+  "result": {
+    "status": "blocked",
+    "physical_behavior_verified": false,
+    "second_user_rerun_verified": false,
+    "summary": "Example only. No result exists."
+  },
+  "claim_impact": {
+    "supports": [],
+    "weakens": [
+      "Example only. A real blocked run would weaken any claim that relies on unavailable system access."
+    ],
+    "notes": "Do not cite this file in pitch materials."
+  }
+}

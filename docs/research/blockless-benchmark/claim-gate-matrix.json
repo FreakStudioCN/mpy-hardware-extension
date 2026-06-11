@@ -1,0 +1,260 @@
+{
+  "version": "2026-06-11",
+  "date": "2026-06-11",
+  "purpose": "Map high-risk Blockless pitch claims to the exact benchmark, market, and source gates required before the claim can be used.",
+  "claims": [
+    {
+      "claim_id": "closed_loop_superiority",
+      "claim_family": "technical_superiority",
+      "tempting_language": "Blockless is the only closed-loop AI hardware builder.",
+      "safe_language_today": "Closed loop is contested; Blockless is testing whether verified recipes preserve more rerun-critical context.",
+      "current_status": "benchmark_gated",
+      "evidence_gate": "p0_benchmark",
+      "required_baselines": ["pleasedontcode", "chatgpt_cursor_platformio", "agentic_ide_cli", "tutorial"],
+      "required_tasks": ["task-01-temperature-fan", "task-03-agent-status-display", "task-04-sensor-events-app", "task-10-bad-pin-repair"],
+      "required_artifacts": ["result.json", "run-sheet.md", "prompt_log", "generated_code", "wiring_artifact", "install_log", "flash_log", "serial_log", "run_log", "recipe_artifact"],
+      "minimum_pass_condition": "Blockless wins task success, artifact completeness, repair quality, and second-user rerun against the closest same-task baselines.",
+      "kill_conditions": [
+        "PleaseDontCode produces an equally rerunnable artifact.",
+        "Agentic IDE/CLI plus PlatformIO solves the same loop with similar friction.",
+        "Blockless output omits wiring, package, flash, log, repair, or rerun context."
+      ],
+      "forbidden_inferences": [
+        "Competitors only generate code.",
+        "Closed loop is unique.",
+        "A demo proves superiority."
+      ],
+      "source_refs": ["blockless_direct_substitute_claim_audit.md", "blockless_competitor_source_refresh_2026_06_11.md", "p0-runbook.md"]
+    },
+    {
+      "claim_id": "faster_than_tutorials",
+      "claim_family": "technical_superiority",
+      "tempting_language": "Blockless is faster than tutorials.",
+      "safe_language_today": "Tutorials are the baseline to beat; speed is unproven until same-task timing exists.",
+      "current_status": "benchmark_gated",
+      "evidence_gate": "wedge_gate_1",
+      "required_baselines": ["tutorial", "chatgpt_cursor_platformio", "pleasedontcode"],
+      "required_tasks": ["task-01-temperature-fan", "task-03-agent-status-display", "task-10-bad-pin-repair"],
+      "required_artifacts": ["elapsed_minutes", "manual_docs_searches", "manual_code_edits", "manual_wiring_changes", "repair_attempts", "second_user_rerun_verified"],
+      "minimum_pass_condition": "Median sentence-to-working-device time is lower while preserving equal or better correctness and rerun context.",
+      "kill_conditions": [
+        "Tutorial has lower elapsed time.",
+        "Tutorial produces clearer understanding or lower support burden.",
+        "Blockless feels faster but requires more hidden repair."
+      ],
+      "forbidden_inferences": [
+        "Perceived speed equals measured speed.",
+        "One successful demo proves lower friction."
+      ],
+      "source_refs": ["p0-runbook.md", "wedge-gates.md", "verified-recipe-spec.md"]
+    },
+    {
+      "claim_id": "rerunnable_recipe_artifact",
+      "claim_family": "reproducibility",
+      "tempting_language": "Blockless recipes are reusable and rerunnable.",
+      "safe_language_today": "Verified recipe is the intended artifact; rerun quality must be measured by a second tester.",
+      "current_status": "benchmark_gated",
+      "evidence_gate": "wedge_gate_4",
+      "required_baselines": ["tutorial", "pleasedontcode", "arduino_project_hub", "adafruit_learn", "seeed_wiki"],
+      "required_tasks": ["task-08-publish-recipe", "task-09-rerun-recipe"],
+      "required_artifacts": ["recipe.schema.json artifact", "second_user_rerun_log", "compatibility_matrix", "package_lock", "known_failures", "rerun_history"],
+      "minimum_pass_condition": "A second tester reruns the artifact without hidden session context and with fewer undocumented interventions than tutorial/project-gallery baselines.",
+      "kill_conditions": [
+        "Rerun requires original creator help.",
+        "Rerun depends on local state or undocumented credentials.",
+        "Tutorial completion is easier or more trusted."
+      ],
+      "forbidden_inferences": [
+        "Published equals rerunnable.",
+        "Machine-readable equals trusted.",
+        "Recipe browsing equals marketplace demand."
+      ],
+      "source_refs": ["verified-recipe-spec.md", "recipe.schema.json", "market-validation-runbook.md"]
+    },
+    {
+      "claim_id": "hardware_appstore",
+      "claim_family": "market_behavior",
+      "tempting_language": "Blockless is building the Hardware App Store.",
+      "safe_language_today": "The near-term object is a verified recipe registry.",
+      "current_status": "market_gated",
+      "evidence_gate": "market_cohort",
+      "required_baselines": ["arduino_project_hub", "adafruit_learn", "seeed_wiki", "hackster", "instructables"],
+      "required_tasks": ["task-08-publish-recipe", "task-09-rerun-recipe"],
+      "required_artifacts": ["20+ verified recipes", "second_user_rerun_records", "fork_edit_records", "market_signal.json", "market_cohort.json"],
+      "minimum_pass_condition": "At least 20 verified recipes, 30 percent second-user rerun, 15 percent fork/edit, and observed paid/kit/workspace commitment behavior.",
+      "kill_conditions": [
+        "Recipes are browsed but not rerun.",
+        "Users prefer tutorials because they explain context better.",
+        "No paid, kit, workspace, or support commitment appears."
+      ],
+      "forbidden_inferences": [
+        "Recipe registry equals appstore.",
+        "Community project galleries prove marketplace liquidity.",
+        "Software appstore behavior transfers to hardware."
+      ],
+      "source_refs": ["market-validation-runbook.md", "market_cohort.schema.json", "wedge-gates.md"]
+    },
+    {
+      "claim_id": "cursor_for_hardware",
+      "claim_family": "vibe_coding_analogy",
+      "tempting_language": "Blockless is Cursor or Lovable for hardware.",
+      "safe_language_today": "Software vibe coding shows workflow shape; hardware needs separate proof because the artifact is physical.",
+      "current_status": "market_gated",
+      "evidence_gate": "market_cohort",
+      "required_baselines": ["cursor", "lovable", "replit_agent", "bolt", "v0", "chatgpt_cursor_platformio", "agentic_ide_cli"],
+      "required_tasks": ["task-01-temperature-fan", "task-08-publish-recipe", "task-09-rerun-recipe"],
+      "required_artifacts": ["second_project_signals", "recipe_rerun_signals", "fork_edit_signals", "paid_behavior_signals", "market_cohort.json"],
+      "minimum_pass_condition": "Users start follow-up hardware projects, rerun/fork recipes, and take concrete paid or commitment steps with support load low enough to scale.",
+      "kill_conditions": [
+        "Users like the demo but do not return.",
+        "Users cannot inspect or trust the hardware artifact.",
+        "Paid interest appears only after founder support."
+      ],
+      "forbidden_inferences": [
+        "Cursor ARR proves Blockless ARR.",
+        "Software project creation proves hardware completion.",
+        "Prompt-to-app adoption proves prompt-to-device retention."
+      ],
+      "source_refs": ["blockless_vibe_coding_analogy_stress_test.md", "market-validation-runbook.md", "market_cohort.schema.json"]
+    },
+    {
+      "claim_id": "micro_python_runtime_advantage",
+      "claim_family": "runtime",
+      "tempting_language": "MicroPython is 10x better for hardware creation.",
+      "safe_language_today": "MicroPython is a plausible v1 wedge; runtime advantage is benchmark-gated.",
+      "current_status": "benchmark_gated",
+      "evidence_gate": "wedge_gate_1",
+      "required_baselines": ["arduino_cli", "platformio", "esphome", "devicescript", "johnny_five", "microblocks", "xod"],
+      "required_tasks": ["task-01-temperature-fan", "task-05-wifi-disconnect-rgb", "task-06-dark-beep-log", "task-10-bad-pin-repair"],
+      "required_artifacts": ["elapsed_minutes", "install_log", "flash_log", "serial_log", "repair_log", "support_touches"],
+      "minimum_pass_condition": "MicroPython-based Blockless runs show lower total friction and repair burden than Arduino/C, declarative, JS/TS, and live/visual alternatives on the same task class.",
+      "kill_conditions": [
+        "Arduino/PlatformIO solves with similar reliability.",
+        "ESPHome/Tasmota wins on automation tasks.",
+        "MicroBlocks/XOD provide clearer live iteration for target users."
+      ],
+      "forbidden_inferences": [
+        "Hot reload alone proves product superiority.",
+        "No compile wait is unique.",
+        "Python preference proves market demand."
+      ],
+      "source_refs": ["blockless_adjacent_competitor_gap_refresh_2026_06_11.md", "blockless_source_ledger.md", "wedge-gates.md"]
+    },
+    {
+      "claim_id": "vendor_context_moat",
+      "claim_family": "moat",
+      "tempting_language": "Vendors do not have Blockless's hardware context.",
+      "safe_language_today": "Vendors own static hardware truth; Blockless must prove dynamic execution history compounds.",
+      "current_status": "benchmark_gated",
+      "evidence_gate": "wedge_gate_5",
+      "required_baselines": ["platformio", "arduino_cli", "arduino_ide", "arduino_app_lab", "esp_idf", "espressif_vscode", "esp_claw", "espressif_docs_mcp", "espressif_docs_ai", "vendor_docs_ai", "vendor_tutorial_conversion"],
+      "required_tasks": ["task-01-temperature-fan", "task-03-agent-status-display", "task-10-bad-pin-repair"],
+      "required_artifacts": ["artifact_audit", "preserved_context", "repair_history", "compatibility_matrix", "rerun_history"],
+      "minimum_pass_condition": "Blockless preserves measured run, repair, and rerun context that official tools/docs/AI do not, and that context improves future success.",
+      "kill_conditions": [
+        "Official docs plus generic agent produce equivalent project.",
+        "ESP-Claw/MCP/RainMaker solves enough of the workflow.",
+        "Blockless data is mostly normalized vendor documentation."
+      ],
+      "forbidden_inferences": [
+        "Static docs are defensible moat.",
+        "MCP/tool access is unique.",
+        "Vendor context is stale by default."
+      ],
+      "source_refs": ["blockless_vendor_platform_source_refresh_2026_06_11.md", "blockless_platform_vendor_pressure_audit.md", "wedge-gates.md"]
+    },
+    {
+      "claim_id": "sensor_events_to_app",
+      "claim_family": "iot_app_control",
+      "tempting_language": "Blockless owns sensor events, dashboards, and automations.",
+      "safe_language_today": "Blockless may export endpoint/device context; IoT app/control value is contested.",
+      "current_status": "benchmark_gated",
+      "evidence_gate": "wedge_gate_3",
+      "required_baselines": ["arduino_cloud", "blynk", "particle_workbench", "esphome", "home_assistant", "node_red", "adafruit_io", "ubidots"],
+      "required_tasks": ["task-02-button-ai-workflow", "task-04-sensor-events-app", "task-05-wifi-disconnect-rgb", "task-07-motion-display-event"],
+      "required_artifacts": ["endpoint_manifest", "device_event_payload", "dashboard_or_flow_export", "run_log", "rerun_history"],
+      "minimum_pass_condition": "Blockless preserves more rerun-critical device and endpoint context than dashboard/YAML/cloud/flow exports while interoperating with stronger IoT platforms.",
+      "kill_conditions": [
+        "Existing IoT platform solves workflow faster.",
+        "Recurring value belongs to cloud/dashboard platform.",
+        "Blockless output is only a dashboard wrapper."
+      ],
+      "forbidden_inferences": [
+        "Sensor event equals app platform.",
+        "Dashboard proves recipe advantage.",
+        "OTA/device cloud value belongs to Blockless by default."
+      ],
+      "source_refs": ["wedge-gates.md", "blockless_source_ledger.md"]
+    },
+    {
+      "claim_id": "production_iot_or_robotics",
+      "claim_family": "production_iot",
+      "tempting_language": "Blockless owns production IoT, robotics, or industrial AI workflows.",
+      "safe_language_today": "Blockless starts upstream at bench recipe creation; production lifecycle value belongs to separate baselines until measured.",
+      "current_status": "benchmark_gated",
+      "evidence_gate": "wedge_gate_6",
+      "required_baselines": ["viam", "golioth", "losant", "zerynth", "blues_notehub", "thingsboard", "hologram", "particle_workbench", "blynk"],
+      "required_tasks": ["task-02-button-ai-workflow", "task-04-sensor-events-app", "task-07-motion-display-event"],
+      "required_artifacts": ["robotics_machine_project", "device_fleet_project", "industrial_iot_app", "connectivity_project", "endpoint_manifest", "deployment_template"],
+      "minimum_pass_condition": "Blockless demonstrably improves physical recipe bring-up before clean handoff to lifecycle platforms, or beats them on a task they naturally fit.",
+      "kill_conditions": [
+        "User's job is fleet/device/cloud operation, not recipe generation.",
+        "Industrial app-enablement platform owns dashboards/workflows/analytics.",
+        "Robotics platform owns machine APIs, model deployment, and fleet control."
+      ],
+      "forbidden_inferences": [
+        "Prototype recipe value equals production IoT value.",
+        "Industrial AI demand proves maker recipe demand.",
+        "Robotics lifecycle is the same market as ESP32 bench recipes."
+      ],
+      "source_refs": ["blockless_adjacent_competitor_gap_refresh_2026_06_11.md", "wedge-gates.md", "blockless_source_ledger.md"]
+    },
+    {
+      "claim_id": "education_no_code",
+      "claim_family": "education",
+      "tempting_language": "Blockless is the best no-code hardware tool for education.",
+      "safe_language_today": "Education is a possible wedge only if physical recipe completion beats blocks and simulation with acceptable teacher support.",
+      "current_status": "benchmark_gated",
+      "evidence_gate": "wedge_gate_2",
+      "required_baselines": ["wokwi", "cirkit", "tinkercad", "makecode", "microblocks", "xod", "visuino", "mindplus", "mixly", "tutorial"],
+      "required_tasks": ["task-01-temperature-fan", "task-03-agent-status-display", "task-06-dark-beep-log"],
+      "required_artifacts": ["classroom_completion_records", "teacher_intervention_count", "student_explanation_records", "support_summary"],
+      "minimum_pass_condition": "Students complete more reliably than blocks/simulation and can explain wiring and logic with equal or lower teacher intervention.",
+      "kill_conditions": [
+        "Simulation/blocks produce higher completion.",
+        "Agent output is opaque to students.",
+        "Physical setup dominates the class session."
+      ],
+      "forbidden_inferences": [
+        "Beginner delight equals classroom adoption.",
+        "One teacher compliment proves education demand.",
+        "No-code means no support burden."
+      ],
+      "source_refs": ["wedge-gates.md", "market-validation-runbook.md", "blockless_adjacent_competitor_gap_refresh_2026_06_11.md"]
+    },
+    {
+      "claim_id": "tam_or_arr",
+      "claim_family": "market_size",
+      "tempting_language": "Blockless can be a $100M ARR hardware appstore because Arduino/Raspberry Pi/Cursor markets are huge.",
+      "safe_language_today": "Market size must be bottom-up from measured builders, repeat use, reruns, paid units, support cost, and retention.",
+      "current_status": "forbidden",
+      "evidence_gate": "bottom_up_model",
+      "required_baselines": ["market_cohort"],
+      "required_tasks": [],
+      "required_artifacts": ["market_signal.json", "market_cohort.json", "bottom_up_model.md", "support_cost_summary", "paid_commitment_evidence"],
+      "minimum_pass_condition": "A bottom-up model ties visitor-to-first-build, second-build, rerun, fork, kit, workspace, paid recipe, churn, gross margin, and support burden to measured cohorts.",
+      "kill_conditions": [
+        "Model depends on MCU shipments or installed base instead of active builder conversion.",
+        "No repeat-use or paid behavior exists.",
+        "Support or recipe-maintenance burden consumes the margin."
+      ],
+      "forbidden_inferences": [
+        "MCU shipments prove TAM.",
+        "Arduino/Raspberry Pi installed base proves Blockless demand.",
+        "Cursor/Lovable ARR proves Blockless ARR.",
+        "Kickstarter preorders prove recurring revenue."
+      ],
+      "source_refs": ["blockless_market_size_data_falsification_audit.md", "blockless_monetization_falsification_audit.md", "market_cohort.schema.json"]
+    }
+  ]
+}

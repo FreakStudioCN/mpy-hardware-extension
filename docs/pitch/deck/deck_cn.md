@@ -1,3 +1,16 @@
+# STATUS: DEPRECATED / DO NOT USE
+
+This CN deck is pre-Phase-3-diligence material and is not synchronized with the
+current evidence standard in `deck_en.md` and `docs/research/blockless_diligence_pack.md`.
+It still contains unsafe or unverified framing around market proof, closed-loop
+claims, app/store distribution, Schematik, Kickstarter, and broad AI-hardware
+positioning.
+
+Use `docs/pitch/deck/deck_en.md` as the active pitch source. Before reviving
+this CN deck, rewrite it from the current EN deck and re-run the claim scans in
+`HANDOFF.md`.
+
+---
 # Pitch Deck - 中文比赛版 v22
 
 > 日期：2026-05-30

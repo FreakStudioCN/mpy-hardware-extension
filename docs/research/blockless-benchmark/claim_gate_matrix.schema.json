@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blockless.dev/research/claim_gate_matrix.schema.json",
+  "title": "Blockless Claim Gate Matrix",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "date", "purpose", "claims"],
+  "properties": {
+    "version": { "type": "string" },
+    "date": { "type": "string", "format": "date" },
+    "purpose": { "type": "string" },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claim_id",
+          "claim_family",
+          "tempting_language",
+          "safe_language_today",
+          "current_status",
+          "evidence_gate",
+          "required_baselines",
+          "required_tasks",
+          "required_artifacts",
+          "minimum_pass_condition",
+          "kill_conditions",
+          "forbidden_inferences",
+          "source_refs"
+        ],
+        "properties": {
+          "claim_id": { "type": "string" },
+          "claim_family": {
+            "type": "string",
+            "enum": [
+              "technical_superiority",
+              "reproducibility",
+              "market_behavior",
+              "monetization",
+              "category_positioning",
+              "moat",
+              "runtime",
+              "iot_app_control",
+              "production_iot",
+              "robotics",
+              "education",
+              "vibe_coding_analogy",
+              "market_size"
+            ]
+          },
+          "tempting_language": { "type": "string" },
+          "safe_language_today": { "type": "string" },
+          "current_status": {
+            "type": "string",
+            "enum": ["allowed", "hypothesis", "benchmark_gated", "market_gated", "forbidden"]
+          },
+          "evidence_gate": {
+            "type": "string",
+            "enum": [
+              "none",
+              "p0_benchmark",
+              "wedge_gate_1",
+              "wedge_gate_2",
+              "wedge_gate_3",
+              "wedge_gate_4",
+              "wedge_gate_5",
+              "wedge_gate_6",
+              "market_signal",
+              "market_cohort",
+              "bottom_up_model"
+            ]
+          },
+          "required_baselines": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "required_tasks": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "required_artifacts": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "minimum_pass_condition": { "type": "string" },
+          "kill_conditions": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "forbidden_inferences": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "source_refs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,86 @@
+[
+  {
+    "id": "task-01-temperature-fan",
+    "prompt": "Temperature over 30 C turns on the fan.",
+    "required_hardware": ["esp32", "temperature_sensor", "fan_or_relay"],
+    "tests_thesis": "Can the system infer a sensor-to-actuator control loop, choose safe pins, and produce a runnable hardware behavior?",
+    "pass_condition": "On real hardware, raising the measured temperature above 30 C turns the fan or relay on; lowering it turns the output off.",
+    "controlled_failure": null
+  },
+  {
+    "id": "task-02-button-ai-workflow",
+    "prompt": "Button press triggers my AI workflow.",
+    "required_hardware": ["esp32", "button", "network_connection"],
+    "tests_thesis": "Can the system translate a physical trigger into a network endpoint call with debouncing and observable status?",
+    "pass_condition": "Pressing the button sends one authenticated or configured event to the workflow endpoint and avoids repeated accidental triggers.",
+    "controlled_failure": null
+  },
+  {
+    "id": "task-03-agent-status-display",
+    "prompt": "Show my agent status on a small display.",
+    "required_hardware": ["esp32", "small_display"],
+    "tests_thesis": "Can the system map a vague UI/display intent to a concrete display module, bus, library, wiring, and refresh loop?",
+    "pass_condition": "The display shows at least idle, running, success, and error states based on real or simulated endpoint responses.",
+    "controlled_failure": null
+  },
+  {
+    "id": "task-04-sensor-events-app",
+    "prompt": "Send sensor events to my app.",
+    "required_hardware": ["esp32", "sensor", "network_connection", "app_endpoint"],
+    "tests_thesis": "Can the system produce an endpoint manifest and package a device-to-app event stream rather than just code?",
+    "pass_condition": "The device sends timestamped sensor events to an app endpoint, and the endpoint contract is documented in the produced artifact.",
+    "controlled_failure": null
+  },
+  {
+    "id": "task-05-wifi-disconnect-rgb",
+    "prompt": "Blink RGB red when Wi-Fi disconnects.",
+    "required_hardware": ["esp32", "rgb_led", "network_connection"],
+    "tests_thesis": "Can the system handle runtime state, LED driver differences, and a recoverable network condition?",
+    "pass_condition": "The RGB LED blinks red only while Wi-Fi is disconnected and returns to a normal state after reconnection.",
+    "controlled_failure": null
+  },
+  {
+    "id": "task-06-dark-beep-log",
+    "prompt": "Log light level and beep if it is dark.",
+    "required_hardware": ["esp32", "light_sensor", "buzzer"],
+    "tests_thesis": "Can the system combine analog/digital reading, threshold behavior, serial logging, and actuator output?",
+    "pass_condition": "The device logs light readings and activates the buzzer only below the chosen darkness threshold.",
+    "controlled_failure": null
+  },
+  {
+    "id": "task-07-motion-display-event",
+    "prompt": "When motion is detected, display an alert and send an event.",
+    "required_hardware": ["esp32", "pir_motion_sensor", "small_display", "network_connection"],
+    "tests_thesis": "Can the system coordinate multiple modules and preserve a coherent endpoint and display state?",
+    "pass_condition": "Motion changes the display state and sends a single event with the correct payload.",
+    "controlled_failure": null
+  },
+  {
+    "id": "task-08-publish-recipe",
+    "prompt": "Publish this working hardware project as a reusable recipe.",
+    "required_hardware": ["working_project_from_prior_task"],
+    "tests_thesis": "Can the system package board, module, wiring, drivers, code, versions, install method, logs, and repair hints into a durable artifact?",
+    "pass_condition": "The produced recipe includes all fields needed by a second user to rerun the project without reverse-engineering the original session.",
+    "controlled_failure": null
+  },
+  {
+    "id": "task-09-rerun-recipe",
+    "prompt": "Rerun someone else's recipe on my board.",
+    "required_hardware": ["compatible_board", "modules_from_recipe"],
+    "tests_thesis": "Can the system reproduce a project from a saved artifact and adapt only the safe compatibility layer?",
+    "pass_condition": "A second tester successfully runs the recipe on real hardware using only the saved recipe and captured compatibility metadata.",
+    "controlled_failure": null
+  },
+  {
+    "id": "task-10-bad-pin-repair",
+    "prompt": "Fix this project after I moved the sensor to a bad pin.",
+    "required_hardware": ["esp32", "sensor_from_prior_task"],
+    "tests_thesis": "Can the system diagnose a physical/pin capability failure from wiring context and logs, instead of guessing at code?",
+    "pass_condition": "The system identifies the bad pin or unsupported capability, proposes a valid rewiring or config repair, and reruns successfully.",
+    "controlled_failure": {
+      "type": "invalid_pin_or_capability",
+      "setup": "Move the sensor wire to a pin that is unavailable, input-only when output is needed, boot-strapping sensitive, or unsupported by the required bus.",
+      "expected_diagnosis": "Pin capability or wiring mismatch, not generic code failure."
+    }
+  }
+]

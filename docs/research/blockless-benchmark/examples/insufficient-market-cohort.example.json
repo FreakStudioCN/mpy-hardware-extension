@@ -1,0 +1,134 @@
+{
+  "cohort_id": "EXAMPLE-NOT-EVIDENCE-insufficient-cohort-01",
+  "date_range": {
+    "start": "2026-06-11",
+    "end": "2026-06-11"
+  },
+  "objective": "Example fixture showing that one compliment-only signal cannot support repeat-use, marketplace, or paid-demand claims.",
+  "cohort_scope": {
+    "experiments": ["paid_behavior"],
+    "hardware_matrix": ["EXAMPLE-NOT-EVIDENCE"],
+    "recruiting_source": "friends_network",
+    "notes": "Example fixture only. No cohort test happened."
+  },
+  "participants": {
+    "total": 1,
+    "segment_counts": {
+      "maker": 1,
+      "educator": 0,
+      "student": 0,
+      "maker_space": 0,
+      "vendor": 0,
+      "embedded_engineer": 0,
+      "hardware_startup": 0,
+      "unknown": 0
+    },
+    "experience_counts": {
+      "beginner": 0,
+      "intermediate": 1,
+      "expert": 0,
+      "unknown": 0
+    },
+    "buyer_role_counts": {
+      "user": 1,
+      "recommender": 0,
+      "budget_owner": 0,
+      "procurement": 0,
+      "none": 0,
+      "unknown": 0
+    }
+  },
+  "signal_inventory": {
+    "signal_refs": ["EXAMPLE-NOT-EVIDENCE-user-01-compliment-only"],
+    "structurally_valid_count": 1,
+    "invalid_or_missing_count": 0,
+    "compliment_only_count": 1,
+    "user_initiated_count": 0,
+    "completed_behavior_count": 0,
+    "notes": "The only signal is a compliment."
+  },
+  "behavior_counts": {
+    "second_project_started": 0,
+    "second_project_completed": 0,
+    "third_project_started": 0,
+    "recipe_rerun_attempted": 0,
+    "recipe_rerun_completed": 0,
+    "recipe_fork_attempted": 0,
+    "recipe_fork_completed": 0,
+    "kit_or_part_commitment": 0,
+    "paid_or_procurement_step": 0,
+    "negative_or_stopped_after_demo": 0,
+    "notes": "No repeat behavior, rerun, fork, kit action, or paid step occurred."
+  },
+  "commitment_summary": {
+    "commitment_events": 0,
+    "paid_units_observed": ["none"],
+    "amounts_discussed_count": 0,
+    "notes": "No concrete commitment."
+  },
+  "support_summary": {
+    "total_support_touches": 0,
+    "median_support_touches": 0,
+    "founder_rescue_count": 0,
+    "expert_rescue_count": 0,
+    "notes": "No build occurred, so support cost was not tested."
+  },
+  "follow_up_summary": {
+    "day_7_due": 0,
+    "day_7_returned": 0,
+    "day_7_no_response": 0,
+    "day_30_due": 0,
+    "day_30_returned": 0,
+    "day_30_no_response": 0,
+    "notes": "Follow-up not due in this example fixture."
+  },
+  "analogy_transfer": {
+    "software_analogy_used": ["Cursor", "Lovable"],
+    "hardware_behavior_observed": [],
+    "transfer_status": "invalid",
+    "forbidden_transfer": [
+      "Software vibe-coding growth proves hardware repeat use.",
+      "A compliment proves subscription behavior.",
+      "One demo proves marketplace pull."
+    ],
+    "notes": "No hardware behavior was observed that maps to the software analogy."
+  },
+  "data_quality": {
+    "selection_bias_risk": "high",
+    "sample_size_risk": "high",
+    "missing_followup_risk": "unknown",
+    "privacy_redaction_complete": true,
+    "notes": "A one-person friends-network example is not market evidence."
+  },
+  "interpretation": {
+    "cohort_strength": "insufficient",
+    "minimum_cohort_met": false,
+    "repeat_use_observed": false,
+    "second_user_rerun_observed": false,
+    "paid_behavior_observed": false,
+    "primary_risk": "too_few_users",
+    "conclusion": "Do not cite this as evidence. It only demonstrates the cohort summary format."
+  },
+  "claim_permissions": {
+    "deck_language": "do_not_cite",
+    "allowed_claims": [],
+    "forbidden_claims": [
+      "Users will pay for Blockless.",
+      "Users will treat Blockless like Cursor for hardware.",
+      "A hardware appstore or recipe marketplace is validated.",
+      "A subscription business is validated."
+    ],
+    "required_next_tests": [
+      "Run at least 10 maker/prototyper users.",
+      "Run at least 5 second-user rerun attempts.",
+      "Capture at least one actual commitment event before paid-demand language."
+    ],
+    "notes": "This fixture is intentionally insufficient."
+  },
+  "evidence": {
+    "summary_ref": "EXAMPLE-NOT-EVIDENCE",
+    "signal_manifest_ref": "EXAMPLE-NOT-EVIDENCE",
+    "raw_evidence_refs": ["EXAMPLE-NOT-EVIDENCE"],
+    "notes": "Real cohort summaries must point to saved signals and raw evidence."
+  }
+}

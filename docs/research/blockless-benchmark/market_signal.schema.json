@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blockless.dev/research/market_signal.schema.json",
+  "title": "Blockless Market Validation Signal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "signal_id",
+    "date",
+    "participant",
+    "experiment",
+    "source_context",
+    "observed_behavior",
+    "commitment",
+    "support_load",
+    "follow_up",
+    "evidence",
+    "interpretation",
+    "claim_impact"
+  ],
+  "properties": {
+    "signal_id": {
+      "type": "string",
+      "description": "Stable id, for example 2026-06-11-user-01-second-project."
+    },
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["participant_id", "segment", "experience_level", "buyer_role"],
+      "properties": {
+        "participant_id": { "type": "string" },
+        "segment": {
+          "type": "string",
+          "enum": [
+            "maker",
+            "educator",
+            "student",
+            "maker_space",
+            "vendor",
+            "embedded_engineer",
+            "hardware_startup",
+            "unknown"
+          ]
+        },
+        "experience_level": {
+          "type": "string",
+          "enum": ["beginner", "intermediate", "expert", "unknown"]
+        },
+        "buyer_role": {
+          "type": "string",
+          "enum": ["user", "recommender", "budget_owner", "procurement", "none", "unknown"]
+        }
+      }
+    },
+    "experiment": {
+      "type": "string",
+      "enum": [
+        "second_project",
+        "recipe_rerun",
+        "fork_edit",
+        "kit_attach",
+        "paid_behavior",
+        "vendor_school_support",
+        "vibe_coding_transfer",
+        "other"
+      ]
+    },
+    "source_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_run_id", "recipe_id", "artifact_received", "prior_success"],
+      "properties": {
+        "source_run_id": { "type": "string" },
+        "recipe_id": { "type": "string" },
+        "artifact_received": {
+          "type": "string",
+          "enum": [
+            "verified_recipe",
+            "project",
+            "tutorial",
+            "code_bundle",
+            "dashboard",
+            "simulation",
+            "kit_preview",
+            "conversation_only",
+            "none",
+            "other"
+          ]
+        },
+        "prior_success": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "observed_behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "behavior_type",
+        "status",
+        "elapsed_days_since_first_success",
+        "user_initiated",
+        "completed"
+      ],
+      "properties": {
+        "behavior_type": {
+          "type": "string",
+          "enum": [
+            "second_project_started",
+            "third_project_started",
+            "recipe_rerun_attempted",
+            "recipe_rerun_completed",
+            "recipe_fork_attempted",
+            "recipe_fork_completed",
+            "kit_waitlist_joined",
+            "part_list_requested",
+            "paid_option_selected",
+            "procurement_path_requested",
+            "support_reduction_observed",
+            "stopped_after_demo",
+            "compliment_only",
+            "negative_feedback",
+            "other"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["positive", "weak_positive", "neutral", "negative", "blocked"]
+        },
+        "elapsed_days_since_first_success": { "type": "number", "minimum": 0 },
+        "user_initiated": { "type": "boolean" },
+        "completed": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "commitment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commitment_type", "paid_unit", "concrete_next_step", "amount_discussed"],
+      "properties": {
+        "commitment_type": {
+          "type": "string",
+          "enum": [
+            "none",
+            "waitlist",
+            "intro",
+            "pilot_commitment",
+            "invoice_requested",
+            "procurement_requested",
+            "preorder_intent",
+            "paid",
+            "other"
+          ]
+        },
+        "paid_unit": {
+          "type": "string",
+          "enum": [
+            "none",
+            "workspace",
+            "kit",
+            "verified_recipe",
+            "package",
+            "vendor_support",
+            "school_lab",
+            "prototyping_service",
+            "device_cloud",
+            "other"
+          ]
+        },
+        "concrete_next_step": { "type": "boolean" },
+        "amount_discussed": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "support_load": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["support_touches", "founder_rescue_required", "expert_rescue_required"],
+      "properties": {
+        "support_touches": { "type": "integer", "minimum": 0 },
+        "founder_rescue_required": { "type": "boolean" },
+        "expert_rescue_required": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "follow_up": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["day_7_status", "day_30_status"],
+      "properties": {
+        "day_7_status": {
+          "type": "string",
+          "enum": ["not_due", "returned", "no_response", "declined", "blocked", "unknown"]
+        },
+        "day_30_status": {
+          "type": "string",
+          "enum": ["not_due", "returned", "no_response", "declined", "blocked", "unknown"]
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transcript_ref", "artifact_ref", "commitment_ref", "followup_ref"],
+      "properties": {
+        "transcript_ref": { "type": "string" },
+        "artifact_ref": { "type": "string" },
+        "commitment_ref": { "type": "string" },
+        "followup_ref": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "interpretation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signal_strength", "is_compliment_only", "primary_risk"],
+      "properties": {
+        "signal_strength": {
+          "type": "string",
+          "enum": ["strong", "medium", "weak", "negative", "invalid"]
+        },
+        "is_compliment_only": { "type": "boolean" },
+        "primary_risk": {
+          "type": "string",
+          "enum": [
+            "none",
+            "one_demo_only",
+            "support_too_high",
+            "tutorial_preferred",
+            "simulation_preferred",
+            "parts_friction",
+            "different_buyer",
+            "no_paid_step",
+            "not_reproducible",
+            "unknown"
+          ]
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "claim_impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supports", "weakens", "forbidden_inference"],
+      "properties": {
+        "supports": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "weakens": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "forbidden_inference": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

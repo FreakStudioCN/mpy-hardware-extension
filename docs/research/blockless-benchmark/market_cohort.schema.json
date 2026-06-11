@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blockless.dev/research/market_cohort.schema.json",
+  "title": "Blockless Market Validation Cohort Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cohort_id",
+    "date_range",
+    "objective",
+    "cohort_scope",
+    "participants",
+    "signal_inventory",
+    "behavior_counts",
+    "commitment_summary",
+    "support_summary",
+    "follow_up_summary",
+    "analogy_transfer",
+    "data_quality",
+    "interpretation",
+    "claim_permissions",
+    "evidence"
+  ],
+  "properties": {
+    "cohort_id": {
+      "type": "string",
+      "description": "Stable id, for example 2026-06-maker-pilot-01."
+    },
+    "date_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "format": "date" },
+        "end": { "type": "string", "format": "date" }
+      }
+    },
+    "objective": {
+      "type": "string",
+      "description": "The specific market question tested by this cohort."
+    },
+    "cohort_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["experiments", "hardware_matrix", "recruiting_source"],
+      "properties": {
+        "experiments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "second_project",
+              "recipe_rerun",
+              "fork_edit",
+              "kit_attach",
+              "paid_behavior",
+              "vendor_school_support",
+              "vibe_coding_transfer",
+              "other"
+            ]
+          }
+        },
+        "hardware_matrix": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "recruiting_source": {
+          "type": "string",
+          "enum": [
+            "existing_users",
+            "cold_recruited",
+            "school",
+            "maker_space",
+            "vendor",
+            "conference",
+            "friends_network",
+            "unknown",
+            "other"
+          ]
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "participants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "segment_counts",
+        "experience_counts",
+        "buyer_role_counts"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "segment_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maker",
+            "educator",
+            "student",
+            "maker_space",
+            "vendor",
+            "embedded_engineer",
+            "hardware_startup",
+            "unknown"
+          ],
+          "properties": {
+            "maker": { "type": "integer", "minimum": 0 },
+            "educator": { "type": "integer", "minimum": 0 },
+            "student": { "type": "integer", "minimum": 0 },
+            "maker_space": { "type": "integer", "minimum": 0 },
+            "vendor": { "type": "integer", "minimum": 0 },
+            "embedded_engineer": { "type": "integer", "minimum": 0 },
+            "hardware_startup": { "type": "integer", "minimum": 0 },
+            "unknown": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "experience_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["beginner", "intermediate", "expert", "unknown"],
+          "properties": {
+            "beginner": { "type": "integer", "minimum": 0 },
+            "intermediate": { "type": "integer", "minimum": 0 },
+            "expert": { "type": "integer", "minimum": 0 },
+            "unknown": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "buyer_role_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "user",
+            "recommender",
+            "budget_owner",
+            "procurement",
+            "none",
+            "unknown"
+          ],
+          "properties": {
+            "user": { "type": "integer", "minimum": 0 },
+            "recommender": { "type": "integer", "minimum": 0 },
+            "budget_owner": { "type": "integer", "minimum": 0 },
+            "procurement": { "type": "integer", "minimum": 0 },
+            "none": { "type": "integer", "minimum": 0 },
+            "unknown": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "signal_inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signal_refs",
+        "structurally_valid_count",
+        "invalid_or_missing_count",
+        "compliment_only_count",
+        "user_initiated_count",
+        "completed_behavior_count"
+      ],
+      "properties": {
+        "signal_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "structurally_valid_count": { "type": "integer", "minimum": 0 },
+        "invalid_or_missing_count": { "type": "integer", "minimum": 0 },
+        "compliment_only_count": { "type": "integer", "minimum": 0 },
+        "user_initiated_count": { "type": "integer", "minimum": 0 },
+        "completed_behavior_count": { "type": "integer", "minimum": 0 },
+        "notes": { "type": "string" }
+      }
+    },
+    "behavior_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "second_project_started",
+        "second_project_completed",
+        "third_project_started",
+        "recipe_rerun_attempted",
+        "recipe_rerun_completed",
+        "recipe_fork_attempted",
+        "recipe_fork_completed",
+        "kit_or_part_commitment",
+        "paid_or_procurement_step",
+        "negative_or_stopped_after_demo"
+      ],
+      "properties": {
+        "second_project_started": { "type": "integer", "minimum": 0 },
+        "second_project_completed": { "type": "integer", "minimum": 0 },
+        "third_project_started": { "type": "integer", "minimum": 0 },
+        "recipe_rerun_attempted": { "type": "integer", "minimum": 0 },
+        "recipe_rerun_completed": { "type": "integer", "minimum": 0 },
+        "recipe_fork_attempted": { "type": "integer", "minimum": 0 },
+        "recipe_fork_completed": { "type": "integer", "minimum": 0 },
+        "kit_or_part_commitment": { "type": "integer", "minimum": 0 },
+        "paid_or_procurement_step": { "type": "integer", "minimum": 0 },
+        "negative_or_stopped_after_demo": { "type": "integer", "minimum": 0 },
+        "notes": { "type": "string" }
+      }
+    },
+    "commitment_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commitment_events", "paid_units_observed", "amounts_discussed_count"],
+      "properties": {
+        "commitment_events": { "type": "integer", "minimum": 0 },
+        "paid_units_observed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "none",
+              "workspace",
+              "kit",
+              "verified_recipe",
+              "package",
+              "vendor_support",
+              "school_lab",
+              "prototyping_service",
+              "device_cloud",
+              "other"
+            ]
+          }
+        },
+        "amounts_discussed_count": { "type": "integer", "minimum": 0 },
+        "notes": { "type": "string" }
+      }
+    },
+    "support_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_support_touches",
+        "median_support_touches",
+        "founder_rescue_count",
+        "expert_rescue_count"
+      ],
+      "properties": {
+        "total_support_touches": { "type": "integer", "minimum": 0 },
+        "median_support_touches": { "type": "number", "minimum": 0 },
+        "founder_rescue_count": { "type": "integer", "minimum": 0 },
+        "expert_rescue_count": { "type": "integer", "minimum": 0 },
+        "notes": { "type": "string" }
+      }
+    },
+    "follow_up_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "day_7_due",
+        "day_7_returned",
+        "day_7_no_response",
+        "day_30_due",
+        "day_30_returned",
+        "day_30_no_response"
+      ],
+      "properties": {
+        "day_7_due": { "type": "integer", "minimum": 0 },
+        "day_7_returned": { "type": "integer", "minimum": 0 },
+        "day_7_no_response": { "type": "integer", "minimum": 0 },
+        "day_30_due": { "type": "integer", "minimum": 0 },
+        "day_30_returned": { "type": "integer", "minimum": 0 },
+        "day_30_no_response": { "type": "integer", "minimum": 0 },
+        "notes": { "type": "string" }
+      }
+    },
+    "analogy_transfer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "software_analogy_used",
+        "hardware_behavior_observed",
+        "transfer_status",
+        "forbidden_transfer"
+      ],
+      "properties": {
+        "software_analogy_used": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "hardware_behavior_observed": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "transfer_status": {
+          "type": "string",
+          "enum": [
+            "not_tested",
+            "shape_only",
+            "weak_behavior",
+            "repeat_behavior_observed",
+            "paid_behavior_observed",
+            "invalid"
+          ]
+        },
+        "forbidden_transfer": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "data_quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selection_bias_risk",
+        "sample_size_risk",
+        "missing_followup_risk",
+        "privacy_redaction_complete"
+      ],
+      "properties": {
+        "selection_bias_risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "unknown"]
+        },
+        "sample_size_risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "unknown"]
+        },
+        "missing_followup_risk": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "unknown"]
+        },
+        "privacy_redaction_complete": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "interpretation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cohort_strength",
+        "minimum_cohort_met",
+        "repeat_use_observed",
+        "second_user_rerun_observed",
+        "paid_behavior_observed",
+        "primary_risk",
+        "conclusion"
+      ],
+      "properties": {
+        "cohort_strength": {
+          "type": "string",
+          "enum": ["strong", "medium", "weak", "negative", "insufficient", "invalid"]
+        },
+        "minimum_cohort_met": { "type": "boolean" },
+        "repeat_use_observed": { "type": "boolean" },
+        "second_user_rerun_observed": { "type": "boolean" },
+        "paid_behavior_observed": { "type": "boolean" },
+        "primary_risk": {
+          "type": "string",
+          "enum": [
+            "none",
+            "too_few_users",
+            "compliments_only",
+            "support_too_high",
+            "no_repeat_use",
+            "no_second_user_rerun",
+            "no_paid_step",
+            "wrong_buyer",
+            "selection_bias",
+            "missing_followup",
+            "unknown"
+          ]
+        },
+        "conclusion": { "type": "string" }
+      }
+    },
+    "claim_permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deck_language", "allowed_claims", "forbidden_claims", "required_next_tests"],
+      "properties": {
+        "deck_language": {
+          "type": "string",
+          "enum": [
+            "do_not_cite",
+            "hypothesis_only",
+            "early_signal",
+            "narrow_claim",
+            "gate_passed"
+          ]
+        },
+        "allowed_claims": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "forbidden_claims": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "required_next_tests": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary_ref", "signal_manifest_ref", "raw_evidence_refs"],
+      "properties": {
+        "summary_ref": { "type": "string" },
+        "signal_manifest_ref": { "type": "string" },
+        "raw_evidence_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

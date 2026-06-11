@@ -1,0 +1,97 @@
+{
+  "version": "2026-06-11",
+  "date": "2026-06-11",
+  "patterns": [
+    {
+      "pattern_id": "only_closed_loop",
+      "claim_id": "closed_loop_superiority",
+      "severity": "forbidden",
+      "regex": "\\b(only|first|unique|uncontested)\\b.{0,60}\\b(closed[- ]loop|AI hardware builder|hardware builder)\\b",
+      "message": "Closed-loop uniqueness is forbidden until same-task P0 evidence beats direct substitutes."
+    },
+    {
+      "pattern_id": "competitors_only_codegen",
+      "claim_id": "closed_loop_superiority",
+      "severity": "forbidden",
+      "regex": "\\bcompetitors?\\b.{0,50}\\b(only|just|merely)\\b.{0,30}\\b(generate code|codegen|write code)\\b",
+      "message": "Direct substitutes claim wiring, flash, logs, dashboards, and projects; do not reduce them to codegen."
+    },
+    {
+      "pattern_id": "beats_without_scope",
+      "claim_id": "closed_loop_superiority",
+      "severity": "benchmark_gated",
+      "regex": "\\b(Blockless|we)\\b.{0,40}\\b(beats?|wins?|outperforms?)\\b(?![^\\n]{0,120}\\bbenchmark|same-task|measured|tested\\b)",
+      "message": "Superiority needs same-task benchmark scope and evidence."
+    },
+    {
+      "pattern_id": "faster_than_tutorials",
+      "claim_id": "faster_than_tutorials",
+      "severity": "benchmark_gated",
+      "regex": "\\b(faster|quicker|10x|ten times|easier)\\b.{0,50}\\b(tutorials?|Arduino\\/C|PlatformIO|C\\+\\+|compile)\\b",
+      "message": "Speed and runtime claims require same-task timing and support-burden evidence."
+    },
+    {
+      "pattern_id": "appstore_language",
+      "claim_id": "hardware_appstore",
+      "severity": "market_gated",
+      "regex": "\\b(hardware app\\s*store|appstore|marketplace|recipe marketplace)\\b",
+      "message": "Marketplace/appstore language is market-gated by rerun, fork, and payment behavior."
+    },
+    {
+      "pattern_id": "cursor_for_hardware",
+      "claim_id": "cursor_for_hardware",
+      "severity": "market_gated",
+      "regex": "\\b(Cursor|Lovable|Replit|Bolt|v0)\\b.{0,35}\\b(for hardware|of hardware|proves|therefore|market)\\b",
+      "message": "Software vibe-coding analogies need hardware repeat-use and payment evidence."
+    },
+    {
+      "pattern_id": "software_arr_transfer",
+      "claim_id": "cursor_for_hardware",
+      "severity": "forbidden",
+      "regex": "\\b(Cursor|Lovable|Replit|Bolt|v0)\\b.{0,80}\\b(ARR|valuation|paying users|subscribers)\\b.{0,80}\\b(Blockless|hardware|therefore|proves)\\b",
+      "message": "Software ARR or user scale does not prove Blockless hardware demand."
+    },
+    {
+      "pattern_id": "no_compile_no_flash",
+      "claim_id": "micro_python_runtime_advantage",
+      "severity": "benchmark_gated",
+      "regex": "\\b(no compile|no flash|no download|instant hardware|hot reload|10x better Python|Python is 10x)\\b",
+      "message": "Runtime-loop claims need benchmarks against Arduino, PlatformIO, ESPHome, MicroBlocks, and XOD where relevant."
+    },
+    {
+      "pattern_id": "vendor_context_unique",
+      "claim_id": "vendor_context_moat",
+      "severity": "benchmark_gated",
+      "regex": "\\b(vendors?|Arduino|Espressif|Adafruit|Seeed|SparkFun)\\b.{0,80}\\b(lack|do not have|can't have|cannot have|stale)\\b.{0,60}\\b(context|hardware truth|data)\\b",
+      "message": "Vendor-context moat claims need Gate 5 evidence against official tools, docs AI, MCP, and tutorial conversion."
+    },
+    {
+      "pattern_id": "sensor_app_ownership",
+      "claim_id": "sensor_events_to_app",
+      "severity": "benchmark_gated",
+      "regex": "\\b(Blockless|we)\\b.{0,50}\\b(owns?|controls?|wins?)\\b.{0,60}\\b(sensor events?|dashboards?|automations?|OTA|device cloud)\\b",
+      "message": "IoT app/control claims require Gate 3 baselines."
+    },
+    {
+      "pattern_id": "production_iot_robotics",
+      "claim_id": "production_iot_or_robotics",
+      "severity": "benchmark_gated",
+      "regex": "\\b(owns?|wins?|platform for|default for)\\b.{0,60}\\b(production IoT|industrial IoT|robotics|factory AI|physical world programmable|programming the physical world)\\b",
+      "message": "Production IoT, robotics, and physical-world-platform claims require Gate 6 or adjacent baselines."
+    },
+    {
+      "pattern_id": "education_best",
+      "claim_id": "education_no_code",
+      "severity": "benchmark_gated",
+      "regex": "\\b(best|default|wins?|dominates?)\\b.{0,50}\\b(education|classroom|students|schools|no-code hardware)\\b",
+      "message": "Education/no-code claims require classroom or beginner baselines against blocks and simulation."
+    },
+    {
+      "pattern_id": "tam_arr_transfer",
+      "claim_id": "tam_or_arr",
+      "severity": "forbidden",
+      "regex": "\\b(\\$?100M\\+?\\s*ARR|\\$?100M\\s*ARR|TAM|30M Arduino|60M Raspberry|MCU shipments?|Kickstarter)\\b.{0,100}\\b(proves?|therefore|demand|ARR|marketplace|conversion)\\b",
+      "message": "Market size and ARR claims must be bottom-up from measured behavior, not adjacent scale."
+    }
+  ]
+}

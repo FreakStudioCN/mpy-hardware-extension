@@ -1,3 +1,16 @@
+# STATUS: DEPRECATED HISTORICAL SPEC
+
+Do not use this file as current pitch guidance without reconciling it against
+`docs/research/blockless_diligence_pack.md` and the active
+`docs/pitch/deck/deck_en.md`.
+
+Phase 3 diligence supersedes many locked decisions below. Treat
+Cursor-for-hardware, App Store, TAM/SAM/SOM, Kickstarter, Schematik-failure,
+MicroPython-superiority, and default-stack language as unsafe unless revalidated
+by benchmark or market evidence.
+
+---
+
 # Pitch Deck SPEC v1
 
 > Date: 2026-04-29

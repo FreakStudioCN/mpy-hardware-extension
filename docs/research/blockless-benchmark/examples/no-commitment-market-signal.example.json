@@ -1,0 +1,69 @@
+{
+  "signal_id": "EXAMPLE-NOT-EVIDENCE-user-01-compliment-only",
+  "date": "2026-06-11",
+  "participant": {
+    "participant_id": "EXAMPLE-NOT-EVIDENCE",
+    "segment": "maker",
+    "experience_level": "intermediate",
+    "buyer_role": "user"
+  },
+  "experiment": "paid_behavior",
+  "source_context": {
+    "source_run_id": "EXAMPLE-NOT-EVIDENCE",
+    "recipe_id": "EXAMPLE-NOT-EVIDENCE",
+    "artifact_received": "conversation_only",
+    "prior_success": false,
+    "notes": "Example fixture only. No user test happened."
+  },
+  "observed_behavior": {
+    "behavior_type": "compliment_only",
+    "status": "weak_positive",
+    "elapsed_days_since_first_success": 0,
+    "user_initiated": false,
+    "completed": false,
+    "notes": "User said the idea sounds useful but took no concrete action."
+  },
+  "commitment": {
+    "commitment_type": "none",
+    "paid_unit": "none",
+    "concrete_next_step": false,
+    "amount_discussed": false,
+    "notes": "No waitlist, intro, pilot, procurement, preorder, or payment."
+  },
+  "support_load": {
+    "support_touches": 0,
+    "founder_rescue_required": false,
+    "expert_rescue_required": false,
+    "notes": "No build occurred."
+  },
+  "follow_up": {
+    "day_7_status": "not_due",
+    "day_30_status": "not_due",
+    "notes": "Example fixture only."
+  },
+  "evidence": {
+    "transcript_ref": "EXAMPLE-NOT-EVIDENCE",
+    "artifact_ref": "EXAMPLE-NOT-EVIDENCE",
+    "commitment_ref": "EXAMPLE-NOT-EVIDENCE",
+    "followup_ref": "EXAMPLE-NOT-EVIDENCE",
+    "notes": "A real signal must point to saved interview, artifact, and follow-up evidence."
+  },
+  "interpretation": {
+    "signal_strength": "weak",
+    "is_compliment_only": true,
+    "primary_risk": "no_paid_step",
+    "notes": "This cannot support marketplace, subscription, or paid demand claims."
+  },
+  "claim_impact": {
+    "supports": [],
+    "weakens": [
+      "Users will pay based on enthusiasm alone."
+    ],
+    "forbidden_inference": [
+      "This proves paid demand.",
+      "This supports Cursor-like subscription behavior.",
+      "This supports hardware appstore language."
+    ],
+    "notes": "Do not cite this fixture in pitch materials."
+  }
+}

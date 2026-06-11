@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blockless.dev/research/recipe.schema.json",
+  "title": "Blockless Verified Hardware Recipe",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recipe_id",
+    "title",
+    "version",
+    "created_at",
+    "author",
+    "source_prompt",
+    "task_id",
+    "status",
+    "verification_level",
+    "board_profile",
+    "module_manifests",
+    "pin_assignments",
+    "wiring_profile",
+    "code_artifacts",
+    "package_lock",
+    "runtime_config",
+    "install_method",
+    "flash_method",
+    "run_method",
+    "logs",
+    "behavior_proof",
+    "failure_events",
+    "known_failures",
+    "endpoint_manifest",
+    "compatibility_matrix",
+    "rerun_history"
+  ],
+  "properties": {
+    "recipe_id": { "type": "string" },
+    "title": { "type": "string" },
+    "version": { "type": "string" },
+    "created_at": { "type": "string" },
+    "author": { "type": "string" },
+    "source_prompt": { "type": "string" },
+    "task_id": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "buildable", "device_run", "verified", "rerunnable", "published"]
+    },
+    "verification_level": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5
+    },
+    "board_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["board_id", "variant", "mcu", "firmware_runtime", "flash_method"],
+      "properties": {
+        "board_id": { "type": "string" },
+        "variant": { "type": "string" },
+        "mcu": { "type": "string" },
+        "firmware_runtime": { "type": "string" },
+        "flash_method": { "type": "string" },
+        "known_constraints": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "module_manifests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["module_id", "variant", "protocol", "voltage", "driver", "package"],
+        "properties": {
+          "module_id": { "type": "string" },
+          "variant": { "type": "string" },
+          "protocol": { "type": "string" },
+          "voltage": { "type": "string" },
+          "current_requirement": { "type": "string" },
+          "driver": { "type": "string" },
+          "package": { "type": "string" }
+        }
+      }
+    },
+    "pin_assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["signal", "pin", "capability", "conflict_check"],
+        "properties": {
+          "signal": { "type": "string" },
+          "pin": { "type": "string" },
+          "capability": { "type": "string" },
+          "bus": { "type": "string" },
+          "conflict_check": { "type": "string" },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "wiring_profile": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to", "protocol", "voltage", "confirmation_status"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "protocol": { "type": "string" },
+          "voltage": { "type": "string" },
+          "pull_requirement": { "type": "string" },
+          "diagram_ref": { "type": "string" },
+          "confirmation_status": { "type": "string" }
+        }
+      }
+    },
+    "code_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "role", "checksum"],
+        "properties": {
+          "path": { "type": "string" },
+          "role": { "type": "string" },
+          "generated_by": { "type": "string" },
+          "checksum": { "type": "string" }
+        }
+      }
+    },
+    "package_lock": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "version", "source", "install_method"],
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "source": { "type": "string" },
+          "install_method": { "type": "string" },
+          "checksum": { "type": "string" }
+        }
+      }
+    },
+    "runtime_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "version", "mode"],
+      "properties": {
+        "runtime": { "type": "string" },
+        "version": { "type": "string" },
+        "mode": { "type": "string" },
+        "env_placeholders": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "install_method": { "type": "string" },
+    "flash_method": { "type": "string" },
+    "run_method": { "type": "string" },
+    "logs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["install_log", "flash_log", "serial_log", "run_log", "repair_log"],
+      "properties": {
+        "install_log": { "type": "string" },
+        "flash_log": { "type": "string" },
+        "serial_log": { "type": "string" },
+        "run_log": { "type": "string" },
+        "repair_log": { "type": "string" }
+      }
+    },
+    "behavior_proof": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "failure_events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["timestamp", "label", "diagnosis", "repair_action", "result"],
+        "properties": {
+          "timestamp": { "type": "string" },
+          "label": { "type": "string" },
+          "log_ref": { "type": "string" },
+          "diagnosis": { "type": "string" },
+          "repair_action": { "type": "string" },
+          "result": { "type": "string" }
+        }
+      }
+    },
+    "known_failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["condition", "symptom", "cause", "repair_hint"],
+        "properties": {
+          "condition": { "type": "string" },
+          "symptom": { "type": "string" },
+          "cause": { "type": "string" },
+          "repair_hint": { "type": "string" }
+        }
+      }
+    },
+    "endpoint_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events", "auth", "retry_behavior"],
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "payload_schema"],
+            "properties": {
+              "name": { "type": "string" },
+              "payload_schema": { "type": "object" }
+            }
+          }
+        },
+        "auth": { "type": "string" },
+        "retry_behavior": { "type": "string" },
+        "offline_behavior": { "type": "string" }
+      }
+    },
+    "compatibility_matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatible_boards", "compatible_modules", "known_incompatible"],
+      "properties": {
+        "compatible_boards": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "compatible_modules": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "required_substitutions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "known_incompatible": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "rerun_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tester_id", "hardware_variant", "result", "elapsed_minutes", "manual_interventions"],
+        "properties": {
+          "tester_id": { "type": "string" },
+          "hardware_variant": { "type": "string" },
+          "result": { "type": "string" },
+          "elapsed_minutes": { "type": "number" },
+          "manual_interventions": { "type": "integer" },
+          "logs_ref": { "type": "string" }
+        }
+      }
+    }
+  }
+}

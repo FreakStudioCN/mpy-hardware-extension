@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blockless.dev/research/result.schema.json",
+  "title": "Blockless Competitor Benchmark Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "date",
+    "tester",
+    "system",
+    "system_version_or_url",
+    "task_id",
+    "prompt",
+    "hardware_inventory",
+    "starting_condition",
+    "preregistration",
+    "timeline",
+    "counts",
+    "failure_labels",
+    "evidence",
+    "artifact_audit",
+    "score",
+    "result",
+    "claim_impact"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "description": "Stable id, for example 2026-06-11-blockless-task-01-temperature-fan."
+    },
+    "date": {
+      "type": "string",
+      "format": "date"
+    },
+    "tester": {
+      "type": "string"
+    },
+    "system": {
+      "type": "string",
+      "enum": [
+                "blockless",
+        "chatgpt_cursor_platformio",
+        "agentic_ide_cli",
+        "platformio",
+        "arduino_cli",
+        "arduino_ide",
+        "arduino_app_lab",
+        "esp_idf",
+        "espressif_vscode",
+        "esp_claw",
+        "espressif_docs_mcp",
+        "espressif_rainmaker_mcp",
+        "espressif_docs_ai",
+        "vendor_docs_ai",
+        "vendor_tutorial_conversion",
+        "pleasedontcode",
+        "wokwi",
+        "cirkit",
+        "tinkercad",
+        "makecode",
+        "visuino",
+        "mindplus",
+        "mixly",
+        "embedr",
+        "aily_blockly",
+        "schematik",
+        "esphome",
+        "tasmota",
+        "arduino_cloud",
+        "blynk",
+        "particle_workbench",
+        "node_red",
+        "adafruit_io",
+        "ubidots",
+        "home_assistant",
+        "edge_impulse",
+        "sensecraft",
+        "viam",
+        "blues_notehub",
+        "golioth",
+        "thingsboard",
+        "hologram",
+        "losant",
+        "zerynth",
+        "microblocks",
+        "xod",
+        "tutorial",
+        "other"
+      ]
+    },
+    "system_version_or_url": {
+      "type": "string"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^task-[0-9]{2}-[a-z0-9-]+$"
+    },
+    "prompt": {
+      "type": "string"
+    },
+    "hardware_inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "name", "version_or_variant"],
+        "properties": {
+          "kind": { "type": "string" },
+          "name": { "type": "string" },
+          "version_or_variant": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "starting_condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tester_experience", "prior_project_state", "network_available"],
+      "properties": {
+        "tester_experience": {
+          "type": "string",
+          "enum": ["beginner", "intermediate", "expert"]
+        },
+        "prior_project_state": {
+          "type": "string"
+        },
+        "network_available": {
+          "type": "boolean"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "preregistration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preregistration_file",
+        "hardware_frozen_before_run",
+        "systems_planned_before_run",
+        "systems_actually_run",
+        "deviations",
+        "access_blockers"
+      ],
+      "properties": {
+        "preregistration_file": {
+          "type": "string",
+          "description": "Path to the preregistration packet used before the first system run, or explicit note if none existed."
+        },
+        "hardware_frozen_before_run": {
+          "type": "boolean"
+        },
+        "systems_planned_before_run": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "systems_actually_run": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deviations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "access_blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at", "ended_at", "elapsed_minutes"],
+      "properties": {
+        "started_at": { "type": "string" },
+        "ended_at": { "type": "string" },
+        "elapsed_minutes": { "type": "number", "minimum": 0 },
+        "major_steps": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompts",
+        "manual_docs_searches",
+        "manual_code_edits",
+        "manual_wiring_changes",
+        "install_attempts",
+        "flash_attempts",
+        "repair_attempts"
+      ],
+      "properties": {
+        "prompts": { "type": "integer", "minimum": 0 },
+        "manual_docs_searches": { "type": "integer", "minimum": 0 },
+        "manual_code_edits": { "type": "integer", "minimum": 0 },
+        "manual_wiring_changes": { "type": "integer", "minimum": 0 },
+        "install_attempts": { "type": "integer", "minimum": 0 },
+        "flash_attempts": { "type": "integer", "minimum": 0 },
+        "repair_attempts": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "failure_labels": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "intent_misread",
+          "board_mismatch",
+          "module_mismatch",
+          "pin_invalid",
+          "wiring_unknown",
+          "wiring_wrong",
+          "driver_missing",
+          "driver_api_wrong",
+          "package_version",
+          "install_failure",
+          "flash_failure",
+          "runtime_exception",
+          "behavior_wrong",
+          "log_unhelpful",
+          "repair_wrong",
+          "recipe_incomplete",
+          "not_reproducible",
+          "unknown"
+        ]
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt_log",
+        "generated_code",
+        "wiring_artifact",
+        "install_log",
+        "flash_log",
+        "serial_log",
+        "run_log",
+        "screenshots_or_video",
+        "recipe_artifact"
+      ],
+      "properties": {
+        "prompt_log": { "type": "string" },
+        "generated_code": { "type": "string" },
+        "wiring_artifact": { "type": "string" },
+        "install_log": { "type": "string" },
+        "flash_log": { "type": "string" },
+        "serial_log": { "type": "string" },
+        "run_log": { "type": "string" },
+        "screenshots_or_video": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "recipe_artifact": { "type": "string" },
+        "notes": { "type": "string" }
+      }
+    },
+    "artifact_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_output_type",
+        "machine_readable",
+        "second_user_artifact_scope",
+        "preserved_context"
+      ],
+      "properties": {
+        "primary_output_type": {
+          "type": "string",
+          "enum": [
+            "verified_recipe",
+            "project",
+            "tutorial",
+            "code_bundle",
+            "firmware_binary",
+            "dashboard",
+            "simulation",
+            "yaml_config",
+            "iot_cloud_template",
+            "node_red_flow",
+            "device_cloud_project",
+            "ide_project",
+            "platformio_project",
+            "arduino_project",
+            "app_lab_project",
+            "esp_idf_project",
+            "esp_claw_project",
+            "mcp_interaction_transcript",
+            "vendor_docs_answer",
+            "rainmaker_device_project",
+            "vendor_tutorial",
+        "edge_ai_model_bundle",
+        "robotics_machine_project",
+        "device_fleet_project",
+        "industrial_iot_app",
+        "connectivity_project",
+        "visual_blocks_project",
+        "dataflow_hardware_project",
+        "guide",
+        "unknown"
+      ]
+        },
+        "machine_readable": { "type": "boolean" },
+        "second_user_artifact_scope": {
+          "type": "string",
+          "description": "Exactly what a second tester receives: recipe folder, public project URL, dashboard link, code zip, tutorial page, or other artifact."
+        },
+        "preserved_context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "board_profile",
+            "module_variants",
+            "pin_assignments",
+            "wiring",
+            "code",
+            "package_versions",
+            "install_flash_run_methods",
+            "logs",
+            "repair_history",
+            "endpoint_manifest",
+            "compatibility_matrix",
+            "rerun_history"
+          ],
+          "properties": {
+            "board_profile": { "type": "boolean" },
+            "module_variants": { "type": "boolean" },
+            "pin_assignments": { "type": "boolean" },
+            "wiring": { "type": "boolean" },
+            "code": { "type": "boolean" },
+            "package_versions": { "type": "boolean" },
+            "install_flash_run_methods": { "type": "boolean" },
+            "logs": { "type": "boolean" },
+            "repair_history": { "type": "boolean" },
+            "endpoint_manifest": { "type": "boolean" },
+            "compatibility_matrix": { "type": "boolean" },
+            "rerun_history": { "type": "boolean" }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "score": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent",
+        "selection",
+        "wiring",
+        "dependencies",
+        "flash_run",
+        "logs",
+        "repair",
+        "recipe",
+        "reproducibility",
+        "penalties",
+        "total"
+      ],
+      "properties": {
+        "intent": { "$ref": "#/$defs/score10" },
+        "selection": { "$ref": "#/$defs/score10" },
+        "wiring": { "$ref": "#/$defs/score10" },
+        "dependencies": { "$ref": "#/$defs/score10" },
+        "flash_run": { "$ref": "#/$defs/score10" },
+        "logs": { "$ref": "#/$defs/score10" },
+        "repair": { "$ref": "#/$defs/score10" },
+        "recipe": { "$ref": "#/$defs/score10" },
+        "reproducibility": { "$ref": "#/$defs/score10" },
+        "penalties": { "type": "number", "minimum": -30, "maximum": 0 },
+        "total": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "physical_behavior_verified", "second_user_rerun_verified"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pass", "partial", "fail", "blocked"]
+        },
+        "physical_behavior_verified": { "type": "boolean" },
+        "second_user_rerun_verified": { "type": "boolean" },
+        "summary": { "type": "string" }
+      }
+    },
+    "claim_impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supports", "weakens", "notes"],
+      "properties": {
+        "supports": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "weakens": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "score10": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10
+    }
+  }
+}

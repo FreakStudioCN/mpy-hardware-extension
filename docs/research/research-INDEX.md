@@ -198,3 +198,96 @@ cursor_for_hardware/
 - **GTM week-1 launch:** read `project_gtm_angles_v1.md` Section 6 (week-by-week sequencing); the single-most-important action is Hook #1 (Kindle counter to Sajeel) within 30 days.
 - **VC objection prep:** read `project_demand_shape_synthesis.md` Section 4 (pre-baked counters) + `project_competitive_gap_v6_1.md` per-competitor "1-line deck script."
 - **Founder DMs:** read `project_gtm_angles_v1.md` Section 2 (7 high-EV warm-touches in priority order).
+
+---
+
+## Phase 3 - Blockless Clarity / Diligence Pack (2026-06-11)
+
+Current-state warning:
+
+Some Phase 2 filenames above are historical index entries and are not present in
+the current `docs/research` tree. Treat them as unverified sediment unless the
+underlying file is restored and rechecked. Phase 3 files below are the current
+authoritative diligence layer.
+
+Specific quarantine: Phase 2 mentions of "Espressif ESP-Claw," "ESP-IDF MCP
+servers," and "Arduino Cloud AI Assistant" were rechecked on 2026-06-11.
+Espressif ESP-Claw, Espressif MCP servers, and Espressif Docs AI now have
+source-backed Phase 3 refresh coverage. The exact Arduino Cloud AI Assistant
+claim remains quarantined unless a primary Arduino source is restored.
+
+Phase 3 supersedes any older claim that says the market is empty, competitors
+only generate code, Schematik failed, C/Arduino is dead, MicroPython is
+categorically superior, or a Hardware App Store is already validated.
+
+Start here:
+
+- [blockless_diligence_pack.md](blockless_diligence_pack.md) - operating index
+  and 68 tough questions.
+- [blockless_ubercab_style_clarity_doc.md](blockless_ubercab_style_clarity_doc.md)
+  - compressed Blockless story.
+- [blockless_deck_v12_slide_audit.md](blockless_deck_v12_slide_audit.md) -
+  slide-by-slide risk audit of `docs/pitch/deck/deck_en.md` v12.
+- [blockless_source_ledger.md](blockless_source_ledger.md) - source-by-source
+  evidence limits.
+- [blockless_research_exhaustion_audit.md](blockless_research_exhaustion_audit.md)
+  - completion audit and remaining proof gaps.
+- [blockless_competitor_exhaustion_map.md](blockless_competitor_exhaustion_map.md)
+  - category-level pressure map covering direct AI hardware tools, AI
+  ECAD/PCB, embedded incumbents, IoT/event platforms, platform/vendor
+  up-stack, runtime alternatives, simulation/education, vendor tutorials, and
+  software analogy limits.
+- [blockless_vibe_coding_analogy_stress_test.md](blockless_vibe_coding_analogy_stress_test.md)
+  - stress test for which Cursor/Lovable/Codex/Replit/Bolt/v0 market signals
+  transfer to Blockless and which require separate hardware evidence.
+- [blockless_hard_questions_addendum.md](blockless_hard_questions_addendum.md)
+  - extra pressure from MCP/agent plumbing commoditization, hardware-log
+  debugging research, missing Phase 2 source files, and stronger generic-agent
+  baselines.
+- [blockless_direct_substitute_claim_audit.md](blockless_direct_substitute_claim_audit.md)
+  - direct-substitute pressure audit for PleaseDontCode, Embedr, Cirkit,
+  Schematik, and Aily; use before claiming closed-loop uniqueness.
+- [blockless_competitor_source_refresh_2026_06_11.md](blockless_competitor_source_refresh_2026_06_11.md)
+  - dated refresh of closest live competitor pages; adds the `embedr.app`
+  versus `embedr.ai` source-hygiene warning and sharper PleaseDontCode
+  benchmark questions.
+- [blockless_monetization_falsification_audit.md](blockless_monetization_falsification_audit.md)
+  - pricing and business-model pressure audit; use before claiming appstore,
+  subscription, kit, paid recipe, revenue mix, or software-like ARR.
+- [blockless_platform_vendor_pressure_audit.md](blockless_platform_vendor_pressure_audit.md)
+  - vendor/platform pressure audit; use before claiming hardware context,
+  board/module manifests, IDE distribution, or vendor data are defensible moats.
+- [blockless_vendor_platform_source_refresh_2026_06_11.md](blockless_vendor_platform_source_refresh_2026_06_11.md)
+  - source refresh restoring Espressif ESP-Claw, Espressif MCP servers, and
+  Espressif Docs AI as official vendor-platform pressure; keeps the exact
+  Arduino Cloud AI Assistant claim quarantined.
+- [blockless_adjacent_competitor_gap_refresh_2026_06_11.md](blockless_adjacent_competitor_gap_refresh_2026_06_11.md)
+  - dated refresh adding Viam, Golioth, Losant, Zerynth, MicroBlocks, and XOD
+  as gate-specific pressure before using broad robotics, industrial IoT,
+  physical-world platform, live hardware iteration, or no-code
+  physical-computing language.
+- [blockless_market_size_data_falsification_audit.md](blockless_market_size_data_falsification_audit.md)
+  - market-size/data pressure audit; use before claiming TAM, ARR, MCU shipment
+  relevance, Arduino/Raspberry Pi installed-base demand, Kickstarter comps, AI
+  hardware revenue, STEM population, or software ARR transfer.
+- [blockless_ubercab_page_by_page.md](blockless_ubercab_page_by_page.md) -
+  UberCab 25-page clarity mapping.
+- [blockless_clarity_research.md](blockless_clarity_research.md) - full
+  adversarial research memo.
+- [blockless-benchmark/](blockless-benchmark/) - executable benchmark scaffold.
+  Start with `p0-runbook.md`; use `verified-recipe-spec.md` and
+  `recipe.schema.json` to judge whether an artifact is actually a verified
+  recipe. Use `claim-gate-matrix.json` before upgrading any deck claim. Use
+  `scan_deck_claims.py` to catch risky deck language. Use
+  `market-validation-runbook.md` before making repeat-use, appstore,
+  subscription, kit-attach, or paid-recipe claims. Use
+  `market_signal.schema.json` for individual behavior records and
+  `market_cohort.schema.json` before citing a batch as market evidence. Use
+  `task-01-p0-preregistration.md` before the first temperature-control P0 run.
+
+Current Phase 3 conclusion:
+
+> Desk research supports a narrowed thesis: Blockless should be framed as a
+> verified hardware recipe workflow for a controlled ESP32 module matrix.
+> Stronger claims require hands-on benchmark, second-user rerun, and payment
+> behavior evidence.
