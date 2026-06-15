@@ -86,8 +86,8 @@
       .quota.exhausted .quota-warn { color: #ff7b72; background: #f14c4c14; border-color: #f14c4c33; }
 
       /* tabs */
-      .tabs { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--vsc-border); padding: 0 6px; gap: 2px; }
-      .tab { position: relative; padding: 9px 11px 8px; font-size: 12px; color: var(--fg-muted);
+      .tabs { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--vsc-border); padding: 0 4px; gap: 1px; }
+      .tab { position: relative; padding: 9px 7px 8px; font-size: 12px; color: var(--fg-muted); white-space: nowrap;
         background: transparent; border: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;
         border-bottom: 2px solid transparent; margin-bottom: -1px; font-family: var(--ui); }
       .tab:hover { color: var(--fg); }
@@ -337,7 +337,7 @@
         <button class="tab" data-tab="serial" data-i18n="tab_serial">Serial</button>
         <button class="tab" data-tab="wiring" data-i18n="tab_wiring">Wiring</button>
         <button class="tab" data-tab="diagram" data-i18n="tab_diagram">Diagram</button>
-        <button class="tab" data-tab="doctor" data-i18n="tab_doctor">Environment</button>
+        <button class="tab" data-tab="doctor" data-i18n="tab_doctor">Env</button>
       </div>
 
       <div class="tabwrap">
@@ -406,7 +406,7 @@
         en: {
           credits: "Credits", lowCredits: "Running low on credits today.",
           stub_badge: "Stub", stub_badge_tip: "This backend runs a stub LLM: it returns a fixed reply and never generates code. Restart the API without MPYHW_LLM_STUB=1 for real output.",
-          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram", tab_doctor: "Environment",
+          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram", tab_doctor: "Env",
           empty_doctor_h: "Checking your setup…", empty_doctor_p: "Blockless verifies what's needed to flash code to a board: Python, device tools, a connected board, and MicroPython.",
           doc_recheck: "Re-check", doc_install: "Install dependencies", doc_installing: "Installing…",
           doc_link_python: "Download Python", doc_link_firmware: "Download MicroPython", doc_open: "Open",
