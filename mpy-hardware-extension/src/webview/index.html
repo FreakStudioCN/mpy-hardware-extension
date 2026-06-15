@@ -124,6 +124,18 @@
       .empty h4 { color: var(--fg-muted); font-size: 13px; font-weight: 600; margin: 0 0 5px; }
       .empty p { font-size: 12px; line-height: 1.5; margin: 0; }
 
+      /* Activity welcome hero — the first-run / empty-feed landing. Reuses
+         #activityEmpty so every existing show/hide path keeps working
+         (clearConversation restores it; any feed event hides it). Copy follows the
+         session locale via data-i18n like the rest of the chrome. The title font
+         scales down on a narrow sidebar so the English line never overflows. */
+      .welcome { min-height: calc(100vh - 172px); padding: 24px 20px 28px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+      .welcome-title { font-size: clamp(23px, 7.5vw, 30px); line-height: 1.14; font-weight: 800; color: #ededed; letter-spacing: .3px; }
+      .welcome-sq { display: block; margin: 8px auto 0; color: #7c5cff; }
+      .welcome-sub { margin: 18px 0 0; max-width: 320px; font-size: 12.5px; line-height: 1.6; color: var(--fg-muted); }
+      .welcome-hint { margin-top: 22px; font-size: 12px; color: var(--accent); }
+
       /* activity (card style) */
       .activity { padding: 10px 12px 18px; }
       .ev { margin-bottom: 7px; }
@@ -332,7 +344,11 @@
         <!-- Activity -->
         <div class="view" data-view="activity">
           <div class="activity" id="activity"></div>
-          <div class="empty" id="activityEmpty"><h4 data-i18n="empty_activity_h">Ready</h4><p data-i18n="empty_activity_p">Describe what your device should do, then press Generate.</p></div>
+          <div class="welcome" id="activityEmpty">
+            <div class="welcome-title"><span data-i18n="welcome_t1">Where ideas</span><br><span data-i18n="welcome_t2">become hardware</span><svg class="welcome-sq" width="124" height="13" viewBox="0 0 124 13" fill="none" aria-hidden="true"><path d="M2 8 C20 2,40 11,60 6 S100 2,122 7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></div>
+            <p class="welcome-sub" data-i18n="welcome_sub">Hi, welcome to Blockless. Describe the hardware you want in a sentence — I'll pick the board, wire it up, write the code, and flash it to run.</p>
+            <div class="welcome-hint" data-i18n="welcome_hint">↓ Type below to start</div>
+          </div>
         </div>
         <!-- Serial -->
         <div class="view hidden" data-view="serial">
@@ -402,7 +418,7 @@
           doc_mpy_recheck: "Connected — Re-check to test MicroPython", doc_mpy_probe_failed: "Couldn't check the board",
           empty_diagram_h: "No diagram yet", empty_diagram_p: "When the project architecture is generated, its module layers and run flow appear here.",
           diagram_architecture: "Architecture", diagram_flow: "Run flow", diagram_deps: "Dependencies", diagram_dataflow: "Data flow",
-          empty_activity_h: "Ready", empty_activity_p: "Describe what your device should do, then press Generate.",
+          welcome_t1: "Where ideas", welcome_t2: "become hardware", welcome_sub: "Hi, welcome to Blockless. Describe the hardware you want in a sentence — I'll pick the board, wire it up, write the code, and flash it to run.", welcome_hint: "↓ Type below to start",
           empty_serial_h: "No output", empty_serial_p: "Device output streams here after flashing.",
           empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
           serial_monitor: "Serial monitor",
@@ -475,7 +491,7 @@
           doc_mpy_recheck: "已连接——点「重新检测」测试 MicroPython", doc_mpy_probe_failed: "无法检测开发板",
           empty_diagram_h: "暂无架构图", empty_diagram_p: "生成项目架构后，模块分层与运行流程会在这里展示。",
           diagram_architecture: "架构分层", diagram_flow: "运行流程", diagram_deps: "依赖关系", diagram_dataflow: "数据流",
-          empty_activity_h: "就绪", empty_activity_p: "描述你想做的设备，然后点“生成”。",
+          welcome_t1: "让想法", welcome_t2: "变成硬件", welcome_sub: "你好，欢迎来到 Blockless。用一句话描述你想做的硬件，我来选板子、接线、写代码、烧录运行。", welcome_hint: "↓ 在下面输入，开始",
           empty_serial_h: "暂无输出", empty_serial_p: "烧录后，设备输出会显示在这里。",
           empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
           serial_monitor: "串口监视器",
