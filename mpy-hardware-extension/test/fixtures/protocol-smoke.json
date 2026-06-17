@@ -1,0 +1,66 @@
+{
+  "intent": "make an ESP32 temperature alarm and print MPYHW_READY",
+  "script": {
+    "analyze": [
+      [
+        {
+          "name": "approval_request",
+          "input": {
+            "approval_id": "device_confirm",
+            "question": "Confirm the selected parts?",
+            "items": [
+              { "id": "temperature_sensor", "name": "Temperature sensor", "selected": true },
+              { "id": "led", "name": "LED", "selected": true }
+            ],
+            "actions": [
+              { "label": "Confirm", "value": "confirm", "primary": true }
+            ]
+          }
+        }
+      ],
+      [
+        {
+          "name": "status_update",
+          "input": { "level": "info", "message": "Parts confirmed" }
+        },
+        {
+          "name": "phase_complete",
+          "input": {
+            "result": "success",
+            "summary": "Analysis complete",
+            "next_phase": "generate",
+            "manifest_content": {
+              "phase": "analyze",
+              "devices": [
+                { "name": "Temperature sensor", "type": "sensor", "interface": "i2c" },
+                { "name": "LED", "type": "output", "interface": "gpio" }
+              ]
+            }
+          }
+        }
+      ]
+    ],
+    "generate": [
+      [
+        {
+          "name": "file_operation",
+          "input": {
+            "op_id": "write-main",
+            "op": "write",
+            "path": "firmware/main.py",
+            "content": "print('MPYHW_READY')\nprint('TEMP_C=24.0')\n"
+          }
+        },
+        {
+          "name": "phase_complete",
+          "input": {
+            "result": "success",
+            "summary": "Firmware written",
+            "next_phase": null,
+            "manifest_content": { "phase": "generate" }
+          }
+        }
+      ]
+    ]
+  }
+}
