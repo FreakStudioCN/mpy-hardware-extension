@@ -83,7 +83,6 @@
     "typecheck": "node scripts/typecheck.mjs",
     "golden": "node --no-warnings --experimental-strip-types src/cli/run-golden-path.ts",
     "live-gen": "node --no-warnings --experimental-strip-types src/cli/run-live-gen.ts",
-    "protocol:fixture": "node --no-warnings --experimental-strip-types src/cli/run-protocol-fixture.ts",
     "build": "node scripts/build-extension.mjs",
     "vscode:prepublish": "node scripts/prepare-vsce.mjs",
     "package": "vsce package --out build/",
