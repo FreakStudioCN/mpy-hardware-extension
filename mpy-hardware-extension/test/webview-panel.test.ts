@@ -170,7 +170,7 @@ test("webview defaults to the LLM agent loop and forwards its terminal", async (
   assert.equal(posted.at(-1).terminal, "awaiting_user");
 });
 
-test("webview blocks sessions when the remote tool registry mismatches the shared contract", async () => {
+test("webview blocks sessions when the remote protocol version mismatches the bundled contract", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;
   const panel = {
@@ -187,7 +187,8 @@ test("webview blocks sessions when the remote tool registry mismatches the share
   };
   const fetchImpl = (async (url: string) => {
     if (url === "http://api.test/v1/tools") {
-      return jsonResponse({ tools: [{ name: "other_tool" }] });
+      // The backend declares a protocol version the bundled extension can't speak.
+      return jsonResponse({ protocol_version: "9.9.9", tools: [] });
     }
     throw new Error(`unexpected URL ${url}`);
   }) as unknown as typeof fetch;
@@ -196,7 +197,7 @@ test("webview blocks sessions when the remote tool registry mismatches the share
   await handler?.({ type: "start_session", intent: "blink an led", boardId: "esp32-s3-devkitc-1" });
 
   assert.deepEqual(posted, [
-    { type: "session_error", error: "tool_registry_mismatch" },
+    { type: "session_error", error: "protocol_version_mismatch" },
     { type: "session_done", terminal: "session_error" },
   ]);
 });
@@ -410,7 +411,7 @@ function board() {
   return { board_id: "esp32-s3-devkitc-1", pin_recommendations: { i2c_sda: "GPIO5", i2c_scl: "GPIO6", led_default: "GPIO2" }, pin_capabilities: { GPIO5: ["i2c_sda"], GPIO6: ["i2c_scl"], GPIO2: ["led_anode", "gpio_out"] }, available_modules: ["machine", "time"] };
 }
 
-test("retry_session re-enters the saved session without appending an empty user turn", async () => {
+test("retry_session resumes the saved phase with the saved intent (not an empty turn)", async () => {
   const posted: any[] = [];
   const llmBodies: string[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;
@@ -443,5 +444,8 @@ test("retry_session re-enters the saved session without appending an empty user 
   const terminals = posted.filter((m) => m.type === "session_done").map((m) => m.terminal);
   assert.equal(terminals.length, 2, "retry must run a second loop pass");
   const retried = JSON.parse(llmBodies.at(-1)!);
-  assert.notEqual(retried.messages.at(-1).role, "user", "retry must not append an empty user message");
+  // The protocol restarts the phase conversation (manifest carries state, not the
+  // message log), resuming the saved phase with the saved intent — never an empty turn.
+  assert.equal(retried.phase, "analyze", "retry resumes the saved phase");
+  assert.ok(retried.messages.at(-1).content, "retry re-sends the saved intent, not an empty user turn");
 });

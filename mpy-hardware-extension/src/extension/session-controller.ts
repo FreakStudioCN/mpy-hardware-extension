@@ -109,6 +109,8 @@ export class SessionController {
         confirmPlan: (plan: any) => this.confirmPlan(plan),
         confirmDeploy: () => this.confirmDeploy(),
         confirmComponents: (devices: any[]) => this.confirmComponents(devices),
+        // Protocol path: the single rich approval gate (replaces the 4 above).
+        confirmApproval: (card: any) => this.confirmApproval(card),
         recorder: this.recorder,
         signal: this.abort.signal,
       });
@@ -235,6 +237,23 @@ export class SessionController {
     });
   }
 
+  // Protocol approval gate: the single rich card (replaces ask/components/plan/
+  // deploy). The webview renders approval_request.card and replies via the same
+  // ui_prompt_response round-trip with answer=action + extra={selected_ids, ...}.
+  // Resolves null when the session is cancelled/finished (cancelPrompts).
+  confirmApproval(card: any): Promise<any> {
+    const promptId = `approval-${++this.promptSeq}`;
+    return new Promise((resolve) => {
+      this.pendingPrompts.set(promptId, (answer, extra) => resolve(
+        answer == null
+          ? null
+          : { action: answer, selected_ids: extra?.selected_ids ?? [], added_items: extra?.added_items ?? [], text_values: extra?.text_values ?? {}, notes: extra?.notes ?? "" },
+      ));
+      this.record({ type: "approval_requested", promptId, card });
+      this.deps.postMessage({ type: "approval_request", promptId, card });
+    });
+  }
+
   resolvePrompt(promptId: string, answer: string | null, extra?: any) {
     const resolve = this.pendingPrompts.get(promptId);
     if (resolve) {
@@ -286,6 +305,21 @@ export class SessionController {
     if (event.type === "serial_output") {
       this.record({ type: "serial_output", lines: event.lines });
       this.deps.postMessage({ type: "serial_output", lines: event.lines });
+      return;
+    }
+    // Protocol events: a status_update timeline entry, a phase boundary, or a
+    // phase_complete result (with artifacts). Forwarded to the webview renderers.
+    if (event.type === "status_update") {
+      this.deps.postMessage({ type: "status_update", payload: event.payload });
+      return;
+    }
+    if (event.type === "phase_start") {
+      this.deps.postMessage({ type: "phase_start", phase: event.phase });
+      return;
+    }
+    if (event.type === "phase_complete") {
+      this.record({ type: "phase_complete", payload: event.payload });
+      this.deps.postMessage({ type: "phase_complete", payload: event.payload });
       return;
     }
     if (event.kind === "credits") {

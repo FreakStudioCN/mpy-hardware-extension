@@ -40,6 +40,15 @@ export class ApiClient {
     return mismatch ? { warning: "tool_registry_mismatch" } : { ok: true };
   }
 
+  // Protocol path: a single version string the extension bundles is compared to the
+  // backend's. The successor of checkToolRegistry — the 6 generic protocol tools no
+  // longer drift name-by-name; the contract version is the single skew signal.
+  async checkProtocolVersion(localVersion: string) {
+    const body = await this.request("/v1/tools");
+    const remote = body.protocol_version;
+    return remote && remote !== localVersion ? { warning: "protocol_version_mismatch", remote, local: localVersion } : { ok: true };
+  }
+
   async request(path: string, init?: RequestInit) {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, init);
     const body = await safeJson(response);
