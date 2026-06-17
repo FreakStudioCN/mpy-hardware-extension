@@ -1,39 +1,49 @@
-# Skill 协议本地测试指南
+# Skill Protocol Local Testing Guide
 
-这份文档给改 MicroPython 项目生成 skill 的人看。目的不是讲完整架构，而是说明：
-改完 skill 后，先怎么在本机验证它能不能和插件协议配合，避免一上来就测云端、DeepSeek、VS Code、真实硬件，把问题混在一起。
+This guide is for the person editing the MicroPython project-generation skills.
+Use it before testing against the cloud backend or real hardware.
 
-## 核心结论
+## Goal
 
-先由写 skill 的人测试。
+A skill change is acceptable only if its intended actions can be expressed through
+the plugin protocol and the VS Code extension can execute those actions locally.
 
-写 skill 的人先证明：这个 skill 想做的事情，能被表达成插件协议消息。也就是：
+The local fixture path tests that boundary without:
 
-- 需要用户确认或选择：用 `approval_request`
-- 展示进度：用 `status_update`
-- 读写项目文件：用 `file_operation`
-- 跑本地工具链脚本：用 `script_run`
-- 操作开发板、串口、mpremote：用 `device_command`
-- 每个阶段结束：用 `phase_complete`
+- a running `mpyhw-api`
+- a database
+- DeepSeek
+- Render
+- a connected board
 
-这一步过了以后，插件开发者再拿同一份 fixture 测 UI、本地文件写入、脚本执行、设备执行器和 phase 推进。
+## Who Tests What
 
-这样可以把问题拆开：
+The skill author tests first.
 
-- fixture 跑不过：优先看 skill 输出或协议适配。
-- fixture 跑过，但 VS Code 不行：优先看插件 UI / SessionController / executor。
-- 本地插件跑过，云端不行：优先看后端 prompt、鉴权、credits、部署版本。
-- 云端跑过，硬件不行：优先看接线、驱动、shim、mpremote、串口输出。
+Their job is to prove that the skill's workflow can be represented as protocol
+messages:
 
-## 本地快速测试
+- ask the user with `approval_request`
+- report progress with `status_update`
+- write or read project files with `file_operation`
+- run local toolchain scripts with `script_run`
+- operate the board with `device_command`
+- end every phase with `phase_complete`
 
-在 `mpy-hardware-extension/` 目录下运行：
+The plugin author tests second, using the same fixture, to prove the extension
+can render the UI, write files, call local tools, and advance phases.
+
+This separates skill/protocol problems from server/client/hardware problems.
+
+## First Local Check
+
+From `mpy-hardware-extension/`:
 
 ```powershell
 npm run protocol:fixture -- test/fixtures/protocol-smoke.json
 ```
 
-期望输出类似：
+Expected shape:
 
 ```text
 terminal=complete
@@ -44,22 +54,16 @@ device_calls=(none)
 script_runs=(none)
 ```
 
-这条命令不需要：
+If this fails, do not test the cloud backend yet. The local protocol boundary is
+not valid.
 
-- 本地 `mpyhw-api`
-- 数据库
-- DeepSeek key
-- Render
-- VS Code
-- 真实开发板
+## Fixture Format
 
-它只验证一件事：插件协议执行层能不能接住一段模拟出来的协议消息。
+A fixture is a JSON file with an `intent` and a `script`. The `script` is keyed
+by phase. Each phase contains model turns. Each turn contains the protocol tool
+calls the model would emit.
 
-## fixture 是什么
-
-fixture 是一个 JSON 文件，模拟“模型按照 skill 运行时会发出来的协议工具调用”。
-
-最小结构：
+Minimal shape:
 
 ```json
 {
@@ -93,129 +97,66 @@ fixture 是一个 JSON 文件，模拟“模型按照 skill 运行时会发出�
 }
 ```
 
-解释：
+Every phase must eventually emit `phase_complete`. If it does not, the fixture
+will end as `stalled`.
 
-- `intent`：用户输入的一句话。
-- `script`：按 phase 分组。
-- `analyze`、`generate` 等 key：对应当前 pipeline phase。
-- 每个 phase 里是多个 turn。
-- 每个 turn 里是这个 turn 模型会发出的工具调用。
-- 每个工具调用必须有 `name` 和 `input`。
+## Skill Author Checklist
 
-每个 phase 最后都应该发 `phase_complete`。如果没有，协议循环会认为这个 phase 卡住，结果通常是 `terminal=stalled`。
+For each changed skill phase:
 
-## skill 作者应该怎么测
+1. Write or update a fixture that represents the intended happy path.
+2. Run `npm run protocol:fixture -- <fixture-path>`.
+3. Confirm `terminal=complete`.
+4. Confirm the phase list matches the intended workflow.
+5. Confirm required files appear under `files=...`.
+6. Confirm user interactions appear under `approvals=...`.
+7. Confirm device operations appear under `device_calls=...` only when that phase
+   should touch hardware.
+8. Confirm local scripts appear under `script_runs=...` only when the phase should
+   run host tools.
 
-改完某个 skill 或 phase recipe 后，按这个顺序做：
-
-1. 写一份 fixture，描述这个 phase 的 happy path。
-2. 运行：
-
-   ```powershell
-   cd mpy-hardware-extension
-   npm run protocol:fixture -- <你的-fixture.json>
-   ```
-
-3. 确认 `terminal=complete`。
-4. 确认 `phases=...` 和你设计的阶段流一致。
-5. 确认该写文件的阶段，`files=...` 里有目标文件。
-6. 确认需要用户确认的阶段，`approvals=...` 数量不为 0。
-7. 确认不该碰硬件的阶段，`device_calls=(none)`。
-8. 确认不该跑脚本的阶段，`script_runs=(none)`。
-
-然后跑插件侧的 focused check：
+Then run the focused extension checks:
 
 ```powershell
 node --no-warnings --experimental-strip-types --test test/protocol-fixture.test.ts test/protocol-loop.test.ts
 npm run typecheck
 ```
 
-这些过了，再去测后端、云端和真实硬件。
-
-## 常见失败怎么看
+## Interpreting Failures
 
 `terminal=stalled`
 
-某个 phase 没有发 `phase_complete`，或者 fixture 的 turns 用完了。先看 skill/recipe 有没有明确要求阶段结束时发 `phase_complete`。
+The phase did not emit `phase_complete`, or the fixture ran out of turns.
 
 `unknown_tool`
 
-模型或适配层还在发旧工具名，比如旧的 27-tool 名称。应该改成 6 个协议工具之一。
+The skill or server adapter is still producing an old tool name. Convert it to
+one of the six protocol tools.
 
 `protocol_payload_invalid`
 
-工具名对了，但 `input` 不符合 `contracts/protocol_messages.json`。先看 required 字段、enum 值和嵌套结构。
+The tool name is right, but its payload does not match
+`contracts/protocol_messages.json`.
 
 `files=(none)`
 
-生成阶段没有通过 `file_operation` 写文件。比如 `generate` phase 应该至少写 `firmware/main.py`。
+The workflow did not write files through `file_operation`.
 
 `approvals=0`
 
-需要用户确认、选择、补充信息，但没有发 `approval_request`。不要用普通 assistant text 问用户，因为插件协议循环不会把普通文本当成可交互问题。
+The workflow did not ask the user through `approval_request`. If the user needs
+to choose or confirm anything, this is a skill/protocol issue.
 
-`device_calls` 出现在不该碰硬件的阶段
+## After Local Fixture Passes
 
-说明 skill/recipe 太早让模型操作设备。比如 analyze/select/generate 通常不应该直接碰硬件。
+Only then move outward:
 
-`script_runs` 出现在不该跑脚本的阶段
+1. Backend prompt/contract tests in `mpyhw-api`.
+2. Real-model protocol smoke or headless E2E.
+3. VS Code F5/manual UI test.
+4. Cloud backend test.
+5. Real hardware test.
 
-说明模型还在照搬本地 agent 版 skill 的脚本步骤，而不是按协议模式走。需要加强 phase recipe 或改 skill 表述。
-
-## 什么时候再测云端
-
-只有本地 fixture 过了，才往外扩：
-
-1. 后端 prompt/contract 测试。
-2. 真实模型 protocol smoke。
-3. headless E2E。
-4. VS Code F5 手工测试。
-5. 云端 Render 测试。
-6. 真实硬件测试。
-
-不要第一步就测云端或硬件。那会同时引入 skill、协议、后端、鉴权、credits、部署版本、插件 UI、shim、驱动和接线问题，定位成本太高。
-
-## 相关文件
-
-协议合同：
-
-- `contracts/protocol_messages.json`
-
-插件协议执行：
-
-- `mpy-hardware-extension/src/core/protocol-loop.ts`
-- `mpy-hardware-extension/src/core/protocol-build.ts`
-- `mpy-hardware-extension/src/core/protocol-fixture.ts`
-- `mpy-hardware-extension/src/cli/run-protocol-fixture.ts`
-
-测试和示例：
-
-- `mpy-hardware-extension/test/protocol-fixture.test.ts`
-- `mpy-hardware-extension/test/protocol-loop.test.ts`
-- `mpy-hardware-extension/test/fixtures/protocol-smoke.json`
-
-后端 skill/prompt 入口：
-
-- `mpyhw-api/app/routes_llm.py`
-- `mpyhw-api/app/skill_catalog.py`
-- `third_party/MicroPython_Skills/*/SKILL.md`
-
-## 分工逻辑
-
-这套测试的分工是：
-
-```text
-skill 作者
-  -> 写 fixture，证明 skill 的动作能表达成协议消息
-
-插件作者
-  -> 用同一份 fixture，证明插件能执行这些协议消息
-
-后端作者
-  -> 证明真实 LLM 在真实 prompt 下会发出同样合规的协议消息
-
-硬件测试
-  -> 最后验证真实板子、驱动、接线和串口结果
-```
-
-这样改 skill 的人不需要等插件完整调好，插件的人也不需要懂每个硬件 skill 的细节。双方通过 fixture 对齐边界。
+Do not start with cloud or hardware. That mixes too many failure sources and
+makes it unclear whether the problem is the skill, the protocol adapter, the
+plugin, the server, or the board.
