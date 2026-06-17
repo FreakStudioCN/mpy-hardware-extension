@@ -4,6 +4,7 @@ import http.client
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -15,13 +16,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app import analytics, credit_store, llm_sessions, skill_catalog
 from app.auth import get_current_user
-from app.package_store import PackageStore
-from app.tool_registry import CANONICAL_TOOL_DESCRIPTIONS, CANONICAL_TOOL_INPUT_SCHEMAS, CANONICAL_TOOL_NAMES
+from app.tool_registry import (
+    LLM_TOOL_DESCRIPTIONS,
+    LLM_TOOL_INPUT_SCHEMAS,
+    LLM_TOOL_NAMES,
+    MESSAGE_SCHEMAS,
+)
 
 
 router = APIRouter()
@@ -96,22 +102,108 @@ def _is_outage_status(status: int) -> bool:
 
 _deepseek_breaker = _CircuitBreaker()
 
-SYSTEM_PROMPT = """You are a MicroPython hardware coding agent.
-Stay inside this product path: intent -> capabilities -> API-backed Package Intelligence -> driver context -> manifest -> code -> audit -> shim loop -> runtime observation.
-Use only capabilities exposed by Package Intelligence tool schemas.
-Do not invent package APIs. Fetch package context before generating code. Prefer resolve_package_candidates over independent package searches when the user intent is known.
-Understand the request before touching hardware: confirm what device to build and its core behaviour first. If a request is ambiguous or does not obviously map to hardware, do NOT refuse. Many requests CAN be hardware (e.g. an "AI companion" may be a desk robot or screen-faced device with sensors and sound). Clarify what physical device the user wants and what it should do (sensors, display, motors, sound, touch), then continue the workflow. Only decline after clarifying if the request truly involves no microcontroller or device at all.
-Whenever you need the user to choose, confirm, or answer anything, you MUST call the ask_user tool. NEVER ask a question only in plain assistant text: the user cannot reply to plain text, so a text-only question ends the turn with no answer and stalls the session.
-Use ask_user options ONLY for a genuine either/or decision. When you need a value the user must type (a URL, a number, a file path, an API key), ask an option-less question (no options) so they type it in the box. If a choice still needs a typed value (e.g. an option that means "I will provide a URL"), list that exact option string in options_requiring_text and put a hint in text_placeholder; the user picks it and then types the value, which comes back to you appended to the option. NEVER treat "I will provide X" (a URL/file/value) as a finished answer: if an answer promises a value but does not actually contain it, call ask_user again to collect that exact value before proposing a manifest or generating code. Do NOT guess a default or skip ahead past missing information the user still owes you.
-Never suggest bypassing audit_code. Do not use or recommend __import__, exec, or eval to hide imports. If audit_code rejects a module, either regenerate code using available modules, choose a compatible board/profile, or ask_user for a product-level tradeoff.
-Build the project as an upstream project-manifest.json that you fill in progressively across phases, setting its "phase" each time you call propose_manifest: analyze (schema_version "1.0" + created_at as an ISO 8601 timestamp + project_name + requirements + devices) -> select-hw (mcu + pinout + bom) -> scaffold -> generate -> diagram -> deploy -> complete. Carry the earlier fields (created_at, project_name, ...) forward unchanged on every later call. After you propose the analyze manifest (devices[] populated), the host automatically shows the user a component-confirmation card to tick parts in or out; do NOT call ask_user to list or confirm the component selection. If propose_manifest returns error_kind "components_revision_requested", the user removed the parts listed in "removed" and/or wants to add the parts described in "add": update devices[] accordingly (and any dependent pinout/bom) and call propose_manifest again. After analyze and select-hw, call run_validate to gate the manifest against the canonical schema; then call generate_code with that same latest rich project-manifest.json (schema_version "1.0", devices[] + pinout[]) — the host lays down the full firmware/ skeleton automatically before codegen, so you do NOT need to call run_scaffold yourself (only call run_download_drivers first if the build needs vendor driver files fetched) — then the device tools. Never pass a legacy thin manifest without schema_version to generate_code. Set phase to "complete" when the build is finished.
-Structure the code to fit the project inside the scaffolded firmware/ tree: write the runnable entry as firmware/main.py (this is the default target_path) and split supporting code into importable modules under firmware/lib/, firmware/drivers/, or firmware/tasks/, calling generate_code once per file with that file's target_path (e.g. firmware/lib/sensor.py). Keep it only as complex as the project needs.
-Mind each package's support_level: only generatable or verified packages carry a machine-readable driver context you can code against (call get_package_context and generate from it); an installable package can be mip-installed but has no verified API surface, so do not claim you can auto-generate its driver: say it must be wired or used manually, or choose a generatable alternative.
-In requirements.description (and optionally a "summary" field) put a short, friendly explanation, in the user's language, of what the device will do, why you chose this board / these parts / these pins, the key wiring, and what the generated code will do. This text is shown to the user AS the build plan, so make it clear and specific (a few sentences or short bullets) rather than a bare restatement of the other fields — this is where you put the reasoning, since your step-by-step thinking is not shown to the user.
-Never use emoji in any text shown to the user (the build-plan summary, requirements.description, ask_user questions and options, and your final summary). Write plain text only.
-After you propose the manifest, the host shows the user a build plan (your summary + requirements + estimated credits) and gets their confirmation before you generate code — do NOT ask the user whether to generate; just call generate_code. If generate_code returns error_kind "plan_revision_requested", the user has requested changes in its "feedback": adjust the manifest accordingly (board, packages, pins, wiring, logic, and the summary) and call generate_code again — the host re-shows the plan. Do NOT call ask_user about this revision. The wiring diagram is rendered automatically from the manifest; never offer to "show wiring". The canonical project-manifest schema is the ONLY manifest contract. Do NOT hand-build a wiring object: the wiring diagram is DERIVED automatically from devices[] (one entry per physical part, with its interface + I2C addr) and pinout[] (device pin_name -> gpio). One physical device = one card, so list each part exactly once in devices[]. Once audit_code passes, draw the software architecture diagram before deploying so the user sees the real module structure (not just the manifest-derived preview): call get_phase_profile with phase "diagram" if you need the product rules, read the firmware/ tree (main.py plus any drivers/, tasks/, lib/, board.py/conf.py), and author docs/diagram.json against the diagram schema — architecture.layers[] of the real modules (with cross_layer_deps for their dependencies) and a flow[] of the real main.py steps; if no firmware/ tree exists, base it on main.py and the manifest. Write it with write_project_file to docs/diagram.json (that populates the webview Diagram tab), then call run_validate with schema "diagram" and path "docs/diagram.json" and fix-and-rewrite until it passes; optionally call render_diagram (format "md") for the shareable Mermaid file. Keep the diagram concise (medium detail) and do NOT call ask_user about its complexity or whether to draw it. Its human-readable fields (layer labels, module roles, flow actions/details, dependency and data-flow descriptions) must be in the user's language, but keep code identifiers (module import paths, file paths, GPIO/bus tokens) unchanged. Then continue by calling install_package, write_main_py (which uploads the firmware), then run_flash_device to reset and run it, then read_serial_until in order — but do NOT narrate this as if it deploys immediately: before the first device action the host shows a deploy-readiness checkpoint (a board-connection check plus the wiring diagram) and waits for the user to confirm. Do NOT ask the user whether to deploy or whether the board is connected — the host owns that checkpoint; just call the tools in order and let the host gate them. NEVER end your turn with a plain-text menu of next steps (e.g. "1. flash 2. install driver 3. view wiring 4. modify code"); drive the workflow by calling tools.
-Drive the build forward in one continuous run: the component-confirmation card, the build-plan and credit card, and the deploy-readiness checkpoint are host gates that resolve inline, returning the user's decision to you in the result of the tool call that triggered them (propose_manifest, generate_code, the device tools). As soon as a result comes back, immediately call the next tool in the phase flow. Do not end your turn with a plain-text summary between phases to wait for the user; hand the turn back only when the build reaches phase "complete" or you genuinely need to ask a question via ask_user. This "no stopping between phases" rule is about not pausing for the host gates (component / plan / deploy) — it is NOT a reason to skip a question you genuinely need answered. Asking via ask_user for missing information (a value the user said they would provide, a tradeoff only they can decide, or a real ambiguity) is correct and is never "stalling": ask it rather than guessing a default and barrelling ahead.
-When the current request is complete (code delivered, question answered, or build verified), give the user a short summary in plain assistant text and then stop — that ends your turn and returns control to the user. Do NOT call ask_user just to ask "what would you like to do next" or to offer more help. Only call ask_user when you genuinely need an answer to make progress on the current request."""
+ADAPTER_PREAMBLE = """You are the cloud brain of a MicroPython hardware build agent. A thin VS Code plugin on the user's machine is your hands and screen; you have NO direct filesystem, shell, serial, or terminal access. You drive everything by emitting protocol tools — the plugin executes them and returns results.
+
+The phase instructions below (THE SKILL) are written as if for a local agent with Read/Write/Bash/AskUserQuestion and concrete script paths. Treat them as INTENT, not literal commands. NEVER try to run a shell command, mpremote, or a local path directly. Translate every action into exactly one of these protocol tools:
+
+- Read or write a project file -> file_operation(op=read|write|append|list|delete|mkdir, path, content). Paths are relative to the project root; ignore absolute paths like G:/... that appear in the SKILL.
+- Any mpremote / device / serial action (scan a bus, install a package, upload files, soft reset, run code, read serial) -> device_command(action=devs|scan|exec|cp|cp_from|mkdir|ls|rm|soft_reset|stream|run, ...).
+- Run a host script the SKILL mentions (flake8, pylint, pytest, init_scaffold.py, render_*.py, extract_pdf.py, validate_json.py, ...) -> script_run(interpreter, script, args). Use the script's bare name; drop any G:/MicroPython_Skills/... prefix.
+- Ask the user ANYTHING (confirm components, pick an option, type a URL/value, follow a wiring/debug step) -> approval_request(...). This REPLACES AskUserQuestion. NEVER ask a question in plain assistant text — the user cannot answer it, so the turn just stalls.
+- Narrate progress ("searching drivers...", "1/3 found") -> status_update(level, message, ...). Fire-and-forget.
+- Finish the current phase -> phase_complete(result, summary, next_phase, manifest_content, artifacts). next_phase is the next SKILL phase (e.g. "select-hw") or null to stop. manifest_content carries project-manifest.json forward to the next phase.
+
+Generating code: when the SKILL says to write a firmware .py file, emit file_operation(op=write, path, intent="<what this file must do>") WITHOUT inlining the code — the server generates the file from the manifest and verified driver context and fills content in. Only inline content yourself for small non-code files (json/markdown/config).
+
+Worked examples:
+- SKILL: "运行 mpremote exec 'import machine; print(machine.I2C(0).scan())'" -> device_command(action=exec, code="import machine; print(machine.I2C(0).scan())").
+- SKILL: "用 AskUserQuestion 确认器件清单" -> approval_request(approval_id="device_confirm", question="以下器件是否正确？", items=[...], actions=[{"label":"确认","value":"confirm","primary":true}]).
+- SKILL: "python scripts/validate_json.py docs/wiring.json" -> script_run(interpreter="python", script="validate_json.py", args=["docs/wiring.json"]).
+
+Keep ALL user-facing text (status messages, approval questions/options, the manifest summary) in the user's language; keep code identifiers (GPIO5, I2C, ssd1306, ESP32) unchanged. Never use emoji in user-facing text. Drive the workflow forward by emitting tools; end the phase with phase_complete.
+"""
+
+
+_PHASE_RECIPES: dict[str, str] = {
+    "analyze": """
+PROTOCOL RECIPE (analyze) — overrides any conflicting literal step in the SKILL above:
+- There is NO environment preflight in protocol mode. Do NOT emit a script_run to check python/requests/versions or run the "前置检查" block — the plugin guarantees the runtime. Skip it entirely.
+- Do NOT write your intent analysis as assistant prose or markdown tables. Keep prose to at most one short sentence; put any progress narration in status_update.
+- Your FIRST tool call is an approval_request that confirms the component list (SKILL Step 2 器件确认), built from your intent breakdown:
+    approval_id: "device_confirm"
+    header: the project name (user's language)
+    question: "以下器件是否正确？不对的去掉，缺的补上" (in the user's language)
+    items: one entry per inferred device -> {"id": "<slug>", "name": "<device>", "subtitle": "<interface> <type>", "selectable": true, "selected": true}
+    allow_add: true, allow_remove: true, multi_select: true
+    actions: [{"label":"确认，开始搜索驱动","value":"confirm","primary":true}, {"label":"修改","value":"modify"}]
+  If the user did not specify an MCU, put a recommended board in summary.board (default ESP32) instead of asking a separate MCU question — keep it to this one card.
+- AFTER the user confirms (a later turn), narrate driver search with status_update, then finish with phase_complete:
+    result: "success"
+    summary: a short user-language description of the device and the plan
+    next_phase: "select-hw"
+    manifest_content: project-manifest.json with phase "analyze", schema_version "1.0", project_name, requirements, and devices[] (each {name, type, interface}).
+- Do NOT pick final MCU/pins or generate code here — that is select-hw.
+""",
+    "select-hw": """
+PROTOCOL RECIPE (select-hw) — this OVERRIDES the SKILL above; when they conflict, follow THIS.
+- Do NOT run ANY scripts (no validate/update_manifest/etc.) and do NOT read or list files. Everything you need is in the RESOLVED DATA block (board profile + current manifest). NEVER emit script_run or file_operation in this phase.
+- The components are already confirmed (from analyze). Do NOT re-confirm them. At most one short status_update.
+- Decide the board (default ESP32 family) and assign a pin (gpio) for every device, respecting the board's pin_capabilities and forbidden_pins; detect I2C address conflicts. Build a BOM. Only emit an approval_request if a genuine board/power tradeoff truly needs the user.
+- Then immediately emit phase_complete:
+    result "success"; a short user-language summary; next_phase "generate";
+    manifest_content: the manifest advanced to phase "select-hw" with mcu, pinout[] (each {device, pin_name, gpio}), and bom[].
+""",
+    "generate": """
+PROTOCOL RECIPE (generate) — this OVERRIDES the SKILL above; whenever they conflict, follow THIS, not the SKILL.
+- Do NOT run ANY scripts (no scaffold, download_drivers, normalize, black, flake8, pylint, validate) and do NOT read or list files. There is no pre-scaffolded tree to inspect — skip all of that. NEVER emit script_run or device_command in this phase.
+- No prose. At most one short status_update ("正在生成代码...").
+- WRITE the firmware files NOW by emitting file_operation calls, one per file:
+    op: "write"; path: "firmware/main.py" (the runnable entry; add firmware/lib/*.py or firmware/drivers/*.py ONLY if the project truly needs a separate module); intent: a precise description of what this file must do, referencing the manifest's devices and pins.
+    Do NOT put code in `content` yourself — OMIT content and provide `intent`; the server generates the code from the manifest + driver context.
+- Most builds need only firmware/main.py. Write at most 3 files total.
+- Immediately after the write(s), emit phase_complete:
+    result "success"; a short user-language summary of the code; next_phase "wiring"; manifest_content = the manifest advanced to phase "generate".
+""",
+    "wiring": """
+PROTOCOL RECIPE (wiring) — this OVERRIDES the SKILL above; when they conflict, follow THIS.
+- Do NOT read or list any files and do NOT run scripts. Everything you need is in the RESOLVED DATA block (manifest devices[] + pinout[]).
+- Directly emit ONE file_operation(op="write", path="docs/wiring.json", content=<a JSON string describing each device's connections: device, interface, and pin_name -> gpio>). Put the JSON in content yourself (this is not code).
+- Immediately after, emit phase_complete: result "success"; short user-language summary; next_phase "diagram"; manifest_content carried forward.
+""",
+    "diagram": """
+PROTOCOL RECIPE (diagram) — this OVERRIDES the SKILL above; when they conflict, follow THIS.
+- Do NOT read or list files and do NOT run scripts. Base the diagram on the manifest in RESOLVED DATA.
+- Directly emit ONE file_operation(op="write", path="docs/diagram.json", content=<a JSON string with architecture.layers[] of the modules and a flow[] of the main steps>). Put the JSON in content yourself.
+- Immediately after, emit phase_complete: result "success"; short user-language summary; next_phase "deploy"; manifest_content carried forward.
+""",
+    "deploy": """
+PROTOCOL RECIPE (deploy) — this OVERRIDES the SKILL above; when they conflict, follow THIS.
+- Do NOT read/list files or run scripts. Drive the device strictly through device_command; never emit raw mpremote/shell.
+- Issue this sequence, one tool at a time, reacting to each device_result: device_command(action="devs"); device_command(action="cp", src="firmware", dst=":"); device_command(action="soft_reset"); device_command(action="stream") to read serial until you see the marker "MPYHW_READY". Install packages first with device_command(action="exec", code="import mip; mip.install('<url>')") only if the manifest needs them. (Valid actions: devs, scan, exec, cp, cp_from, mkdir, ls, rm, soft_reset, stream, run.)
+- Narrate with status_update. Do NOT ask the user to confirm the board.
+- When a device_result contains "MPYHW_READY", finish with phase_complete(result="success", next_phase=null, summary=<user-language>). If a device_result reports a runtime failure, finish with phase_complete(result="failed", errors=[...], next_phase="autofix").
+""",
+}
+
+
+def _phase_recipe(phase: str) -> str:
+    """R1 PROTOCOL ADDENDUM (per the plan): an additive block appended after the raw
+    SKILL.md that restates THIS phase's steps as an explicit protocol-tool sequence.
+
+    Our own text, decoupled from the upstream SKILL.md (never a fork of those files).
+    The analyze smoke gate showed pure-adapter is insufficient — the model follows
+    local-agent steps literally (env preflight) and narrates in prose — so recipes
+    are the default for any phase that needs deterministic protocol behavior.
+    """
+    recipe = _PHASE_RECIPES.get(phase)
+    return f"\n\n--- PROTOCOL RECIPE ({phase}) ---\n{recipe}" if recipe else ""
+
+
+def _system_prompt(phase: str) -> str:
+    skill = skill_catalog.skill_md_body(phase) or "(No SKILL.md is available for this phase.)"
+    return (
+        f"{ADAPTER_PREAMBLE}\n\n--- PHASE SKILL ({phase}) ---\n{skill}{_phase_recipe(phase)}"
+    )
 
 @router.post("/v1/llm/messages")
 async def llm_messages(request: Request, user: dict = Depends(get_current_user)):
@@ -236,7 +328,8 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
             raise HTTPException(status_code=502, detail={"error": "llm_upstream_error", "status": error.status})
         if is_deepseek:
             _deepseek_breaker.record_success()
-        return StreamingResponse(_release_after(provider.translate_stream(upstream, meter), session_id), media_type="text/event-stream")
+        codegen = _make_codegen(user, body, started_at)
+        return StreamingResponse(_release_after(provider.translate_stream(upstream, meter, codegen), session_id), media_type="text/event-stream")
     except Exception:
         llm_sessions.release(session_id, "setup_error")
         raise
@@ -276,10 +369,17 @@ def _billable_tokens(usage: dict[str, Any]) -> int:
 
 
 def _noncanonical_tools(tools: Iterable[dict[str, Any]]) -> list[str]:
+    """Reject any client-offered tool outside the 6 protocol tools.
+
+    The client may omit `tools` entirely (the server offers the 6 protocol tools
+    regardless); when present, every name must be one of the protocol tools.
+    """
+    if not isinstance(tools, list):
+        return ["<tools-not-a-list>"]
     rejected: list[str] = []
     for tool in tools:
-        name = tool.get("name")
-        if name not in CANONICAL_TOOL_NAMES:
+        name = tool.get("name") if isinstance(tool, dict) else None
+        if name not in LLM_TOOL_NAMES:
             rejected.append(str(name))
     return rejected
 
@@ -319,8 +419,8 @@ class DeepSeekProvider:
     def open_stream(self, body: dict[str, Any]):
         return _open_deepseek_stream(body, os.environ["DEEPSEEK_API_KEY"])
 
-    def translate_stream(self, upstream: Iterable[bytes], meter=None):
-        return _translate_deepseek_stream(upstream, meter)
+    def translate_stream(self, upstream: Iterable[bytes], meter=None, codegen=None):
+        return _translate_deepseek_stream(upstream, meter, codegen)
 
 
 def get_llm_provider():
@@ -397,7 +497,7 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str):
             raise UpstreamError(0)
 
 
-def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
+def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None, codegen=None):
     """Translate DeepSeek/OpenAI streaming chunks into Anthropic SSE events.
 
     Text deltas stream live. Tool calls are buffered per index and flushed as
@@ -466,15 +566,31 @@ def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
                         entry["arguments"] += function["arguments"]
             for index in order:
                 entry = tool_calls[index]
-                if entry["name"] not in CANONICAL_TOOL_NAMES:
-                    continue
+                if entry["name"] not in LLM_TOOL_NAMES:
+                    # Off-protocol tool name (e.g. the model tried a dead 27-tool name).
+                    # Forward it ANYWAY so the client returns an unknown_tool repair
+                    # result and the model corrects next turn — dropping it silently
+                    # would leave a tool-only turn with no tool_use and stall the phase.
+                    logger.warning("forwarding off-protocol tool for client repair", extra={"tool": entry["name"]})
+                # Server-internal codegen: a file_operation(op=write, *.py, intent)
+                # gets its content generated here and inlined before forwarding.
+                arguments = _maybe_fill_code(entry["name"], entry["arguments"], codegen)
+                # Server-side payload validation (belt to the client-side repair loop):
+                # forward the call but log a violation so malformed-but-known payloads
+                # are observable. The actionable repair is the client's tool_result.
+                violation = _payload_violation(entry["name"], arguments)
+                if violation:
+                    logger.warning(
+                        "protocol payload violation",
+                        extra={"tool": entry["name"], "violation": violation},
+                    )
                 call_id = entry["id"] or f"tool_{index}"
                 yield _sse({
                     "type": "content_block_start",
                     "content_block": {"type": "tool_use", "id": call_id, "name": entry["name"]},
                 })
-                if entry["arguments"]:
-                    yield _sse({"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": entry["arguments"]}})
+                if arguments:
+                    yield _sse({"type": "content_block_delta", "delta": {"type": "input_json_delta", "partial_json": arguments}})
                 yield _sse({"type": "content_block_stop"})
             if meter is not None:
                 yield _sse({"type": "credits", **meter(usage_obj)})
@@ -538,8 +654,42 @@ def _language_directive(body: dict[str, Any]) -> str:
     )
 
 
+def _phase(body: dict[str, Any]) -> str:
+    """The pipeline phase whose SKILL.md drives this turn (default: analyze)."""
+    phase = body.get("phase")
+    return phase if isinstance(phase, str) and phase else "analyze"
+
+
+_DATA_INJECTION_PHASES = {"select-hw", "scaffold", "generate", "wiring", "diagram", "deploy"}
+
+
+def _phase_data_injection(phase: str, body: dict[str, Any]) -> str:
+    """Server-resolved grounding (board profile + driver contexts + manifest) for
+    downstream phases. Replaces the deleted query_board_profile/get_package_context
+    client tools — the model gets the data in-prompt instead of fetching it. Stays
+    byte-stable within a phase (manifest is fixed per request) for the prefix cache.
+    """
+    if phase not in _DATA_INJECTION_PHASES:
+        return ""
+    manifest = body.get("manifest") if isinstance(body.get("manifest"), dict) else {}
+    if not manifest:
+        return ""
+    board = _resolve_board(manifest, body)
+    contexts = _resolve_driver_contexts(manifest)
+    # sort_keys keeps the system-prompt prefix byte-stable across same-phase rounds
+    # (a fixed manifest serializes identically) so DeepSeek prefix caching keeps hitting.
+    return (
+        "\n\n--- RESOLVED DATA (server-provided; do not re-fetch) ---\n"
+        f"Board profile:\n{json.dumps(board, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"Driver contexts:\n{json.dumps(contexts, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"Current manifest:\n{json.dumps(manifest, ensure_ascii=False, sort_keys=True)}\n"
+    )
+
+
 def _deepseek_messages(body: dict[str, Any]) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT + _language_directive(body)}]
+    phase = _phase(body)
+    system = _system_prompt(phase) + _phase_data_injection(phase, body) + _language_directive(body)
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
     for message in body.get("messages", []):
         role = message.get("role", "user")
         content = message.get("content", "")
@@ -638,53 +788,280 @@ def _tool_result_content(content: Any) -> str:
 
 
 def _deepseek_tools(tools: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    tools = list(tools)
-    capability_schema = (
-        _capability_schema()
-        if any(tool.get("name") in {"search_packages", "resolve_package_candidates"} for tool in tools)
-        else None
-    )
-    phase_schema = _phase_name_schema() if any(tool.get("name") == "get_phase_profile" for tool in tools) else None
+    """Offer the 6 protocol tools, regardless of what the client requested.
+
+    Order is fixed (sorted) for the prefix-cache byte-stability contract; the
+    client's `tools` arg is only used for the whitelist gate in the route, not to
+    pick which tools the model sees.
+    """
     converted = []
-    for tool in tools:
-        name = tool.get("name")
-        if name not in CANONICAL_TOOL_NAMES:
-            continue
-        parameters = json.loads(json.dumps(CANONICAL_TOOL_INPUT_SCHEMAS.get(name, {"type": "object", "additionalProperties": False})))
-        if capability_schema is not None and name in {"search_packages", "resolve_package_candidates"}:
-            parameters["properties"]["capabilities"] = capability_schema
-        if phase_schema is not None and name == "get_phase_profile":
-            parameters["properties"]["phase"] = phase_schema
+    for name in sorted(LLM_TOOL_NAMES):
         converted.append(
             {
                 "type": "function",
                 "function": {
                     "name": name,
-                    "description": CANONICAL_TOOL_DESCRIPTIONS.get(name) or f"Canonical MicroPython hardware workflow tool: {name}",
-                    "parameters": parameters,
+                    "description": LLM_TOOL_DESCRIPTIONS.get(name) or f"Plugin-interface protocol tool: {name}",
+                    "parameters": LLM_TOOL_INPUT_SCHEMAS[name],
                 },
             }
         )
     return converted
 
 
-def _capability_schema() -> dict[str, Any]:
-    capabilities = sorted(
-        {
-            capability
-            for record in PackageStore.default().records
-            for capability in record.get("capabilities", [])
-        }
+_PAYLOAD_VALIDATORS = {
+    name: jsonschema.Draft7Validator(schema) for name, schema in MESSAGE_SCHEMAS.items()
+}
+
+CODEGEN_MAX_TOKENS = int(os.getenv("MPYHW_CODEGEN_MAX_TOKENS", "16384"))
+_BOARDS_DIR = ROOT / "content" / "boards"
+
+
+# --- Server-internal codegen (resolution A) ---------------------------------
+# In the protocol the model emits file_operation(op=write, path, intent) for a
+# firmware .py file WITHOUT inlining code. The server intercepts that, runs a
+# focused nested DeepSeek generation grounded on the board profile + resolved
+# driver contexts + manifest (ported from the extension's generateCodeViaLlm),
+# and forwards file_operation(op=write, path, content) to the plugin. This keeps
+# codegen quality (dedicated budget + grounding) and its credit metering server
+# side instead of degrading to inline writes from the huge main-loop context.
+
+
+def _resolve_board(manifest: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
+    board_id = (
+        manifest.get("board_id")
+        or manifest.get("mcu")
+        or (manifest.get("board") or {}).get("id")
+        or body.get("board_id")
     )
-    schema: dict[str, Any] = {"type": "array", "items": {"type": "string"}}
-    if capabilities:
-        schema["items"]["enum"] = capabilities
-    return schema
+    if isinstance(board_id, str) and board_id:
+        path = (_BOARDS_DIR / f"{board_id}.json").resolve()
+        try:
+            if path.is_relative_to(_BOARDS_DIR.resolve()) and path.is_file():
+                return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        # Unknown board: reflect only a bounded, id-shaped token so a caller can't
+        # inject long/instruction-like strings into the model's resolved board data.
+        safe = board_id if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", board_id) else "unknown"
+        return {"board_id": safe}
+    return {}
 
 
-def _phase_name_schema() -> dict[str, Any]:
-    names = skill_catalog.served_phase_names()
-    schema: dict[str, Any] = {"type": "string"}
-    if names:
-        schema["enum"] = names
-    return schema
+def _resolve_driver_contexts(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    from app.package_store import PackageStore  # local import: avoid load-time cost
+
+    store = PackageStore.default()
+    contexts: list[dict[str, Any]] = []
+    for device in manifest.get("devices", []) or []:
+        driver = (device or {}).get("driver") or {}
+        name, version = driver.get("package_name"), driver.get("version")
+        if not name or not version:
+            continue
+        try:
+            ctx = store.get_driver_context(name, version)
+        except Exception:  # noqa: BLE001 - best-effort grounding, never fail codegen
+            logger.warning("driver context resolution failed (codegen grounding degraded)", extra={"package": name})
+            continue
+        if ctx:
+            contexts.append(ctx)
+    return contexts
+
+
+def _codegen_user_prompt(
+    target_path: str,
+    file_intent: str,
+    intent: str,
+    board: dict[str, Any],
+    contexts: list[dict[str, Any]],
+    manifest: dict[str, Any],
+) -> str:
+    is_entry = target_path in ("main.py", "firmware/main.py")
+    file_rules = (
+        'CRITICAL: the FIRST executable statement at startup MUST be exactly print("MPYHW_READY") '
+        "(the host watches serial for this exact marker to confirm the program started). After that, "
+        "run a main loop that prints structured status lines; wrap the loop body in try/except."
+        if is_entry
+        else "produce a focused, importable module consistent with the manifest and the entry main.py; define classes/functions only, with no top-level side effects."
+    )
+    return (
+        f"You are a MicroPython hardware codegen assistant. Output ONLY the complete contents of {target_path} — no markdown fences, no prose.\n"
+        f"Rules: import only modules on the board profile or the provided driver import_names; use the given constructors; never use __import__, exec, or eval to bypass audit; "
+        f"if a needed module is not available, report that constraint instead of bypassing it; {file_rules}\n\n"
+        f"Board profile:\n{json.dumps(board, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"Resolved driver contexts:\n{json.dumps(contexts, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"Hardware manifest (pins already allocated):\n{json.dumps(manifest, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"File intent: {file_intent}\n"
+        f"Original hardware request: {intent}"
+    )
+
+
+def _strip_code_fences(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+    return stripped
+
+
+def _call_deepseek_plain(messages: list[dict[str, Any]], max_tokens: int) -> tuple[str, dict[str, Any]]:
+    """A tool-free, single-shot DeepSeek generation (used for nested codegen).
+
+    Bypasses _deepseek_messages so the codegen prompt is clean (no adapter/SKILL
+    prefix). Returns (text, usage). Raises UpstreamError on connect failure.
+    """
+    payload = {
+        "model": os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
+        "messages": messages,
+        "temperature": 0.2,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "max_tokens": max_tokens,
+    }
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    req = urllib.request.Request(
+        f"{base_url}/chat/completions",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"content-type": "application/json", "authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"},
+        method="POST",
+    )
+    try:
+        upstream = urllib.request.urlopen(req, timeout=120)
+    except urllib.error.HTTPError as error:
+        raise UpstreamError(error.code)
+    except urllib.error.URLError:
+        raise UpstreamError(0)
+    text_parts: list[str] = []
+    usage_obj: dict[str, Any] = {}
+    try:
+        for raw_line in upstream:
+            line = raw_line.decode("utf-8").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if chunk.get("usage"):
+                usage_obj = chunk["usage"]
+            for choice in chunk.get("choices") or []:
+                piece = (choice.get("delta") or {}).get("content")
+                if piece:
+                    text_parts.append(piece)
+    finally:
+        close = getattr(upstream, "close", None)
+        if callable(close):
+            close()
+    return "".join(text_parts), usage_obj
+
+
+def _make_codegen(user: dict[str, Any], body: dict[str, Any], started_at: datetime):
+    """Build the interception callback the stream translator uses to fill code.
+
+    Resolves the codegen grounding once (manifest/board/contexts/intent), then
+    returns codegen(target_path, file_intent) -> code|None, metering each nested
+    generation as a kind="codegen" turn (so server-internal codegen still bills).
+    """
+    manifest = body.get("manifest") if isinstance(body.get("manifest"), dict) else {}
+    board = _resolve_board(manifest, body)
+    contexts = _resolve_driver_contexts(manifest)
+    intent = _first_user_text(body)
+
+    def codegen(target_path: str, file_intent: str) -> str | None:
+        prompt = _codegen_user_prompt(target_path, file_intent, intent, board, contexts, manifest)
+        try:
+            text, usage = _call_deepseek_plain([{"role": "user", "content": prompt}], CODEGEN_MAX_TOKENS)
+        except UpstreamError as error:
+            logger.warning("nested codegen upstream error", extra={"status": error.status})
+            return None
+        code = _strip_code_fences(text)
+        # Metering must never abort the SSE stream (this runs mid-translation): a DB /
+        # analytics failure should degrade to "code without billing", not kill the turn.
+        try:
+            charge = credit_store.record_tokens(user, _billable_tokens(usage))
+            if charge > 0:
+                credit_store.debit(user, charge)
+            analytics.record_llm_turn(
+                trace_id=body.get("trace_id"),
+                user_id=str(user["id"]),
+                kind="codegen",
+                model=os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
+                started_at=started_at,
+                total_tokens=int(usage.get("total_tokens", 0) or 0),
+                credits_charged=charge,
+                status="success" if code else "error",
+                error_kind=None if code else "codegen_empty",
+            )
+        except Exception:  # noqa: BLE001 - never abort the stream on a metering error
+            logger.warning("codegen metering failed", exc_info=False)
+        return code or None
+
+    return codegen
+
+
+def _maybe_fill_code(name: str, arguments: str, codegen) -> str:
+    """If this is a code-file write with only an intent, generate and inline the
+    content; otherwise return the arguments unchanged."""
+    if codegen is None or name != "file_operation":
+        return arguments
+    try:
+        payload = json.loads(arguments) if arguments else {}
+    except json.JSONDecodeError:
+        return arguments
+    if payload.get("op") != "write":
+        return arguments
+    path = payload.get("path", "")
+    # Only firmware Python files get server codegen — never docs/*.py or odd paths,
+    # so an errant write can't burn codegen budget outside the firmware tree.
+    if not isinstance(path, str) or not (path.startswith("firmware/") and path.endswith(".py")):
+        return arguments
+    if payload.get("content"):  # model already inlined content; leave it
+        return arguments
+    intent = payload.get("intent")
+    if not intent:
+        return arguments
+    try:
+        code = codegen(path, str(intent))
+    except Exception:  # noqa: BLE001 - codegen must never abort the SSE stream
+        logger.warning("codegen failed; forwarding intent unchanged", extra={"path": path})
+        return arguments
+    if not code:
+        return arguments
+    payload["content"] = code
+    payload.pop("intent", None)
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _payload_violation(name: str, arguments: str) -> str | None:
+    """Return a short reason if a protocol tool's payload is malformed, else None.
+
+    Used for observability inside the streaming translator. The actionable repair
+    is the client's tool_result (it imports the same contract and re-prompts the
+    model next turn); this is the server-side belt that makes violations visible.
+    """
+    validator = _PAYLOAD_VALIDATORS.get(name)
+    if validator is None:
+        return None
+    try:
+        payload = json.loads(arguments) if arguments else {}
+    except json.JSONDecodeError as error:
+        return f"invalid_json: {error}"
+    errors = sorted(validator.iter_errors(payload), key=lambda e: list(e.path))
+    if errors:
+        first = errors[0]
+        location = "/".join(str(p) for p in first.path) or "<root>"
+        return f"{location}: {first.message}"
+    # Semantic checks the JSON Schema can't express across enum values: a write/append
+    # must carry either content or an intent (so the server codegen has something to
+    # generate from) — otherwise the plugin would create an empty file.
+    if name == "file_operation" and payload.get("op") in ("write", "append"):
+        if not payload.get("content") and not payload.get("intent"):
+            return "file_operation write/append requires content or intent"
+    return None

@@ -1,7 +1,9 @@
 """Lock in the upstream skill adapter surface.
 
-The submodule stays the knowledge source, but the product agent consumes sanitized
-phase profiles instead of raw SKILL.md bodies.
+The submodule stays the knowledge source. Under the protocol rewrite the cloud
+agent consumes the FULL verbatim SKILL.md (via skill_md_body), not a sanitized
+phase profile — a server-side adapter preamble translates its intent into the 6
+protocol tools.
 """
 
 from app import skill_catalog
@@ -22,22 +24,25 @@ def test_driver_authoring_family_is_not_served():
 
 def test_served_skills_resolve_to_real_submodule_files():
     present = skill_catalog.served_skill_names()
-    # The submodule is checked out, so every served skill resolves to a SKILL.md.
     assert set(present) == set(skill_catalog.SERVED_SKILLS), f"missing served skills: {set(skill_catalog.SERVED_SKILLS) - set(present)}"
 
 
-def test_phase_profile_sanitizes_raw_upstream_markdown():
-    profile = skill_catalog.phase_profile("diagram")
+def test_skill_md_body_returns_full_raw_markdown():
+    # The whole point of the rewrite: the model now sees the REAL SKILL.md, including
+    # its local-agent phrasing (the adapter preamble tells it to translate that into
+    # protocol tools). So the raw body MUST still contain the markdown — not a profile.
+    body = skill_catalog.skill_md_body("analyze")
+    assert body and "# " in body  # a heading -> real markdown body
+    assert "SKILL" in body or "Skill" in body or "skill" in body
+    # carries forward verbatim (no sanitization stripping mpremote/scripts/paths)
+    deploy = skill_catalog.skill_md_body("deploy")
+    assert deploy and ("mpremote" in deploy or "```" in deploy)
 
-    assert profile["phase"] == "diagram"
-    assert profile["source"] == "sanitized_skill_profile"
-    serialized = str(profile)
-    assert "SKILL.md" not in serialized
-    assert "mpremote" not in serialized
-    assert "python " not in serialized
-    assert "scripts/" not in serialized
-    assert "third_party" not in serialized
-    assert "C:/Users/" not in serialized
+
+def test_skill_md_body_rejects_unknown_phases():
+    assert skill_catalog.skill_md_body("upy-diagram") is None
+    assert skill_catalog.skill_md_body("../diagram") is None
+    assert skill_catalog.skill_md_body("not-a-phase") is None
 
 
 def test_skill_description_reads_frontmatter():
@@ -48,8 +53,3 @@ def test_skill_description_reads_frontmatter():
 def test_skill_md_path_rejects_traversal_and_unknown_names():
     for name in ["../secret", "upy-analyze/../../etc", "does-not-exist"]:
         assert skill_catalog.skill_md_path(name) is None
-
-
-def test_phase_profile_rejects_upstream_names_and_unknown_phases():
-    assert skill_catalog.phase_profile("upy-diagram") is None
-    assert skill_catalog.phase_profile("../diagram") is None

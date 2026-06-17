@@ -8,6 +8,8 @@ import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { createAgentBackedLoop, DEV_API_BASE_URL } from "../core/agent-backed-loop.ts";
+import { createProtocolLoop } from "../core/protocol-build.ts";
+import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
 import { createDeviceShim, detectPython, venvReady, installVenvAsync } from "../extension/device-shim.ts";
 import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
@@ -152,9 +154,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
     }
     if (message.type === "start_session") {
-      const registry = await checkToolRegistry(apiBaseUrl, fetchImpl);
-      if (registry.warning === "tool_registry_mismatch") {
-        webview.postMessage({ type: "session_error", error: "tool_registry_mismatch" });
+      const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
+      if (registry.warning === "protocol_version_mismatch") {
+        webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
         webview.postMessage({ type: "session_done", terminal: "session_error" });
         return;
       }
@@ -265,8 +267,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // agent's first device tool always sees the chosen port — no select_device race.
       if (message.answer === "confirm" && message.port) shim.setPort?.(message.port);
       // `feedback` rides along on a plan "revise" so the agent can re-plan; `devices`
-      // rides along on a component-confirm so the host knows the kept parts.
-      controller.resolvePrompt(message.promptId, message.answer, { feedback: message.feedback, devices: message.devices });
+      // rides along on a component-confirm so the host knows the kept parts. The
+      // protocol approval card also rides selected_ids/text_values/added_items here,
+      // which confirmApproval unpacks into the approval_response.
+      controller.resolvePrompt(message.promptId, message.answer, { feedback: message.feedback, devices: message.devices, selected_ids: message.selected_ids, text_values: message.text_values, added_items: message.added_items });
     }
     if (message.type === "cancel_session") {
       controller.cancel();
@@ -279,6 +283,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       controller.reset();
     }
   });
+}
+
+async function checkProtocolVersion(apiBaseUrl: string, fetchImpl: typeof fetch) {
+  try {
+    return await new ApiClient(apiBaseUrl, fetchImpl).checkProtocolVersion(PROTOCOL_VERSION);
+  } catch {
+    // Reachability problems surface elsewhere (auth/credits/health); a failed skew
+    // check must not block the session.
+    return { ok: true };
+  }
 }
 
 async function checkToolRegistry(apiBaseUrl: string, fetchImpl: typeof fetch) {
@@ -307,7 +321,10 @@ function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?
   if (mode === "template") {
     return createApiPipelineLoop(deps);
   }
-  return createAgentBackedLoop(deps);
+  // Protocol path: the server drives via the 7-message plugin-interface, the
+  // extension is the dumb executor. createAgentBackedLoop is kept for the legacy
+  // 27-tool CLIs only.
+  return createProtocolLoop(deps);
 }
 
 // read_workspace_file backing: reads a workspace-relative file, refusing any path

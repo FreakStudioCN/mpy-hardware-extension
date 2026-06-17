@@ -143,7 +143,7 @@ def test_deepseek_payload_is_byte_stable_for_prefix_caching():
             {"role": "assistant", "content": [{"type": "tool_use", "id": "c1", "name": "query_board_profile", "input": {"board_id": "esp32-s3-devkitc-1"}}]},
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "{\"ok\": true}"}]},
         ],
-        "tools": [{"name": "query_board_profile"}, {"name": "search_packages"}, {"name": "get_phase_profile"}],
+        "tools": [{"name": "file_operation"}, {"name": "device_command"}],
     }
 
     first = routes_llm._deepseek_payload(body)
@@ -152,8 +152,12 @@ def test_deepseek_payload_is_byte_stable_for_prefix_caching():
     assert json.dumps(first["messages"]) == json.dumps(second["messages"])
     assert json.dumps(first.get("tools")) == json.dumps(second.get("tools"))
     assert first["messages"][0]["role"] == "system"
-    assert first["messages"][0]["content"].startswith(routes_llm.SYSTEM_PROMPT)
-    assert [tool["function"]["name"] for tool in first["tools"]] == ["query_board_profile", "search_packages", "get_phase_profile"]
+    # System prompt = adapter preamble + the phase SKILL.md (+ recipe); the request
+    # carries no phase, so it defaults to analyze.
+    assert first["messages"][0]["content"].startswith(routes_llm._system_prompt("analyze"))
+    # The server always offers exactly the 6 protocol tools, in a fixed sorted order
+    # for the prefix-cache contract — regardless of what the client requested.
+    assert [tool["function"]["name"] for tool in first["tools"]] == sorted(routes_llm.LLM_TOOL_NAMES)
 
 
 def test_llm_messages_rejects_noncanonical_tool():
@@ -570,24 +574,6 @@ def test_deepseek_messages_round_trips_reasoning_content():
     assert assistant["tool_calls"][0]["function"]["name"] == "query_board_profile"
 
 
-def test_llm_tool_capabilities_come_from_package_store(monkeypatch):
-    from app import routes_llm
-
-    class FakeStore:
-        records = [
-            {"capabilities": ["temperature_sensing"]},
-            {"capabilities": ["analog_input"]},
-        ]
-
-    monkeypatch.setattr(routes_llm.PackageStore, "default", classmethod(lambda _cls: FakeStore()))
-
-    tools = routes_llm._deepseek_tools([{"name": "resolve_package_candidates"}])
-    capability_enum = tools[0]["function"]["parameters"]["properties"]["capabilities"]["items"]["enum"]
-
-    assert capability_enum == ["analog_input", "temperature_sensing"]
-    assert "temperature_sensing, humidity_sensing, digital_output, display_text" not in routes_llm.SYSTEM_PROMPT
-
-
 def test_system_prompt_is_delivered_to_the_provider_as_the_system_message():
     from app import routes_llm
 
@@ -597,7 +583,7 @@ def test_system_prompt_is_delivered_to_the_provider_as_the_system_message():
     # individual phrases — while still catching a regression that drops the prompt.
     messages = routes_llm._deepseek_messages({"messages": [{"role": "user", "content": "blink an LED"}]})
     assert messages[0]["role"] == "system"
-    assert messages[0]["content"].startswith(routes_llm.SYSTEM_PROMPT)
+    assert messages[0]["content"].startswith(routes_llm._system_prompt("analyze"))
 
 
 def test_system_prompt_pins_user_language_against_skill_drift():
@@ -621,121 +607,25 @@ def test_system_prompt_pins_user_language_against_skill_drift():
     assert "The user is writing in English" in mixed
 
 
-def test_system_prompt_omits_removed_not_hardware_refusal():
+def test_protocol_tools_are_byte_stable():
     from app import routes_llm
 
-    # The <not_hardware> refusal was deliberately removed (ambiguous intents are
-    # clarified via ask_user, not refused). Guard against it being reintroduced.
-    assert "<not_hardware>" not in routes_llm.SYSTEM_PROMPT
-
-
-def test_system_prompt_owns_the_static_behaviour_rules():
-    from app import routes_llm
-
-    # These rules used to be duplicated in the client's buildOpening and drifted.
-    # They now live ONLY here (the system prompt is the single home, re-sent every
-    # round), so pin that the consolidation didn't drop them — that drift is exactly
-    # what the refactor closed.
-    prompt = routes_llm.SYSTEM_PROMPT
-    assert "support_level" in prompt  # package support-level guidance (was client-only)
-    assert "firmware/main.py" in prompt  # multi-file code-structure guidance (was client-only)
-    assert "one continuous run" in prompt  # don't-stall-between-phases rule (was client-only)
-
-
-def test_llm_local_tools_expose_parameter_schemas():
-    from app import routes_llm
-
-    expected = {
-        "propose_manifest": ["manifest"],
-        "generate_code": ["manifest", "target_path"],
-        "audit_code": ["path", "content"],
-        "ask_user": ["question"],
-    }
-    tools = routes_llm._deepseek_tools([{"name": name} for name in expected])
-    by_name = {tool["function"]["name"]: tool["function"]["parameters"] for tool in tools}
-
-    for name, required in expected.items():
-        parameters = by_name[name]
-        assert parameters["required"] == required
-        assert parameters["properties"], f"{name} must expose properties, not an empty fallback schema"
-        assert parameters["additionalProperties"] is False
-
-
-def test_propose_manifest_schema_documents_the_rich_upstream_manifest():
-    from app import routes_llm
-
-    # The model only proposes a well-formed manifest if the tool schema actually
-    # describes its shape. The contract is now the upstream phased project-manifest
-    # (analyze->select-hw->...), so the nested schema must list its required fields
-    # and describe devices[] (wiring is DERIVED from devices+pinout, never emitted).
-    tools = routes_llm._deepseek_tools([{"name": "propose_manifest"}])
-    manifest = tools[0]["function"]["parameters"]["properties"]["manifest"]
-
-    assert set(manifest["required"]) >= {
-        "schema_version", "phase", "created_at", "project_name", "requirements", "devices",
-    }
-    assert manifest["properties"]["devices"]["type"] == "array"
-    assert "phase" in manifest["properties"]
-    assert "analyze" in manifest["properties"]["phase"]["enum"]
-
-
-def test_generate_code_schema_requires_the_rich_upstream_manifest():
-    from app import routes_llm
-
-    tools = routes_llm._deepseek_tools([{"name": "generate_code"}])
-    tool = tools[0]["function"]
-    manifest = tool["parameters"]["properties"]["manifest"]
-
-    assert "rich upstream project-manifest" in tool["description"]
-    assert set(manifest["required"]) >= {
-        "schema_version", "phase", "created_at", "project_name", "requirements", "devices",
-    }
-    assert manifest["properties"]["schema_version"]["enum"] == ["1.0"]
-    assert "legacy thin manifests" in tool["description"]
-
-
-def test_propose_manifest_schema_is_byte_stable():
-    from app import routes_llm
-
-    # The tools array is part of DeepSeek's cached request prefix; the manifest
-    # schema is static JSON, so the converted tool must serialize identically across
-    # calls (no nondeterministic enrichment crept onto this path).
-    first = routes_llm._deepseek_tools([{"name": "propose_manifest"}])
-    second = routes_llm._deepseek_tools([{"name": "propose_manifest"}])
+    # The tools array is part of DeepSeek's cached request prefix, so the 6 protocol
+    # tools must serialize identically across calls (no nondeterministic enrichment),
+    # in a fixed sorted order.
+    first = routes_llm._deepseek_tools([])
+    second = routes_llm._deepseek_tools([])
     assert json.dumps(first) == json.dumps(second)
+    assert [t["function"]["name"] for t in first] == sorted(routes_llm.LLM_TOOL_NAMES)
 
 
-def test_llm_phase_profile_schema_comes_from_skill_catalog():
-    from app import routes_llm, skill_catalog
-
-    tools = routes_llm._deepseek_tools([{"name": "get_phase_profile"}])
-    parameters = tools[0]["function"]["parameters"]
-
-    assert parameters["required"] == ["phase"]
-    assert parameters["properties"]["phase"]["enum"] == skill_catalog.served_phase_names()
-    assert "diagram" in parameters["properties"]["phase"]["enum"]
-    assert "upy-diagram" not in parameters["properties"]["phase"]["enum"]
-
-
-def test_cloud_prompt_and_tools_do_not_expose_raw_skill_or_local_execution_details():
+def test_cloud_prompt_now_DOES_carry_the_full_skill(monkeypatch):
     from app import routes_llm
 
-    payload = routes_llm._deepseek_payload({
-        "messages": [{"role": "user", "content": "blink an LED"}],
-        "tools": [{"name": "get_phase_profile"}, {"name": "run_flash_device"}, {"name": "run_extract_pdf"}],
-    })
-    serialized = json.dumps(payload, ensure_ascii=False)
-
-    forbidden = [
-        "AVAILABLE SKILLS",
-        "SKILL.md",
-        "load_skill",
-        "mpremote",
-        "python ",
-        "/scripts",
-        "C:/Users/",
-        "G:/MicroPython_Skills",
-        "third_party/MicroPython_Skills",
-    ]
-    for needle in forbidden:
-        assert needle not in serialized
+    # The rewrite REVERSES the old "never expose the raw skill" rule: the model now
+    # reads the full verbatim SKILL.md (the adapter preamble translates its intent
+    # into protocol tools), so the deploy skill's mpremote/script phrasing is present.
+    payload = routes_llm._deepseek_payload({"phase": "deploy", "messages": [{"role": "user", "content": "blink an LED"}]})
+    system = payload["messages"][0]["content"]
+    assert "PHASE SKILL (deploy)" in system
+    assert "mpremote" in system or "```" in system

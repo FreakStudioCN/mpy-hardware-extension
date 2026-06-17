@@ -91,26 +91,17 @@ def test_skill_route_rejects_path_traversal():
     assert response.status_code == 404
 
 
-def test_phase_profiles_listing_and_detail_are_served():
-    listing = client.get("/v1/phase-profiles")
-
+def test_skills_listing_carries_protocol_version():
+    # The sanitized /v1/phase-profiles surface is gone (the model now reads the full
+    # SKILL.md). /v1/skills instead carries protocol_version for the client skew check.
+    listing = client.get("/v1/skills")
     assert listing.status_code == 200
     body = listing.json()
-    assert body["version"]
-    assert body["toolchain_version"]
-    assert body["phases"], "at least one phase profile is served"
-    assert all({"phase", "goal"} <= set(profile) for profile in body["phases"])
-
-    # Detail for a real phase comes back in full (drive the name off the listing so
-    # this doesn't pin a specific phase that a content refresh could rename).
-    known = body["phases"][0]["phase"]
-    detail = client.get(f"/v1/phase-profiles/{known}")
-    assert detail.status_code == 200
-    assert detail.json()["phase"] == known
+    assert body["protocol_version"]
+    assert body["skills"]
 
 
-def test_phase_profile_unknown_phase_returns_404():
-    response = client.get("/v1/phase-profiles/not-a-real-phase")
-
-    assert response.status_code == 404
-    assert response.json()["detail"]["error"] == "phase_profile_not_found"
+def test_phase_profiles_route_is_removed():
+    # The sanitized phase-profile endpoint was deleted in the protocol rewrite.
+    assert client.get("/v1/phase-profiles").status_code == 404
+    assert client.get("/v1/phase-profiles/analyze").status_code == 404
