@@ -4,9 +4,14 @@ from app import db
 
 
 @pytest.fixture(autouse=True)
-def _api_env(monkeypatch):
+def _api_env(monkeypatch, request):
     """Run API tests against a real Postgres database only."""
     import os
+
+    if request.node.get_closest_marker("no_db"):
+        monkeypatch.setenv("MPYHW_JWT_SECRET", "test-secret")
+        yield
+        return
 
     url = os.getenv("MPYHW_TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
     if not url:

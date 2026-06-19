@@ -8,4 +8,5 @@ markers = [
     "slow: timing-sensitive or otherwise slow test",
     "serial: needs pyserial / a real serial port",
     "subprocess: spawns a real child process",
+    "no_db: does not touch the Postgres-backed app stores",
 ]

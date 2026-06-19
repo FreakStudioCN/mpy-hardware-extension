@@ -6,6 +6,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app import auth, db, llm_sessions
 from app.logging_config import setup_logging
@@ -18,6 +19,7 @@ from app.routes_packages import router as package_router
 from app.routes_llm import router as llm_router
 from app.routes_telemetry import router as telemetry_router
 from app.routes_tools import router as tools_router
+from app.routes_web import router as web_router
 
 logger = logging.getLogger("mpyhw.request")
 _startup_log = logging.getLogger("mpyhw.startup")
@@ -132,6 +134,12 @@ class RequestLogMiddleware:
 
 
 app = FastAPI(title="mpyhw-api", version="0.2.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 app.add_middleware(RequestLogMiddleware)
 app.include_router(admin_router)
 app.include_router(health_router)
@@ -142,3 +150,4 @@ app.include_router(llm_router)
 app.include_router(auth_router)
 app.include_router(credits_router)
 app.include_router(telemetry_router)
+app.include_router(web_router)
