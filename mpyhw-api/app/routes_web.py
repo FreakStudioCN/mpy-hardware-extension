@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
 
+from app import recommendation_catalog
+
 
 router = APIRouter()
 
@@ -87,6 +89,33 @@ def _parts_for_idea(idea: str) -> list[dict[str, str]]:
 @router.post("/v1/web/recommend")
 def web_recommend(request: WebRecommendRequest):
     idea = request.idea.strip()
+    board = recommendation_catalog.select_beginner_board()
+    purchase_links = recommendation_catalog.load_purchase_links()
+    if board:
+        slug = board.get("slug")
+        links = purchase_links.get(slug, []) if slug else []
+        primary_link = links[0]["url"] if links else board.get("more_info_url") or board.get("detail_url")
+        firmware = board.get("firmware") or {}
+        release = firmware.get("latest_release") or {}
+        return {
+            "recommended_board": {
+                "name": board.get("name") or slug or "MicroPython board",
+                "why": "Beginner-friendly MicroPython target with official firmware and purchase guidance.",
+                "buy_url": primary_link,
+                "purchase_links": links,
+                "micropython_url": board.get("detail_url"),
+                "firmware_url": release.get("url"),
+                "source": "micropython_catalog",
+            },
+            "parts": _parts_for_idea(idea),
+            "starter_prompt": f"Build a MicroPython project for: {idea}",
+            "handoff": {
+                "starter_prompt": f"Build a MicroPython project for: {idea}",
+                "locale": request.locale,
+                "region": request.region,
+                "board_slug": slug,
+            },
+        }
     return {
         "recommended_board": {
             "name": "ESP32-S3 DevKitC-1",

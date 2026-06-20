@@ -1,6 +1,9 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
+from app import recommendation_catalog
 from app.main import app
 
 
@@ -55,3 +58,58 @@ def test_web_recommend_allows_browser_cors_preflight():
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "*"
+
+
+def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):
+    boards_path = tmp_path / "micropython_boards.json"
+    links_path = tmp_path / "hardware_purchase_links_us.json"
+    boards_path.write_text(
+        json.dumps(
+            {
+                "boards": [
+                    {
+                        "slug": "ESP32_GENERIC_S3",
+                        "name": "ESP32-S3",
+                        "vendor": "Espressif",
+                        "detail_url": "https://micropython.org/download/ESP32_GENERIC_S3/",
+                        "firmware": {
+                            "latest_release": {
+                                "version": "v1.28.0",
+                                "date": "2026-04-06",
+                                "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_S3.bin",
+                            }
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    links_path.write_text(
+        json.dumps(
+            {
+                "links_by_slug": {
+                    "ESP32_GENERIC_S3": [
+                        {
+                            "vendor": "Espressif",
+                            "url": "https://www.espressif.com/en/products/devkits",
+                            "link_type": "official",
+                            "confidence": "high",
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(recommendation_catalog, "BOARDS_PATH", boards_path)
+    monkeypatch.setattr(recommendation_catalog, "LINKS_PATH", links_path)
+
+    response = client.post("/v1/web/recommend", json={"idea": "blink led", "locale": "en", "region": "us"})
+
+    assert response.status_code == 200
+    board = response.json()["recommended_board"]
+    assert board["name"] == "ESP32-S3"
+    assert board["buy_url"] == "https://www.espressif.com/en/products/devkits"
+    assert board["micropython_url"] == "https://micropython.org/download/ESP32_GENERIC_S3/"
+    assert board["firmware_url"].endswith("ESP32_GENERIC_S3.bin")
