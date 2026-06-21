@@ -269,7 +269,6 @@
     "author": "hogeiha",
     "cached": true,
     "capabilities": [
-      "digital_input",
       "magnetic_sensing"
     ],
     "chips": "all",

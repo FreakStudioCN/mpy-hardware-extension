@@ -265,24 +265,17 @@ def board_purchase_links(slug: str, region: str = "us") -> list[dict[str, Any]]:
 def module_purchase_links(module_name: str, region: str = "us") -> list[dict[str, str]]:
     """Buy links for one hardware module, keyed by canonical_chip_id so a catalog
     name (`aht20_driver`) and its curated entry (`aht20`) join. Returns the curated,
-    audited product links when present, else a labeled beginner-friendly search
-    fallback (Adafruit maker store + Amazon) so the endpoint stays usable before the
-    library is built. DigiKey is deliberately avoided: its industrial catalog is
-    off-putting for the hardware novices this site targets."""
+    audited product link when present, else a single labeled Amazon search fallback so
+    the endpoint stays usable before the library is built. One channel only: the target
+    user is a non-engineer who wants one place to buy, not a choice between maker stores.
+    Amazon is the consumer-familiar default (niche Adafruit search and industrial DigiKey
+    are deliberately not offered as the fallback)."""
     key = canonical_chip_id(module_name)
     curated = load_module_purchase_links(region).get(key)
     if curated:
         return curated
     query = quote_plus(module_name.strip())
     return [
-        {
-            "vendor": "Adafruit",
-            "url": f"https://www.adafruit.com/search?q={query}",
-            "link_type": "search_fallback",
-            "confidence": "low",
-            "checked_at": _today(),
-            "notes": "Maker-store search fallback; product page was not individually verified.",
-        },
         {
             "vendor": "Amazon",
             "url": f"https://www.amazon.com/s?k={query}",
@@ -292,6 +285,45 @@ def module_purchase_links(module_name: str, region: str = "us") -> list[dict[str
             "notes": "Search fallback; marketplace listing was not individually verified.",
         },
     ]
+
+
+# Vendor "family"/SoC catalog pages that are not a buyable product: clicking one lands a
+# beginner on a wall of chips with no add-to-cart, not on the dev board they need. They
+# must never be surfaced as a buy action (nor leak into the returned purchase_links).
+# Matched as URL substrings; extend as new offenders appear.
+FAMILY_PAGE_URL_PATTERNS: tuple[str, ...] = (
+    "espressif.com/en/products/modules",
+    "espressif.com/en/products/devkits",
+    "espressif.com/en/products/socs",
+)
+
+
+def _is_family_page(url: str) -> bool:
+    low = (url or "").lower()
+    return any(pattern in low for pattern in FAMILY_PAGE_URL_PATTERNS)
+
+
+def filter_buyable_links(links: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop vendor family/SoC catalog pages so they can't be shown (or leak in the
+    payload) as a buy action. Order preserved."""
+    return [link for link in links if not _is_family_page(str(link.get("url") or ""))]
+
+
+def select_primary_link(links: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Choose the single buy action to surface: the first real product page, else the
+    first search fallback, after dropping family/SoC pages. Returns a small render-ready
+    dict {url, store, is_search} the front-end shows as one button, or None when there is
+    nothing buyable at all."""
+    buyable = filter_buyable_links(links)
+    if not buyable:
+        return None
+    direct = next((link for link in buyable if link.get("link_type") != "search_fallback"), None)
+    chosen = direct or buyable[0]
+    return {
+        "url": chosen.get("url"),
+        "store": chosen.get("vendor") or "",
+        "is_search": chosen.get("link_type") == "search_fallback",
+    }
 
 
 _BEGINNER_BOARD_ORDER = ("ESP32_GENERIC_S3", "RPI_PICO_W", "ESP32_GENERIC_C3", "ESP32_GENERIC")

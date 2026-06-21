@@ -61,6 +61,35 @@ def test_audio_output_search_returns_a_real_audio_part():
     assert "audio_output" in top[0]["capabilities"]
 
 
+def test_infer_capabilities_does_not_mistag_magnetic_encoder_as_digital_input():
+    # Regression: AS5600 is a magnetic ANGLE encoder (absolute angle over I2C), not a
+    # switch. The bare 'rotary'/'encoder' keywords used to also tag it digital_input, so
+    # 'a box that screams when opened' resolved to an angle sensor instead of a contact
+    # switch (the user-reported absurd recommendation).
+    caps = infer_capabilities(
+        {"name": "as5600l_driver",
+         "description": "A MicroPython library to control AS5600 / AS5600L 12-bit magnetic rotary encoder over I2C"}
+    )
+    assert "magnetic_sensing" in caps
+    assert "digital_input" not in caps
+    # A plain (non-magnetic) rotary encoder knob really is a digital input -- still tagged.
+    plain = infer_capabilities(
+        {"name": "rotaryencoder_driver", "description": "A MicroPython library to control a rotary encoder"}
+    )
+    assert "digital_input" in plain
+
+
+def test_digital_input_search_returns_a_switch_not_angle_encoder():
+    # With the mis-tag fixed (inference + baked catalog data), an open/close detection need
+    # resolves to a contact input, never the AS5600 magnetic angle encoder.
+    store = PackageStore.default()
+    top = store.search("a box that screams when someone opens it", ["digital_input"], limit=1)
+
+    assert top
+    assert top[0]["name"] != "as5600l_driver"
+    assert "digital_input" in top[0]["capabilities"]
+
+
 def test_search_demotes_wrong_board_family_parts():
     # Same capability, two equal candidates differing only by chip family: the one that
     # matches the requested board family must win, so the website never recommends an

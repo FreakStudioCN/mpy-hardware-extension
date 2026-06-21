@@ -1,6 +1,6 @@
 {
   "fetched_at": "2026-06-20T00:00:00+00:00",
-  "notes": "Curated, verified consumer product pages keyed by package_store.canonical_chip_id. Each url was confirmed to resolve to that exact part. Catalog parts without a clean exact product page (max30102, ds1302, cs1237, gt911, bus_dc_motor, tcs34725_color) are intentionally omitted and fall through to the labeled DigiKey/Amazon search fallback in recommendation_catalog.module_purchase_links.",
+  "notes": "Curated, verified consumer product pages keyed by package_store.canonical_chip_id. Each url was confirmed to resolve to that exact part. Catalog parts without a clean exact product page (max30102, ds1302, cs1237, gt911, bus_dc_motor, tcs34725_color -- their exact chips aren't sold as clean beginner modules; the Adafruit TCS34725 page is discontinued) are intentionally omitted and fall through to the single labeled Amazon search fallback in recommendation_catalog.module_purchase_links.",
   "links_by_module": {
     "machine_pin_led": [
       {

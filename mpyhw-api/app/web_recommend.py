@@ -150,13 +150,61 @@ def _llm_configured() -> bool:
 _llm_available = _llm_configured
 
 
+# Short, beginner-facing gloss for each taxonomy token, sent to the LLM so it selects by
+# what the idea must DO rather than which word it resembles. Motivating bug: "a box that
+# screams when opened" -> the model chose `magnetic_sensing` (literally "magnet"/"open")
+# and got an AS5600 rotary ANGLE encoder, when open/close detection is `digital_input`
+# (reed/hall/limit switch). The two are spelled out so the model can tell them apart.
+# Every taxonomy token must have an entry (enforced by test_build_prompt_*).
+_CAPABILITY_DESCRIPTIONS: dict[str, str] = {
+    "temperature_sensing": "measure temperature",
+    "humidity_sensing": "measure humidity or soil moisture",
+    "pressure_sensing": "measure barometric / air pressure",
+    "display_text": "show text or graphics on a screen (OLED / LCD / e-ink)",
+    "digital_output": "switch something on/off (LED, relay, addressable LED strip)",
+    "digital_input": (
+        "read an on/off signal: a button press, or detecting open/close or contact with "
+        "a switch (reed switch, hall switch, limit switch, tilt) -- e.g. 'is the lid open'"
+    ),
+    "motion_sensing": "detect movement, tilt, orientation, or acceleration (PIR, accelerometer, gyro / IMU)",
+    "distance_sensing": "measure distance or proximity to an object (ultrasonic, time-of-flight)",
+    "color_sensing": "identify the color of something",
+    "analog_input": "read a continuous analog value (a knob / potentiometer, a raw voltage via ADC)",
+    "analog_output": "output a continuous analog voltage (DAC, digital potentiometer)",
+    "servo_control": "move a servo motor to a specific angle",
+    "touch_sensing": "detect a finger via capacitive touch",
+    "gas_sensing": "detect gas or air quality (CO2, VOC, smoke)",
+    "timekeeping": "keep real-world time / a real-time clock",
+    "magnetic_sensing": (
+        "measure magnetic field strength, compass direction, or a rotation ANGLE "
+        "(magnetometer, AS5600 rotary encoder) -- NOT simple open/close detection; use "
+        "digital_input for 'is it opened'"
+    ),
+    "light_sensing": "measure ambient light level / brightness in lux",
+    "uv_sensing": "measure ultraviolet (UV) light",
+    "current_sensing": "measure electrical current or power draw",
+    "motor_control": "drive a DC or stepper motor (spin / move)",
+    "weight_sensing": "measure weight or force with a load cell",
+    "heart_rate_sensing": "measure heart rate or blood-oxygen (SpO2)",
+    "sound_sensing": "detect or measure sound with a microphone",
+    "audio_output": "play sound or audio -- a beep, alarm, or 'scream' (buzzer, speaker, MP3 module)",
+}
+
+
+def _capability_glossary() -> str:
+    return "\n".join(
+        f"- {token}: {_CAPABILITY_DESCRIPTIONS.get(token, '')}" for token in sorted(_TAXONOMY)
+    )
+
+
 def _build_prompt(idea: str) -> str:
-    tokens = ", ".join(sorted(_TAXONOMY))
     return (
         "You extract hardware capabilities from a beginner's electronics project idea.\n"
         "Return ONLY a JSON object, no prose, no code fences.\n"
         'Schema: {"capabilities": [<tokens>], "board_family_hint": "esp32" | "rp2040" | null}\n'
-        f"Allowed capability tokens (use ONLY these): {tokens}\n"
+        "Allowed capability tokens (use ONLY these; pick by what the idea must DO, not by "
+        "the word it resembles):\n"
+        f"{_capability_glossary()}\n"
         "Rules: pick the 1-4 capabilities the idea needs. Do NOT invent tokens. "
         "Do NOT name any specific sensor, chip, or part. If unsure, return fewer.\n"
         # JSON-encode the idea so quotes/newlines in it can't break out of the prompt
@@ -281,7 +329,10 @@ def _display_name(name: str) -> str:
 
 def _part_row(hit: dict[str, Any], region: str = "us") -> dict[str, Any]:
     name = hit["name"]
-    links = recommendation_catalog.module_purchase_links(name, region)
+    links = recommendation_catalog.filter_buyable_links(
+        recommendation_catalog.module_purchase_links(name, region)
+    )
+    primary = recommendation_catalog.select_primary_link(links)
     return {
         "name": _display_name(name),
         "reason": hit.get("description") or "Beginner-friendly module for this project.",
@@ -289,13 +340,17 @@ def _part_row(hit: dict[str, Any], region: str = "us") -> dict[str, Any]:
         "support_level": hit.get("support_level"),
         "package_name": name,
         "version": hit.get("version"),
-        "buy_url": links[0]["url"] if links else None,
+        # buy_url stays as the single primary URL (back-compat); primary_link carries the
+        # store + is_search flag so the UI shows one honest button.
+        "buy_url": primary["url"] if primary else None,
+        "primary_link": primary,
         "purchase_links": links,
     }
 
 
 def _breadboard_fallback_row(region: str = "us") -> dict[str, Any]:
     links = recommendation_catalog.module_purchase_links("breadboard jumper wire kit", region)
+    primary = recommendation_catalog.select_primary_link(links)
     return {
         "name": "Breadboard jumper wire kit",
         "reason": "Connects the board to beginner-friendly modules.",
@@ -303,7 +358,8 @@ def _breadboard_fallback_row(region: str = "us") -> dict[str, Any]:
         "support_level": None,
         "package_name": "breadboard_jumper_wire_kit",
         "version": None,
-        "buy_url": links[0]["url"] if links else None,
+        "buy_url": primary["url"] if primary else None,
+        "primary_link": primary,
         "purchase_links": links,
     }
 

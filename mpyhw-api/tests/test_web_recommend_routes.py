@@ -266,8 +266,11 @@ def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):
                 "links_by_slug": {
                     "ESP32_GENERIC_S3": [
                         {
-                            "vendor": "Espressif",
-                            "url": "https://www.espressif.com/en/products/devkits",
+                            # A real buyable product page in the generated catalog (NOT a
+                            # vendor family/SoC page, which is filtered -- see
+                            # test_board_family_page_is_filtered_not_surfaced).
+                            "vendor": "Adafruit",
+                            "url": "https://www.adafruit.com/product/5477",
                             "link_type": "official",
                             "confidence": "high",
                         }
@@ -279,7 +282,7 @@ def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(recommendation_catalog, "BOARDS_PATH", boards_path)
     monkeypatch.setattr(recommendation_catalog, "LINKS_PATH", links_path)
-    # No curated board link for this slug -> the generated catalog link flows through.
+    # No curated board link for this slug -> the generated catalog product link flows through.
     monkeypatch.setattr(recommendation_catalog, "BOARD_LINKS_PATH", tmp_path / "no_board_links.json")
 
     response = client.post("/v1/web/recommend", json={"idea": "blink led", "locale": "en", "region": "us"})
@@ -287,9 +290,89 @@ def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):
     assert response.status_code == 200
     board = response.json()["recommended_board"]
     assert board["name"] == "ESP32-S3"
-    assert board["buy_url"] == "https://www.espressif.com/en/products/devkits"
+    assert board["buy_url"] == "https://www.adafruit.com/product/5477"
+    assert board["primary_link"]["is_search"] is False
+    assert board["primary_link"]["store"] == "Adafruit"
     assert board["micropython_url"] == "https://micropython.org/download/ESP32_GENERIC_S3/"
     assert board["firmware_url"].endswith("ESP32_GENERIC_S3.bin")
+
+
+def test_board_family_page_is_filtered_not_surfaced(tmp_path, monkeypatch):
+    # The bug: the generated catalog leads with a vendor family/SoC page
+    # (espressif.com/en/products/modules) that has no add-to-cart. It must never be the
+    # buy action nor leak into purchase_links; with no curated page the board falls to the
+    # honest single Amazon search instead.
+    boards_path = tmp_path / "micropython_boards.json"
+    links_path = tmp_path / "hardware_purchase_links_us.json"
+    boards_path.write_text(
+        json.dumps({"boards": [{"slug": "ESP32_GENERIC_S3", "name": "ESP32-S3", "vendor": "Espressif",
+                                "detail_url": "https://micropython.org/download/ESP32_GENERIC_S3/"}]}),
+        encoding="utf-8",
+    )
+    links_path.write_text(
+        json.dumps({"links_by_slug": {"ESP32_GENERIC_S3": [
+            {"vendor": "Espressif", "url": "https://www.espressif.com/en/products/modules", "link_type": "official"},
+            {"vendor": "Amazon", "url": "https://www.amazon.com/s?k=ESP32-S3", "link_type": "search_fallback"},
+        ]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(recommendation_catalog, "BOARDS_PATH", boards_path)
+    monkeypatch.setattr(recommendation_catalog, "LINKS_PATH", links_path)
+    monkeypatch.setattr(recommendation_catalog, "BOARD_LINKS_PATH", tmp_path / "no_board_links.json")
+
+    board = client.post(
+        "/v1/web/recommend", json={"idea": "blink led", "locale": "en", "region": "us"}
+    ).json()["recommended_board"]
+
+    assert "espressif.com/en/products/modules" not in board["buy_url"]
+    assert all("espressif.com/en/products/modules" not in link["url"] for link in board["purchase_links"])
+    assert board["buy_url"] == "https://www.amazon.com/s?k=ESP32-S3"
+    assert board["primary_link"]["is_search"] is True
+    assert board["primary_link"]["store"] == "Amazon"
+
+
+def test_board_with_no_buyable_link_fails_loudly(tmp_path, monkeypatch):
+    # Fail-fast: if every board link is a filtered family/SoC page (nothing buyable), the
+    # endpoint must ERROR loudly -- NOT return a card with a soft "Link pending" state nor a
+    # fabricated corporate link. A missing buyable board link is a data gap we want screaming.
+    boards_path = tmp_path / "micropython_boards.json"
+    links_path = tmp_path / "hardware_purchase_links_us.json"
+    boards_path.write_text(
+        json.dumps({"boards": [{"slug": "ESP32_GENERIC_S3", "name": "ESP32-S3", "vendor": "Espressif",
+                                "detail_url": "https://micropython.org/download/ESP32_GENERIC_S3/",
+                                "more_info_url": "https://www.espressif.com/en/products/modules"}]}),
+        encoding="utf-8",
+    )
+    links_path.write_text(
+        json.dumps({"links_by_slug": {"ESP32_GENERIC_S3": [
+            {"vendor": "Espressif", "url": "https://www.espressif.com/en/products/modules", "link_type": "official"},
+        ]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(recommendation_catalog, "BOARDS_PATH", boards_path)
+    monkeypatch.setattr(recommendation_catalog, "LINKS_PATH", links_path)
+    monkeypatch.setattr(recommendation_catalog, "BOARD_LINKS_PATH", tmp_path / "none.json")
+
+    response = client.post("/v1/web/recommend", json={"idea": "blink led", "locale": "en", "region": "us"})
+
+    assert response.status_code == 500
+    assert response.json()["detail"]["error"] == "board_unbuyable"
+
+
+def test_parts_carry_single_primary_link():
+    # Each part exposes one render-ready primary_link {url, store, is_search}; buy_url
+    # mirrors its url for back-compat.
+    body = client.post(
+        "/v1/web/recommend",
+        json={"idea": "a temperature alarm with an oled display", "locale": "en", "region": "us"},
+    ).json()
+
+    assert body["parts"]
+    for part in body["parts"]:
+        primary = part["primary_link"]
+        assert primary["url"].startswith("https://")
+        assert "is_search" in primary
+        assert part["buy_url"] == primary["url"]
 
 
 def test_web_recommend_board_buy_link_prefers_curated_buyable_page(tmp_path, monkeypatch):

@@ -353,10 +353,33 @@ CAPABILITY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+# digital_input keywords that denote a contact/switch (on/off) input, as opposed to the
+# 'rotary'/'encoder' keywords which can also describe a magnetic ANGLE encoder.
+_SWITCH_INPUT_KEYWORDS: tuple[str, ...] = (
+    "button", "joystick", "limit switch", "wheelswitch", "hall", "keypad", "keys",
+)
+
+
+def _disambiguate_capabilities(text: str, capabilities: list[str]) -> list[str]:
+    """A *magnetic* rotary encoder (e.g. AS5600: 12-bit absolute ANGLE over I2C) reports
+    an angle, not an on/off contact -- it is magnetic_sensing, not digital_input. The bare
+    'rotary'/'encoder' keywords (meant for incremental encoder knobs, which DO produce a
+    digital input) otherwise mis-tag it, so 'detect the lid opening' ideas resolve to an
+    angle sensor instead of a switch. Drop digital_input when it was inferred only from
+    rotary/encoder (no switch keyword present) AND the part is magnetic."""
+    if (
+        "digital_input" in capabilities
+        and "magnetic_sensing" in capabilities
+        and not any(keyword in text for keyword in _SWITCH_INPUT_KEYWORDS)
+    ):
+        return [cap for cap in capabilities if cap != "digital_input"]
+    return capabilities
+
+
 def infer_capabilities(raw: dict[str, Any]) -> list[str]:
     text = " ".join(str(raw.get(key, "")) for key in ("name", "description")).lower()
     capabilities: list[str] = []
     for capability, keywords in CAPABILITY_KEYWORDS:
         if capability not in capabilities and any(keyword in text for keyword in keywords):
             capabilities.append(capability)
-    return capabilities
+    return _disambiguate_capabilities(text, capabilities)

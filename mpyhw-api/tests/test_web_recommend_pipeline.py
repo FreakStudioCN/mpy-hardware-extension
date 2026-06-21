@@ -286,6 +286,23 @@ def test_build_prompt_json_encodes_idea():
     assert json.dumps(idea, ensure_ascii=False) in prompt
 
 
+def test_build_prompt_describes_every_capability_token():
+    # Every taxonomy token must carry a description so the model picks by MEANING, not by
+    # the word the idea resembles (the bug: "opens" -> magnetic_sensing instead of
+    # digital_input). A new token without a gloss would silently regress that.
+    prompt = web_recommend._build_prompt("a box that screams when opened")
+    for token in web_recommend._TAXONOMY:
+        assert f"- {token}:" in prompt
+        assert web_recommend._CAPABILITY_DESCRIPTIONS.get(token), f"{token} has no description"
+
+
+def test_build_prompt_disambiguates_open_close_from_magnetic():
+    # The two easily-confused capabilities are explicitly separated in the prompt.
+    prompt = web_recommend._build_prompt("a box that screams when opened")
+    assert "open/close" in prompt  # digital_input gloss
+    assert "NOT simple open/close" in prompt  # magnetic_sensing gloss steers away
+
+
 # --- assemble_parts -------------------------------------------------------
 
 

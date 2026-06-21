@@ -53,20 +53,20 @@ def test_driver_name_variant_resolves_to_same_curated_entry(tmp_path, monkeypatc
     assert links[0]["url"] == "https://www.adafruit.com/product/4566"
 
 
-def test_missing_key_falls_back_to_labeled_search_links(tmp_path, monkeypatch):
+def test_missing_key_falls_back_to_single_amazon_search(tmp_path, monkeypatch):
     _write_library(tmp_path, monkeypatch, {"ssd1306": []})
 
     links = recommendation_catalog.module_purchase_links("hcsr04")
 
-    assert links, "expected a search fallback when the module is not curated"
-    vendors = {link["vendor"] for link in links}
-    # Beginner-friendly channels only; DigiKey's industrial catalog is deliberately out.
-    assert {"Adafruit", "Amazon"} <= vendors
-    assert "DigiKey" not in vendors
-    for link in links:
-        assert link["link_type"] == "search_fallback"
-        assert link["confidence"] == "low"
-        assert link["url"].startswith("https://")
+    # One honest channel only (changed from the old dual Adafruit+Amazon): a non-engineer
+    # wants one place to buy, not a choice between maker stores. Amazon is the
+    # consumer-familiar default; Adafruit-search and industrial DigiKey are not offered.
+    assert len(links) == 1
+    link = links[0]
+    assert link["vendor"] == "Amazon"
+    assert link["link_type"] == "search_fallback"
+    assert link["confidence"] == "low"
+    assert link["url"].startswith("https://")
 
 
 def test_shipped_curated_library_is_well_formed_and_keys_map_to_catalog():
