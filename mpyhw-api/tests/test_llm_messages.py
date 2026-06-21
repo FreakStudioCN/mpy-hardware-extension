@@ -79,6 +79,14 @@ def test_llm_messages_not_gated_when_global_budget_unset(monkeypatch):
     assert "fake-provider" in response.text
 
 
+@pytest.mark.no_db
+def test_llm_messages_rejects_non_object_json():
+    response = client.post("/v1/llm/messages", json=["not", "an", "object"])
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "json_object_required"
+
+
 def test_stub_path_not_gated_by_global_budget(monkeypatch):
     # Stub mode makes no paid upstream call (0 cost), so the breaker must not block it
     # even with the budget exhausted — CI and local dev depend on the stub path.

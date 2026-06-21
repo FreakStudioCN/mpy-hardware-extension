@@ -4,9 +4,11 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 
 from app import auth, db, llm_sessions
 from app.logging_config import setup_logging
@@ -23,6 +25,26 @@ from app.routes_web import router as web_router
 
 logger = logging.getLogger("mpyhw.request")
 _startup_log = logging.getLogger("mpyhw.startup")
+
+_DEFAULT_CORS_ORIGINS = [
+    "https://blockless.ai",
+    "https://www.blockless.ai",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+_BODY_LIMITS = {
+    "/v1/web/recommend": 4096,
+    "/v1/web/events": 2048,
+    "/v1/web/newsletter": 1024,
+}
+
+
+def _cors_origins() -> list[str]:
+    configured = os.getenv("MPYHW_CORS_ORIGINS")
+    if configured is None:
+        return _DEFAULT_CORS_ORIGINS
+    origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return origins or _DEFAULT_CORS_ORIGINS
 
 
 def validate_config() -> None:
@@ -133,13 +155,74 @@ class RequestLogMiddleware:
                 )
 
 
+class RequestBodyLimitMiddleware:
+    """Reject selected anonymous website payloads before FastAPI parses JSON."""
+
+    def __init__(self, app, limits: dict[str, int]):
+        self.app = app
+        self.limits = limits
+
+    async def __call__(self, scope: dict[str, Any], receive, send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        limit = self.limits.get(scope.get("path", ""))
+        if not limit:
+            await self.app(scope, receive, send)
+            return
+
+        headers = {k.lower(): v for k, v in scope.get("headers", [])}
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                if int(raw_length.decode("ascii")) > limit:
+                    await self._reject(scope, send, limit)
+                    return
+            except ValueError:
+                await self._reject(scope, send, limit)
+                return
+
+        messages = []
+        total = 0
+        more_body = True
+        while more_body:
+            message = await receive()
+            messages.append(message)
+            if message.get("type") == "http.request":
+                total += len(message.get("body", b""))
+                if total > limit:
+                    await self._reject(scope, send, limit)
+                    return
+                more_body = bool(message.get("more_body", False))
+            else:
+                more_body = False
+
+        index = 0
+
+        async def replay_receive():
+            nonlocal index
+            if index < len(messages):
+                message = messages[index]
+                index += 1
+                return message
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+    async def _reject(self, scope: dict[str, Any], send, limit: int) -> None:
+        response = JSONResponse({"detail": {"error": "request_body_too_large", "max_bytes": limit}}, status_code=413)
+        await response(scope, None, send)
+
+
 app = FastAPI(title="mpyhw-api", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["authorization", "content-type"],
 )
+app.add_middleware(RequestBodyLimitMiddleware, limits=_BODY_LIMITS)
 app.add_middleware(RequestLogMiddleware)
 app.include_router(admin_router)
 app.include_router(health_router)

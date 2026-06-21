@@ -7,6 +7,8 @@ from app.main import app
 
 client = TestClient(app)
 
+pytestmark = pytest.mark.no_db
+
 
 def test_get_current_user_rejects_missing_header():
     with pytest.raises(HTTPException) as error:
@@ -82,3 +84,10 @@ def test_auth_github_requires_access_token():
 
     assert response.status_code == 400
     assert response.json()["detail"]["error"] == "missing_access_token"
+
+
+def test_auth_github_rejects_non_object_json():
+    response = client.post("/v1/auth/github", json=["not", "an", "object"])
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "json_object_required"

@@ -207,7 +207,12 @@ def _system_prompt(phase: str) -> str:
 
 @router.post("/v1/llm/messages")
 async def llm_messages(request: Request, user: dict = Depends(get_current_user)):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error": "invalid_json"}) from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail={"error": "json_object_required"})
     rejected = _noncanonical_tools(body.get("tools", []))
     if rejected:
         raise HTTPException(status_code=403, detail={"error": "tool_not_whitelisted", "rejected": rejected})
@@ -908,11 +913,14 @@ def _strip_code_fences(text: str) -> str:
     return stripped
 
 
-def _call_deepseek_plain(messages: list[dict[str, Any]], max_tokens: int) -> tuple[str, dict[str, Any]]:
+def _call_deepseek_plain(messages: list[dict[str, Any]], max_tokens: int, timeout: int = 120) -> tuple[str, dict[str, Any]]:
     """A tool-free, single-shot DeepSeek generation (used for nested codegen).
 
     Bypasses _deepseek_messages so the codegen prompt is clean (no adapter/SKILL
     prefix). Returns (text, usage). Raises UpstreamError on connect failure.
+
+    timeout defaults to 120s for codegen; the anonymous web-recommend path passes a
+    short value so a hung connection can't hold a worker for two minutes.
     """
     payload = {
         "model": os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
@@ -930,7 +938,7 @@ def _call_deepseek_plain(messages: list[dict[str, Any]], max_tokens: int) -> tup
         method="POST",
     )
     try:
-        upstream = urllib.request.urlopen(req, timeout=120)
+        upstream = urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as error:
         raise UpstreamError(error.code)
     except urllib.error.URLError:

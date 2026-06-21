@@ -9,11 +9,14 @@ from typing import Any
 from urllib.parse import quote_plus, urljoin
 
 
+from app.package_store import canonical_chip_id
+
 MICROPYTHON_DOWNLOAD_URL = "https://micropython.org/download/"
 ROOT = Path(__file__).resolve().parents[1]
 RECOMMENDATION_DIR = ROOT / "content" / "recommendation"
 BOARDS_PATH = RECOMMENDATION_DIR / "micropython_boards.json"
 LINKS_PATH = RECOMMENDATION_DIR / "hardware_purchase_links_us.json"
+MODULE_LINKS_PATH = RECOMMENDATION_DIR / "module_purchase_links.json"
 
 
 class _BoardIndexParser(HTMLParser):
@@ -226,6 +229,42 @@ def load_purchase_links() -> dict[str, list[dict[str, Any]]]:
     if not LINKS_PATH.is_file():
         return {}
     return json.loads(LINKS_PATH.read_text(encoding="utf-8")).get("links_by_slug", {})
+
+
+def load_module_purchase_links() -> dict[str, list[dict[str, Any]]]:
+    if not MODULE_LINKS_PATH.is_file():
+        return {}
+    return json.loads(MODULE_LINKS_PATH.read_text(encoding="utf-8")).get("links_by_module", {})
+
+
+def module_purchase_links(module_name: str) -> list[dict[str, str]]:
+    """Buy links for one hardware module, keyed by canonical_chip_id so a catalog
+    name (`aht20_driver`) and its curated entry (`aht20`) join. Returns the curated,
+    audited product links when present, else a labeled DigiKey/Amazon search
+    fallback so the endpoint stays usable before the library is built."""
+    key = canonical_chip_id(module_name)
+    curated = load_module_purchase_links().get(key)
+    if curated:
+        return curated
+    query = quote_plus(module_name.strip())
+    return [
+        {
+            "vendor": "DigiKey",
+            "url": f"https://www.digikey.com/en/products/result?keywords={query}",
+            "link_type": "search_fallback",
+            "confidence": "low",
+            "checked_at": _today(),
+            "notes": "Search fallback; product page was not individually verified.",
+        },
+        {
+            "vendor": "Amazon",
+            "url": f"https://www.amazon.com/s?k={query}",
+            "link_type": "search_fallback",
+            "confidence": "low",
+            "checked_at": _today(),
+            "notes": "Search fallback; marketplace listing was not individually verified.",
+        },
+    ]
 
 
 def select_beginner_board() -> dict[str, Any] | None:

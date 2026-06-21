@@ -1,0 +1,182 @@
+{
+  "fetched_at": "2026-06-20T00:00:00+00:00",
+  "notes": "Curated, verified consumer product pages keyed by package_store.canonical_chip_id. Each url was confirmed to resolve to that exact part. Catalog parts without a clean exact product page (max30102, ds1302, cs1237, gt911, bus_dc_motor, tcs34725_color) are intentionally omitted and fall through to the labeled DigiKey/Amazon search fallback in recommendation_catalog.module_purchase_links.",
+  "links_by_module": {
+    "machine_pin_led": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/299",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/299",
+        "checked_at": "2026-06-20",
+        "notes": "Diffused Red 5mm LED (25 pack) - a basic through-hole LED to drive from a GPIO pin."
+      }
+    ],
+    "aht20": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4566",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4566",
+        "checked_at": "2026-06-20",
+        "notes": "Adafruit AHT20 - Temperature & Humidity Sensor Breakout Board."
+      }
+    ],
+    "ssd1306": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/326",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/326",
+        "checked_at": "2026-06-20",
+        "notes": "Monochrome 0.96\" 128x64 OLED Graphic Display (SSD1306, I2C/SPI)."
+      }
+    ],
+    "bh1750": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-531.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-531.html",
+        "checked_at": "2026-06-20",
+        "notes": "Fermion: BH1750 Light Sensor Breakout (SEN0097), I2C ambient light in lux."
+      }
+    ],
+    "adxl345": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/1231",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/1231",
+        "checked_at": "2026-06-20",
+        "notes": "ADXL345 - Triple-Axis Accelerometer (I2C/SPI, STEMMA QT)."
+      }
+    ],
+    "ina219": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/904",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/904",
+        "checked_at": "2026-06-20",
+        "notes": "INA219 High Side DC Current Sensor Breakout - 26V +/-3.2A Max."
+      }
+    ],
+    "ads1015": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/1083",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/1083",
+        "checked_at": "2026-06-20",
+        "notes": "ADS1015 12-Bit ADC - 4 Channel with Programmable Gain Amplifier."
+      }
+    ],
+    "bmp390": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4816",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4816",
+        "checked_at": "2026-06-20",
+        "notes": "Adafruit BMP390 - Precision Barometric Pressure and Altimeter."
+      }
+    ],
+    "ltr390uv": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4831",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4831",
+        "checked_at": "2026-06-20",
+        "notes": "Adafruit LTR390 UV Light Sensor - STEMMA QT / Qwiic."
+      }
+    ],
+    "ens160": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5606",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5606",
+        "checked_at": "2026-06-20",
+        "notes": "Adafruit ENS160 MOX Gas Sensor (air quality, eCO2/TVOC)."
+      }
+    ],
+    "max9814_mic": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/1713",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/1713",
+        "checked_at": "2026-06-20",
+        "notes": "Electret Microphone Amplifier - MAX9814 with Auto Gain Control."
+      }
+    ],
+    "ds3502": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4286",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4286",
+        "checked_at": "2026-06-20",
+        "notes": "Adafruit DS3502 I2C Digital 10K Potentiometer Breakout."
+      }
+    ],
+    "ht16k33": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/1427",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/1427",
+        "checked_at": "2026-06-20",
+        "notes": "Adafruit 16x8 LED Matrix Driver Backpack - HT16K33 Breakout."
+      }
+    ],
+    "rcwl9620": [
+      {
+        "vendor": "M5Stack",
+        "url": "https://shop.m5stack.com/products/ultrasonic-distance-unit-i2c-rcwl-9620",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://shop.m5stack.com/products/ultrasonic-distance-unit-i2c-rcwl-9620",
+        "checked_at": "2026-06-20",
+        "notes": "M5Stack Ultrasonic Distance Unit I2C (RCWL-9620), 2-450cm."
+      }
+    ],
+    "serial_servo": [
+      {
+        "vendor": "Hiwonder",
+        "url": "https://www.hiwonder.com/products/hiwonder-lx-16a-full-metal-gear-serial-bus-servo",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.hiwonder.com/products/hiwonder-lx-16a-full-metal-gear-serial-bus-servo",
+        "checked_at": "2026-06-20",
+        "notes": "Hiwonder LX-16A Full Metal Gear Serial Bus Servo (TTL serial bus)."
+      }
+    ],
+    "as5600l": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/6357",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/6357",
+        "checked_at": "2026-06-20",
+        "notes": "Adafruit AS5600 Magnetic Angle Sensor [STEMMA QT]. This board is the AS5600 (not the I2C-only AS5600L variant); the as5600l_driver targets the shared AS5600/AS5600L register family, so this board works with it."
+      }
+    ]
+  }
+}

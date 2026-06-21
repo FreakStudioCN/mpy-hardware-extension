@@ -1,142 +1,87 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
-from pydantic import BaseModel, Field
+from typing import Any
 
-from app import recommendation_catalog
+from fastapi import APIRouter, Request, Response
+from pydantic import BaseModel, EmailStr, Field
+
+from app import recommendation_catalog, web_recommend
 
 
 router = APIRouter()
 
 
 class WebRecommendRequest(BaseModel):
-    idea: str = Field(min_length=1)
-    locale: str = "en"
-    region: str = "us"
+    idea: str = Field(min_length=1, max_length=500)
+    locale: str = Field(default="en", max_length=8)
+    region: str = Field(default="us", max_length=32)
 
 
 class WebEventRequest(BaseModel):
-    event_type: str
-    payload: dict = Field(default_factory=dict)
-    locale: str = "en"
-    source: str = "website-home"
+    event_type: str = Field(max_length=64)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    locale: str = Field(default="en", max_length=8)
+    source: str = Field(default="website-home", max_length=64)
 
 
 class WebNewsletterRequest(BaseModel):
-    email: str
-    locale: str = "en"
-    source: str = "website-home"
-
-
-def _parts_for_idea(idea: str) -> list[dict[str, str]]:
-    text = idea.lower()
-    if any(word in text for word in ("temperature", "hot", "heat", "humidity")):
-        return [
-            {
-                "name": "DHT22 temperature and humidity sensor",
-                "reason": "Measures temperature and humidity for the trigger.",
-                "buy_url": "https://www.amazon.com/s?k=dht22+sensor+module",
-            },
-            {
-                "name": "LED module",
-                "reason": "Provides the visible alarm output.",
-                "buy_url": "https://www.amazon.com/s?k=led+module+microcontroller",
-            },
-        ]
-    if any(word in text for word in ("plant", "soil", "moisture")):
-        return [
-            {
-                "name": "Capacitive soil moisture sensor",
-                "reason": "Measures whether the plant soil is dry.",
-                "buy_url": "https://www.amazon.com/s?k=capacitive+soil+moisture+sensor",
-            },
-            {
-                "name": "LED or buzzer module",
-                "reason": "Warns you when the soil needs water.",
-                "buy_url": "https://www.amazon.com/s?k=led+buzzer+module+microcontroller",
-            },
-        ]
-    if any(word in text for word in ("oled", "screen", "display")):
-        return [
-            {
-                "name": "SSD1306 OLED display",
-                "reason": "Shows the device status over I2C.",
-                "buy_url": "https://www.amazon.com/s?k=ssd1306+oled+display",
-            }
-        ]
-    if any(word in text for word in ("sit", "motion", "presence", "desk light", "light")):
-        return [
-            {
-                "name": "PIR motion sensor",
-                "reason": "Detects nearby movement or presence.",
-                "buy_url": "https://www.amazon.com/s?k=pir+motion+sensor+module",
-            },
-            {
-                "name": "LED light module",
-                "reason": "Turns on when the trigger is active.",
-                "buy_url": "https://www.amazon.com/s?k=led+light+module+microcontroller",
-            },
-        ]
-    return [
-        {
-            "name": "Breadboard jumper wire kit",
-            "reason": "Connects the board to beginner-friendly modules.",
-            "buy_url": "https://www.amazon.com/s?k=breadboard+jumper+wire+kit",
-        }
-    ]
+    email: EmailStr = Field(max_length=254)
+    locale: str = Field(default="en", max_length=8)
+    source: str = Field(default="website-home", max_length=64)
 
 
 @router.post("/v1/web/recommend")
-def web_recommend(request: WebRecommendRequest):
+def web_recommend_route(request: WebRecommendRequest, http_request: Request):
+    web_recommend.enforce_rate_limit(http_request)
     idea = request.idea.strip()
+    result = web_recommend.recommend(idea)
     board = recommendation_catalog.select_beginner_board()
     purchase_links = recommendation_catalog.load_purchase_links()
+    starter_prompt = f"Build a MicroPython project for: {idea}"
+    handoff = {
+        "starter_prompt": starter_prompt,
+        "locale": request.locale,
+        "region": request.region,
+        "board_slug": board.get("slug") if board else None,
+        "capabilities": result["capabilities"],
+        "board_family_hint": result["board_family_hint"],
+    }
     if board:
         slug = board.get("slug")
         links = purchase_links.get(slug, []) if slug else []
         primary_link = links[0]["url"] if links else board.get("more_info_url") or board.get("detail_url")
         firmware = board.get("firmware") or {}
         release = firmware.get("latest_release") or {}
-        return {
-            "recommended_board": {
-                "name": board.get("name") or slug or "MicroPython board",
-                "why": "Beginner-friendly MicroPython target with official firmware and purchase guidance.",
-                "buy_url": primary_link,
-                "purchase_links": links,
-                "micropython_url": board.get("detail_url"),
-                "firmware_url": release.get("url"),
-                "source": "micropython_catalog",
-            },
-            "parts": _parts_for_idea(idea),
-            "starter_prompt": f"Build a MicroPython project for: {idea}",
-            "handoff": {
-                "starter_prompt": f"Build a MicroPython project for: {idea}",
-                "locale": request.locale,
-                "region": request.region,
-                "board_slug": slug,
-            },
+        recommended_board = {
+            "name": board.get("name") or slug or "MicroPython board",
+            "why": "Beginner-friendly MicroPython target with official firmware and purchase guidance.",
+            "buy_url": primary_link,
+            "purchase_links": links,
+            "micropython_url": board.get("detail_url"),
+            "firmware_url": release.get("url"),
+            "source": "micropython_catalog",
         }
-    return {
-        "recommended_board": {
+    else:
+        recommended_board = {
             "name": "ESP32-S3 DevKitC-1",
             "why": "Good MicroPython support, Wi-Fi, USB, and enough GPIO pins for beginner hardware builds.",
             "buy_url": "https://www.amazon.com/s?k=esp32-s3+devkitc-1",
-        },
-        "parts": _parts_for_idea(idea),
-        "starter_prompt": f"Build a MicroPython project for: {idea}",
-        "handoff": {
-            "starter_prompt": f"Build a MicroPython project for: {idea}",
-            "locale": request.locale,
-            "region": request.region,
-        },
+        }
+    return {
+        "recommended_board": recommended_board,
+        "parts": result["parts"],
+        "starter_prompt": starter_prompt,
+        "handoff": handoff,
     }
 
 
 @router.post("/v1/web/events", status_code=204)
-def web_events(_request: WebEventRequest):
+def web_events(_request: WebEventRequest, http_request: Request):
+    web_recommend.enforce_rate_limit(http_request)
     return Response(status_code=204)
 
 
 @router.post("/v1/web/newsletter", status_code=204)
-def web_newsletter(_request: WebNewsletterRequest):
+def web_newsletter(_request: WebNewsletterRequest, http_request: Request):
+    web_recommend.enforce_rate_limit(http_request)
     return Response(status_code=204)

@@ -9,7 +9,12 @@ router = APIRouter()
 @router.post("/v1/auth/github")
 async def auth_github(request: Request):
     """Verify a GitHub access token and mint a session JWT keyed to the user."""
-    body = await request.json()
+    try:
+        body = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error": "invalid_json"}) from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail={"error": "json_object_required"})
     access_token = body.get("access_token")
     if not access_token:
         raise HTTPException(status_code=400, detail={"error": "missing_access_token"})

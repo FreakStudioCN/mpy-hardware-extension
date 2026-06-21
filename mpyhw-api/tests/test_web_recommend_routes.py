@@ -3,13 +3,20 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app import recommendation_catalog
+from app import package_store, recommendation_catalog, web_recommend
 from app.main import app
 
 
 pytestmark = pytest.mark.no_db
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _reset_web_recommend_state():
+    web_recommend.reset()
+    yield
+    web_recommend.reset()
 
 
 def test_web_recommend_returns_website_contract_shape():
@@ -33,6 +40,69 @@ def test_web_recommend_returns_website_contract_shape():
     assert "desk light" in body["starter_prompt"]
 
 
+def test_web_recommend_parts_come_from_real_catalog_with_capabilities():
+    response = client.post(
+        "/v1/web/recommend",
+        json={"idea": "a temperature alarm with an OLED display", "locale": "en", "region": "us"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    # Each part is a real catalog package (carries a package_name), deduped.
+    package_names = [part["package_name"] for part in body["parts"]]
+    assert all(package_names)
+    assert len(package_names) == len(set(package_names))
+    # Idea touches temperature + display; the grounded list covers both.
+    covered = {cap for part in body["parts"] for cap in part["capabilities"]}
+    assert "display_text" in covered
+    assert "temperature_sensing" in covered
+    assert body["handoff"]["capabilities"]
+
+
+def test_web_recommend_never_500s_when_catalog_load_fails(monkeypatch):
+    def boom():
+        raise RuntimeError("catalog file corrupt")
+
+    monkeypatch.setattr(package_store.PackageStore, "default", staticmethod(boom))
+
+    response = client.post(
+        "/v1/web/recommend",
+        json={"idea": "blink an led", "locale": "en", "region": "us"},
+    )
+
+    assert response.status_code == 200
+    parts = response.json()["parts"]
+    assert parts[0]["name"] == "Breadboard jumper wire kit"
+    assert parts[0]["buy_url"].startswith("https://")
+
+
+def test_web_recommend_rate_limited_after_threshold(monkeypatch):
+    monkeypatch.setenv("MPYHW_WEB_RECOMMEND_RATE", "1")
+
+    first = client.post("/v1/web/recommend", json={"idea": "blink led", "locale": "en", "region": "us"})
+    second = client.post("/v1/web/recommend", json={"idea": "blink led", "locale": "en", "region": "us"})
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.json()["detail"]["error"] == "rate_limited"
+
+
+def test_web_recommend_rejects_overlong_idea():
+    response = client.post("/v1/web/recommend", json={"idea": "x" * 501, "locale": "en", "region": "us"})
+
+    assert response.status_code == 422
+
+
+def test_web_recommend_rejects_oversized_body_before_validation():
+    response = client.post(
+        "/v1/web/recommend",
+        content=json.dumps({"idea": "x" * 5000, "locale": "en", "region": "us"}),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+
+
 def test_web_best_effort_endpoints_accept_frontend_events():
     event_response = client.post(
         "/v1/web/events",
@@ -47,6 +117,36 @@ def test_web_best_effort_endpoints_accept_frontend_events():
     assert newsletter_response.status_code == 204
 
 
+def test_web_best_effort_endpoints_validate_payloads():
+    event_response = client.post(
+        "/v1/web/events",
+        json={"event_type": "x" * 65, "payload": {}, "locale": "en"},
+    )
+    newsletter_response = client.post(
+        "/v1/web/newsletter",
+        json={"email": "not-an-email", "locale": "en", "source": "website-home"},
+    )
+
+    assert event_response.status_code == 422
+    assert newsletter_response.status_code == 422
+
+
+def test_web_best_effort_endpoints_share_rate_limit(monkeypatch):
+    monkeypatch.setenv("MPYHW_WEB_RECOMMEND_RATE", "1")
+
+    first = client.post(
+        "/v1/web/events",
+        json={"event_type": "idea_submitted", "payload": {"idea": "blink led"}, "locale": "en"},
+    )
+    second = client.post(
+        "/v1/web/newsletter",
+        json={"email": "maker@example.com", "locale": "en", "source": "website-home"},
+    )
+
+    assert first.status_code == 204
+    assert second.status_code == 429
+
+
 def test_web_recommend_allows_browser_cors_preflight():
     response = client.options(
         "/v1/web/recommend",
@@ -57,7 +157,7 @@ def test_web_recommend_allows_browser_cors_preflight():
     )
 
     assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "*"
+    assert response.headers["access-control-allow-origin"] == "https://www.blockless.ai"
 
 
 def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):
