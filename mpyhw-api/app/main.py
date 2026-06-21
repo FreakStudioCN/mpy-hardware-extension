@@ -27,8 +27,8 @@ logger = logging.getLogger("mpyhw.request")
 _startup_log = logging.getLogger("mpyhw.startup")
 
 _DEFAULT_CORS_ORIGINS = [
-    "https://blockless.ai",
-    "https://www.blockless.ai",
+    "https://block-less.com",
+    "https://www.block-less.com",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]

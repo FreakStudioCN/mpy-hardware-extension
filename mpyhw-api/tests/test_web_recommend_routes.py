@@ -226,13 +226,13 @@ def test_web_recommend_allows_browser_cors_preflight():
     response = client.options(
         "/v1/web/recommend",
         headers={
-            "Origin": "https://www.blockless.ai",
+            "Origin": "https://www.block-less.com",
             "Access-Control-Request-Method": "POST",
         },
     )
 
     assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "https://www.blockless.ai"
+    assert response.headers["access-control-allow-origin"] == "https://www.block-less.com"
 
 
 def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):
