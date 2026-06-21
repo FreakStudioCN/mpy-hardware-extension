@@ -215,10 +215,32 @@ def _schema() -> list[str]:
             repair_count INTEGER NOT NULL DEFAULT 0
         )
         """,
+        # Website marketing data — deliberately separate from telemetry_events (which
+        # is the in-product agent funnel keyed by trace_id). Captured by the anonymous
+        # /v1/web/newsletter and /v1/web/events endpoints; see app/web_store.py.
+        """
+        CREATE TABLE IF NOT EXISTS newsletter_subscribers (
+            email TEXT PRIMARY KEY,
+            locale TEXT,
+            source TEXT,
+            created_at TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS web_events (
+            id BIGSERIAL PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            payload_json JSONB NOT NULL,
+            locale TEXT,
+            source TEXT,
+            created_at TEXT NOT NULL
+        )
+        """,
         "CREATE INDEX IF NOT EXISTS idx_telemetry_trace ON telemetry_events(trace_id)",
         "CREATE INDEX IF NOT EXISTS idx_telemetry_type ON telemetry_events(event_type)",
         "CREATE INDEX IF NOT EXISTS idx_llm_turns_user ON llm_turns(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_web_events_type ON web_events(event_type)",
     ]
 
 

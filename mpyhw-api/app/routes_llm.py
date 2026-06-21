@@ -913,7 +913,12 @@ def _strip_code_fences(text: str) -> str:
     return stripped
 
 
-def _call_deepseek_plain(messages: list[dict[str, Any]], max_tokens: int, timeout: int = 120) -> tuple[str, dict[str, Any]]:
+def _call_deepseek_plain(
+    messages: list[dict[str, Any]],
+    max_tokens: int,
+    timeout: int = 120,
+    response_format: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
     """A tool-free, single-shot DeepSeek generation (used for nested codegen).
 
     Bypasses _deepseek_messages so the codegen prompt is clean (no adapter/SKILL
@@ -921,6 +926,9 @@ def _call_deepseek_plain(messages: list[dict[str, Any]], max_tokens: int, timeou
 
     timeout defaults to 120s for codegen; the anonymous web-recommend path passes a
     short value so a hung connection can't hold a worker for two minutes.
+
+    response_format is optional and only sent when provided (the web-recommend path passes
+    {"type": "json_object"} for JSON mode); codegen callers omit it and are unaffected.
     """
     payload = {
         "model": os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
@@ -930,6 +938,8 @@ def _call_deepseek_plain(messages: list[dict[str, Any]], max_tokens: int, timeou
         "stream_options": {"include_usage": True},
         "max_tokens": max_tokens,
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
     req = urllib.request.Request(
         f"{base_url}/chat/completions",

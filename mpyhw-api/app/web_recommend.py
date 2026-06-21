@@ -1,13 +1,16 @@
 """Website hardware recommendation: turn a natural-language idea into a grounded
 list of real catalog modules.
 
-Pipeline: extract capabilities (LLM when available, else a deterministic idea-tuned
-keyword map) -> query the real package catalog (package_store) for each capability
--> assemble a deduped module list with buy links. The LLM only ever returns
-capability tokens validated against the catalog taxonomy, so module names are never
-hallucinated. The endpoint is anonymous, so spend is bounded by a per-IP rate limit,
-a global daily LLM-call cap (degrade to fallback), a tiny token budget, and a short
-timeout.
+Pipeline: extract capabilities with the LLM (DeepSeek) -> query the real package catalog
+(package_store) for each capability -> assemble a deduped module list with buy links. The
+LLM only ever returns capability tokens validated against the catalog taxonomy, so module
+names are never hallucinated.
+
+Fail fast: the LLM is *the* path. There is no silent keyword fallback. When the LLM is
+unavailable, over capacity, or returns something we genuinely can't use, the request fails
+with an explicit error (503 / 422) and a loud log, rather than quietly degrading to a guess
+and pretending it is the AI's answer. The endpoint is anonymous, so spend is bounded by a
+per-IP rate limit, a global daily LLM-call cap, a tiny token budget, and a short timeout.
 """
 
 from __future__ import annotations
@@ -15,7 +18,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import threading
 import time
 from collections import deque
@@ -30,43 +32,39 @@ logger = logging.getLogger(__name__)
 
 _TAXONOMY = {capability for capability, _ in package_store.CAPABILITY_KEYWORDS}
 
-# Idea-tuned keyword map (ported and extended from the extension's capabilities.ts).
-# Tuned for how beginners phrase an *idea* ("light", "sit"), unlike
-# package_store.CAPABILITY_KEYWORDS which is tuned for package descriptions. Every
-# capability here must be a valid taxonomy token.
-# Covers the full package_store taxonomy (24 capabilities) so that when the LLM is
-# unavailable the site still finds parts for most beginner ideas, instead of falling
-# off a cliff to a breadboard-only answer for everything outside a handful of caps.
-# Tuned for idea phrasing: keep keywords that collide with another capability OUT
-# (e.g. bare "light" stays in digital_output, NOT light_sensing; "current"/"press"
-# are avoided so they don't fire on "current temperature"/"pressure"). _matches_keyword
-# does word-boundary + optional plural matching for ascii, plain substring for CJK.
-_FALLBACK_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
-    ("temperature_sensing", ("temperature", "temp", "hot", "heat", "thermometer", "温度")),
-    ("humidity_sensing", ("humidity", "humid", "moisture", "soil", "plant", "湿度", "土壤")),
-    ("pressure_sensing", ("pressure", "barometer", "barometric", "altitude", "altimeter", "weather station", "气压", "海拔")),
-    ("display_text", ("display", "screen", "oled", "lcd", "show", "屏幕", "显示")),
-    ("digital_output", ("led", "light", "lamp", "turn on", "turn off", "blink", "灯", "亮")),
-    ("digital_input", ("button", "switch", "press", "keypad", "joystick", "按钮", "开关")),
-    ("motion_sensing", ("motion", "move", "movement", "sit", "presence", "pir", "someone", "有人", "坐", "移动")),
-    ("distance_sensing", ("distance", "ultrasonic", "proximity", "range", "parking", "距离")),
-    ("light_sensing", ("brightness", "ambient light", "lux", "illuminance", "how bright", "darkness", "light sensor", "光照", "亮度")),
-    ("uv_sensing", ("uv", "ultraviolet", "uv index", "sunscreen", "紫外线")),
-    ("color_sensing", ("color", "colour", "color sensor", "rgb sensor", "颜色", "色")),
-    ("gas_sensing", ("air quality", "gas", "co2", "carbon dioxide", "smoke", "voc", "pollution", "空气质量", "气体", "烟雾")),
-    ("sound_sensing", ("microphone", "mic", "noise", "clap", "sound reactive", "loud", "sound level", "声音", "噪音", "麦克风")),
-    ("audio_output", ("buzzer", "beep", "speaker", "play sound", "play music", "melody", "tts", "play a tune", "蜂鸣器", "喇叭", "播放", "音乐")),
-    ("servo_control", ("servo", "robot arm", "gripper", "pan tilt", "steering", "舵机", "机械臂")),
-    ("motor_control", ("motor", "stepper", "dc motor", "fan", "wheels", "spin", "car", "vehicle", "电机", "马达", "风扇", "轮子")),
-    ("touch_sensing", ("touch", "capacitive", "touchpad", "touch sensor", "触摸")),
-    ("magnetic_sensing", ("magnet", "magnetic", "compass", "hall", "magnetometer", "磁", "指南针")),
-    ("current_sensing", ("current sensor", "amps", "amperage", "power consumption", "power monitor", "measure current", "电流")),
-    ("analog_input", ("analog", "potentiometer", "knob", "voltage", "电位器", "模拟")),
-    ("analog_output", ("dac", "analog output", "digital potentiometer", "digipot")),
-    ("weight_sensing", ("weight", "scale", "load cell", "how heavy", "grams", "重量", "称重")),
-    ("heart_rate_sensing", ("heart rate", "heartrate", "pulse", "bpm", "spo2", "oximeter", "心率", "脉搏")),
-    ("timekeeping", ("clock", "rtc", "alarm clock", "real time clock", "keep time", "时钟")),
-]
+# Common short-forms / near-synonyms the model may answer with, mapped to the canonical
+# taxonomy token. Only *unambiguous* forms belong here: ambiguous words (bare "light" ->
+# digital_output vs light_sensing, "analog" -> analog_input vs analog_output, "digital")
+# are deliberately left out so they require the full token instead of guessing wrong.
+_CAPABILITY_SYNONYMS: dict[str, str] = {
+    "servo": "servo_control",
+    "motor": "motor_control",
+    "stepper": "motor_control",
+    "temperature": "temperature_sensing",
+    "temp": "temperature_sensing",
+    "humidity": "humidity_sensing",
+    "pressure": "pressure_sensing",
+    "display": "display_text",
+    "screen": "display_text",
+    "motion": "motion_sensing",
+    "distance": "distance_sensing",
+    # bare "sound" is intentionally omitted: it splits between sound_sensing (mic) and
+    # audio_output (speaker), so it requires the full token rather than a guess.
+    "audio": "audio_output",
+    "touch": "touch_sensing",
+    "magnet": "magnetic_sensing",
+    "magnetic": "magnetic_sensing",
+    "color": "color_sensing",
+    "colour": "color_sensing",
+    "gas": "gas_sensing",
+    "uv": "uv_sensing",
+    "weight": "weight_sensing",
+    "current": "current_sensing",
+    "heartrate": "heart_rate_sensing",
+    "heart_rate": "heart_rate_sensing",
+    "clock": "timekeeping",
+    "time": "timekeeping",
+}
 
 _rate_lock = threading.Lock()
 _rate_hits: dict[str, deque[float]] = {}
@@ -114,7 +112,12 @@ def _reserve_llm_call() -> bool:
     """Atomically reserve one slot against the global daily LLM-call cap: returns True
     and consumes a slot when one is available, False once the cap is reached. The
     check and the increment happen under one lock so concurrent requests cannot all
-    pass the check before any of them increments and overshoot the cap."""
+    pass the check before any of them increments and overshoot the cap.
+
+    A slot is reserved before the upstream call and is *not* refunded if the call then
+    fails: a real DeepSeek attempt costs tokens whether or not it parses, so a failing
+    LLM legitimately draws down the cost ceiling (a broken-LLM incident burns the cap on
+    503s -- loud and bounded, not hidden)."""
     with _daily_lock:
         today = _today_iso()
         if _daily["date"] != today:
@@ -140,46 +143,11 @@ def _llm_configured() -> bool:
     return True
 
 
-# Alias: the LLM availability pre-check has been referred to by both names. Keep both
-# bound to the same function so a monkeypatch on either resolves. Correctness of the
-# daily cap does not depend on this check -- _reserve_llm_call is the atomic guard.
+# Alias: the LLM availability pre-check has been referred to by both names. extract_capabilities
+# calls _llm_available so a monkeypatch on it (e.g. the cap-concurrency test widening the
+# check->reserve window) takes effect. Correctness of the daily cap does not depend on this
+# check -- _reserve_llm_call is the atomic guard.
 _llm_available = _llm_configured
-
-
-def _matches_keyword(text: str, keyword: str) -> bool:
-    # Word-boundary match for ascii keywords (so "OLED" is not read as "led"); plain
-    # substring for non-ascii (CJK), mirroring the extension's capabilities.ts. The
-    # optional trailing "s" lets a singular keyword match the common plural a beginner
-    # writes ("motor" -> "motors", "servo" -> "servos") without matching unrelated
-    # words ("press" still does not fire on "pressure").
-    if re.fullmatch(r"[a-z0-9 ]+", keyword):
-        return re.search(rf"(^|[^a-z0-9]){re.escape(keyword)}s?($|[^a-z0-9])", text) is not None
-    return keyword in text
-
-
-def _fallback_capabilities(idea: str) -> list[str]:
-    text = idea.lower()
-    capabilities: list[str] = []
-    for capability, words in _FALLBACK_KEYWORDS:
-        if capability not in capabilities and any(_matches_keyword(text, word) for word in words):
-            capabilities.append(capability)
-    return capabilities
-
-
-# Board family a beginner names in the idea itself, so board selection follows the
-# idea even when the LLM is unavailable (the LLM otherwise supplies board_family_hint).
-_BOARD_FAMILY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
-    ("rp2040", ("pico", "rp2040", "rp2350", "raspberry pi pico")),
-    ("esp32", ("esp32", "esp8266", "esp32-s3", "esp32-c3", "wemos", "nodemcu", "espressif")),
-]
-
-
-def _fallback_board_family(idea: str) -> str | None:
-    text = idea.lower()
-    for family, words in _BOARD_FAMILY_KEYWORDS:
-        if any(_matches_keyword(text, word) for word in words):
-            return family
-    return None
 
 
 def _build_prompt(idea: str) -> str:
@@ -197,8 +165,61 @@ def _build_prompt(idea: str) -> str:
     )
 
 
-def _llm_extract(idea: str) -> tuple[list[str], str | None]:
-    from app.routes_llm import _call_deepseek_plain, _strip_code_fences
+def _parse_capability_json(text: str) -> dict[str, Any]:
+    """Parse the LLM's JSON object, tolerating stray prose around it (DeepSeek sometimes
+    prepends a word even in JSON mode). Raises ValueError when no JSON object can be
+    parsed or the shape is wrong -- the caller turns that into an explicit 503, never a
+    silent degrade."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # Tolerate stray prose around the object: decode the JSON value starting at the
+        # first "{" and ignore anything after it. raw_decode stops at the object's close,
+        # so trailing remarks -- even ones containing braces -- can't corrupt the parse.
+        start = text.find("{")
+        if start == -1:
+            raise ValueError("no JSON object in LLM response")
+        try:
+            data, _end = json.JSONDecoder().raw_decode(text, start)
+        except json.JSONDecodeError as error:
+            raise ValueError("unparseable JSON object in LLM response") from error
+    if not isinstance(data, dict):
+        raise ValueError("LLM JSON is not an object")
+    capabilities = data.get("capabilities")
+    if not isinstance(capabilities, list):
+        raise ValueError("LLM JSON 'capabilities' is not a list")
+    hint = data.get("board_family_hint")
+    if hint not in ("esp32", "rp2040"):
+        hint = None
+    return {"capabilities": capabilities, "board_family_hint": hint}
+
+
+def _normalize_capabilities(raw_tokens: list[Any]) -> list[str]:
+    """Map LLM tokens to canonical taxonomy tokens (keep exact matches, normalize known
+    synonyms), dropping genuinely unknown ones with a WARNING so taxonomy drift stays
+    visible. Order-preserving and deduped."""
+    normalized: list[str] = []
+    dropped: list[Any] = []
+    for token in raw_tokens:
+        key = token.strip().lower() if isinstance(token, str) else None
+        if key in _TAXONOMY:
+            canonical = key
+        elif key in _CAPABILITY_SYNONYMS:
+            canonical = _CAPABILITY_SYNONYMS[key]
+        else:
+            dropped.append(token)
+            continue
+        if canonical not in normalized:
+            normalized.append(canonical)
+    if dropped:
+        logger.warning("web recommend dropped off-taxonomy capability tokens: %s", dropped)
+    return normalized
+
+
+def _llm_extract(idea: str) -> dict[str, Any]:
+    """Call DeepSeek (JSON mode), parse tolerantly, normalize to taxonomy tokens. Returns
+    {capabilities, board_family_hint, raw_count}; raises on upstream/parse failure."""
+    from app.routes_llm import _call_deepseek_plain
 
     max_tokens = int(os.getenv("MPYHW_WEB_RECOMMEND_MAX_TOKENS", "256"))
     timeout = int(os.getenv("MPYHW_WEB_RECOMMEND_TIMEOUT", "10"))
@@ -206,30 +227,45 @@ def _llm_extract(idea: str) -> tuple[list[str], str | None]:
         [{"role": "user", "content": _build_prompt(idea)}],
         max_tokens,
         timeout=timeout,
+        response_format={"type": "json_object"},
     )
-    data = json.loads(_strip_code_fences(text))
-    capabilities = [token for token in data.get("capabilities", []) if token in _TAXONOMY]
-    hint = data.get("board_family_hint")
-    if hint not in ("esp32", "rp2040"):
-        hint = None
-    return capabilities, hint
+    parsed = _parse_capability_json(text)
+    return {
+        "capabilities": _normalize_capabilities(parsed["capabilities"]),
+        "board_family_hint": parsed["board_family_hint"],
+        "raw_count": len(parsed["capabilities"]),
+    }
 
 
 def extract_capabilities(idea: str) -> dict[str, Any]:
-    # Availability pre-check, then an atomic slot reservation right before using the
-    # LLM, so concurrent callers can't overshoot the cap and the fallback path never
-    # consumes a slot.
-    if _llm_configured() and _reserve_llm_call():
-        try:
-            capabilities, hint = _llm_extract(idea)
-            if capabilities:
-                return {"capabilities": capabilities, "board_family_hint": hint, "source": "llm"}
-        except Exception:  # noqa: BLE001 - any LLM/parse failure degrades to fallback
-            logger.warning("web recommend LLM extraction failed; using fallback", exc_info=True)
+    """Extract hardware capabilities for an idea via the LLM. Fail fast: raises
+    HTTPException rather than degrading to a keyword guess.
+
+    - 503 llm_unconfigured: the LLM path is not usable (missing/stubbed key).
+    - 503 llm_capacity: the global daily LLM cap is reached.
+    - 503 llm_failed: the call/parse failed, or the model returned only off-taxonomy
+      tokens (a schema violation).
+    - 422 no_capabilities: the model succeeded but returned an empty list (vague idea)."""
+    if not _llm_available():
+        logger.error("web recommend: LLM not configured (missing/stubbed DEEPSEEK_API_KEY)")
+        raise HTTPException(status_code=503, detail={"error": "llm_unconfigured"})
+    if not _reserve_llm_call():
+        logger.warning("web recommend: daily LLM cap reached")
+        raise HTTPException(status_code=503, detail={"error": "llm_capacity"})
+    try:
+        result = _llm_extract(idea)
+    except Exception:  # noqa: BLE001 - any upstream/parse failure surfaces, never degrades
+        logger.error("web recommend LLM extraction failed", exc_info=True)
+        raise HTTPException(status_code=503, detail={"error": "llm_failed"}) from None
+    if not result["capabilities"]:
+        if result["raw_count"] == 0:
+            raise HTTPException(status_code=422, detail={"error": "no_capabilities"})
+        logger.error("web recommend: LLM returned only off-taxonomy capability tokens")
+        raise HTTPException(status_code=503, detail={"error": "llm_failed"})
     return {
-        "capabilities": _fallback_capabilities(idea),
-        "board_family_hint": _fallback_board_family(idea),
-        "source": "fallback",
+        "capabilities": result["capabilities"],
+        "board_family_hint": result["board_family_hint"],
+        "source": "llm",
     }
 
 
@@ -301,30 +337,30 @@ def assemble_parts(
         if len(parts) >= max_parts:
             break
     if not parts:
+        # Capabilities were identified but the catalog matched no part for any of them:
+        # a coverage gap worth seeing, not silently hiding behind a lone breadboard.
+        if capabilities:
+            logger.warning("web recommend: no catalog parts matched capabilities %s", capabilities)
         return [_breadboard_fallback_row(region)]
     return parts
 
 
 def recommend(idea: str, *, store: package_store.PackageStore | None = None, region: str = "us") -> dict[str, Any]:
-    """Full pipeline. Never raises for content reasons: any failure degrades to a
-    single breadboard fallback row so the website always renders.
+    """Full pipeline. Fail fast: capability extraction raises an explicit HTTPException
+    (503/422) when the LLM is unusable, and any other unexpected failure (e.g. a corrupt
+    catalog) propagates instead of being masked as a breadboard 200.
 
-    The idea drives the board too: a board-family hint (esp32 / rp2040) selects a
-    beginner board of that family, and that board's family then keeps the assembled
-    parts compatible with it. The chosen board is returned so the route doesn't
-    re-select it."""
-    try:
-        extraction = extract_capabilities(idea)
-        board = recommendation_catalog.select_beginner_board(extraction["board_family_hint"])
-        board_family = package_store.board_family(board.get("slug", "")) if board else ""
-        parts = assemble_parts(idea, extraction["capabilities"], store=store, board_family=board_family, region=region)
-        return {
-            "capabilities": extraction["capabilities"],
-            "board_family_hint": extraction["board_family_hint"],
-            "board": board,
-            "parts": parts,
-            "source": extraction["source"],
-        }
-    except Exception:  # noqa: BLE001 - the endpoint must never 500 on a recommendation
-        logger.warning("web recommend pipeline failed; using breadboard fallback", exc_info=True)
-        return {"capabilities": [], "board_family_hint": None, "board": None, "parts": [_breadboard_fallback_row(region)], "source": "error"}
+    The idea drives the board too: the LLM's board-family hint (esp32 / rp2040) selects a
+    beginner board of that family, and that board's family then keeps the assembled parts
+    compatible with it. The chosen board is returned so the route doesn't re-select it."""
+    extraction = extract_capabilities(idea)
+    board = recommendation_catalog.select_beginner_board(extraction["board_family_hint"])
+    board_family = package_store.board_family(board.get("slug", "")) if board else ""
+    parts = assemble_parts(idea, extraction["capabilities"], store=store, board_family=board_family, region=region)
+    return {
+        "capabilities": extraction["capabilities"],
+        "board_family_hint": extraction["board_family_hint"],
+        "board": board,
+        "parts": parts,
+        "source": "llm",
+    }

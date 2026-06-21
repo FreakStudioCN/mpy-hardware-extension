@@ -49,7 +49,9 @@ def _truncate_postgres():
                 telemetry_events,
                 llm_turns,
                 sessions,
-                users
+                users,
+                newsletter_subscribers,
+                web_events
             RESTART IDENTITY CASCADE
             """,
         )

@@ -18,8 +18,9 @@ def health() -> dict[str, object]:
     client surfaces it so a stub backend can't be mistaken for a hang.
 
     `llm_configured` reports whether a DeepSeek key is actually present, so we can tell
-    from outside whether the recommendation pipeline can use the LLM path at all (a
-    missing key silently degrades every recommendation to the keyword fallback). The
+    from outside whether the recommendation pipeline can use the LLM path at all. The
+    recommendation endpoint fails fast: with no key every request returns 503
+    (llm_unconfigured) rather than degrading, so this flag is the early warning. The
     boolean never echoes the key itself."""
     mode = "stub" if os.getenv("MPYHW_LLM_STUB") == "1" else "live"
     return {"status": "ok", "mode": mode, "llm_configured": bool(os.getenv("DEEPSEEK_API_KEY"))}

@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app import recommendation_catalog, web_recommend
+from app import recommendation_catalog, web_recommend, web_store
 
 
 router = APIRouter()
@@ -88,21 +88,25 @@ def web_recommend_route(request: WebRecommendRequest, http_request: Request):
         "parts": result["parts"],
         "starter_prompt": starter_prompt,
         "handoff": handoff,
-        # Which retrieval path served: "llm" | "fallback" | "error". Surfaced so a
-        # misconfigured deploy (no DEEPSEEK key -> always "fallback") is visible from
-        # outside instead of silently degrading every recommendation. (Distinct from
-        # recommended_board["source"], which is the board's data provenance.)
+        # Retrieval path that served: always "llm" on success. The endpoint fails fast
+        # rather than degrading -- an unusable LLM returns an explicit 503/422, never a
+        # masked keyword guess. (Distinct from recommended_board["source"], which is the
+        # board's data provenance.)
         "source": result["source"],
     }
 
 
 @router.post("/v1/web/events", status_code=204)
-def web_events(_request: WebEventRequest, http_request: Request):
+def web_events(request: WebEventRequest, http_request: Request):
     web_recommend.enforce_rate_limit(http_request)
+    # Best-effort persist (swallows DB/no-DB failures); the endpoint always 204s.
+    web_store.record_web_event(request.event_type, request.payload, request.locale, request.source)
     return Response(status_code=204)
 
 
 @router.post("/v1/web/newsletter", status_code=204)
-def web_newsletter(_request: WebNewsletterRequest, http_request: Request):
+def web_newsletter(request: WebNewsletterRequest, http_request: Request):
     web_recommend.enforce_rate_limit(http_request)
+    # Best-effort persist; on failure the email is logged, so the lead is recoverable.
+    web_store.record_newsletter_signup(request.email, request.locale, request.source)
     return Response(status_code=204)

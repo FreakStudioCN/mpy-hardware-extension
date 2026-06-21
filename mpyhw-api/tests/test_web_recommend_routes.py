@@ -3,7 +3,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app import package_store, recommendation_catalog, web_recommend
+from app import package_store, recommendation_catalog, routes_llm, web_recommend
 from app.main import app
 
 
@@ -12,11 +12,46 @@ pytestmark = pytest.mark.no_db
 client = TestClient(app)
 
 
+def _fake_deepseek(messages, max_tokens, timeout=120, response_format=None):
+    """Deterministic stand-in for DeepSeek in route contract tests: derive a few
+    capabilities + a board hint from the idea embedded in the prompt, so the website
+    contract can be asserted via the (now sole) LLM path without a live model. This is
+    test infrastructure, NOT the deleted production keyword fallback."""
+    prompt = messages[-1]["content"].lower()
+    caps = []
+    if "temperature" in prompt:
+        caps.append("temperature_sensing")
+    if "oled" in prompt or "display" in prompt:
+        caps.append("display_text")
+    if "motion" in prompt or "sit" in prompt:
+        caps.append("motion_sensing")
+    if "led" in prompt or "blink" in prompt or "light" in prompt:
+        caps.append("digital_output")
+    if not caps:
+        caps = ["digital_output"]
+    hint = None
+    if "pico" in prompt or "rp2040" in prompt:
+        hint = "rp2040"
+    elif "esp32" in prompt:
+        hint = "esp32"
+    return json.dumps({"capabilities": caps, "board_family_hint": hint}), {}
+
+
 @pytest.fixture(autouse=True)
 def _reset_web_recommend_state():
     web_recommend.reset()
     yield
     web_recommend.reset()
+
+
+@pytest.fixture(autouse=True)
+def _stub_deepseek(monkeypatch):
+    # The endpoint now has no keyword fallback: without a working LLM every request 503s.
+    # Stub DeepSeek so the contract tests exercise the real LLM path; failure tests opt
+    # out by clearing the key / patching the call themselves.
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.setattr(routes_llm, "_call_deepseek_plain", _fake_deepseek)
+    yield
 
 
 def test_web_recommend_returns_website_contract_shape():
@@ -59,10 +94,10 @@ def test_web_recommend_parts_come_from_real_catalog_with_capabilities():
     assert body["handoff"]["capabilities"]
 
 
-def test_web_recommend_exposes_recommendation_source(monkeypatch):
-    # Without an LLM key the deterministic fallback served; the response surfaces which
-    # path ran ("llm"/"fallback"/"error") so we can see from outside whether live is
-    # actually using the LLM. conftest's no_db branch does NOT clear the key, so do it.
+def test_web_recommend_unconfigured_returns_503(monkeypatch):
+    # Fail fast: with no usable LLM there is no keyword fallback to mask it -- the request
+    # surfaces an explicit 503 instead of silently degrading. (conftest's no_db branch
+    # does NOT clear the key, and the autouse stub sets it, so clear it here.)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 
     response = client.post(
@@ -70,25 +105,23 @@ def test_web_recommend_exposes_recommendation_source(monkeypatch):
         json={"idea": "blink an led", "locale": "en", "region": "us"},
     )
 
-    assert response.status_code == 200
-    assert response.json()["source"] == "fallback"
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"] == "llm_unconfigured"
 
 
-def test_web_recommend_never_500s_when_catalog_load_fails(monkeypatch):
+def test_web_recommend_surfaces_catalog_failure_instead_of_masking(monkeypatch):
+    # A corrupt catalog is a real failure: it must surface (uncaught -> 500), not be
+    # masked as a breadboard 200. TestClient re-raises uncaught server exceptions.
     def boom():
         raise RuntimeError("catalog file corrupt")
 
     monkeypatch.setattr(package_store.PackageStore, "default", staticmethod(boom))
 
-    response = client.post(
-        "/v1/web/recommend",
-        json={"idea": "blink an led", "locale": "en", "region": "us"},
-    )
-
-    assert response.status_code == 200
-    parts = response.json()["parts"]
-    assert parts[0]["name"] == "Breadboard jumper wire kit"
-    assert parts[0]["buy_url"].startswith("https://")
+    with pytest.raises(RuntimeError, match="catalog file corrupt"):
+        client.post(
+            "/v1/web/recommend",
+            json={"idea": "blink an led", "locale": "en", "region": "us"},
+        )
 
 
 def test_web_recommend_rate_limited_after_threshold(monkeypatch):
@@ -136,6 +169,27 @@ def test_web_best_effort_endpoints_accept_frontend_events():
 
     assert event_response.status_code == 204
     assert newsletter_response.status_code == 204
+
+
+def test_web_best_effort_endpoints_swallow_persistence_failure():
+    # no_db: DATABASE_URL is unset, so the persistence write raises internally. The
+    # endpoints must still 204, AND the write must have been *attempted* and swallowed
+    # (failure counter bumps) rather than silently skipped.
+    from app import web_store
+
+    web_store.web_write_failure_count = 0
+    event_response = client.post(
+        "/v1/web/events",
+        json={"event_type": "buy_link_clicked", "payload": {"vendor": "Adafruit"}, "locale": "en"},
+    )
+    newsletter_response = client.post(
+        "/v1/web/newsletter",
+        json={"email": "Maker@Example.com", "locale": "en", "source": "website-home"},
+    )
+
+    assert event_response.status_code == 204
+    assert newsletter_response.status_code == 204
+    assert web_store.web_write_failure_count == 2
 
 
 def test_web_best_effort_endpoints_validate_payloads():
