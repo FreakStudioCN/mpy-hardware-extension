@@ -16,15 +16,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ACTINIUS_ICARUS/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Actinius+Icarus",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ACTINIUS_ICARUS/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Actinius+Icarus",
         "vendor": "Amazon"
@@ -48,15 +39,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.adafruit.com/category/943",
         "vendor": "Adafruit"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_F405_EXPRESS/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+F405+Express",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -92,15 +74,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_M0_EXPRESS/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+Feather+M0+Express",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_M0_EXPRESS/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Adafruit+Feather+M0+Express",
         "vendor": "Amazon"
@@ -124,15 +97,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.adafruit.com/category/943",
         "vendor": "Adafruit"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_M4_EXPRESS/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+Feather+M4+Express",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -168,15 +132,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_RP2040/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+Feather+RP2040",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_RP2040/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Adafruit+Feather+RP2040",
         "vendor": "Amazon"
@@ -200,15 +155,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.adafruit.com/category/943",
         "vendor": "Adafruit"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_RP2350/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+Feather+RP2350",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -244,15 +190,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_M0_EXPRESS/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+ItsyBitsy+M0+Express",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_M0_EXPRESS/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Adafruit+ItsyBitsy+M0+Express",
         "vendor": "Amazon"
@@ -276,15 +213,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.adafruit.com/category/943",
         "vendor": "Adafruit"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_M4_EXPRESS/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+ItsyBitsy+M4+Express",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -320,15 +248,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_RP2040/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+ItsyBitsy+RP2040",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_RP2040/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Adafruit+ItsyBitsy+RP2040",
         "vendor": "Amazon"
@@ -352,15 +271,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.adafruit.com/category/943",
         "vendor": "Adafruit"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_METRO_M4_EXPRESS/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+Metro+M4+Express+Airlift",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -396,15 +306,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_METRO_M7/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+Metro+M7",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_METRO_M7/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Adafruit+Metro+M7",
         "vendor": "Amazon"
@@ -428,15 +329,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.adafruit.com/category/943",
         "vendor": "Adafruit"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_NEOKEY_TRINKEY/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+NeoKey+Trinkey",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -472,15 +364,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_QTPY_RP2040/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+QT+Py+RP2040",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_QTPY_RP2040/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Adafruit+QT+Py+RP2040",
         "vendor": "Amazon"
@@ -504,15 +387,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.adafruit.com/category/943",
         "vendor": "Adafruit"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_QTPY_SAMD21/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+QT+Py+-+SAMD21",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -548,15 +422,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_TRINKET_M0/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+Trinket+M0",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ADAFRUIT_TRINKET_M0/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Adafruit+Trinket+M0",
         "vendor": "Amazon"
@@ -571,15 +436,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://alifsemi.com/support/kits/ensemble-devkit/",
         "vendor": "Alif Semiconductor"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ALIF_ENSEMBLE/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Alif+Semiconductor+Ensemble+E7+DevKit",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -615,15 +471,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_GIGA/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Arduino+Giga",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ARDUINO_GIGA/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Arduino+Giga",
         "vendor": "Amazon"
@@ -647,15 +494,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://store.arduino.cc/",
         "vendor": "Arduino Store"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ARDUINO_NANO_33_BLE_SENSE/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Arduino+Nano+33+BLE+Sense",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -691,15 +529,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_ESP32/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Arduino+Nano+ESP32",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ARDUINO_NANO_ESP32/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Arduino+Nano+ESP32",
         "vendor": "Amazon"
@@ -723,15 +552,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://store.arduino.cc/",
         "vendor": "Arduino Store"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ARDUINO_NANO_RP2040_CONNECT/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Arduino+Nano+RP2040+Connect",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -767,15 +587,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_NICLA_VISION/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Arduino+Nicla+Vision",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ARDUINO_NICLA_VISION/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Arduino+Nicla+Vision",
         "vendor": "Amazon"
@@ -799,15 +610,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://store.arduino.cc/",
         "vendor": "Arduino Store"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ARDUINO_OPTA/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Arduino+Opta+WiFi",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -843,15 +645,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_PORTENTA_C33/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Arduino+Portenta+C33",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ARDUINO_PORTENTA_C33/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Arduino+Portenta+C33",
         "vendor": "Amazon"
@@ -875,15 +668,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://store.arduino.cc/",
         "vendor": "Arduino Store"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ARDUINO_PORTENTA_H7/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Arduino+Portenta+H7",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -919,15 +703,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_PRIMO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Arduino+Primo",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ARDUINO_PRIMO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Arduino+Primo",
         "vendor": "Amazon"
@@ -948,30 +723,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/BLUEIO_TAG_EVIM/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=I-SYST+BLUEIO+Tag+EVIM",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/BLUEIO_TAG_EVIM/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=I-SYST+BLUEIO+Tag+EVIM",
         "vendor": "Amazon"
       }
     ],
     "B_L072Z_LRWAN1": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/B_L072Z_LRWAN1/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+B_L072Z_LRWAN1",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -997,30 +754,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/B_L475E_IOT01A/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+B_L475E_IOT01A",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/B_L475E_IOT01A/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+B_L475E_IOT01A",
         "vendor": "Amazon"
       }
     ],
     "CERB40": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/CERB40/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Fez+Cerb40",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -1040,15 +779,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.cytron.io/p-motion-2350-pro",
         "vendor": "Cytron"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/CYTRON_MOTION_2350_PRO/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Cytron+MOTION+2350+Pro",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1075,15 +805,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/CYTRON_NANOXRP_CONTROLLER/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Cytron+NanoXRP+Controller",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/CYTRON_NANOXRP_CONTROLLER/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Cytron+NanoXRP+Controller",
         "vendor": "Amazon"
@@ -1098,15 +819,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.ezurio.com/wireless-modules/bluetooth-modules/bluetooth-5-modules/bl652-series-bluetooth-v5-nfc-module",
         "vendor": "Ezurio"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/DVK_BL652/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Ezurio+DVK-BL652",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1133,15 +845,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/EK_RA4M1/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Renesas+Electronics+EK-RA4M1",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/EK_RA4M1/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Renesas+Electronics+EK-RA4M1",
         "vendor": "Amazon"
@@ -1156,15 +859,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.renesas.com/products/microcontrollers-microprocessors/ra-cortex-m-mcus/ek-ra4w1-evaluation-kit-ra4w1-mcu-group",
         "vendor": "Renesas Electronics"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/EK_RA4W1/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Renesas+Electronics+EK-RA4W1",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1191,15 +885,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/EK_RA6M1/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Renesas+Electronics+EK-RA6M1",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/EK_RA6M1/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Renesas+Electronics+EK-RA6M1",
         "vendor": "Amazon"
@@ -1214,15 +899,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.renesas.com/products/microcontrollers-microprocessors/ra-cortex-m-mcus/ek-ra6m2-evaluation-kit-ra6m2-mcu-group",
         "vendor": "Renesas Electronics"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/EK_RA6M2/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Renesas+Electronics+EK-RA6M2",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1258,15 +934,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espressif+ESP32+%2F+WROOM",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESP32_GENERIC/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Espressif+ESP32+%2F+WROOM",
         "vendor": "Amazon"
@@ -1290,15 +957,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.espressif.com/en/products/devkits",
         "vendor": "Espressif"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C2/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espressif+ESP32-C2",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1334,15 +992,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C3/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espressif+ESP32-C3",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C3/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Espressif+ESP32-C3",
         "vendor": "Amazon"
@@ -1366,15 +1015,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.espressif.com/en/products/devkits",
         "vendor": "Espressif"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C5/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espressif+ESP32-C5",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1410,15 +1050,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C6/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espressif+ESP32-C6",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C6/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Espressif+ESP32-C6",
         "vendor": "Amazon"
@@ -1442,15 +1073,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.espressif.com/en/products/devkits",
         "vendor": "Espressif"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_P4/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espressif+ESP32-P4",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1486,15 +1108,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_S2/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espressif+ESP32-S2",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_S2/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Espressif+ESP32-S2",
         "vendor": "Amazon"
@@ -1518,15 +1131,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.espressif.com/en/products/devkits",
         "vendor": "Espressif"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_S3/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espressif+ESP32-S3",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1562,15 +1166,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP8266_GENERIC/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espressif+ESP8266",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESP8266_GENERIC/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Espressif+ESP8266",
         "vendor": "Amazon"
@@ -1585,15 +1180,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.espruino.com/Pico",
         "vendor": "Espruino"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/ESPRUINO_PICO/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Espruino+Pico",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1620,15 +1206,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/EVK_NINA_B1/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=u-blox+EVK-NINA-B1",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/EVK_NINA_B1/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=u-blox+EVK-NINA-B1",
         "vendor": "Amazon"
@@ -1643,15 +1220,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.u-blox.com/en/product/evk-nina-b3",
         "vendor": "u-blox"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/EVK_NINA_B3/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=u-blox+EVK-NINA-B3",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1687,15 +1255,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/FEATHER52/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Adafruit+Feather+nRF52840+Express",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/FEATHER52/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Adafruit+Feather+nRF52840+Express",
         "vendor": "Amazon"
@@ -1710,15 +1269,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://shop.mchobby.be/product.php?id_product=1653",
         "vendor": "McHobby"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/GARATRONIC_NADHAT_F405/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=McHobby+GARATRONIC_NADHAT_F405",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1745,15 +1295,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_ESP32C3/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=McHobby+PYBSTICK26_ESP32C3",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_ESP32C3/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=McHobby+PYBSTICK26_ESP32C3",
         "vendor": "Amazon"
@@ -1768,15 +1309,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://shop.mchobby.be/product.php?id_product=1844",
         "vendor": "McHobby"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_F411/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=McHobby+GARATRONIC_PYBSTICK26_F411",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1803,15 +1335,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_RP2040/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=McHobby+RP2040+PYBStick",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_RP2040/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=McHobby+RP2040+PYBStick",
         "vendor": "Amazon"
@@ -1826,15 +1349,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://github.com/hydrabus/hydrabus",
         "vendor": "HydraBus"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/HYDRABUS/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=HydraBus+HydraBus+v1.0",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1861,15 +1375,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/IBK_BLYST_NANO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=I-SYST+IBK+BLYST+Nano",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/IBK_BLYST_NANO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=I-SYST+IBK+BLYST+Nano",
         "vendor": "Amazon"
@@ -1890,15 +1395,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/IDK_BLYST_NANO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=I-SYST+IDK+BLYST+Nano",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/IDK_BLYST_NANO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=I-SYST+IDK+BLYST+Nano",
         "vendor": "Amazon"
@@ -1910,30 +1406,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LEGO_HUB_NO6/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=LEGO+Hub+No.6",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/LEGO_HUB_NO6/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=LEGO+Hub+No.6",
         "vendor": "Amazon"
       }
     ],
     "LEGO_HUB_NO7": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/LEGO_HUB_NO7/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=LEGO+Hub+No.7",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -1953,15 +1431,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.lilygo.cc/products/t3s3-v1-0",
         "vendor": "LILYGO"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/LILYGO_T3_S3/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=LILYGO+T3-S3",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -1988,15 +1457,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LILYGO_TTGO_LORA32/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=LILYGO+TTGO+LoRa32",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/LILYGO_TTGO_LORA32/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=LILYGO+TTGO+LoRa32",
         "vendor": "Amazon"
@@ -2011,15 +1471,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://github.com/LimiFrog",
         "vendor": "LimiFrog"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/LIMIFROG/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=LimiFrog+LimiFrog",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2046,15 +1497,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LOLIN_C3_MINI/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Wemos+C3+mini",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/LOLIN_C3_MINI/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Wemos+C3+mini",
         "vendor": "Amazon"
@@ -2069,15 +1511,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.wemos.cc/en/latest/s2/s2_mini.html",
         "vendor": "Wemos"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/LOLIN_S2_MINI/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Wemos+S2+mini",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2104,15 +1537,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LOLIN_S2_PICO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Wemos+S2+pico",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/LOLIN_S2_PICO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Wemos+S2+pico",
         "vendor": "Amazon"
@@ -2127,15 +1551,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://shop.m5stack.com/products/atom-matrix-esp32-development-kit",
         "vendor": "M5Stack"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/M5STACK_ATOM/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=M5Stack+Atom",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2162,15 +1577,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/M5STACK_ATOMS3_LITE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=M5Stack+AtomS3+Lite",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/M5STACK_ATOMS3_LITE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=M5Stack+AtomS3+Lite",
         "vendor": "Amazon"
@@ -2185,15 +1591,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://shop.m5stack.com/products/m5stack-nanoc6-dev-kit",
         "vendor": "M5Stack"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/M5STACK_NANOC6/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=M5Stack+NanoC6",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2220,15 +1617,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MACHDYNE_WERKZEUG/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Machdyne+Werkzeug",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MACHDYNE_WERKZEUG/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Machdyne+Werkzeug",
         "vendor": "Amazon"
@@ -2243,15 +1631,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://makerdiary.com/products/imxrt1011-nanokit",
         "vendor": "Makerdiary"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MAKERDIARY_RT1011_NANO_KIT/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Makerdiary+iMX+RT1011+Nano+Kit",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2278,15 +1657,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MICROBIT/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=BBC+micro%3Abit+v1",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MICROBIT/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=BBC+micro%3Abit+v1",
         "vendor": "Amazon"
@@ -2301,15 +1671,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.mikroe.com/clicker-2-stm32f4",
         "vendor": "MikroElektronika"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MIKROE_CLICKER2_STM32/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=MikroElektronika+MikroE+Clicker+2+for+STM32",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2336,15 +1697,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIKROE_QUAIL/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=MikroElektronika+MikroE+Quail",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MIKROE_QUAIL/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=MikroElektronika+MikroE+Quail",
         "vendor": "Amazon"
@@ -2359,15 +1711,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.nxp.com/design/development-boards/i-mx-evaluation-and-development-boards/i-mx-rt1010-evaluation-kit:MIMXRT1010-EVK",
         "vendor": "NXP"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MIMXRT1010_EVK/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=NXP+MIMXRT1010_EVK",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2394,15 +1737,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1015_EVK/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=NXP+MIMXRT1015_EVK",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MIMXRT1015_EVK/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=NXP+MIMXRT1015_EVK",
         "vendor": "Amazon"
@@ -2417,15 +1751,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.nxp.com/design/development-boards/i-mx-evaluation-and-development-boards/i-mx-rt1020-evaluation-kit:MIMXRT1020-EVK",
         "vendor": "NXP"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MIMXRT1020_EVK/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=NXP+MIMXRT1020_EVK",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2452,15 +1777,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1050_EVK/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=NXP+MIMXRT1050_EVK",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MIMXRT1050_EVK/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=NXP+MIMXRT1050_EVK",
         "vendor": "Amazon"
@@ -2475,15 +1791,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.nxp.com/design/development-boards/i-mx-evaluation-and-development-boards/i-mx-rt1060-evaluation-kit:MIMXRT1060-EVK",
         "vendor": "NXP"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MIMXRT1060_EVK/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=NXP+MIMXRT1060_EVK",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2510,15 +1817,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1064_EVK/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=NXP+MIMXRT1064_EVK",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MIMXRT1064_EVK/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=NXP+MIMXRT1064_EVK",
         "vendor": "Amazon"
@@ -2533,15 +1831,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.nxp.com/design/development-boards/i-mx-evaluation-and-development-boards/i-mx-rt1170-evaluation-kit:MIMXRT1170-EVK",
         "vendor": "NXP"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MIMXRT1170_EVK/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=NXP+MIMXRT1170_EVK",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2568,30 +1857,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MINISAM_M4/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=MiniFig+Boards+Mini+SAM+M4",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/MINISAM_M4/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=MiniFig+Boards+Mini+SAM+M4",
         "vendor": "Amazon"
       }
     ],
     "NETDUINO_PLUS_2": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NETDUINO_PLUS_2/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Netduino+Netduino+Plus+2",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -2617,30 +1888,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NRF52840_MDK_USB_DONGLE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Makerdiary+nrf52840+MDK+USB+Dongle",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NRF52840_MDK_USB_DONGLE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Makerdiary+nrf52840+MDK+USB+Dongle",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_F091RC": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F091RC/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F091RC",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -2657,30 +1910,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F401RE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F401RE",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F401RE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+F401RE",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_F411RE": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F411RE/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F411RE",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -2697,30 +1932,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F412ZG/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F412ZG",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F412ZG/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+F412ZG",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_F413ZH": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F413ZH/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F413ZH",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -2737,30 +1954,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F429ZI/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F429ZI",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F429ZI/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+F429ZI",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_F439ZI": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F439ZI/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F439ZI",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -2777,15 +1976,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F446RE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F446RE",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F446RE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+F446RE",
         "vendor": "Amazon"
@@ -2797,30 +1987,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F722ZE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F722ZE",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F722ZE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+F722ZE",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_F746ZG": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F746ZG/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F746ZG",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -2846,30 +2018,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F756ZG/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F756ZG",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F756ZG/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+F756ZG",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_F767ZI": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_F767ZI/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+F767ZI",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -2889,15 +2043,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.st.com/en/evaluation-tools/nucleo-g0b1re.html",
         "vendor": "ST Microelectronics"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_G0B1RE/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+G0B1RE",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -2924,30 +2069,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_G474RE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+G474RE",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_G474RE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+G474RE",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_H563ZI": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_H563ZI/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+H563ZI",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -2973,15 +2100,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_H723ZG/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+H723ZG",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_H723ZG/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+H723ZG",
         "vendor": "Amazon"
@@ -2993,30 +2111,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_H743ZI/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+H743ZI",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_H743ZI/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+H743ZI",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_H743ZI2": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_H743ZI2/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+H743ZI2",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -3036,15 +2136,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.st.com/en/evaluation-tools/nucleo-h753zi.html",
         "vendor": "ST Microelectronics"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_H753ZI/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+H753ZI",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3071,30 +2162,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_H7A3ZI_Q/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+H7A3ZI-Q",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_H7A3ZI_Q/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+H7A3ZI-Q",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_L073RZ": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_L073RZ/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+L073RZ",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -3120,30 +2193,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_L152RE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+L152RE",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_L152RE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+L152RE",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_L432KC": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_L432KC/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+L432KC",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -3160,30 +2215,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_L452RE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+L452RE",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_L452RE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+L452RE",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_L476RG": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_L476RG/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+L476RG",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -3209,15 +2246,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_L4A6ZG/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+L4A6ZG",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_L4A6ZG/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+L4A6ZG",
         "vendor": "Amazon"
@@ -3229,30 +2257,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_U5A5ZJ_Q/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+U5A5ZJ_Q",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_U5A5ZJ_Q/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Nucleo+U5A5ZJ_Q",
         "vendor": "Amazon"
       }
     ],
     "NUCLEO_WB55": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_WB55/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+WB55",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -3272,15 +2282,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.st.com/en/evaluation-tools/nucleo-wl55jc.html",
         "vendor": "ST Microelectronics"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NUCLEO_WL55/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Nucleo+WL55",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3307,15 +2308,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NULLBITS_BIT_C_PRO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=nullbits+Bit-C+PRO",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/NULLBITS_BIT_C_PRO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=nullbits+Bit-C+PRO",
         "vendor": "Amazon"
@@ -3330,15 +2322,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.olimex.com/Products/ARM/ST/STM32-E407",
         "vendor": "Olimex"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/OLIMEX_E407/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Olimex+STM32-E407",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3365,15 +2348,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/OLIMEX_ESP32_EVB/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Olimex+ESP32+EVB",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/OLIMEX_ESP32_EVB/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Olimex+ESP32+EVB",
         "vendor": "Amazon"
@@ -3388,15 +2362,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.olimex.com/Products/IoT/ESP32/ESP32-POE",
         "vendor": "Olimex"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/OLIMEX_ESP32_POE/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Olimex+ESP32+POE",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3423,15 +2388,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/OLIMEX_H407/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Olimex+STM32-H407",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/OLIMEX_H407/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Olimex+STM32-H407",
         "vendor": "Amazon"
@@ -3446,15 +2402,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.olimex.com/Products/MicroPython/RT1010-Py",
         "vendor": "Olimex"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/OLIMEX_RT1010/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Olimex+RT1010-Py",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3481,15 +2428,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PARTICLE_XENON/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Particle+Xenon",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PARTICLE_XENON/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Particle+Xenon",
         "vendor": "Amazon"
@@ -3504,15 +2442,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.nordicsemi.com/Products/Development-hardware/nRF51-Dongle",
         "vendor": "Nordic Semiconductor"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PCA10000/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Nordic+Semiconductor+pca10000",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3539,15 +2468,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10001/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Nordic+Semiconductor+pca10001",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PCA10001/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Nordic+Semiconductor+pca10001",
         "vendor": "Amazon"
@@ -3562,15 +2482,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.nordicsemi.com/Products/Development-hardware/nRF51-DK",
         "vendor": "Nordic Semiconductor"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PCA10028/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Nordic+Semiconductor+pca10028",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3597,15 +2508,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10031/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Nordic+Semiconductor+pca10031",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PCA10031/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Nordic+Semiconductor+pca10031",
         "vendor": "Amazon"
@@ -3620,15 +2522,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.nordicsemi.com/Products/Development-hardware/nRF52-DK",
         "vendor": "Nordic Semiconductor"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PCA10040/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Nordic+Semiconductor+pca10040",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3655,15 +2548,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10056/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Nordic+Semiconductor+pca10056",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PCA10056/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Nordic+Semiconductor+pca10056",
         "vendor": "Amazon"
@@ -3678,15 +2562,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.nordicsemi.com/Products/Development-hardware/nRF52840-Dongle",
         "vendor": "Nordic Semiconductor"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PCA10059/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Nordic+Semiconductor+pca10059",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3713,15 +2588,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10090/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Nordic+Semiconductor+pca10090",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PCA10090/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Nordic+Semiconductor+pca10090",
         "vendor": "Amazon"
@@ -3736,15 +2602,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.phytec.com/product/phyboard-rt1170-development-kit/",
         "vendor": "PHYTEC"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PHYBOARD_RT1170/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=PHYTEC+phyBOARD-RT1170+Development+Kit",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3771,15 +2628,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PIMORONI_PICOLIPO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Pimoroni+Pico+LiPo",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PIMORONI_PICOLIPO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Pimoroni+Pico+LiPo",
         "vendor": "Amazon"
@@ -3794,15 +2642,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://shop.pimoroni.com/products/tiny-2040",
         "vendor": "Pimoroni"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PIMORONI_TINY2040/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Pimoroni+Tiny2040",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3829,15 +2668,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/POLOLU_3PI_2040_ROBOT/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Pololu+3pi%2B+2040+Robot",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/POLOLU_3PI_2040_ROBOT/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Pololu+3pi%2B+2040+Robot",
         "vendor": "Amazon"
@@ -3852,15 +2682,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.pololu.com/zumo",
         "vendor": "Pololu"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/POLOLU_ZUMO_2040_ROBOT/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Pololu+Zumo+2040+Robot",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3887,15 +2708,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PYBD_SF2/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=George+Robotics+Pyboard+D-series+SF2",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PYBD_SF2/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=George+Robotics+Pyboard+D-series+SF2",
         "vendor": "Amazon"
@@ -3910,15 +2722,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://store.micropython.org/product/PYBD-SF3-W4F2",
         "vendor": "George Robotics"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PYBD_SF3/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=George+Robotics+Pyboard+D-series+SF3",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -3945,15 +2748,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PYBD_SF6/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=George+Robotics+Pyboard+D-series+SF6",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PYBD_SF6/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=George+Robotics+Pyboard+D-series+SF6",
         "vendor": "Amazon"
@@ -3974,30 +2768,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PYBLITEV10/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=George+Robotics+Pyboard+Lite+v1.0",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PYBLITEV10/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=George+Robotics+Pyboard+Lite+v1.0",
         "vendor": "Amazon"
       }
     ],
     "PYBV10": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PYBV10/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=George+Robotics+Pyboard+v1.0",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -4017,15 +2793,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://store.micropython.org/product/PYBv1.1",
         "vendor": "George Robotics"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/PYBV11/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=George+Robotics+Pyboard+v1.1",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4052,15 +2819,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/RA4M1_CLICKER/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=MikroElektronika+Mikroe+RA4M1+Clicker",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/RA4M1_CLICKER/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=MikroElektronika+Mikroe+RA4M1+Clicker",
         "vendor": "Amazon"
@@ -4075,15 +2833,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.raspberrypi.com/products/raspberry-pi-pico/",
         "vendor": "Raspberry Pi"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/RPI_PICO/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Raspberry+Pi+Pico",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4119,15 +2868,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/RPI_PICO2/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Raspberry+Pi+Pico+2",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/RPI_PICO2/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Raspberry+Pi+Pico+2",
         "vendor": "Amazon"
@@ -4157,15 +2897,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/RPI_PICO2_W/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Raspberry+Pi+Pico+2+W",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/RPI_PICO2_W/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Raspberry+Pi+Pico+2+W",
         "vendor": "Amazon"
@@ -4180,15 +2911,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.raspberrypi.com/products/raspberry-pi-pico/",
         "vendor": "Raspberry Pi"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/RPI_PICO_W/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Raspberry+Pi+Pico+W",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4215,15 +2937,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SAMD21_XPLAINED_PRO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Microchip+SAMD21+Xplained+Pro",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SAMD21_XPLAINED_PRO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Microchip+SAMD21+Xplained+Pro",
         "vendor": "Amazon"
@@ -4238,15 +2951,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.microchip.com/en-us/products/microcontrollers-and-microprocessors/32-bit-mcus/sam-32-bit-mcus/sam-d",
         "vendor": "Microchip"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D21X18/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Microchip+Generic+SAMD21J18",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4273,15 +2977,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D51X19/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Microchip+Generic+SAMD51P19",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D51X19/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Microchip+Generic+SAMD51P19",
         "vendor": "Amazon"
@@ -4296,15 +2991,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.microchip.com/en-us/products/microcontrollers-and-microprocessors/32-bit-mcus/sam-32-bit-mcus/sam-d",
         "vendor": "Microchip"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D51X20/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Microchip+Generic+SAMD51P20",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4340,15 +3026,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_ARCH_MIX/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Seeed+Studio+Arch+Mix",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SEEED_ARCH_MIX/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Seeed+Studio+Arch+Mix",
         "vendor": "Amazon"
@@ -4372,15 +3049,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.seeedstudio.com/",
         "vendor": "Seeed Studio"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SEEED_WIO_TERMINAL/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Seeed+Studio+Wio+Terminal+D51R",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4416,15 +3084,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C6/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Seeed+Studio+XIAO+ESP32C6",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C6/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Seeed+Studio+XIAO+ESP32C6",
         "vendor": "Amazon"
@@ -4448,15 +3107,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.seeedstudio.com/",
         "vendor": "Seeed Studio"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SEEED_XIAO_NRF52/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Seeed+Studio+XIAO+nRF52840+Sense",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4492,15 +3142,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_RP2040/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Seeed+Studio+XIAO+RP2040",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SEEED_XIAO_RP2040/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Seeed+Studio+XIAO+RP2040",
         "vendor": "Amazon"
@@ -4524,15 +3165,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.seeedstudio.com/",
         "vendor": "Seeed Studio"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SEEED_XIAO_RP2350/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Seeed+Studio+XIAO+RP2350",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4568,15 +3200,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_SAMD21/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Seeed+Studio+XIAO+SAMD21",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SEEED_XIAO_SAMD21/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Seeed+Studio+XIAO+SAMD21",
         "vendor": "Amazon"
@@ -4591,15 +3214,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://mant1s.net/",
         "vendor": "Silicognition LLC"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SIL_MANT1S/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Silicognition+LLC+ManT1S",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4626,15 +3240,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SIL_RP2040_SHIM/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Silicognition+LLC+RP2040-Shim",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SIL_RP2040_SHIM/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Silicognition+LLC+RP2040-Shim",
         "vendor": "Amazon"
@@ -4649,15 +3254,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://wesp32.com/",
         "vendor": "Silicognition"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SIL_WESP32/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Silicognition+wESP32",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4684,15 +3280,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SOLDERED_NULA_MAX_RP2350/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Soldered+Electronics+NULA+RP2350",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SOLDERED_NULA_MAX_RP2350/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Soldered+Electronics+NULA+RP2350",
         "vendor": "Amazon"
@@ -4707,15 +3294,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://soldered.com/product/nula-mini-esp32-c6/",
         "vendor": "Soldered Electronics"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SOLDERED_NULA_MINI/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Soldered+Electronics+NULA+Mini",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4751,15 +3329,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOTNODE_LORAWAN_RP2350/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+IoT+Node+LoRaWAN+RP2350",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_IOTNODE_LORAWAN_RP2350/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=SparkFun+IoT+Node+LoRaWAN+RP2350",
         "vendor": "Amazon"
@@ -4783,15 +3352,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.sparkfun.com/",
         "vendor": "SparkFun"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_IOTREDBOARD_RP2350/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+SparkFun+IoT+RedBoard+RP2350",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4827,15 +3387,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOT_REDBOARD_ESP32/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+ESP32+%2F+WROOM",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_IOT_REDBOARD_ESP32/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=SparkFun+ESP32+%2F+WROOM",
         "vendor": "Amazon"
@@ -4859,15 +3410,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.sparkfun.com/",
         "vendor": "SparkFun"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_MICROMOD_STM32/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+MicroMod+STM32",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4903,15 +3445,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_PROMICRO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+Pro+Micro+-+RP2040",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_PROMICRO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=SparkFun+Pro+Micro+-+RP2040",
         "vendor": "Amazon"
@@ -4935,15 +3468,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.sparkfun.com/",
         "vendor": "SparkFun"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_PROMICRO_RP2350/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+Pro+Micro+RP2350",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -4979,15 +3503,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_REDBOARD_TURBO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+SparkFun+RedBoard+Turbo",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_REDBOARD_TURBO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=SparkFun+SparkFun+RedBoard+Turbo",
         "vendor": "Amazon"
@@ -5011,15 +3526,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.sparkfun.com/",
         "vendor": "SparkFun"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_SAMD21_DEV_BREAKOUT/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+SparkFun+SAMD21+Dev+Breakout",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5055,15 +3561,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_SAMD51_THING_PLUS/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+SAMD51+Thing+Plus",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_SAMD51_THING_PLUS/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=SparkFun+SAMD51+Thing+Plus",
         "vendor": "Amazon"
@@ -5087,15 +3584,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.sparkfun.com/",
         "vendor": "SparkFun"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+Thing+Plus+-+RP2040",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5131,15 +3619,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS_ESP32C5/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+Thing+Plus+ESP32-C5",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS_ESP32C5/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=SparkFun+Thing+Plus+ESP32-C5",
         "vendor": "Amazon"
@@ -5163,15 +3642,6 @@
         "notes": "Official vendor/product-family page.",
         "url": "https://www.sparkfun.com/",
         "vendor": "SparkFun"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS_RP2350/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+Thing+Plus+RP2350",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5207,15 +3677,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+XRP+Controller",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=SparkFun+XRP+Controller",
         "vendor": "Amazon"
@@ -5245,30 +3706,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER_BETA/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=SparkFun+XRP+Controller+%28Beta%29",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER_BETA/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=SparkFun+XRP+Controller+%28Beta%29",
         "vendor": "Amazon"
       }
     ],
     "STM32F411DISC": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32F411DISC/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+F411",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -5285,30 +3728,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F429DISC/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+F429",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32F429DISC/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Discovery+F429",
         "vendor": "Amazon"
       }
     ],
     "STM32F439": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32F439/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+STM32F439",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -5334,30 +3759,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F469DISC/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+F469",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32F469DISC/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Discovery+F469",
         "vendor": "Amazon"
       }
     ],
     "STM32F4DISC": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32F4DISC/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+F4",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -5374,30 +3781,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F769DISC/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+F769",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32F769DISC/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Discovery+F769",
         "vendor": "Amazon"
       }
     ],
     "STM32F7DISC": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32F7DISC/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+F7",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -5423,15 +3812,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32H747I_DISCO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+Kit+H747I",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32H747I_DISCO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Discovery+Kit+H747I",
         "vendor": "Amazon"
@@ -5443,30 +3823,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32H7B3I_DK/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+Kit+H7",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32H7B3I_DK/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=ST+Microelectronics+Discovery+Kit+H7",
         "vendor": "Amazon"
       }
     ],
     "STM32L476DISC": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32L476DISC/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+L476",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -5486,15 +3848,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.st.com/en/evaluation-tools/32l496gdiscovery.html",
         "vendor": "ST Microelectronics"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/STM32L496GDISC/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+Discovery+L496G",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5521,15 +3874,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/TEENSY40/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=PJRC+Teensy+4.0",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/TEENSY40/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=PJRC+Teensy+4.0",
         "vendor": "Amazon"
@@ -5544,15 +3888,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.pjrc.com/store/teensy41.html",
         "vendor": "PJRC"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/TEENSY41/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=PJRC+Teensy+4.1",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5579,15 +3914,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS2/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+FeatherS2",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_FEATHERS2/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Unexpected+Maker+FeatherS2",
         "vendor": "Amazon"
@@ -5602,15 +3928,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://unexpectedmaker.com/feathers2-neo",
         "vendor": "Unexpected Maker"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_FEATHERS2NEO/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+FeatherS2+Neo",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5637,15 +3954,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS3/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+FeatherS3",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_FEATHERS3/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Unexpected+Maker+FeatherS3",
         "vendor": "Amazon"
@@ -5660,15 +3968,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://esp32s3.com/feathers3neo.html",
         "vendor": "Unexpected Maker"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_FEATHERS3NEO/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+FeatherS3+Neo",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5695,15 +3994,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_NANOS3/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+NanoS3",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_NANOS3/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Unexpected+Maker+NanoS3",
         "vendor": "Amazon"
@@ -5718,15 +4008,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://omgs3.io",
         "vendor": "Unexpected Maker"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_OMGS3/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+OMGS3",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5753,15 +4034,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_PROS3/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+ProS3",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_PROS3/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Unexpected+Maker+ProS3",
         "vendor": "Amazon"
@@ -5776,15 +4048,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://rgbtouch.com",
         "vendor": "Unexpected Maker"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_RGBTOUCH_MINI/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+RGB+Touch+Mini",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5811,15 +4074,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_TINYC6/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+TinyC6",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_TINYC6/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Unexpected+Maker+TinyC6",
         "vendor": "Amazon"
@@ -5834,15 +4088,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.tinypico.com/",
         "vendor": "Unexpected Maker"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_TINYPICO/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+TinyPICO",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5869,15 +4114,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_TINYS2/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+TinyS2",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_TINYS2/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Unexpected+Maker+TinyS2",
         "vendor": "Amazon"
@@ -5892,15 +4128,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://tinys3.io",
         "vendor": "Unexpected Maker"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_TINYS3/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+TinyS3",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -5927,30 +4154,12 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_TINYWATCHS3/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Unexpected+Maker+TinyWATCH+S3",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/UM_TINYWATCHS3/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Unexpected+Maker+TinyWATCH+S3",
         "vendor": "Amazon"
       }
     ],
     "USBDONGLE_WB55": [
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/USBDONGLE_WB55/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=ST+Microelectronics+USBDONGLE_WB55",
-        "vendor": "DigiKey"
-      },
       {
         "checked_at": "2026-06-20",
         "confidence": "low",
@@ -5970,15 +4179,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "http://vcc-gnd.com/",
         "vendor": "VCC-GND Studio"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/VCC_GND_F407VE/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=VCC-GND+Studio+F407VE",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -6005,15 +4205,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/VCC_GND_F407ZG/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=VCC-GND+Studio+F407ZG",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/VCC_GND_F407ZG/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=VCC-GND+Studio+F407ZG",
         "vendor": "Amazon"
@@ -6028,15 +4219,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "http://vcc-gnd.com/",
         "vendor": "VCC-GND Studio"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/VCC_GND_H743VI/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=VCC-GND+Studio+H743VI",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -6063,15 +4245,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/VK_RA6M5/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Vekatech+VK-RA6M5",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/VK_RA6M5/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Vekatech+VK-RA6M5",
         "vendor": "Amazon"
@@ -6086,15 +4259,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://docs.wiznet.io/Product/iEthernet/W5100S/w5100s-evb-pico",
         "vendor": "WIZnet"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/W5100S_EVB_PICO/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=WIZnet+W5100S-EVB-Pico",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -6121,15 +4285,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/W5500_EVB_PICO/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=WIZnet+W5500-EVB-Pico",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/W5500_EVB_PICO/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=WIZnet+W5500-EVB-Pico",
         "vendor": "Amazon"
@@ -6144,15 +4299,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.waveshare.com/product/rp2040-lcd-0.96.htm",
         "vendor": "Waveshare"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_LCD_0_96/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Waveshare+RP2040-LCD-0.96",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -6179,15 +4325,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_PLUS/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Waveshare+RP2040-Plus",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_PLUS/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Waveshare+RP2040-Plus",
         "vendor": "Amazon"
@@ -6202,15 +4339,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://www.waveshare.com/product/rp2040-zero.htm",
         "vendor": "Waveshare"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_ZERO/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Waveshare+RP2040-Zero",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -6237,15 +4365,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2350B_CORE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Waveshare+RP2350B+Core",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WAVESHARE_RP2350B_CORE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Waveshare+RP2350B+Core",
         "vendor": "Amazon"
@@ -6260,15 +4379,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://github.com/WeActTC/WeActStudio.RP2040CoreBoard",
         "vendor": "WeAct"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WEACTSTUDIO/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=WeAct+Studio+RP2040",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -6295,15 +4405,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32H743/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=WeAct+Studio+Mini+STM32H743",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32H743/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=WeAct+Studio+Mini+STM32H743",
         "vendor": "Amazon"
@@ -6318,15 +4419,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://github.com/WeActStudio/WeActStudio.STM32U585Cx_CoreBoard",
         "vendor": "WeAct Studio"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32U585/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=WeAct+Studio+Mini+STM32U585",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -6353,15 +4445,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO_RP2350B_CORE/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=WeAct+Studio+RP2350B+Core",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WEACTSTUDIO_RP2350B_CORE/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=WeAct+Studio+RP2350B+Core",
         "vendor": "Amazon"
@@ -6376,15 +4459,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://github.com/WeActStudio/WeActStudio.MiniSTM32F4x1",
         "vendor": "WeAct Studio"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WEACT_F411_BLACKPILL/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=WeAct+Studio+WeAct+F411+%27blackpill%27.+Default+variant+is+v3.1+with+no+SPI+Flash.",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",
@@ -6411,15 +4485,6 @@
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WIPY/",
         "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Pycom+WiPy+Module",
-        "vendor": "DigiKey"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WIPY/",
-        "link_type": "search_fallback",
         "notes": "Search fallback; marketplace listing was not individually verified.",
         "url": "https://www.amazon.com/s?k=Pycom+WiPy+Module",
         "vendor": "Amazon"
@@ -6434,15 +4499,6 @@
         "notes": "Official board More info link from MicroPython download page.",
         "url": "https://shop.wireless-tag.com/products/esp32-c3-mini-1-10pcs-espressif-esp32-c3-mini-1-4mb-flash-pcb-antenna-15-gpios-wifi-ble-5-module-esp32-c3-module-on-esp32-c3-chip",
         "vendor": "Wireless-Tag"
-      },
-      {
-        "checked_at": "2026-06-20",
-        "confidence": "low",
-        "evidence_url": "https://micropython.org/download/WT51822_S4AT/",
-        "link_type": "search_fallback",
-        "notes": "Search fallback; product page was not individually verified.",
-        "url": "https://www.digikey.com/en/products/result?keywords=Wireless-Tag+WT51822-S4AT",
-        "vendor": "DigiKey"
       },
       {
         "checked_at": "2026-06-20",

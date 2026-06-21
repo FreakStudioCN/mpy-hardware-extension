@@ -594,8 +594,7 @@
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [
-      "pressure_sensing",
-      "audio_output"
+      "pressure_sensing"
     ],
     "chips": "all",
     "confidence": 0.8,

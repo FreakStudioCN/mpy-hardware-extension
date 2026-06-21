@@ -60,7 +60,9 @@ def test_missing_key_falls_back_to_labeled_search_links(tmp_path, monkeypatch):
 
     assert links, "expected a search fallback when the module is not curated"
     vendors = {link["vendor"] for link in links}
-    assert {"DigiKey", "Amazon"} <= vendors
+    # Beginner-friendly channels only; DigiKey's industrial catalog is deliberately out.
+    assert {"Adafruit", "Amazon"} <= vendors
+    assert "DigiKey" not in vendors
     for link in links:
         assert link["link_type"] == "search_fallback"
         assert link["confidence"] == "low"
@@ -85,6 +87,23 @@ def test_shipped_curated_library_is_well_formed_and_keys_map_to_catalog():
             assert link["link_type"]
             assert link["checked_at"]
             assert link["evidence_url"].startswith("https://")
+
+
+def test_region_override_file_wins_and_defaults_to_us(tmp_path, monkeypatch):
+    # Region seam: a `<stem>.<region>.json` override is used when present; any region
+    # without one falls back to the shipped US file. Only US ships today.
+    us_path = tmp_path / "module_purchase_links.json"
+    us_path.write_text(json.dumps({"links_by_module": {"aht20": [
+        {"vendor": "Adafruit", "url": "https://www.adafruit.com/product/4566", "link_type": "official"}]}}), encoding="utf-8")
+    cn_path = tmp_path / "module_purchase_links.cn.json"
+    cn_path.write_text(json.dumps({"links_by_module": {"aht20": [
+        {"vendor": "Taobao", "url": "https://example.tmall.com/aht20", "link_type": "official"}]}}), encoding="utf-8")
+    monkeypatch.setattr(recommendation_catalog, "MODULE_LINKS_PATH", us_path)
+
+    assert recommendation_catalog.module_purchase_links("aht20", "cn")[0]["vendor"] == "Taobao"
+    assert recommendation_catalog.module_purchase_links("aht20", "us")[0]["vendor"] == "Adafruit"
+    # A region with no override file falls back to the US file.
+    assert recommendation_catalog.module_purchase_links("aht20", "jp")[0]["vendor"] == "Adafruit"
 
 
 def test_missing_library_file_does_not_crash(tmp_path, monkeypatch):

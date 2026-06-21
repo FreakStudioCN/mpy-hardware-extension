@@ -82,10 +82,10 @@ class PackageStore:
             "cached": True,
         }
 
-    def search(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10) -> list[dict[str, Any]]:
-        return [_public_hit(hit) for hit in self._ranked(query, capabilities, limit)]
+    def search(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10, board_family: str = "") -> list[dict[str, Any]]:
+        return [_public_hit(hit) for hit in self._ranked(query, capabilities, limit, board_family)]
 
-    def _ranked(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10) -> list[dict[str, Any]]:
+    def _ranked(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10, board_family: str = "") -> list[dict[str, Any]]:
         capabilities = capabilities or []
         stop_words = {"the", "and", "when", "with", "over", "turn", "on", "off", "read", "show", "is"}
         terms = {term for term in query.lower().replace("_", " ").split() if len(term) >= 3 and term not in stop_words}
@@ -98,6 +98,13 @@ class PackageStore:
                 continue
             score += support_weight(record["support_level"])
             score += float(record.get("confidence", 0.0))
+            # Board-family fit: a chip-agnostic ("all") driver is neutral, a same-family
+            # driver is preferred, a wrong-family-only driver is demoted -- so the
+            # website never recommends an rp2040-only part for an esp32 board (or vice
+            # versa). Applied here, before _public_hit strips confidence, so the
+            # confidence tie-break is preserved.
+            if board_family:
+                score += board_match_weight(record.get("chips", "all"), board_family)
             haystack = " ".join([record["name"], record.get("description", ""), " ".join(record_caps)]).lower()
             score += 0.25 * sum(1 for term in terms if term and term in haystack)
             if score > 0 or not query and not capabilities:
@@ -338,7 +345,11 @@ CAPABILITY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("weight_sensing", ("load cell", "loadcell", "weight", "hx711", "cs1237", "strain")),
     ("heart_rate_sensing", ("heart rate", "heartrate", "pulse oximeter", "spo2", "max30100", "max30102")),
     ("sound_sensing", ("microphone", "max9814")),
-    ("audio_output", ("buzzer", "speaker", "mp3", "tts", "jq6500", "kt403a", "dy_sv19t", "snr9816")),
+    # "mp3" deliberately omitted: this inference is a bare substring match (no word
+    # boundary), and "mp3" matched "b(mp3)90", mis-tagging the bmp390 barometer as
+    # audio_output. The real MP3 player modules are already covered by their chip
+    # names (jq6500/kt403a/dy_sv19t/snr9816) and "speaker"/"buzzer"/"tts".
+    ("audio_output", ("buzzer", "speaker", "tts", "jq6500", "kt403a", "dy_sv19t", "snr9816")),
 ]
 
 

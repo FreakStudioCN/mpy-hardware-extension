@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app import recommendation_catalog, web_recommend
 
@@ -15,6 +15,13 @@ class WebRecommendRequest(BaseModel):
     idea: str = Field(min_length=1, max_length=500)
     locale: str = Field(default="en", max_length=8)
     region: str = Field(default="us", max_length=32)
+
+    @field_validator("idea")
+    @classmethod
+    def _idea_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("idea must not be blank")
+        return value
 
 
 class WebEventRequest(BaseModel):
@@ -34,9 +41,11 @@ class WebNewsletterRequest(BaseModel):
 def web_recommend_route(request: WebRecommendRequest, http_request: Request):
     web_recommend.enforce_rate_limit(http_request)
     idea = request.idea.strip()
-    result = web_recommend.recommend(idea)
-    board = recommendation_catalog.select_beginner_board()
-    purchase_links = recommendation_catalog.load_purchase_links()
+    result = web_recommend.recommend(idea, region=request.region)
+    # The pipeline already chose the board (idea-driven: a board-family hint picks a
+    # board of that family), so don't re-select it here.
+    board = result.get("board")
+    purchase_links = recommendation_catalog.load_purchase_links(request.region)
     starter_prompt = f"Build a MicroPython project for: {idea}"
     handoff = {
         "starter_prompt": starter_prompt,
@@ -48,7 +57,14 @@ def web_recommend_route(request: WebRecommendRequest, http_request: Request):
     }
     if board:
         slug = board.get("slug")
-        links = purchase_links.get(slug, []) if slug else []
+        # Curated, verified, buyable product page first; then the generated catalog
+        # links (whose first entry is the board's MicroPython "More info" page -- a
+        # vendor SoC/family page with no add-to-cart). Without this the "buy" button
+        # sent beginners to e.g. espressif.com/en/products/modules.
+        curated = recommendation_catalog.board_purchase_links(slug, request.region)
+        seen_urls = {link.get("url") for link in curated}
+        generated = purchase_links.get(slug, []) if slug else []
+        links = curated + [link for link in generated if link.get("url") not in seen_urls]
         primary_link = links[0]["url"] if links else board.get("more_info_url") or board.get("detail_url")
         firmware = board.get("firmware") or {}
         release = firmware.get("latest_release") or {}
@@ -72,6 +88,11 @@ def web_recommend_route(request: WebRecommendRequest, http_request: Request):
         "parts": result["parts"],
         "starter_prompt": starter_prompt,
         "handoff": handoff,
+        # Which retrieval path served: "llm" | "fallback" | "error". Surfaced so a
+        # misconfigured deploy (no DEEPSEEK key -> always "fallback") is visible from
+        # outside instead of silently degrading every recommendation. (Distinct from
+        # recommended_board["source"], which is the board's data provenance.)
+        "source": result["source"],
     }
 
 

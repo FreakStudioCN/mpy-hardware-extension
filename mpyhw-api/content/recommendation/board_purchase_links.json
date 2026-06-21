@@ -1,0 +1,28 @@
+{
+  "fetched_at": "2026-06-20T00:00:00+00:00",
+  "notes": "Curated, verified, beginner-buyable product pages for recommended boards, keyed by MicroPython board slug. These take precedence over the generated hardware_purchase_links_us.json, whose first link per board is the MicroPython 'More info' link -- a vendor SoC/family page with no add-to-cart. Selection rule: a specific product page with add-to-cart, pre-soldered headers (no soldering required), and a solderless module connector (STEMMA QT / Qwiic) so it pairs with the curated STEMMA QT sensor modules. Same vendor (Adafruit) as the modules, so a beginner checks out one cart.",
+  "links_by_slug": {
+    "ESP32_GENERIC_S3": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5500",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5500",
+        "checked_at": "2026-06-20",
+        "notes": "Adafruit Metro ESP32-S3 (16MB Flash, 8MB PSRAM). Pre-soldered headers, USB-C, and a STEMMA QT/Qwiic connector for solderless I2C modules. Runs the ESP32_GENERIC_S3 MicroPython build."
+      }
+    ],
+    "RPI_PICO_W": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5544",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5544",
+        "checked_at": "2026-06-20",
+        "notes": "Raspberry Pi Pico WH - Wi-Fi with male headers already soldered (no soldering required). Runs the RPI_PICO_W MicroPython build."
+      }
+    ]
+  }
+}

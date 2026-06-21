@@ -17,6 +17,7 @@ RECOMMENDATION_DIR = ROOT / "content" / "recommendation"
 BOARDS_PATH = RECOMMENDATION_DIR / "micropython_boards.json"
 LINKS_PATH = RECOMMENDATION_DIR / "hardware_purchase_links_us.json"
 MODULE_LINKS_PATH = RECOMMENDATION_DIR / "module_purchase_links.json"
+BOARD_LINKS_PATH = RECOMMENDATION_DIR / "board_purchase_links.json"
 
 
 class _BoardIndexParser(HTMLParser):
@@ -194,27 +195,19 @@ def purchase_links_for_board(board: dict[str, Any]) -> list[dict[str, str]]:
     known = _known_vendor_link(vendor, slug)
     if known and all(link["url"] != known["url"] for link in links):
         links.append(known)
-    links.extend(
-        [
-            {
-                "vendor": "DigiKey",
-                "url": f"https://www.digikey.com/en/products/result?keywords={query}",
-                "link_type": "search_fallback",
-                "confidence": "low",
-                "evidence_url": str(board.get("detail_url") or MICROPYTHON_DOWNLOAD_URL),
-                "checked_at": _today(),
-                "notes": "Search fallback; product page was not individually verified.",
-            },
-            {
-                "vendor": "Amazon",
-                "url": f"https://www.amazon.com/s?k={query}",
-                "link_type": "search_fallback",
-                "confidence": "low",
-                "evidence_url": str(board.get("detail_url") or MICROPYTHON_DOWNLOAD_URL),
-                "checked_at": _today(),
-                "notes": "Search fallback; marketplace listing was not individually verified.",
-            },
-        ]
+    # Beginner-friendly marketplace search only. DigiKey is deliberately NOT used: it
+    # is an industrial/enterprise distributor whose huge catalog is off-putting and
+    # confusing for the hardware-novice this site targets.
+    links.append(
+        {
+            "vendor": "Amazon",
+            "url": f"https://www.amazon.com/s?k={query}",
+            "link_type": "search_fallback",
+            "confidence": "low",
+            "evidence_url": str(board.get("detail_url") or MICROPYTHON_DOWNLOAD_URL),
+            "checked_at": _today(),
+            "notes": "Search fallback; marketplace listing was not individually verified.",
+        }
     )
     return links
 
@@ -225,36 +218,70 @@ def load_boards() -> list[dict[str, Any]]:
     return json.loads(BOARDS_PATH.read_text(encoding="utf-8")).get("boards", [])
 
 
-def load_purchase_links() -> dict[str, list[dict[str, Any]]]:
-    if not LINKS_PATH.is_file():
+def _region_links_path(default_path: Path, region: str) -> Path:
+    """Resolve a region-specific links file. A `<stem>.<region>.json` override file
+    next to the default wins when present; otherwise the shipped default (US) file is
+    used. Region seam only -- today only the US files ship, so any region falls back
+    to US until its curated file is added (e.g. module_purchase_links.cn.json)."""
+    region = (region or "us").strip().lower()
+    if region in ("", "us"):
+        return default_path
+    override = default_path.with_name(f"{default_path.stem}.{region}.json")
+    return override if override.is_file() else default_path
+
+
+def load_purchase_links(region: str = "us") -> dict[str, list[dict[str, Any]]]:
+    path = _region_links_path(LINKS_PATH, region)
+    if not path.is_file():
         return {}
-    return json.loads(LINKS_PATH.read_text(encoding="utf-8")).get("links_by_slug", {})
+    return json.loads(path.read_text(encoding="utf-8")).get("links_by_slug", {})
 
 
-def load_module_purchase_links() -> dict[str, list[dict[str, Any]]]:
-    if not MODULE_LINKS_PATH.is_file():
+def load_module_purchase_links(region: str = "us") -> dict[str, list[dict[str, Any]]]:
+    path = _region_links_path(MODULE_LINKS_PATH, region)
+    if not path.is_file():
         return {}
-    return json.loads(MODULE_LINKS_PATH.read_text(encoding="utf-8")).get("links_by_module", {})
+    return json.loads(path.read_text(encoding="utf-8")).get("links_by_module", {})
 
 
-def module_purchase_links(module_name: str) -> list[dict[str, str]]:
+def load_board_purchase_links(region: str = "us") -> dict[str, list[dict[str, Any]]]:
+    path = _region_links_path(BOARD_LINKS_PATH, region)
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8")).get("links_by_slug", {})
+
+
+def board_purchase_links(slug: str, region: str = "us") -> list[dict[str, Any]]:
+    """Curated, verified, beginner-buyable product page(s) for a recommended board,
+    keyed by MicroPython board slug. These take precedence over the generated
+    hardware_purchase_links_us.json, whose first entry is the board's MicroPython
+    "More info" link -- a vendor SoC/family page you cannot actually buy a dev board
+    from. Returns [] when no curated link exists (then the generated links apply)."""
+    if not slug:
+        return []
+    return load_board_purchase_links(region).get(slug, [])
+
+
+def module_purchase_links(module_name: str, region: str = "us") -> list[dict[str, str]]:
     """Buy links for one hardware module, keyed by canonical_chip_id so a catalog
     name (`aht20_driver`) and its curated entry (`aht20`) join. Returns the curated,
-    audited product links when present, else a labeled DigiKey/Amazon search
-    fallback so the endpoint stays usable before the library is built."""
+    audited product links when present, else a labeled beginner-friendly search
+    fallback (Adafruit maker store + Amazon) so the endpoint stays usable before the
+    library is built. DigiKey is deliberately avoided: its industrial catalog is
+    off-putting for the hardware novices this site targets."""
     key = canonical_chip_id(module_name)
-    curated = load_module_purchase_links().get(key)
+    curated = load_module_purchase_links(region).get(key)
     if curated:
         return curated
     query = quote_plus(module_name.strip())
     return [
         {
-            "vendor": "DigiKey",
-            "url": f"https://www.digikey.com/en/products/result?keywords={query}",
+            "vendor": "Adafruit",
+            "url": f"https://www.adafruit.com/search?q={query}",
             "link_type": "search_fallback",
             "confidence": "low",
             "checked_at": _today(),
-            "notes": "Search fallback; product page was not individually verified.",
+            "notes": "Maker-store search fallback; product page was not individually verified.",
         },
         {
             "vendor": "Amazon",
@@ -267,10 +294,22 @@ def module_purchase_links(module_name: str) -> list[dict[str, str]]:
     ]
 
 
-def select_beginner_board() -> dict[str, Any] | None:
+_BEGINNER_BOARD_ORDER = ("ESP32_GENERIC_S3", "RPI_PICO_W", "ESP32_GENERIC_C3", "ESP32_GENERIC")
+_BOARD_ORDER_BY_FAMILY = {
+    "rp2040": ("RPI_PICO_W", "RPI_PICO", "RPI_PICO2_W", "RPI_PICO2"),
+    "esp32": ("ESP32_GENERIC_S3", "ESP32_GENERIC_C3", "ESP32_GENERIC", "ESP32_GENERIC_S2"),
+}
+
+
+def select_beginner_board(family_hint: str | None = None) -> dict[str, Any] | None:
+    """Pick a beginner board. When the idea hints a board family (esp32 / rp2040 --
+    e.g. "a raspberry pi pico project"), prefer a beginner board of that family;
+    otherwise fall back to the default beginner priority. Always falls back to the
+    general order, then any board, so a missing family list can't return nothing."""
     boards = load_boards()
     by_slug = {board.get("slug"): board for board in boards}
-    for slug in ("ESP32_GENERIC_S3", "RPI_PICO_W", "ESP32_GENERIC_C3", "ESP32_GENERIC"):
+    order = _BOARD_ORDER_BY_FAMILY.get(family_hint or "", ()) + _BEGINNER_BOARD_ORDER
+    for slug in order:
         if slug in by_slug:
             return by_slug[slug]
     return boards[0] if boards else None

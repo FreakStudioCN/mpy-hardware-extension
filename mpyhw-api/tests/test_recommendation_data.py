@@ -35,13 +35,23 @@ def test_generated_purchase_links_are_actionable_for_us_buyers():
         if any(link.get("link_type") == "official" and link.get("confidence") in ("high", "medium") for link in links)
     ) >= 170
     for links in links_by_slug.values():
-        assert any(link["vendor"] == "DigiKey" for link in links)
+        # Beginner-friendly: a marketplace search is present, and the industrial
+        # DigiKey distributor is deliberately absent from every board.
         assert any(link["vendor"] == "Amazon" for link in links)
+        assert all(link["vendor"] != "DigiKey" for link in links)
         for link in links:
             assert link["url"].startswith(("https://", "http://"))
             assert link["vendor"]
             assert link["checked_at"]
             assert link["evidence_url"].startswith("https://")
+
+
+def test_select_beginner_board_follows_family_hint():
+    # The idea-driven board family steers the default board choice.
+    assert recommendation_catalog.select_beginner_board("rp2040")["slug"] == "RPI_PICO_W"
+    assert recommendation_catalog.select_beginner_board("esp32")["slug"] == "ESP32_GENERIC_S3"
+    # No hint -> the general beginner default.
+    assert recommendation_catalog.select_beginner_board()["slug"] == "ESP32_GENERIC_S3"
 
 
 def test_beginner_recommendation_uses_current_firmware_and_purchase_link():

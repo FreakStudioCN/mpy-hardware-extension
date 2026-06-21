@@ -59,6 +59,21 @@ def test_web_recommend_parts_come_from_real_catalog_with_capabilities():
     assert body["handoff"]["capabilities"]
 
 
+def test_web_recommend_exposes_recommendation_source(monkeypatch):
+    # Without an LLM key the deterministic fallback served; the response surfaces which
+    # path ran ("llm"/"fallback"/"error") so we can see from outside whether live is
+    # actually using the LLM. conftest's no_db branch does NOT clear the key, so do it.
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    response = client.post(
+        "/v1/web/recommend",
+        json={"idea": "blink an led", "locale": "en", "region": "us"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "fallback"
+
+
 def test_web_recommend_never_500s_when_catalog_load_fails(monkeypatch):
     def boom():
         raise RuntimeError("catalog file corrupt")
@@ -89,6 +104,12 @@ def test_web_recommend_rate_limited_after_threshold(monkeypatch):
 
 def test_web_recommend_rejects_overlong_idea():
     response = client.post("/v1/web/recommend", json={"idea": "x" * 501, "locale": "en", "region": "us"})
+
+    assert response.status_code == 422
+
+
+def test_web_recommend_rejects_whitespace_only_idea():
+    response = client.post("/v1/web/recommend", json={"idea": "   ", "locale": "en", "region": "us"})
 
     assert response.status_code == 422
 
@@ -204,6 +225,8 @@ def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(recommendation_catalog, "BOARDS_PATH", boards_path)
     monkeypatch.setattr(recommendation_catalog, "LINKS_PATH", links_path)
+    # No curated board link for this slug -> the generated catalog link flows through.
+    monkeypatch.setattr(recommendation_catalog, "BOARD_LINKS_PATH", tmp_path / "no_board_links.json")
 
     response = client.post("/v1/web/recommend", json={"idea": "blink led", "locale": "en", "region": "us"})
 
@@ -213,3 +236,65 @@ def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):
     assert board["buy_url"] == "https://www.espressif.com/en/products/devkits"
     assert board["micropython_url"] == "https://micropython.org/download/ESP32_GENERIC_S3/"
     assert board["firmware_url"].endswith("ESP32_GENERIC_S3.bin")
+
+
+def test_web_recommend_board_buy_link_prefers_curated_buyable_page(tmp_path, monkeypatch):
+    # A curated buyable product page for the slug must win over the generated catalog's
+    # first link (the MicroPython "More info" vendor page).
+    boards_path = tmp_path / "micropython_boards.json"
+    links_path = tmp_path / "hardware_purchase_links_us.json"
+    board_links_path = tmp_path / "board_purchase_links.json"
+    boards_path.write_text(
+        json.dumps({"boards": [{"slug": "ESP32_GENERIC_S3", "name": "ESP32-S3", "vendor": "Espressif",
+                                 "detail_url": "https://micropython.org/download/ESP32_GENERIC_S3/",
+                                 "more_info_url": "https://www.espressif.com/en/products/modules"}]}),
+        encoding="utf-8",
+    )
+    links_path.write_text(
+        json.dumps({"links_by_slug": {"ESP32_GENERIC_S3": [
+            {"vendor": "Espressif", "url": "https://www.espressif.com/en/products/modules", "link_type": "official"}
+        ]}}),
+        encoding="utf-8",
+    )
+    board_links_path.write_text(
+        json.dumps({"links_by_slug": {"ESP32_GENERIC_S3": [
+            {"vendor": "Adafruit", "url": "https://www.adafruit.com/product/5500", "link_type": "official", "confidence": "high"}
+        ]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(recommendation_catalog, "BOARDS_PATH", boards_path)
+    monkeypatch.setattr(recommendation_catalog, "LINKS_PATH", links_path)
+    monkeypatch.setattr(recommendation_catalog, "BOARD_LINKS_PATH", board_links_path)
+
+    response = client.post("/v1/web/recommend", json={"idea": "blink led", "locale": "en", "region": "us"})
+
+    board = response.json()["recommended_board"]
+    assert board["buy_url"] == "https://www.adafruit.com/product/5500"
+    assert board["purchase_links"][0]["link_type"] == "official"
+    assert board["buy_url"] != "https://www.espressif.com/en/products/modules"
+
+
+def test_default_board_buy_link_is_buyable_not_vendor_family_page():
+    # Against the REAL shipped catalog: the default recommended board (ESP32-S3) must
+    # link to a buyable product page, not the espressif SoC-module family page that
+    # had no add-to-cart.
+    response = client.post("/v1/web/recommend", json={"idea": "blink an led", "locale": "en", "region": "us"})
+
+    board = response.json()["recommended_board"]
+    assert board["buy_url"].startswith("https://")
+    assert "espressif.com/en/products/modules" not in board["buy_url"]
+    assert "/product/" in board["buy_url"]
+
+
+def test_idea_naming_pico_selects_rp2040_board_with_buyable_link():
+    # Board follows the idea: naming Raspberry Pi Pico picks an rp2040 board (Pico W),
+    # with its curated buyable product page -- and this holds on the LLM-off fallback.
+    response = client.post(
+        "/v1/web/recommend",
+        json={"idea": "a raspberry pi pico that blinks an led", "locale": "en", "region": "us"},
+    )
+
+    body = response.json()
+    assert body["handoff"]["board_slug"] == "RPI_PICO_W"
+    assert body["handoff"]["board_family_hint"] == "rp2040"
+    assert "/product/" in body["recommended_board"]["buy_url"]
