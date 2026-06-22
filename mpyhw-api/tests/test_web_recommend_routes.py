@@ -171,12 +171,19 @@ def test_web_best_effort_endpoints_accept_frontend_events():
     assert newsletter_response.status_code == 204
 
 
-def test_web_best_effort_endpoints_swallow_persistence_failure():
-    # no_db: DATABASE_URL is unset, so the persistence write raises internally. The
-    # endpoints must still 204, AND the write must have been *attempted* and swallowed
-    # (failure counter bumps) rather than silently skipped.
-    from app import web_store
+def test_web_best_effort_endpoints_swallow_persistence_failure(monkeypatch):
+    # Force the persistence write to fail deterministically (simulating a DB outage /
+    # no-DB context) rather than relying on DATABASE_URL being unset in the env -- under
+    # `no_db` the conftest leaves DATABASE_URL as-is, so a CI run with a live DB would
+    # otherwise let the write succeed and the counter stay 0. The endpoints must still
+    # 204, AND the write must have been *attempted* and swallowed (failure counter bumps)
+    # rather than silently skipped.
+    from app import db, web_store
 
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(db, "connect", _boom)
     web_store.web_write_failure_count = 0
     event_response = client.post(
         "/v1/web/events",

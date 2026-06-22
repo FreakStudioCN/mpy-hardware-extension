@@ -5,13 +5,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { createAgentBackedLoop } from "../src/core/agent-backed-loop.ts";
+import { createLlmClient } from "../src/core/llm-client.ts";
 
-// Apex end-to-end: the REAL agent loop talks to a REAL spawned uvicorn process over
-// real HTTP + SSE. Only the LLM upstream is stubbed (MPYHW_LLM_STUB=1). Unlike the
-// both-ends-faked unit loop test, this exercises the genuine wiring that nothing else
-// covers together: JWT auth decode, the credit pre-flight + daily grant, the server's
-// _sse() framing, the client SSE parser, and the loop consuming it to a terminal state.
+// Apex end-to-end: the REAL production LLM client (createLlmClient -> streamSseEvents)
+// talks to a REAL spawned uvicorn process over real HTTP + SSE. Only the LLM upstream is
+// stubbed (MPYHW_LLM_STUB=1). Unlike the both-ends-faked protocol-loop unit test, this
+// exercises the genuine wiring that nothing else covers together: JWT auth decode, the
+// credit pre-flight + daily grant, the server's _sse() framing, and the client SSE parser.
+// It drives the client directly (not a build loop) so it asserts the transport contract
+// itself, independent of which loop happens to consume it.
 const here = dirname(fileURLToPath(import.meta.url));
 const apiDir = join(here, "..", "..", "mpyhw-api");
 
@@ -59,7 +61,7 @@ async function waitForHealth(base: string, timeoutMs: number): Promise<void> {
   throw new Error("spawned API never became healthy");
 }
 
-test("real agent loop drives a real spawned API over HTTP+SSE (auth + credits + stream)", { skip: skipReason, timeout: 40000 }, async () => {
+test("real production LLM client streams a real spawned API over HTTP+SSE (auth + credits + framing)", { skip: skipReason, timeout: 40000 }, async () => {
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
   // Stub only the LLM upstream; auth, credits, and sessions hit the real Postgres the
@@ -86,23 +88,31 @@ test("real agent loop drives a real spawned API over HTTP+SSE (auth + credits + 
     const token = minted.stdout.trim();
     assert.ok(token, `failed to mint token: ${minted.stderr}`);
 
+    // Drive the production SSE client directly against the spawned API. tools:[] passes
+    // the whitelist gate (the server offers the 6 protocol tools regardless); the stubbed
+    // upstream replies text-only + a credits frame + message_stop.
+    const client = createLlmClient({ apiBaseUrl: base, fetchImpl: fetch, getAuthToken: async () => token });
     const events: any[] = [];
-    const loop = createAgentBackedLoop({ apiBaseUrl: base, getAuthToken: async () => token });
-    const result = await loop({
-      intent: "blink an LED when it gets hot",
+    for await (const event of await client.streamMessages({
+      messages: [{ role: "user", content: "blink an LED when it gets hot" }],
       boardId: "esp32-s3-devkitc-1",
-      onEvent: (e) => events.push(e),
-    });
+      tools: [],
+    })) {
+      events.push(event);
+    }
 
-    // Stub turn is text-only (no tool calls) -> the loop hands control back to the user.
-    assert.equal(result.terminal, "awaiting_user");
+    // Auth + framing: the stub text streamed through and the stream closed cleanly.
+    const text = events.filter((e) => e.type === "text_delta").map((e) => e.text).join("");
+    assert.ok(text.length > 0, "stub text streamed through the real SSE transport");
+    assert.ok(events.some((e) => e.type === "message_stop"), "stream terminates with message_stop");
+    assert.ok(!events.some((e) => e.type === "stream_error"), "no error frame on a clean stream");
 
-    // The credits event made the full round-trip: server meter -> _sse -> client parse
-    // -> loop -> UI. A fresh user on a throwaway DB gets the full daily grant.
-    const credits = events.find((e) => e.kind === "credits");
+    // The credits event made the full round-trip: server meter -> _sse -> client parse.
+    // A fresh user on a throwaway DB gets the full daily grant (the stub debits 0).
+    const credits = events.find((e) => e.type === "credits");
     assert.ok(credits, "expected a credits event forwarded from the real API");
     assert.ok(credits.dailyGrant > 0, "daily grant should be positive");
-    assert.equal(credits.balance, credits.dailyGrant, "fresh user gets the full grant (stub debits 0)");
+    assert.equal(credits.remaining, credits.dailyGrant, "fresh user gets the full grant (stub debits 0)");
   } finally {
     server.kill();
   }

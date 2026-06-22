@@ -31,7 +31,7 @@ class _PassthroughProvider:
     def open_stream(self, body):
         return ["raw"]
 
-    def translate_stream(self, upstream, meter=None):
+    def translate_stream(self, upstream, meter=None, codegen=None):
         yield 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fake-provider"}}\n\n'
         if meter is not None:
             yield 'data: {"type":"credits","remaining":49,"daily_grant":50,"resets_at":"2026-06-03T00:00:00+00:00"}\n\n'
@@ -183,7 +183,7 @@ def test_llm_messages_rejects_noncanonical_tool():
 def test_llm_messages_requires_upstream_when_not_stubbed():
     response = client.post(
         "/v1/llm/messages",
-        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "query_board_profile"}]},
+        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "device_command"}]},
     )
 
     assert response.status_code == 503
@@ -195,7 +195,7 @@ def test_llm_messages_stub_stream_for_local_non_hardware_tests(monkeypatch):
 
     response = client.post(
         "/v1/llm/messages",
-        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "query_board_profile"}]},
+        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "device_command"}]},
     )
 
     assert response.status_code == 200
@@ -215,7 +215,7 @@ def test_llm_messages_uses_selected_provider(monkeypatch):
             assert body["messages"][0]["content"] == "blink an ESP32 LED"
             return ["raw"]
 
-        def translate_stream(self, upstream, meter=None):
+        def translate_stream(self, upstream, meter=None, codegen=None):
             assert upstream == ["raw"]
             yield 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fake-provider"}}\n\n'
             if meter is not None:
@@ -276,7 +276,7 @@ def test_llm_messages_streams_deepseek_text(monkeypatch):
 
     response = client.post(
         "/v1/llm/messages",
-        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "query_board_profile"}]},
+        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "device_command"}]},
     )
 
     assert response.status_code == 200
@@ -313,7 +313,7 @@ def test_llm_stream_surfaces_finish_reason_on_message_stop(monkeypatch):
 
     response = client.post(
         "/v1/llm/messages",
-        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "query_board_profile"}]},
+        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "device_command"}]},
     )
 
     assert response.status_code == 200
@@ -340,7 +340,7 @@ def test_llm_messages_translates_deepseek_tool_calls(monkeypatch):
 
     response = client.post(
         "/v1/llm/messages",
-        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "query_board_profile"}]},
+        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "device_command"}]},
     )
 
     assert response.status_code == 200
@@ -442,7 +442,7 @@ def test_llm_stream_buffers_interleaved_tool_calls(monkeypatch):
 
     response = client.post(
         "/v1/llm/messages",
-        json={"messages": [{"role": "user", "content": "scan and profile"}], "tools": [{"name": "scan_device"}, {"name": "query_board_profile"}]},
+        json={"messages": [{"role": "user", "content": "scan and profile"}], "tools": [{"name": "device_command"}, {"name": "file_operation"}]},
     )
 
     assert response.status_code == 200
@@ -465,7 +465,7 @@ def test_llm_stream_handles_tool_name_in_later_fragment(monkeypatch):
 
     response = client.post(
         "/v1/llm/messages",
-        json={"messages": [{"role": "user", "content": "profile"}], "tools": [{"name": "query_board_profile"}]},
+        json={"messages": [{"role": "user", "content": "profile"}], "tools": [{"name": "device_command"}]},
     )
 
     assert response.status_code == 200
@@ -501,7 +501,7 @@ def test_llm_messages_maps_deepseek_errors(monkeypatch):
 
     response = client.post(
         "/v1/llm/messages",
-        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "query_board_profile"}]},
+        json={"messages": [{"role": "user", "content": "blink an ESP32 LED"}], "tools": [{"name": "device_command"}]},
     )
 
     assert response.status_code == 502
