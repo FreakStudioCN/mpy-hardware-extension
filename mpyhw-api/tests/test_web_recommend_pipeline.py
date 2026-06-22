@@ -28,10 +28,11 @@ def _fake_returning(payload, capture=None):
     Accepts (and optionally captures) the new response_format kwarg so it matches the
     real signature."""
 
-    def fake(messages, max_tokens, timeout=120, response_format=None):
+    def fake(messages, max_tokens, timeout=120, response_format=None, model=None):
         if capture is not None:
             capture["response_format"] = response_format
             capture["messages"] = messages
+            capture["model"] = model
         return payload, {}
 
     return fake
@@ -53,6 +54,37 @@ def test_web_recommend_requests_json_mode(monkeypatch):
     web_recommend.extract_capabilities("a robot arm")
 
     assert capture["response_format"] == {"type": "json_object"}
+
+
+def test_web_recommend_uses_non_thinking_model(monkeypatch):
+    # Capability extraction is a trivial classification. A thinking model spends its whole
+    # max_tokens budget on reasoning_content before emitting the JSON object, so a complex
+    # idea truncates to content="" -> llm_failed (observed live: reasoning_tokens hit the
+    # 256 cap, finish_reason="length"). Pin a non-thinking model so the tiny answer always
+    # fits and the call is fast; the global thinking model stays for the build agent/codegen.
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.delenv("MPYHW_WEB_RECOMMEND_MODEL", raising=False)
+    capture = {}
+    monkeypatch.setattr(
+        routes_llm, "_call_deepseek_plain", _fake_returning('{"capabilities": ["servo_control"]}', capture)
+    )
+
+    web_recommend.extract_capabilities("a robot arm")
+
+    assert capture["model"] == "deepseek-chat"
+
+
+def test_web_recommend_model_is_overridable(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.setenv("MPYHW_WEB_RECOMMEND_MODEL", "deepseek-reasoner")
+    capture = {}
+    monkeypatch.setattr(
+        routes_llm, "_call_deepseek_plain", _fake_returning('{"capabilities": ["servo_control"]}', capture)
+    )
+
+    web_recommend.extract_capabilities("a robot arm")
+
+    assert capture["model"] == "deepseek-reasoner"
 
 
 def test_llm_extraction_drives_capabilities_and_drops_off_taxonomy_tokens(monkeypatch):
@@ -136,7 +168,7 @@ def test_llm_drops_unknown_token_but_keeps_valid_ones(monkeypatch):
 def test_llm_upstream_failure_raises_503(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
 
-    def boom(messages, max_tokens, timeout=120, response_format=None):
+    def boom(messages, max_tokens, timeout=120, response_format=None, model=None):
         raise routes_llm.UpstreamError(500)
 
     monkeypatch.setattr(routes_llm, "_call_deepseek_plain", boom)
@@ -221,7 +253,7 @@ def test_daily_cap_raises_503_and_skips_llm(monkeypatch):
     monkeypatch.setenv("MPYHW_WEB_RECOMMEND_DAILY_LLM_CAP", "0")
     called = {"n": 0}
 
-    def fake(messages, max_tokens, timeout=120, response_format=None):
+    def fake(messages, max_tokens, timeout=120, response_format=None, model=None):
         called["n"] += 1
         return '{"capabilities": ["motion_sensing"]}', {}
 
@@ -244,7 +276,7 @@ def test_daily_cap_not_overshot_under_concurrency(monkeypatch):
     monkeypatch.setenv("MPYHW_WEB_RECOMMEND_DAILY_LLM_CAP", "5")
     calls, calls_lock = [], threading.Lock()
 
-    def fake(messages, max_tokens, timeout=120, response_format=None):
+    def fake(messages, max_tokens, timeout=120, response_format=None, model=None):
         with calls_lock:
             calls.append(1)
         return '{"capabilities": ["digital_output"], "board_family_hint": null}', {}

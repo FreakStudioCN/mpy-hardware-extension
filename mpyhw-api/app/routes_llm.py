@@ -918,6 +918,7 @@ def _call_deepseek_plain(
     max_tokens: int,
     timeout: int = 120,
     response_format: dict[str, Any] | None = None,
+    model: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """A tool-free, single-shot DeepSeek generation (used for nested codegen).
 
@@ -929,9 +930,14 @@ def _call_deepseek_plain(
 
     response_format is optional and only sent when provided (the web-recommend path passes
     {"type": "json_object"} for JSON mode); codegen callers omit it and are unaffected.
+
+    model overrides the upstream model for this single call; defaults to the global
+    MPYHW_LLM_MODEL. The web-recommend path passes a non-thinking model so its tiny
+    max_tokens budget isn't consumed by reasoning_content; codegen omits it and stays
+    on the global (thinking) model.
     """
     payload = {
-        "model": os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
+        "model": model or os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
         "messages": messages,
         "temperature": 0.2,
         "stream": True,

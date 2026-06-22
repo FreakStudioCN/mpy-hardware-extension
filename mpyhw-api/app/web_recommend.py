@@ -271,11 +271,19 @@ def _llm_extract(idea: str) -> dict[str, Any]:
 
     max_tokens = int(os.getenv("MPYHW_WEB_RECOMMEND_MAX_TOKENS", "256"))
     timeout = int(os.getenv("MPYHW_WEB_RECOMMEND_TIMEOUT", "10"))
+    # Capability extraction is a trivial classification, so use a NON-thinking model. The
+    # global MPYHW_LLM_MODEL is a thinking model (deepseek-v4-pro) whose reasoning_content
+    # counts against max_tokens; on a complex idea the ~256-token budget is fully consumed
+    # by reasoning -> finish_reason="length", content="" -> parse failure -> 503 llm_failed.
+    # A non-thinking model emits the tiny JSON directly (0 reasoning tokens), so the answer
+    # always fits and the call is ~1s instead of 15-26s. Overridable by env.
+    model = os.getenv("MPYHW_WEB_RECOMMEND_MODEL", "deepseek-chat")
     text, _usage = _call_deepseek_plain(
         [{"role": "user", "content": _build_prompt(idea)}],
         max_tokens,
         timeout=timeout,
         response_format={"type": "json_object"},
+        model=model,
     )
     parsed = _parse_capability_json(text)
     return {

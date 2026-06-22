@@ -12,7 +12,7 @@ pytestmark = pytest.mark.no_db
 client = TestClient(app)
 
 
-def _fake_deepseek(messages, max_tokens, timeout=120, response_format=None):
+def _fake_deepseek(messages, max_tokens, timeout=120, response_format=None, model=None):
     """Deterministic stand-in for DeepSeek in route contract tests: derive a few
     capabilities + a board hint from the idea embedded in the prompt, so the website
     contract can be asserted via the (now sole) LLM path without a live model. This is
