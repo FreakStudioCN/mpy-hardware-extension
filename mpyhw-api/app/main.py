@@ -29,6 +29,8 @@ _startup_log = logging.getLogger("mpyhw.startup")
 _DEFAULT_CORS_ORIGINS = [
     "https://block-less.com",
     "https://www.block-less.com",
+    "https://blockless.co",
+    "https://www.blockless.co",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
@@ -36,6 +38,8 @@ _BODY_LIMITS = {
     "/v1/web/recommend": 4096,
     "/v1/web/events": 2048,
     "/v1/web/newsletter": 1024,
+    "/v1/web/uploads": 12288,
+    "/v1/web/quotes": 4096,
 }
 
 

@@ -236,11 +236,39 @@ def _schema() -> list[str]:
             created_at TEXT NOT NULL
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS web_recipe_uploads (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            email TEXT,
+            summary TEXT,
+            recipe_json JSONB NOT NULL,
+            locale TEXT,
+            source TEXT,
+            created_at TEXT NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS web_quote_requests (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            recipe_slug TEXT,
+            recipe_title TEXT,
+            goal TEXT,
+            quantity TEXT,
+            notes TEXT,
+            locale TEXT,
+            source TEXT,
+            created_at TEXT NOT NULL
+        )
+        """,
         "CREATE INDEX IF NOT EXISTS idx_telemetry_trace ON telemetry_events(trace_id)",
         "CREATE INDEX IF NOT EXISTS idx_telemetry_type ON telemetry_events(event_type)",
         "CREATE INDEX IF NOT EXISTS idx_llm_turns_user ON llm_turns(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_web_events_type ON web_events(event_type)",
+        "CREATE INDEX IF NOT EXISTS idx_web_recipe_uploads_email ON web_recipe_uploads(email)",
+        "CREATE INDEX IF NOT EXISTS idx_web_quote_requests_email ON web_quote_requests(email)",
     ]
 
 

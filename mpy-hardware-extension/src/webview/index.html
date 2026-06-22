@@ -735,6 +735,18 @@
         const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
       }
       function clearPending() { if (pendingCard) { pendingCard.remove(); pendingCard = null; } }
+      function prefillImportedRecipe(payload) {
+        const prompt = String((payload && (payload.prompt || payload.starter_prompt || payload.intent)) || "").trim();
+        if (!prompt) return;
+        const input = $("intent");
+        input.value = prompt;
+        input.style.height = "auto";
+        input.style.height = Math.min(input.scrollHeight, 120) + "px";
+        setTab("activity");
+        clearPending();
+        addActivity({ text: "Recipe imported from website. Review the prompt, then Generate." });
+        input.focus();
+      }
       // Map a trace event to a working-spinner label: only a recognized tool name
       // yields a curated, localized phase string; anything else (including raw
       // prose in ev.text) falls back to the neutral label — chain-of-thought can't
@@ -1756,6 +1768,7 @@
 
       window.addEventListener("message", (event) => {
         const msg = event.data;
+        if (msg.type === "recipe_imported") { prefillImportedRecipe(msg.payload); }
         if (msg.type === "doctor_results") { renderDoctor(msg.items); }
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {

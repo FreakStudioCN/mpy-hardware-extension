@@ -171,6 +171,86 @@ def test_web_best_effort_endpoints_accept_frontend_events():
     assert newsletter_response.status_code == 204
 
 
+def test_web_upload_and_quote_endpoints_accept_frontend_submissions(monkeypatch):
+    captured = {}
+
+    def _record_upload(title, email, summary, recipe, locale, source):
+        captured["upload"] = {
+            "title": title,
+            "email": email,
+            "summary": summary,
+            "recipe": recipe,
+            "locale": locale,
+            "source": source,
+        }
+        return "upl_test"
+
+    def _record_quote(email, recipe_slug, recipe_title, goal, quantity, notes, locale, source):
+        captured["quote"] = {
+            "email": email,
+            "recipe_slug": recipe_slug,
+            "recipe_title": recipe_title,
+            "goal": goal,
+            "quantity": quantity,
+            "notes": notes,
+            "locale": locale,
+            "source": source,
+        }
+        return "qt_test"
+
+    from app import web_store
+
+    monkeypatch.setattr(web_store, "record_recipe_upload", _record_upload)
+    monkeypatch.setattr(web_store, "record_quote_request", _record_quote)
+
+    upload_response = client.post(
+        "/v1/web/uploads",
+        json={
+            "title": "Desk CO2 Monitor",
+            "email": "Maker@Example.com",
+            "summary": "A verified desk prototype",
+            "recipe": {"prompt": "Build a CO2 monitor", "board_id": "esp32-s3-devkitc-1"},
+            "locale": "en",
+        },
+    )
+    quote_response = client.post(
+        "/v1/web/quotes",
+        json={
+            "email": "Buyer@Example.com",
+            "recipe_slug": "soil-moisture-monitor",
+            "recipe_title": "Soil Moisture Monitor",
+            "goal": "Cleaner PCB",
+            "quantity": "25",
+            "notes": "Need battery review",
+            "locale": "en",
+        },
+    )
+
+    assert upload_response.status_code == 202
+    assert upload_response.json()["upload_id"] == "upl_test"
+    assert captured["upload"]["title"] == "Desk CO2 Monitor"
+    assert captured["upload"]["email"] == "maker@example.com"
+    assert captured["upload"]["recipe"]["board_id"] == "esp32-s3-devkitc-1"
+    assert quote_response.status_code == 202
+    assert quote_response.json()["quote_id"] == "qt_test"
+    assert captured["quote"]["email"] == "buyer@example.com"
+    assert captured["quote"]["recipe_slug"] == "soil-moisture-monitor"
+
+
+def test_web_upload_and_quote_endpoints_validate_payloads():
+    upload_response = client.post(
+        "/v1/web/uploads",
+        json={"title": " ", "email": "not-an-email", "recipe": {}},
+    )
+    quote_response = client.post(
+        "/v1/web/quotes",
+        json={"email": "not-an-email", "notes": "x"},
+    )
+
+    assert upload_response.status_code == 422
+    assert quote_response.status_code == 422
+
+
 def test_web_best_effort_endpoints_swallow_persistence_failure(monkeypatch):
     # Force the persistence write to fail deterministically (simulating a DB outage /
     # no-DB context) rather than relying on DATABASE_URL being unset in the env -- under
@@ -240,6 +320,19 @@ def test_web_recommend_allows_browser_cors_preflight():
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "https://www.block-less.com"
+
+
+def test_web_write_endpoints_allow_blockless_co_cors_preflight():
+    response = client.options(
+        "/v1/web/quotes",
+        headers={
+            "Origin": "https://www.blockless.co",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://www.blockless.co"
 
 
 def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):

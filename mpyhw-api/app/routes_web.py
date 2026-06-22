@@ -39,6 +39,33 @@ class WebNewsletterRequest(BaseModel):
     source: str = Field(default="website-home", max_length=64)
 
 
+class WebUploadRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    email: EmailStr | None = Field(default=None, max_length=254)
+    summary: str = Field(default="", max_length=1000)
+    recipe: dict[str, Any] = Field(default_factory=dict)
+    locale: str = Field(default="en", max_length=8)
+    source: str = Field(default="website-upload", max_length=64)
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("title must not be blank")
+        return value
+
+
+class WebQuoteRequest(BaseModel):
+    email: EmailStr = Field(max_length=254)
+    recipe_slug: str | None = Field(default=None, max_length=120)
+    recipe_title: str = Field(default="", max_length=120)
+    goal: str = Field(default="", max_length=120)
+    quantity: str = Field(default="", max_length=80)
+    notes: str = Field(default="", max_length=2000)
+    locale: str = Field(default="en", max_length=8)
+    source: str = Field(default="website-quote", max_length=64)
+
+
 @router.post("/v1/web/recommend")
 def web_recommend_route(request: WebRecommendRequest, http_request: Request):
     web_recommend.enforce_rate_limit(http_request)
@@ -124,3 +151,33 @@ def web_newsletter(request: WebNewsletterRequest, http_request: Request):
     # Best-effort persist; on failure the email is logged, so the lead is recoverable.
     web_store.record_newsletter_signup(request.email, request.locale, request.source)
     return Response(status_code=204)
+
+
+@router.post("/v1/web/uploads", status_code=202)
+def web_uploads(request: WebUploadRequest, http_request: Request):
+    web_recommend.enforce_rate_limit(http_request)
+    upload_id = web_store.record_recipe_upload(
+        request.title.strip(),
+        str(request.email).strip().lower() if request.email else None,
+        request.summary.strip(),
+        request.recipe,
+        request.locale,
+        request.source,
+    )
+    return {"ok": True, "upload_id": upload_id}
+
+
+@router.post("/v1/web/quotes", status_code=202)
+def web_quotes(request: WebQuoteRequest, http_request: Request):
+    web_recommend.enforce_rate_limit(http_request)
+    quote_id = web_store.record_quote_request(
+        str(request.email).strip().lower(),
+        request.recipe_slug,
+        request.recipe_title.strip(),
+        request.goal.strip(),
+        request.quantity.strip(),
+        request.notes.strip(),
+        request.locale,
+        request.source,
+    )
+    return {"ok": True, "quote_id": quote_id}

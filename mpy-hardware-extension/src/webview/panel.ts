@@ -19,7 +19,7 @@ import { BUNDLED_TOOLCHAIN_VERSION, toolchainOutdated } from "../core/toolchain-
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
-type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string };
+type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
 
 // All generation output is contained under <workspace>/<PROJECT_SUBDIR>, never the
 // workspace root. The scaffold (init_scaffold.py) writes README.md/LICENSE/.flake8
@@ -52,6 +52,7 @@ export function createViewProvider(vscode: any, extensionUri: any, deps: PanelDe
 function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDeps) {
   const html = readWebviewHtml();
   webview.html = html.replaceAll("${webviewCspSource}", webview.cspSource ?? "");
+  deps.onWebviewReady?.(webview);
   const apiBaseUrl = resolveApiBaseUrl(vscode, deps.apiBaseUrl);
   const fetchImpl = deps.fetchImpl ?? fetch;
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent

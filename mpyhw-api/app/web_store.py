@@ -15,6 +15,7 @@ newsletter write the email is logged so the lead is recoverable from logs.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -68,3 +69,62 @@ def record_newsletter_signup(email: str, locale: str, source: str) -> None:
         logger.warning(
             "newsletter signup persist failed; email=%s locale=%s source=%s", normalized, locale, source, exc_info=True
         )
+
+
+def record_recipe_upload(
+    title: str,
+    email: str | None,
+    summary: str,
+    recipe: dict[str, Any],
+    locale: str,
+    source: str,
+) -> str:
+    """Persist a website recipe upload for later review. Best-effort; returns a
+    stable request id even when storage is unavailable so the frontend can show a
+    real submission receipt instead of only a local draft."""
+    from psycopg.types.json import Jsonb
+
+    upload_id = f"upl_{uuid.uuid4().hex[:12]}"
+    try:
+        with db.connect() as conn:
+            db.execute(
+                conn,
+                "INSERT INTO web_recipe_uploads(id, title, email, summary, recipe_json, locale, source, created_at) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (upload_id, title, email, summary, Jsonb(recipe or {}), locale, source, _now()),
+            )
+            conn.commit()
+    except Exception:
+        global web_write_failure_count
+        web_write_failure_count += 1
+        logger.warning("recipe upload persist failed; id=%s title=%s email=%s", upload_id, title, email, exc_info=True)
+    return upload_id
+
+
+def record_quote_request(
+    email: str,
+    recipe_slug: str | None,
+    recipe_title: str,
+    goal: str,
+    quantity: str,
+    notes: str,
+    locale: str,
+    source: str,
+) -> str:
+    """Persist a manufacturing/productization lead. Best-effort, but logs the
+    lead id and email on failure so it can be recovered from application logs."""
+    quote_id = f"qt_{uuid.uuid4().hex[:12]}"
+    try:
+        with db.connect() as conn:
+            db.execute(
+                conn,
+                "INSERT INTO web_quote_requests(id, email, recipe_slug, recipe_title, goal, quantity, notes, locale, source, created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (quote_id, email, recipe_slug, recipe_title, goal, quantity, notes, locale, source, _now()),
+            )
+            conn.commit()
+    except Exception:
+        global web_write_failure_count
+        web_write_failure_count += 1
+        logger.warning("quote request persist failed; id=%s email=%s recipe=%s", quote_id, email, recipe_slug, exc_info=True)
+    return quote_id
