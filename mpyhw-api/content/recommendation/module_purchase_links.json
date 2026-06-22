@@ -1,6 +1,6 @@
 {
   "fetched_at": "2026-06-20T00:00:00+00:00",
-  "notes": "Curated, verified consumer product pages keyed by package_store.canonical_chip_id. Each url was confirmed to resolve to that exact part. Catalog parts without a clean exact product page (max30102, ds1302, cs1237, gt911, bus_dc_motor, tcs34725_color -- their exact chips aren't sold as clean beginner modules; the Adafruit TCS34725 page is discontinued) are intentionally omitted and fall through to the single labeled Amazon search fallback in recommendation_catalog.module_purchase_links.",
+  "notes": "Curated buy links keyed by package_store.canonical_chip_id, covering the full physical-module catalog (each url opened and verified against that part on 2026-06-22). link_type semantics: 'official' = verified product page for that exact chip/part; 'representative' = a real, in-stock, beginner-buyable stand-in for a generic part with no single canonical SKU (button, led_single, buzzer, MQ gas, etc.) or where the exact maker board is discontinued; 'search_fallback' = no clean retail product page exists (niche China-only parts), so a labeled human-readable search URL (AliExpress where the part is actually sold, else Amazon) is provided rather than a fabricated product link. Maker stores (Adafruit/SparkFun/DFRobot/Pimoroni/Seeed/Waveshare/M5Stack) are preferred for URL stability; Amazon /dp/ASIN, eBay, DigiKey or AliExpress are used only when no maker SKU exists. Software-only catalog packages (mqtt, microflask, etc.) have empty capabilities and never surface as recommendation parts, so they intentionally have no entry here.",
   "links_by_module": {
     "machine_pin_led": [
       {
@@ -176,6 +176,1612 @@
         "evidence_url": "https://www.adafruit.com/product/6357",
         "checked_at": "2026-06-20",
         "notes": "Adafruit AS5600 Magnetic Angle Sensor [STEMMA QT]. This board is the AS5600 (not the I2C-only AS5600L variant); the as5600l_driver targets the shared AS5600/AS5600L register family, so this board works with it."
+      }
+    ],
+    "button": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/1119",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/1119",
+        "checked_at": "2026-06-22",
+        "notes": "Representative beginner part: Tactile Switch Buttons (12mm square, 6mm tall) x10 pack -- breadboard-friendly momentary pushbuttons for the digital_input button_driver. There is no single canonical SKU for 'a button'; link_type=representative marks this as a working stand-in, not the one exact part."
+      }
+    ],
+    "jq6500": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B01N47M1V2",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B01N47M1V2",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo 2pcs JQ6500 Voice/MP3 Module (5-channel serial control) -- the exact JQ6500 part the jq6500_driver targets. Not sold by Adafruit/SparkFun; Amazon is the realistic consumer channel. Verified In Stock 2026-06-22."
+      }
+    ],
+    "bmp280": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-2140.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-2140.html",
+        "checked_at": "2026-06-22",
+        "notes": "Fermion BMP280 Digital Pressure Sensor (Breakout); in stock. Adafruit BMP280 (2651) was out of stock, chose in-stock DFRobot SKU."
+      }
+    ],
+    "bmp581": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/6407",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/6407",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit BMP581 I2C or SPI Temperature and Pressure Sensor - STEMMA QT; In stock."
+      }
+    ],
+    "dps310": [
+      {
+        "vendor": "The Pi Hut",
+        "url": "https://thepihut.com/products/adafruit-dps310-precision-barometric-pressure-altitude-sensor",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://thepihut.com/products/adafruit-dps310-precision-barometric-pressure-altitude-sensor",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit DPS310 Precision Barometric Pressure / Altitude Sensor (STEMMA QT); In stock. Adafruit 4494 and Pimoroni both OOS/retired."
+      }
+    ],
+    "ms5611": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B00M0F274U",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B00M0F274U",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo GY-63 MS5611-01BA03 Atmospheric Pressure Sensor Module; in stock. No first-party maker breakout exists for MS5611."
+      }
+    ],
+    "ms5803_01ba": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B09LY4BG1Z",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B09LY4BG1Z",
+        "checked_at": "2026-06-22",
+        "notes": "Rakstore MS5803-01BA Waterproof Pressure/Temp Sensor I2C/SPI; In Stock. SparkFun only makes the -14BA variant, not -01BA."
+      }
+    ],
+    "mpl3115a2": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-altitude-pressure-sensor-breakout-mpl3115a2.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-altitude-pressure-sensor-breakout-mpl3115a2.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun Altitude/Pressure Sensor Breakout - MPL3115A2; IN STOCK $16.75."
+      }
+    ],
+    "icp10111": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-2524.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-2524.html",
+        "checked_at": "2026-06-22",
+        "notes": "Fermion ICP-10111 Pressure Sensor (Breakout); in stock, not discontinued."
+      }
+    ],
+    "scd41": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5190",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5190",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit SCD-41 True CO2 Temperature and Humidity Sensor - STEMMA QT; In stock."
+      }
+    ],
+    "sgp40": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-air-quality-sensor-sgp40-qwiic.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-air-quality-sensor-sgp40-qwiic.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun Air Quality Sensor - SGP40 (Qwiic); IN STOCK. Adafruit SGP40 (4829) was out of stock."
+      }
+    ],
+    "ccs811": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0CDWXD4V6",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B0CDWXD4V6",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo CCS811 CO2 eCO2 TVOC Gas Sensor (CJMCU-811); in stock. CCS811 chip is EOL: Adafruit/DFRobot/Pimoroni/SparkFun all discontinued."
+      }
+    ],
+    "ags02ma": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5593",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5593",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit AGS02MA I2C TVOC Gas Sensor; In stock."
+      }
+    ],
+    "mics6814": [
+      {
+        "vendor": "The Pi Hut",
+        "url": "https://thepihut.com/products/mics6814-3-in-1-gas-sensor-breakout-co-no2-nh3",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://thepihut.com/products/mics6814-3-in-1-gas-sensor-breakout-co-no2-nh3",
+        "checked_at": "2026-06-22",
+        "notes": "Pimoroni MICS6814 3-in-1 Gas Sensor Breakout (CO,NO2,NH3) via Pi Hut; in stock. Pimoroni direct was OOS."
+      }
+    ],
+    "pms5003t": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B095SXKT7V",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B095SXKT7V",
+        "checked_at": "2026-06-22",
+        "notes": "PMS5003T PM2.5 + Temp/Humidity sensor; in stock. PMS5003T variant has no clean Western maker page; Adafruit only sells plain PMS5003."
+      }
+    ],
+    "pms7003": [
+      {
+        "vendor": "The Pi Hut",
+        "url": "https://thepihut.com/products/pms7003-particulate-matter-sensor-with-adapter-board",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://thepihut.com/products/pms7003-particulate-matter-sensor-with-adapter-board",
+        "checked_at": "2026-06-22",
+        "notes": "PMS7003 Particulate Matter Sensor with Cable and Adapter Board; In stock. Adafruit carries PMS5003, not 7003."
+      }
+    ],
+    "mpu6050": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/3886",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/3886",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit MPU-6050 6-DoF Accel and Gyro Sensor - STEMMA QT; In stock, $12.95."
+      }
+    ],
+    "bma220": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-1085.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-1085.html",
+        "checked_at": "2026-06-22",
+        "notes": "Fermion BMA220 Digital Triaxial Acceleration Sensor (Breakout) (+/-16g); in stock."
+      }
+    ],
+    "bma400": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-triple-axis-accelerometer-breakout-bma400-qwiic.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-triple-axis-accelerometer-breakout-bma400-qwiic.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun Triple Axis Accelerometer Breakout - BMA400 (Qwiic); In stock."
+      }
+    ],
+    "kx132": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-triple-axis-accelerometer-breakout-kx132-qwiic.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-triple-axis-accelerometer-breakout-kx132-qwiic.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun Triple Axis Accelerometer Breakout - KX132 (Qwiic, KX132-1211); In stock."
+      }
+    ],
+    "mma7660": [
+      {
+        "vendor": "Seeed Studio",
+        "url": "https://www.seeedstudio.com/Grove-3-Axis-Digital-Accelerometer-1-5g.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.seeedstudio.com/Grove-3-Axis-Digital-Accelerometer-1-5g.html",
+        "checked_at": "2026-06-22",
+        "notes": "Grove 3-Axis Digital Accelerometer (+/-1.5g) SKU 101020039; MMA7660FC; in stock."
+      }
+    ],
+    "mma8451": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0GTVML7MW",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B0GTVML7MW",
+        "checked_at": "2026-06-22",
+        "notes": "3pcs MMA8451 3-Axis MEMS Accelerometer Module I2C; in stock. Adafruit discontinued theirs; generic module."
+      }
+    ],
+    "mma8452q": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-triple-axis-accelerometer-breakout-mma8452q.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-triple-axis-accelerometer-breakout-mma8452q.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun Triple Axis Accelerometer Breakout - MMA8452Q; In stock (base breakout; Qwiic variant was backorder)."
+      }
+    ],
+    "h3lis200dl": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-2315.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-2315.html",
+        "checked_at": "2026-06-22",
+        "notes": "Gravity I2C H3LIS200DL Triple Axis Accelerometer (+/-100g/200g); in stock. Adafruit/SparkFun lack this exact 200g part."
+      }
+    ],
+    "lis2mdl": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4488",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4488",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Triple-axis Magnetometer - LIS2MDL - STEMMA QT; In stock."
+      }
+    ],
+    "lis3mdl": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4479",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4479",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Triple-axis Magnetometer - LIS3MDL - STEMMA QT; 19 in stock."
+      }
+    ],
+    "mmc5603": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5579",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5579",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Triple-axis Magnetometer - MMC5603 - STEMMA QT; In stock."
+      }
+    ],
+    "mmc5983": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-micro-magnetometer-mmc5983ma-qwiic.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-micro-magnetometer-mmc5983ma-qwiic.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun Micro Magnetometer - MMC5983MA (Qwiic); In stock."
+      }
+    ],
+    "mlx90393": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4022",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4022",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Wide-Range Triple-axis Magnetometer - MLX90393 - STEMMA QT; In stock."
+      }
+    ],
+    "qmc5883l": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B008V9S64E",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B008V9S64E",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo QMC5883L GY-271 Triple Axis Compass Magnetic Sensor Module; In Stock. Generic GY-271 part, no maker-store SKU."
+      }
+    ],
+    "rm3100": [
+      {
+        "vendor": "PNI Sensor",
+        "url": "https://www.pnisensor.com/product/rm3100-breakout-board/",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.pnisensor.com/product/rm3100-breakout-board/",
+        "checked_at": "2026-06-22",
+        "notes": "PNI RM3100 Breakout Board (first-party manufacturer); $25.00, in stock. SparkFun discontinued its RM3100."
+      }
+    ],
+    "bmm150": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-2626.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-2626.html",
+        "checked_at": "2026-06-22",
+        "notes": "Gravity BMM150 Triple Axis Magnetometer Sensor; in stock."
+      }
+    ],
+    "vl53l0x": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/3317",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/3317",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit VL53L0X Time of Flight Distance Sensor (~30 to 1000mm); In stock."
+      }
+    ],
+    "vl53l1x": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-distance-sensor-breakout-4-meter-vl53l1x-qwiic.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-distance-sensor-breakout-4-meter-vl53l1x-qwiic.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun Distance Sensor Breakout - 4 Meter, VL53L1X (Qwiic); IN STOCK $29.95. Adafruit 3967 was OOS."
+      }
+    ],
+    "vl53l5cx": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-qwiic-tof-imager-vl53l5cx.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-qwiic-tof-imager-vl53l5cx.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun Qwiic ToF Imager - VL53L5CX (8x8 multizone); IN STOCK $32.50."
+      }
+    ],
+    "gp2y0a21yk": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/164",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/164",
+        "checked_at": "2026-06-22",
+        "notes": "Sharp IR distance sensor incl cable (10-80cm) - GP2Y0A21YK0F; 9 in stock."
+      }
+    ],
+    "gp2y0e03": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B089F5B9WP",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B089F5B9WP",
+        "checked_at": "2026-06-22",
+        "notes": "GP2Y0E03 Distance Measuring Sensor Module 4-50cm I2C; In Stock $26. No clean maker-store page exists."
+      }
+    ],
+    "tsl2561": [
+      {
+        "vendor": "Seeed Studio",
+        "url": "https://www.seeedstudio.com/Grove-Digital-Light-Sensor-TSL2561.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.seeedstudio.com/Grove-Digital-Light-Sensor-TSL2561.html",
+        "checked_at": "2026-06-22",
+        "notes": "Grove Digital Light Sensor - TSL2561; In Stock $6.50. Adafruit 439 no longer stocked."
+      }
+    ],
+    "veml6040": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/s?k=VEML6040+RGBW+color+sensor+breakout",
+        "link_type": "search_fallback",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B08R5YBWZL",
+        "checked_at": "2026-06-22",
+        "notes": "No clean in-stock product page; every verified VEML6040 listing was Currently unavailable. Clean search URL provided."
+      }
+    ],
+    "veml6075": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/s?k=VEML6075+UV+sensor+breakout",
+        "link_type": "search_fallback",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B07M7KWK8N",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit 3964 and SparkFun SEN-15089 discontinued; all Amazon listings Currently unavailable. Clean search URL provided."
+      }
+    ],
+    "veml7700": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4162",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4162",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit VEML7700 Lux Sensor - I2C Light Sensor - STEMMA QT; In stock."
+      }
+    ],
+    "opt3001": [
+      {
+        "vendor": "RAKwireless",
+        "url": "https://store.rakwireless.com/products/rak1903-opt3001dnpr-ambient-light-sensor",
+        "link_type": "official",
+        "confidence": "medium",
+        "evidence_url": "https://store.rakwireless.com/products/rak1903-opt3001dnpr-ambient-light-sensor",
+        "checked_at": "2026-06-22",
+        "notes": "RAK1903 WisBlock Light Sensor (TI OPT3001); Add to Cart $3.60, in stock. No Adafruit/SparkFun OPT3001 exists."
+      }
+    ],
+    "si1145": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/s?k=SI1145+UV+IR+visible+light+sensor",
+        "link_type": "search_fallback",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B00OKCSVUU",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit 1777 no longer stocked; all Amazon SI1145 listings Currently unavailable. Clean search URL provided."
+      }
+    ],
+    "isl29125": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-rgb-light-sensor-isl29125.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-rgb-light-sensor-isl29125.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun RGB Light Sensor - ISL29125; IN STOCK $11.95."
+      }
+    ],
+    "tcs34725_color": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-1546.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-1546.html",
+        "checked_at": "2026-06-22",
+        "notes": "Gravity TCS34725 RGB Color Sensor (SEN0212); $7.90, in stock. Adafruit 1334 no longer stocked."
+      }
+    ],
+    "gl5516": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B014SOJMCA",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B014SOJMCA",
+        "checked_at": "2026-06-22",
+        "notes": "GL5516 Photo Light Sensitive Resistor LDR Photoresistor; in stock $12.98. Generic LDR, no unique SKU."
+      }
+    ],
+    "guva_s12sd": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/1918",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/1918",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Analog UV Light Sensor Breakout - GUVA-S12SD; In stock."
+      }
+    ],
+    "ssd1327": [
+      {
+        "vendor": "Waveshare",
+        "url": "https://www.waveshare.com/1.5inch-oled-module.htm",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.waveshare.com/1.5inch-oled-module.htm",
+        "checked_at": "2026-06-22",
+        "notes": "Waveshare 1.5inch OLED Module 128x128 16-gray SPI/I2C (SSD1327); in stock. Adafruit SSD1327 4741 was out of stock."
+      }
+    ],
+    "sh1106": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0C3L7N917",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B0C3L7N917",
+        "checked_at": "2026-06-22",
+        "notes": "Hosyond 5pcs 1.3in I2C OLED Display Module 128x64 SH1106; In Stock. Generic SH1106 module, no maker SKU."
+      }
+    ],
+    "sh1107": [
+      {
+        "vendor": "Pimoroni",
+        "url": "https://shop.pimoroni.com/products/1-12-oled-breakout",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://shop.pimoroni.com/products/1-12-oled-breakout",
+        "checked_at": "2026-06-22",
+        "notes": "Pimoroni 1.12in Mono OLED 128x128 Breakout (SH1107); in stock. Adafruit SH1107 5297 was out of stock."
+      }
+    ],
+    "st7789": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0GVFCF89S",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B0GVFCF89S",
+        "checked_at": "2026-06-22",
+        "notes": "1.3in 240x240 Full Color TFT IPS ST7789 4-wire SPI; only 4 left. Adafruit 4313 and Pimoroni ST7789 both out of stock."
+      }
+    ],
+    "lcm1602a": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-135.html",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-135.html",
+        "checked_at": "2026-06-22",
+        "notes": "DFRobot I2C 16x2 (1602) LCD Display Module; in stock. Representative for generic HD44780 1602 + I2C backpack."
+      }
+    ],
+    "gt911": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/s?k=GT911+capacitive+touch+controller+module",
+        "link_type": "search_fallback",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/s?k=GT911+capacitive+touch+controller+module",
+        "checked_at": "2026-06-22",
+        "notes": "GT911 is an embedded touch controller IC rarely sold standalone; no clean first-party breakout. Honest search URL."
+      }
+    ],
+    "neopixel_matrix": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/1487",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/1487",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit NeoPixel NeoMatrix 8x8 - 64 RGB LED Pixel Matrix (WS2812B); In Stock."
+      }
+    ],
+    "tm1637": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07R64BC38",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07R64BC38",
+        "checked_at": "2026-06-22",
+        "notes": "DEVMO 2pcs TM1637 4-Bit Digital Tube LED Display Module; in stock. Generic TM1637; no maker SKU."
+      }
+    ],
+    "ssd1683": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/s?k=SSD1683+e-paper+display+module",
+        "link_type": "search_fallback",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/s?k=SSD1683+e-paper+display+module",
+        "checked_at": "2026-06-22",
+        "notes": "SSD1683 is an internal e-paper driver IC not named on retail product pages; could not verify a clean product page. Honest search URL."
+      }
+    ],
+    "mpr121": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/1982",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/1982",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit 12-Key Capacitive Touch Sensor Breakout - MPR121 - STEMMA QT; In Stock."
+      }
+    ],
+    "piranha_led": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B01BV2OTLG",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B01BV2OTLG",
+        "checked_at": "2026-06-22",
+        "notes": "Chanzon 100pcs 5mm White Straw Hat LED Diode (3V 20mA); in stock. Generic straw-hat/piranha LED, no SKU."
+      }
+    ],
+    "uv_matrix": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/s?k=UV+LED+array+board+395nm+module",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.amazon.com/s?k=UV+LED+array+board+395nm+module",
+        "checked_at": "2026-06-22",
+        "notes": "Niche; no clean UV LED matrix/array board product page (results are single LEDs/strips). Honest search URL for 395nm UV LED products."
+      }
+    ],
+    "ads1115": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-1730.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-1730.html",
+        "checked_at": "2026-06-22",
+        "notes": "DFRobot Gravity I2C ADS1115 16-Bit ADC Module; in stock. Adafruit 1085 was out of stock."
+      }
+    ],
+    "ads1219": [
+      {
+        "vendor": "SparkFun",
+        "url": "https://www.sparkfun.com/sparkfun-qwiic-24-bit-adc-4-channel-ads1219.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.sparkfun.com/sparkfun-qwiic-24-bit-adc-4-channel-ads1219.html",
+        "checked_at": "2026-06-22",
+        "notes": "SparkFun Qwiic 24-Bit ADC - 4 Channel (ADS1219); In stock $124.95."
+      }
+    ],
+    "mcp3421": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5870",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5870",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit MCP3421 18-Bit ADC - STEMMA QT / Qwiic; In stock."
+      }
+    ],
+    "mcp4725": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/935",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/935",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit MCP4725 Breakout - 12-Bit DAC with I2C - STEMMA QT; In stock."
+      }
+    ],
+    "mcp4728": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4470",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4470",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit MCP4728 Quad DAC with EEPROM - STEMMA QT / Qwiic; In stock."
+      }
+    ],
+    "mcp41010": [
+      {
+        "vendor": "MikroElektronika",
+        "url": "https://www.mikroe.com/digital-potentiometer-board",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.mikroe.com/digital-potentiometer-board",
+        "checked_at": "2026-06-22",
+        "notes": "MikroElektronika Digital Potentiometer Board (MCP41010); $7.20, in stock. No Adafruit/SparkFun MCP41010 breakout exists."
+      }
+    ],
+    "mcp23017": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5346",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5346",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit MCP23017 I2C GPIO Expander Breakout - STEMMA QT / Qwiic; In stock."
+      }
+    ],
+    "pca9546": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5664",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5664",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit PCA9546 4-Channel I2C Multiplexer - TCA9546A Compatible - STEMMA QT; In stock."
+      }
+    ],
+    "pcf8574_io8": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5545",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5545",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit PCF8574 I2C GPIO Expander Breakout (8-bit) - STEMMA QT / Qwiic; In stock."
+      }
+    ],
+    "pcf8575": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5611",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5611",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit PCF8575 I2C 16 GPIO Expander Breakout - STEMMA QT / Qwiic; In stock."
+      }
+    ],
+    "pcf8591": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4648",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4648",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit PCF8591 Quad 8-bit ADC + 8-bit DAC - STEMMA QT / Qwiic; In stock."
+      }
+    ],
+    "pcf8563": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0BJVWMT9C",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B0BJVWMT9C",
+        "checked_at": "2026-06-22",
+        "notes": "PCF8563 Real Time Clock RTC Breakout (2pcs); only 2 left. No maker store carries PCF8563 (Adafruit uses PCF8523)."
+      }
+    ],
+    "hx711": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5974",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5974",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit HX711 24-bit ADC for Load Cells / Strain Gauges; In stock."
+      }
+    ],
+    "ina226": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07KNLMC9V",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07KNLMC9V",
+        "checked_at": "2026-06-22",
+        "notes": "CJMCU-226 INA226 Voltage Current Power Monitor Sensor Module; In Stock. No maker store carries INA226 (they do INA219/INA260)."
+      }
+    ],
+    "kt403a": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-1121.html",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-1121.html",
+        "checked_at": "2026-06-22",
+        "notes": "DFRobot DFPlayer Mini MP3 Player; in stock. KT403A modules are DFPlayer-Mini-compatible; no clean KT403A SKU page, this is the canonical buyable equivalent."
+      }
+    ],
+    "dy_sv19t": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0DF2SNBZQ",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B0DF2SNBZQ",
+        "checked_at": "2026-06-22",
+        "notes": "DY-SV19T 5W Mono Voice Playback Module (8CH, TF card); In Stock. Exact DY-SV19T model verified."
+      }
+    ],
+    "snr9816_tts": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-SNR9816.html",
+        "link_type": "search_fallback",
+        "confidence": "medium",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-SNR9816.html",
+        "checked_at": "2026-06-22",
+        "notes": "Niche TTS chip; no clean Amazon/maker page. AliExpress is where SNR9816 TTS modules are genuinely sold. Honest search URL."
+      }
+    ],
+    "lm386_speaker": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B00LNACGTY",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B00LNACGTY",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo 5pcs LM386 Mono Audio Amplifier Module 200x AMP 5-12V; In Stock. Generic LM386 amp board, no maker SKU."
+      }
+    ],
+    "tea5767": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B074TC3VLN",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B074TC3VLN",
+        "checked_at": "2026-06-22",
+        "notes": "76-108MHz 5V TEA5767 FM Stereo Radio Module + antenna; In Stock. Exact TEA5767 module verified."
+      }
+    ],
+    "passive_buzzer": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07R16YSBQ",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07R16YSBQ",
+        "checked_at": "2026-06-22",
+        "notes": "uxcell Passive Buzzer Module KY-006 Piezo Beeper; In Stock. Generic passive piezo buzzer module."
+      }
+    ],
+    "vibration_motor": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B088NFK9ZZ",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B088NFK9ZZ",
+        "checked_at": "2026-06-22",
+        "notes": "PWM Vibration Motor Module DC Motor for Arduino; In Stock. Generic coin/disc vibration motor module."
+      }
+    ],
+    "fan_pwm": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B072Q2LWBL",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B072Q2LWBL",
+        "checked_at": "2026-06-22",
+        "notes": "Noctua NF-A4x20 5V PWM 40mm fan; In Stock. Small 5V 4-pin PWM cooling fan."
+      }
+    ],
+    "bus_dc_motor": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B00NJOTBOK",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B00NJOTBOK",
+        "checked_at": "2026-06-22",
+        "notes": "L298N Motor Drive Controller Board Dual H Bridge DC Stepper; In Stock. DC motor driver board."
+      }
+    ],
+    "opto_mos": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B01I1J14MO",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B01I1J14MO",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo 5pcs IRF520 MOSFET Driver Module; In Stock. MOSFET power-switch output module."
+      }
+    ],
+    "potentiometer": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B08B3SGL2L",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B08B3SGL2L",
+        "checked_at": "2026-06-22",
+        "notes": "Wixine 2pcs 10K Ohm Rotary Potentiometer Module; In Stock. Generic rotary potentiometer module."
+      }
+    ],
+    "rotaryencoder": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B06XQTHDRR",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B06XQTHDRR",
+        "checked_at": "2026-06-22",
+        "notes": "5pcs KY-040 Rotary Encoder Module with knob cap; In Stock. Exact KY-040 encoder module verified."
+      }
+    ],
+    "ps2_joystick": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0CPFDKWZF",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B0CPFDKWZF",
+        "checked_at": "2026-06-22",
+        "notes": "Teyleten Robot Dual-axis XY Joystick Module (PS2 style); In Stock. Generic thumb joystick module."
+      }
+    ],
+    "limit_switch": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0899VDQRX",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B0899VDQRX",
+        "checked_at": "2026-06-22",
+        "notes": "3pcs DEVMO 3D Printer Limit Switch Mechanical Endstop Module; In Stock. Generic micro limit switch module."
+      }
+    ],
+    "flame": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B078DXVVN9",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B078DXVVN9",
+        "checked_at": "2026-06-22",
+        "notes": "3-Pack KY-026 Flame Sensor Module IR Detector; In Stock. Generic flame/fire IR detection sensor module."
+      }
+    ],
+    "soil_moisture": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07SYBSHGX",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07SYBSHGX",
+        "checked_at": "2026-06-22",
+        "notes": "Songhe Capacitive Soil Moisture Sensor Module (corrosion resistant); In Stock. Generic capacitive soil moisture sensor."
+      }
+    ],
+    "dht11": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-174.html",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-174.html",
+        "checked_at": "2026-06-22",
+        "notes": "DFRobot Gravity Arduino DHT11 Temperature Humidity Sensor; $4.20, in stock. Generic DHT11 module; Adafruit DHT11 (386) discontinued."
+      }
+    ],
+    "ds18b20": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/381",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/381",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Waterproof 1-Wire DS18B20 Digital temperature sensor; In Stock."
+      }
+    ],
+    "ds3231": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/3013",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/3013",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit DS3231 Precision RTC Breakout; In Stock."
+      }
+    ],
+    "ds1307": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/3296",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/3296",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit DS1307 Real Time Clock Assembled Breakout Board; In Stock."
+      }
+    ],
+    "ds1302": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07QPWJM7N",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07QPWJM7N",
+        "checked_at": "2026-06-22",
+        "notes": "uxcell DS1302 Real-Time Clock Module; in stock $6.99. Generic DS1302 3-wire RTC module, no maker SKU."
+      }
+    ],
+    "at24c256": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B00LQEU720",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B00LQEU720",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo 5pcs AT24C256 I2C 256k-bit EEPROM Memory Module; In Stock $9.49."
+      }
+    ],
+    "pn532": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B01I1J17LC",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B01I1J17LC",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo PN532 NFC NXP RFID Module V3 Kit (I2C/SPI/HSU) with S50 card; In Stock $8.99. Adafruit 364 was out of stock."
+      }
+    ],
+    "pir": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/189",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/189",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit PIR (motion) sensor; in stock $9.95. Adjustable-delay HC-SR501-style passive infrared sensor."
+      }
+    ],
+    "sdcard": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/254",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/254",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit MicroSD card breakout board+; In stock. SPI microSD/TF reader, beginner-friendly."
+      }
+    ],
+    "as7341": [
+      {
+        "vendor": "DFRobot",
+        "url": "https://www.dfrobot.com/product-2131.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.dfrobot.com/product-2131.html",
+        "checked_at": "2026-06-22",
+        "notes": "DFRobot Gravity AS7341 11-Channel Visible Light Sensor (SEN0364); $17.50, in stock. Adafruit AS7341 (4698) was out of stock."
+      }
+    ],
+    "max44009": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07TD93BMS",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B07TD93BMS",
+        "checked_at": "2026-06-22",
+        "notes": "GY-49 MAX44009 Ambient Light Sensor Module; In Stock $17. No clean SKU at Adafruit/SparkFun/DFRobot; generic GY-49 module."
+      }
+    ],
+    "mlx90614": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/1747",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/1747",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Melexis Contact-less IR Sensor MLX90614 3V (MLX90614ESF-BAA); $15.95, in stock. Bare TO-39 sensor (not a PCB breakout), I2C."
+      }
+    ],
+    "mlx90640": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4407",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4407",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit MLX90640 IR Thermal Camera Breakout - 55 Degree; $74.95, in stock. 24x32 thermal array, STEMMA QT."
+      }
+    ],
+    "led_single": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/297",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/297",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Super Bright Red 5mm LED (25 pack); $8.00, in stock. Generic 5mm through-hole LED to drive from one GPIO pin."
+      }
+    ],
+    "max30100": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0GHF54K6N",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B0GHF54K6N",
+        "checked_at": "2026-06-22",
+        "notes": "MAX30100 Heart Rate/Oximetry Module; in stock $23.49. True MAX30100 boards now scarce (often shipped as MAX30102)."
+      }
+    ],
+    "max30102": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07ZQNC8XP",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07ZQNC8XP",
+        "checked_at": "2026-06-22",
+        "notes": "MAX30102 Heart Rate / Pulse + Blood Oxygen Sensor Module (2pcs); In Stock $13.99."
+      }
+    ],
+    "hscdtd008a": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0982D38X1",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B0982D38X1",
+        "checked_at": "2026-06-22",
+        "notes": "HSCDTD008A 3-Axis Magnetometer Compass Sensor Module 3.3-5V (HMC5883L replacement); In Stock $7.59."
+      }
+    ],
+    "hall_sensor_oh34n": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B01NBE2XIR",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B01NBE2XIR",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo 5pcs Hall Effect Magnetic Sensor Module (A3144/3144E family); In Stock $5.99."
+      }
+    ],
+    "mse_soil_sensor": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0BVW19JM1",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B0BVW19JM1",
+        "checked_at": "2026-06-22",
+        "notes": "RS485 Soil Temperature/Humidity/Moisture/EC Sensor probe; orderable $25.97. MSE has no unique Western SKU."
+      }
+    ],
+    "tcr5000": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B00LZV1V10",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B00LZV1V10",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo 10pcs TCRT5000 Infrared Reflective / line-tracking Sensor Module; In Stock $8.79."
+      }
+    ],
+    "vibration": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B00HJ6ACY2",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B00HJ6ACY2",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo 5pcs SW-420 Vibration Sensor Module / shake switch; In Stock $6.49."
+      }
+    ],
+    "spring_vibration": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B09TKNJNGC",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B09TKNJNGC",
+        "checked_at": "2026-06-22",
+        "notes": "SW-18010P spring vibration switch sensor module; in stock $9.29."
+      }
+    ],
+    "wheelswitch": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07MXF5V6Q",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07MXF5V6Q",
+        "checked_at": "2026-06-22",
+        "notes": "uxcell BCD-code thumbwheel switch KM2 0-9 (10pcs); in stock $9.99."
+      }
+    ],
+    "irtranslation": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B08X2MFS6S",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B08X2MFS6S",
+        "checked_at": "2026-06-22",
+        "notes": "Dorhea 38kHz IR Receiver + IR Transmitter Module Kit (4+4pcs); In Stock $7.99."
+      }
+    ],
+    "serial_imu": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07GBRTB5K",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07GBRTB5K",
+        "checked_at": "2026-06-22",
+        "notes": "WitMotion WT901 9-axis IMU/AHRS with UART/TTL serial output; in stock $35.90."
+      }
+    ],
+    "my18e20": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/s?k=MY18E20+1-wire+EEPROM+sensor",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.amazon.com/s?k=MY18E20+1-wire+EEPROM+sensor",
+        "checked_at": "2026-06-22",
+        "notes": "No clean Western product page; only listing found was a mismatched TO-92 part. Honest search URL."
+      }
+    ],
+    "mems": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B09G4RNT3G",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B09G4RNT3G",
+        "checked_at": "2026-06-22",
+        "notes": "Teyleten Robot INMP441 Omnidirectional MEMS Microphone Module (I2S); In Stock $12.51."
+      }
+    ],
+    "cc2530": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0FLLGKQHC",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B0FLLGKQHC",
+        "checked_at": "2026-06-22",
+        "notes": "CC2530 Zigbee Module UART Core Board (CC2530F256, 2.4GHz); In Stock $16.32. Generic clone core board."
+      }
+    ],
+    "hc08": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B071RNNR5K",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B071RNNR5K",
+        "checked_at": "2026-06-22",
+        "notes": "HC-08 Bluetooth 4.0 BLE Serial Module (5pcs); In Stock $23.32. Only live HC-08 on Amazon US; generic clone."
+      }
+    ],
+    "hc14": [
+      {
+        "vendor": "eBay",
+        "url": "https://www.ebay.com/itm/146501881076",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.ebay.com/itm/146501881076",
+        "checked_at": "2026-06-22",
+        "notes": "433MHz HC-14 Wireless Serial Module (1km); Buy It Now $13.03, 2 available. No Amazon/maker HC-14; single eBay listing may end."
+      }
+    ],
+    "sim800": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B01DLIJM2E",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B01DLIJM2E",
+        "checked_at": "2026-06-22",
+        "notes": "HiLetgo SIM800L GPRS GSM Breakout Module Quad-Band with antenna; In Stock $8.99."
+      }
+    ],
+    "sim7600": [
+      {
+        "vendor": "Waveshare",
+        "url": "https://www.waveshare.com/sim7600g-h-4g-module.htm",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.waveshare.com/sim7600g-h-4g-module.htm",
+        "checked_at": "2026-06-22",
+        "notes": "Waveshare SIM7600X 4G Module (SIM7600G-H/E-H); in stock on official Waveshare page."
+      }
+    ],
+    "ch9121": [
+      {
+        "vendor": "Waveshare",
+        "url": "https://www.waveshare.com/2-ch-uart-to-eth.htm",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.waveshare.com/2-ch-uart-to-eth.htm",
+        "checked_at": "2026-06-22",
+        "notes": "Waveshare 2-CH UART To Ethernet Converter (CH9121); in stock on official Waveshare page."
+      }
+    ],
+    "ch9328": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/5973",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/5973",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit CH9328 UART to HID Keyboard Breakout; In Stock."
+      }
+    ],
+    "air530z": [
+      {
+        "vendor": "Seeed Studio",
+        "url": "https://www.seeedstudio.com/SeeedGrove-GPS-Air530-p-4584.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.seeedstudio.com/SeeedGrove-GPS-Air530-p-4584.html",
+        "checked_at": "2026-06-22",
+        "notes": "SeeedGrove - GPS (Air530Z); In Stock on official Seeed page."
+      }
+    ],
+    "si5351": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/2045",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/2045",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Si5351A Clock Generator Breakout - 8KHz to 160MHz; in stock."
+      }
+    ],
+    "rcwl9623": [
+      {
+        "vendor": "Adafruit",
+        "url": "https://www.adafruit.com/product/4007",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.adafruit.com/product/4007",
+        "checked_at": "2026-06-22",
+        "notes": "Adafruit Ultrasonic Distance Sensor 3-5V HC-SR04 compatible (RCWL-1601 family); in stock."
+      }
+    ],
+    "waveformgenerator": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07HFRFMPM",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07HFRFMPM",
+        "checked_at": "2026-06-22",
+        "notes": "NOYITO AD9833 Programmable DDS Signal Generator Module (sine/square/triangle); $14.99, in stock."
+      }
+    ],
+    "ds1232": [
+      {
+        "vendor": "DigiKey",
+        "url": "https://www.digikey.com/en/products/detail/maxim-integrated/DS1232/420380",
+        "link_type": "official",
+        "confidence": "medium",
+        "evidence_url": "https://www.digikey.com/en/products/detail/maxim-integrated/DS1232/420380",
+        "checked_at": "2026-06-22",
+        "notes": "DS1232 watchdog/micromonitor IC; obsolete lifecycle but In Stock 2900+ units $6.96 at DigiKey. Not sold as a beginner module anywhere."
+      }
+    ],
+    "cs1237": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0CPCZ84GY",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B0CPCZ84GY",
+        "checked_at": "2026-06-22",
+        "notes": "CS1237 24-Bit ADC Module DC 3.3/5V; In Stock $11.69. Generic module, no unique SKU."
+      }
+    ],
+    "r60abd1": [
+      {
+        "vendor": "Seeed Studio",
+        "url": "https://www.seeedstudio.com/60GHz-mmWave-Radar-Sensor-Breathing-and-Heartbeat-Module-p-5305.html",
+        "link_type": "official",
+        "confidence": "medium",
+        "evidence_url": "https://www.seeedstudio.com/60GHz-mmWave-Radar-Sensor-Breathing-and-Heartbeat-Module-p-5305.html",
+        "checked_at": "2026-06-22",
+        "notes": "Seeed MR60BHA1 60GHz mmWave Respiratory/Heartbeat radar (exact part). Page may show out-of-stock; in-stock XIAO successor is MR60BHA2 (p-5945)."
+      }
+    ],
+    "r60afd1": [
+      {
+        "vendor": "Seeed Studio",
+        "url": "https://www.seeedstudio.com/MR60FDA2-60GHz-mmWave-Sensor-Fall-Detection-Module-p-5946.html",
+        "link_type": "official",
+        "confidence": "high",
+        "evidence_url": "https://www.seeedstudio.com/MR60FDA2-60GHz-mmWave-Sensor-Fall-Detection-Module-p-5946.html",
+        "checked_at": "2026-06-22",
+        "notes": "Seeed XIAO 60GHz mmWave Human Fall Detection Sensor MR60FDA2; In Stock. MR60FDA fall-detection radar family."
+      }
+    ],
+    "r60amd1": [
+      {
+        "vendor": "Seeed Studio",
+        "url": "https://www.seeedstudio.com/catalogsearch/result/?q=MR60",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.seeedstudio.com/catalogsearch/result/?q=MR60",
+        "checked_at": "2026-06-22",
+        "notes": "No MR60AMD1 product page on Seeed (only MR60BHA2 + MR60FDA2 indexed). Honest Seeed search for the MR60 60GHz radar family."
+      }
+    ],
+    "mqx": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0FN4359K4",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B0FN4359K4",
+        "checked_at": "2026-06-22",
+        "notes": "9PCS MQ Sensor Suite Kit (MQ-2/3/4/5/6/7/8/9/135); in stock. Representative MQ-series gas sensor set (MQ-2 smoke, MQ-135 air quality)."
+      }
+    ],
+    "mgx": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B07W12TDKC",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B07W12TDKC",
+        "checked_at": "2026-06-22",
+        "notes": "MG811 Carbon Dioxide CO2 Gas Sensor Module; In Stock. Representative MG-series gas sensor."
+      }
+    ],
+    "ba111": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B086GX2539",
+        "link_type": "representative",
+        "confidence": "high",
+        "evidence_url": "https://www.amazon.com/dp/B086GX2539",
+        "checked_at": "2026-06-22",
+        "notes": "DFRobot Gravity Analog TDS Meter Sensor Kit (waterproof probe); In Stock. Representative TDS water-quality sensor (BA111TDS itself is niche)."
+      }
+    ],
+    "t117b": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-T117B-temperature-sensor.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-T117B-temperature-sensor.html",
+        "checked_at": "2026-06-22",
+        "notes": "T117B I2C temperature sensor; no clean Western product page (Amazon returns generic AHT parts). Honest AliExpress search."
+      }
+    ],
+    "fm8118_atomization": [
+      {
+        "vendor": "Amazon",
+        "url": "https://www.amazon.com/dp/B0B6HCG55L",
+        "link_type": "representative",
+        "confidence": "medium",
+        "evidence_url": "https://www.amazon.com/dp/B0B6HCG55L",
+        "checked_at": "2026-06-22",
+        "notes": "Ultrasonic Mist Maker Atomization Module with driver board; in stock. Representative FM8118-style ultrasonic atomization driver."
+      }
+    ],
+    "jedm_gas_meas": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-JEDM-gas-sensor.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-JEDM-gas-sensor.html",
+        "checked_at": "2026-06-22",
+        "notes": "Niche JEDM gas measurement sensor; no Western product page. Honest AliExpress search."
+      }
+    ],
+    "cds1081": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-CDS1081-sensor.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-CDS1081-sensor.html",
+        "checked_at": "2026-06-22",
+        "notes": "Niche sensor, no verifiable Western product page. Honest AliExpress search."
+      }
+    ],
+    "ewm550": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-EWM550-sensor.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-EWM550-sensor.html",
+        "checked_at": "2026-06-22",
+        "notes": "Niche module, no verifiable product page. Honest AliExpress search."
+      }
+    ],
+    "fde_frost": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-frost-dew-sensor.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-frost-dew-sensor.html",
+        "checked_at": "2026-06-22",
+        "notes": "Niche frost/dew sensor, exact part unknown; no clean page. Honest AliExpress search by function."
+      }
+    ],
+    "ls3hd": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-LS3HD-sensor.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-LS3HD-sensor.html",
+        "checked_at": "2026-06-22",
+        "notes": "Niche part, no verifiable Western product page. Honest AliExpress search."
+      }
+    ],
+    "mcp": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-MCP-sensor-module.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-MCP-sensor-module.html",
+        "checked_at": "2026-06-22",
+        "notes": "Ambiguous generic 'mcp' driver, no single canonical part. Honest AliExpress search."
+      }
+    ],
+    "mwfd": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-MWFD-sensor.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-MWFD-sensor.html",
+        "checked_at": "2026-06-22",
+        "notes": "Niche part, no verifiable product page. Honest AliExpress search."
+      }
+    ],
+    "tas755c": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-TAS755C-sensor.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-TAS755C-sensor.html",
+        "checked_at": "2026-06-22",
+        "notes": "Niche part, no verifiable product page. Honest AliExpress search."
+      }
+    ],
+    "ws61": [
+      {
+        "vendor": "AliExpress",
+        "url": "https://www.aliexpress.com/w/wholesale-WS61-sensor.html",
+        "link_type": "search_fallback",
+        "confidence": "low",
+        "evidence_url": "https://www.aliexpress.com/w/wholesale-WS61-sensor.html",
+        "checked_at": "2026-06-22",
+        "notes": "Niche part, no verifiable product page. Honest AliExpress search."
       }
     ]
   }

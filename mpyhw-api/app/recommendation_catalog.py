@@ -274,7 +274,10 @@ def module_purchase_links(module_name: str, region: str = "us") -> list[dict[str
     curated = load_module_purchase_links(region).get(key)
     if curated:
         return curated
-    query = quote_plus(module_name.strip())
+    # Clean the package name into a human search term: canonical_chip_id already dropped
+    # the "_driver" suffix, so de-underscore and append "module" to search "jq6500 module"
+    # rather than the raw "jq6500_driver" (which buries the part under driver-code results).
+    query = quote_plus(f"{key.replace('_', ' ')} module".strip())
     return [
         {
             "vendor": "Amazon",
