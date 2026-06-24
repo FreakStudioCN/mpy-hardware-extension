@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 2 课：WebView 到 SessionController</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65;color:#17202a;background:#f8fafc}
+    main{max-width:980px;margin:0 auto;padding:28px} header{background:#fff;border-bottom:1px solid #d7dee8}
+    h1{font-size:34px;line-height:1.15;margin:0 0 10px} h2{margin-top:30px;font-size:23px} h3{font-size:17px;color:#0f766e}
+    code{background:#edf2f7;padding:1px 5px;border-radius:4px;font-family:Consolas,ui-monospace,monospace}
+    pre{background:#102a43;color:#e6f6ff;padding:14px;border-radius:8px;overflow:auto}
+    table{border-collapse:collapse;width:100%;background:#fff;margin:12px 0} th,td{border:1px solid #d7dee8;padding:9px;vertical-align:top} th{background:#f1f5f9;text-align:left}
+    .card{background:#fff;border:1px solid #d7dee8;border-radius:8px;padding:14px;margin:12px 0}.note{border-left:4px solid #2563eb;background:#eef4ff;padding:12px;border-radius:8px}
+    button{margin:5px 5px 0 0;padding:8px 10px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer}.feedback{margin-top:10px;background:#f1f5f9;padding:9px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <header><main>
+    <p>Lesson 0002 · 插件宿主入口</p>
+    <h1>WebView 到 SessionController：用户点击 Generate 后发生什么</h1>
+    <p>本课只讲一件事：WebView 页面如何把用户输入交给 VS Code 扩展宿主，宿主如何用 <code>SessionController</code> 接管长会话。</p>
+  </main></header>
+  <main>
+    <h2>成功标准</h2>
+    <p>学完你应该能定位：按钮无响应、登录没触发、approval 卡片不返回、reset 后旧消息污染新会话这几类问题。</p>
+
+    <h2>调用链</h2>
+    <pre><code>src/webview/index.html
+  Generate button click
+  -> vscode.postMessage({ type: "start_session", intent, boardId: "auto" })
+
+src/webview/panel.ts
+  webview.onDidReceiveMessage(...)
+  -> checkProtocolVersion(/v1/tools)
+  -> GitHub auth
+  -> controller.start(...)
+
+src/extension/session-controller.ts
+  -> creates trace/state
+  -> calls loop(...)
+  -> forwards events back to WebView</code></pre>
+
+    <h2>WebView 该看什么</h2>
+    <table>
+      <thead><tr><th>位置</th><th>作用</th><th>排查问题</th></tr></thead>
+      <tbody>
+        <tr><td><code>index.html</code> 的 Generate click handler</td><td>取 intent，锁定语言，发 <code>start_session</code></td><td>按钮点了没发消息</td></tr>
+        <tr><td><code>window.addEventListener("message")</code></td><td>接收宿主消息并渲染 UI</td><td>宿主有事件但页面不更新</td></tr>
+        <tr><td><code>addApprovalPrompt</code></td><td>渲染统一 rich approval card</td><td>用户选择没回到 loop</td></tr>
+        <tr><td><code>addDeployPrompt</code></td><td>部署前确认接线和端口</td><td>部署按钮不可用、端口没选中</td></tr>
+      </tbody>
+    </table>
+
+    <h2>panel.ts 该看什么</h2>
+    <p><code>panel.ts</code> 是 WebView 和真实宿主能力之间的总线。它负责解析 API 地址、创建 shim、创建 GitHub auth、创建 recorder、绑定文件读写、创建 loop。</p>
+    <div class="card">
+      <h3><code>start_session</code> 分支</h3>
+      <p>这是最重要的入口。它先检查协议版本，再检查 toolchain skew，再做 GitHub 登录，最后调用 <code>controller.start</code>。</p>
+    </div>
+    <div class="card">
+      <h3><code>ui_prompt_response</code> 分支</h3>
+      <p>所有用户回答都会从这里回到 <code>SessionController.resolvePrompt</code>。部署确认时还会先设置端口，避免设备 tool 比端口选择更早执行。</p>
+    </div>
+
+    <h2>SessionController 负责什么</h2>
+    <table>
+      <thead><tr><th>机制</th><th>解决的问题</th></tr></thead>
+      <tbody>
+        <tr><td><code>pendingPrompts</code></td><td>把 UI 卡片回答接回正在等待的 promise</td></tr>
+        <tr><td><code>AbortController</code></td><td>取消当前 LLM/设备/脚本流程</td></tr>
+        <tr><td><code>generation</code></td><td>reset 后丢弃旧 run 的迟到事件</td></tr>
+        <tr><td><code>state</code></td><td>retry 或连续输入时延续当前 phase/manifest</td></tr>
+        <tr><td><code>latestManifest/latestFiles</code></td><td>在 headless fallback 下汇总产物写盘</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      <strong>判断边界：</strong>WebView 只负责展示和发消息；<code>panel.ts</code> 负责接 VS Code 能力；<code>SessionController</code> 负责会话状态，不负责决定硬件方案。
+    </div>
+
+    <h2>练习</h2>
+    <div class="card" id="quiz">
+      <p>用户点了“取消”，但后端仍继续部署。最先看哪里？</p>
+      <button data-ok="0">routes_llm.py 的 prompt</button>
+      <button data-ok="1">SessionController 的 pending prompt 和 cancel/abort 流程</button>
+      <button data-ok="0">package_index.json</button>
+      <div class="feedback">选择一个答案。</div>
+    </div>
+
+    <p>下一课：<a href="0003-protocol-loop-and-six-tools.html">协议 loop 和 6 个工具</a>。</p>
+  </main>
+  <script>
+    document.querySelectorAll("#quiz button").forEach((b)=>b.onclick=()=>{
+      document.querySelector(".feedback").textContent=b.dataset.ok==="1"
+        ?"答对。取消是宿主会话控制问题，先看 SessionController 如何 resolve prompt、abort signal、丢弃迟到事件。"
+        :"再想想。这个现象发生在用户回答和本地 loop 控制之间，不是包索引或后端 prompt 的第一优先级。";
+    });
+  </script>
+</body>
+</html>

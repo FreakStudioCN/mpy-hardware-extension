@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 6 课：Skill 改动验收</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65;color:#17202a;background:#f8fafc}
+    main{max-width:980px;margin:0 auto;padding:28px} header{background:#fff;border-bottom:1px solid #d7dee8}
+    h1{font-size:34px;line-height:1.15;margin:0 0 10px} h2{margin-top:30px;font-size:23px} h3{font-size:17px;color:#0f766e}
+    code{background:#edf2f7;padding:1px 5px;border-radius:4px;font-family:Consolas,ui-monospace,monospace}
+    pre{background:#102a43;color:#e6f6ff;padding:14px;border-radius:8px;overflow:auto}
+    table{border-collapse:collapse;width:100%;background:#fff;margin:12px 0} th,td{border:1px solid #d7dee8;padding:9px;vertical-align:top} th{background:#f1f5f9;text-align:left}
+    .note{border-left:4px solid #2563eb;background:#eef4ff;padding:12px;border-radius:8px}.warn{border-left-color:#f59e0b;background:#fff8eb}
+  </style>
+</head>
+<body>
+  <header><main>
+    <p>Lesson 0006 · 验收课</p>
+    <h1>改完 SKILL.md 后怎么证明插件还能工作</h1>
+    <p>本课只讲验收。目标是让你改 skill、phase recipe、协议 contract 或执行器后，知道该跑哪一级门槛，不靠感觉上线。</p>
+  </main></header>
+  <main>
+    <h2>什么算 skill 改动</h2>
+    <ul>
+      <li>改 <code>third_party/MicroPython_Skills/&lt;served-skill&gt;/SKILL.md</code>。</li>
+      <li>改 <code>skill_catalog.py</code> 的 served skill 列表或 phase 映射。</li>
+      <li>改 <code>routes_llm.py</code> 的 adapter preamble 或 <code>_PHASE_RECIPES</code>。</li>
+      <li>改 <code>contracts/protocol_messages.json</code>。</li>
+      <li>改 6 个协议工具的本地执行器。</li>
+    </ul>
+
+    <h2>第 1 级：无模型快速门</h2>
+    <pre><code>cd mpyhw-api
+pytest tests/test_skill_catalog.py tests/test_protocol_contract.py tests/test_protocol_backend.py tests/test_llm_messages.py
+
+cd ../mpy-hardware-extension
+npm test
+npm run typecheck</code></pre>
+    <p>这一层不调用真实 DeepSeek，主要证明 contract、白名单、payload validation、extension 执行器没有明显断裂。</p>
+
+    <h2>第 2 级：真实模型 analyze smoke</h2>
+    <pre><code>cd mpyhw-api
+python scripts/smoke_analyze_protocol.py "做一个温湿度监测仪，温度超过阈值就让蜂鸣器报警"</code></pre>
+    <p>通过标准：</p>
+    <ul>
+      <li><code>GATE: PASS</code>。</li>
+      <li>所有 tool call 都在 6-tool protocol 内。</li>
+      <li>payload schema 有效。</li>
+      <li>到达 <code>approval_request</code>。</li>
+      <li>不以环境预检 <code>script_run</code> 开头。</li>
+      <li>没有 raw shell smell，比如 <code>mpremote</code>、<code>pip install</code>、bash fence。</li>
+    </ul>
+
+    <h2>第 3 级：真实模型 headless E2E</h2>
+    <pre><code>cd mpyhw-api
+python scripts/e2e_protocol.py "做一个温湿度监测仪，温度超过阈值就让蜂鸣器报警，OLED 屏幕显示读数"</code></pre>
+    <p>通过标准：</p>
+    <ul>
+      <li><code>E2E: PASS</code>。</li>
+      <li>没有 off-protocol tool。</li>
+      <li>payload validity 至少 95%。</li>
+      <li>至少到达 generate。</li>
+      <li>写出 <code>firmware/main.py</code>。</li>
+      <li><code>firmware/main.py</code> 包含 <code>MPYHW_READY</code>。</li>
+    </ul>
+
+    <h2>第 4 级：VS Code 本地验收</h2>
+    <pre><code>cd mpy-hardware-extension
+npm test
+npm run typecheck
+npm run package</code></pre>
+    <p>手工检查：</p>
+    <ul>
+      <li>Activity Bar 看到 Blockless。</li>
+      <li>面板能打开。</li>
+      <li>加载板卡列表。</li>
+      <li>GitHub 登录能触发。</li>
+      <li>credits 能显示。</li>
+      <li>输入中文 intent 后能看到 approval card。</li>
+      <li>确认后能看到 phase progress。</li>
+      <li>生成文件落到 <code>blockless-project</code>。</li>
+    </ul>
+
+    <h2>最小验收矩阵</h2>
+    <table>
+      <thead><tr><th>改动</th><th>必须跑</th><th>真实模型</th><th>硬件</th></tr></thead>
+      <tbody>
+        <tr><td>analyze skill/recipe</td><td>后端静态门</td><td><code>smoke_analyze_protocol.py</code></td><td>不需要</td></tr>
+        <tr><td>generate/wiring/diagram/deploy recipe</td><td>后端静态门</td><td><code>e2e_protocol.py</code></td><td>不需要</td></tr>
+        <tr><td>协议 contract</td><td>后端 contract + <code>npm test</code></td><td>通常不需要</td><td>不需要</td></tr>
+        <tr><td>WebView/SessionController</td><td><code>npm test</code> + <code>typecheck</code></td><td>不需要</td><td>不需要</td></tr>
+        <tr><td>device shim</td><td>shim 相关测试</td><td>不需要</td><td>建议有</td></tr>
+        <tr><td>发布前</td><td><code>npm test</code> + <code>typecheck</code> + package</td><td>视改动</td><td>建议 smoke</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note warn">
+      <strong>上线前判断：</strong>skill 改动不是“文本改了就行”。必须证明模型仍然按 6-tool protocol 说话，并且 phase 能走到 <code>phase_complete</code>。
+    </div>
+
+    <p>完整工程文档：<code>docs/plugin-architecture-and-skill-acceptance.md</code>。上一课：<a href="0005-local-executors-files-device-ui.html">本地执行器</a>。</p>
+  </main>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 3 课：协议 Loop 和 6 个工具</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65;color:#17202a;background:#f8fafc}
+    main{max-width:980px;margin:0 auto;padding:28px} header{background:#fff;border-bottom:1px solid #d7dee8}
+    h1{font-size:34px;line-height:1.15;margin:0 0 10px} h2{margin-top:30px;font-size:23px} h3{font-size:17px;color:#0f766e}
+    code{background:#edf2f7;padding:1px 5px;border-radius:4px;font-family:Consolas,ui-monospace,monospace}
+    pre{background:#102a43;color:#e6f6ff;padding:14px;border-radius:8px;overflow:auto}
+    table{border-collapse:collapse;width:100%;background:#fff;margin:12px 0} th,td{border:1px solid #d7dee8;padding:9px;vertical-align:top} th{background:#f1f5f9;text-align:left}
+    .note{border-left:4px solid #2563eb;background:#eef4ff;padding:12px;border-radius:8px}.card{background:#fff;border:1px solid #d7dee8;border-radius:8px;padding:14px;margin:12px 0}
+  </style>
+</head>
+<body>
+  <header><main>
+    <p>Lesson 0003 · 协议执行器</p>
+    <h1>createProtocolLoop 到 runProtocolBuild：6 个工具如何驱动本地插件</h1>
+    <p>本课只讲协议 loop。重点是：模型不直接操作电脑，它只能发 6 个协议工具；插件把工具调用翻译成本地 UI、文件、脚本和设备动作。</p>
+  </main></header>
+  <main>
+    <h2>核心文件</h2>
+    <ul>
+      <li><code>src/core/protocol-build.ts</code>：把宿主能力适配成 protocol deps。</li>
+      <li><code>src/core/protocol-loop.ts</code>：phase loop 和工具执行。</li>
+      <li><code>src/core/protocol-registry.ts</code>：从 contract 读取 6 个工具和路由。</li>
+      <li><code>contracts/protocol_messages.json</code>：唯一协议契约。</li>
+      <li><code>test/protocol-loop.test.ts</code>：最重要的插件侧协议测试。</li>
+    </ul>
+
+    <h2>createProtocolLoop 的角色</h2>
+    <pre><code>createProtocolLoop({
+  apiBaseUrl,
+  fetchImpl,
+  shim,
+  getAuthToken,
+  readWorkspaceFile,
+  writeProjectFile,
+  projectRoot
+}) -> loop(input)</code></pre>
+    <p>它不是 phase 状态机。它负责创建这些适配器：LLM client、device executor、script executor、file executor。</p>
+
+    <h2>runProtocolBuild 的角色</h2>
+    <pre><code>runProtocolBuild(input, deps):
+  phase = input.startPhase ?? "analyze"
+  manifest = input.startManifest ?? {}
+  for each phase:
+    runPhase(phase, manifest)
+    if phase_complete:
+      manifest = manifest_content
+      phase = next_phase
+    else:
+      return stalled</code></pre>
+    <p>它只推进 phase，不理解硬件业务。硬件业务来自后端 prompt、skill 和模型输出。</p>
+
+    <h2>6 个协议工具</h2>
+    <table>
+      <thead><tr><th>工具</th><th>路由</th><th>阻塞</th><th>本地行为</th></tr></thead>
+      <tbody>
+        <tr><td><code>approval_request</code></td><td>ui</td><td>是</td><td>调用 <code>confirmApproval</code>，等待 WebView 回答</td></tr>
+        <tr><td><code>file_operation</code></td><td>fs</td><td>是</td><td>读写项目文件</td></tr>
+        <tr><td><code>script_run</code></td><td>host</td><td>是</td><td>通过 shim 跑本地工具链脚本</td></tr>
+        <tr><td><code>device_command</code></td><td>device</td><td>是</td><td>通过 shim 操作 mpremote/串口</td></tr>
+        <tr><td><code>status_update</code></td><td>notify</td><td>否</td><td>发时间线进度，自动 ack</td></tr>
+        <tr><td><code>phase_complete</code></td><td>notify</td><td>否</td><td>结束 phase，携带 manifest 和 next_phase</td></tr>
+      </tbody>
+    </table>
+
+    <h2>executeProtocolTool 的判断</h2>
+    <p>这个函数是防线。它会处理：</p>
+    <ul>
+      <li>未知工具名：返回 <code>unknown_tool</code>，不崩溃。</li>
+      <li>payload 已被 SSE 解析层标记 invalid：返回 <code>protocol_payload_invalid</code>。</li>
+      <li>用户取消 approval：返回 <code>user_cancelled</code>。</li>
+      <li>设备执行异常：返回结构化 <code>runtime_error</code>。</li>
+    </ul>
+
+    <div class="note">
+      <strong>验收重点：</strong>改协议 loop 时，至少跑 <code>node --no-warnings --experimental-strip-types --test test/protocol-loop.test.ts</code>。它覆盖 phase advance、approval、device serial、unknown tool、cancel、stall。
+    </div>
+
+    <h2>常见误判</h2>
+    <table>
+      <thead><tr><th>现象</th><th>不要先看</th><th>先看</th></tr></thead>
+      <tbody>
+        <tr><td>phase 一直 stalled</td><td>WebView CSS</td><td>模型有没有发 tool call，是否缺 <code>phase_complete</code></td></tr>
+        <tr><td>工具名是旧的 <code>scan_device</code></td><td>DeviceShim</td><td>后端是否仍让模型看到旧工具或 prompt 约束不足</td></tr>
+        <tr><td>用户取消后仍继续</td><td>package store</td><td><code>approval_request</code> 结果和 abort/cancel 处理</td></tr>
+      </tbody>
+    </table>
+
+    <p>上一课：<a href="0002-webview-session-controller.html">WebView 到 SessionController</a>。下一课：<a href="0004-backend-llm-and-skills.html">后端 LLM 与 Skill 注入</a>。</p>
+  </main>
+</body>
+</html>

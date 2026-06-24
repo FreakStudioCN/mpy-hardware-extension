@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 4 课：后端 LLM 与 Skill 注入</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65;color:#17202a;background:#f8fafc}
+    main{max-width:980px;margin:0 auto;padding:28px} header{background:#fff;border-bottom:1px solid #d7dee8}
+    h1{font-size:34px;line-height:1.15;margin:0 0 10px} h2{margin-top:30px;font-size:23px} h3{font-size:17px;color:#0f766e}
+    code{background:#edf2f7;padding:1px 5px;border-radius:4px;font-family:Consolas,ui-monospace,monospace}
+    pre{background:#102a43;color:#e6f6ff;padding:14px;border-radius:8px;overflow:auto}
+    table{border-collapse:collapse;width:100%;background:#fff;margin:12px 0} th,td{border:1px solid #d7dee8;padding:9px;vertical-align:top} th{background:#f1f5f9;text-align:left}
+    .card{background:#fff;border:1px solid #d7dee8;border-radius:8px;padding:14px;margin:12px 0}.note{border-left:4px solid #2563eb;background:#eef4ff;padding:12px;border-radius:8px}
+  </style>
+</head>
+<body>
+  <header><main>
+    <p>Lesson 0004 · 云端脑</p>
+    <h1>/v1/llm/messages：Skill、phase recipe 和 6 个工具如何变成模型请求</h1>
+    <p>本课只讲后端。重点是 <code>routes_llm.py</code> 如何把完整 <code>SKILL.md</code>、协议适配器、phase recipe、resolved data 和 6 个工具喂给模型。</p>
+  </main></header>
+  <main>
+    <h2>核心文件</h2>
+    <ul>
+      <li><code>mpyhw-api/app/routes_llm.py</code>：LLM route、prompt、SSE translation、server-side codegen。</li>
+      <li><code>mpyhw-api/app/skill_catalog.py</code>：served skills 白名单和 phase 映射。</li>
+      <li><code>mpyhw-api/app/tool_registry.py</code>：后端协议工具 registry。</li>
+      <li><code>mpyhw-api/app/routes_tools.py</code>：<code>/v1/tools</code>，给插件做版本检查。</li>
+      <li><code>mpyhw-api/tests/test_protocol_backend.py</code>：后端协议层核心测试。</li>
+    </ul>
+
+    <h2>Skill 进入 prompt 的路径</h2>
+    <pre><code>request body carries phase
+  -> routes_llm._phase(body)
+  -> routes_llm._system_prompt(phase)
+  -> skill_catalog.skill_md_body(phase)
+  -> adapter preamble + full SKILL.md + phase recipe
+  -> DeepSeek/OpenAI-compatible request</code></pre>
+
+    <h2>served skill 白名单</h2>
+    <p><code>skill_catalog.py</code> 只服务消费端 project-gen workflow，不把 driver-authoring family 暴露给用户构建 agent。</p>
+    <table>
+      <thead><tr><th>Skill</th><th>Phase</th></tr></thead>
+      <tbody>
+        <tr><td><code>upy-analyze</code></td><td><code>analyze</code></td></tr>
+        <tr><td><code>upy-select-hw</code></td><td><code>select-hw</code></td></tr>
+        <tr><td><code>upy-scaffold</code></td><td><code>scaffold</code></td></tr>
+        <tr><td><code>upy-generate</code></td><td><code>generate</code></td></tr>
+        <tr><td><code>upy-wiring</code></td><td><code>wiring</code></td></tr>
+        <tr><td><code>upy-diagram</code></td><td><code>diagram</code></td></tr>
+        <tr><td><code>upy-deploy</code></td><td><code>deploy</code></td></tr>
+        <tr><td><code>upy-deploy-test</code></td><td><code>deploy-test</code></td></tr>
+        <tr><td><code>upy-autofix</code></td><td><code>autofix</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>adapter preamble 的意义</h2>
+    <p>上游 skill 往往按“本地 agent”写，比如让 agent 跑 shell、调用 mpremote、使用 AskUserQuestion。当前架构里模型没有本地文件和串口权限，所以 preamble 明确要求：</p>
+    <ul>
+      <li>读写文件用 <code>file_operation</code>。</li>
+      <li>设备动作和 mpremote 用 <code>device_command</code>。</li>
+      <li>脚本用 <code>script_run</code>。</li>
+      <li>问用户用 <code>approval_request</code>。</li>
+      <li>进度用 <code>status_update</code>。</li>
+      <li>结束 phase 用 <code>phase_complete</code>。</li>
+    </ul>
+
+    <h2>phase recipe 的意义</h2>
+    <p>recipe 是当前后端对每个 phase 的硬约束。例如 analyze 必须先发组件确认卡，而不是环境预检；generate 不直接运行脚本，而是写 <code>firmware/main.py</code> 的 intent；wiring/diagram 直接写 JSON；deploy 通过 device_command 驱动设备。</p>
+
+    <h2>resolved data injection</h2>
+    <p>在 <code>select-hw</code>、<code>generate</code>、<code>wiring</code>、<code>diagram</code>、<code>deploy</code> 等 phase，后端会把 board profile、driver contexts、current manifest 注入 prompt。这样插件侧不需要重新实现 package ranking 或 driver-context extraction。</p>
+
+    <h2>server-side codegen</h2>
+    <pre><code>model emits:
+file_operation({
+  op: "write",
+  path: "firmware/main.py",
+  intent: "..."
+})
+
+routes_llm.py intercepts firmware/*.py
+  -> nested codegen prompt
+  -> fills content
+  -> forwards file_operation with real code</code></pre>
+    <p>验收点：只允许拦截 <code>firmware/*.py</code>，不能对奇怪路径烧 codegen 预算。</p>
+
+    <div class="note">
+      <strong>改 skill 后最容易出错：</strong>模型把 skill 里的本地 shell 步骤照字面输出。验收时必须看 smoke/e2e 是否出现 raw shell smell、旧工具名或无关 preflight。
+    </div>
+
+    <p>上一课：<a href="0003-protocol-loop-and-six-tools.html">协议 loop 和 6 个工具</a>。下一课：<a href="0005-local-executors-files-device-ui.html">本地执行器</a>。</p>
+  </main>
+</body>
+</html>

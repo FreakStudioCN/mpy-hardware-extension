@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blockless 插件速查表</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #5b6775;
+      --line: #d9e0e8;
+      --soft: #f5f7fa;
+      --accent: #0f766e;
+      --warn: #9a3412;
+      --code: #102a43;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: white;
+      line-height: 1.55;
+    }
+    main { max-width: 1120px; margin: 0 auto; padding: 28px; }
+    h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: 0; }
+    h2 { margin: 28px 0 10px; font-size: 18px; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+    h3 { margin: 18px 0 8px; font-size: 15px; color: var(--accent); }
+    p { margin: 8px 0; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      color: var(--code);
+      background: #eef4f8;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 14px; }
+    th, td { border: 1px solid var(--line); padding: 8px 10px; vertical-align: top; }
+    th { background: var(--soft); text-align: left; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .box { border: 1px solid var(--line); background: var(--soft); padding: 14px; border-radius: 8px; }
+    .flow { display: grid; gap: 8px; margin-top: 10px; }
+    .step { border-left: 4px solid var(--accent); padding: 8px 10px; background: #f7fbfb; }
+    .warn { color: var(--warn); font-weight: 650; }
+    @media print {
+      main { max-width: none; padding: 14mm; }
+      .box, .step { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
+    @media (max-width: 760px) {
+      main { padding: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      table { font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Blockless 插件速查表</h1>
+    <p>目标：快速判断一个问题该看哪一层、哪个文件、跑哪个验证。对应课程：<a href="../lessons/0001-blockless-plugin-architecture.html">Blockless 插件架构完整导览</a>。工程验收文档：<code>docs/plugin-architecture-and-skill-acceptance.md</code>。</p>
+
+    <h2>一张心智图</h2>
+    <div class="flow">
+      <div class="step"><code>package.json</code> 声明 VS Code 贡献点：Activity Bar 容器、Webview View、命令、设置。</div>
+      <div class="step"><code>activate.ts</code> 注册 <code>mpyhw.panel</code> 的 WebviewViewProvider 和 <code>mpyhw.openPanel</code> 命令。</div>
+      <div class="step"><code>panel.ts</code> 是宿主侧总线：加载 HTML、处理 Webview 消息、认证、创建 loop、连接 shim、写文件。</div>
+      <div class="step"><code>SessionController</code> 管会话状态：start/retry/cancel/reset、UI prompt、事件转发、artifact 记录。</div>
+      <div class="step"><code>protocol-loop.ts</code> 执行云端通过 SSE 发来的 6 个协议工具。</div>
+      <div class="step"><code>mpyhw-api</code> 做 auth、credits、LLM proxy、phase prompt、包/板卡内容、telemetry。</div>
+      <div class="step"><code>python/shim/serve.py</code> 只做本地设备 IO 和工具链脚本，不做 LLM 决策。</div>
+    </div>
+
+    <h2>职责边界</h2>
+    <table>
+      <thead><tr><th>层</th><th>负责</th><th>不负责</th><th>入口文件</th></tr></thead>
+      <tbody>
+        <tr><td>Webview UI</td><td>渲染输入框、活动流、审批卡、串口、接线、环境检测</td><td>不直接访问文件系统、串口、token</td><td><code>src/webview/index.html</code></td></tr>
+        <tr><td>扩展宿主</td><td>VS Code API、消息路由、GitHub auth、文件写入、设备 shim</td><td>不决定硬件方案</td><td><code>src/webview/panel.ts</code></td></tr>
+        <tr><td>协议执行器</td><td>把 LLM tool call 路由到 UI/FS/Host/Device/Notify</td><td>不做业务规划</td><td><code>src/core/protocol-loop.ts</code></td></tr>
+        <tr><td>后端 API</td><td>auth、credits、LLM SSE、phase recipes、包和板卡内容</td><td>不直接碰用户文件和串口</td><td><code>mpyhw-api/app/main.py</code></td></tr>
+        <tr><td>Python shim</td><td>mpremote、扫描设备、烧录、串口、validate/scaffold/static/simulate 脚本</td><td>不做 manifest/audit/package 选择逻辑</td><td><code>python/shim/serve.py</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>6 个协议工具</h2>
+    <table>
+      <thead><tr><th>工具</th><th>插件路由</th><th>典型用途</th><th>关键代码</th></tr></thead>
+      <tbody>
+        <tr><td><code>approval_request</code></td><td>UI</td><td>组件确认、方案选择、需要用户输入的问题</td><td><code>confirmApproval</code>, <code>addApprovalPrompt</code></td></tr>
+        <tr><td><code>status_update</code></td><td>Notify</td><td>时间线进度，不阻塞</td><td><code>postEvent</code>, <code>addStatusUpdate</code></td></tr>
+        <tr><td><code>phase_complete</code></td><td>Notify</td><td>结束当前 phase，携带 manifest，进入下一 phase</td><td><code>runProtocolBuild</code></td></tr>
+        <tr><td><code>file_operation</code></td><td>FS</td><td>写 <code>project-manifest.json</code>、<code>firmware/main.py</code>、<code>docs/*.json</code></td><td><code>writeProjectFile</code></td></tr>
+        <tr><td><code>script_run</code></td><td>Host</td><td>validate、scaffold、static check、simulate、render</td><td><code>createProtocolLoop.runScript</code></td></tr>
+        <tr><td><code>device_command</code></td><td>Device</td><td>扫描、安装包、复制固件、soft reset、读串口</td><td><code>DeviceShim</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>问题定位</h2>
+    <div class="grid">
+      <div class="box">
+        <h3>界面没打开</h3>
+        <p>看 <code>package.json</code> 的 <code>contributes.views</code>、<code>activate.ts</code>、<code>registerCommands</code>。</p>
+      </div>
+      <div class="box">
+        <h3>按钮点了没反应</h3>
+        <p>看 <code>index.html</code> 发出的 <code>postMessage</code> 和 <code>panel.ts</code> 的 <code>onDidReceiveMessage</code> 分支。</p>
+      </div>
+      <div class="box">
+        <h3>LLM/生成卡住</h3>
+        <p>看 <code>llm-client.ts</code>、<code>protocol-loop.ts</code>、<code>routes_llm.py</code>、后端 <code>/v1/health</code>。</p>
+      </div>
+      <div class="box">
+        <h3>协议不兼容</h3>
+        <p>看 <code>contracts/protocol_messages.json</code>、<code>protocol-registry.ts</code>、<code>/v1/tools</code>。</p>
+      </div>
+      <div class="box">
+        <h3>文件没写出来</h3>
+        <p>看 <code>workspace-writer.ts</code>、<code>PROJECT_SUBDIR</code>、<code>file_written</code> 事件。</p>
+      </div>
+      <div class="box">
+        <h3>设备部署失败</h3>
+        <p>看 <code>device-shim.ts</code>、<code>shim-process.ts</code>、<code>python/shim/serve.py</code>、Doctor tab。</p>
+      </div>
+    </div>
+
+    <h2>最小验证命令</h2>
+    <table>
+      <thead><tr><th>目标</th><th>命令</th></tr></thead>
+      <tbody>
+        <tr><td>扩展单元测试</td><td><code>cd mpy-hardware-extension; npm test</code></td></tr>
+        <tr><td>TypeScript 类型检查</td><td><code>cd mpy-hardware-extension; npm run typecheck</code></td></tr>
+        <tr><td>打包前烟测</td><td><code>cd mpy-hardware-extension; npm run smoke:extension</code></td></tr>
+        <tr><td>后端测试</td><td><code>cd mpyhw-api; pytest</code></td></tr>
+        <tr><td>云端后端探活</td><td><code>GET https://blockless-api.onrender.com/v1/health</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Skill 改动验收</h2>
+    <table>
+      <thead><tr><th>改动</th><th>最低门槛</th><th>真实模型门槛</th></tr></thead>
+      <tbody>
+        <tr><td><code>SKILL.md</code> / phase recipe</td><td><code>pytest tests/test_skill_catalog.py tests/test_protocol_backend.py</code></td><td><code>python scripts/smoke_analyze_protocol.py</code> 或 <code>python scripts/e2e_protocol.py</code></td></tr>
+        <tr><td>协议契约</td><td><code>pytest tests/test_protocol_contract.py</code> + <code>npm test</code></td><td>通常不需要，除非影响 phase 行为</td></tr>
+        <tr><td>插件执行器</td><td><code>npm test</code> + <code>npm run typecheck</code></td><td>涉及生成/部署链路时跑 headless E2E</td></tr>
+      </tbody>
+    </table>
+
+    <h2>开发守则</h2>
+    <p><span class="warn">先定位边界，再改代码。</span> UI 文案和卡片问题通常在 Webview；VS Code API、auth、文件和设备在扩展宿主；phase 行为和 prompt 在后端；协议形状在 contracts；串口和 mpremote 在 Python shim。</p>
+  </main>
+</body>
+</html>
