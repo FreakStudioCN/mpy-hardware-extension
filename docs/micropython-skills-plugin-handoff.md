@@ -51,6 +51,84 @@ third_party/MicroPython_Skills/upy-deploy-plugin
 
 注意：`upy-analyze-plugin` 的历史协议里可能输出 `next_phase=select-hw` 和 `next_skill=/upy-select-hw-plugin`。插件工程侧不要只按 `next_phase` 字符串猜目录，应该优先使用 `next_skill` 或当前 phase 的显式映射表。
 
+## 插件首屏必须有板卡选择页
+
+插件刚开始必须有一个板卡选择页面，不能等到 select-hw 阶段才第一次让用户看到板卡。这个页面和“一句话需求输入”“小白/自定义模式选择”同属启动页输入，最终传给 `upy-analyze-plugin.payload.pre_selected_board` 和 `preferences`。
+
+板卡数据源要求：
+
+1. 正式板卡列表以 MicroPython 官方下载页为准：`https://micropython.org/download/`。
+2. 官方下载页当前提供 Port、Feature、Vendor、MCU 等过滤维度，并列出各官方固件板卡；插件侧必须抓取/缓存这个官方索引，展示全部可选板卡。
+3. 不允许只展示 `third_party/MicroPython_Skills/upy-analyze-plugin/boards` 里的少量板卡。这个本地 boards 目录只能表示“当前已有引脚布局和规则增强”的板卡，不是完整官方板卡列表。
+4. 不允许从 `third_party/GraftSense-Drivers-MicroPython` 推导板卡或驱动支持范围。
+
+板卡页 UI 要求：
+
+| 功能 | 要求 |
+| --- | --- |
+| 分类 | 至少支持按品牌/Vendor、Port、MCU/芯片族分类；可额外按 Feature、常用开发板类型、官方固件板卡名分类 |
+| 分页 | 必须分页或虚拟列表加载，不能一次性把全部板卡塞成不可浏览的长列表 |
+| 搜索 | 支持按板卡名、Vendor、MCU、Port、固件 board name 搜索 |
+| 筛选 | 支持 Port、Vendor、MCU、Feature 多条件筛选 |
+| 板卡卡片 | 展示显示名、Vendor、Port、MCU/芯片族、Feature、官方固件页面 URL、固件 board name/download slug |
+| 本地支持标识 | 标出“已内置 pin_layout/可自动分配引脚”和“仅官方固件可用/后续需手动接线或补板卡资料” |
+| 刷新 | 提供“刷新官方板卡列表”能力，并记录 `fetched_at`、`source_url`、缓存版本 |
+| 兜底 | 网络失败时可读上次缓存，但 UI 必须提示官方列表可能过期 |
+
+选择行为：
+
+1. 用户选择具体板卡时，插件把官方板卡事实写入 `pre_selected_board`，至少包含 `id`、`display_name`、`vendor`、`port`、`mcu`、`features`、`firmware.url`、`firmware.board_name`、`download_slug`、`source_url`。
+2. 用户也可以选择“暂不指定板卡/由系统推荐”，此时仍然展示完整板卡页，但传给 analyze 的 `pre_selected_board=null`。
+3. 如果用户预选的官方板卡还没有本地 `pin_layout`，`upy-select-hw-plugin` 不能假装自动支持；应进入 `board_unavailable`、推荐相似已知板卡、要求手动接线描述，或输出 partial/checkpoint 等待补板卡资料。
+4. 如果 `pre_selected_board` 已经来自插件 UI，`upy-select-hw-plugin` 可以跳过 `board_select`，但仍必须校验该板卡存在固件和 `pin_layout`，并记录跳过原因。
+
+推荐启动页输入结构：
+
+```json
+{
+  "user_description": "做一个温湿度监测仪，超过阈值蜂鸣器报警，并在 OLED 上显示数据",
+  "pre_selected_board": {
+    "id": "ESP32_GENERIC_C3",
+    "display_name": "ESP32-C3",
+    "vendor": "Espressif",
+    "port": "esp32",
+    "mcu": "esp32c3",
+    "features": ["BLE", "WiFi"],
+    "firmware": {
+      "url": "https://micropython.org/download/ESP32_GENERIC_C3/",
+      "board_name": "ESP32_GENERIC_C3"
+    },
+    "download_slug": "ESP32_GENERIC_C3",
+    "source_url": "https://micropython.org/download/"
+  },
+  "preferences": {
+    "mode": "beginner",
+    "locale": "zh"
+  },
+  "existing_hardware": []
+}
+```
+
+## 启动默认选项和模式清单
+
+我按当前 `G:\MicroPython_Skills\*-plugin\SKILL.md` 检查后，插件侧需要显式承载这些默认选项：
+
+| 阶段 | 插件侧选项 | 默认/推荐 | 注意 |
+| --- | --- | --- | --- |
+| `upy-analyze-plugin` | `preferences.mode`: `beginner` / `custom` | 缺省为 `beginner` | skill 明确“不再先问小白/自定义”，所以插件首屏必须提供模式选择；不能由模型替用户默认点击确认 |
+| `upy-analyze-plugin` | `preferences.locale` | 缺省为 `zh` | 影响卡片文案和结果文案 |
+| `upy-analyze-plugin` | `pre_selected_board` | 可为 `null` | 来自首屏板卡页；为空时只记录未选板卡，不在 analyze 内最终选型 |
+| `upy-analyze-plugin` | `existing_hardware` | 缺省 `[]` | 只作为器件清单补充，不做复杂推导 |
+| `upy-select-hw-plugin` | `board_select` | 无预选板卡时默认弹出 | 若 `pre_selected_board` 来自插件 UI，可跳过，但必须校验固件和 `pin_layout` |
+| `upy-select-hw-plugin` | `pin_plan_review` | 必须用户确认 | 引脚分配不能在用户未确认前输出 success |
+| `upy-flash-mpy-firmware-plugin` | `firmware_action`: `download_and_flash`、`download_only`、`already_flashed`、`use_local_firmware`、`save_partial`、`cancel` | UI 可把 `download_and_flash` 标为 primary | 除非 payload 已有 `firmware_action`，下载或烧录前必须先展示审批 |
+| `upy-scaffold-plugin` | `mode`: `full` / `incremental` | 主链路为 `full` | 新增器件可用 incremental |
+| `upy-scaffold-plugin` | 调度模式：`mode_timer`、`mode_async`、`mode_thread` | Wi-Fi/display/LVGL 推荐 `mode_async`，其他推荐 `mode_timer` | 推荐只影响 selected/meta，不能限制用户选择 |
+| `upy-scaffold-plugin` | 模块：`module_logger`、`module_time_helper`、`module_maintenance`、`module_flash`、`module_log_tools` | 按需求预选 | `module_log_tools` 对应 `tools/read_device_log.py` + `tools/log_report.py` |
+| `upy-generate-plugin` | `mode`: `full` / `fix` | 主链路为 `full`，部署/测试失败后为 `fix` | full 成功默认 `next_phase=upy-deploy-plugin`，但云服务 blocked/mock-only 时不能默认 deploy |
+| `upy-deploy-plugin` | `deploy_strategy`: `upload_only`、`clean_then_upload`、`erase_then_upload`、`save_partial` | 推荐 `clean_then_upload` | `erase_then_upload` 必须 dry-run 和二次确认 |
+| `upy-deploy-plugin` | 串口选择 | 必须扫描真实串口并让用户选择 | 真实运行不能固定 `COM3` |
+
 ## 插件如何调用 skill
 
 插件侧不要直接把 skill 当作普通脚本运行。应把每个 `-plugin` 目录下的 `SKILL.md` 当作该阶段的协议和执行约束，把插件宿主能力封装为结构化调用：
@@ -203,7 +281,8 @@ F:\mpy-hardware-extension\third_party\GraftSense-Drivers-MicroPython
 
 | 入口 | 调用对象 | 说明 |
 | --- | --- | --- |
-| 一句话生成硬件 | 主链路 orchestrator | 从 `upy-analyze-plugin` 开始跑完整流程 |
+| 启动页：需求/模式/板卡 | 主链路 orchestrator + 官方板卡索引 | 必须展示小白/自定义模式和 `https://micropython.org/download/` 全量板卡选择页，支持分类、筛选、搜索、分页 |
+| 一句话生成硬件 | 主链路 orchestrator | 从 `upy-analyze-plugin` 开始跑完整流程，并传入首屏的 `preferences`、`pre_selected_board`、`existing_hardware` |
 | 选择/确认硬件 | `upy-select-hw-plugin` | 可从 analyze 结果继续，也可调试单阶段 |
 | 烧录 MicroPython 固件 | `upy-flash-mpy-firmware-plugin` | 只处理解释器固件，不部署业务代码 |
 | 生成项目骨架 | `upy-scaffold-plugin` | 生成 `firmware/`、`tools/`、`.upy/` |
