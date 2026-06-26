@@ -163,3 +163,49 @@ test("maps session_retry to a telemetry event", () => {
   const t = sessionEventToTelemetry("trace-1", { type: "session_retry" });
   assert.equal(t?.event_type, "session_retry");
 });
+
+// Protocol-loop observability: the V0 protocol loop emits phase_start / status_update /
+// phase_complete / approval_requested / components_proposed. mapSessionEvent only knew the
+// old agent-backed-loop vocabulary, so these returned null and the cloud DB was blind to
+// every phase boundary and approval gate — exactly why a stalled "搜索驱动" was undiagnosable.
+test("maps protocol phase_start to a phase_started telemetry event", () => {
+  const t = sessionEventToTelemetry("trace-1", { type: "phase_start", phase: "select-hw" });
+  assert.equal(t?.event_type, "phase_started");
+  assert.equal(t?.payload.phase, "select-hw");
+});
+
+test("maps protocol status_update to a status_update telemetry event with its raw payload", () => {
+  const t = sessionEventToTelemetry("trace-1", { type: "status_update", payload: { title: "正在搜索驱动", step: "2/3" } });
+  assert.equal(t?.event_type, "status_update");
+  assert.equal(t?.payload.title, "正在搜索驱动");
+  assert.equal(t?.payload.step, "2/3");
+});
+
+test("maps protocol phase_complete to a phase_completed event carrying result + next_phase", () => {
+  const t = sessionEventToTelemetry("trace-1", { type: "phase_complete", payload: { result: "success", next_phase: "generate" } });
+  assert.equal(t?.event_type, "phase_completed");
+  assert.equal(t?.payload.result, "success");
+  assert.equal(t?.payload.next_phase, "generate");
+});
+
+test("maps approval_requested so the approval gate is visible in the DB", () => {
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "approval_requested",
+    promptId: "approval-1",
+    card: { kind: "components", actions: [{ value: "confirm", primary: true }, { value: "modify" }] },
+  });
+  assert.equal(t?.event_type, "approval_requested");
+  assert.equal(t?.payload.prompt_id, "approval-1");
+  assert.deepEqual(t?.payload.actions, ["confirm", "modify"]);
+});
+
+test("maps components_proposed with a device count", () => {
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "components_proposed",
+    promptId: "approval-1",
+    devices: [{ name: "DHT22" }, { name: "BH1750" }],
+  });
+  assert.equal(t?.event_type, "components_proposed");
+  assert.equal(t?.payload.prompt_id, "approval-1");
+  assert.equal(t?.payload.device_count, 2);
+});

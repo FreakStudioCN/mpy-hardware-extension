@@ -129,6 +129,32 @@ function mapSessionEvent(event: Record<string, any>): { eventType: string; paylo
   if (event.type === "trace_event") {
     return traceEventPayload(event.event);
   }
+  // V0 protocol-loop observability: phase boundaries, the status timeline, and the
+  // approval gate. mapSessionEvent originally only knew the agent-backed-loop vocabulary,
+  // so these returned null and the cloud DB saw only session_started/intent/finished —
+  // making a stalled "搜索驱动" phase or an approval-card race undiagnosable from the DB.
+  if (event.type === "phase_start") {
+    return { eventType: "phase_started", payload: { phase: event.phase } };
+  }
+  if (event.type === "phase_complete") {
+    const p = event.payload ?? {};
+    return { eventType: "phase_completed", payload: { phase: p.phase, result: p.result, next_phase: p.next_phase } };
+  }
+  if (event.type === "status_update") {
+    return { eventType: "status_update", payload: event.payload ?? {} };
+  }
+  if (event.type === "approval_requested") {
+    return {
+      eventType: "approval_requested",
+      payload: { prompt_id: event.promptId, kind: event.card?.kind, actions: (event.card?.actions ?? []).map((a: any) => a?.value).filter(Boolean) },
+    };
+  }
+  if (event.type === "components_proposed") {
+    return {
+      eventType: "components_proposed",
+      payload: { prompt_id: event.promptId, device_count: Array.isArray(event.devices) ? event.devices.length : undefined },
+    };
+  }
   return null;
 }
 
