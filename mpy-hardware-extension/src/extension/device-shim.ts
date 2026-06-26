@@ -109,6 +109,35 @@ export class DeviceShim {
     return { ok: r?.ok ?? r?.status === "ok", lines: r?.lines ?? [] };
   }
 
+  // ---- Device filesystem (#6 bridge): generic ls / rm / mkdir / cp-from-device ----
+  // A non-ok RPC throws its error_kind so the protocol device() surfaces a real failure
+  // (never a faked ok). The deterministic deploy still goes through deployFirmwareTree.
+
+  async listDir(): Promise<string[]> {
+    const port = await this.ensurePort();
+    const r = await this.rpc("device.list_files", { port });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "ls_failed");
+    return r.files ?? [];
+  }
+
+  async removePath(path: string): Promise<void> {
+    const port = await this.ensurePort();
+    const r = await this.rpc("device.fs_remove", { port, path });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "rm_failed");
+  }
+
+  async makeDir(path: string): Promise<void> {
+    const port = await this.ensurePort();
+    const r = await this.rpc("device.fs_mkdir", { port, path });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "mkdir_failed");
+  }
+
+  async copyFromDevice(remotePath: string, localPath: string): Promise<void> {
+    const port = await this.ensurePort();
+    const r = await this.rpc("device.copy_from", { port, remote_path: remotePath, local_path: localPath });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "cp_from_failed");
+  }
+
   // ---- Upstream toolchain scripts (run on the host via the shim's venv) ----
   // No device/port needed; just ensure the shim process + venv are up.
 

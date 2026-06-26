@@ -249,3 +249,48 @@ test("DeviceShim maps canonical triage, sanity, pdf extraction, and flash tools 
   });
   assert.deepEqual(calls.find((c) => c.method === "script.run_flash_device").params, { project_dir: "C:/proj/app", path: "firmware/main.py", port: "COM8" });
 });
+
+// ---- Device filesystem bridge (#6): ls / rm / mkdir / cp_from -----------------------
+function fsShim(responses: Record<string, any>) {
+  const calls: Array<{ method: string; params: any }> = [];
+  const shim = new DeviceShim(async (method: string, params: any) => {
+    calls.push({ method, params });
+    return responses[method] ?? { status: "ok" };
+  });
+  shim.setPort("COM3");
+  return { shim, calls };
+}
+
+test("DeviceShim.listDir returns the device file list via device.list_files", async () => {
+  const { shim, calls } = fsShim({ "device.list_files": { status: "ok", files: ["main.py", "lib"] } });
+  assert.deepEqual(await shim.listDir(), ["main.py", "lib"]);
+  assert.equal(calls[0].method, "device.list_files");
+  assert.equal(calls[0].params.port, "COM3");
+});
+
+test("DeviceShim.removePath calls device.fs_remove with the path", async () => {
+  const { shim, calls } = fsShim({ "device.fs_remove": { status: "ok" } });
+  await shim.removePath("/main.py");
+  assert.equal(calls[0].method, "device.fs_remove");
+  assert.equal(calls[0].params.path, "/main.py");
+});
+
+test("DeviceShim.makeDir calls device.fs_mkdir with the path", async () => {
+  const { shim, calls } = fsShim({ "device.fs_mkdir": { status: "ok" } });
+  await shim.makeDir("/lib");
+  assert.equal(calls[0].method, "device.fs_mkdir");
+  assert.equal(calls[0].params.path, "/lib");
+});
+
+test("DeviceShim.copyFromDevice calls device.copy_from with remote + local paths", async () => {
+  const { shim, calls } = fsShim({ "device.copy_from": { status: "ok" } });
+  await shim.copyFromDevice("log.txt", "/tmp/log.txt");
+  assert.equal(calls[0].method, "device.copy_from");
+  assert.equal(calls[0].params.remote_path, "log.txt");
+  assert.equal(calls[0].params.local_path, "/tmp/log.txt");
+});
+
+test("DeviceShim fs ops throw their error_kind (never a fake success)", async () => {
+  const { shim } = fsShim({ "device.fs_remove": { status: "error", error_kind: "mpremote_error" } });
+  await assert.rejects(() => shim.removePath("/x"), /mpremote_error/);
+});

@@ -78,8 +78,25 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
         // code ran. Only mip.install is wired; anything else is an honest failure.
         return { ok: false, error_kind: "device_exec_unsupported", stderr: code.slice(0, 80) };
       }
-      // cp_from / mkdir / ls / rm: the serve.py shim has no generic primitive for these
-      // yet — report honestly so the model adapts instead of believing it succeeded.
+      // Generic device filesystem ops (#6 bridge) wired to the serve.py mpremote fs RPCs.
+      if (action === "ls") {
+        if (!shim.listDir) return { ok: false, error_kind: "device_method_absent", stderr: "ls" };
+        return { ok: true, stdout: (await shim.listDir()).join("\n") };
+      }
+      if (action === "rm") {
+        if (!shim.removePath) return { ok: false, error_kind: "device_method_absent", stderr: "rm" };
+        await shim.removePath(payload?.path ?? ""); return { ok: true };
+      }
+      if (action === "mkdir") {
+        if (!shim.makeDir) return { ok: false, error_kind: "device_method_absent", stderr: "mkdir" };
+        await shim.makeDir(payload?.path ?? ""); return { ok: true };
+      }
+      if (action === "cp_from") {
+        if (!shim.copyFromDevice) return { ok: false, error_kind: "device_method_absent", stderr: "cp_from" };
+        await shim.copyFromDevice(payload?.remote_path ?? payload?.from ?? "", payload?.local_path ?? payload?.to ?? "");
+        return { ok: true };
+      }
+      // Any other action: report honestly so the model adapts instead of believing it succeeded.
       return { ok: false, error_kind: "device_action_unsupported", stderr: action };
     } catch (error: any) {
       return { ok: false, error_kind: "runtime_error", stderr: error?.message ?? "device_error" };
