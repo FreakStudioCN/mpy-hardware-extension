@@ -100,6 +100,29 @@ def test_telemetry_ingests_diagnostic_events_queryable_by_trace():
     assert runtime["payload"]["error"] == "ImportError: ssd1306"
 
 
+def test_telemetry_ingests_protocol_observability_events_without_touching_session_aggregate():
+    # The V0 protocol loop's phase boundaries, status timeline, and approval gate must
+    # reach the DB (so a stalled "搜索驱动" phase or an approval-card race is diagnosable)
+    # — but they are ingest-only: NOT in _update_session, so they create no phantom
+    # session row and never mutate terminal/turn_count/repair_count.
+    client.post("/v1/telemetry", json={"events": [
+        event("phase_started", {"phase": "select-hw"}),
+        event("status_update", {"title": "正在搜索驱动", "step": "2/3"}),
+        event("approval_requested", {"prompt_id": "approval-1", "actions": ["confirm", "modify"]}),
+        event("components_proposed", {"prompt_id": "approval-1", "device_count": 3}),
+        event("phase_completed", {"result": "success", "next_phase": "generate"}),
+    ]})
+
+    rows = analytics.telemetry_events(trace_id="trace-1")
+    assert [r["event_type"] for r in rows] == [
+        "phase_started", "status_update", "approval_requested", "components_proposed", "phase_completed",
+    ]
+    status = next(r for r in rows if r["event_type"] == "status_update")
+    assert status["payload"]["title"] == "正在搜索驱动"
+    # Ingest-only: no session_started in the batch, so no aggregate row exists.
+    assert analytics.session_for(trace_id="trace-1") is None
+
+
 def test_admin_sessions_returns_full_trace(monkeypatch):
     monkeypatch.setenv("MPYHW_ADMIN_TOKEN", "s3cret")
     client.post("/v1/telemetry", json={"events": [

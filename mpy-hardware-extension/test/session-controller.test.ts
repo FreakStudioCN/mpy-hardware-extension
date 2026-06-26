@@ -8,6 +8,30 @@ import { SessionController } from "../src/extension/session-controller.ts";
 // microtask, so drain a few before inspecting.
 const flushMicrotasks = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 
+test("records protocol status_update and phase_start (not postMessage-only) so the cloud DB sees phase progress", async () => {
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => {},
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "phase_start", phase: "select-hw" });
+      onEvent({ type: "status_update", payload: { title: "正在搜索驱动" } });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "env monitor", boardId: "auto" });
+
+  assert.ok(
+    recorded.some((e) => e.type === "phase_start" && e.phase === "select-hw"),
+    "phase_start must be recorded — it was postMessage-only, so the cloud DB never saw phase boundaries",
+  );
+  assert.ok(
+    recorded.some((e) => e.type === "status_update" && e.payload?.title === "正在搜索驱动"),
+    "status_update must be recorded — it was postMessage-only, so the cloud DB never saw the progress timeline",
+  );
+});
+
 test("session controller streams loop events and gates deploy via confirmDeploy", async () => {
   const messages: any[] = [];
   const controller = new SessionController({
