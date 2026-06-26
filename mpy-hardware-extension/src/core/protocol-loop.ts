@@ -10,6 +10,10 @@ export const PHASE_ORDER = ["analyze", "select-hw", "scaffold", "generate", "wir
 // legitimately take dozens of turns (select-hw ~40, generate ~49). The old cap of 10
 // stalled every V0 phase. Callers (e.g. the e2e) override via input.maxTurnsPerPhase.
 const MAX_TURNS_PER_PHASE = 60;
+// A turn with no tool call can't advance the protocol. Re-prompt the model to emit a
+// tool rather than stalling the whole build on the first prose-only reply (which froze
+// the UI on the current step); only give up after this many CONSECUTIVE prose turns.
+const MAX_TOOLLESS_TURNS = 3;
 const MAX_PHASES = 9;
 
 // Headless/no-board contexts pick the "already handled on hardware" action so a flash
@@ -69,6 +73,7 @@ function asyncEvents(source: AsyncIterable<StreamEvent>): AsyncIterator<StreamEv
 async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps) {
   const messages: any[] = [{ role: "user", content: input.intent }];
   const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_PER_PHASE;
+  let toollessTurns = 0;
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
     const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId };
@@ -99,7 +104,18 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     for (const tu of toolUses) blocks.push({ type: "tool_use", id: tu.id, name: tu.name, input: tu.input });
     messages.push({ role: "assistant", content: blocks });
 
-    if (toolUses.length === 0) return { done: false, stalled: true };
+    if (toolUses.length === 0) {
+      // A prose-only turn can't advance the protocol. Stalling on the FIRST chatty reply
+      // froze the UI on the current step ("正在搜索驱动") with no error — so nudge the
+      // model to emit a tool, bounded, and only give up after MAX_TOOLLESS_TURNS in a row.
+      if (++toollessTurns >= MAX_TOOLLESS_TURNS) {
+        input.onEvent?.({ type: "phase_stalled", phase, reason: "no_tool_call" });
+        return { done: false, stalled: true };
+      }
+      messages.push({ role: "user", content: [{ type: "text", text: "You must call exactly one protocol tool to proceed. Respond with a tool call, not prose." }] });
+      continue;
+    }
+    toollessTurns = 0;
     // A mid-stream cancel may have ended the read with a partial tool list; don't
     // execute device/file side effects after the user aborted.
     if (input.signal?.aborted) return { done: false, cancelled: true };
@@ -116,6 +132,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     messages.push({ role: "user", content: toolResults });
     if (control) return { done: true, control };
   }
+  input.onEvent?.({ type: "phase_stalled", phase, reason: "max_turns" });
   return { done: false, stalled: true };
 }
 

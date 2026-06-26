@@ -209,3 +209,10 @@ test("maps components_proposed with a device count", () => {
   assert.equal(t?.payload.prompt_id, "approval-1");
   assert.equal(t?.payload.device_count, 2);
 });
+
+test("maps phase_stalled so a stuck phase is visible in the DB (not a silent awaiting_user)", () => {
+  const t = sessionEventToTelemetry("trace-1", { type: "phase_stalled", phase: "select-hw", reason: "no_tool_call" });
+  assert.equal(t?.event_type, "phase_stalled");
+  assert.equal(t?.payload.phase, "select-hw");
+  assert.equal(t?.payload.reason, "no_tool_call");
+});

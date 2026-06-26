@@ -360,6 +360,14 @@ export class SessionController {
       this.deps.postMessage({ type: "connect_retry", attempt: event.attempt, maxAttempts: event.maxAttempts });
       return;
     }
+    if (event.type === "phase_stalled") {
+      // A phase gave up (the model never emitted a tool, or the turn budget ran out).
+      // Record + post it as itself so the cloud DB shows the stall and the webview can
+      // render a stuck/retry state instead of a frozen step with no error.
+      this.record({ type: "phase_stalled", phase: event.phase, reason: event.reason });
+      this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason });
+      return;
+    }
     this.record({ type: "trace_event", event });
     this.deps.postMessage({ type: "trace_event", event });
   }
