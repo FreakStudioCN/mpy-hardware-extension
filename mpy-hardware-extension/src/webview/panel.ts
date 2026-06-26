@@ -185,7 +185,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           return;
         }
       }
-      await controller.start({ intent: message.intent, boardId: message.boardId, availableBoards });
+      await controller.start({ intent: message.intent, boardId: message.boardId, availableBoards, preferences: { locale: vscode.env?.language } });
     }
     if (message.type === "retry_session") {
       // Manual retry after a transport failure (the webview's Retry button).

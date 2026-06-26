@@ -61,6 +61,40 @@ test("protocol build advances phases, runs codegen file write, auto-confirms app
   assert.ok(events.some((e) => e.type === "manifest_updated"));
 });
 
+test("the request body carries a context block (pre_selected_board + preferences) for server grounding", async () => {
+  // The handoff requires preferences.mode/locale, pre_selected_board, existing_hardware to
+  // reach the server. Previously the body was only {phase,manifest,messages,tools,trace_id}
+  // — not even boardId — so the analyze phase had zero grounding on the user's real setup.
+  let sentBody: any = null;
+  const llm = {
+    streamMessages: async (body: any) => {
+      sentBody = body;
+      return (async function* () { yield tu("p", "phase_complete", { result: "success", next_phase: null, manifest_content: {} }); yield stop; })();
+    },
+  };
+  await runProtocolBuild(
+    { intent: "x", boardId: "esp32-c3-devkitm-1", preferences: { mode: "beginner", locale: "zh", existing_hardware: "ESP32-C3 + DHT22" } },
+    { llmClient: llm },
+  );
+  assert.ok(sentBody.context, "request must carry a context block");
+  assert.equal(sentBody.context.pre_selected_board, "esp32-c3-devkitm-1");
+  assert.equal(sentBody.context.mode, "beginner");
+  assert.equal(sentBody.context.locale, "zh");
+  assert.equal(sentBody.context.existing_hardware, "ESP32-C3 + DHT22");
+});
+
+test("an 'auto' board is not sent as a pre_selected_board (only a real user choice is)", async () => {
+  let sentBody: any = null;
+  const llm = {
+    streamMessages: async (body: any) => {
+      sentBody = body;
+      return (async function* () { yield tu("p", "phase_complete", { result: "success", next_phase: null, manifest_content: {} }); yield stop; })();
+    },
+  };
+  await runProtocolBuild({ intent: "x", boardId: "auto" }, { llmClient: llm });
+  assert.equal(sentBody.context, undefined, "no real preferences/board => no context block");
+});
+
 test("device_command routes to the device shim and surfaces serial output", async () => {
   const calls: string[] = [];
   const events: any[] = [];

@@ -56,6 +56,9 @@ export type ProtocolInput = {
   startManifest?: any;
   // Per-phase turn cap (default MAX_TURNS_PER_PHASE). V0 phases need a high budget.
   maxTurnsPerPhase?: number;
+  // Handoff-required user context carried to the server: interaction mode, UI locale,
+  // and any hardware the user already owns. pre_selected_board is derived from boardId.
+  preferences?: { mode?: string; locale?: string; existing_hardware?: string };
 };
 
 export type ProtocolResult = {
@@ -68,15 +71,25 @@ function asyncEvents(source: AsyncIterable<StreamEvent>): AsyncIterator<StreamEv
   return source[Symbol.asyncIterator]();
 }
 
+// The handoff-required user context: preferences + a pre_selected_board derived from a
+// real (non-"auto") board choice. null when there's nothing to carry, so the request stays
+// byte-identical to before for prefix caching when the user gave no preferences.
+function buildContext(input: ProtocolInput): Record<string, any> | null {
+  const ctx: Record<string, any> = { ...(input.preferences ?? {}) };
+  if (input.boardId && input.boardId !== "auto") ctx.pre_selected_board = input.boardId;
+  return Object.keys(ctx).length ? ctx : null;
+}
+
 // Drive one phase to its phase_complete (or stall/cancel). Returns the control the
 // notify executor captured from phase_complete.
 async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps) {
   const messages: any[] = [{ role: "user", content: input.intent }];
   const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_PER_PHASE;
+  const context = buildContext(input);
   let toollessTurns = 0;
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
-    const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId };
+    const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId, ...(context ? { context } : {}) };
     const source = await deps.llmClient.streamMessages(body, input.signal);
     const it = asyncEvents(source as AsyncIterable<StreamEvent>);
 

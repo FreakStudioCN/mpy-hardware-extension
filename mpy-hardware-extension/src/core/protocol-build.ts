@@ -135,6 +135,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
         startPhase: input.state?.phase,
         startManifest: input.state?.manifest,
         maxTurnsPerPhase: input.maxTurnsPerPhase,
+        preferences: input.preferences,
       },
       protocolDeps,
     );
