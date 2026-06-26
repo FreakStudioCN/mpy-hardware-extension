@@ -21,11 +21,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ChrisWu132/mpy-hardware-extension.git"
+    "url": "https://github.com/FreakStudioCN/mpy-hardware-extension.git"
   },
-  "homepage": "https://github.com/ChrisWu132/mpy-hardware-extension#readme",
+  "homepage": "https://github.com/FreakStudioCN/mpy-hardware-extension#readme",
   "bugs": {
-    "url": "https://github.com/ChrisWu132/mpy-hardware-extension/issues"
+    "url": "https://github.com/FreakStudioCN/mpy-hardware-extension/issues"
   },
   "engines": {
     "vscode": "^1.90.0"

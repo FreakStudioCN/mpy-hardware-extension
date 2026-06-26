@@ -71,6 +71,77 @@ test("protocol build walks the full V0 plugin chain and sends the cloud envelope
     assert.deepEqual(body.manifest, index === 0 ? {} : { phase: V0_PHASE_CHAIN[index - 1], index: index - 1 });
   }
 });
+
+test("phase_complete next_skill wins over legacy next_phase and is normalized to the production plugin phase", async () => {
+  const seen: string[] = [];
+  const baseLlm = scriptedLlm({
+    analyze: [[
+      tu("a", "phase_complete", {
+        result: "success",
+        summary: "analyze done",
+        next_phase: "scaffold",
+        next_skill: "/upy-flash-mpy-firmware-plugin",
+        manifest_content: { phase: "analyze" },
+      }),
+      stop,
+    ]],
+    "upy-flash-mpy-firmware-plugin": [[
+      tu("f", "phase_complete", { result: "success", summary: "flash done", next_phase: null, manifest_content: { phase: "upy-flash-mpy-firmware-plugin" } }),
+      stop,
+    ]],
+  });
+  const llm = {
+    streamMessages: async (body: any) => {
+      seen.push(body.phase);
+      return baseLlm.streamMessages(body);
+    },
+  };
+
+  const result = await runProtocolBuild({ intent: "x" }, { llmClient: llm });
+
+  assert.equal(result.terminal, "complete");
+  assert.deepEqual(seen, ["analyze", "upy-flash-mpy-firmware-plugin"]);
+});
+
+test("legacy next_phase names are normalized before the next server turn", async () => {
+  const seen: string[] = [];
+  const baseLlm = scriptedLlm({
+    "select-hw": [[
+      tu("s", "phase_complete", { result: "success", summary: "selected", next_phase: "flash-mpy-firmware", manifest_content: { phase: "select-hw" } }),
+      stop,
+    ]],
+    "upy-flash-mpy-firmware-plugin": [[
+      tu("f", "phase_complete", { result: "success", summary: "flashed", next_phase: null, manifest_content: { phase: "upy-flash-mpy-firmware-plugin" } }),
+      stop,
+    ]],
+  });
+  const llm = {
+    streamMessages: async (body: any) => {
+      seen.push(body.phase);
+      return baseLlm.streamMessages(body);
+    },
+  };
+
+  const result = await runProtocolBuild({ intent: "x", startPhase: "select-hw" }, { llmClient: llm });
+
+  assert.equal(result.terminal, "complete");
+  assert.deepEqual(seen, ["select-hw", "upy-flash-mpy-firmware-plugin"]);
+});
+
+test("unknown next phases fail with a structured event instead of spawning a phantom phase", async () => {
+  const events: any[] = [];
+  const script = {
+    analyze: [[
+      tu("a", "phase_complete", { result: "success", summary: "bad handoff", next_phase: "does-not-exist", manifest_content: {} }),
+      stop,
+    ]],
+  };
+
+  const result = await runProtocolBuild({ intent: "x", onEvent: (event) => events.push(event) }, { llmClient: scriptedLlm(script) });
+
+  assert.equal(result.terminal, "failed");
+  assert.ok(events.some((event) => event.type === "phase_error" && event.error_kind === "unknown_next_phase" && event.next_phase === "does-not-exist"));
+});
 test("protocol build advances phases, runs codegen file write, auto-confirms approval", async () => {
   const writes: Array<{ path: string; content: string }> = [];
   const events: any[] = [];

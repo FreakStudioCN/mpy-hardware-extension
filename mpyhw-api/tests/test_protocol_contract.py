@@ -13,6 +13,9 @@ import json
 from pathlib import Path
 
 import jsonschema
+import pytest
+
+pytestmark = pytest.mark.no_db
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "protocol_messages.json"
 
@@ -109,3 +112,15 @@ def test_llm_tools_are_server_to_plugin_messages():
     assert {n for n, k in kinds.items() if k == "blocking"} == {
         "approval_request", "device_command", "file_operation", "script_run"
     }
+
+def test_phase_complete_allows_next_skill_for_plugin_scheduler_handoff():
+    schema = _contract()["messages"]["phase_complete"]["payload_schema"]
+    next_skill = schema["properties"].get("next_skill")
+    assert next_skill == {"type": ["string", "null"]}
+    jsonschema.Draft7Validator(schema).validate({
+        "result": "success",
+        "summary": "handoff",
+        "next_phase": "flash-mpy-firmware",
+        "next_skill": "/upy-flash-mpy-firmware-plugin",
+        "manifest_content": {},
+    })

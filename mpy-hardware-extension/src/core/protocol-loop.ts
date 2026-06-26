@@ -16,6 +16,39 @@ const MAX_TURNS_PER_PHASE = 60;
 const MAX_TOOLLESS_TURNS = 3;
 const MAX_PHASES = PHASE_ORDER.length;
 
+const PHASE_ALIASES: Record<string, string> = {
+  "analyze": "analyze",
+  "upy-analyze-plugin": "analyze",
+  "select-hw": "select-hw",
+  "upy-select-hw": "select-hw",
+  "upy-select-hw-plugin": "select-hw",
+  "flash-mpy-firmware": "upy-flash-mpy-firmware-plugin",
+  "upy-flash-mpy-firmware": "upy-flash-mpy-firmware-plugin",
+  "upy-flash-mpy-firmware-plugin": "upy-flash-mpy-firmware-plugin",
+  "scaffold": "upy-scaffold-plugin",
+  "upy-scaffold": "upy-scaffold-plugin",
+  "upy-scaffold-plugin": "upy-scaffold-plugin",
+  "generate": "upy-generate-plugin",
+  "upy-generate": "upy-generate-plugin",
+  "upy-generate-plugin": "upy-generate-plugin",
+  "deploy": "upy-deploy-plugin",
+  "upy-deploy": "upy-deploy-plugin",
+  "upy-deploy-plugin": "upy-deploy-plugin",
+};
+
+function phaseToken(value: any): string | null {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (!raw || ["null", "none"].includes(raw.toLowerCase())) return null;
+  return raw.replace(/^\/+/, "");
+}
+
+function normalizePhase(value: any): string | null {
+  const token = phaseToken(value);
+  if (!token) return null;
+  return PHASE_ALIASES[token] ?? null;
+}
+
 // Headless/no-board contexts pick the "already handled on hardware" action so a flash
 // approval doesn't try to drive a device that isn't there. The panel passes a real
 // confirmApproval callback and never hits this.
@@ -168,11 +201,16 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
     // Terminal when there's no next phase. The model sometimes emits the literal
     // string "null"/"none"/"" instead of JSON null 鈥?treat those as terminal too,
     // otherwise the loop spawns a phantom phase named "null".
-    const next = ctrl.next_phase;
-    if (!next || ["null", "none", ""].includes(String(next).trim().toLowerCase())) {
+    const requestedNext = phaseToken(ctrl.next_skill) ?? phaseToken(ctrl.next_phase);
+    if (!requestedNext) {
       return { phases, manifest, terminal: ctrl.result === "failed" ? "failed" : "complete" };
     }
-    phase = String(next);
+    const next = normalizePhase(requestedNext);
+    if (!next) {
+      input.onEvent?.({ type: "phase_error", error_kind: "unknown_next_phase", next_phase: requestedNext });
+      return { phases, manifest, terminal: "failed" };
+    }
+    phase = next;
   }
   // Ran the phase cap without a null next_phase: nonterminal, not a success.
   return { phases, manifest, terminal: "incomplete" };
@@ -207,7 +245,7 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     }
     input.onEvent?.({ type: "phase_complete", payload: p });
     if (p.manifest_content) input.onEvent?.({ type: "manifest_updated", manifest: p.manifest_content });
-    return { result: { ok: true }, phaseControl: { result: p.result, next_phase: p.next_phase, manifest: p.manifest_content } };
+    return { result: { ok: true }, phaseControl: { result: p.result, next_phase: p.next_phase, next_skill: p.next_skill, manifest: p.manifest_content } };
   }
 
   if (route === "ui") {

@@ -19,3 +19,10 @@ test("the webview panel does not import the legacy createAgentBackedLoop", () =>
     "createAgentBackedLoop is the dead 27-tool loop; the panel uses createProtocolLoop. Its real users are the dev CLIs (run-live-gen / run-golden-path), not the panel.",
   );
 });
+
+test("package metadata points users to the upstream FreakStudioCN repository", () => {
+  const pkg = JSON.parse(read("package.json"));
+  assert.equal(pkg.repository.url, "https://github.com/FreakStudioCN/mpy-hardware-extension.git");
+  assert.equal(pkg.homepage, "https://github.com/FreakStudioCN/mpy-hardware-extension#readme");
+  assert.equal(pkg.bugs.url, "https://github.com/FreakStudioCN/mpy-hardware-extension/issues");
+});

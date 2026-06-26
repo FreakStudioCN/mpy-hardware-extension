@@ -53,6 +53,84 @@ def test_context_grounds_pre_selected_board_and_existing_hardware_in_analyze():
     assert "DHT22" in system, system[-600:]
 
 
+@pytest.mark.no_db
+def test_context_grounds_official_pre_selected_board_object_in_analyze():
+    from app.routes_llm import _deepseek_messages
+
+    board = {
+        "id": "ESP32_GENERIC_C5",
+        "display_name": "ESP32-C5 generic",
+        "vendor": "Espressif",
+        "port": "esp32",
+        "mcu": "esp32c5",
+        "firmware": {"url": "https://micropython.org/download/ESP32_GENERIC_C5/", "board_name": "ESP32_GENERIC_C5"},
+        "support_status": "official_firmware_only",
+        "local_board_id": None,
+        "skill_board_id": None,
+        "source_url": "https://micropython.org/download/",
+    }
+    system = _deepseek_messages({
+        "phase": "analyze",
+        "messages": [{"role": "user", "content": "blink led"}],
+        "context": {"pre_selected_board": board, "mode": "beginner", "locale": "en"},
+    })[0]["content"]
+
+    assert "ESP32_GENERIC_C5" in system
+    assert "ESP32-C5 generic" in system
+    assert "official_firmware_only" in system
+    assert "https://micropython.org/download/ESP32_GENERIC_C5/" in system
+    assert "local_board_id" in system
+
+
+@pytest.mark.no_db
+def test_resolve_board_uses_preselected_local_board_id_before_auto_or_official_id():
+    from app.routes_llm import _resolve_board
+
+    board = _resolve_board({}, {
+        "board_id": "auto",
+        "context": {
+            "pre_selected_board": {
+                "id": "ESP32_GENERIC_S3",
+                "display_name": "ESP32-S3 DevKitC",
+                "firmware": {"url": "https://micropython.org/download/ESP32_GENERIC_S3/", "board_name": "ESP32_GENERIC_S3"},
+                "support_status": "builtin_pin_layout",
+                "local_board_id": "esp32-s3-devkitc-1",
+                "skill_board_id": "esp32-s3-devkitc",
+            }
+        },
+    })
+
+    assert board["board_id"] == "esp32-s3-devkitc-1"
+    assert "available_modules" in board
+
+
+@pytest.mark.no_db
+def test_resolve_board_preserves_official_only_board_facts_without_claiming_pin_layout():
+    from app.routes_llm import _resolve_board
+
+    board = _resolve_board({}, {
+        "board_id": "auto",
+        "context": {
+            "pre_selected_board": {
+                "id": "ESP32_GENERIC_C5",
+                "display_name": "ESP32-C5 generic",
+                "firmware": {"url": "https://micropython.org/download/ESP32_GENERIC_C5/", "board_name": "ESP32_GENERIC_C5"},
+                "support_status": "official_firmware_only",
+                "local_board_id": None,
+                "skill_board_id": None,
+            }
+        },
+    })
+
+    assert board == {
+        "board_id": "ESP32_GENERIC_C5",
+        "display_name": "ESP32-C5 generic",
+        "firmware_url": "https://micropython.org/download/ESP32_GENERIC_C5/",
+        "firmware_board_name": "ESP32_GENERIC_C5",
+        "support_status": "official_firmware_only",
+    }
+
+
 def test_no_user_context_block_when_context_absent():
     from app.routes_llm import _deepseek_messages
     body = {"phase": "analyze", "messages": [{"role": "user", "content": "hi"}]}

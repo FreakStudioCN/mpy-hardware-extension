@@ -189,6 +189,7 @@
           "result": { "type": "string", "enum": ["success", "failed", "partial"] },
           "summary": { "type": "string" },
           "next_phase": { "type": ["string", "null"] },
+          "next_skill": { "type": ["string", "null"] },
           "manifest_content": { "type": "object" },
           "artifacts": {
             "type": "array",
