@@ -96,6 +96,44 @@ def test_run_v0_ambiguous_script_is_error_not_silent_pick():
     assert not record, "an ambiguous script name must not execute anything"
 
 
+def test_resolve_qualified_name_disambiguates_duplicate_basename():
+    # list_serial_ports.py ships in 3 plugins -> the BARE name is ambiguous, but a
+    # plugin-qualified name resolves to exactly that plugin's copy (no silent pick).
+    assert serve.resolve_v0_script("list_serial_ports.py") is None
+    deploy = serve.resolve_v0_script("upy-deploy-plugin/list_serial_ports.py")
+    assert deploy and "upy-deploy-plugin" in deploy.replace("\\", "/"), deploy
+    flash = serve.resolve_v0_script("upy-flash-mpy-firmware-plugin/list_serial_ports.py")
+    assert flash and "upy-flash-mpy-firmware-plugin" in flash.replace("\\", "/"), flash
+    assert deploy != flash
+
+
+def test_run_v0_qualified_name_executes_the_right_plugin_copy():
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "upy-deploy-plugin/list_serial_ports.py", "project_dir": "/tmp/p",
+    })
+    assert res["status"] == "ok", res
+    assert record and "upy-deploy-plugin" in record[0]["cmd"][1].replace("\\", "/"), record
+
+
+def test_ambiguous_error_lists_candidate_plugin_qualified_names():
+    # The model gets stuck on a bare duplicate name unless the error tells it which
+    # plugin-qualified names to retry with.
+    record = []
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {"interpreter": "python", "script": "list_serial_ports.py", "project_dir": "/tmp/p"})
+    assert res.get("error_kind") == "ambiguous_script_name", res
+    cands = res.get("candidates") or []
+    assert any("upy-deploy-plugin" in c for c in cands), res
+    assert any("upy-flash-mpy-firmware-plugin" in c for c in cands), res
+    # every listed candidate must round-trip: resolving it picks a single script.
+    for c in cands:
+        assert serve.resolve_v0_script(c) is not None, c
+
+
 def test_resolver_excludes_pre_v0_skills():
     # init_scaffold.py exists in BOTH upy-scaffold (old) and upy-scaffold-plugin (V0);
     # only the -plugin copy is indexed, so the bare name resolves uniquely.

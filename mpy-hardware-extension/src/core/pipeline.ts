@@ -1,3 +1,6 @@
+// DETERMINISTIC TEMPLATE PATH — NOT the production loop. Used only by the
+// MPYHW_LOOP=template offline/no-key demo (panel.ts createApiPipelineLoop) and the dev
+// CLIs. Production builds run createProtocolLoop (protocol-loop.ts). Imports codegen.ts.
 import { extractCapabilities } from "./capabilities.ts";
 import { auditCode } from "./audit-code.ts";
 import { generateMainPy } from "./codegen.ts";

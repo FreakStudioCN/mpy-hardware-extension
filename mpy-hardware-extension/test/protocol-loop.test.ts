@@ -154,6 +154,24 @@ test("file_operation delete surfaces the host error_kind, never a fake success",
   assert.equal(r.result.error, "path_outside_workspace");
 });
 
+test("script_run ambiguous error forwards the candidate plugin-qualified names to the model", async () => {
+  // serve.py lists the plugin-qualified candidates on an ambiguous bare name; the
+  // protocol host route must forward them so the model can retry with a real qualified
+  // name instead of re-sending the bare name and getting stuck again.
+  const { result } = await executeProtocolTool(
+    tu("s", "script_run", { interpreter: "python", script: "list_serial_ports.py", script_id: "q" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      runScript: async () => ({ ok: false, error_kind: "ambiguous_script_name", stderr: "qualify it", candidates: ["upy-deploy-plugin/list_serial_ports.py", "upy-flash-mpy-firmware-plugin/list_serial_ports.py"] }),
+    },
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "ambiguous_script_name");
+  assert.ok(Array.isArray(result.candidates), "the model needs the candidate list to retry with a qualified name");
+  assert.ok(result.candidates.includes("upy-deploy-plugin/list_serial_ports.py"), result);
+});
+
 test("script_run with no host runner fails loud (no fake success)", async () => {
   const { result } = await executeProtocolTool(
     tu("s2", "script_run", { interpreter: "python", script: "x.py" }) as any,

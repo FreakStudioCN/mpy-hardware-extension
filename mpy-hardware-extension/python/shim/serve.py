@@ -131,7 +131,27 @@ def _v0_script_candidates(name: str) -> list:
     global _V0_SCRIPT_INDEX
     if _V0_SCRIPT_INDEX is None:
         _V0_SCRIPT_INDEX = _build_v0_script_index()
-    return list(_V0_SCRIPT_INDEX.get(os.path.basename(str(name)), []))
+    raw = str(name).replace("\\", "/")
+    candidates = list(_V0_SCRIPT_INDEX.get(os.path.basename(raw), []))
+    # A plugin-qualified name (e.g. "upy-deploy-plugin/list_serial_ports.py") narrows a
+    # duplicate basename to the copy whose path contains that prefix segment, so the model
+    # can target one of several same-named scripts without a silent first-match pick.
+    qualifier = raw.rsplit("/", 1)[0] if "/" in raw else ""
+    if qualifier:
+        narrowed = [p for p in candidates if qualifier in p.replace("\\", "/")]
+        if narrowed:
+            return narrowed
+    return candidates
+
+
+def _qualified_name(path: str) -> str:
+    """Render a bundled script path as the plugin-qualified name the model should send to
+    disambiguate a duplicate basename (e.g. 'upy-deploy-plugin/list_serial_ports.py')."""
+    parts = path.replace("\\", "/").split("/")
+    for seg in parts:
+        if seg.endswith("-plugin") or seg == "shared-plugin-scripts":
+            return f"{seg}/{parts[-1]}"
+    return parts[-1]
 
 
 def resolve_v0_script(name: str):
@@ -452,8 +472,12 @@ def _run_v0_script(shim, params):
     candidates = _v0_script_candidates(script)
     if len(candidates) > 1:
         # Same basename in >1 plugin: never silently pick one (see _build_v0_script_index).
+        # List the plugin-qualified names so the model can retry with one of them instead
+        # of getting stuck re-sending the bare name.
+        qualified = sorted({_qualified_name(p) for p in candidates})
         return {"status": "error", "error_kind": "ambiguous_script_name",
-                "message": f"{base!r} is shipped by multiple plugins; qualify the script name"}
+                "message": f"{base!r} is shipped by multiple plugins; qualify the script name (e.g. {qualified[0]!r})",
+                "candidates": qualified}
     if not candidates:
         return {"status": "error", "error_kind": "script_not_found",
                 "message": f"no bundled V0 plugin script named {base!r}"}
