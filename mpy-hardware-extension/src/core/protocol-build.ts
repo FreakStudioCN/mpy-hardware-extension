@@ -1,8 +1,20 @@
 // Panel-facing factory: builds the protocol client loop with real host adapters
 // (device shim, workspace fs, host script runner) and returns the controller-shaped
 // `loop(input)` the SessionController invokes. Replaces createAgentBackedLoop.
+import { resolve, sep, basename } from "node:path";
+
 import { createLlmClient } from "./llm-client.ts";
 import { runProtocolBuild, type ProtocolDeps } from "./protocol-loop.ts";
+
+// cp_from pulls a device file to the HOST, so the model-supplied local destination must be
+// contained to the project root — a leading slash is treated as project-relative, an empty
+// dst falls back to the device basename, and anything escaping the root returns null.
+export function containLocalPath(projectDir: string, dst: string, deviceSrc: string): string | null {
+  const rel = String(dst ?? "").replace(/^[/\\]+/, "") || basename(String(deviceSrc ?? ""));
+  const abs = resolve(projectDir, rel);
+  if (abs !== projectDir && !abs.startsWith(projectDir + sep)) return null;
+  return abs;
+}
 
 type BuildDeps = {
   apiBaseUrl?: string;
@@ -95,7 +107,11 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
       }
       if (action === "cp_from") {
         if (!shim.copyFromDevice) return { ok: false, error_kind: "device_method_absent", stderr: "cp_from" };
-        await shim.copyFromDevice(payload?.src ?? payload?.dst ?? "", payload?.dst ?? "");
+        if (!projectDir) return { ok: false, error_kind: "workspace_unavailable", stderr: "cp_from" };
+        const deviceSrc = String(payload?.src ?? payload?.dst ?? "");
+        const localAbs = containLocalPath(projectDir, payload?.dst ?? "", deviceSrc);
+        if (!localAbs) return { ok: false, error_kind: "path_outside_workspace", stderr: String(payload?.dst ?? "") };
+        await shim.copyFromDevice(deviceSrc, localAbs);
         return { ok: true };
       }
       // Any other action: report honestly so the model adapts instead of believing it succeeded.
