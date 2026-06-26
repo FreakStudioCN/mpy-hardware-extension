@@ -151,6 +151,85 @@ def test_run_v0_failed_script_reports_nonzero_not_fake_success():
     assert res["status"] == "ok" and res["success"] is False and res["exit_code"] == 1, res
 
 
+def _patch_mpremote(fn):
+    # Swap serve._run_mpremote (a module helper the device fs ops call directly) for a
+    # fake. Returns a restore() so each test leaves the module clean.
+    orig = serve._run_mpremote
+    serve._run_mpremote = fn
+    return lambda: setattr(serve, "_run_mpremote", orig)
+
+
+def test_device_fs_remove_dispatches_mpremote_rm():
+    calls = []
+    restore = _patch_mpremote(lambda args, **kw: (calls.append(list(args)) or _fake_proc(returncode=0)))
+    try:
+        res = serve._dispatch(_shim_with([]), "device.fs_remove", {"port": "COM3", "path": "/main.py"})
+    finally:
+        restore()
+    assert res["status"] == "ok", res
+    assert calls and calls[0][:5] == ["connect", "COM3", "resume", "fs", "rm"], calls
+    assert "/main.py" in calls[0]
+
+
+def test_device_fs_mkdir_is_idempotent_on_existing_dir():
+    restore = _patch_mpremote(lambda args, **kw: _fake_proc(stderr="OSError: [Errno 17] EEXIST", returncode=1))
+    try:
+        res = serve._dispatch(_shim_with([]), "device.fs_mkdir", {"port": "COM3", "path": "/lib"})
+    finally:
+        restore()
+    assert res["status"] == "ok", res  # an already-existing dir is success, not an error
+
+
+def test_device_fs_mkdir_surfaces_a_real_error():
+    restore = _patch_mpremote(lambda args, **kw: _fake_proc(stderr="could not open port", returncode=1))
+    try:
+        res = serve._dispatch(_shim_with([]), "device.fs_mkdir", {"port": "COM3", "path": "/lib"})
+    finally:
+        restore()
+    assert res["status"] == "error", res
+
+
+def test_device_copy_from_dispatches_mpremote_cp_with_remote_colon():
+    calls = []
+    restore = _patch_mpremote(lambda args, **kw: (calls.append(list(args)) or _fake_proc(returncode=0)))
+    try:
+        res = serve._dispatch(_shim_with([]), "device.copy_from", {"port": "COM3", "remote_path": "log.txt", "local_path": "/tmp/log.txt"})
+    finally:
+        restore()
+    assert res["status"] == "ok", res
+    assert ":log.txt" in calls[0], calls
+    assert "/tmp/log.txt" in calls[0]
+
+
+def test_device_list_files_drops_the_mpremote_ls_header():
+    # `mpremote fs ls` echoes an "ls :" header line; it must not leak into the file list
+    # as a spurious ":" / "ls" entry.
+    stdout = "ls :\n        2061 boot.py\n         139 main.py\n           0 lib/\n"
+    restore = _patch_mpremote(lambda args, **kw: _fake_proc(stdout=stdout, returncode=0))
+    try:
+        res = serve._dispatch(_shim_with([]), "device.list_files", {"port": "COM3"})
+    finally:
+        restore()
+    assert res["status"] == "ok", res
+    assert ":" not in res["files"] and "ls" not in res["files"], res
+    assert "boot.py" in res["files"] and "main.py" in res["files"], res
+
+
+def test_device_copy_from_creates_local_parent_dirs():
+    # A device pull to a nested local path must create the parent dirs first, or mpremote
+    # cp fails on a missing directory.
+    import tempfile
+    restore = _patch_mpremote(lambda args, **kw: _fake_proc(returncode=0))
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            nested = os.path.join(d, "logs", "run.txt")
+            res = serve._dispatch(_shim_with([]), "device.copy_from", {"port": "COM3", "remote_path": "run.txt", "local_path": nested})
+            assert res["status"] == "ok", res
+            assert os.path.isdir(os.path.dirname(nested)), "parent dir must be created before the device pull"
+    finally:
+        restore()
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

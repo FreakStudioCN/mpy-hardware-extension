@@ -346,16 +346,56 @@ def _run_mpremote(args, timeout=30):
     return subprocess.run(["mpremote", *args], capture_output=True, text=True, timeout=timeout)
 
 
-def _list_files(port):
-    r = _run_mpremote(["connect", port, "resume", "fs", "ls"], timeout=15)
+def _list_files(port, path=None):
+    args = ["connect", port, "resume", "fs", "ls"]
+    if path:
+        args.append(path)
+    r = _run_mpremote(args, timeout=15)
     if r.returncode != 0:
         return {"status": "error", "error_kind": map_install_error(r.stderr), "message": (r.stderr or "").strip()}
     files = []
     for line in r.stdout.splitlines():
         parts = line.strip().split()
-        if parts and parts[-1] != "ls":
-            files.append(parts[-1])
+        # mpremote echoes an "ls :" header line; skip it (and any bare ":") so it can't leak
+        # into the list. Entries are "<size> <name>" (a dir shows "0 name/").
+        if not parts or parts[0] == "ls" or parts[-1] in (":", "ls"):
+            continue
+        files.append(parts[-1])
     return {"status": "ok", "files": files}
+
+
+def _fs_remove(port, path):
+    r = _run_mpremote(["connect", port, "resume", "fs", "rm", path], timeout=15)
+    if r.returncode != 0:
+        return {"status": "error", "error_kind": "mpremote_error", "message": (r.stderr or "").strip()}
+    return {"status": "ok"}
+
+
+def _fs_mkdir(port, path):
+    r = _run_mpremote(["connect", port, "resume", "fs", "mkdir", path], timeout=15)
+    if r.returncode != 0:
+        msg = (r.stderr or "").strip()
+        # mpremote mkdir errors if the dir already exists — that's idempotent success, not
+        # a failure (callers mkdir defensively before writing).
+        if "EEXIST" in msg or "exist" in msg.lower():
+            return {"status": "ok"}
+        return {"status": "error", "error_kind": "mpremote_error", "message": msg}
+    return {"status": "ok"}
+
+
+def _fs_copy_from(port, remote_path, local_path):
+    # mpremote addresses the device side with a leading ':'; normalize so a caller can pass
+    # "log.txt" or ":log.txt" interchangeably.
+    remote = ":" + str(remote_path).lstrip(":")
+    # Create the local parent dirs first — mpremote cp fails if the destination directory
+    # doesn't exist (the host path was already contained to the project root by device()).
+    parent = os.path.dirname(local_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    r = _run_mpremote(["connect", port, "resume", "fs", "cp", remote, local_path], timeout=30)
+    if r.returncode != 0:
+        return {"status": "error", "error_kind": "mpremote_error", "message": (r.stderr or "").strip()}
+    return {"status": "ok"}
 
 
 def _health_check():
@@ -649,7 +689,13 @@ def _dispatch(shim, method, params):
     if method == "device.health_check":
         return _health_check()
     if method == "device.list_files":
-        return _list_files(params["port"])
+        return _list_files(params["port"], params.get("path"))
+    if method == "device.fs_remove":
+        return _fs_remove(params["port"], params["path"])
+    if method == "device.fs_mkdir":
+        return _fs_mkdir(params["port"], params["path"])
+    if method == "device.copy_from":
+        return _fs_copy_from(params["port"], params["remote_path"], params["local_path"])
     if method == "device.write_main_py":
         return _write_code_to_device(params.get("code", ""), lambda tmp: shim.write_main_py(params["port"], tmp))
     if method == "device.write_device_file":
