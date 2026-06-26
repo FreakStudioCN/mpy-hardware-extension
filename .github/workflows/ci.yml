@@ -74,6 +74,12 @@ jobs:
         run: npm test
         env:
           MPYHW_REQUIRE_CONTRACT_TESTS: "1"
+      - name: V0 protocol smoke
+        run: npm run test:v0
+        env:
+          MPYHW_REQUIRE_CONTRACT_TESTS: "1"
+      - run: npm run typecheck
+      - run: npm run package
 
   api:
     name: api + device-shim (pytest)
@@ -168,7 +174,7 @@ jobs:
     name: publish extension to Marketplace
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [extension]
+    needs: [extension, api, content-freshness]
     # Only on a version tag push (e.g. v0.3.0). vsce publishes the package.json
     # version. Tag pushes require repo write access, so fork PRs can't reach the
     # VSCE_PAT secret. See docs/vscode-extension-publish-flow.md.

@@ -90,7 +90,8 @@
     "vscode:prepublish": "node scripts/prepare-vsce.mjs",
     "package": "vsce package --out build/",
     "publish": "vsce publish",
-    "smoke:extension": "npm test && npm run typecheck && npm run package"
+    "smoke:extension": "npm test && npm run typecheck && npm run package",
+    "test:v0": "node --no-warnings --experimental-strip-types --test test/protocol-build.test.ts test/protocol-loop.test.ts test/protocol-registry.test.ts test/sse-contract.test.ts"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

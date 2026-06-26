@@ -4,7 +4,7 @@
 // phase_complete. Mirrors the proven backend e2e harness, in TypeScript.
 import { PROTOCOL_TOOLS, PROTOCOL_TOOL_NAMES, routeForTool } from "./protocol-registry.ts";
 
-export const PHASE_ORDER = ["analyze", "select-hw", "scaffold", "generate", "wiring", "diagram", "deploy", "deploy-test", "autofix"] as const;
+export const PHASE_ORDER = ["analyze", "select-hw", "upy-flash-mpy-firmware-plugin", "upy-scaffold-plugin", "upy-generate-plugin", "upy-deploy-plugin"] as const;
 
 // V0 phases are script-heavy and the model emits ONE tool per turn, so a phase can
 // legitimately take dozens of turns (select-hw ~40, generate ~49). The old cap of 10
@@ -14,7 +14,7 @@ const MAX_TURNS_PER_PHASE = 60;
 // tool rather than stalling the whole build on the first prose-only reply (which froze
 // the UI on the current step); only give up after this many CONSECUTIVE prose turns.
 const MAX_TOOLLESS_TURNS = 3;
-const MAX_PHASES = 9;
+const MAX_PHASES = PHASE_ORDER.length;
 
 // Headless/no-board contexts pick the "already handled on hardware" action so a flash
 // approval doesn't try to drive a device that isn't there. The panel passes a real
@@ -33,8 +33,7 @@ export type ProtocolDeps = {
   readFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
   listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>;
   // mkdir / delete (host enforces containment). The generate phase deletes
-  // firmware/tools/ before the mpy_imports gate, so these must do REAL fs work —
-  // a no-op that returns success would silently leave the gate-failing files behind.
+  // firmware/tools/ before the mpy_imports gate, so these must do REAL fs work 鈥?  // a no-op that returns success would silently leave the gate-failing files behind.
   makeDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>;
   deletePath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>;
   // Host script runner: runs a bundled V0 plugin script (or shell command) on the
@@ -57,8 +56,9 @@ export type ProtocolInput = {
   // Per-phase turn cap (default MAX_TURNS_PER_PHASE). V0 phases need a high budget.
   maxTurnsPerPhase?: number;
   // Handoff-required user context carried to the server: interaction mode, UI locale,
-  // and any hardware the user already owns. pre_selected_board is derived from boardId.
+  // any hardware the user already owns, and an optional full official board fact object.
   preferences?: { mode?: string; locale?: string; existing_hardware?: string };
+  preSelectedBoard?: any;
 };
 
 export type ProtocolResult = {
@@ -71,12 +71,13 @@ function asyncEvents(source: AsyncIterable<StreamEvent>): AsyncIterator<StreamEv
   return source[Symbol.asyncIterator]();
 }
 
-// The handoff-required user context: preferences + a pre_selected_board derived from a
-// real (non-"auto") board choice. null when there's nothing to carry, so the request stays
-// byte-identical to before for prefix caching when the user gave no preferences.
+// The handoff-required user context: preferences + pre_selected_board. The new UI
+// passes the full official board fact object; legacy callers that only know boardId
+// still get the old string shape for compatibility.
 function buildContext(input: ProtocolInput): Record<string, any> | null {
   const ctx: Record<string, any> = { ...(input.preferences ?? {}) };
-  if (input.boardId && input.boardId !== "auto") ctx.pre_selected_board = input.boardId;
+  if (input.preSelectedBoard) ctx.pre_selected_board = input.preSelectedBoard;
+  else if (input.boardId && input.boardId !== "auto") ctx.pre_selected_board = input.boardId;
   return Object.keys(ctx).length ? ctx : null;
 }
 
@@ -106,8 +107,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       else if (ev.type === "tool_use_complete") toolUses.push(ev);
       else if (ev.type === "stream_error") streamError = ev.message ?? "stream_error";
     }
-    // A mid-stream abort throws out of it.next() and lands here with the signal set —
-    // surface it as cancelled, not a normal (stalled) end.
+    // A mid-stream abort throws out of it.next() and lands here with the signal set 鈥?    // surface it as cancelled, not a normal (stalled) end.
     if (input.signal?.aborted) { try { await it.return?.(undefined); } catch { /* ignore */ } return { done: false, cancelled: true }; }
     if (streamError) return { done: false, stalled: true, error: streamError };
 
@@ -119,7 +119,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
 
     if (toolUses.length === 0) {
       // A prose-only turn can't advance the protocol. Stalling on the FIRST chatty reply
-      // froze the UI on the current step ("正在搜索驱动") with no error — so nudge the
+      // froze the UI on the current step ("姝ｅ湪鎼滅储椹卞姩") with no error 鈥?so nudge the
       // model to emit a tool, bounded, and only give up after MAX_TOOLLESS_TURNS in a row.
       if (++toollessTurns >= MAX_TOOLLESS_TURNS) {
         input.onEvent?.({ type: "phase_stalled", phase, reason: "no_tool_call" });
@@ -166,7 +166,7 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
     phases.push({ phase, result: ctrl.result ?? "success" });
     if (ctrl.manifest && typeof ctrl.manifest === "object") manifest = ctrl.manifest;
     // Terminal when there's no next phase. The model sometimes emits the literal
-    // string "null"/"none"/"" instead of JSON null — treat those as terminal too,
+    // string "null"/"none"/"" instead of JSON null 鈥?treat those as terminal too,
     // otherwise the loop spawns a phantom phase named "null".
     const next = ctrl.next_phase;
     if (!next || ["null", "none", ""].includes(String(next).trim().toLowerCase())) {
@@ -199,7 +199,7 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
       return { result: { ok: true } };
     }
     // phase_complete: surface artifacts + carry the manifest forward (auto-acked).
-    // A phase_complete with no `result` is malformed/truncated — reject it (no
+    // A phase_complete with no `result` is malformed/truncated 鈥?reject it (no
     // phaseControl) so the phase keeps going and the model re-emits a complete one,
     // instead of silently ending the build with an undefined result.
     if (!p.result) {
@@ -213,7 +213,7 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
   if (route === "ui") {
     // The single rich approval gate. With NO callback (headless/test) we auto-confirm
     // and select all items. With a callback, null means the user dismissed/cancelled
-    // (NOT auto-confirm), so it must abort — conflating the two would silently approve.
+    // (NOT auto-confirm), so it must abort 鈥?conflating the two would silently approve.
     if (typeof input.confirmApproval !== "function") {
       // item_groups is contract-valid as an array OR an object map; .flatMap on the
       // object form would throw and crash the headless run, so normalize first.
@@ -237,7 +237,7 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
   }
 
   if (route === "host") {
-    // Fail loud if there is no host runner — a faked ok:true here is what let every
+    // Fail loud if there is no host runner 鈥?a faked ok:true here is what let every
     // V0 gate (check_*.py) silently "pass" without running.
     if (typeof deps.runScript !== "function") return { result: { ok: false, success: false, error_kind: "host_runner_absent" } };
     const r = await deps.runScript(
@@ -247,7 +247,7 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
       { stdin_content: p.stdin_content, stdin_json: p.stdin_json, timeout_ms: p.timeout_ms },
     );
     // ok:false = the call itself failed (host_runner_absent / script_not_found /
-    // ambiguous_script_name) — surface it, forwarding any candidate qualified names so the
+    // ambiguous_script_name) 鈥?surface it, forwarding any candidate qualified names so the
     // model can retry an ambiguous bare script name instead of re-sending it.
     if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: r.stderr ?? "", candidates: r.candidates } };
     // The script RAN: success keys on its exit code (a non-zero gate is a real, fixable result).
@@ -286,7 +286,7 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
   if (op === "list") {
     // No lister wired = the workspace is unavailable. Faking ok:true with empty
     // entries told the model "the project is empty", which made generate wrongly bail
-    // to analyze — so fail loud instead of fabricating an empty listing.
+    // to analyze 鈥?so fail loud instead of fabricating an empty listing.
     if (typeof deps.listFiles !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
     const r = await deps.listFiles(path);
     return { ok: r.ok, op_id: p.op_id, success: r.ok, entries: r.entries ?? [], error: r.ok ? null : (r.error_kind ?? "list_failed") };

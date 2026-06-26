@@ -9,7 +9,11 @@ malformed protocol payloads.
 
 from __future__ import annotations
 
+import pytest
+
 from app import routes_llm, skill_catalog, tool_registry
+
+pytestmark = pytest.mark.no_db
 
 
 def test_system_prompt_is_slim_adapter_plus_raw_plugin_skill():
@@ -23,6 +27,15 @@ def test_system_prompt_is_slim_adapter_plus_raw_plugin_skill():
     raw = skill_catalog.skill_md_body("analyze")
     assert raw and raw in sp
     assert "PROTOCOL RECIPE" not in sp
+
+
+def test_system_prompt_embeds_each_served_phase_skill():
+    for phase in skill_catalog.served_phase_names():
+        raw = skill_catalog.skill_md_body(phase)
+        assert raw, phase
+        prompt = routes_llm._system_prompt(phase)
+        assert f"--- PHASE SKILL ({phase}) ---" in prompt
+        assert raw in prompt
 
 
 def test_phase_defaults_to_analyze_and_selects_skill():

@@ -14,9 +14,13 @@ not captured from the live DeepSeek API. A future scripts/record-deepseek-fixtur
 """
 import json
 import os
+
+import pytest
 from pathlib import Path
 
 from app import routes_llm
+
+pytestmark = pytest.mark.no_db
 
 GOLDEN = Path(__file__).parent / "fixtures" / "anthropic_stream.sse"
 
@@ -28,10 +32,10 @@ def _deepseek_chunk_lines() -> list[bytes]:
         {"choices": [{"delta": {"content": "Let me check the board. "}}]},
         {"choices": [{"delta": {"content": "Profiling now."}}]},
         {"choices": [{"delta": {"tool_calls": [
-            {"index": 0, "id": "call_1", "function": {"name": "query_board_profile", "arguments": "{\"board_id\":"}},
+            {"index": 0, "id": "call_1", "function": {"name": "file_operation", "arguments": "{\"op\":\"read\","}},
         ]}}]},
         {"choices": [{"delta": {"tool_calls": [
-            {"index": 0, "function": {"arguments": "\"esp32-s3-devkitc-1\"}"}},
+            {"index": 0, "function": {"arguments": "\"path\":\"project-manifest.json\"}"}},
         ]}}]},
     ]
     lines = [f"data: {json.dumps(chunk)}".encode("utf-8") for chunk in chunks]
@@ -59,6 +63,6 @@ def test_golden_carries_the_expected_blocks():
     # streamed text, a tool_use block for the canonical tool, and a clean stop.
     golden = GOLDEN.read_text(encoding="utf-8") if GOLDEN.exists() else _translate()
     assert "text_delta" in golden
-    assert "query_board_profile" in golden
-    assert "esp32-s3-devkitc-1" in golden
+    assert "file_operation" in golden
+    assert "project-manifest.json" in golden
     assert "message_stop" in golden

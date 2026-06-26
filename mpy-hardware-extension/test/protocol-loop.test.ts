@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { runProtocolBuild, executeProtocolTool } from "../src/core/protocol-loop.ts";
+import { PROTOCOL_TOOLS } from "../src/core/protocol-registry.ts";
+import { PHASE_ORDER, runProtocolBuild, executeProtocolTool } from "../src/core/protocol-loop.ts";
 
 // A scripted LLM: per phase, an array of turns; each turn is an array of SSE events.
 // Each streamMessages(body) call pops the next turn for body.phase.
@@ -22,6 +23,54 @@ function scriptedLlm(script: Record<string, any[][]>) {
 const tu = (id: string, name: string, input: any) => ({ type: "tool_use_complete", id, name, input });
 const stop = { type: "message_stop" };
 
+const V0_PHASE_CHAIN = [
+  "analyze",
+  "select-hw",
+  "upy-flash-mpy-firmware-plugin",
+  "upy-scaffold-plugin",
+  "upy-generate-plugin",
+  "upy-deploy-plugin",
+] as const;
+
+test("PHASE_ORDER matches the backend-served V0 plugin chain", () => {
+  assert.deepEqual([...PHASE_ORDER], [...V0_PHASE_CHAIN]);
+});
+
+test("protocol build walks the full V0 plugin chain and sends the cloud envelope", async () => {
+  const sentBodies: any[] = [];
+  const script: Record<string, any[][]> = {};
+  for (const [index, phase] of V0_PHASE_CHAIN.entries()) {
+    const next = V0_PHASE_CHAIN[index + 1] ?? null;
+    script[phase] = [[
+      tu(`p${index}`, "phase_complete", {
+        result: "success",
+        summary: phase,
+        next_phase: next,
+        manifest_content: { phase, index },
+      }),
+      stop,
+    ]];
+  }
+  const baseLlm = scriptedLlm(script);
+  const llm = {
+    streamMessages: async (body: any) => {
+      sentBodies.push(body);
+      return baseLlm.streamMessages(body);
+    },
+  };
+
+  const result = await runProtocolBuild({ intent: "x", traceId: "trace-v0" }, { llmClient: llm });
+
+  assert.equal(result.terminal, "complete");
+  assert.deepEqual(result.phases.map((p) => p.phase), [...V0_PHASE_CHAIN]);
+  assert.equal(sentBodies.length, V0_PHASE_CHAIN.length);
+  for (const [index, body] of sentBodies.entries()) {
+    assert.equal(body.phase, V0_PHASE_CHAIN[index]);
+    assert.equal(body.trace_id, "trace-v0");
+    assert.deepEqual(body.tools, PROTOCOL_TOOLS);
+    assert.deepEqual(body.manifest, index === 0 ? {} : { phase: V0_PHASE_CHAIN[index - 1], index: index - 1 });
+  }
+});
 test("protocol build advances phases, runs codegen file write, auto-confirms approval", async () => {
   const writes: Array<{ path: string; content: string }> = [];
   const events: any[] = [];
@@ -29,18 +78,18 @@ test("protocol build advances phases, runs codegen file write, auto-confirms app
 
   const script = {
     analyze: [
-      [tu("a1", "approval_request", { approval_id: "device_confirm", question: "ok?", items: [{ id: "d1", name: "SHT30" }], actions: [{ label: "确认", value: "confirm", primary: true }] }), stop],
-      [tu("a2", "status_update", { level: "info", message: "搜索驱动..." }), stop],
-      [tu("a3", "phase_complete", { result: "success", summary: "done", next_phase: "generate", manifest_content: { phase: "analyze", devices: [{ name: "SHT30" }] } }), stop],
+      [tu("a1", "approval_request", { approval_id: "device_confirm", question: "ok?", items: [{ id: "d1", name: "SHT30" }], actions: [{ label: "纭", value: "confirm", primary: true }] }), stop],
+      [tu("a2", "status_update", { level: "info", message: "鎼滅储椹卞姩..." }), stop],
+      [tu("a3", "phase_complete", { result: "success", summary: "done", next_phase: "upy-generate-plugin", manifest_content: { phase: "analyze", devices: [{ name: "SHT30" }] } }), stop],
     ],
-    generate: [
+    "upy-generate-plugin": [
       [tu("g1", "file_operation", { op: "write", path: "firmware/main.py", content: "print('MPYHW_READY')\n" }), stop],
-      [tu("g2", "phase_complete", { result: "success", summary: "code", next_phase: null, manifest_content: { phase: "generate" } }), stop],
+      [tu("g2", "phase_complete", { result: "success", summary: "code", next_phase: null, manifest_content: { phase: "upy-generate-plugin" } }), stop],
     ],
   };
 
   const result = await runProtocolBuild(
-    { intent: "做一个温湿度监测仪", traceId: "t", onEvent: (e) => events.push(e), confirmApproval: async (card) => { approvalCard = card; return { action: "confirm", selected_ids: ["d1"] }; } },
+    { intent: "build a thermometer", traceId: "t", onEvent: (e) => events.push(e), confirmApproval: async (card) => { approvalCard = card; return { action: "confirm", selected_ids: ["d1"] }; } },
     {
       llmClient: scriptedLlm(script),
       writeFile: async (path, content) => { writes.push({ path, content }); return { ok: true, path }; },
@@ -48,8 +97,8 @@ test("protocol build advances phases, runs codegen file write, auto-confirms app
   );
 
   assert.equal(result.terminal, "complete");
-  assert.deepEqual(result.phases, [{ phase: "analyze", result: "success" }, { phase: "generate", result: "success" }]);
-  assert.equal(result.manifest.phase, "generate");
+  assert.deepEqual(result.phases, [{ phase: "analyze", result: "success" }, { phase: "upy-generate-plugin", result: "success" }]);
+  assert.equal(result.manifest.phase, "upy-generate-plugin");
   // codegen file landed via file_operation -> writeFile
   assert.equal(writes.length, 1);
   assert.equal(writes[0].path, "firmware/main.py");
@@ -64,7 +113,7 @@ test("protocol build advances phases, runs codegen file write, auto-confirms app
 test("the request body carries a context block (pre_selected_board + preferences) for server grounding", async () => {
   // The handoff requires preferences.mode/locale, pre_selected_board, existing_hardware to
   // reach the server. Previously the body was only {phase,manifest,messages,tools,trace_id}
-  // — not even boardId — so the analyze phase had zero grounding on the user's real setup.
+  // 鈥?not even boardId 鈥?so the analyze phase had zero grounding on the user's real setup.
   let sentBody: any = null;
   const llm = {
     streamMessages: async (body: any) => {
@@ -81,6 +130,39 @@ test("the request body carries a context block (pre_selected_board + preferences
   assert.equal(sentBody.context.mode, "beginner");
   assert.equal(sentBody.context.locale, "zh");
   assert.equal(sentBody.context.existing_hardware, "ESP32-C3 + DHT22");
+});
+
+
+test("protocol build carries a full pre_selected_board object when the UI selected one", async () => {
+  let sentBody: any = null;
+  const llm = {
+    streamMessages: async (body: any) => {
+      sentBody = body;
+      return (async function* () { yield tu("p", "phase_complete", { result: "success", next_phase: null, manifest_content: {} }); yield stop; })();
+    },
+  };
+  const board = {
+    id: "esp32-s3-devkitc",
+    official_id: "ESP32_GENERIC_S3",
+    display_name: "ESP32-S3",
+    vendor: "Espressif",
+    port: "esp32",
+    mcu: "esp32s3",
+    features: ["BLE", "WiFi"],
+    firmware: { url: "https://micropython.org/download/ESP32_GENERIC_S3/", board_name: "ESP32_GENERIC_S3" },
+    download_slug: "ESP32_GENERIC_S3",
+    source_url: "https://micropython.org/download/",
+    support_status: "builtin_pin_layout",
+    local_board_id: "esp32-s3-devkitc-1",
+    skill_board_id: "esp32-s3-devkitc",
+  };
+  await runProtocolBuild(
+    { intent: "x", boardId: "esp32-s3-devkitc-1", preSelectedBoard: board, preferences: { mode: "custom", locale: "zh" } } as any,
+    { llmClient: llm },
+  );
+  assert.deepEqual(sentBody.context.pre_selected_board, board);
+  assert.equal(sentBody.context.mode, "custom");
+  assert.equal(sentBody.context.locale, "zh");
 });
 
 test("an 'auto' board is not sent as a pre_selected_board (only a real user choice is)", async () => {
@@ -149,7 +231,7 @@ test("script_run routes to the host runner, forwards stdin, maps a failed gate t
   assert.deepEqual(calls[0].args, ["--require-plan"]);
   assert.equal(calls[0].extra.stdin_content, "{}");
   assert.equal(result.ok, true);        // the script RAN (transport ok)
-  assert.equal(result.success, false);  // but the gate FAILED (exit 1) — not faked
+  assert.equal(result.success, false);  // but the gate FAILED (exit 1) 鈥?not faked
   assert.equal(result.exit_code, 1);
   assert.equal(result.script_id, "q");
 });
@@ -268,7 +350,7 @@ test("a failed phase_complete yields a failed terminal, not complete", async () 
 
 test("a phase_complete missing result is rejected so the phase retries (not silently terminal)", async () => {
   // The model occasionally emits a truncated/empty phase_complete (no result). That
-  // must NOT end the build as 'complete' — feed back an error so the model re-emits.
+  // must NOT end the build as 'complete' 鈥?feed back an error so the model re-emits.
   let turns = 0;
   const llm = {
     streamMessages: async () => {
@@ -320,7 +402,7 @@ test("a phase that never emits phase_complete stalls cleanly", async () => {
 
 test("a prose-only turn is re-prompted, not an instant stall, so the build still advances (search-drivers freeze fix)", async () => {
   // The bug: one chatty model turn (text, no protocol tool) immediately stalled the
-  // phase, and the loop mapped that to awaiting_user — the UI froze on "正在搜索驱动"
+  // phase, and the loop mapped that to awaiting_user 鈥?the UI froze on "姝ｅ湪鎼滅储椹卞姩"
   // with no error. The loop must nudge the model to emit a tool instead of giving up.
   let calls = 0;
   const llm = {

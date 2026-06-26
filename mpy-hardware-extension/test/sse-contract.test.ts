@@ -25,7 +25,7 @@ test("client parseSseEvents consumes the server's real Anthropic SSE golden", { 
   assert.deepEqual(events, [
     { type: "text_delta", text: "Let me check the board. " },
     { type: "text_delta", text: "Profiling now." },
-    { type: "tool_use_complete", id: "call_1", name: "query_board_profile", input: { board_id: "esp32-s3-devkitc-1" } },
+    { type: "tool_use_complete", id: "call_1", name: "file_operation", input: { op: "read", path: "project-manifest.json" } },
     { type: "message_stop" },
   ]);
 });
