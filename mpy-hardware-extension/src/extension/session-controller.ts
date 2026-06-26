@@ -21,6 +21,9 @@ export class SessionController {
   private generation = 0;
   private state: any = undefined;
   private boardId: string | null = null;
+  // Handoff user context (mode/locale/existing_hardware), session-level. Carried into the
+  // loop request and preserved across retry().
+  private preferences: { mode?: string; locale?: string; existing_hardware?: string } | undefined;
   // Board list from the last start(), reused by retry() so the continued loop
   // resolves "auto" the same way the original run did.
   private availableBoards: any[] | undefined;
@@ -43,7 +46,7 @@ export class SessionController {
     this.deps = deps;
   }
 
-  async start(input: { intent: string; boardId: string; availableBoards?: any[] }) {
+  async start(input: { intent: string; boardId: string; availableBoards?: any[]; preferences?: { mode?: string; locale?: string; existing_hardware?: string } }) {
     // Single in-flight run per controller: a concurrent start would clobber the
     // shared abort controller, files, and conversation state of the running one
     // (and cancel() would then abort the wrong run). Reject re-entry instead.
@@ -58,6 +61,7 @@ export class SessionController {
       this.recordedStart = false;
     }
     this.boardId = input.boardId;
+    if (input.preferences) this.preferences = input.preferences;
     if (!this.traceId) {
       this.traceId = createTraceId();
     }
@@ -101,6 +105,7 @@ export class SessionController {
       const result = await this.deps.loop({
         intent: input.intent,
         boardId: input.boardId,
+        preferences: this.preferences,
         traceId: this.traceId,
         availableBoards: input.availableBoards,
         state: this.state,

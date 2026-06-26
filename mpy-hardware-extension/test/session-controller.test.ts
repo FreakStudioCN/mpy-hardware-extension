@@ -32,6 +32,22 @@ test("records protocol status_update and phase_start (not postMessage-only) so t
   );
 });
 
+test("carries start() preferences into the loop input so the server gets the user's context", async () => {
+  // Codex review of #3: preferences must reach the loop through the real entry point, not
+  // dead-end at the panel. The webview passes the UI locale on start; the controller threads
+  // it (and any mode/existing_hardware) into the loop input -> protocol context.
+  let loopInput: any = null;
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async (input: any) => { loopInput = input; return { terminal: "complete" }; },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32-c3-devkitm-1", preferences: { locale: "zh-cn", mode: "beginner" } });
+
+  assert.equal(loopInput.preferences?.locale, "zh-cn");
+  assert.equal(loopInput.preferences?.mode, "beginner");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];
