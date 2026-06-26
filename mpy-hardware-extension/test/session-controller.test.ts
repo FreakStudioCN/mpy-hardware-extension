@@ -48,6 +48,24 @@ test("carries start() preferences into the loop input so the server gets the use
   assert.equal(loopInput.preferences?.mode, "beginner");
 });
 
+test("a fresh session (board change / reset) does not inherit stale preferences", async () => {
+  // Codex review of #3: preferences are session-level; a new board or a reset must not
+  // ground an unrelated build with the previous session's context.
+  const inputs: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async (input: any) => { inputs.push(input); return { terminal: "complete" }; },
+  });
+
+  await controller.start({ intent: "a", boardId: "esp32-c3-devkitm-1", preferences: { existing_hardware: "old gear" } });
+  await controller.start({ intent: "b", boardId: "rpi-pico-w" }); // different board, no preferences supplied
+  assert.equal(inputs[1].preferences?.existing_hardware, undefined, "a new board's build must not inherit the old session's preferences");
+
+  controller.reset();
+  await controller.start({ intent: "c", boardId: "rpi-pico-w" }); // post-reset, no preferences
+  assert.equal(inputs[2].preferences?.existing_hardware, undefined, "a reset build must not inherit stale preferences");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];

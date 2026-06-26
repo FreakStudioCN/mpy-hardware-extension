@@ -59,6 +59,7 @@ export class SessionController {
       this.traceId = null;
       this.recorder = undefined;
       this.recordedStart = false;
+      this.preferences = undefined;  // fresh session: don't inherit the prior build's context
     }
     this.boardId = input.boardId;
     if (input.preferences) this.preferences = input.preferences;
@@ -177,6 +178,7 @@ export class SessionController {
     this.traceId = null;
     this.recorder = undefined;
     this.recordedStart = false;
+    this.preferences = undefined;
     this.latestManifest = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
