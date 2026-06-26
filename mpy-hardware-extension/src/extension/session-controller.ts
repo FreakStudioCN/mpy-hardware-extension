@@ -310,10 +310,12 @@ export class SessionController {
     // Protocol events: a status_update timeline entry, a phase boundary, or a
     // phase_complete result (with artifacts). Forwarded to the webview renderers.
     if (event.type === "status_update") {
+      this.record({ type: "status_update", payload: event.payload });
       this.deps.postMessage({ type: "status_update", payload: event.payload });
       return;
     }
     if (event.type === "phase_start") {
+      this.record({ type: "phase_start", phase: event.phase });
       this.deps.postMessage({ type: "phase_start", phase: event.phase });
       return;
     }

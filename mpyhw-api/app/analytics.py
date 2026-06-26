@@ -48,6 +48,14 @@ ALLOWED_EVENT_TYPES = {
     "llm_turn_finished",
     "llm_upstream_error",
     "credits_charged",
+    # V0 protocol-loop observability (phase boundaries, status timeline, approval gate).
+    # Ingest-only: deliberately NOT added to _update_session, so they never touch the
+    # sessions aggregate (terminal/turn_count/repair_count) — purely a replayable trace.
+    "phase_started",
+    "phase_completed",
+    "status_update",
+    "approval_requested",
+    "components_proposed",
     # Existing MVP event names kept for client compatibility.
     "shim_call",
     "skill_loaded",
