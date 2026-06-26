@@ -1,6 +1,6 @@
 ---
 name: cloud-test
-description: 用本地前端插件连云端后端做端到端测试 / test the local VS Code extension against the deployed Render backend. 把扩展的 mpyhw.apiBaseUrl 指到 https://blockless-api.onrender.com（而不是本地 127.0.0.1:8787），探活云端 /v1/health 与 /v1/tools（顺带挡掉本会话踩过的 "Cannot reach the auth API" 与 "tool_registry_mismatch" 两个坑），再按模式加载扩展。参数 f5(默认) 或 reinstall；restore 一键切回本地。不需要 Docker/Postgres/本地 DeepSeek key。
+description: 用本地前端插件连云端后端做端到端测试 / test the local VS Code extension against the deployed Render backend. 把扩展的 mpyhw.apiBaseUrl 指到 https://blockless-api.onrender.com（而不是本地 127.0.0.1:8787），探活云端 /v1/health 与 /v1/tools（顺带挡掉本会话踩过的 "Cannot reach the auth API" 与 "protocol_version_mismatch" 两个坑），再按模式加载扩展。参数 f5(默认) 或 reinstall；restore 一键切回本地。不需要 Docker/Postgres/本地 DeepSeek key。
 argument-hint: "[f5|reinstall|restore]"
 ---
 
@@ -54,17 +54,22 @@ $boards = (@((Invoke-RestMethod "$base/v1/boards").builtin)+@((Invoke-RestMethod
 
 **坑①（Cannot reach the auth API）**：health 不 ok 就别往下走——这正是上次"扩展连不上后端"的远程版。
 
-**坑②（tool_registry_mismatch）**：扩展启动会比对**本地编译进 bundle 的工具名集合**和**后端 `/v1/tools`**，不一致就拒绝开会话。云端服务的是部署那一刻 commit 里的契约；本地扩展 rebuild 时打包的是工作区的 [contracts/canonical_tools.json](../../../contracts/canonical_tools.json)。两者会因为"本地有未提交/未部署的契约改动"而漂移。**开会话前先比对**：
+**坑②（protocol_version_mismatch / protocol tools drift）**：当前协议路径不再对比旧的 27-tool `contracts/canonical_tools.json`。云端 `/v1/tools` 应服务 `contracts/protocol_messages.json` 里的 6 个 `llm_tools`，扩展启动会用 `protocol_version` 判断前后端协议是否一致。**开会话前先比对**：
 
 ```powershell
-$remote = @((Invoke-RestMethod "$base/v1/tools").tools).name | Sort-Object
-$local  = (Get-Content "contracts\canonical_tools.json" -Raw | ConvertFrom-Json).name | Sort-Object
-"remote tools=$($remote.Count)  local contract=$($local.Count)"
+$remoteBody = Invoke-RestMethod "$base/v1/tools" -TimeoutSec 10
+$remote = @($remoteBody.tools).name | Sort-Object
+$contract = Get-Content "contracts\protocol_messages.json" -Raw | ConvertFrom-Json
+$local = @($contract.llm_tools) | Sort-Object
+"remote protocol=$($remoteBody.protocol_version)  local protocol=$($contract.protocol_version)"
+"remote tools=$($remote.Count)  local protocol tools=$($local.Count)"
 $diff = Compare-Object $remote $local
-if($diff){ "⚠ 契约不一致 → 开会话必报 tool_registry_mismatch："; $diff | Format-Table -AutoSize } else { "✓ 契约一致，不会触发 mismatch" }
+if($remoteBody.protocol_version -ne $contract.protocol_version){ "⚠ 协议版本不一致 → 开会话会报 protocol_version_mismatch" }
+elseif($diff){ "⚠ 协议工具名不一致："; $diff | Format-Table -AutoSize }
+else { "✓ 协议一致，不会触发 protocol/tool mismatch" }
 ```
 
-不一致时**别用 rebuild 去硬凑**——要么把本地契约改动 commit+push 让 Render 重新部署（云端跟上本地），要么本地 checkout 回云端那版契约（本地跟上云端）。把差异和这两个方向报给用户让他选，不要擅自改契约。
+不一致时**别用 rebuild 去硬凑**——要么把本地协议改动 commit+push 让 Render 重新部署（云端跟上本地），要么本地 checkout 回云端那版协议（本地跟上云端）。把差异和这两个方向报给用户让他选，不要擅自改契约。
 
 ## Phase 3 — 加载扩展（同 dev-up，但后端是云端）
 
@@ -111,7 +116,7 @@ code --install-extension "build/mpy-hardware-extension-$v.vsix" --force
 | 症状 | 多半原因 | 处理 |
 |------|----------|------|
 | 面板报 "Cannot reach the auth API" | 云端没 live / 刚部署在热身 / 网络 | 重跑 Phase 2 探活；去 Render 看服务状态；确认 `apiBaseUrl` 确实是云端 |
-| 开会话报 "tool_registry_mismatch" | 本地扩展打包的契约 ≠ 云端 `/v1/tools` | 跑 Phase 2 的契约比对；commit+push 让云端跟上，或本地 checkout 回云端那版 |
+| 开会话报 "protocol_version_mismatch" | 本地扩展打包的契约 ≠ 云端 `/v1/tools` | 跑 Phase 2 的契约比对；commit+push 让云端跟上，或本地 checkout 回云端那版 |
 | 面板还连本地 8787 | dev host 开的不是本仓库根 / 设置没生效 | 在 dev host 里打开仓库根；关掉面板重开；f5 重启 |
 | 首个请求很慢 | Render 实例热身（starter 不睡但首调可能 lag） | 等一下重试；Phase 2 已有有界重试 |
 | GitHub 登录失败 / credits 不加载 | 云端 auth 环境没配好 | 看面板报的真实 HTTP 状态码；确认 Render 上 `MPYHW_JWT_SECRET` 等已注入 |
