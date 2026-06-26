@@ -171,6 +171,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
         startManifest: input.state?.manifest,
         maxTurnsPerPhase: input.maxTurnsPerPhase,
         preferences: input.preferences,
+        preSelectedBoard: input.preSelectedBoard,
       },
       protocolDeps,
     );

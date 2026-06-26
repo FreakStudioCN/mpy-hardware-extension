@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -49,6 +51,69 @@ def test_board_index_contains_detail_hashes():
     assert body["builtin"][0]["detail_sha256"]
 
 
+@pytest.mark.no_db
+def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monkeypatch):
+    from app import routes_content
+
+    rec_dir = tmp_path / "content" / "recommendation"
+    rec_dir.mkdir(parents=True)
+    (rec_dir / "micropython_boards.json").write_text(
+        json.dumps(
+            {
+                "source": "https://micropython.org/download/",
+                "fetched_at": "2026-06-20T00:07:34+00:00",
+                "boards": [
+                    {
+                        "slug": "ESP32_GENERIC_S3",
+                        "name": "ESP32-S3",
+                        "vendor": "Espressif",
+                        "features": ["BLE", "WiFi"],
+                        "detail_url": "https://micropython.org/download/ESP32_GENERIC_S3/",
+                        "firmware": {"latest_release": {"url": "https://micropython.org/resources/firmware/ESP32_GENERIC_S3.bin"}},
+                        "source_url": "https://github.com/micropython/micropython/tree/master/ports/esp32/boards/ESP32_GENERIC_S3",
+                    },
+                    {
+                        "slug": "PYBD_SF2",
+                        "name": "Pyboard D-series SF2",
+                        "vendor": "George Robotics",
+                        "features": [],
+                        "detail_url": "https://micropython.org/download/PYBD_SF2/",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    boards_dir = tmp_path / "content" / "boards"
+    boards_dir.mkdir(parents=True)
+    (boards_dir / "esp32-s3-devkitc-1.json").write_text(
+        json.dumps({"board_id": "esp32-s3-devkitc-1", "display_name": "ESP32-S3 DevKitC-1"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(routes_content, "ROOT", tmp_path)
+
+    response = client.get("/v1/micropython/boards")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source_url"] == "https://micropython.org/download/"
+    assert body["fetched_at"] == "2026-06-20T00:07:34+00:00"
+    assert body["board_count"] == 2
+    assert body["filters"]["vendor"] == ["Espressif", "George Robotics"]
+    assert body["filters"]["port"] == ["esp32", "stm32"]
+    first = body["boards"][0]
+    assert first["id"] == "esp32-s3-devkitc"
+    assert first["official_id"] == "ESP32_GENERIC_S3"
+    assert first["download_slug"] == "ESP32_GENERIC_S3"
+    assert first["firmware"]["board_name"] == "ESP32_GENERIC_S3"
+    assert first["firmware"]["url"] == "https://micropython.org/download/ESP32_GENERIC_S3/"
+    assert first["port"] == "esp32"
+    assert first["mcu"] == "esp32s3"
+    assert first["chip_family"] == "esp32s3"
+    assert first["support_status"] == "builtin_pin_layout"
+    assert first["local_board_id"] == "esp32-s3-devkitc-1"
+    assert first["skill_board_id"] == "esp32-s3-devkitc"
+    assert body["boards"][1]["support_status"] == "official_firmware_only"
 def test_board_route_rejects_encoded_backslash_path_traversal():
     response = client.get("/v1/boards/..%5Cpackages%5Cpackage_index")
 

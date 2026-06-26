@@ -34,6 +34,67 @@ function post(dom: JSDOM, data: unknown): void {
   dom.window.dispatchEvent(new dom.window.MessageEvent("message", { data }));
 }
 
+
+test("start screen selects an official MicroPython board and sends full pre_selected_board", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "micropython_boards",
+    source_url: "https://micropython.org/download/",
+    fetched_at: "2026-06-20T00:07:34+00:00",
+    boards: [
+      {
+        id: "esp32-s3-devkitc",
+        official_id: "ESP32_GENERIC_S3",
+        display_name: "ESP32-S3",
+        vendor: "Espressif",
+        port: "esp32",
+        mcu: "esp32s3",
+        features: ["BLE", "WiFi"],
+        firmware: { url: "https://micropython.org/download/ESP32_GENERIC_S3/", board_name: "ESP32_GENERIC_S3" },
+        download_slug: "ESP32_GENERIC_S3",
+        source_url: "https://micropython.org/download/",
+        support_status: "builtin_pin_layout",
+        local_board_id: "esp32-s3-devkitc-1",
+        skill_board_id: "esp32-s3-devkitc",
+      },
+      {
+        id: "PYBD_SF2",
+        display_name: "Pyboard D-series SF2",
+        vendor: "George Robotics",
+        port: "stm32",
+        mcu: "stm32f722",
+        features: [],
+        firmware: { url: "https://micropython.org/download/PYBD_SF2/", board_name: "PYBD_SF2" },
+        download_slug: "PYBD_SF2",
+        source_url: "https://micropython.org/download/",
+        support_status: "official_firmware_only",
+      },
+    ],
+  });
+
+  const search = document.getElementById("boardSearch") as HTMLInputElement;
+  assert.ok(search, "board search input is present on the start screen");
+  search.value = "esp32";
+  search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.match(document.getElementById("boardPicker")!.textContent!, /ESP32-S3/);
+  assert.doesNotMatch(document.getElementById("boardPicker")!.textContent!, /Pyboard D-series/);
+
+  (document.getElementById("modeCustom") as HTMLButtonElement).click();
+  (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "做一个温度报警器";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  const start = posted.find((m) => m.type === "start_session");
+  assert.equal(start.boardId, "esp32-s3-devkitc-1");
+  assert.equal(start.preferences.mode, "custom");
+  assert.equal(start.pre_selected_board.id, "esp32-s3-devkitc");
+  assert.equal(start.pre_selected_board.official_id, "ESP32_GENERIC_S3");
+  assert.equal(start.pre_selected_board.firmware.board_name, "ESP32_GENERIC_S3");
+});
+
 test("the Doctor tab requests a check on load and renders results as localized status cards", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

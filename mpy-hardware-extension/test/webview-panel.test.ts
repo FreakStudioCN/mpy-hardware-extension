@@ -357,7 +357,39 @@ test("request_boards probes /v1/health and forwards the server mode to the webvi
   assert.deepEqual(posted.find((message) => message.type === "server_mode"), { type: "server_mode", mode: "stub" });
 });
 
-test("request_boards treats a backend that omits a mode as live (badge stays hidden)", async () => {
+
+test("request_boards forwards the official MicroPython board catalog to the webview", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    if (url === "http://api.test/v1/boards") return jsonResponse({ builtin: [], community: [] });
+    if (url === "http://api.test/v1/micropython/boards") return jsonResponse({ source_url: "https://micropython.org/download/", boards: [{ id: "ESP32_GENERIC_S3" }], filters: { port: ["esp32"] } });
+    if (url === "http://api.test/v1/health") return jsonResponse({ status: "ok" });
+    throw new Error(`unexpected URL ${url}`);
+  }) as unknown as typeof fetch;
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+  await handler?.({ type: "request_boards" });
+
+  assert.deepEqual(posted.find((message) => message.type === "micropython_boards"), {
+    type: "micropython_boards",
+    source_url: "https://micropython.org/download/",
+    boards: [{ id: "ESP32_GENERIC_S3" }],
+    filters: { port: ["esp32"] },
+  });
+});test("request_boards treats a backend that omits a mode as live (badge stays hidden)", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;
   const panel = {

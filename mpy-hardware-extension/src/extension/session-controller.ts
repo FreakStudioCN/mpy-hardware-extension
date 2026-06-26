@@ -21,6 +21,7 @@ export class SessionController {
   private generation = 0;
   private state: any = undefined;
   private boardId: string | null = null;
+  private preSelectedBoard: any = undefined;
   // Handoff user context (mode/locale/existing_hardware), session-level. Carried into the
   // loop request and preserved across retry().
   private preferences: { mode?: string; locale?: string; existing_hardware?: string } | undefined;
@@ -46,7 +47,7 @@ export class SessionController {
     this.deps = deps;
   }
 
-  async start(input: { intent: string; boardId: string; availableBoards?: any[]; preferences?: { mode?: string; locale?: string; existing_hardware?: string } }) {
+  async start(input: { intent: string; boardId: string; availableBoards?: any[]; preSelectedBoard?: any; preferences?: { mode?: string; locale?: string; existing_hardware?: string } }) {
     // Single in-flight run per controller: a concurrent start would clobber the
     // shared abort controller, files, and conversation state of the running one
     // (and cancel() would then abort the wrong run). Reject re-entry instead.
@@ -60,8 +61,10 @@ export class SessionController {
       this.recorder = undefined;
       this.recordedStart = false;
       this.preferences = undefined;  // fresh session: don't inherit the prior build's context
+      this.preSelectedBoard = undefined;
     }
     this.boardId = input.boardId;
+    if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
     if (input.preferences) this.preferences = input.preferences;
     if (!this.traceId) {
       this.traceId = createTraceId();
@@ -107,6 +110,7 @@ export class SessionController {
         intent: input.intent,
         boardId: input.boardId,
         preferences: this.preferences,
+        preSelectedBoard: this.preSelectedBoard,
         traceId: this.traceId,
         availableBoards: input.availableBoards,
         state: this.state,
@@ -179,6 +183,7 @@ export class SessionController {
     this.recorder = undefined;
     this.recordedStart = false;
     this.preferences = undefined;
+    this.preSelectedBoard = undefined;
     this.latestManifest = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];

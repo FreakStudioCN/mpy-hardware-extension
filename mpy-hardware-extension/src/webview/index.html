@@ -302,7 +302,21 @@
       .gen-btn:disabled { background: #3a3a3c; color: #8a8a8a; cursor: not-allowed; }
       .gen-btn.stop { background: #5a2b2b; color: #ffb3b3; }
       .gen-btn.stop:hover { background: #6e3434; }
-
+      .start-controls { border-bottom: 1px solid var(--vsc-card-border); padding: 10px; display: grid; gap: 8px; }
+      .mode-row, .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .mode-chip, .board-chip, .board-page-btn, .board-auto { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
+      .mode-chip.active, .board-chip.chosen, .board-auto.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
+      .board-search, .board-filter { min-width: 0; border: 1px solid var(--vsc-card-border); background: #101012; color: var(--fg); border-radius: 6px; padding: 6px 8px; font-size: 11px; }
+      .board-search { width: 100%; }
+      .board-filter { flex: 1 1 92px; }
+      .board-list { display: grid; gap: 5px; max-height: 168px; overflow: auto; }
+      .board-card { width: 100%; border: 1px solid var(--vsc-card-border); background: #151518; color: var(--fg); border-radius: 7px; padding: 8px; text-align: left; cursor: pointer; }
+      .board-card:hover, .board-card.chosen { border-color: var(--accent); }
+      .board-card-top { display: flex; gap: 7px; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 650; }
+      .board-meta { margin-top: 4px; color: var(--fg-muted); font-size: 10.5px; line-height: 1.35; }
+      .board-badge { flex: 0 0 auto; color: var(--accent); font-size: 10px; border: 1px solid #0e7aff55; border-radius: 999px; padding: 1px 6px; }
+      .board-status { color: var(--fg-dim); font-size: 10.5px; min-height: 14px; }
+      .board-page-btn:disabled { opacity: .45; cursor: default; }
       .fade-in { animation: fadeIn .28s ease both; }
       @keyframes fadeIn { from { transform: translateY(5px); } to { transform: none; } }
       @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .feed-spin { animation: none; } }
@@ -378,6 +392,22 @@
 
       <div class="composer">
         <div class="composer-box" id="composerBox">
+          <div class="start-controls" id="boardPicker">
+            <div class="mode-row">
+              <button class="mode-chip active" id="modeBeginner" type="button" data-mode="beginner" data-i18n="mode_beginner">Beginner</button>
+              <button class="mode-chip" id="modeCustom" type="button" data-mode="custom" data-i18n="mode_custom">Custom</button>
+              <button class="board-auto chosen" id="boardAuto" type="button" data-i18n="board_auto">Recommend board</button>
+            </div>
+            <input class="board-search" id="boardSearch" data-i18n-ph="board_search_ph" placeholder="Search official MicroPython boards" />
+            <div class="board-filter-row">
+              <select class="board-filter" id="boardVendor" aria-label="Vendor"></select>
+              <select class="board-filter" id="boardPort" aria-label="Port"></select>
+              <select class="board-filter" id="boardMcu" aria-label="MCU"></select>
+              <select class="board-filter" id="boardFeature" aria-label="Feature"></select>
+            </div>
+            <div class="board-list" id="boardList"></div>
+            <div class="board-pager"><button class="board-page-btn" id="boardPrev" type="button">&lt;</button><span class="board-status" id="boardStatus"></span><button class="board-page-btn" id="boardNext" type="button">&gt;</button></div>
+          </div>
           <textarea id="intent" data-i18n-ph="intent_ph" placeholder="I want to build… (e.g. light a red LED when the temperature goes above 30°C)" rows="1"></textarea>
           <div class="composer-bar">
             <span class="grow"></span>
@@ -424,6 +454,7 @@
           serial_monitor: "Serial monitor",
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
+          mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards",
           new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
           deploying: "Deploying…", confirm_wiring: "Confirm wiring & connection…",
@@ -497,6 +528,7 @@
           serial_monitor: "串口监视器",
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
+          mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡",
           new_session: "重新开始", new_session_tip: "重新开始项目——会清空当前对话",
           waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",
           deploying: "正在部署…", confirm_wiring: "确认接线与连接…",
@@ -620,6 +652,84 @@
       let activeTab = "activity";
       let running = false;
       let quotaExhausted = false;
+      let selectedMode = "beginner";
+      let officialBoards = [];
+      let selectedOfficialBoard = null;
+      let boardPage = 0;
+      const BOARD_PAGE_SIZE = 6;
+
+      function setMode(mode) {
+        selectedMode = mode === "custom" ? "custom" : "beginner";
+        document.querySelectorAll(".mode-chip").forEach((b) => b.classList.toggle("active", b.dataset.mode === selectedMode));
+      }
+      function boardLabel(board) { return board.display_name || board.id || board.download_slug || ""; }
+      function optionLabelAll(key) { return tr(key); }
+      function setFilterOptions(id, values, allKey) {
+        const el = $(id); if (!el) return;
+        const current = el.value;
+        el.innerHTML = '<option value="">' + esc(optionLabelAll(allKey)) + '</option>' + values.map((v) => '<option value="' + esc(v) + '">' + esc(v) + '</option>').join("");
+        if (values.includes(current)) el.value = current;
+      }
+      function boardFiltersFromPayload(msg) {
+        const filters = msg.filters || {};
+        const uniq = (key, fallback) => (Array.isArray(filters[key]) && filters[key].length ? filters[key] : Array.from(new Set(officialBoards.flatMap((b) => { const v = fallback(b); return Array.isArray(v) ? v : [v]; }).filter(Boolean))).sort());
+        return {
+          vendor: uniq("vendor", (b) => b.vendor),
+          port: uniq("port", (b) => b.port),
+          mcu: uniq("mcu", (b) => b.mcu),
+          feature: uniq("feature", (b) => b.features || []),
+        };
+      }
+      function loadOfficialBoards(msg) {
+        officialBoards = Array.isArray(msg.boards) ? msg.boards : [];
+        const filters = boardFiltersFromPayload(msg);
+        setFilterOptions("boardVendor", filters.vendor, "board_vendor_all");
+        setFilterOptions("boardPort", filters.port, "board_port_all");
+        setFilterOptions("boardMcu", filters.mcu, "board_mcu_all");
+        setFilterOptions("boardFeature", filters.feature, "board_feature_all");
+        $("boardPicker").dataset.fetchedAt = msg.fetched_at || "";
+        $("boardPicker").dataset.sourceUrl = msg.source_url || "";
+        boardPage = 0;
+        renderBoardPicker();
+      }
+      function currentBoardMatches(board) {
+        const q = ($("boardSearch")?.value || "").trim().toLowerCase();
+        const vendor = $("boardVendor")?.value || "";
+        const port = $("boardPort")?.value || "";
+        const mcu = $("boardMcu")?.value || "";
+        const feature = $("boardFeature")?.value || "";
+        const hay = [board.id, board.display_name, board.vendor, board.port, board.mcu, board.download_slug].concat(board.features || []).join(" ").toLowerCase();
+        return (!q || hay.includes(q))
+          && (!vendor || board.vendor === vendor)
+          && (!port || board.port === port)
+          && (!mcu || board.mcu === mcu)
+          && (!feature || (board.features || []).includes(feature));
+      }
+      function filteredOfficialBoards() { return officialBoards.filter(currentBoardMatches); }
+      function renderBoardPicker() {
+        const list = $("boardList"); const status = $("boardStatus");
+        if (!list || !status) return;
+        const boards = filteredOfficialBoards();
+        const maxPage = Math.max(0, Math.ceil(boards.length / BOARD_PAGE_SIZE) - 1);
+        boardPage = Math.min(boardPage, maxPage);
+        const start = boardPage * BOARD_PAGE_SIZE;
+        const page = boards.slice(start, start + BOARD_PAGE_SIZE);
+        list.innerHTML = page.map((board) => {
+          const chosen = selectedOfficialBoard && selectedOfficialBoard.id === board.id;
+          const badge = board.support_status === "builtin_pin_layout" ? tr("board_builtin") : tr("board_official_only");
+          const meta = [board.vendor, board.port, board.mcu, (board.features || []).join("/")].filter(Boolean).join(" | ");
+          return '<button type="button" class="board-card' + (chosen ? ' chosen' : '') + '" data-board-id="' + esc(board.id) + '"><div class="board-card-top"><span>' + esc(boardLabel(board)) + '</span><span class="board-badge">' + esc(badge) + '</span></div><div class="board-meta">' + esc(meta || board.download_slug) + '</div></button>';
+        }).join("");
+        list.querySelectorAll(".board-card").forEach((btn) => btn.addEventListener("click", () => {
+          selectedOfficialBoard = officialBoards.find((b) => b.id === btn.dataset.boardId) || null;
+          $("boardAuto").classList.toggle("chosen", selectedOfficialBoard == null);
+          renderBoardPicker();
+        }));
+        const total = boards.length;
+        status.textContent = total ? (String(start + 1) + "-" + String(start + page.length) + "/" + String(total)) : tr("board_none");
+        $("boardPrev").disabled = boardPage <= 0;
+        $("boardNext").disabled = boardPage >= maxPage;
+      }
       function setTab(name) {
         activeTab = name;
         document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
@@ -666,8 +776,9 @@
         $("intent").value = "";
         $("intent").style.height = "auto";
         setTab("activity"); setRunning(true);
-        // boardId "auto": the agent recommends a board and confirms it in chat.
-        vscode.postMessage({ type: "start_session", intent, boardId: "auto" });
+        const preSelectedBoard = selectedOfficialBoard;
+        const boardId = preSelectedBoard && preSelectedBoard.local_board_id ? preSelectedBoard.local_board_id : "auto";
+        vscode.postMessage({ type: "start_session", intent, boardId, pre_selected_board: preSelectedBoard || null, preferences: { mode: selectedMode } });
       });
       // Wipe every per-conversation surface back to its empty state. The host clears
       // its durable state in parallel (reset_session), so the next request is a
@@ -698,6 +809,13 @@
         $("intent").value = ""; $("intent").style.height = "auto";
       });
       const ta = $("intent");
+      $("modeBeginner").addEventListener("click", () => setMode("beginner"));
+      $("modeCustom").addEventListener("click", () => setMode("custom"));
+      $("boardAuto").addEventListener("click", () => { selectedOfficialBoard = null; $("boardAuto").classList.add("chosen"); renderBoardPicker(); });
+      ["boardSearch", "boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { const el = $(id); el.addEventListener("input", () => { boardPage = 0; renderBoardPicker(); }); el.addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
+      $("boardPrev").addEventListener("click", () => { boardPage = Math.max(0, boardPage - 1); renderBoardPicker(); });
+      $("boardNext").addEventListener("click", () => { boardPage += 1; renderBoardPicker(); });
+      renderBoardPicker();
       ta.addEventListener("focus", () => $("composerBox").classList.add("focused"));
       ta.addEventListener("blur", () => $("composerBox").classList.remove("focused"));
       ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; });
@@ -1773,6 +1891,7 @@
         if (msg.type === "recipe_imported") { prefillImportedRecipe(msg.payload); }
         if (msg.type === "doctor_results") { renderDoctor(msg.items); }
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
+        if (msg.type === "micropython_boards") { loadOfficialBoards(msg); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
           setCredits(msg.event.balance, msg.event.dailyGrant);
         }

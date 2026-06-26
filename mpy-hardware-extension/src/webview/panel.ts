@@ -127,6 +127,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         webview.postMessage({ type: "boards", boards: [] });
       }
+      try {
+        const res = await fetchImpl(`${apiBaseUrl}/v1/micropython/boards`);
+        const body: any = await res.json();
+        webview.postMessage({ type: "micropython_boards", ...body });
+      } catch {
+        webview.postMessage({ type: "micropython_boards", boards: [], filters: {}, stale: true });
+      }
       // Surface whether this backend runs the real LLM or the deterministic stub.
       // The stub returns a fixed reply and never thinks, so without this the UI
       // can't tell a stub instance from a hang. Best-effort: a server that doesn't
@@ -184,7 +191,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           return;
         }
       }
-      await controller.start({ intent: message.intent, boardId: message.boardId, availableBoards, preferences: { locale: vscode.env?.language } });
+      await controller.start({
+        intent: message.intent,
+        boardId: message.boardId,
+        availableBoards,
+        preSelectedBoard: message.pre_selected_board ?? undefined,
+        preferences: { ...(message.preferences ?? {}), locale: vscode.env?.language },
+      });
     }
     if (message.type === "retry_session") {
       // Manual retry after a transport failure (the webview's Retry button).

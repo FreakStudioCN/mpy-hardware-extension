@@ -224,6 +224,7 @@ def execute_tool(tu, project_dir, skill_dir, stats):
     if name == "file_operation":
         op, path = p.get("op"), p.get("path", "")
         root = project_dir.resolve()
+        resource_root = SKILLS_ROOT.resolve()
 
         def _contained(rel):
             # Resolve a workspace-relative path; return it only if it stays inside the
@@ -231,6 +232,23 @@ def execute_tool(tu, project_dir, skill_dir, stats):
             # reject root). Mirrors the shipped extension's containment; refuses escapes.
             target = (project_dir / rel).resolve()
             return target if (target == root or root in target.parents) else None
+
+        def _contained_resource(rel):
+            # Read-only access to vendored skill resources. V0 skills are allowed to
+            # inspect sibling assets such as upy-analyze-plugin/boards, but the
+            # harness must never let those paths escape the vendored skill root.
+            raw = pathlib.Path(str(rel))
+            target = (raw if raw.is_absolute() else resource_root / raw).resolve()
+            return target if (target == resource_root or resource_root in target.parents) else None
+
+        def _read_target(rel):
+            project_target = _contained(rel)
+            if project_target is not None and project_target.exists():
+                return project_target, root
+            resource_target = _contained_resource(rel)
+            if resource_target is not None and resource_target.exists():
+                return resource_target, resource_root
+            return None, None
 
         if op in ("write", "append") and path:
             target = _contained(path)
@@ -244,19 +262,19 @@ def execute_tool(tu, project_dir, skill_dir, stats):
                 stats["code_chars"] += len(p.get("content", ""))
             return {"ok": True, "op_id": p.get("op_id"), "success": True, "error": None}, None
         if op == "read" and path:
-            target = _contained(path)
+            target, _ = _read_target(path)
             if target is None or not target.is_file():
                 return {"ok": False, "op_id": p.get("op_id"), "error_kind": "not_found"}, None
             return {"ok": True, "op_id": p.get("op_id"), "success": True, "content": target.read_text(encoding="utf-8")}, None
         if op == "list":
-            base = _contained(path) if path else root
+            base, list_root = _read_target(path) if path else (root, root)
             if base is None or not base.is_dir():
                 return {"ok": False, "op_id": p.get("op_id"), "error_kind": "not_found"}, None
             entries = []
             for child in sorted(base.rglob("*")):
                 if ".git" in child.parts:
                     continue
-                rel = child.relative_to(root).as_posix()
+                rel = child.relative_to(list_root).as_posix()
                 entries.append(rel + "/" if child.is_dir() else rel)
             return {"ok": True, "op_id": p.get("op_id"), "success": True, "entries": entries}, None
         if op in ("mkdir", "delete") and path:
