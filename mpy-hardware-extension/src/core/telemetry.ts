@@ -155,6 +155,9 @@ function mapSessionEvent(event: Record<string, any>): { eventType: string; paylo
       payload: { prompt_id: event.promptId, device_count: Array.isArray(event.devices) ? event.devices.length : undefined },
     };
   }
+  if (event.type === "phase_stalled") {
+    return { eventType: "phase_stalled", payload: { phase: event.phase, reason: event.reason } };
+  }
   return null;
 }
 

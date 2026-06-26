@@ -110,12 +110,13 @@ def test_telemetry_ingests_protocol_observability_events_without_touching_sessio
         event("status_update", {"title": "正在搜索驱动", "step": "2/3"}),
         event("approval_requested", {"prompt_id": "approval-1", "actions": ["confirm", "modify"]}),
         event("components_proposed", {"prompt_id": "approval-1", "device_count": 3}),
+        event("phase_stalled", {"phase": "select-hw", "reason": "no_tool_call"}),
         event("phase_completed", {"result": "success", "next_phase": "generate"}),
     ]})
 
     rows = analytics.telemetry_events(trace_id="trace-1")
     assert [r["event_type"] for r in rows] == [
-        "phase_started", "status_update", "approval_requested", "components_proposed", "phase_completed",
+        "phase_started", "status_update", "approval_requested", "components_proposed", "phase_stalled", "phase_completed",
     ]
     status = next(r for r in rows if r["event_type"] == "status_update")
     assert status["payload"]["title"] == "正在搜索驱动"

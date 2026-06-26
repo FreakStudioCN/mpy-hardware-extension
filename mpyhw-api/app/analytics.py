@@ -53,6 +53,7 @@ ALLOWED_EVENT_TYPES = {
     # sessions aggregate (terminal/turn_count/repair_count) — purely a replayable trace.
     "phase_started",
     "phase_completed",
+    "phase_stalled",
     "status_update",
     "approval_requested",
     "components_proposed",

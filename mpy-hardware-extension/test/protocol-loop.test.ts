@@ -265,3 +265,38 @@ test("a phase that never emits phase_complete stalls cleanly", async () => {
   assert.equal(result.terminal, "stalled");
   assert.equal(result.phases.at(-1)?.result, null);
 });
+
+test("a prose-only turn is re-prompted, not an instant stall, so the build still advances (search-drivers freeze fix)", async () => {
+  // The bug: one chatty model turn (text, no protocol tool) immediately stalled the
+  // phase, and the loop mapped that to awaiting_user — the UI froze on "正在搜索驱动"
+  // with no error. The loop must nudge the model to emit a tool instead of giving up.
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls++;
+      const ev = calls === 1
+        ? [{ type: "text_delta", text: "Let me think about which drivers to use..." }, stop] // prose only, no tool
+        : [tu("p", "phase_complete", { result: "success", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+  const result = await runProtocolBuild({ intent: "x", maxTurnsPerPhase: 5 }, { llmClient: llm });
+  assert.equal(result.terminal, "complete");
+  assert.ok(calls >= 2, "a prose-only turn must re-prompt the model, not stall on the first reply");
+});
+
+test("a persistently prose-only phase stalls AND surfaces a phase_stalled event (no silent freeze)", async () => {
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () { yield { type: "text_delta", text: "thinking..." }; yield stop; })(),
+  };
+  const result = await runProtocolBuild(
+    { intent: "x", maxTurnsPerPhase: 10, onEvent: (e) => events.push(e) },
+    { llmClient: llm },
+  );
+  assert.equal(result.terminal, "stalled");
+  assert.ok(
+    events.some((e) => e.type === "phase_stalled"),
+    "a real stall must surface a phase_stalled event so the UI shows a stuck/retry state, not a frozen step",
+  );
+});

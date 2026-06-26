@@ -32,6 +32,30 @@ test("records protocol status_update and phase_start (not postMessage-only) so t
   );
 });
 
+test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
+  const recorded: any[] = [];
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m) => posted.push(m),
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "phase_stalled", phase: "select-hw", reason: "no_tool_call" });
+      return { terminal: "stalled" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  assert.ok(
+    recorded.some((e) => e.type === "phase_stalled" && e.phase === "select-hw"),
+    "phase_stalled must be recorded as itself so the cloud DB sees the stall, not buried in a trace_event",
+  );
+  assert.ok(
+    posted.some((m) => m.type === "phase_stalled"),
+    "phase_stalled must be posted to the webview so the user sees a stuck/retry state",
+  );
+});
+
 test("session controller streams loop events and gates deploy via confirmDeploy", async () => {
   const messages: any[] = [];
   const controller = new SessionController({
