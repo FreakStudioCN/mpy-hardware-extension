@@ -41,7 +41,10 @@ rmSync(destRoot, { recursive: true, force: true });
 // scripts and the toolchain-spec schemas. The cloud model names scripts by their bare
 // filename and serve.py's run_v0 resolver finds them under any bundled scripts/ dir,
 // so the whole dir must ship — not a cherry-picked allowlist. We DROP the heavy prose
-// (SKILL.md/README) and the test/sample/mock fixtures, which the runtime never reads.
+// (SKILL.md/README) and the test/sample/mock fixtures. WONTFIX (issue #3/#4): the packaged
+// device shim runs the scripts but never reads SKILL.md, and the cloud backend loads skill
+// prose from its OWN copy (skill_catalog.py / live serve), not from the VSIX. Only an
+// offline/self-hosted full-protocol run would need the .md re-included.
 const PLUGIN_DIRS = [
   "upy-analyze-plugin",
   "upy-select-hw-plugin",

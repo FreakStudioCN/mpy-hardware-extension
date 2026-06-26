@@ -1,3 +1,6 @@
+// LEGACY 27-tool agent loop — NOT the production path. Superseded by the V0 protocol
+// loop (protocol-loop.ts / createProtocolLoop). Kept only for the dev CLIs (run-live-gen
+// / run-golden-path); the panel does not import createAgentBackedLoop.
 import { ApiClient } from "./api-client.ts";
 import { BoardClient } from "./board-client.ts";
 import { auditCode } from "./audit-code.ts";

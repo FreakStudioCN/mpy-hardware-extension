@@ -7,7 +7,7 @@ import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
-import { createAgentBackedLoop, DEV_API_BASE_URL } from "../core/agent-backed-loop.ts";
+import { DEV_API_BASE_URL } from "../core/agent-backed-loop.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
 import { createDeviceShim, detectPython, venvReady, installVenvAsync } from "../extension/device-shim.ts";
@@ -323,8 +323,8 @@ function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?
     return createApiPipelineLoop(deps);
   }
   // Protocol path: the server drives via the 7-message plugin-interface, the
-  // extension is the dumb executor. createAgentBackedLoop is kept for the legacy
-  // 27-tool CLIs only.
+  // extension is the dumb executor. The legacy 27-tool agent-backed-loop is kept ONLY
+  // for the dev CLIs (run-live-gen / run-golden-path); the panel never uses it.
   return createProtocolLoop(deps);
 }
 
