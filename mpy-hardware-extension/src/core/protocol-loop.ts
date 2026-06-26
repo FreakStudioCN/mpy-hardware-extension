@@ -40,7 +40,7 @@ export type ProtocolDeps = {
   // Host script runner: runs a bundled V0 plugin script (or shell command) on the
   // user's machine. `extra` carries the model's stdin/timeout. ABSENT or a missing
   // script is a hard failure (ok:false), never a faked success.
-  runScript?: (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string }>;
+  runScript?: (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string; candidates?: string[] }>;
 };
 
 export type ProtocolInput = {
@@ -233,8 +233,10 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
       Array.isArray(p.args) ? p.args.map(String) : [],
       { stdin_content: p.stdin_content, stdin_json: p.stdin_json, timeout_ms: p.timeout_ms },
     );
-    // ok:false = the call itself failed (host_runner_absent / script_not_found) — surface it.
-    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: r.stderr ?? "" } };
+    // ok:false = the call itself failed (host_runner_absent / script_not_found /
+    // ambiguous_script_name) — surface it, forwarding any candidate qualified names so the
+    // model can retry an ambiguous bare script name instead of re-sending it.
+    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: r.stderr ?? "", candidates: r.candidates } };
     // The script RAN: success keys on its exit code (a non-zero gate is a real, fixable result).
     const exit = r.exit_code ?? 0;
     return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit_code: exit } };

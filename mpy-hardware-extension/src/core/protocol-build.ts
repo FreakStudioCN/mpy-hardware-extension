@@ -95,7 +95,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
     if (!shim || !projectDir) return { ok: false, error_kind: "host_runner_absent" as string };
     try {
       const res = await shim.runV0Script({ interpreter, script, args, project_dir: projectDir, stdin_content: extra?.stdin_content, stdin_json: extra?.stdin_json, timeout_ms: extra?.timeout_ms });
-      if (!res || res.status !== "ok") return { ok: false, error_kind: res?.error_kind ?? "script_error", stderr: res?.message ?? "" };
+      if (!res || res.status !== "ok") return { ok: false, error_kind: res?.error_kind ?? "script_error", stderr: res?.message ?? "", candidates: res?.candidates };
       // serve.py returns parsed JSON in result_json (with stdout blanked); re-serialize
       // it so the model still sees the script's output.
       const stdout = res.stdout || (res.result_json != null ? JSON.stringify(res.result_json) : "");
