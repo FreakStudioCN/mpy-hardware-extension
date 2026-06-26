@@ -14,7 +14,6 @@ import { createDeviceShim, detectPython, venvReady, installVenvAsync } from "../
 import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
-import { CANONICAL_TOOLS } from "../core/tool-registry.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
@@ -296,13 +295,6 @@ async function checkProtocolVersion(apiBaseUrl: string, fetchImpl: typeof fetch)
   }
 }
 
-async function checkToolRegistry(apiBaseUrl: string, fetchImpl: typeof fetch) {
-  try {
-    return await new ApiClient(apiBaseUrl, fetchImpl).checkToolRegistry(CANONICAL_TOOLS);
-  } catch {
-    return { ok: true };
-  }
-}
 
 async function fetchToolchainVersion(apiBaseUrl: string, fetchImpl: typeof fetch): Promise<string | undefined> {
   try {
