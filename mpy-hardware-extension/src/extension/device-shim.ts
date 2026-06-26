@@ -113,9 +113,9 @@ export class DeviceShim {
   // A non-ok RPC throws its error_kind so the protocol device() surfaces a real failure
   // (never a faked ok). The deterministic deploy still goes through deployFirmwareTree.
 
-  async listDir(): Promise<string[]> {
+  async listDir(dir?: string): Promise<string[]> {
     const port = await this.ensurePort();
-    const r = await this.rpc("device.list_files", { port });
+    const r = await this.rpc("device.list_files", { port, path: dir });
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "ls_failed");
     return r.files ?? [];
   }

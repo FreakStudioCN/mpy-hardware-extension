@@ -201,6 +201,20 @@ def test_device_copy_from_dispatches_mpremote_cp_with_remote_colon():
     assert "/tmp/log.txt" in calls[0]
 
 
+def test_device_list_files_drops_the_mpremote_ls_header():
+    # `mpremote fs ls` echoes an "ls :" header line; it must not leak into the file list
+    # as a spurious ":" / "ls" entry.
+    stdout = "ls :\n        2061 boot.py\n         139 main.py\n           0 lib/\n"
+    restore = _patch_mpremote(lambda args, **kw: _fake_proc(stdout=stdout, returncode=0))
+    try:
+        res = serve._dispatch(_shim_with([]), "device.list_files", {"port": "COM3"})
+    finally:
+        restore()
+    assert res["status"] == "ok", res
+    assert ":" not in res["files"] and "ls" not in res["files"], res
+    assert "boot.py" in res["files"] and "main.py" in res["files"], res
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

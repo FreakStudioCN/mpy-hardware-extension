@@ -346,15 +346,21 @@ def _run_mpremote(args, timeout=30):
     return subprocess.run(["mpremote", *args], capture_output=True, text=True, timeout=timeout)
 
 
-def _list_files(port):
-    r = _run_mpremote(["connect", port, "resume", "fs", "ls"], timeout=15)
+def _list_files(port, path=None):
+    args = ["connect", port, "resume", "fs", "ls"]
+    if path:
+        args.append(path)
+    r = _run_mpremote(args, timeout=15)
     if r.returncode != 0:
         return {"status": "error", "error_kind": map_install_error(r.stderr), "message": (r.stderr or "").strip()}
     files = []
     for line in r.stdout.splitlines():
         parts = line.strip().split()
-        if parts and parts[-1] != "ls":
-            files.append(parts[-1])
+        # mpremote echoes an "ls :" header line; skip it (and any bare ":") so it can't leak
+        # into the list. Entries are "<size> <name>" (a dir shows "0 name/").
+        if not parts or parts[0] == "ls" or parts[-1] in (":", "ls"):
+            continue
+        files.append(parts[-1])
     return {"status": "ok", "files": files}
 
 
@@ -678,7 +684,7 @@ def _dispatch(shim, method, params):
     if method == "device.health_check":
         return _health_check()
     if method == "device.list_files":
-        return _list_files(params["port"])
+        return _list_files(params["port"], params.get("path"))
     if method == "device.fs_remove":
         return _fs_remove(params["port"], params["path"])
     if method == "device.fs_mkdir":
