@@ -85,6 +85,7 @@
     "typecheck": "node scripts/typecheck.mjs",
     "golden": "node --no-warnings --experimental-strip-types src/cli/run-golden-path.ts",
     "live-gen": "node --no-warnings --experimental-strip-types src/cli/run-live-gen.ts",
+    "e2e:v0": "node --no-warnings --experimental-strip-types src/cli/e2e-protocol-v0.ts",
     "build": "node scripts/build-extension.mjs",
     "vscode:prepublish": "node scripts/prepare-vsce.mjs",
     "package": "vsce package --out build/",

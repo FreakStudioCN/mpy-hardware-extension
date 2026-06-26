@@ -16,35 +16,26 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILLS_ROOT = _REPO_ROOT / "third_party" / "MicroPython_Skills"
 
-# Ordered project-gen surface (matches the upstream phase pipeline).
+# Ordered V0 project-gen surface — the 6 protocol-native `-plugin` skills.
+# The pipeline phase tokens are what each phase emits as `next_phase` (upstream is
+# inconsistent: analyze/select-hw use short names, the rest use the full plugin dir
+# name), so routing keys off those exact tokens.
 SERVED_SKILLS = (
-    "upy-analyze",
-    "upy-select-hw",
-    "upy-scaffold",
-    "upy-generate",
-    "upy-wiring",
-    "upy-diagram",
-    "upy-deploy",
-    "upy-deploy-test",
-    "upy-autofix",
-    "upy-simulate",
-    "upy-pkg-guide",
-    "upy-project",
+    "upy-analyze-plugin",
+    "upy-select-hw-plugin",
+    "upy-flash-mpy-firmware-plugin",
+    "upy-scaffold-plugin",
+    "upy-generate-plugin",
+    "upy-deploy-plugin",
 )
 
 PHASE_BY_SKILL = {
-    "upy-analyze": "analyze",
-    "upy-select-hw": "select-hw",
-    "upy-scaffold": "scaffold",
-    "upy-generate": "generate",
-    "upy-wiring": "wiring",
-    "upy-diagram": "diagram",
-    "upy-deploy": "deploy",
-    "upy-deploy-test": "deploy-test",
-    "upy-autofix": "autofix",
-    "upy-simulate": "simulate",
-    "upy-pkg-guide": "pkg-guide",
-    "upy-project": "project",
+    "upy-analyze-plugin": "analyze",
+    "upy-select-hw-plugin": "select-hw",
+    "upy-flash-mpy-firmware-plugin": "upy-flash-mpy-firmware-plugin",
+    "upy-scaffold-plugin": "upy-scaffold-plugin",
+    "upy-generate-plugin": "upy-generate-plugin",
+    "upy-deploy-plugin": "upy-deploy-plugin",
 }
 
 SKILL_BY_PHASE = {phase: skill for skill, phase in PHASE_BY_SKILL.items()}

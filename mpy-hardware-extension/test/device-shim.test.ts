@@ -31,6 +31,18 @@ test("DeviceShim resolves+caches the port from device.scan and maps loop methods
   assert.equal(calls.find((c) => c.method === "device.write_main_py").params.code, "print('hi')");
 });
 
+test("DeviceShim.runV0Script forwards a V0 script_run to script.run_v0 and returns the result", async () => {
+  const calls: any[] = [];
+  const shim = new DeviceShim(async (method: string, params: any) => {
+    calls.push({ method, params });
+    return { status: "ok", success: false, exit_code: 1, stdout: "", stderr: "gate failed", result_json: null };
+  });
+  const res = await shim.runV0Script({ interpreter: "python", script: "check_generate_plan.py", args: ["--require-plan"], project_dir: "C:/p", stdin_content: "{}" });
+  assert.deepEqual(calls, [{ method: "script.run_v0", params: { interpreter: "python", script: "check_generate_plan.py", args: ["--require-plan"], project_dir: "C:/p", stdin_content: "{}" } }]);
+  assert.equal(res.success, false);
+  assert.equal(res.exit_code, 1);
+});
+
 test("DeviceShim.probeMicroPython asks the shim and returns the has_micropython boolean", async () => {
   const calls: any[] = [];
   const shim = new DeviceShim(async (method: string, params: any) => {

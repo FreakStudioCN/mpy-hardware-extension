@@ -977,7 +977,9 @@
         setTab("activity");
         card = card || {};
         const items = Array.isArray(card.items) ? card.items : [];
-        const groups = Array.isArray(card.item_groups) ? card.item_groups : [];
+        // item_groups is contract-valid as either an array OR an object map; an object
+        // form was being dropped here, hiding its items from the user. Normalize both.
+        const groups = Array.isArray(card.item_groups) ? card.item_groups : Object.values(card.item_groups || {});
         const actions = (Array.isArray(card.actions) && card.actions.length) ? card.actions : [{ label: tr("send"), value: "confirm", primary: true }];
         const textInputs = Array.isArray(card.text_inputs) ? card.text_inputs : [];
         const el = document.createElement("div");

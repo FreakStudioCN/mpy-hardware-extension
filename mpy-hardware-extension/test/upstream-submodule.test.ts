@@ -30,3 +30,21 @@ test("vendored upstream toolchain the shim runs + packages is present (submodule
     assert.ok(existsSync(join(upstream, rel)), `missing vendored upstream file: ${rel}`);
   }
 });
+
+test("V0 plugin scripts the run_v0 host runner resolves + the packager bundles are present", () => {
+  // These are run by serve.py's generic run_v0 on the V0 build path and bundled by
+  // prepare-vsce.mjs (PLUGIN_DIRS). If any go missing, the full-stack build breaks.
+  const required = [
+    "upy-analyze-plugin/scripts/init_manifest.py",
+    "upy-select-hw-plugin/scripts/select_hw_manifest.py",
+    "upy-flash-mpy-firmware-plugin/scripts/firmware_download.py",
+    "upy-scaffold-plugin/scripts/init_scaffold.py",
+    "upy-generate-plugin/scripts/check_generate_plan.py",
+    "upy-generate-plugin/scripts/run_quality_gates.py",
+    "upy-generate-plugin/scripts/common.py",
+    "upy-deploy-plugin/scripts/deploy_manifest.py",
+  ];
+  for (const rel of required) {
+    assert.ok(existsSync(join(upstream, rel)), `missing V0 plugin script: ${rel}`);
+  }
+});

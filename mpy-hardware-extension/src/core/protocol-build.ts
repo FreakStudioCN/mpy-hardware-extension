@@ -12,6 +12,15 @@ type BuildDeps = {
   getAuthToken?: () => Promise<string | undefined>;
   readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
   writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>;
+  // Lists the project tree so the model can introspect what scaffold already wrote
+  // (e.g. resume into generate). Without a real lister the model is blind and can
+  // wrongly conclude the project is empty and bail to analyze.
+  listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>;
+  // Real mkdir / delete in the project tree (host enforces containment). Generate
+  // deletes firmware/tools/ before the mpy_imports gate, so these must actually
+  // mutate the fs — never a no-op that fakes success.
+  makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>;
+  deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>;
   projectRoot?: string;
 };
 
@@ -44,8 +53,17 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
     if (!shim) return { ok: false, error_kind: "device_unavailable" };
     try {
       if (action === "devs" || action === "scan") return { ok: true, stdout: (await shim.scan()).join(",") };
-      if (action === "cp") { if (projectDir && shim.deployFirmwareTree) await shim.deployFirmwareTree(projectDir); return { ok: true }; }
-      if (action === "soft_reset" || action === "run") { if (shim.flashAndRun) await shim.flashAndRun(payload?.code ?? "firmware/main.py"); return { ok: true }; }
+      // cp / soft_reset / run need a real shim primitive. If it's absent we CANNOT do
+      // the action — report it honestly instead of returning ok:true for work that
+      // never happened (the model then adapts rather than trusting a phantom success).
+      if (action === "cp") {
+        if (!projectDir || !shim.deployFirmwareTree) return { ok: false, error_kind: "device_method_absent", stderr: "cp" };
+        await shim.deployFirmwareTree(projectDir); return { ok: true };
+      }
+      if (action === "soft_reset" || action === "run") {
+        if (!shim.flashAndRun) return { ok: false, error_kind: "device_method_absent", stderr: action };
+        await shim.flashAndRun(payload?.code ?? "firmware/main.py"); return { ok: true };
+      }
       if (action === "stream" || action === "read") {
         const r = await shim.serialReadUntil(payload?.markers ?? ["MPYHW_READY"]);
         const lines = Array.isArray(r) ? r : (r.lines ?? []);
@@ -56,7 +74,9 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
         const code = String(payload?.code ?? "");
         const m = code.match(/mip\.install\(['"]([^'"]+)['"]/);
         if (m && shim.installPackage) { await shim.installPackage(m[1]); return { ok: true }; }
-        return { ok: true, stdout: "" };
+        // The shim has no generic REPL-exec primitive — never pretend arbitrary device
+        // code ran. Only mip.install is wired; anything else is an honest failure.
+        return { ok: false, error_kind: "device_exec_unsupported", stderr: code.slice(0, 80) };
       }
       // cp_from / mkdir / ls / rm: the serve.py shim has no generic primitive for these
       // yet — report honestly so the model adapts instead of believing it succeeded.
@@ -66,20 +86,22 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
     }
   };
 
-  // script_run(script) -> host toolchain scripts. The phase recipes discourage most
-  // scripts, so this is a thin best-effort bridge.
-  const runScript = async (_interpreter: string, script: string, args: string[]) => {
-    if (!shim || !projectDir) return { ok: true, stdout: "", exit_code: 0 };
+  // script_run -> the V0 generic plugin-script runner on the host. The V0 design moves
+  // the deterministic work into the vendored `-plugin` scripts (init_manifest.py,
+  // init_scaffold.py, the check_*.py gates, run_quality_gates.py, ...) + shell (git
+  // commit), so we run the model's named script for real. A missing runner or an
+  // unresolvable script is a HARD failure (ok:false) — never a faked ok:true.
+  const runScript = async (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number }) => {
+    if (!shim || !projectDir) return { ok: false, error_kind: "host_runner_absent" as string };
     try {
-      if (/validate/.test(script)) { const r = await shim.runValidate(projectDir, args[0]); return { ok: true, stdout: r.output, exit_code: r.exitCode }; }
-      if (/scaffold/.test(script)) { const r = await shim.runScaffold(projectDir); return { ok: true, stdout: r.output, exit_code: 0 }; }
-      if (/wiring/.test(script) && shim.renderWiring) { const r = await shim.renderWiring(projectDir, "md"); return { ok: true, stdout: r.output, exit_code: 0 }; }
-      if (/diagram/.test(script) && shim.renderDiagram) { const r = await shim.renderDiagram(projectDir, "md"); return { ok: true, stdout: r.output, exit_code: 0 }; }
-      if (/flake8|pylint|static/.test(script)) { const r = await shim.runStaticCheck(projectDir); return { ok: r.clean, stdout: JSON.stringify(r.flake8 ?? r), exit_code: r.clean ? 0 : 1 }; }
-      if (/pytest|simulate/.test(script)) { const r = await shim.runSimulate(projectDir); return { ok: r.passed, stdout: r.output, exit_code: r.exitCode }; }
-      return { ok: true, stdout: "", exit_code: 0 };
+      const res = await shim.runV0Script({ interpreter, script, args, project_dir: projectDir, stdin_content: extra?.stdin_content, stdin_json: extra?.stdin_json, timeout_ms: extra?.timeout_ms });
+      if (!res || res.status !== "ok") return { ok: false, error_kind: res?.error_kind ?? "script_error", stderr: res?.message ?? "" };
+      // serve.py returns parsed JSON in result_json (with stdout blanked); re-serialize
+      // it so the model still sees the script's output.
+      const stdout = res.stdout || (res.result_json != null ? JSON.stringify(res.result_json) : "");
+      return { ok: true, stdout, stderr: res.stderr ?? "", exit_code: res.exit_code ?? 0 };
     } catch (error: any) {
-      return { ok: false, stderr: error?.message ?? "script_error", exit_code: 1 };
+      return { ok: false, error_kind: "script_error", stderr: error?.message ?? "script_error" };
     }
   };
 
@@ -89,7 +111,11 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
     runScript,
     writeFile: deps.writeProjectFile,
     readFile: deps.readWorkspaceFile,
-    listFiles: async () => ({ ok: true, entries: [] }),
+    // No fake empty-lister fallback: a missing lister must surface as
+    // workspace_unavailable (see execFileOperation), not a fabricated empty project.
+    listFiles: deps.listFiles,
+    makeDir: deps.makeProjectDir,
+    deletePath: deps.deleteProjectPath,
   };
 
   // The controller-shaped loop. Maps its input to the protocol input and the
@@ -108,6 +134,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
         confirmApproval: input.confirmApproval,
         startPhase: input.state?.phase,
         startManifest: input.state?.manifest,
+        maxTurnsPerPhase: input.maxTurnsPerPhase,
       },
       protocolDeps,
     );

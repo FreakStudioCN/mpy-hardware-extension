@@ -50,18 +50,8 @@
             }
           },
           "item_groups": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "group_id": { "type": "string" },
-                "group_header": { "type": "string" },
-                "multi_select": { "type": "boolean" },
-                "items": { "type": "array" }
-              },
-              "required": ["group_id", "items"],
-              "additionalProperties": true
-            }
+            "type": ["array", "object"],
+            "description": "Spec shape (02-protocol.md) is an array of {group_id, group_header, multi_select, items}; some plugin samples (scaffold_config, generate_behavior) instead emit an object map keyed by group_id ({label, multi_select, ...}). Upstream is inconsistent here — the renderer normalizes both shapes."
           },
           "allow_add": { "type": "boolean" },
           "allow_remove": { "type": "boolean" },
@@ -117,7 +107,7 @@
             "additionalProperties": true
           }
         },
-        "required": ["approval_id", "question", "actions"],
+        "required": ["approval_id", "question"],
         "additionalProperties": true
       }
     },
@@ -159,7 +149,7 @@
     },
     "file_operation": {
       "direction": "server->plugin",
-      "description": "Read/write a workspace file. Replaces write_main_py/write_project_file/read_workspace_file. content is required when op=write/append. For firmware .py code writes the server may intercept on `intent` and generate content via the internal codegen step before forwarding.",
+      "description": "Read/write a workspace file. Replaces write_main_py/write_project_file/read_workspace_file. content is required when op=write/append (V0 is codegen-pure: the plugin writes file content inline; the server does NOT synthesize code).",
       "payload_schema": {
         "type": "object",
         "properties": {
@@ -167,7 +157,6 @@
           "op": { "type": "string", "enum": ["write", "read", "list", "delete", "mkdir", "append"] },
           "path": { "type": "string" },
           "content": { "type": "string" },
-          "intent": { "type": "string", "description": "When present on a code write, the server generates content via internal codegen and fills content before forwarding to the plugin." },
           "encoding": { "type": "string" }
         },
         "required": ["op", "path"],
@@ -206,15 +195,15 @@
             "items": {
               "type": "object",
               "properties": {
-                "type": { "type": "string", "enum": ["table", "file_tree", "markdown", "html", "code_diff", "file_list"] },
+                "type": { "type": "string", "description": "Render hint. Base set is table/file_tree/markdown/html/code_diff/file_list; phases extend it (e.g. generate emits file_manifest, session_state). Unknown types render generically." },
                 "title": { "type": "string" }
               },
               "required": ["type"],
               "additionalProperties": true
             }
           },
-          "warnings": { "type": "array", "items": { "type": "string" } },
-          "errors": { "type": "array", "items": { "type": "string" } }
+          "warnings": { "type": "array", "items": { "type": ["string", "object"] } },
+          "errors": { "type": "array", "items": { "type": ["string", "object"] }, "description": "Plain strings, or structured {code, message, ...} objects (deploy/generate emit structured errors inline)." }
         },
         "required": ["result", "summary"],
         "additionalProperties": true
@@ -243,7 +232,7 @@
         "type": "object",
         "properties": {
           "phase": { "type": "string" },
-          "manifest": { "type": "object" },
+          "manifest": { "type": ["object", "null"] },
           "session_id": { "type": "string" },
           "source": { "type": ["object", "string", "null"] }
         },

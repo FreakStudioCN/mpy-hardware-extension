@@ -39,20 +39,25 @@ test("extension entry loads in a CommonJS host and exports activate", () => {
 });
 
 test("website recipe URI payload parses into an extension import request", () => {
+  // The website forwards the recommend response's `handoff` object verbatim as
+  // `payload`. The live API shape has `starter_prompt` (NOT `prompt`) and no
+  // `recipe_id`/`id` at all, so the parser must recover the idea from
+  // `starter_prompt` — otherwise the plugin opens to a blank input box.
   const payload = encodeURIComponent(JSON.stringify({
-    recipe_id: "soil-moisture-monitor",
-    prompt: "Build a soil monitor",
+    starter_prompt: "Build a MicroPython project for: a plant that yells when its soil is dry",
+    board_slug: "ESP32_GENERIC_S3",
+    capabilities: ["humidity_sensing", "audio_output"],
     source: "website",
   }));
 
   const parsed = parseRecipeImportUri({
     path: "/importRecipe",
-    query: `recipe_id=soil-moisture-monitor&payload=${payload}`,
+    query: `source=website&payload=${payload}`,
   });
 
   assert.deepEqual(parsed, {
-    recipe_id: "soil-moisture-monitor",
-    prompt: "Build a soil monitor",
+    recipe_id: "",
+    prompt: "Build a MicroPython project for: a plant that yells when its soil is dry",
     source: "website",
   });
 });
@@ -89,14 +94,22 @@ test("extension registers a URI handler that forwards website recipes to the web
     },
   };
   const context = { extensionUri: {}, globalStorageUri: { fsPath: "C:/tmp/blockless-test" }, subscriptions: [] as any[] };
-  const payload = encodeURIComponent(JSON.stringify({ recipe_id: "busy-light-button", prompt: "Build a busy light", source: "website" }));
+  // Real handoff shape forwarded by the website (see /v1/web/recommend): the
+  // idea rides in `starter_prompt`, there is no `recipe_id`, and the only query
+  // param besides the payload is `source`.
+  const payload = encodeURIComponent(JSON.stringify({
+    starter_prompt: "Build a MicroPython project for: a desk light that turns red when I'm on a call",
+    board_slug: "ESP32_GENERIC_S3",
+    capabilities: ["digital_input", "rgb_output"],
+    source: "website",
+  }));
 
   activate(context, vscode);
-  uriHandler.handleUri({ path: "/importRecipe", query: `recipe_id=busy-light-button&payload=${payload}` });
+  uriHandler.handleUri({ path: "/importRecipe", query: `source=website&payload=${payload}` });
 
   assert.deepEqual(commands, ["mpyhw.panel.focus"]);
   assert.deepEqual(posted.at(-1), {
     type: "recipe_imported",
-    payload: { recipe_id: "busy-light-button", prompt: "Build a busy light", source: "website" },
+    payload: { recipe_id: "", prompt: "Build a MicroPython project for: a desk light that turns red when I'm on a call", source: "website" },
   });
 });

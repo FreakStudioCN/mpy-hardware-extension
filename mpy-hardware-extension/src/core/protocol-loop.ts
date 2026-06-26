@@ -6,8 +6,16 @@ import { PROTOCOL_TOOLS, PROTOCOL_TOOL_NAMES, routeForTool } from "./protocol-re
 
 export const PHASE_ORDER = ["analyze", "select-hw", "scaffold", "generate", "wiring", "diagram", "deploy", "deploy-test", "autofix"] as const;
 
-const MAX_TURNS_PER_PHASE = 10;
+// V0 phases are script-heavy and the model emits ONE tool per turn, so a phase can
+// legitimately take dozens of turns (select-hw ~40, generate ~49). The old cap of 10
+// stalled every V0 phase. Callers (e.g. the e2e) override via input.maxTurnsPerPhase.
+const MAX_TURNS_PER_PHASE = 60;
 const MAX_PHASES = 9;
+
+// Headless/no-board contexts pick the "already handled on hardware" action so a flash
+// approval doesn't try to drive a device that isn't there. The panel passes a real
+// confirmApproval callback and never hits this.
+const NO_HARDWARE_ACTIONS = ["already_flashed", "use_local_firmware", "confirm_flashed", "copied_uf2", "copied", "confirmed"];
 
 type StreamEvent = { type: string; text?: string; id?: string; name?: string; input?: any; invalidInput?: string; message?: string; finishReason?: string };
 type LlmClient = { streamMessages: (body: any, signal?: any) => Promise<AsyncIterable<StreamEvent>> | AsyncIterable<StreamEvent> };
@@ -20,8 +28,15 @@ export type ProtocolDeps = {
   writeFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>;
   readFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
   listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>;
-  // Host script runner (flake8/pytest/render_*). Best-effort; absent = reported ok-noop.
-  runScript?: (interpreter: string, script: string, args: string[]) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string }>;
+  // mkdir / delete (host enforces containment). The generate phase deletes
+  // firmware/tools/ before the mpy_imports gate, so these must do REAL fs work —
+  // a no-op that returns success would silently leave the gate-failing files behind.
+  makeDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>;
+  deletePath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>;
+  // Host script runner: runs a bundled V0 plugin script (or shell command) on the
+  // user's machine. `extra` carries the model's stdin/timeout. ABSENT or a missing
+  // script is a hard failure (ok:false), never a faked success.
+  runScript?: (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string }>;
 };
 
 export type ProtocolInput = {
@@ -35,6 +50,8 @@ export type ProtocolInput = {
   confirmApproval?: (card: any) => Promise<{ action: string; selected_ids?: string[]; added_items?: any[]; text_values?: any; notes?: string } | null>;
   startPhase?: string;
   startManifest?: any;
+  // Per-phase turn cap (default MAX_TURNS_PER_PHASE). V0 phases need a high budget.
+  maxTurnsPerPhase?: number;
 };
 
 export type ProtocolResult = {
@@ -51,7 +68,8 @@ function asyncEvents(source: AsyncIterable<StreamEvent>): AsyncIterator<StreamEv
 // notify executor captured from phase_complete.
 async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps) {
   const messages: any[] = [{ role: "user", content: input.intent }];
-  for (let turn = 0; turn < MAX_TURNS_PER_PHASE; turn++) {
+  const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_PER_PHASE;
+  for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
     const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId };
     const source = await deps.llmClient.streamMessages(body, input.signal);
@@ -117,8 +135,14 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
     const ctrl = outcome.control;
     phases.push({ phase, result: ctrl.result ?? "success" });
     if (ctrl.manifest && typeof ctrl.manifest === "object") manifest = ctrl.manifest;
-    if (!ctrl.next_phase) return { phases, manifest, terminal: ctrl.result === "failed" ? "failed" : "complete" };
-    phase = String(ctrl.next_phase);
+    // Terminal when there's no next phase. The model sometimes emits the literal
+    // string "null"/"none"/"" instead of JSON null — treat those as terminal too,
+    // otherwise the loop spawns a phantom phase named "null".
+    const next = ctrl.next_phase;
+    if (!next || ["null", "none", ""].includes(String(next).trim().toLowerCase())) {
+      return { phases, manifest, terminal: ctrl.result === "failed" ? "failed" : "complete" };
+    }
+    phase = String(next);
   }
   // Ran the phase cap without a null next_phase: nonterminal, not a success.
   return { phases, manifest, terminal: "incomplete" };
@@ -145,6 +169,12 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
       return { result: { ok: true } };
     }
     // phase_complete: surface artifacts + carry the manifest forward (auto-acked).
+    // A phase_complete with no `result` is malformed/truncated — reject it (no
+    // phaseControl) so the phase keeps going and the model re-emits a complete one,
+    // instead of silently ending the build with an undefined result.
+    if (!p.result) {
+      return { result: { ok: false, error_kind: "phase_complete_incomplete", detail: "phase_complete requires a result (success/partial/failed) and, on success, a next_phase" } };
+    }
     input.onEvent?.({ type: "phase_complete", payload: p });
     if (p.manifest_content) input.onEvent?.({ type: "manifest_updated", manifest: p.manifest_content });
     return { result: { ok: true }, phaseControl: { result: p.result, next_phase: p.next_phase, manifest: p.manifest_content } };
@@ -155,11 +185,16 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // and select all items. With a callback, null means the user dismissed/cancelled
     // (NOT auto-confirm), so it must abort — conflating the two would silently approve.
     if (typeof input.confirmApproval !== "function") {
+      // item_groups is contract-valid as an array OR an object map; .flatMap on the
+      // object form would throw and crash the headless run, so normalize first.
+      const groups = Array.isArray(p.item_groups) ? p.item_groups : Object.values(p.item_groups ?? {});
       const ids = [
         ...((p.items ?? []).map((i: any) => i?.id)),
-        ...((p.item_groups ?? []).flatMap((g: any) => (g?.items ?? []).map((i: any) => i?.id))),
+        ...groups.flatMap((g: any) => (g?.items ?? []).map((i: any) => i?.id)),
       ].filter(Boolean);
-      const action = (p.actions?.find((a: any) => a.primary)?.value) ?? "confirm";
+      const values = (p.actions ?? []).map((a: any) => a?.value).filter(Boolean);
+      const action = NO_HARDWARE_ACTIONS.find((a) => values.includes(a))
+        ?? (p.actions?.find((a: any) => a.primary)?.value) ?? values[0] ?? "confirm";
       return { result: { ok: true, approval_id: p.approval_id, action, selected_ids: ids, added_items: [], text_values: {}, notes: "" } };
     }
     const decision = await input.confirmApproval(p);
@@ -172,9 +207,20 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
   }
 
   if (route === "host") {
-    if (typeof deps.runScript !== "function") return { result: { ok: true, success: true, stdout: "", exit_code: 0, note: "host_runner_absent" } };
-    const r = await deps.runScript(String(p.interpreter ?? "python"), String(p.script ?? ""), Array.isArray(p.args) ? p.args.map(String) : []);
-    return { result: { ok: true, script_id: p.script_id, success: r.ok, stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit_code: r.exit_code ?? (r.ok ? 0 : 1) } };
+    // Fail loud if there is no host runner — a faked ok:true here is what let every
+    // V0 gate (check_*.py) silently "pass" without running.
+    if (typeof deps.runScript !== "function") return { result: { ok: false, success: false, error_kind: "host_runner_absent" } };
+    const r = await deps.runScript(
+      String(p.interpreter ?? "python"),
+      String(p.script ?? ""),
+      Array.isArray(p.args) ? p.args.map(String) : [],
+      { stdin_content: p.stdin_content, stdin_json: p.stdin_json, timeout_ms: p.timeout_ms },
+    );
+    // ok:false = the call itself failed (host_runner_absent / script_not_found) — surface it.
+    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: r.stderr ?? "" } };
+    // The script RAN: success keys on its exit code (a non-zero gate is a real, fixable result).
+    const exit = r.exit_code ?? 0;
+    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit_code: exit } };
   }
 
   if (route === "device") {
@@ -206,10 +252,22 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
     return { ok: r.ok, op_id: p.op_id, success: r.ok, content: r.content ?? "", error: r.ok ? null : (r.error_kind ?? "read_failed") };
   }
   if (op === "list") {
-    if (typeof deps.listFiles !== "function") return { ok: true, op_id: p.op_id, success: true, entries: [] };
+    // No lister wired = the workspace is unavailable. Faking ok:true with empty
+    // entries told the model "the project is empty", which made generate wrongly bail
+    // to analyze — so fail loud instead of fabricating an empty listing.
+    if (typeof deps.listFiles !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
     const r = await deps.listFiles(path);
     return { ok: r.ok, op_id: p.op_id, success: r.ok, entries: r.entries ?? [], error: r.ok ? null : (r.error_kind ?? "list_failed") };
   }
-  // mkdir / delete: best-effort no-op success (host applies real semantics).
-  return { ok: true, op_id: p.op_id, success: true };
+  if (op === "mkdir") {
+    if (typeof deps.makeDir !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
+    const r = await deps.makeDir(path);
+    return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "mkdir_failed") };
+  }
+  if (op === "delete") {
+    if (typeof deps.deletePath !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
+    const r = await deps.deletePath(path);
+    return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "delete_failed") };
+  }
+  return { ok: false, op_id: p.op_id, error_kind: "unsupported_file_op", op };
 }

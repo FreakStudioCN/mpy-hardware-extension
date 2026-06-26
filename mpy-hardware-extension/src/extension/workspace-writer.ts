@@ -58,7 +58,7 @@ export function normalizeGeneratedArtifactPath(name: string, options: { allowMai
     // files anywhere under the firmware/ and test/ trees (drivers, tasks, lib,
     // test/pc, test/device). Path traversal, absolute paths, and backslashes are
     // already rejected above, so any accepted path stays inside the project root.
-    if (name === "project-manifest.json" || name === "wiring.json" || name === "diagram.json") return name;
+    if (name === "project-manifest.json" || name === "generate_plan.json" || name === "wiring.json" || name === "diagram.json") return name;
     if (segments[0] === "docs" && segments.length >= 2 && name.endsWith(".json")) return name;
     if ((segments[0] === "firmware" || segments[0] === "test") && segments.length >= 2 && name.endsWith(".py")) return name;
   }

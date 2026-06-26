@@ -61,24 +61,28 @@ def test_skill_catalog_and_body_are_served():
 
     assert catalog.status_code == 200
     names = [skill["name"] for skill in catalog.json()["skills"]]
-    # Only the project-gen ("一句话造硬件") path is surfaced to the build agent.
-    assert "upy-analyze" in names
-    assert "upy-select-hw" in names
-    assert "upy-generate" in names
-    assert "upy-wiring" in names
-    assert "upy-autofix" in names
+    # V0: only the 6 protocol-native `-plugin` skills are surfaced to the build agent.
+    assert "upy-analyze-plugin" in names
+    assert "upy-select-hw-plugin" in names
+    assert "upy-flash-mpy-firmware-plugin" in names
+    assert "upy-scaffold-plugin" in names
+    assert "upy-generate-plugin" in names
+    assert "upy-deploy-plugin" in names
+    # The pre-V0 non-plugin skill names are no longer served.
+    assert "upy-analyze" not in names
+    assert "upy-wiring" not in names
     # Driver-authoring / low-level mpremote skills ship in the submodule but
     # are NOT served on the consumer surface.
     assert "upy-norm-driver" not in names
     assert "mpremote-device-interaction" not in names
 
     # Catalog descriptions come from the SKILL.md frontmatter, not "---".
-    wiring = next(s for s in catalog.json()["skills"] if s["name"] == "upy-wiring")
-    assert wiring["description"] and not wiring["description"].startswith("-")
+    generate = next(s for s in catalog.json()["skills"] if s["name"] == "upy-generate-plugin")
+    assert generate["description"] and not generate["description"].startswith("-")
 
-    body = client.get("/v1/skills/upy-wiring")
+    body = client.get("/v1/skills/upy-generate-plugin")
     assert body.status_code == 200
-    assert "wiring" in body.text.lower()
+    assert "generate" in body.text.lower()
     assert body.headers["etag"]
 
     # A real upstream skill that is deliberately not served → 404.

@@ -36,25 +36,42 @@ if (!existsSync(upstreamRoot)) {
 const destRoot = join("third_party", "MicroPython_Skills");
 rmSync(destRoot, { recursive: true, force: true });
 
-const files = [
-  "upy-project-gen-toolchain-spec/scripts/validate_json.py",
-  "upy-project-gen-toolchain-spec/project-manifest.schema.json",
-  "upy-project-gen-toolchain-spec/wiring.schema.json",
-  "upy-project-gen-toolchain-spec/diagram.schema.json",
-  "upy-scaffold/scripts/init_scaffold.py",
-  "upy-generate/scripts/download_drivers.py",
-  "upy-autofix/scripts/triage.py",
-  "upy-autofix/scripts/hardware_sanity.py",
-  "upy-wiring/scripts/render_wiring_local.py",
-  "upy-diagram/scripts/render_diagram_local.py",
-  ...walk(join(upstreamRoot, "upy-scaffold", "templates")).map((abs) => relative(upstreamRoot, abs).replaceAll("\\", "/")),
+// V0: bundle the 6 protocol-native `-plugin` skill dirs (their scripts/ + the
+// resources those scripts read: templates, schemas, knowledge), plus shared-plugin-
+// scripts and the toolchain-spec schemas. The cloud model names scripts by their bare
+// filename and serve.py's run_v0 resolver finds them under any bundled scripts/ dir,
+// so the whole dir must ship — not a cherry-picked allowlist. We DROP the heavy prose
+// (SKILL.md/README) and the test/sample/mock fixtures, which the runtime never reads.
+const PLUGIN_DIRS = [
+  "upy-analyze-plugin",
+  "upy-select-hw-plugin",
+  "upy-flash-mpy-firmware-plugin",
+  "upy-scaffold-plugin",
+  "upy-generate-plugin",
+  "upy-deploy-plugin",
+  "shared-plugin-scripts",
+  "upy-project-gen-toolchain-spec",
 ];
-for (const rel of files) {
-  const to = join(destRoot, rel);
-  mkdirSync(dirname(to), { recursive: true });
-  cpSync(join(upstreamRoot, rel), to);
+const EXCLUDE_DIRS = new Set(["test", "tests", "sample", "samples", "mock-messages", "__pycache__"]);
+function shouldSkip(relPosix) {
+  const parts = relPosix.split("/");
+  if (parts.some((p) => EXCLUDE_DIRS.has(p))) return true;
+  return relPosix.endsWith(".md") || relPosix.endsWith(".pyc");
 }
-console.log(`Vendored ${files.length} upstream files into ${destRoot}`);
+let vendored = 0;
+for (const dir of PLUGIN_DIRS) {
+  const absDir = join(upstreamRoot, dir);
+  if (!existsSync(absDir)) continue;
+  for (const abs of walk(absDir)) {
+    const rel = relative(upstreamRoot, abs).replaceAll("\\", "/");
+    if (shouldSkip(rel)) continue;
+    const to = join(destRoot, rel);
+    mkdirSync(dirname(to), { recursive: true });
+    cpSync(abs, to);
+    vendored++;
+  }
+}
+console.log(`Vendored ${vendored} V0 plugin files into ${destRoot}`);
 
 function walk(dir) {
   if (!existsSync(dir)) return [];

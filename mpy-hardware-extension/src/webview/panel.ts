@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 
 import { SessionController } from "../extension/session-controller.ts";
@@ -81,7 +81,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     : undefined;
   const controller = new SessionController({
     postMessage: (message) => webview.postMessage(message),
-    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), projectRoot: projectFolder }),
+    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder), projectRoot: projectFolder }),
     recorderFactory,
     writeFiles: async (files) => {
       if (!projectFolder) return { ok: false, error_kind: "workspace_unavailable" };
@@ -317,7 +317,7 @@ async function fetchToolchainVersion(apiBaseUrl: string, fetchImpl: typeof fetch
 
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; projectRoot?: string }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; projectRoot?: string }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);
@@ -366,6 +366,65 @@ function makeWorkspaceWriter(workspaceFolder?: string) {
         await writeFile(path, fileContent, "utf-8");
       },
     });
+}
+
+// file_operation(list) backing: lists the project tree (relative POSIX paths, dirs
+// suffixed with "/") so the model can introspect what scaffold already wrote and not
+// wrongly conclude the project is empty. Same containment as makeWorkspaceReader.
+function makeWorkspaceLister(workspaceFolder?: string) {
+  if (!workspaceFolder) return undefined;
+  const root = resolve(workspaceFolder);
+  return async (relPath: string) => {
+    const base = relPath ? resolve(root, relPath) : root;
+    if (base !== root && !base.startsWith(root + sep)) {
+      return { ok: false as const, error_kind: "path_outside_workspace" };
+    }
+    const entries: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        if (name === ".git" || name === "node_modules") continue;
+        const full = join(dir, name);
+        const rel = full.slice(root.length + 1).split(sep).join("/");
+        if (statSync(full).isDirectory()) { entries.push(rel + "/"); walk(full); }
+        else entries.push(rel);
+      }
+    };
+    try { walk(base); return { ok: true as const, entries }; }
+    catch { return { ok: false as const, error_kind: "not_found" }; }
+  };
+}
+
+// file_operation(mkdir) backing: creates a project-tree directory (recursive).
+// Same containment as makeWorkspaceReader — a path escaping the root is refused.
+function makeWorkspaceMkdir(workspaceFolder?: string) {
+  if (!workspaceFolder) return undefined;
+  const root = resolve(workspaceFolder);
+  return async (relPath: string) => {
+    const target = resolve(root, relPath);
+    if (target !== root && !target.startsWith(root + sep)) {
+      return { ok: false as const, error_kind: "path_outside_workspace" };
+    }
+    try { await mkdir(target, { recursive: true }); return { ok: true as const }; }
+    catch { return { ok: false as const, error_kind: "mkdir_failed" }; }
+  };
+}
+
+// file_operation(delete) backing: removes a project-tree path (recursive). The
+// generate phase deletes firmware/tools/ before the mpy_imports gate. Containment
+// refuses anything outside the root AND the root itself (never wipe the workspace).
+// force:true makes "delete an already-absent path" succeed — the desired end-state
+// (path gone) holds — which is not a fake success.
+function makeWorkspaceDeleter(workspaceFolder?: string) {
+  if (!workspaceFolder) return undefined;
+  const root = resolve(workspaceFolder);
+  return async (relPath: string) => {
+    const target = resolve(root, relPath);
+    if (target === root || !target.startsWith(root + sep)) {
+      return { ok: false as const, error_kind: "path_outside_workspace" };
+    }
+    try { await rm(target, { recursive: true, force: true }); return { ok: true as const }; }
+    catch { return { ok: false as const, error_kind: "delete_failed" }; }
+  };
 }
 
 function readWebviewHtml(): string {

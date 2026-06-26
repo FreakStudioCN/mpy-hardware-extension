@@ -68,7 +68,7 @@ export function parseRecipeImportUri(uri: any) {
   }
   return {
     recipe_id: params.get("recipe_id") || payload.recipe_id || "",
-    prompt: payload.prompt || params.get("prompt") || "",
+    prompt: payload.prompt || payload.starter_prompt || params.get("prompt") || "",
     source: payload.source || params.get("source") || "website",
   };
 }

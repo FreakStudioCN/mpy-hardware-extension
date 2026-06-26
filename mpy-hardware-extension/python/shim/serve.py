@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -88,6 +89,57 @@ def resolve_script(name: str) -> str:
 def resolve_schema(name: str):
     rel = SCHEMA_FILES.get(name)
     return os.path.join(scripts_root(), rel) if rel else None
+
+
+# ---------- V0 plugin-interface generic script runner ----------
+# The V0 `-plugin` skills move the deterministic work into many vendored scripts
+# (init_manifest.py, init_scaffold.py, the ~20 check_*.py gates, run_quality_gates.py,
+# firmware_download.py, ...). The cloud model emits script_run(interpreter, script,
+# args) with the script's BARE name; we resolve that name against the bundled plugin
+# scripts and run it for real. A name we cannot resolve is an ERROR (fail fast) — the
+# old behavior of silently returning success faked every V0 gate.
+_V0_SCRIPT_INDEX: dict | None = None
+
+
+def _build_v0_script_index() -> dict:
+    """Map each V0 plugin-script basename to the LIST of bundled paths sharing it.
+
+    Only V0 `-plugin` script dirs and shared-plugin-scripts are indexed. The OLD
+    pre-V0 skills (upy-analyze, upy-scaffold, upy-generate, ...) ship the same
+    basenames (init_manifest.py, init_scaffold.py, download_drivers.py); indexing
+    them would let a bare name silently resolve to a stale non-V0 script AND make dev
+    (full submodule on disk) diverge from the packaged VSIX (which drops them). A
+    basename mapping to >1 path is AMBIGUOUS and must fail loud at resolve time —
+    never a silent first-match pick (which would depend on os.walk traversal order)."""
+    index: dict[str, list[str]] = {}
+    root = scripts_root()
+    for dirpath, _dirs, files in os.walk(root):
+        norm = dirpath.replace("\\", "/")
+        if "__pycache__" in norm:
+            continue
+        # A V0 plugin's own scripts/ dir, or the shared V0 script pool. The OLD skills'
+        # scripts/ dirs (no `-plugin` segment) are deliberately excluded.
+        if "-plugin/scripts" not in norm and "shared-plugin-scripts" not in norm:
+            continue
+        for fname in files:
+            if fname.endswith(".py"):
+                index.setdefault(fname, []).append(os.path.join(dirpath, fname))
+    return index
+
+
+def _v0_script_candidates(name: str) -> list:
+    global _V0_SCRIPT_INDEX
+    if _V0_SCRIPT_INDEX is None:
+        _V0_SCRIPT_INDEX = _build_v0_script_index()
+    return list(_V0_SCRIPT_INDEX.get(os.path.basename(str(name)), []))
+
+
+def resolve_v0_script(name: str):
+    """Resolve a bare V0 plugin-script name (e.g. 'check_generate_plan.py') to its
+    absolute path, or None when not bundled OR ambiguous (shipped by >1 plugin).
+    Callers that must distinguish the two use _v0_script_candidates directly."""
+    candidates = _v0_script_candidates(name)
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _subprocess_text_kwargs():
@@ -249,6 +301,19 @@ class Shim:
         self.commands.append(cmd)
         return self.runner(cmd, timeout=timeout, cwd=cwd, **_subprocess_text_kwargs())
 
+    def run_v0_python(self, script_path: str, args: list[str], cwd=None, stdin=None, timeout: float = 300):
+        # Run a vendored V0 plugin script with the venv interpreter. cwd is the project
+        # root; stdin feeds scripts invoked with --stdin. Injectable via self.runner.
+        cmd = [sys.executable, script_path, *args]
+        self.commands.append(cmd)
+        return self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
+
+    def run_v0_shell(self, command: str, cwd=None, stdin=None, timeout: float = 300):
+        # Run a shell command (V0 generate emits script_run(shell, "git ...") for the
+        # required commit). cwd is the project root. Injectable via self.runner.
+        self.commands.append(["shell", command])
+        return self.runner(command, shell=True, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
+
     def _run(self, command: list[str], timeout: float = 30):
         self.commands.append(command)
         return self.runner(command, timeout=timeout, **_subprocess_text_kwargs())
@@ -336,6 +401,63 @@ def _run_project_script(shim, name, args):
 def _module_result(r):
     return {"exit_code": getattr(r, "returncode", 1),
             "output": ((getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")).strip()}
+
+
+def _v0_result(r):
+    out = getattr(r, "stdout", "") or ""
+    err = getattr(r, "stderr", "") or ""
+    rc = getattr(r, "returncode", 1)
+    result_json = None
+    if out.strip():
+        try:
+            result_json = json.loads(out)
+        except (ValueError, TypeError):
+            result_json = None
+    # status "ok" = the script RAN (the call succeeded); `success`/`exit_code` carry
+    # whether the script PASSED. A non-zero gate is a real result the model must fix —
+    # NOT a transport error. (script_not_found below is the transport error.)
+    return {"status": "ok", "exit_code": rc, "success": rc == 0,
+            "stdout": "" if result_json is not None else out[:8000],
+            "stderr": err[:4000], "result_json": result_json}
+
+
+def _run_v0_script(shim, params):
+    interpreter = params.get("interpreter", "python")
+    script = params.get("script", "") or ""
+    args = [str(a) for a in (params.get("args") or [])]
+    # Always run at the project root; ignore any model-supplied cwd (scripts take
+    # their paths via flags, and an arbitrary cwd could escape the workspace).
+    cwd = params.get("project_dir") or None
+    stdin_content = params.get("stdin_content")
+    if params.get("stdin_json") is not None:
+        stdin_content = json.dumps(params["stdin_json"], ensure_ascii=False)
+    timeout = float(params.get("timeout_ms", 300000)) / 1000.0
+    if interpreter == "shell":
+        cmd = script if not args else script + " " + " ".join(args)
+        # The ONLY shell the V0 skills emit is git (generate's mandatory commit, e.g.
+        # `git add -A && git commit -m "..."`). Refuse anything whose first token isn't
+        # git so a hallucinated/poisoned `rm -rf`, `curl … | sh`, or `python -c …` is
+        # never run on the host — fail loud, don't fake. (A deliberately crafted
+        # `git … && rm …` chain is out of scope: the skills never emit chained non-git
+        # shell, and the model is the user's own backend, not an adversary.)
+        if re.match(r"\s*git(\s|$)", cmd) is None:
+            return {"status": "error", "error_kind": "shell_command_not_allowed",
+                    "message": "only git shell commands are permitted"}
+        return _v0_result(shim.run_v0_shell(cmd, cwd=cwd, stdin=stdin_content, timeout=timeout))
+    if interpreter == "node":
+        # Fail fast: no node toolchain is assumed in the host shim. Don't fake success.
+        return {"status": "error", "error_kind": "node_interpreter_unavailable",
+                "message": "node script_run is not supported by the host shim"}
+    base = os.path.basename(str(script))
+    candidates = _v0_script_candidates(script)
+    if len(candidates) > 1:
+        # Same basename in >1 plugin: never silently pick one (see _build_v0_script_index).
+        return {"status": "error", "error_kind": "ambiguous_script_name",
+                "message": f"{base!r} is shipped by multiple plugins; qualify the script name"}
+    if not candidates:
+        return {"status": "error", "error_kind": "script_not_found",
+                "message": f"no bundled V0 plugin script named {base!r}"}
+    return _v0_result(shim.run_v0_python(candidates[0], args, cwd=cwd, stdin=stdin_content, timeout=timeout))
 
 
 def _run_static_check(shim, params):
@@ -472,6 +594,8 @@ def _run_render(shim, kind, params):
 
 
 def _dispatch(shim, method, params):
+    if method == "script.run_v0":
+        return _run_v0_script(shim, params)
     if method == "script.run_validate":
         return _run_validate(shim, params)
     if method == "script.run_scaffold":

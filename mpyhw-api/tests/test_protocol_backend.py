@@ -12,16 +12,17 @@ from __future__ import annotations
 from app import routes_llm, skill_catalog, tool_registry
 
 
-def test_system_prompt_is_adapter_plus_full_skill_md():
+def test_system_prompt_is_slim_adapter_plus_raw_plugin_skill():
+    # V0: protocol-native -plugin skills get the SLIM adapter + raw SKILL.md and NO
+    # per-phase recipe (the recipes only existed to wrangle the old local-agent skills).
     sp = routes_llm._system_prompt("analyze")
-    # adapter preamble present
-    assert "cloud brain" in sp
+    assert "cloud skill-executor" in sp
     assert "protocol tools" in sp
     assert "--- PHASE SKILL (analyze) ---" in sp
-    # the FULL raw SKILL.md is embedded verbatim (not a sanitized profile) — it still
-    # contains its local-agent phrasing, which the adapter tells the model to translate.
+    # the FULL raw plugin SKILL.md is embedded verbatim.
     raw = skill_catalog.skill_md_body("analyze")
     assert raw and raw in sp
+    assert "PROTOCOL RECIPE" not in sp
 
 
 def test_phase_defaults_to_analyze_and_selects_skill():
@@ -58,27 +59,29 @@ def test_payload_validation_flags_violations():
     assert routes_llm._payload_violation("status_update", "{not json").startswith("invalid_json")
 
 
-def test_write_requires_content_or_intent():
+def test_write_requires_content():
     import json
-    # write without content or intent -> would create an empty file -> rejected
+    # V0 is codegen-pure: write without content -> would create an empty file -> rejected
     assert routes_llm._payload_violation("file_operation", json.dumps({"op": "write", "path": "firmware/main.py"}))
-    # with intent (server codegen) -> ok
-    assert routes_llm._payload_violation("file_operation", json.dumps({"op": "write", "path": "firmware/main.py", "intent": "x"})) is None
+    # intent-only is NO LONGER valid (the server-codegen path was removed) -> rejected
+    assert routes_llm._payload_violation("file_operation", json.dumps({"op": "write", "path": "firmware/main.py", "intent": "x"}))
     # with content -> ok
     assert routes_llm._payload_violation("file_operation", json.dumps({"op": "write", "path": "x.json", "content": "x"})) is None
     # read needs neither
     assert routes_llm._payload_violation("file_operation", json.dumps({"op": "read", "path": "x"})) is None
 
 
-def test_codegen_interception_restricted_to_firmware_py():
-    import json
-    fake = lambda path, intent: "CODE"
-    # firmware/*.py with intent -> server fills content
-    out = routes_llm._maybe_fill_code("file_operation", json.dumps({"op": "write", "path": "firmware/x.py", "intent": "i"}), fake)
-    assert json.loads(out)["content"] == "CODE"
-    # docs/*.py is NOT intercepted (no codegen budget outside firmware/)
-    payload = json.dumps({"op": "write", "path": "docs/foo.py", "intent": "i"})
-    assert routes_llm._maybe_fill_code("file_operation", payload, fake) == payload
+def test_plugin_prompt_uses_resource_backed_phase_note():
+    # The flash/generate phase notes are versioned resources under
+    # content/v0_phase_notes/<skill>.md, not inline Python — assert they load into
+    # the prompt and that no legacy per-phase recipe leaks in.
+    sp = routes_llm._system_prompt("upy-generate-plugin")
+    assert "--- GENERATE PHASE PROTOCOL (V0) ---" in sp
+    assert "MANDATORY FINALIZE" in sp and "PROTOCOL RECIPE" not in sp
+    flash = routes_llm._system_prompt("upy-flash-mpy-firmware-plugin")
+    assert "--- FLASH PHASE PROTOCOL" in flash and "firmware_action_select" in flash
+    # a phase with no overlay resource gets no note (never an empty-string crash)
+    assert routes_llm._v0_phase_note("upy-analyze-plugin") == ""
 
 
 def test_robustness_guards():

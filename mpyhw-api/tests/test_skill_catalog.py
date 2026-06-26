@@ -9,10 +9,13 @@ protocol tools.
 from app import skill_catalog
 
 
-def test_served_phases_are_product_workflow_names():
+def test_served_phases_are_v0_plugin_chain():
+    # V0: the 6 protocol-native -plugin skills. Phase tokens are the exact
+    # `next_phase` values upstream emits (analyze/select-hw use short names; the
+    # rest use the full plugin dir name — upstream is inconsistent).
     assert skill_catalog.served_phase_names() == [
-        "analyze", "select-hw", "scaffold", "generate", "wiring", "diagram",
-        "deploy", "deploy-test", "autofix", "simulate", "pkg-guide", "project",
+        "analyze", "select-hw", "upy-flash-mpy-firmware-plugin",
+        "upy-scaffold-plugin", "upy-generate-plugin", "upy-deploy-plugin",
     ]
 
 
@@ -35,7 +38,7 @@ def test_skill_md_body_returns_full_raw_markdown():
     assert body and "# " in body  # a heading -> real markdown body
     assert "SKILL" in body or "Skill" in body or "skill" in body
     # carries forward verbatim (no sanitization stripping mpremote/scripts/paths)
-    deploy = skill_catalog.skill_md_body("deploy")
+    deploy = skill_catalog.skill_md_body("upy-deploy-plugin")
     assert deploy and ("mpremote" in deploy or "```" in deploy)
 
 

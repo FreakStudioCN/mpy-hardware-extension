@@ -132,6 +132,15 @@ export class DeviceShim {
     return { output: r.output ?? "" };
   }
 
+  // V0 generic plugin-script runner. Resolves+runs a bundled `-plugin` script (or a
+  // shell command, e.g. generate's git commit) on the host via the venv. Returns the
+  // shim result verbatim: a non-zero gate is a real result (success:false), and a
+  // script_not_found is a transport error (status:"error") — neither is ever faked.
+  async runV0Script(params: { interpreter: string; script: string; args: string[]; project_dir: string; stdin_content?: string; stdin_json?: any; timeout_ms?: number }): Promise<{ status: string; success?: boolean; exit_code?: number; stdout?: string; stderr?: string; result_json?: any; error_kind?: string; message?: string }> {
+    await this.ensure();
+    return this.rpc("script.run_v0", params);
+  }
+
   // Download device drivers into projectDir/firmware/lib (download_drivers.py).
   async runDownloadDrivers(projectDir: string): Promise<{ output: string }> {
     await this.ensure();

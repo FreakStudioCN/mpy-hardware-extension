@@ -11,6 +11,7 @@ function capturingWriter() {
 test("write_project_file writes the manifest and firmware/test tree files", async () => {
   const allowed = [
     "project-manifest.json",
+    "generate_plan.json",
     "wiring.json",
     "diagram.json",
     "docs/diagram.json",
