@@ -215,6 +215,21 @@ def test_device_list_files_drops_the_mpremote_ls_header():
     assert "boot.py" in res["files"] and "main.py" in res["files"], res
 
 
+def test_device_copy_from_creates_local_parent_dirs():
+    # A device pull to a nested local path must create the parent dirs first, or mpremote
+    # cp fails on a missing directory.
+    import tempfile
+    restore = _patch_mpremote(lambda args, **kw: _fake_proc(returncode=0))
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            nested = os.path.join(d, "logs", "run.txt")
+            res = serve._dispatch(_shim_with([]), "device.copy_from", {"port": "COM3", "remote_path": "run.txt", "local_path": nested})
+            assert res["status"] == "ok", res
+            assert os.path.isdir(os.path.dirname(nested)), "parent dir must be created before the device pull"
+    finally:
+        restore()
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

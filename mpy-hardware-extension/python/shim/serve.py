@@ -387,6 +387,11 @@ def _fs_copy_from(port, remote_path, local_path):
     # mpremote addresses the device side with a leading ':'; normalize so a caller can pass
     # "log.txt" or ":log.txt" interchangeably.
     remote = ":" + str(remote_path).lstrip(":")
+    # Create the local parent dirs first — mpremote cp fails if the destination directory
+    # doesn't exist (the host path was already contained to the project root by device()).
+    parent = os.path.dirname(local_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     r = _run_mpremote(["connect", port, "resume", "fs", "cp", remote, local_path], timeout=30)
     if r.returncode != 0:
         return {"status": "error", "error_kind": "mpremote_error", "message": (r.stderr or "").strip()}
