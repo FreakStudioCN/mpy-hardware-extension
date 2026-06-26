@@ -38,6 +38,28 @@ class _PassthroughProvider:
         yield 'data: {"type":"message_stop"}\n\n'
 
 
+def test_context_grounds_pre_selected_board_and_existing_hardware_in_analyze():
+    # The handoff requires pre_selected_board / existing_hardware / mode to reach the model.
+    # In analyze there is no manifest yet, so without a context injection the model had zero
+    # grounding on the user's real setup. The server must surface body.context in the prompt.
+    from app.routes_llm import _deepseek_messages
+    body = {
+        "phase": "analyze",
+        "messages": [{"role": "user", "content": "做个温度计"}],
+        "context": {"pre_selected_board": "esp32-c3-devkitm-1", "existing_hardware": "ESP32-C3 + DHT22", "mode": "beginner"},
+    }
+    system = _deepseek_messages(body)[0]["content"]
+    assert "esp32-c3-devkitm-1" in system, system[-600:]
+    assert "DHT22" in system, system[-600:]
+
+
+def test_no_user_context_block_when_context_absent():
+    from app.routes_llm import _deepseek_messages
+    body = {"phase": "analyze", "messages": [{"role": "user", "content": "hi"}]}
+    system = _deepseek_messages(body)[0]["content"]
+    assert "USER CONTEXT" not in system
+
+
 def test_llm_messages_503_when_global_daily_budget_exhausted(monkeypatch):
     # Once today's free-tier global spend reaches MPYHW_DAILY_GLOBAL_BUDGET, new paid
     # turns are refused with 503 BEFORE reserving — so abuse can't push the free tier

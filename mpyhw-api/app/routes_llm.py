@@ -638,9 +638,34 @@ def _phase_data_injection(body: dict[str, Any]) -> str:
     )
 
 
+def _context_injection(body: dict[str, Any]) -> str:
+    """Surface the client's user context (handoff-required preferences) into the prompt.
+
+    _phase_data_injection only grounds phases that already have a manifest, so before the
+    analyze phase creates one the model knew nothing about the user's real setup. This
+    carries pre_selected_board / existing_hardware / mode / locale from turn one. Byte-stable
+    within a session (the client sends a fixed context each turn) for prefix caching.
+    """
+    ctx = body.get("context") if isinstance(body.get("context"), dict) else {}
+    if not ctx:
+        return ""
+    lines: list[str] = []
+    if ctx.get("pre_selected_board"):
+        lines.append(f"- The user has already chosen this board: {ctx['pre_selected_board']}. Build for it; do not pick a different board.")
+    if ctx.get("existing_hardware"):
+        lines.append(f"- Hardware the user already owns: {ctx['existing_hardware']}. Prefer these parts; avoid requiring parts they don't have.")
+    if ctx.get("mode"):
+        lines.append(f"- Interaction mode: {ctx['mode']}.")
+    if ctx.get("locale"):
+        lines.append(f"- The user's preferred UI locale is {ctx['locale']}.")
+    if not lines:
+        return ""
+    return "\n\n--- USER CONTEXT (server-provided; honor it) ---\n" + "\n".join(lines) + "\n"
+
+
 def _deepseek_messages(body: dict[str, Any]) -> list[dict[str, Any]]:
     phase = _phase(body)
-    system = _system_prompt(phase) + _phase_data_injection(body) + _language_directive(body)
+    system = _system_prompt(phase) + _context_injection(body) + _phase_data_injection(body) + _language_directive(body)
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
     for message in body.get("messages", []):
         role = message.get("role", "user")
