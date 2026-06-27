@@ -170,5 +170,6 @@ $daemon = Join-Path $PSScriptRoot "api-daemon.ps1"
 if ($PlanOnly) {
   Write-Host "Plan: $daemon start  (detached uvicorn on 127.0.0.1:8787)"
 } else {
-  & $daemon start
+  $devAuthArg = if ($env:MPYHW_ENABLE_DEV_AUTH -eq '1') { @{ DevAuth = $true } } else { @{} }
+  & $daemon start @devAuthArg
 }

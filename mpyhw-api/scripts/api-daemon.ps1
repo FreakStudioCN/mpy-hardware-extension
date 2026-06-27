@@ -16,7 +16,7 @@
 #   .\scripts\api-daemon.ps1 restart   # after you change backend code
 #   .\scripts\api-daemon.ps1 status
 #   .\scripts\api-daemon.ps1 logs      # tail recent output
-param([ValidateSet('start','stop','restart','status','logs','worker')][string]$Action = 'start', [switch]$Stub)
+param([ValidateSet('start','stop','restart','status','logs','worker')][string]$Action = 'start', [switch]$Stub, [switch]$DevAuth)
 
 $ErrorActionPreference = 'Stop'
 $scriptDir = $PSScriptRoot
@@ -45,7 +45,8 @@ function Start-Api {
   # explicitly (passed via -Stub, or $env:MPYHW_LLM_STUB=1 set before `start`).
   $self = Join-Path $scriptDir 'api-daemon.ps1'
   $stubArg = if ($Stub -or $env:MPYHW_LLM_STUB -eq '1') { ' -Stub' } else { '' }
-  $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$self`" worker$stubArg"
+  $devAuthArg = if ($DevAuth -or $env:MPYHW_ENABLE_DEV_AUTH -eq '1') { ' -DevAuth' } else { '' }
+  $cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File `"$self`" worker$stubArg$devAuthArg"
   $res = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $root }
   if ($res.ReturnValue -ne 0) { throw "Detached launch failed (Win32_Process.Create returned $($res.ReturnValue))" }
   Write-Host "API launching detached (launcher pid $($res.ProcessId)); logs -> $log"
@@ -72,6 +73,7 @@ switch ($Action) {
         }
       }
       if ($Stub) { [Environment]::SetEnvironmentVariable('MPYHW_LLM_STUB', '1', 'Process') }
+      if ($DevAuth) { [Environment]::SetEnvironmentVariable('MPYHW_ENABLE_DEV_AUTH', '1', 'Process') }
       # Prefer the project venv's interpreter (mpyhw-api/.venv) so a detached launch — which
       # has no activated shell — still sees the installed deps; fall back to PATH `python`.
       $py = Join-Path $root '.venv\Scripts\python.exe'
