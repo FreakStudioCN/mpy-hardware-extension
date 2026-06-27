@@ -21,6 +21,7 @@ type BuildDeps = {
   fetchImpl?: typeof fetch;
   shim?: any;
   requestTimeoutMs?: number;
+  connectRetryDelaysMs?: number[];
   getAuthToken?: () => Promise<string | undefined>;
   readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
   writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>;
@@ -55,7 +56,8 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
     }
     return fetchImpl(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
   };
-  const llmClient = createLlmClient({ apiBaseUrl, fetchImpl: fetchWithTimeout, getAuthToken: deps.getAuthToken });
+  const baseLlmClient = createLlmClient({ apiBaseUrl, fetchImpl: fetchWithTimeout, getAuthToken: deps.getAuthToken });
+  const connectRetryDelaysMs = deps.connectRetryDelaysMs ?? [500, 1000, 2000];
   const shim = deps.shim;
   const projectDir = deps.projectRoot;
 
@@ -143,7 +145,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
   };
 
   const protocolDeps: ProtocolDeps = {
-    llmClient,
+    llmClient: baseLlmClient,
     device,
     runScript,
     writeFile: deps.writeProjectFile,
@@ -161,7 +163,11 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
     // retry() re-enters with an empty intent; resume with the saved one so the phase
     // conversation isn't an empty user turn (which DeepSeek can 400 on).
     const intent = input.intent || input.state?.intent || "";
-    const result = await runProtocolBuild(
+    const llmClient = withConnectRetries(baseLlmClient, connectRetryDelaysMs, input.onEvent);
+    const runDeps = { ...protocolDeps, llmClient };
+    let result;
+    try {
+      result = await runProtocolBuild(
       {
         intent,
         boardId: input.boardId,
@@ -175,12 +181,45 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
         preferences: input.preferences,
         preSelectedBoard: input.preSelectedBoard,
       },
-      protocolDeps,
+      runDeps,
     );
+    } catch (error: any) {
+      if (!isRetryableTransport(error) || input.signal?.aborted) throw error;
+      return { terminal: "llm_unreachable", state: { manifest: input.state?.manifest ?? {}, phase: input.state?.phase, intent } };
+    }
     const terminal = result.terminal === "complete" ? "complete"
       : result.terminal === "cancelled" ? "cancelled"
       : result.terminal === "failed" ? "failed"
       : "awaiting_user";
     return { terminal, state: { manifest: result.manifest, phase: result.phases.at(-1)?.phase, intent } };
   };
+}
+
+function withConnectRetries(llmClient: any, delays: number[], onEvent?: (event: any) => void) {
+  return {
+    ...llmClient,
+    streamMessages: async (body: any, signal?: any) => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await llmClient.streamMessages(body, signal);
+        } catch (error: any) {
+          if (signal?.aborted || !isRetryableTransport(error) || attempt >= delays.length) throw error;
+          onEvent?.({ type: "connect_retry", attempt: attempt + 1, maxAttempts: delays.length, detail: transportDetail(error) });
+          await sleep(delays[attempt]);
+        }
+      }
+    },
+  };
+}
+
+function isRetryableTransport(error: any): boolean {
+  return !!error?.retryable || String(error?.message ?? "").includes("request_timeout");
+}
+
+function transportDetail(error: any): string {
+  return String(error?.message ?? error?.cause?.code ?? error?.cause?.message ?? "network_error");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

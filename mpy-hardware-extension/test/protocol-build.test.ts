@@ -61,6 +61,25 @@ test("createProtocolLoop sends the V0 cloud envelope through the production LLM 
   assert.deepEqual(bodies[0].messages, [{ role: "user", content: "build a thermometer" }]);
 });
 
+test("createProtocolLoop retries connect timeouts and ends as llm_unreachable", async () => {
+  let calls = 0;
+  const events: any[] = [];
+  const fetchImpl = (async () => {
+    calls++;
+    const error: any = new TypeError("fetch failed");
+    error.cause = Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" });
+    throw error;
+  }) as unknown as typeof fetch;
+
+  const loop = createProtocolLoop({ apiBaseUrl: "http://api.test", fetchImpl, getAuthToken: async () => "token", connectRetryDelaysMs: [0, 0] } as any);
+  const result = await loop({ intent: "blink an led", traceId: "connect-timeout", onEvent: (event: any) => events.push(event) });
+
+  assert.equal(result.terminal, "llm_unreachable");
+  assert.equal(calls, 3);
+  assert.deepEqual(events.filter((event) => event.type === "connect_retry").map((event) => event.attempt), [1, 2]);
+  assert.match(String(events.find((event) => event.type === "connect_retry")?.detail), /UND_ERR_CONNECT_TIMEOUT/);
+});
+
 test("createProtocolLoop reports firmware flashing actions as unsupported, not as project run success", async () => {
   const bodies: any[] = [];
   let calls = 0;

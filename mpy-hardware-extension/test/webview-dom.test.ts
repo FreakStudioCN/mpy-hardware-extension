@@ -117,6 +117,25 @@ test("board picker exposes refresh and stale cache state", async () => {
   const cache = document.getElementById("boardCacheStatus")!;
   assert.match(cache.textContent!, /stale|cache/i, "stale official board cache is surfaced in the picker");
 });
+
+test("board picker collapses during a generated session and returns on Restart", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  const picker = document.getElementById("boardPicker")!;
+  assert.equal(picker.classList.contains("hidden"), false, "start controls are visible before a session starts");
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(picker.classList.contains("hidden"), true, "board picker should not occupy the active session UI");
+
+  post(dom, { type: "session_done", terminal: "generated" });
+  assert.equal(picker.classList.contains("hidden"), true, "finished sessions keep the focused composer until Restart");
+
+  (document.getElementById("newSession") as HTMLButtonElement).click();
+  assert.equal(picker.classList.contains("hidden"), false, "Restart restores the start controls for the next project");
+});
 test("the Doctor tab requests a check on load and renders results as localized status cards", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

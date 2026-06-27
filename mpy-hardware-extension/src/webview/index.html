@@ -667,6 +667,9 @@
         selectedMode = mode === "custom" ? "custom" : "beginner";
         document.querySelectorAll(".mode-chip").forEach((b) => b.classList.toggle("active", b.dataset.mode === selectedMode));
       }
+      function setBoardPickerVisible(visible) {
+        $("boardPicker").classList.toggle("hidden", !visible);
+      }
       function boardLabel(board) { return board.display_name || board.id || board.download_slug || ""; }
       function optionLabelAll(key) { return tr(key); }
       function setFilterOptions(id, values, allKey) {
@@ -789,7 +792,7 @@
         addUserMessage(intent);
         $("intent").value = "";
         $("intent").style.height = "auto";
-        setTab("activity"); setRunning(true);
+        setTab("activity"); setBoardPickerVisible(false); setRunning(true);
         const preSelectedBoard = selectedOfficialBoard;
         const boardId = preSelectedBoard && preSelectedBoard.local_board_id ? preSelectedBoard.local_board_id : "auto";
         vscode.postMessage({ type: "start_session", intent, boardId, pre_selected_board: preSelectedBoard || null, preferences: { mode: selectedMode } });
@@ -814,6 +817,7 @@
         localeLocked = false; // next project re-detects its language (LOCALE left as-is until then)
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
+        setBoardPickerVisible(true);
         setTab("activity");
       }
       $("newSession").addEventListener("click", () => {
