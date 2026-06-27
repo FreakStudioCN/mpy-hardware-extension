@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blockless Extension E2E"
+  short_description: "CI, live e2e, package, reinstall."
+  default_prompt: "Use $blockless-extension-e2e to run CI, live e2e, package, and reinstall for the Blockless extension."

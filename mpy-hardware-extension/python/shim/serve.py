@@ -2,6 +2,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -176,6 +177,26 @@ def _subprocess_text_kwargs():
         "env": {**os.environ, "PYTHONIOENCODING": "utf-8"},
     }
 
+def _parse_v0_git_commit_shell(command: str) -> list[list[str]] | None:
+    cmd = str(command or "").strip()
+    if not cmd or any(ch in cmd for ch in (";", "|", "<", ">", "`", "\n", "\r", "\0")):
+        return None
+    if cmd.count("&&") != 1:
+        return None
+    add_part, commit_part = [part.strip() for part in cmd.split("&&", 1)]
+    try:
+        add_tokens = shlex.split(add_part, posix=True)
+        commit_tokens = shlex.split(commit_part, posix=True)
+    except ValueError:
+        return None
+    if add_tokens != ["git", "add", "-A"]:
+        return None
+    if len(commit_tokens) != 4 or commit_tokens[:3] != ["git", "commit", "-m"]:
+        return None
+    message = commit_tokens[3].strip()
+    if not message:
+        return None
+    return [["git", "add", "-A"], ["git", "commit", "-m", message]]
 
 class Shim:
     def __init__(self, runner=None, serial_factory=None):
@@ -329,10 +350,19 @@ class Shim:
         return self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
 
     def run_v0_shell(self, command: str, cwd=None, stdin=None, timeout: float = 300):
-        # Run a shell command (V0 generate emits script_run(shell, "git ...") for the
-        # required commit). cwd is the project root. Injectable via self.runner.
-        self.commands.append(["shell", command])
-        return self.runner(command, shell=True, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
+        # V0 generate emits script_run(shell, 'git add -A && git commit -m "..."').
+        # Do not pass that string to a host shell; execute the two allowed git argv
+        # calls directly so chained shell metacharacters never run.
+        commands = _parse_v0_git_commit_shell(command)
+        if commands is None:
+            raise ValueError("shell_command_not_allowed")
+        last = None
+        for cmd in commands:
+            self.commands.append(cmd)
+            last = self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
+            if getattr(last, "returncode", 1) != 0:
+                return last
+        return last
 
     def _run(self, command: list[str], timeout: float = 30):
         self.commands.append(command)
@@ -494,15 +524,9 @@ def _run_v0_script(shim, params):
     timeout = float(params.get("timeout_ms", 300000)) / 1000.0
     if interpreter == "shell":
         cmd = script if not args else script + " " + " ".join(args)
-        # The ONLY shell the V0 skills emit is git (generate's mandatory commit, e.g.
-        # `git add -A && git commit -m "..."`). Refuse anything whose first token isn't
-        # git so a hallucinated/poisoned `rm -rf`, `curl … | sh`, or `python -c …` is
-        # never run on the host — fail loud, don't fake. (A deliberately crafted
-        # `git … && rm …` chain is out of scope: the skills never emit chained non-git
-        # shell, and the model is the user's own backend, not an adversary.)
-        if re.match(r"\s*git(\s|$)", cmd) is None:
+        if _parse_v0_git_commit_shell(cmd) is None:
             return {"status": "error", "error_kind": "shell_command_not_allowed",
-                    "message": "only git shell commands are permitted"}
+                    "message": "only the generate-phase git add/commit command is permitted"}
         return _v0_result(shim.run_v0_shell(cmd, cwd=cwd, stdin=stdin_content, timeout=timeout))
     if interpreter == "node":
         # Fail fast: no node toolchain is assumed in the host shim. Don't fake success.

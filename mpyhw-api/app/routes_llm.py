@@ -875,11 +875,11 @@ def _load_board_profile(board_id: str) -> dict[str, Any] | None:
     return None
 
 
-def _candidate_board_ids(manifest: dict[str, Any], body: dict[str, Any]) -> list[str]:
+def _raw_board_id_candidates(manifest: dict[str, Any], body: dict[str, Any]) -> list[str]:
     ids: list[str] = []
 
     def add(value: Any) -> None:
-        if isinstance(value, str) and value and value.lower() != "auto" and re.fullmatch(r"[A-Za-z0-9._-]{1,96}", value):
+        if isinstance(value, str) and value and value.lower() != "auto":
             ids.append(value)
 
     add(manifest.get("board_id"))
@@ -897,6 +897,13 @@ def _candidate_board_ids(manifest: dict[str, Any], body: dict[str, Any]) -> list
         add(pre.get("skill_board_id"))
     add(body.get("board_id"))
     return ids
+
+
+def _candidate_board_ids(manifest: dict[str, Any], body: dict[str, Any]) -> list[str]:
+    return [
+        value for value in _raw_board_id_candidates(manifest, body)
+        if re.fullmatch(r"[A-Za-z0-9._-]{1,96}", value)
+    ]
 
 
 def _official_only_board_profile(body: dict[str, Any]) -> dict[str, Any]:
@@ -928,10 +935,12 @@ def _resolve_board(manifest: dict[str, Any], body: dict[str, Any]) -> dict[str, 
     official = _official_only_board_profile(body)
     if official:
         return official
-    for board_id in _candidate_board_ids(manifest, body):
+    for board_id in _raw_board_id_candidates(manifest, body):
         safe = board_id if re.fullmatch(r"[A-Za-z0-9._-]{1,96}", board_id) else "unknown"
         return {"board_id": safe}
     return {}
+
+
 def _resolve_driver_contexts(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     from app.package_store import PackageStore  # local import: avoid load-time cost
 

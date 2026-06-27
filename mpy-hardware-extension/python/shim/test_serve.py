@@ -72,8 +72,9 @@ def test_run_v0_shell_runs_git_command():
         "interpreter": "shell", "script": 'git add -A && git commit -m "x"', "project_dir": "/tmp/proj",
     })
     assert res["status"] == "ok", res
-    assert record[0]["kwargs"].get("shell") is True
-    assert record[0]["kwargs"].get("cwd") == "/tmp/proj"
+    assert [entry["cmd"] for entry in record] == [["git", "add", "-A"], ["git", "commit", "-m", "x"]]
+    assert all(entry["kwargs"].get("shell") is None for entry in record)
+    assert all(entry["kwargs"].get("cwd") == "/tmp/proj" for entry in record)
 
 
 def test_run_v0_shell_rejects_non_git_command():
@@ -84,6 +85,20 @@ def test_run_v0_shell_rejects_non_git_command():
         res = serve._dispatch(shim, "script.run_v0", {"interpreter": "shell", "script": cmd, "project_dir": "/tmp/proj"})
         assert res["status"] == "error" and res.get("error_kind") == "shell_command_not_allowed", (cmd, res)
     assert not record, "no non-git shell command may be executed"
+
+
+def test_run_v0_shell_rejects_chained_git_injection():
+    record = []
+    shim = _shim_with(record)
+    for cmd in (
+        "git status && rm -rf /tmp/proj",
+        'git add -A && git commit -m "x" && rm -rf /tmp/proj',
+        'git add -A; git commit -m "x"',
+        'git add -A && git commit -m "x" > out.txt',
+    ):
+        res = serve._dispatch(shim, "script.run_v0", {"interpreter": "shell", "script": cmd, "project_dir": "/tmp/proj"})
+        assert res["status"] == "error" and res.get("error_kind") == "shell_command_not_allowed", (cmd, res)
+    assert not record, "chained shell metacharacters must not reach subprocess"
 
 
 def test_run_v0_ambiguous_script_is_error_not_silent_pick():

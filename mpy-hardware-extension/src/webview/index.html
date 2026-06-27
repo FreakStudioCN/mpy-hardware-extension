@@ -304,11 +304,13 @@
       .gen-btn.stop:hover { background: #6e3434; }
       .start-controls { border-bottom: 1px solid var(--vsc-card-border); padding: 10px; display: grid; gap: 8px; }
       .mode-row, .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-      .mode-chip, .board-chip, .board-page-btn, .board-auto { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
+      .mode-chip, .board-chip, .board-page-btn, .board-auto, .board-refresh { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
       .mode-chip.active, .board-chip.chosen, .board-auto.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
       .board-search, .board-filter { min-width: 0; border: 1px solid var(--vsc-card-border); background: #101012; color: var(--fg); border-radius: 6px; padding: 6px 8px; font-size: 11px; }
       .board-search { width: 100%; }
       .board-filter { flex: 1 1 92px; }
+      .board-cache-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .board-cache-status { color: var(--fg-dim); font-size: 10.5px; min-height: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .board-list { display: grid; gap: 5px; max-height: 168px; overflow: auto; }
       .board-card { width: 100%; border: 1px solid var(--vsc-card-border); background: #151518; color: var(--fg); border-radius: 7px; padding: 8px; text-align: left; cursor: pointer; }
       .board-card:hover, .board-card.chosen { border-color: var(--accent); }
@@ -399,6 +401,7 @@
               <button class="board-auto chosen" id="boardAuto" type="button" data-i18n="board_auto">Recommend board</button>
             </div>
             <input class="board-search" id="boardSearch" data-i18n-ph="board_search_ph" placeholder="Search official MicroPython boards" />
+            <div class="board-cache-row"><button class="board-refresh" id="boardRefresh" type="button" data-i18n="board_refresh">Refresh</button><span class="board-cache-status" id="boardCacheStatus"></span></div>
             <div class="board-filter-row">
               <select class="board-filter" id="boardVendor" aria-label="Vendor"></select>
               <select class="board-filter" id="boardPort" aria-label="Port"></select>
@@ -454,7 +457,7 @@
           serial_monitor: "Serial monitor",
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
-          mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards",
+          mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
           new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
           deploying: "Deploying…", confirm_wiring: "Confirm wiring & connection…",
@@ -655,6 +658,8 @@
       let selectedMode = "beginner";
       let officialBoards = [];
       let selectedOfficialBoard = null;
+      let boardCacheFetchedAt = "";
+      let boardCacheStale = false;
       let boardPage = 0;
       const BOARD_PAGE_SIZE = 6;
 
@@ -687,10 +692,18 @@
         setFilterOptions("boardPort", filters.port, "board_port_all");
         setFilterOptions("boardMcu", filters.mcu, "board_mcu_all");
         setFilterOptions("boardFeature", filters.feature, "board_feature_all");
-        $("boardPicker").dataset.fetchedAt = msg.fetched_at || "";
+        boardCacheFetchedAt = msg.fetched_at || "";
+        boardCacheStale = !!msg.stale;
+        $("boardPicker").dataset.fetchedAt = boardCacheFetchedAt;
         $("boardPicker").dataset.sourceUrl = msg.source_url || "";
+        $("boardPicker").dataset.stale = boardCacheStale ? "true" : "false";
         boardPage = 0;
         renderBoardPicker();
+      }
+      function renderBoardCacheStatus() {
+        const el = $("boardCacheStatus");
+        if (!el) return;
+        el.textContent = boardCacheFetchedAt ? tr(boardCacheStale ? "board_cache_stale" : "board_cache_fetched", { t: boardCacheFetchedAt }) : "";
       }
       function currentBoardMatches(board) {
         const q = ($("boardSearch")?.value || "").trim().toLowerCase();
@@ -709,6 +722,7 @@
       function renderBoardPicker() {
         const list = $("boardList"); const status = $("boardStatus");
         if (!list || !status) return;
+        renderBoardCacheStatus();
         const boards = filteredOfficialBoards();
         const maxPage = Math.max(0, Math.ceil(boards.length / BOARD_PAGE_SIZE) - 1);
         boardPage = Math.min(boardPage, maxPage);
@@ -812,6 +826,7 @@
       $("modeBeginner").addEventListener("click", () => setMode("beginner"));
       $("modeCustom").addEventListener("click", () => setMode("custom"));
       $("boardAuto").addEventListener("click", () => { selectedOfficialBoard = null; $("boardAuto").classList.add("chosen"); renderBoardPicker(); });
+      $("boardRefresh").addEventListener("click", () => vscode.postMessage({ type: "request_boards" }));
       ["boardSearch", "boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { const el = $(id); el.addEventListener("input", () => { boardPage = 0; renderBoardPicker(); }); el.addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
       $("boardPrev").addEventListener("click", () => { boardPage = Math.max(0, boardPage - 1); renderBoardPicker(); });
       $("boardNext").addEventListener("click", () => { boardPage += 1; renderBoardPicker(); });

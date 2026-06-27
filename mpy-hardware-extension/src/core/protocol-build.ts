@@ -63,7 +63,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
   // exercised against real hardware (the e2e harness mocks it).
   const firmwareActions = new Set(["flash_firmware", "download_firmware", "download_and_flash", "use_local_firmware", "firmware_flash"]);
   const device = async (action: string, payload: any) => {
-    if (firmwareActions.has(action)) return { ok: false, error_kind: "firmware_flash_unsupported", stderr: action };
+    if (firmwareActions.has(action)) return { ok: false, error_kind: "firmware_action_requires_script_run", stderr: action };
     if (!shim) return { ok: false, error_kind: "device_unavailable" };
     try {
       if (action === "devs" || action === "scan") return { ok: true, stdout: (await shim.scan()).join(",") };

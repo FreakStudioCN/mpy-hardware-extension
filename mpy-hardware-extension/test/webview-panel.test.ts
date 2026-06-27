@@ -66,6 +66,7 @@ test("webview start_session runs API-backed pipeline and renders generated outpu
     assert.match(posted.find((message) => message.type === "code_updated").code, /MPYHW_READY/);
     // Files land under the open workspace (not a fallback), so no "saved here" notice.
     assert.ok(existsSync(join(ws, "blockless-project", "main.py")));
+    assert.ok(existsSync(join(ws, "blockless-project", ".git")), "project folder is initialized as a git repo for generate commits");
     assert.ok(!posted.some((m) => m.type === "session_event" && m.event?.kind === "saved_location"));
   } finally {
     rmSync(ws, { recursive: true, force: true });
@@ -375,7 +376,7 @@ test("request_boards forwards the official MicroPython board catalog to the webv
   };
   const fetchImpl = (async (url: string) => {
     if (url === "http://api.test/v1/boards") return jsonResponse({ builtin: [], community: [] });
-    if (url === "http://api.test/v1/micropython/boards") return jsonResponse({ source_url: "https://micropython.org/download/", boards: [{ id: "ESP32_GENERIC_S3" }], filters: { port: ["esp32"] } });
+    if (url === "http://api.test/v1/micropython/boards") return jsonResponse({ source_url: "https://micropython.org/download/", fetched_at: "2026-06-20T00:07:34+00:00", stale: true, boards: [{ id: "ESP32_GENERIC_S3" }], filters: { port: ["esp32"] } });
     if (url === "http://api.test/v1/health") return jsonResponse({ status: "ok" });
     throw new Error(`unexpected URL ${url}`);
   }) as unknown as typeof fetch;
@@ -386,6 +387,8 @@ test("request_boards forwards the official MicroPython board catalog to the webv
   assert.deepEqual(posted.find((message) => message.type === "micropython_boards"), {
     type: "micropython_boards",
     source_url: "https://micropython.org/download/",
+    fetched_at: "2026-06-20T00:07:34+00:00",
+    stale: true,
     boards: [{ id: "ESP32_GENERIC_S3" }],
     filters: { port: ["esp32"] },
   });

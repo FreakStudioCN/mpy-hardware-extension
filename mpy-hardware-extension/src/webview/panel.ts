@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
+import { promisify } from "node:util";
 
 import { SessionController } from "../extension/session-controller.ts";
 import { BoardClient } from "../core/board-client.ts";
@@ -19,6 +21,30 @@ import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-wr
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
+
+const execFileAsync = promisify(execFile);
+
+async function ensureProjectGitRepo(projectFolder?: string, log?: (message: string) => void) {
+  if (!projectFolder) return;
+  try {
+    await mkdir(projectFolder, { recursive: true });
+    if (!existsSync(join(projectFolder, ".git"))) {
+      await execFileAsync("git", ["-C", projectFolder, "init", "-q"], { windowsHide: true });
+    }
+    await ensureGitConfig(projectFolder, "user.email", "blockless@local");
+    await ensureGitConfig(projectFolder, "user.name", "Blockless");
+  } catch (error: any) {
+    log?.(`Blockless: project git init skipped: ${error?.message ?? error}`);
+  }
+}
+
+async function ensureGitConfig(projectFolder: string, key: string, value: string) {
+  try {
+    await execFileAsync("git", ["-C", projectFolder, "config", "--get", key], { windowsHide: true });
+  } catch {
+    await execFileAsync("git", ["-C", projectFolder, "config", key, value], { windowsHide: true });
+  }
+}
 
 // All generation output is contained under <workspace>/<PROJECT_SUBDIR>, never the
 // workspace root. The scaffold (init_scaffold.py) writes README.md/LICENSE/.flake8
@@ -191,6 +217,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           return;
         }
       }
+      await ensureProjectGitRepo(projectFolder, deps.log);
       await controller.start({
         intent: message.intent,
         boardId: message.boardId,

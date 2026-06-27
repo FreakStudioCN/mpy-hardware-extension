@@ -81,7 +81,7 @@ test("createProtocolLoop reports firmware flashing actions as unsupported, not a
   assert.equal(toolResult.type, "tool_result");
   const payload = JSON.parse(toolResult.content);
   assert.equal(payload.ok, false);
-  assert.equal(payload.error_kind, "firmware_flash_unsupported");
+  assert.equal(payload.error_kind, "firmware_action_requires_script_run");
 });
 
 test("createProtocolLoop runs a local full-chain V0 e2e through production host backings", async () => {

@@ -95,6 +95,28 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   assert.equal(start.pre_selected_board.firmware.board_name, "ESP32_GENERIC_S3");
 });
 
+test("board picker exposes refresh and stale cache state", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  const refresh = document.getElementById("boardRefresh") as HTMLButtonElement;
+  assert.ok(refresh, "board refresh button is present");
+  posted.length = 0;
+  refresh.click();
+  assert.ok(posted.some((m) => m.type === "request_boards"), "refresh asks the host for the official board catalog");
+
+  post(dom, {
+    type: "micropython_boards",
+    source_url: "https://micropython.org/download/",
+    fetched_at: "2026-06-20T00:07:34+00:00",
+    stale: true,
+    boards: [{ id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", support_status: "official_firmware_only" }],
+  });
+
+  const cache = document.getElementById("boardCacheStatus")!;
+  assert.match(cache.textContent!, /stale|cache/i, "stale official board cache is surfaced in the picker");
+});
 test("the Doctor tab requests a check on load and renders results as localized status cards", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
