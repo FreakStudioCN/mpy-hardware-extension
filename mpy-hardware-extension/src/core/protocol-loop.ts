@@ -116,7 +116,7 @@ function buildContext(input: ProtocolInput): Record<string, any> | null {
 
 // Drive one phase to its phase_complete (or stall/cancel). Returns the control the
 // notify executor captured from phase_complete.
-async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps) {
+async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps, idempotency: Map<string, any>) {
   const messages: any[] = [{ role: "user", content: input.intent }];
   const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_PER_PHASE;
   const context = buildContext(input);
@@ -171,7 +171,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     for (const tu of toolUses) {
       // Honor a cancel that lands between tools in the same streamed batch.
       if (input.signal?.aborted) return { done: false, cancelled: true };
-      const { result, phaseControl } = await executeProtocolTool(tu, input, deps);
+      const { result, phaseControl } = await executeProtocolTool(tu, input, deps, idempotency);
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
       if (tu.name === "phase_complete" && phaseControl) control = phaseControl;
     }
@@ -186,10 +186,13 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
   let phase = input.startPhase ?? "analyze";
   let manifest = input.startManifest ?? {};
   const phases: Array<{ phase: string; result: string | null }> = [];
+  // One idempotency store for the whole build: a mutating op replayed across phases
+  // (or on a resumed/retried turn) runs its side effect exactly once. See §3.3.
+  const idempotency = new Map<string, any>();
   for (let i = 0; i < MAX_PHASES; i++) {
     if (input.signal?.aborted) return { phases, manifest, terminal: "cancelled" };
     input.onEvent?.({ type: "phase_start", phase });
-    const outcome = await runPhase(phase, manifest, input, deps);
+    const outcome = await runPhase(phase, manifest, input, deps, idempotency);
     if (outcome.cancelled) return { phases, manifest, terminal: "cancelled" };
     if (!outcome.done || !outcome.control) {
       phases.push({ phase, result: null });
@@ -216,9 +219,35 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
   return { phases, manifest, terminal: "incomplete" };
 }
 
+// §3.3 idempotency (host side). Each mutating operation carries a stable id (op_id for
+// file ops, cmd_id for device commands). A retried message with the SAME id must NOT run
+// the side effect twice — it replays the first result. This matters most for the
+// irreversible device ops (flash_firmware, erase_fs, clean_project): a duplicated
+// tool_use (model re-emit, stream re-read, or a resumed phase replaying history) must not
+// re-flash or re-erase the board. Reads (file read/list, device download/list) are safe
+// to repeat and are never cached; script_run opts out — a script is only idempotent if
+// the model marks it so. Only successful results are cached, so a transient failure is
+// still free to be retried.
+const IDEMPOTENT_FILE_OPS = new Set(["write", "append", "mkdir", "delete"]);
+const IDEMPOTENT_DEVICE_ACTIONS = new Set([
+  "upload", "mkdir", "delete", "mip_install", "reset", "flash_firmware", "clean_project", "erase_fs",
+]);
+
+function idempotencyKey(route: ReturnType<typeof routeForTool>, payload: any): string | null {
+  if (route === "fs" && IDEMPOTENT_FILE_OPS.has(payload?.op) && payload?.op_id) {
+    return `fs:${payload.op}:${payload.op_id}`;
+  }
+  if (route === "device" && IDEMPOTENT_DEVICE_ACTIONS.has(payload?.action) && payload?.cmd_id) {
+    return `device:${payload.action}:${payload.cmd_id}`;
+  }
+  return null;
+}
+
 // Execute one protocol tool the way a thin plugin would. Returns the result block
 // fed back to the model, plus (for phase_complete) the phase-advance control.
-export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput, deps: ProtocolDeps): Promise<{ result: any; phaseControl?: any }> {
+// `idempotency` is the per-run dedup store threaded from runProtocolBuild; omitting it
+// (e.g. a one-off unit call) simply disables cross-call dedup.
+export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput, deps: ProtocolDeps, idempotency?: Map<string, any>): Promise<{ result: any; phaseControl?: any }> {
   const name = tu.name ?? "";
   const p = tu.input ?? {};
 
@@ -271,7 +300,11 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
   }
 
   if (route === "fs") {
-    return { result: await execFileOperation(p, deps, input) };
+    const key = idempotencyKey(route, p);
+    if (key && idempotency?.has(key)) return { result: { ...idempotency.get(key), deduped: true } };
+    const result = await execFileOperation(p, deps, input);
+    if (key && result.ok) idempotency?.set(key, result);
+    return { result };
   }
 
   if (route === "host") {
@@ -295,10 +328,14 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
 
   if (route === "device") {
     if (typeof deps.device !== "function") return { result: { ok: false, error_kind: "device_unavailable" } };
+    const key = idempotencyKey(route, p);
+    if (key && idempotency?.has(key)) return { result: { ...idempotency.get(key), deduped: true } };
     try {
       const r = await deps.device(String(p.action ?? ""), p);
       if (r.stdout) input.onEvent?.({ type: "serial_output", lines: String(r.stdout).split("\n").filter(Boolean) });
-      return { result: { ok: r.ok, cmd_id: p.cmd_id, success: r.ok, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error_kind: r.ok ? undefined : (r.error_kind ?? "runtime_error") } };
+      const result = { ok: r.ok, cmd_id: p.cmd_id, success: r.ok, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error_kind: r.ok ? undefined : (r.error_kind ?? "runtime_error") };
+      if (key && r.ok) idempotency?.set(key, result);
+      return { result };
     } catch (error: any) {
       return { result: { ok: false, cmd_id: p.cmd_id, success: false, error_kind: "runtime_error", message: error?.message ?? "device_error" } };
     }
