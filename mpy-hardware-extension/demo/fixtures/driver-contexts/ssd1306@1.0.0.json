@@ -1,0 +1,62 @@
+{
+  "package": {
+    "name": "ssd1306",
+    "version": "1.0.0",
+    "source": "curated",
+    "description": "SSD1306 OLED display driver",
+    "author": "MicroPython",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "package.json",
+        "https://upypi.net/pkgs/ssd1306/1.0.0/package.json"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/ssd1306/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "display_text"
+    ],
+    "support_level": "generatable",
+    "cached": true
+  },
+  "import_names": [
+    "ssd1306"
+  ],
+  "constructors": [
+    "SSD1306_I2C(width, height, i2c)"
+  ],
+  "read_methods": [
+    "text(str, x, y)",
+    "show()"
+  ],
+  "read_properties": [],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ssd1306/1.0.0/package.json"
+  },
+  "examples": [
+    "display = ssd1306.SSD1306_I2C(128, 64, i2c)\ndisplay.text('hi', 0, 0)\ndisplay.show()"
+  ],
+  "known_issues": [
+    "Display dimensions vary by module."
+  ],
+  "evidence_refs": [
+    {
+      "type": "example",
+      "path": "curated"
+    }
+  ],
+  "confidence": 0.74
+}

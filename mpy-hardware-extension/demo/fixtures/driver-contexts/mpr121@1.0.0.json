@@ -1,0 +1,65 @@
+{
+  "package": {
+    "name": "mpr121",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to control MPR121 capacitive touch keypad",
+    "author": "Mike Causer",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "mpr121.py",
+        "code/mpr121.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/mpr121/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_input",
+      "touch_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true
+  },
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MPR121(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mpr121.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mpr121"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mpr121/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "baseline_data",
+    "deinit",
+    "filtered_data",
+    "is_touched",
+    "reset",
+    "set_thresholds",
+    "touched"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

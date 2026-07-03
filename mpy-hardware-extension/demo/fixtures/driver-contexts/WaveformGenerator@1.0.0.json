@@ -1,0 +1,75 @@
+{
+  "package": {
+    "name": "WaveformGenerator",
+    "version": "1.0.0",
+    "source": "upypi",
+    "description": "A MicroPython library to WaveformGenerator",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "dac_waveformgenerator.py",
+        "code/dac_waveformgenerator.py"
+      ],
+      [
+        "ds3502.py",
+        "code/ds3502.py"
+      ],
+      [
+        "mcp4725.py",
+        "code/mcp4725.py"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/WaveformGenerator/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [],
+    "support_level": "generatable",
+    "cached": true
+  },
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "DS3502(i2c)",
+    "MCP4725(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "dac_waveformgenerator.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "dac_waveformgenerator"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/WaveformGenerator/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "config",
+    "generate_samples",
+    "read",
+    "read_control_register",
+    "read_wiper",
+    "set_mode",
+    "start",
+    "stop",
+    "update",
+    "write",
+    "write_wiper"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

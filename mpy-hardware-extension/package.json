@@ -84,6 +84,8 @@
     "test": "node --no-warnings --experimental-strip-types --test test/*.test.ts",
     "typecheck": "node scripts/typecheck.mjs",
     "golden": "node --no-warnings --experimental-strip-types src/cli/run-golden-path.ts",
+    "demo:e2e": "node --no-warnings --experimental-strip-types src/cli/demo-e2e.ts",
+    "demo:fixtures": "python3 demo/build-fixtures.py",
     "live-gen": "node --no-warnings --experimental-strip-types src/cli/run-live-gen.ts",
     "e2e:v0": "node --no-warnings --experimental-strip-types src/cli/e2e-protocol-v0.ts",
     "build": "node scripts/build-extension.mjs",

@@ -1,0 +1,64 @@
+{
+  "package": {
+    "name": "aht20_driver",
+    "version": "1.0.0",
+    "source": "curated",
+    "description": "AHT20 temperature and humidity sensor driver",
+    "author": "curated",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "package.json",
+        "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json"
+      ]
+    ],
+    "package_json_url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true
+  },
+  "import_names": [
+    "aht20"
+  ],
+  "constructors": [
+    "AHT20(i2c)"
+  ],
+  "read_methods": [],
+  "read_properties": [
+    "temperature",
+    "relative_humidity"
+  ],
+  "bus": [
+    "i2c"
+  ],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json"
+  },
+  "examples": [
+    "import aht20\nsensor = aht20.AHT20(i2c)\nprint(sensor.temperature)"
+  ],
+  "known_issues": [
+    "Requires I2C pullups on some breakout boards."
+  ],
+  "evidence_refs": [
+    {
+      "type": "source",
+      "path": "content/packages/evidence/aht20-driver-source.py",
+      "hash_file": "content/packages/evidence/SHA256SUMS"
+    }
+  ],
+  "confidence": 0.82
+}

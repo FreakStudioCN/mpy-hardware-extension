@@ -1,0 +1,57 @@
+{
+  "package": {
+    "name": "machine_pin_led",
+    "version": "builtin",
+    "source": "curated",
+    "description": "Built-in MicroPython machine.Pin digital output for LEDs",
+    "author": "MicroPython",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [],
+    "package_json_url": "builtin://machine.Pin",
+    "readme_url": null,
+    "repository_url": null,
+    "capabilities": [
+      "digital_output"
+    ],
+    "support_level": "verified",
+    "cached": true
+  },
+  "import_names": [
+    "machine"
+  ],
+  "constructors": [
+    "Pin(pin, Pin.OUT)"
+  ],
+  "read_methods": [
+    "value(0)",
+    "value(1)"
+  ],
+  "read_properties": [],
+  "bus": [
+    "gpio"
+  ],
+  "pin_roles": [
+    "led_anode"
+  ],
+  "install": {
+    "builtin": true,
+    "method": "builtin",
+    "url": "builtin://machine.Pin"
+  },
+  "examples": [
+    "from machine import Pin\nled = Pin(2, Pin.OUT)\nled.value(1)"
+  ],
+  "known_issues": [
+    "Some boards invert onboard LED logic."
+  ],
+  "evidence_refs": [
+    {
+      "type": "builtin",
+      "path": "micropython.machine.Pin"
+    }
+  ],
+  "confidence": 0.99
+}

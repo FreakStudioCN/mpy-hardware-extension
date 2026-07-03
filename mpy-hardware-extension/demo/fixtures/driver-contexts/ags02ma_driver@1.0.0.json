@@ -1,0 +1,70 @@
+{
+  "package": {
+    "name": "ags02ma_driver",
+    "version": "1.0.0",
+    "source": "graftsense",
+    "description": "A MicroPython library to control AGS02MA TVOC/gas sensor via I2C",
+    "author": "Tom Øyvind Hogstad",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "ags02ma.py",
+        "code/ags02ma.py"
+      ]
+    ],
+    "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ags02ma_driver",
+    "readme_url": null,
+    "repository_url": "https://github.com/FreakStudioCN/GraftSense-Drivers-MicroPython",
+    "capabilities": [
+      "gas_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true
+  },
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "AGS02MA(i2c, addr, debug)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ags02ma.py",
+      "type": "source"
+    },
+    {
+      "path": "README.md",
+      "type": "readme"
+    }
+  ],
+  "examples": [
+    "import mip\nmip.install(\"github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ags02ma_driver\")",
+    "import machine\nfrom ags02ma import AGS02MA\n\ni2c = machine.SoftI2C(scl=machine.Pin(5), sda=machine.Pin(4), freq=20000)\nags = AGS02MA(i2c)\n\nprint(ags.TVOC)           # TVOC 浓度，单位 ppb\nprint(ags.gas_resistance) # 气敏电阻，单位 0.1 kΩ"
+  ],
+  "import_names": [
+    "ags02ma"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ags02ma_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "debug_read_raw",
+    "deinit",
+    "firmware_version"
+  ],
+  "read_properties": [
+    "TVOC",
+    "gas_resistance"
+  ],
+  "support_level": "generatable"
+}

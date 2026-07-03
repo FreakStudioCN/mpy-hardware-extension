@@ -1,0 +1,86 @@
+{
+  "package": {
+    "name": "kx132_driver",
+    "version": "1.0.2",
+    "source": "graftsense",
+    "description": "A MicroPython library to control kx132_driver ",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "micropython_kx132/__init__.py",
+        "code/micropython_kx132/__init__.py"
+      ],
+      [
+        "micropython_kx132/i2c_helpers.py",
+        "code/micropython_kx132/i2c_helpers.py"
+      ],
+      [
+        "micropython_kx132/kx132.py",
+        "code/micropython_kx132/kx132.py"
+      ]
+    ],
+    "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/kx132_driver",
+    "readme_url": null,
+    "repository_url": "https://github.com/FreakStudioCN/GraftSense-Drivers-MicroPython",
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "support_level": "generatable",
+    "cached": true
+  },
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.7,
+  "constructors": [
+    "KX132(i2c, address)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    },
+    {
+      "path": "kx132.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "kx132",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/kx132_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "interrupt_release",
+    "soft_reset"
+  ],
+  "read_properties": [
+    "acc_range",
+    "acceleration",
+    "adp_enabled",
+    "advanced_data_path",
+    "free_fall_enabled",
+    "free_fall_threshold",
+    "output_data_rate",
+    "performance_mode",
+    "previous_tilt_position",
+    "tap_doubletap_enable",
+    "tap_doubletap_report",
+    "tilt_position",
+    "tilt_position_enable"
+  ],
+  "support_level": "generatable"
+}

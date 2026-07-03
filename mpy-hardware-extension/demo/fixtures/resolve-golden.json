@@ -1,0 +1,522 @@
+[
+  {
+    "intent": "温度超过30度就点亮LED",
+    "capabilities": [
+      "temperature_sensing",
+      "digital_output"
+    ],
+    "board_id": "esp32-s3-devkitc-1",
+    "expected": {
+      "candidates": [
+        {
+          "name": "aht20_driver",
+          "version": "1.0.0",
+          "source": "curated",
+          "package_json_url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json",
+          "description": "AHT20 temperature and humidity sensor driver",
+          "capabilities": [
+            "temperature_sensing",
+            "humidity_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.82,
+          "reason": "capability_match"
+        },
+        {
+          "name": "ds18b20_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ds18b20_driver",
+          "description": "A MicroPython library to control DS18B20 driver",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.8,
+          "reason": "capability_match"
+        },
+        {
+          "name": "my18e20_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/my18e20_driver",
+          "description": "A MicroPython driver for MY18E20/DS18B20 OneWire temperature sensors, supporting multi-device scanning, parasitic power mode, resolution configuration, and CRC-8 validation",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.8,
+          "reason": "capability_match"
+        },
+        {
+          "name": "scd41_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/scd41_driver",
+          "description": "A MicroPython driver for the Sensirion SCD4X CO2/temperature/humidity sensor, supporting periodic measurement, low-power mode, forced calibration, self-test and EEPROM persistence",
+          "capabilities": [
+            "temperature_sensing",
+            "humidity_sensing",
+            "gas_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.8,
+          "reason": "capability_match"
+        },
+        {
+          "name": "t117b_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/t117b_driver",
+          "description": "A MicroPython driver for T117B I2C temperature sensor with continuous/single measurement and alert threshold configuration",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.8,
+          "reason": "capability_match"
+        },
+        {
+          "name": "bmp280_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/bmp280_driver",
+          "description": "A MicroPython library to control BMP280 driver",
+          "capabilities": [
+            "temperature_sensing",
+            "pressure_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.7,
+          "reason": "capability_match"
+        },
+        {
+          "name": "dht11_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/dht11_driver",
+          "description": "A MicroPython library to control DHT11 driver",
+          "capabilities": [
+            "temperature_sensing",
+            "humidity_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.7,
+          "reason": "capability_match"
+        },
+        {
+          "name": "mlx90614_driver",
+          "version": "1.0.2",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mlx90614_driver",
+          "description": "A MicroPython library to control mlx90614_driver ",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.7,
+          "reason": "capability_match"
+        },
+        {
+          "name": "incomplete_sensor",
+          "version": "0.1.0",
+          "source": "curated",
+          "package_json_url": "https://upypi.net/pkgs/incomplete_sensor/0.1.0/package.json",
+          "description": "Discoverable package with incomplete driver context",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "discoverable",
+          "score": 11.2,
+          "reason": "capability_match"
+        }
+      ],
+      "selected": {
+        "name": "aht20_driver",
+        "version": "1.0.0",
+        "source": "curated",
+        "package_json_url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json",
+        "description": "AHT20 temperature and humidity sensor driver",
+        "capabilities": [
+          "temperature_sensing",
+          "humidity_sensing"
+        ],
+        "chips": "all",
+        "fw": "all",
+        "support_level": "generatable",
+        "score": 13.82,
+        "reason": "capability_match"
+      },
+      "needs_user_choice": false,
+      "questions": []
+    }
+  },
+  {
+    "intent": "turn on the LED when temperature is over 30",
+    "capabilities": [
+      "temperature_sensing",
+      "digital_output"
+    ],
+    "board_id": "esp32-s3-devkitc-1",
+    "expected": {
+      "candidates": [
+        {
+          "name": "aht20_driver",
+          "version": "1.0.0",
+          "source": "curated",
+          "package_json_url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json",
+          "description": "AHT20 temperature and humidity sensor driver",
+          "capabilities": [
+            "temperature_sensing",
+            "humidity_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 14.07,
+          "reason": "capability_match"
+        },
+        {
+          "name": "ds18b20_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/ds18b20_driver",
+          "description": "A MicroPython library to control DS18B20 driver",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 14.05,
+          "reason": "capability_match"
+        },
+        {
+          "name": "my18e20_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/my18e20_driver",
+          "description": "A MicroPython driver for MY18E20/DS18B20 OneWire temperature sensors, supporting multi-device scanning, parasitic power mode, resolution configuration, and CRC-8 validation",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 14.05,
+          "reason": "capability_match"
+        },
+        {
+          "name": "scd41_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/scd41_driver",
+          "description": "A MicroPython driver for the Sensirion SCD4X CO2/temperature/humidity sensor, supporting periodic measurement, low-power mode, forced calibration, self-test and EEPROM persistence",
+          "capabilities": [
+            "temperature_sensing",
+            "humidity_sensing",
+            "gas_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 14.05,
+          "reason": "capability_match"
+        },
+        {
+          "name": "t117b_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/t117b_driver",
+          "description": "A MicroPython driver for T117B I2C temperature sensor with continuous/single measurement and alert threshold configuration",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 14.05,
+          "reason": "capability_match"
+        },
+        {
+          "name": "bmp280_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/bmp280_driver",
+          "description": "A MicroPython library to control BMP280 driver",
+          "capabilities": [
+            "temperature_sensing",
+            "pressure_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.95,
+          "reason": "capability_match"
+        },
+        {
+          "name": "dht11_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/dht11_driver",
+          "description": "A MicroPython library to control DHT11 driver",
+          "capabilities": [
+            "temperature_sensing",
+            "humidity_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.95,
+          "reason": "capability_match"
+        },
+        {
+          "name": "mlx90614_driver",
+          "version": "1.0.2",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mlx90614_driver",
+          "description": "A MicroPython library to control mlx90614_driver ",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.95,
+          "reason": "capability_match"
+        },
+        {
+          "name": "incomplete_sensor",
+          "version": "0.1.0",
+          "source": "curated",
+          "package_json_url": "https://upypi.net/pkgs/incomplete_sensor/0.1.0/package.json",
+          "description": "Discoverable package with incomplete driver context",
+          "capabilities": [
+            "temperature_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "discoverable",
+          "score": 11.45,
+          "reason": "capability_match"
+        }
+      ],
+      "selected": {
+        "name": "aht20_driver",
+        "version": "1.0.0",
+        "source": "curated",
+        "package_json_url": "https://upypi.net/pkgs/aht20_driver/1.0.0/package.json",
+        "description": "AHT20 temperature and humidity sensor driver",
+        "capabilities": [
+          "temperature_sensing",
+          "humidity_sensing"
+        ],
+        "chips": "all",
+        "fw": "all",
+        "support_level": "generatable",
+        "score": 14.07,
+        "reason": "capability_match"
+      },
+      "needs_user_choice": false,
+      "questions": []
+    }
+  },
+  {
+    "intent": "blink the onboard LED",
+    "capabilities": [
+      "digital_output"
+    ],
+    "board_id": "rpi-pico-w",
+    "expected": {
+      "candidates": [
+        {
+          "name": "machine_pin_led",
+          "version": "builtin",
+          "source": "curated",
+          "package_json_url": "builtin://machine.Pin",
+          "description": "Built-in MicroPython machine.Pin digital output for LEDs",
+          "capabilities": [
+            "digital_output"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "verified",
+          "score": 15.24,
+          "reason": "capability_match"
+        },
+        {
+          "name": "led_single_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/led_single_driver",
+          "description": "A MicroPython library to control LED single driver",
+          "capabilities": [
+            "digital_output"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.95,
+          "reason": "capability_match"
+        },
+        {
+          "name": "piranha_led_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/piranha_led_drive",
+          "description": "A MicroPython library to control piranha_led driver",
+          "capabilities": [
+            "digital_output",
+            "motion_sensing"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.95,
+          "reason": "capability_match"
+        },
+        {
+          "name": "opto_mos_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/motor_drivers/opto_mos_driver",
+          "description": "A MicroPython library to control opto MOS driver",
+          "capabilities": [
+            "digital_output"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.8,
+          "reason": "capability_match"
+        },
+        {
+          "name": "pcf8574_io8_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/pcf8574_io8_driver",
+          "description": "A MicroPython library to control PCF8574 IO8 driver",
+          "capabilities": [
+            "digital_output"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.8,
+          "reason": "capability_match"
+        },
+        {
+          "name": "pcf8575_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/pcf8575_driver",
+          "description": "A MicroPython library PCF8575 driver",
+          "capabilities": [
+            "digital_output"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.8,
+          "reason": "capability_match"
+        },
+        {
+          "name": "mcp23017_driver",
+          "version": "1.0.1",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/mcp23017_driver",
+          "description": "A MicroPython library to control mcp23017_driver ",
+          "capabilities": [
+            "digital_output"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.7,
+          "reason": "capability_match"
+        },
+        {
+          "name": "neopixel_matrix_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/neopixel_matrix_driver",
+          "description": "A MicroPython library to control NeoPixel matrix driver",
+          "capabilities": [
+            "digital_output"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "generatable",
+          "score": 13.7,
+          "reason": "capability_match"
+        },
+        {
+          "name": "pcf8574_led_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/pcf8574_led_driver",
+          "description": "A MicroPython library to control PCF8574 LED driver",
+          "capabilities": [
+            "digital_output"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "installable",
+          "score": 12.75,
+          "reason": "capability_match"
+        },
+        {
+          "name": "pcf8574keys_driver",
+          "version": "1.0.0",
+          "source": "graftsense",
+          "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/input/pcf8574keys_driver",
+          "description": "A MicroPython library to control PCF8574 keys driver",
+          "capabilities": [
+            "digital_output",
+            "digital_input"
+          ],
+          "chips": "all",
+          "fw": "all",
+          "support_level": "installable",
+          "score": 12.5,
+          "reason": "capability_match"
+        }
+      ],
+      "selected": {
+        "name": "machine_pin_led",
+        "version": "builtin",
+        "source": "curated",
+        "package_json_url": "builtin://machine.Pin",
+        "description": "Built-in MicroPython machine.Pin digital output for LEDs",
+        "capabilities": [
+          "digital_output"
+        ],
+        "chips": "all",
+        "fw": "all",
+        "support_level": "verified",
+        "score": 15.24,
+        "reason": "capability_match"
+      },
+      "needs_user_choice": false,
+      "questions": []
+    }
+  }
+]

@@ -1,0 +1,56 @@
+{
+  "package": {
+    "name": "mwfd_driver",
+    "version": "1.0.0",
+    "source": "graftsense",
+    "description": "A MicroPython library to control mwfd_driver ",
+    "author": "leeqingshui",
+    "license": "MIT",
+    "chips": "all",
+    "fw": "all",
+    "deps": [],
+    "urls": [
+      [
+        "mwfd.py",
+        "code/mwfd.py"
+      ]
+    ],
+    "package_json_url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mwfd_driver",
+    "readme_url": null,
+    "repository_url": "https://github.com/FreakStudioCN/GraftSense-Drivers-MicroPython",
+    "capabilities": [],
+    "support_level": "generatable",
+    "cached": true
+  },
+  "bus": [
+    "gpio"
+  ],
+  "confidence": 0.8,
+  "constructors": [
+    "MWFD(input_pin)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mwfd.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mwfd"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "github:FreakStudioCN/GraftSense-Drivers-MicroPython/sensors/mwfd_driver"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "gpio"
+  ],
+  "read_methods": [
+    "irq",
+    "read"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}
