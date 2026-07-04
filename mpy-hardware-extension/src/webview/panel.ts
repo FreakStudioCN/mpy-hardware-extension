@@ -462,11 +462,16 @@ function makeWorkspaceDeleter(workspaceFolder?: string) {
 function readWebviewHtml(): string {
   // Dev/test runs this module directly (import.meta.url -> src/webview/), so
   // "./index.html" resolves. The bundled entry lives at dist/extension/, where
-  // the packaged html sits at ../../src/webview/index.html. Try both.
-  const candidates = ["./index.html", "../../src/webview/index.html"];
-  for (const candidate of candidates) {
+  // the packaged files sit at ../../src/webview/. Try both. The css/js live in
+  // sibling files (Phase B split) and are inlined here so the webview still
+  // receives a single self-contained HTML string.
+  const candidates = ["./", "../../src/webview/"];
+  for (const base of candidates) {
     try {
-      return readFileSync(new URL(candidate, import.meta.url), "utf-8");
+      const html = readFileSync(new URL(base + "index.html", import.meta.url), "utf-8");
+      const css = readFileSync(new URL(base + "webview.css", import.meta.url), "utf-8");
+      const js = readFileSync(new URL(base + "webview.js", import.meta.url), "utf-8");
+      return html.replace("/*__WEBVIEW_CSS__*/", () => css).replace("//__WEBVIEW_JS__", () => js);
     } catch {
       // try next candidate
     }

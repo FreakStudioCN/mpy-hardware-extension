@@ -6,6 +6,8 @@
 # from disk at runtime (readWebviewHtml resolves ../../src/webview/index.html).
 src/**
 !src/webview/index.html
+!src/webview/webview.css
+!src/webview/webview.js
 
 # tests, build scripts, tooling
 test/**

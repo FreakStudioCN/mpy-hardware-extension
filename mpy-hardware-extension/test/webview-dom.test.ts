@@ -4,13 +4,16 @@ import test from "node:test";
 
 import { JSDOM } from "jsdom";
 
-// Loads the REAL shipped webview (the inline <script> in index.html) into jsdom
-// and drives it through window 'message' events, exactly as the extension host
-// posts them. The script falls back to a mock vscode when acquireVsCodeApi is
-// absent, so no production extraction is needed. This is the only coverage of
-// the streaming code card / renderWiring (dual-shape) / the deploy checkpoint /
-// setCredits / the HTML-escape guard.
-const html = readFileSync(new URL("../src/webview/index.html", import.meta.url), "utf-8");
+// Loads the REAL shipped webview (index.html + its sibling webview.css/webview.js,
+// assembled the same way readWebviewHtml() does) into jsdom and drives it through
+// window 'message' events, exactly as the extension host posts them. The script
+// falls back to a mock vscode when acquireVsCodeApi is absent, so no production
+// extraction is needed. This is the only coverage of the streaming code card /
+// renderWiring (dual-shape) / the deploy checkpoint / setCredits / the HTML-escape guard.
+const rawHtml = readFileSync(new URL("../src/webview/index.html", import.meta.url), "utf-8");
+const webviewCss = readFileSync(new URL("../src/webview/webview.css", import.meta.url), "utf-8");
+const webviewJs = readFileSync(new URL("../src/webview/webview.js", import.meta.url), "utf-8");
+const html = rawHtml.replace("/*__WEBVIEW_CSS__*/", () => webviewCss).replace("//__WEBVIEW_JS__", () => webviewJs);
 
 async function loadWebview(posted?: any[]): Promise<JSDOM> {
   const dom = new JSDOM(html, {
