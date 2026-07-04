@@ -355,8 +355,8 @@ function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?
     return createApiPipelineLoop(deps);
   }
   // Protocol path: the server drives via the 7-message plugin-interface, the
-  // extension is the dumb executor. The legacy 27-tool agent-backed-loop is kept ONLY
-  // for the dev CLIs (run-live-gen / run-golden-path); the panel never uses it.
+  // extension is the dumb executor. The protocol loop is the only agent path;
+  // the deterministic template pipeline (MPYHW_LOOP=template) remains for offline/no-key demos and tests.
   return createProtocolLoop(deps);
 }
 

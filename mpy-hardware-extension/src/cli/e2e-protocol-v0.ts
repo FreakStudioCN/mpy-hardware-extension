@@ -34,7 +34,7 @@ const intent = process.argv.slice(2).join(" ") || DEFAULT_INTENT;
 const apiBaseUrl = (process.env.MPYHW_API_BASE ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 const jwt = process.env.MPYHW_DEV_JWT;
 if (!jwt) {
-  console.error("MPYHW_DEV_JWT not set — mint a dev session token (see run-live-gen.ts header) first.");
+  console.error("MPYHW_DEV_JWT not set — provide a dev JWT signed with the backend's MPYHW_JWT_SECRET (see this file's header).");
   process.exit(2);
 }
 
