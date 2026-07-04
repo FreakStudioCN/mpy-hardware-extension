@@ -10,10 +10,11 @@ services:
     envVars:
       - key: PORT
         value: "8080"
-      # Load-bearing: the circuit breaker (_deepseek_breaker) and the per-user LLM
-      # session limiter (llm_sessions) are in-process state. More than one worker
-      # would give each its own copy, silently breaking rate-limiting and the
-      # upstream-outage breaker. Scaling out requires moving that state to the DB.
+      # Load-bearing: the DeepSeek circuit breaker (_deepseek_breaker) is
+      # in-process state, so more than one worker would give each its own
+      # breaker. (llm_sessions is DB-backed with advisory locks and would
+      # scale; the breaker would not.) Scaling out requires moving the
+      # breaker to the DB.
       - key: WEB_CONCURRENCY
         value: "1"
       - key: MPYHW_ENV
