@@ -1,0 +1,16 @@
+{
+  "board_id": "raspberry-pi-pico",
+  "display_name": "Raspberry Pi Pico",
+  "manufacturer": "Raspberry Pi",
+  "pin_capabilities": {
+    "GPIO4": ["gpio_in", "gpio_out", "i2c_sda"],
+    "GPIO5": ["gpio_in", "gpio_out", "i2c_scl"],
+    "GPIO25": ["gpio_out", "led_anode"],
+    "GPIO0": ["uart_tx"],
+    "GPIO1": ["uart_rx"]
+  },
+  "pin_recommendations": { "i2c_sda": "GPIO4", "i2c_scl": "GPIO5", "led_default": "GPIO25" },
+  "forbidden_pins": ["GPIO23", "GPIO24", "GPIO29"],
+  "available_modules": ["machine", "time", "math", "json", "os", "sys", "gc", "struct", "framebuf", "neopixel", "asyncio", "rp2"],
+  "voltage_notes": "3.3V logic only. GPIO23 (onboard SMPS mode control), GPIO24 (VBUS sense) and GPIO29 (ADC/VSYS reference) are used internally on the Pico board - avoid using them as general-purpose GPIO. GPIO25 drives the onboard LED directly and is safe to use as led_default."
+}

@@ -1,0 +1,18 @@
+{
+  "board_id": "esp32-devkit-v1",
+  "display_name": "ESP32 DevKit V1 (WROOM-32)",
+  "manufacturer": "Espressif (generic)",
+  "pin_capabilities": {
+    "GPIO2": ["gpio_out", "led_anode"],
+    "GPIO21": ["gpio_in", "gpio_out", "i2c_sda"],
+    "GPIO22": ["gpio_in", "gpio_out", "i2c_scl"],
+    "GPIO1": ["uart_tx"],
+    "GPIO3": ["uart_rx"],
+    "GPIO34": ["gpio_in", "adc"],
+    "GPIO35": ["gpio_in", "adc"]
+  },
+  "pin_recommendations": { "i2c_sda": "GPIO21", "i2c_scl": "GPIO22", "led_default": "GPIO2" },
+  "forbidden_pins": ["GPIO6", "GPIO7", "GPIO8", "GPIO9", "GPIO10", "GPIO11"],
+  "available_modules": ["machine", "time", "math", "json", "os", "sys", "gc", "struct", "framebuf", "neopixel", "asyncio", "network", "socket", "ssl"],
+  "voltage_notes": "3.3V logic only. GPIO34-39 are input-only (no pull-ups). GPIO6-11 are the flash bus - never use."
+}

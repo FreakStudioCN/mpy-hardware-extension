@@ -54,6 +54,9 @@ _OFFICIAL_BOARD_MAPPINGS = {
     "ESP32_GENERIC_C3": {"local_board_id": "esp32-c3-devkitm-1", "skill_board_id": "esp32-c3-devkitm", "chip_family": "esp32c3"},
     "ESP32_GENERIC_S3": {"local_board_id": "esp32-s3-devkitc-1", "skill_board_id": "esp32-s3-devkitc", "chip_family": "esp32s3"},
     "RPI_PICO_W": {"local_board_id": "rpi-pico-w", "skill_board_id": "raspberry-pi-pico-w", "chip_family": "rp2"},
+    "ESP32_GENERIC": {"local_board_id": "esp32-devkit-v1", "skill_board_id": "esp32-devkit-v1", "chip_family": "esp32"},
+    "RPI_PICO": {"local_board_id": "raspberry-pi-pico", "skill_board_id": "raspberry-pi-pico", "chip_family": "rp2"},
+    "ESP8266_GENERIC": {"local_board_id": "esp8266-nodemcu", "skill_board_id": "esp8266-nodemcu", "chip_family": "esp8266"},
 }
 
 

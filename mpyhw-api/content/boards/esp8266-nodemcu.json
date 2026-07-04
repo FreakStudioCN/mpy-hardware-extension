@@ -1,0 +1,16 @@
+{
+  "board_id": "esp8266-nodemcu",
+  "display_name": "ESP8266 NodeMCU V3",
+  "manufacturer": "Espressif (generic)",
+  "pin_capabilities": {
+    "GPIO2": ["gpio_out", "led_anode"],
+    "GPIO5": ["gpio_in", "gpio_out", "i2c_sda"],
+    "GPIO4": ["gpio_in", "gpio_out", "i2c_scl"],
+    "GPIO1": ["uart_tx"],
+    "GPIO3": ["uart_rx"]
+  },
+  "pin_recommendations": { "i2c_sda": "GPIO5", "i2c_scl": "GPIO4", "led_default": "GPIO2" },
+  "forbidden_pins": ["GPIO6", "GPIO7", "GPIO8", "GPIO9", "GPIO10", "GPIO11"],
+  "available_modules": ["machine", "time", "math", "json", "os", "sys", "gc", "struct", "framebuf", "neopixel", "network", "socket", "ssl"],
+  "voltage_notes": "3.3V logic only (5V will damage the chip). The onboard LED on GPIO2 is active-low (LOW = on). GPIO6-11 are the flash bus - never use. GPIO0/2/15 are strapping pins that set the boot mode; GPIO1/3 are the UART0 debug console - avoid repurposing. GPIO outputs are limited to ~12mA (vs 40mA on ESP32) - add a series resistor when driving an LED directly."
+}

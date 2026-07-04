@@ -51,6 +51,21 @@ def test_board_index_contains_detail_hashes():
     assert body["builtin"][0]["detail_sha256"]
 
 
+def test_expanded_board_catalog_serves_six_full_profiles():
+    client = TestClient(app)
+    listing = client.get("/v1/boards").json()
+    ids = {b["board_id"] for b in listing["builtin"]}
+    assert {
+        "esp32-s3-devkitc-1", "esp32-c3-devkitm-1", "rpi-pico-w",
+        "esp32-devkit-v1", "raspberry-pi-pico", "esp8266-nodemcu",
+    } <= ids
+    for board_id in ("esp32-devkit-v1", "raspberry-pi-pico", "esp8266-nodemcu"):
+        prof = client.get(f"/v1/boards/{board_id}").json()
+        assert prof["pin_recommendations"]["i2c_sda"]
+        assert prof["forbidden_pins"], board_id
+        assert "machine" in prof["available_modules"]
+
+
 @pytest.mark.no_db
 def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monkeypatch):
     from app import routes_content
