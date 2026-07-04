@@ -462,7 +462,18 @@ def _resolve_board(manifest: dict[str, Any], body: dict[str, Any]) -> dict[str, 
         return official
     for board_id in _raw_board_id_candidates(manifest, body):
         safe = board_id if re.fullmatch(r"[A-Za-z0-9._-]{1,96}", board_id) else "unknown"
-        return {"board_id": safe}
+        # Loud, explicit tier instead of the old bare {"board_id": ...} stub:
+        # the model must not invent a pin layout for a board we know nothing about.
+        return {
+            "board_id": safe,
+            "support_status": "unknown_board",
+            "pin_allocation_supported": False,
+            "note": (
+                "No builtin pin layout and no official-catalog record for this board. "
+                "Do NOT invent pin numbers; ask the user for wiring or recommend a "
+                "builtin_pin_layout board."
+            ),
+        }
     return {}
 
 

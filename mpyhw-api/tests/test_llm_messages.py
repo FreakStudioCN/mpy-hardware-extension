@@ -780,3 +780,14 @@ def test_cloud_prompt_now_DOES_carry_the_full_skill(monkeypatch):
     system = payload["messages"][0]["content"]
     assert "PHASE SKILL (upy-deploy-plugin)" in system
     assert "mpremote" in system or "```" in system
+
+
+@pytest.mark.no_db
+def test_resolve_board_marks_unknown_boards_loudly_instead_of_bare_stub():
+    from app.routes_llm import _resolve_board
+
+    board = _resolve_board({}, {"board_id": "totally-unknown-board-9000"})
+    assert board["board_id"] == "totally-unknown-board-9000"
+    assert board["support_status"] == "unknown_board"
+    assert board["pin_allocation_supported"] is False
+    assert "pin" in board["note"].lower()
