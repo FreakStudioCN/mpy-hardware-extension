@@ -322,17 +322,20 @@ def test_web_recommend_allows_browser_cors_preflight():
     assert response.headers["access-control-allow-origin"] == "https://www.block-less.com"
 
 
-def test_web_write_endpoints_allow_blockless_co_cors_preflight():
+def test_web_write_endpoints_allow_block_less_com_cors_preflight():
+    # blockless.co (the origin this test used to assert) was removed from
+    # _DEFAULT_CORS_ORIGINS in the task-6 audit: it doesn't resolve in DNS and has
+    # no live frontend. block-less.com is the real, evidence-backed production origin.
     response = client.options(
         "/v1/web/quotes",
         headers={
-            "Origin": "https://www.blockless.co",
+            "Origin": "https://block-less.com",
             "Access-Control-Request-Method": "POST",
         },
     )
 
     assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "https://www.blockless.co"
+    assert response.headers["access-control-allow-origin"] == "https://block-less.com"
 
 
 def test_web_recommend_uses_generated_board_catalog(tmp_path, monkeypatch):

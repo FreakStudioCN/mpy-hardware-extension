@@ -27,12 +27,17 @@ logger = logging.getLogger("mpyhw.request")
 _startup_log = logging.getLogger("mpyhw.startup")
 
 _DEFAULT_CORS_ORIGINS = [
+    # Production site: recommend-widget CORS fix (2a1f243) + browser-IDE OAuth
+    # redirect target (routes_auth.py default, render.yaml MPYHW_BROWSER_AUTH_REDIRECT_ORIGINS).
     "https://block-less.com",
-    "https://www.block-less.com",
-    "https://blockless.co",
-    "https://www.blockless.co",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+    "https://www.block-less.com",  # www variant of the above; asserted by test_web_recommend_routes.py
+    # NOTE: "https://blockless.co" / "https://www.blockless.co" were removed here (task-6 audit,
+    # 2026-07-03): the domain does not resolve (DNS NXDOMAIN as of this audit), it is absent from
+    # the live website-blockless frontend source, and its only other appearance in this monorepo
+    # family is as a default in the SEPARATE blockless-api product's own CORS config (different
+    # backend, not evidence for this service). See docs/superpowers/sdd/task-6-report.md.
+    "http://localhost:3000",  # local web dev
+    "http://127.0.0.1:3000",  # local web dev
 ]
 _BODY_LIMITS = {
     "/v1/web/recommend": 4096,
