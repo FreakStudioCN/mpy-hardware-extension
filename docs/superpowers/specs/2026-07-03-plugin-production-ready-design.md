@@ -2,7 +2,7 @@
 
 ## 目标
 
-插件栈（`mpy-hardware-extension` + `mpyhw-api` + 原版 upstream `MicroPython_Skills`）达到 VS Code Marketplace 上架发布就绪。Golden path（一句话 → analyze → select-hw → flash → scaffold → generate → deploy）打通并自证到真板前的最后一步；真板 USB 实测由用户执行（提供一页验收清单）。
+插件栈（`mpy-hardware-extension` + `mpyhw-api` + 原版 upstream `MicroPython_Skills`）达到 VS Code Marketplace 上架发布就绪（v0.3.12 已在架，本次为质量达标后的更新发布）。Golden path（一句话 → analyze → select-hw → flash → scaffold → generate → deploy）打通并自证到真板前的最后一步；真板 USB 实测由用户执行（提供一页验收清单）。
 
 两阶段执行：**Phase B（整理）先行，Phase A（上架）在干净地基上进行。**
 
@@ -42,8 +42,8 @@
 - 验证门：`webview-dom.test.ts` / `webview-panel.test.ts` 全绿；面板视觉无差异（人工开一次）。
 
 ### B6 部署解耦
-- **第 0 步（先查再动）**：确认线上 `blockless-api.onrender.com` 实际由哪个仓库部署（本仓库 cloud-test skill 指向它，新产品栈也叫 blockless-api）。查清前不做任何改名。
-- 查清后：`render.yaml` 服务名 `blockless-api` → `mpyhw-api`（或用户指定名）；CORS 源清单移除与插件无关的新产品域名残留（登录回跳仍需的保留）；同步更新 `.claude/skills/cloud-test`、`publish-extension` 里的后端 URL 引用。
+- 事实澄清：线上并**不**冲突——插件后端 = `blockless-api.onrender.com`（Postgres `blockless-db`），新产品 = `blockless-web-api.onrender.com`（`blockless-web-db`）。冲突只在仓库/命名层面易混淆。
+- 因此 B6 收窄为卫生项：`render.yaml` 内过期注释修正；CORS 源清单移除与插件无关的新产品域名残留（登录回跳仍需的保留）；是否改服务名由用户决定（改名会牵动 cloud-test/publish-extension skill 里的 URL 与已发布扩展的默认 apiBaseUrl，**默认不改**）。
 - 确认扩展侧 API 地址全部走 `mpyhw.apiBaseUrl` 设置，无硬编码。
 - 仅改仓库文件，**不动线上服务**；线上切换时机由用户决定。
 
