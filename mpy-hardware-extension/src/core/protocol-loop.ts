@@ -16,7 +16,7 @@ const MAX_TURNS_PER_PHASE = 60;
 const MAX_TOOLLESS_TURNS = 3;
 const MAX_PHASES = PHASE_ORDER.length;
 
-const PHASE_ALIASES: Record<string, string> = {
+export const PHASE_ALIASES: Record<string, string> = {
   "analyze": "analyze",
   "upy-analyze-plugin": "analyze",
   "select-hw": "select-hw",

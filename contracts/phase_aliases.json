@@ -1,0 +1,23 @@
+{
+  "$comment": "Single source of truth for phase tokens. protocol-loop.ts PHASE_ALIASES and skill_catalog.py PHASE_BY_SKILL are each contract-tested against this file. Upstream is inconsistent on purpose: analyze/select-hw use short names, the rest full -plugin dir names.",
+  "canonical_phases": ["analyze", "select-hw", "upy-flash-mpy-firmware-plugin", "upy-scaffold-plugin", "upy-generate-plugin", "upy-deploy-plugin"],
+  "aliases": {
+    "analyze": "analyze",
+    "upy-analyze-plugin": "analyze",
+    "select-hw": "select-hw",
+    "upy-select-hw": "select-hw",
+    "upy-select-hw-plugin": "select-hw",
+    "flash-mpy-firmware": "upy-flash-mpy-firmware-plugin",
+    "upy-flash-mpy-firmware": "upy-flash-mpy-firmware-plugin",
+    "upy-flash-mpy-firmware-plugin": "upy-flash-mpy-firmware-plugin",
+    "scaffold": "upy-scaffold-plugin",
+    "upy-scaffold": "upy-scaffold-plugin",
+    "upy-scaffold-plugin": "upy-scaffold-plugin",
+    "generate": "upy-generate-plugin",
+    "upy-generate": "upy-generate-plugin",
+    "upy-generate-plugin": "upy-generate-plugin",
+    "deploy": "upy-deploy-plugin",
+    "upy-deploy": "upy-deploy-plugin",
+    "upy-deploy-plugin": "upy-deploy-plugin"
+  }
+}
