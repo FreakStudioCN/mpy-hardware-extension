@@ -1,8 +1,11 @@
-mpremote
-pyserial
-pytest
-jsonschema
-flake8
-pylint
-requests
-pypdf
+# Exact pins (A1): the 16 quality gates must not drift with upstream lint
+# releases. Bump deliberately, then re-run the shim pytest suite and one
+# run_quality_gates.py baseline before committing a new set.
+mpremote==1.28.0
+pyserial==3.5
+pytest==9.0.3
+jsonschema==4.26.0
+flake8==7.3.0
+pylint==4.0.5
+requests==2.34.2
+pypdf==6.13.0
