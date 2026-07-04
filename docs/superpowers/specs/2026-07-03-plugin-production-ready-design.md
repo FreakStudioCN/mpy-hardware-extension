@@ -1,94 +1,94 @@
-# 插件生产就绪（Marketplace 上架）设计 — 2026-07-03
+# Plugin Production-Readiness (Marketplace Update) Design — 2026-07-03
 
-## 目标
+## Goal
 
-插件栈（`mpy-hardware-extension` + `mpyhw-api` + 原版 upstream `MicroPython_Skills`）达到 VS Code Marketplace 上架发布就绪（v0.3.12 已在架，本次为质量达标后的更新发布）。Golden path（一句话 → analyze → select-hw → flash → scaffold → generate → deploy）打通并自证到真板前的最后一步；真板 USB 实测由用户执行（提供一页验收清单）。
+Bring the plugin stack (`mpy-hardware-extension` + `mpyhw-api` + original upstream `MicroPython_Skills`) to VS Code Marketplace publish-ready quality (v0.3.12 is already listed; this is a quality-gated update release). The golden path (one sentence → analyze → select-hw → flash → scaffold → generate → deploy) is proven end-to-end up to the final real-board step; the physical USB test is performed by the user (we hand over a one-page acceptance checklist).
 
-两阶段执行：**Phase B（整理）先行，Phase A（上架）在干净地基上进行。**
+Two phases: **Phase B (tidy) first, then Phase A (ship) on a clean foundation.**
 
-## 硬约束
+## Hard Constraints
 
-1. `third_party/MicroPython_Skills` 是原版 upstream，本项目**不修改**。若发现 skill 文本必须改，单独上报用户走 upstream 流程。
-2. 网站两个仓库（新 `blockless-api` / `website-blockless`）完全不碰。新栈 `content/chips/*.json` 仅作只读事实参考。
-3. fail-fast 不放松：未提交的"质量门不可用也报 success"diff 不得进 main。
-4. v1 假设用户可访问 GitHub/云端（翻墙可用）；API 地址全部走配置（`mpyhw.apiBaseUrl`），为阿里云托管迁移预留。
-5. 每步一个 commit；Phase B 完成后过 Codex review 再进 Phase A。
+1. `third_party/MicroPython_Skills` is the original upstream — **never edited** in this project. If a skill text change turns out to be required, report it to the user separately for the upstream flow.
+2. The two website repos (new `blockless-api` / `website-blockless`) are untouched. The new stack's `content/chips/*.json` may be used as a read-only fact reference only.
+3. Fail-fast is not relaxed: the uncommitted "report success even when quality gates can't run" diff must not land on main.
+4. v1 assumes users can reach GitHub/the cloud (VPN-capable). All API endpoints go through configuration (`mpyhw.apiBaseUrl`) — no hardcoding — to keep a future Aliyun-hosted deployment a config change.
+5. One commit per step; Phase B passes a Codex review before Phase A begins.
 
-## Phase B — 整理（不改行为）
+## Phase B — Tidy (no behavior change)
 
-### B1 工作树清理
-- 新分支 `experiment/browser-host-capabilities`：把未提交的 fail-fast 回退 diff（`main.py` CORS 8098 + `routes_llm.py` `_disabled_tool_names`/成功豁免 + 两个未提交测试文件）commit 到该分支封存，commit message 记录封存理由（违反 fail-fast、面向浏览器宿主而非插件、未过 review）。main 恢复干净。
-- 盘点其余未提交文件（`.pylintrc`、HANDOFF 文档等），该提交的提交、该归档的归档。
-- 验证门：`git status` 干净；backend 测试全绿。
+### B1 Working-tree cleanup
+- New branch `experiment/browser-host-capabilities`: commit the uncommitted fail-fast-weakening diff there (`main.py` CORS 8098 + `routes_llm.py` `_disabled_tool_names`/success exemption + the two uncommitted test files) to quarantine it. The commit message records why it is quarantined (violates fail-fast; targets a browser host, not the plugin; never reviewed). main returns to clean.
+- Triage the remaining uncommitted files (`.pylintrc`, HANDOFF docs, etc.): commit what belongs, archive the rest. End the "frozen mid-review" state.
+- Gate: `git status` clean; backend tests all green.
 
-### B2 删死代码
-- `agent-backed-loop.ts`（932 行，遗留 27-tool loop）：`DEV_API_BASE_URL` 常量迁至新 `src/core/config.ts`，改 `panel.ts` import，整文件删除，连带仅被它引用的 tool-registry/canonical_tools 部分。
-- `src/core/skill-catalog.ts`（调用已删除的 `/v1/phase-profiles`，对 404）：删除。其使用者 `run-live-gen.ts` / `run-golden-path.ts`：先查 package.json scripts 是否仍被引用，无人用则删，有用则改走 V0 协议路径。
-- template loop（`pipeline.ts` + `MPYHW_LOOP=template`）：确认除环境开关外无调用后删除，`createLoop` 退化为单路径。
-- 验证门：`npm run typecheck` + `npm test` 全绿；esbuild 产物不再包含 agent-backed-loop；`e2e:v0`（shim）通过。
+### B2 Delete dead code
+- `agent-backed-loop.ts` (932 lines, legacy 27-tool loop): move `DEV_API_BASE_URL` to a new `src/core/config.ts`, update the `panel.ts` import, delete the file plus the tool-registry/canonical_tools parts referenced only by it.
+- `src/core/skill-catalog.ts` (calls the removed `/v1/phase-profiles`, gets 404): delete. Its consumers `run-live-gen.ts` / `run-golden-path.ts`: check whether package.json scripts still reference them; delete if unused, otherwise port to the V0 protocol path.
+- Template loop (`pipeline.ts` + `MPYHW_LOOP=template`): after confirming nothing but the env switch reaches it, delete; `createLoop` collapses to a single path.
+- Gate: `npm run typecheck` + `npm test` green; the esbuild bundle no longer contains agent-backed-loop; `e2e:v0` (shim) passes.
 
-### B3 phase 别名单一事实源
-- 以 `contracts/protocol_messages.json` 为唯一来源，TS 侧 `PHASE_ALIASES` 与 Python 侧 `PHASE_BY_SKILL` 各加一个与 contract 逐项比对的一致性测试（不改运行时结构，改动最小）。
-- 验证门：任一侧单改一个别名，两个测试均红。
+### B3 Single source of truth for phase aliases
+- `contracts/protocol_messages.json` becomes the only source: add a consistency test on each side (TS `PHASE_ALIASES`, Python `PHASE_BY_SKILL`) that compares entry-by-entry against the contract. No runtime restructuring — smallest possible change.
+- Gate: changing one alias on either side turns both tests red.
 
-### B4 routes_llm.py 粗粒度拆分（1115 行 → 约 3 个模块）
-- 拆出：`billing_breaker.py`（credit 计量 + 熔断）、`prompt_assembly.py`（SLIM_V0_ADAPTER + skill 注入 + phase notes + board/driver grounding）、`sse_translate.py`（DeepSeek SSE → 协议流翻译）。`routes_llm.py` 只留路由与编排。
-- 规则：纯搬移，函数体不改；旧模块保留 re-export，外部引用与测试不破。
-- 顺手修正：`llm_sessions.py` `DEFAULT_USER_LIMIT=2` 的过期理由（嵌套 codegen 已不存在）→ 重新评估数值并更新注释；`render.yaml` 中"llm_sessions 在进程内"的错误注释改正。
-- 验证门：全部 backend 测试**零修改**通过；`git diff` 旧文件仅删除与 re-export。
+### B4 Coarse split of routes_llm.py (1115 lines → ~3 modules)
+- Extract: `billing_breaker.py` (credit metering + circuit breaker), `prompt_assembly.py` (SLIM_V0_ADAPTER + skill injection + phase notes + board/driver grounding), `sse_translate.py` (DeepSeek SSE → protocol-stream translation). `routes_llm.py` keeps only routing and orchestration.
+- Rule: pure move — function bodies unchanged; the old module re-exports public symbols so tests and external references keep working.
+- Piggybacked corrections: `llm_sessions.py` `DEFAULT_USER_LIMIT=2` has a stale rationale (nested codegen no longer exists) → re-evaluate the value and update the comment; fix the incorrect "llm_sessions is in-process" comment in `render.yaml`.
+- Gate: the full backend test suite passes **unmodified** (strongest evidence of a correct move); `git diff` on the old file shows only deletions and re-exports.
 
-### B5 webview 最小拆分
-- `index.html`（2012 行）拆为 `index.html` + `webview.css` + `webview.js`，逐字节搬移；`panel.ts` 加载逻辑改为拼装/内联三件。不组件化、不改逻辑。
-- 验证门：`webview-dom.test.ts` / `webview-panel.test.ts` 全绿；面板视觉无差异（人工开一次）。
+### B5 Minimal webview split
+- Split `index.html` (2,012 lines) into `index.html` + `webview.css` + `webview.js`, byte-for-byte moves; `panel.ts` loading logic assembles/inlines the three. No componentization, no logic changes.
+- Gate: `webview-dom.test.ts` / `webview-panel.test.ts` green; one manual open of the panel shows no visual difference.
 
-### B6 部署解耦
-- 事实澄清：线上并**不**冲突——插件后端 = `blockless-api.onrender.com`（Postgres `blockless-db`），新产品 = `blockless-web-api.onrender.com`（`blockless-web-db`）。冲突只在仓库/命名层面易混淆。
-- 因此 B6 收窄为卫生项：`render.yaml` 内过期注释修正；CORS 源清单移除与插件无关的新产品域名残留（登录回跳仍需的保留）；是否改服务名由用户决定（改名会牵动 cloud-test/publish-extension skill 里的 URL 与已发布扩展的默认 apiBaseUrl，**默认不改**）。
-- 确认扩展侧 API 地址全部走 `mpyhw.apiBaseUrl` 设置，无硬编码。
-- 仅改仓库文件，**不动线上服务**；线上切换时机由用户决定。
+### B6 Deployment hygiene
+- Fact: the live services do **not** collide — plugin backend = `blockless-api.onrender.com` (Postgres `blockless-db`), new product = `blockless-web-api.onrender.com` (`blockless-web-db`). The collision is only repo/naming-level confusion.
+- Therefore B6 narrows to hygiene: fix the stale comment in `render.yaml`; remove new-product domain leftovers from the CORS origin list (keep any still needed for the login redirect); the Render service name stays **unchanged by default** (renaming would ripple into the cloud-test/publish-extension skills and the published extension's default apiBaseUrl — user's call if ever).
+- Confirm the extension reads the API base exclusively from the `mpyhw.apiBaseUrl` setting, no hardcoding.
+- Repo files only — **no live-service changes**; the user decides when/if to touch production.
 
-## Phase A — 上架
+## Phase A — Ship
 
-### A1 锁工具链
-- `esptool`、`mpremote`、`pyserial`、`flake8`、`pylint`、`jsonschema`、`pypdf` 全部精确 pin（以当前实测通过版本锁定）；device-shim venv 安装命令带版本。
-- 验证门：全新 venv 从零安装 → 16 个质量门对基准项目输出与锁定前一致。
+### A1 Pin the toolchain
+- Pin exact versions for `esptool`, `mpremote`, `pyserial`, `flake8`, `pylint`, `jsonschema`, `pypdf` (lock to the currently passing versions); the device-shim venv install command carries versions. The 16 quality gates stop drifting with upstream lint releases.
+- Gate: a from-scratch venv install → the 16 gates produce identical results on a baseline project as before pinning.
 
-### A2 板子目录扩充（3 → ~12-15 块完整 profile）
-- 拟定清单（用户可增删）：ESP32-WROOM DevKitC、ESP32-S2、ESP32-S3（已有）、ESP32-C3（已有）、ESP32-C6、Pico、Pico W（已有）、Pico 2、Pico 2 W + 国内热门 2-3 块（合宙 ESP32-C3 核心板、微雪 Pico 系）。
-- Profile 按现有 3 块板的 JSON schema 手写：引脚布局、官方固件 slug、烧录方式（esptool/UF2）、串口芯片提示。新栈 chip-fact 表只读核对引脚。
-- 两层语义保持：完整 profile = `builtin_pin_layout`；其余官方板 = `official_firmware_only`，选中时明确告知能力受限。修掉 `_resolve_board` 未命中时静默返回 `{board_id}` stub 的降级（改为显式 `official_firmware_only` 语义或明确报错）。
-- 验证门：每块新板过一次 select-hw shim 运行、pin 分配合法；profile 数据过 Codex 审。
+### A2 Board catalog expansion (3 → ~12–15 full profiles)
+- Draft list (user may add/remove): ESP32-WROOM DevKitC, ESP32-S2, ESP32-S3 (existing), ESP32-C3 (existing), ESP32-C6, Pico, Pico W (existing), Pico 2, Pico 2 W + 2–3 China-market favorites (LuatOS/合宙 ESP32-C3 core board, Waveshare Pico series).
+- Profiles hand-written to the existing 3-board JSON schema: pin layout, official firmware slug, flash method (esptool/UF2), USB-serial chip hints. The new stack's chip-fact tables are a read-only cross-check for pins.
+- Keep the two-tier semantics: full profile = `builtin_pin_layout`; every other official board = `official_firmware_only`, and selecting one states the capability limits explicitly. Fix the `_resolve_board` silent `{board_id}` stub fallback (replace with explicit `official_firmware_only` semantics or a loud error).
+- Gate: every new board passes one select-hw shim run with a legal pin allocation; profile data passes a Codex review.
 
-### A3 挂账 bug 修复
-- generate 收尾 flake 结构性修复：subprocess import 触发 `mpy_imports` / `generate_plan.json` 白名单 / turn-0 空项目幻觉，从 prompt-note 改为 validator 侧防护（白名单放宽到确认安全集合；turn-0 空项目检测拒绝该 turn 并重试）。
-- 审批卡灰屏 race：shim 模式写复现脚本（快速连点"修改器件清单"）；复现→修 webview 消息时序；不能复现→消息分发处加状态机守卫 + 遥测日志。
-- `terminal=awaiting_user` 语义拆分：真实用户等待 vs 协议 stall 在 UI 分开呈现，stall 显示"构建卡住了 + 重试"。
-- 验证门：e2e:v0 连跑 5 次 golden path 无 flake；灰屏复现脚本（若复现）转绿。
+### A3 Fix the carried-over bugs
+- Generate finalization flake, structural fix: the three prompt-note-papered failure modes (subprocess import tripping `mpy_imports`; `generate_plan.json` allowlist; turn-0 "empty project" hallucination) move to validator-side guards — widen the allowlist to the confirmed-safe set; detect and reject the turn-0 empty-project case with a retry of that turn, instead of pleading with the model.
+- Approval-card gray-screen race: write a shim-mode reproduction script (rapid double-click on "modify device list"); if it reproduces → fix the webview message ordering; if not → add a state-machine guard at the message dispatch plus telemetry logging, and chase it with live data after release.
+- `terminal=awaiting_user` semantics split: genuine user-wait vs protocol stall get distinct UI (stall shows "build is stuck" + a retry button) — the most common novice death point.
+- Gate: e2e:v0 golden path 5 consecutive runs without a flake; the gray-screen repro script (if it reproduces) turns green.
 
-### A4 轻量监控计费（明确不追求严密）
-- 每用户日 credit 上限（env 可调），超限返回明确错误卡。
-- `/v1/admin/usage` 只读端点（复用现有 admin token 模式），按天/用户汇总 tokens 与成本估算；DeepSeek 缓存命中率假设在代码旁注释。
-- 不做面板、不做告警。
-- 验证门：超限被拒且提示清晰；usage 数字与 llm_turns 记录一致。
+### A4 Light usage metering (explicitly not rigorous)
+- Per-user daily credit cap (env-tunable); over-cap returns a clear error card.
+- Read-only `/v1/admin/usage` endpoint (reusing the existing admin-token pattern), per-day/per-user token totals + cost estimate; the DeepSeek cache-hit-rate assumption is documented next to the constant.
+- No dashboard, no alerting.
+- Gate: an over-cap user is rejected with a clear message; usage numbers reconcile with `llm_turns` records.
 
-### A5 打包与上架材料
-- 发布机制已存在（`.claude/skills/publish-extension`：publisher=blockless、Marketplace ID=blockless.mpy-hardware-extension、GitHub Actions v* tag + VSCE_PAT 自动发布）——本项目**验证并复用**该链，不重建；预检（探活/typecheck/test/打包）走该 skill 的 check 模式。
-- `prepare-vsce` 链验证：VSIX 仅含 6 个 `-plugin` skill + shared scripts（submodule 守卫测试保持）；干净 VS Code 安装实测激活。
-- Marketplace 最小集：README（诚实列出前提：Python 3.10+、串口驱动、支持板清单、需可访问 GitHub 的网络）、icon、categories、CHANGELOG。新手指南两个〔待填〕：网络 → "需要能访问 GitHub 的网络"；反馈渠道 → GitHub Issues。
-- 发布动作（publisher token）由用户执行；本项目备齐一切材料。
-- 验证门：`vsce package` 无警告；干净 Windows 环境装 VSIX → Doctor 四项体检可跑。
+### A5 Packaging & marketplace material
+- The publish machinery already exists (`.claude/skills/publish-extension`: publisher=blockless, Marketplace ID `blockless.mpy-hardware-extension`, GitHub Actions v* tag + VSCE_PAT). This project **verifies and reuses** it — no rebuilding; preflight (health probe / typecheck / tests / package) runs through that skill's check mode.
+- Verify the `prepare-vsce` chain: the VSIX contains only the 6 `-plugin` skills + shared scripts (the submodule guard test stays); install into a clean VS Code and confirm activation.
+- Marketplace minimum set: README (honest prerequisites: Python 3.10+, USB-serial driver, supported-board list, network that can reach GitHub), icon, categories, CHANGELOG. Fill the two 〔待填〕 holes in the novice guide: network → "requires a network that can reach GitHub"; feedback channel → GitHub Issues.
+- The actual publish action (publisher token) is executed by the user; everything is prepared here.
+- Gate: `vsce package` clean; a clean Windows environment installs the VSIX → the Doctor's 4-item checkup runs.
 
-### A6 Golden path 自证
-- 本地栈启动与扩展加载复用 `.claude/skills/dev-up`（Postgres + mpyhw-api:8787 + 扩展）；shim 模式端到端：idea → 6 phase 全绿 → 产出项目。
-- 代码形状断言脚本（进 repo 成为回归测试）：`firmware/` 树结构、调度器 API 用法（`add_task`，禁 `register`）、import 全在 MicroPython 白名单、16 质量门全过、manifest 与文件一致。
-- 覆盖 3 类 idea（传感器/显示/执行器各一）× 连跑 5 次全绿。
-- 交付用户一页真板验收清单：板型、命令序列、每步预期现象、失败时需回传的信息。
+### A6 Golden-path self-verification
+- Local stack + extension loading reuses `.claude/skills/dev-up` (Postgres + mpyhw-api:8787 + extension); shim-mode end-to-end: idea → all 6 phases green → project produced.
+- Code-shape assertion script (lands in the repo as a regression test): `firmware/` tree structure, scheduler API usage (`add_task`, `register` forbidden), all imports within the MicroPython whitelist, all 16 quality gates pass, manifest consistent with files.
+- Coverage: 3 idea categories (sensor / display / actuator) × 5 consecutive runs, all green.
+- Deliver the user a one-page real-board acceptance checklist: board model, command sequence, expected observation at each step, what to send back on failure.
 
-## 明确不做（本版）
+## Explicitly Out of Scope (this release)
 
-- webview 组件化重写；多 LLM 供应商抽象（DeepSeek 模型名仅收敛为单一常量）；课程内容对齐（上架材料不引用课程）；告警/监控面板；阿里云实际部署（仅保证可配置可迁移）。
+- Webview componentization rewrite; multi-LLM-provider abstraction (the DeepSeek model name is merely consolidated into a single constant); course-content realignment (marketplace material does not reference the course); alerting/monitoring dashboards; the actual Aliyun deployment (only configurability/portability is guaranteed).
 
-## 遗留已知问题（上架时如实带着）
+## Known Issues Shipped As-Is
 
-- 审批卡 race 若不能复现，以守卫+日志状态上架。
-- 真板端到端由用户完成最后验收；此前所有验证基于 shim + 代码形状断言。
+- If the approval-card race does not reproduce, it ships in guarded+logged state.
+- The final real-board end-to-end is the user's acceptance step; everything before it is verified via shim + code-shape assertions.
