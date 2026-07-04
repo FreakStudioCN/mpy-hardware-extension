@@ -58,3 +58,11 @@ teach/
 /tools/
 /project-manifest.json
 /review_full.diff
+
+# Personal / bulk material kept out of the repo (Phase B triage 2026-07-03)
+Uber.pdf
+uber_pages/
+blockless-plugin-course.zip
+reference/
+*.stackdump
+docs/pitch/deck/extracted-assets/*.mp4

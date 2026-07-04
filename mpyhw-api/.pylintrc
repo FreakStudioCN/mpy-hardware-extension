@@ -1,0 +1,33 @@
+[MASTER]
+ignore-paths=^firmware/lib/.*\.py$
+ignore-patterns=test_
+persistent=no
+
+[MESSAGES CONTROL]
+disable=
+    import-error,
+    no-member,
+    no-name-in-module,
+    c-extension-no-member,
+    missing-module-docstring,
+    missing-function-docstring,
+    missing-class-docstring,
+    broad-exception-caught,
+    too-few-public-methods,
+    duplicate-code,
+    consider-using-f-string,
+    import-outside-toplevel,
+    invalid-name,
+    unused-variable,
+    ungrouped-imports
+
+[TYPECHECK]
+ignored-modules=
+    machine,micropython,pyb,esp,esp32,espnow,rp2,mimxrt,zephyr,wipy,stm,
+    neopixel,network,bluetooth,framebuf,uctypes,cryptolib,deflate,btree,
+    vfs,openamp,lcd160cr,WM8960,
+    uasyncio,uselect,utime,ujson,uos,ustruct,ure,uzlib,uhashlib,
+    ubinascii,ucollections,urandom,uerrno,uheapq,ussl,usocket
+
+[FORMAT]
+max-line-length=120

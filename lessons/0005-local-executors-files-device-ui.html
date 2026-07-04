@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>第 5 课：本地执行器</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65;color:#17202a;background:#f8fafc}
+    main{max-width:980px;margin:0 auto;padding:28px} header{background:#fff;border-bottom:1px solid #d7dee8}
+    h1{font-size:34px;line-height:1.15;margin:0 0 10px} h2{margin-top:30px;font-size:23px} h3{font-size:17px;color:#0f766e}
+    code{background:#edf2f7;padding:1px 5px;border-radius:4px;font-family:Consolas,ui-monospace,monospace}
+    pre{background:#102a43;color:#e6f6ff;padding:14px;border-radius:8px;overflow:auto}
+    table{border-collapse:collapse;width:100%;background:#fff;margin:12px 0} th,td{border:1px solid #d7dee8;padding:9px;vertical-align:top} th{background:#f1f5f9;text-align:left}
+    .note{border-left:4px solid #2563eb;background:#eef4ff;padding:12px;border-radius:8px}.card{background:#fff;border:1px solid #d7dee8;border-radius:8px;padding:14px;margin:12px 0}
+  </style>
+</head>
+<body>
+  <header><main>
+    <p>Lesson 0005 · 插件的手</p>
+    <h1>本地文件、设备和 UI 执行器：协议工具真正落地的地方</h1>
+    <p>本课只讲本地执行器。模型发工具只是意图，真正读写文件、弹卡片、跑脚本、操作设备的是 VS Code 插件和 Python shim。</p>
+  </main></header>
+  <main>
+    <h2>四类本地执行器</h2>
+    <table>
+      <thead><tr><th>协议工具</th><th>执行器</th><th>关键文件</th></tr></thead>
+      <tbody>
+        <tr><td><code>approval_request</code></td><td>WebView rich card</td><td><code>index.html</code>, <code>session-controller.ts</code></td></tr>
+        <tr><td><code>file_operation</code></td><td>workspace/project 文件读写</td><td><code>workspace-writer.ts</code>, <code>panel.ts</code></td></tr>
+        <tr><td><code>script_run</code></td><td>host toolchain scripts</td><td><code>protocol-build.ts</code>, <code>device-shim.ts</code></td></tr>
+        <tr><td><code>device_command</code></td><td>Python shim + mpremote</td><td><code>device-shim.ts</code>, <code>shim-process.ts</code>, <code>serve.py</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>文件执行器</h2>
+    <p>文件写入必须始终在 project root 下。当前输出目录是 <code>blockless-project</code>，避免生成物污染打开的 workspace 根目录。</p>
+    <pre><code>file_operation(write)
+  -> execFileOperation(...)
+  -> deps.writeFile(path, content)
+  -> panel.ts makeWorkspaceWriter(...)
+  -> workspace-writer.ts writeProjectFile(...)
+  -> <workspace>/blockless-project/path</code></pre>
+    <p><code>normalizeGeneratedArtifactPath</code> 是防线。它拒绝绝对路径、反斜杠、空段、<code>.</code>、<code>..</code> 和不在 allowlist 内的路径。</p>
+
+    <h2>设备执行器</h2>
+    <pre><code>device_command(action="stream")
+  -> createProtocolLoop.device(...)
+  -> DeviceShim.serialReadUntil(...)
+  -> ShimProcess.request("device.serial_read_until", ...)
+  -> python/shim/serve.py
+  -> serial output
+  -> serial_output event</code></pre>
+    <p><code>DeviceShim</code> 会缓存选中的 port。部署卡片确认时，<code>panel.ts</code> 会先把 port 设置到 shim，再 resolve prompt，防止第一个 device tool 没端口。</p>
+
+    <h2>脚本执行器</h2>
+    <p><code>script_run</code> 通过 <code>runScript</code> 映射到 shim 方法，例如 validate、scaffold、renderWiring、renderDiagram、runStaticCheck、runSimulate。注意：有些 phase recipe 当前明确禁止跑脚本，这时模型不应该发 <code>script_run</code>。</p>
+
+    <h2>UI 执行器</h2>
+    <p>所有需要用户回答的问题都应该走 <code>approval_request</code>。WebView 会渲染 checkbox、action button、text input。回答通过 <code>ui_prompt_response</code> 回到 <code>SessionController.resolvePrompt</code>。</p>
+
+    <div class="note">
+      <strong>核心原则：</strong>后端决定下一步要做什么；插件决定本地怎么安全执行；Python shim 只碰设备和工具链，不放 LLM、manifest、audit、package selection 逻辑。
+    </div>
+
+    <h2>验收点</h2>
+    <table>
+      <thead><tr><th>改动</th><th>验收</th></tr></thead>
+      <tbody>
+        <tr><td>文件写入</td><td><code>node --no-warnings --experimental-strip-types --test test/workspace-writer.test.ts</code></td></tr>
+        <tr><td>设备 shim</td><td><code>node --no-warnings --experimental-strip-types --test test/device-shim.test.ts test/shim-process.test.ts</code></td></tr>
+        <tr><td>panel 路由</td><td><code>node --no-warnings --experimental-strip-types --test test/webview-panel.test.ts</code></td></tr>
+        <tr><td>approval/deploy UI</td><td><code>node --no-warnings --experimental-strip-types --test test/webview-dom.test.ts</code></td></tr>
+      </tbody>
+    </table>
+
+    <p>上一课：<a href="0004-backend-llm-and-skills.html">后端 LLM 与 Skill 注入</a>。下一课：<a href="0006-skill-change-acceptance.html">Skill 改动验收</a>。</p>
+  </main>
+</body>
+</html>

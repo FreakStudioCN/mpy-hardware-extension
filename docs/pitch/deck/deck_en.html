@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blockless: Verified Hardware Prototype Recipes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --ink: #111318;
+      --muted: #5e6674;
+      --line: #d8dee8;
+      --panel: #ffffff;
+      --blue: #1769ff;
+      --green: #06a66a;
+      --red: #f04438;
+      --yellow: #f5b700;
+      --dark: #151922;
+      --dark-2: #202633;
+      --trace: rgba(23, 105, 255, 0.12);
+      --shadow: 0 18px 50px rgba(17, 19, 24, 0.10);
+      --font-display: "IBM Plex Sans", sans-serif;
+      --font-body: "IBM Plex Sans", sans-serif;
+      --font-mono: "IBM Plex Mono", monospace;
+      --title-size: clamp(2.25rem, 5.2vw, 5rem);
+      --h2-size: clamp(1.75rem, 3.35vw, 3.15rem);
+      --h3-size: clamp(1.02rem, 1.58vw, 1.3rem);
+      --body-size: clamp(0.94rem, 1.2vw, 1.12rem);
+      --small-size: clamp(0.76rem, 0.96vw, 0.9rem);
+      --slide-padding: clamp(1.05rem, 3.4vw, 3.9rem);
+      --gap: clamp(0.65rem, 1.25vw, 1.1rem);
+      --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      min-height: 100%;
+      overflow-x: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-body);
+      scroll-snap-type: y mandatory;
+      scroll-behavior: smooth;
+      scrollbar-width: none;
+    }
+    body::-webkit-scrollbar { display: none; }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, var(--trace) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(6, 166, 106, 0.07) 1px, transparent 1px);
+      background-size: 4.6rem 4.6rem;
+      mask-image: radial-gradient(circle at 50% 25%, black, transparent 72%);
+      opacity: 0.55;
+    }
+    .progress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 4px;
+      width: 0;
+      background: linear-gradient(90deg, var(--blue), var(--green), var(--yellow));
+      z-index: 20;
+      transition: width 0.25s var(--ease);
+    }
+    .nav {
+      position: fixed;
+      right: clamp(0.65rem, 1.4vw, 1.25rem);
+      top: 50%;
+      transform: translateY(-50%);
+      display: grid;
+      gap: 0.42rem;
+      z-index: 20;
+    }
+    .nav button {
+      width: 0.46rem;
+      height: 0.46rem;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(17, 19, 24, 0.28);
+      cursor: pointer;
+    }
+    .nav button.active { background: var(--blue); transform: scale(1.35); }
+    .slide {
+      position: relative;
+      min-height: 100vh;
+      height: 100vh;
+      min-height: 100dvh;
+      height: 100dvh;
+      overflow: hidden;
+      scroll-snap-align: start;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--slide-padding);
+    }
+    .slide.dark {
+      background:
+        radial-gradient(circle at 20% 15%, rgba(23, 105, 255, 0.22), transparent 28%),
+        linear-gradient(135deg, var(--dark), var(--dark-2));
+      color: #f8fafc;
+    }
+    .accent-block {
+      position: absolute;
+      width: min(30vw, 22rem);
+      height: min(30vw, 22rem);
+      right: 8vw;
+      bottom: 7vh;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: linear-gradient(135deg, rgba(23, 105, 255, 0.15), rgba(6, 166, 106, 0.14));
+      transform: rotate(8deg);
+      opacity: 0.8;
+    }
+    .slide-content {
+      width: min(1160px, 93vw);
+      max-height: min(88vh, 780px);
+      position: relative;
+      z-index: 2;
+      display: grid;
+      gap: var(--gap);
+    }
+    .two-col { grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); align-items: center; }
+    .product-layout { grid-template-columns: minmax(0, 0.82fr) minmax(360px, 1.18fr); align-items: center; }
+    .visual-stack { display: grid; gap: var(--gap); }
+    .hero-grid { grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.92fr); align-items: center; }
+    .kicker {
+      font-family: var(--font-mono);
+      font-size: clamp(0.64rem, 0.84vw, 0.82rem);
+      text-transform: uppercase;
+      color: var(--blue);
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+    .dark .kicker { color: #73f0c0; }
+    h1, h2, h3 { font-family: var(--font-display); letter-spacing: 0; line-height: 0.98; }
+    h1 { font-size: var(--title-size); max-width: 11ch; font-weight: 800; }
+    h2 { font-size: var(--h2-size); max-width: 22ch; font-weight: 800; }
+    h3 { font-size: var(--h3-size); font-weight: 700; }
+    .subtitle {
+      font-size: clamp(1.02rem, 1.4vw, 1.28rem);
+      line-height: 1.42;
+      color: var(--muted);
+      max-width: 58ch;
+    }
+    .dark .subtitle, .dark small, .dark .muted { color: rgba(248, 250, 252, 0.72); }
+    .note {
+      color: var(--muted);
+      font-size: clamp(0.92rem, 1.1vw, 1.05rem);
+      line-height: 1.4;
+      max-width: 72ch;
+    }
+    .dark .note { color: rgba(248, 250, 252, 0.76); }
+    b, strong { font-weight: 800; }
+    code { font-family: var(--font-mono); }
+    .chips { display: flex; gap: 0.55rem; flex-wrap: wrap; }
+    .chip {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      padding: 0.38rem 0.62rem;
+      font-family: var(--font-mono);
+      font-size: var(--small-size);
+      font-weight: 700;
+    }
+    .dark .chip { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.18); color: #f8fafc; }
+    .prompt-card, .tile, .metric, .flow-step, .stage, .asset-card {
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 28px rgba(17, 19, 24, 0.06);
+      min-width: 0;
+    }
+    .dark .tile, .dark .metric, .dark .flow-step, .dark .stage, .dark .asset-card {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.16);
+      box-shadow: none;
+    }
+    .prompt-card {
+      color: var(--ink);
+      box-shadow: var(--shadow);
+      padding: clamp(0.95rem, 2.3vw, 2.15rem);
+      display: grid;
+      gap: clamp(0.7rem, 1.25vw, 1rem);
+    }
+    .prompt-line {
+      font-size: clamp(1.05rem, 1.6vw, 1.55rem);
+      line-height: 1.18;
+      font-weight: 800;
+    }
+    .pipe { display: grid; gap: 0.55rem; }
+    .pipe span { display: block; font-size: var(--body-size); line-height: 1.34; }
+    .matrix, .metric-strip, .flow, .timeline, .asset-grid { display: grid; gap: var(--gap); }
+    .matrix { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .matrix.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .matrix.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .metric-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .flow { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .money-stack, .revenue-grid, .partner-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
+    .money-card, .revenue-card, .partner-card {
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: clamp(0.88rem, 1.45vw, 1.25rem);
+      min-width: 0;
+    }
+    .partner-card {
+      display: grid;
+      align-content: start;
+      gap: 0.32rem;
+    }
+    .partner-card strong {
+      font-size: clamp(1.05rem, 1.42vw, 1.32rem);
+      line-height: 1.05;
+    }
+    .partner-card b {
+      color: var(--blue);
+      font-family: var(--font-mono);
+      font-size: clamp(0.7rem, 0.86vw, 0.82rem);
+      line-height: 1.15;
+      text-transform: uppercase;
+    }
+    .partner-card small {
+      color: var(--muted);
+      font-size: clamp(0.84rem, 1.02vw, 0.98rem);
+      line-height: 1.26;
+    }
+    .money-card strong, .revenue-card strong {
+      display: block;
+      font-size: clamp(1.9rem, 3.5vw, 3.8rem);
+      line-height: 0.95;
+      margin-bottom: clamp(0.48rem, 0.9vw, 0.75rem);
+    }
+    .money-card b, .revenue-card b {
+      display: block;
+      font-size: clamp(0.98rem, 1.3vw, 1.2rem);
+      margin-bottom: 0.28rem;
+    }
+    .money-card small, .revenue-card small {
+      display: block;
+      color: var(--muted);
+      font-size: clamp(0.8rem, 1vw, 0.94rem);
+      line-height: 1.35;
+    }
+    .formula-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--gap);
+      font-family: var(--font-mono);
+      font-weight: 800;
+      color: var(--blue);
+      font-size: clamp(0.84rem, 1.05vw, 0.96rem);
+    }
+    .path-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      color: var(--muted);
+      font-size: clamp(0.84rem, 1.05vw, 0.96rem);
+      font-weight: 700;
+    }
+    .path-row span {
+      padding: 0.42rem 0.58rem;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.78);
+    }
+    .channel-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.42rem;
+      align-items: center;
+      color: var(--muted);
+      font-size: clamp(0.78rem, 1vw, 0.94rem);
+      line-height: 1.22;
+    }
+    .channel-line b { color: var(--ink); }
+    .channel-line span {
+      border: 1px solid rgba(17, 19, 24, 0.12);
+      background: rgba(255, 255, 255, 0.72);
+      padding: 0.32rem 0.48rem;
+      font-weight: 800;
+    }
+    .store-note {
+      border-left: 0.24rem solid var(--green);
+      background: rgba(6, 166, 106, 0.08);
+      padding: clamp(0.58rem, 1vw, 0.82rem) clamp(0.7rem, 1.15vw, 0.95rem);
+      color: var(--muted);
+      font-size: clamp(0.84rem, 1.04vw, 0.98rem);
+      line-height: 1.33;
+    }
+    .store-note strong { color: var(--ink); }
+    .runtime-compare {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--gap);
+      align-items: start;
+    }
+    .runtime-card {
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: clamp(0.78rem, 1.25vw, 1rem);
+      min-width: 0;
+    }
+    .runtime-card h3 {
+      font-size: clamp(1.02rem, 1.42vw, 1.28rem);
+      line-height: 1.05;
+      margin-bottom: 0.5rem;
+    }
+    .runtime-card ol {
+      margin-left: 1.1rem;
+      display: grid;
+      gap: 0.32rem;
+      color: var(--muted);
+      font-size: clamp(0.72rem, 0.9vw, 0.84rem);
+      line-height: 1.25;
+    }
+    .runtime-card li strong { color: var(--ink); }
+    .runtime-card.fast {
+      border-color: rgba(6, 166, 106, 0.32);
+      background: linear-gradient(135deg, rgba(6, 166, 106, 0.1), rgba(255, 255, 255, 0.9));
+    }
+    .problem-side { min-width: 0; }
+    .problem-side h3 {
+      font-size: clamp(1.02rem, 1.42vw, 1.28rem);
+      line-height: 1.05;
+      margin-bottom: 0.5rem;
+    }
+    .problem-side .matrix.two { gap: calc(var(--gap) * 0.55); }
+    .repair-note {
+      border-left: 0.24rem solid var(--blue);
+      background: rgba(23, 105, 255, 0.08);
+      padding: clamp(0.58rem, 1vw, 0.82rem) clamp(0.7rem, 1.15vw, 0.95rem);
+      color: var(--muted);
+      font-size: clamp(0.8rem, 1vw, 0.94rem);
+      line-height: 1.32;
+    }
+    .repair-note strong { color: var(--ink); }
+    .demo-layout { grid-template-columns: minmax(0, 0.72fr) minmax(420px, 1.05fr); align-items: center; }
+    .demo-video-card {
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+    }
+    .demo-video-card video {
+      display: block;
+      width: 100%;
+      height: clamp(320px, 56vh, 460px);
+      object-fit: contain;
+      background: #05070b;
+    }
+    .demo-video-card span {
+      display: block;
+      padding: 0.55rem 0.72rem;
+      font-size: var(--small-size);
+      font-weight: 800;
+      line-height: 1.2;
+      color: rgba(248, 250, 252, 0.88);
+    }
+    .tile, .metric, .flow-step, .stage { padding: clamp(0.72rem, 1.2vw, 1rem); }
+    .tile strong, .metric strong, .flow-step b {
+      display: block;
+      font-size: clamp(1.02rem, 1.28vw, 1.2rem);
+      margin-bottom: 0.28rem;
+    }
+    .tile small, .metric small, .flow-step span, .stage li {
+      font-size: var(--small-size);
+      line-height: 1.35;
+      color: var(--muted);
+    }
+    .dark .tile small, .dark .metric small, .dark .flow-step span, .dark .stage li { color: rgba(248, 250, 252, 0.72); }
+    .list { list-style: none; display: grid; gap: 0.62rem; font-size: var(--body-size); line-height: 1.36; }
+    .list li { display: grid; grid-template-columns: 0.9rem 1fr; gap: 0.55rem; }
+    .mark { width: 0.55rem; height: 0.55rem; background: var(--green); margin-top: 0.36rem; }
+    .compare {
+      width: 100%;
+      border-collapse: collapse;
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--line);
+      table-layout: fixed;
+    }
+    .compare th, .compare td {
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      padding: clamp(0.46rem, 0.86vw, 0.8rem);
+      font-size: clamp(0.68rem, 0.82vw, 0.8rem);
+      line-height: 1.28;
+    }
+    .compare th {
+      font-family: var(--font-mono);
+      color: var(--blue);
+      font-weight: 800;
+      background: rgba(23, 105, 255, 0.07);
+    }
+    .compare td:first-child { font-weight: 800; }
+    .mini-compare th, .mini-compare td { font-size: clamp(0.58rem, 0.76vw, 0.72rem); }
+    .positioning-map {
+      position: relative;
+      height: clamp(320px, 52vh, 430px);
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(90deg, transparent calc(50% - 1px), rgba(17, 19, 24, 0.22) calc(50% - 1px), rgba(17, 19, 24, 0.22) calc(50% + 1px), transparent calc(50% + 1px)),
+        linear-gradient(0deg, transparent calc(50% - 1px), rgba(17, 19, 24, 0.22) calc(50% - 1px), rgba(17, 19, 24, 0.22) calc(50% + 1px), transparent calc(50% + 1px)),
+        linear-gradient(135deg, rgba(23, 105, 255, 0.06), rgba(6, 166, 106, 0.07)),
+        rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .axis-label {
+      position: absolute;
+      font-family: var(--font-mono);
+      font-size: clamp(0.58rem, 0.76vw, 0.72rem);
+      font-weight: 800;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0;
+      z-index: 2;
+    }
+    .axis-top { top: 0.72rem; left: 50%; transform: translateX(-50%); }
+    .axis-bottom { bottom: 0.72rem; left: 50%; transform: translateX(-50%); }
+    .axis-left { left: 0.72rem; top: 50%; transform: translateY(-50%) rotate(-90deg); transform-origin: left center; }
+    .axis-right { right: 0.72rem; top: 50%; transform: translateY(-50%) rotate(90deg); transform-origin: right center; }
+    .bubble {
+      position: absolute;
+      width: clamp(118px, 13.5vw, 178px);
+      padding: clamp(0.48rem, 0.8vw, 0.72rem);
+      border: 1px solid rgba(17, 19, 24, 0.13);
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 10px 26px rgba(17, 19, 24, 0.08);
+      transform: translate(-50%, -50%);
+    }
+    .bubble strong {
+      display: block;
+      font-size: clamp(0.76rem, 0.96vw, 0.92rem);
+      line-height: 1.08;
+      margin-bottom: 0.22rem;
+    }
+    .bubble small {
+      display: block;
+      color: var(--muted);
+      font-size: clamp(0.58rem, 0.74vw, 0.7rem);
+      line-height: 1.18;
+    }
+    .bubble.blockless {
+      width: clamp(152px, 16vw, 220px);
+      background: linear-gradient(135deg, rgba(23, 105, 255, 0.96), rgba(6, 166, 106, 0.92));
+      color: #fff;
+      border-color: transparent;
+    }
+    .bubble.blockless small { color: rgba(255, 255, 255, 0.82); }
+    .bubble.guides { left: 24%; top: 78%; }
+    .bubble.ide { left: 32%; top: 42%; }
+    .bubble.sim { left: 31%; top: 25%; }
+    .bubble.agent { left: 58%; top: 34%; }
+    .bubble.blockless { left: 78%; top: 18%; }
+    .map-note {
+      font-size: clamp(0.68rem, 0.86vw, 0.8rem);
+      color: var(--muted);
+      line-height: 1.35;
+      max-width: 92ch;
+    }
+    .asset-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .asset-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .asset-card { overflow: hidden; }
+    .asset-card img {
+      width: 100%;
+      height: clamp(104px, 17vh, 152px);
+      object-fit: cover;
+      display: block;
+      background: #e9edf3;
+    }
+    .asset-card span {
+      display: block;
+      padding: 0.5rem 0.62rem;
+      font-size: var(--small-size);
+      font-weight: 700;
+      line-height: 1.22;
+    }
+    .screen-card img {
+      height: clamp(290px, 55vh, 455px);
+      object-fit: contain;
+      object-position: center;
+      background: #fff;
+    }
+    .extension-screen-card {
+      width: min(440px, 100%, calc(70vh * 975 / 1182));
+      justify-self: center;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .extension-screen-card img {
+      height: auto;
+      aspect-ratio: 975 / 1182;
+      object-fit: cover;
+      object-position: top center;
+      background: #fff;
+    }
+    .product-roadmap {
+      display: grid;
+      gap: clamp(0.72rem, 1.25vw, 1rem);
+      padding: clamp(0.9rem, 1.55vw, 1.35rem);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+      min-width: 0;
+    }
+    .product-step {
+      display: grid;
+      grid-template-columns: clamp(2rem, 3vw, 2.65rem) 1fr;
+      gap: clamp(0.58rem, 0.95vw, 0.85rem);
+      align-items: start;
+      padding: clamp(0.68rem, 1.05vw, 0.92rem);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+    .step-index {
+      display: grid;
+      place-items: center;
+      aspect-ratio: 1;
+      background: linear-gradient(135deg, var(--blue), var(--green));
+      color: #fff;
+      font-family: var(--font-mono);
+      font-weight: 800;
+      font-size: clamp(0.76rem, 1vw, 0.92rem);
+    }
+    .product-step strong {
+      display: block;
+      font-size: clamp(1rem, 1.32vw, 1.22rem);
+      line-height: 1.08;
+      color: #fff;
+      margin-bottom: 0.26rem;
+    }
+    .product-step small {
+      display: block;
+      color: rgba(248, 250, 252, 0.72);
+      font-size: clamp(0.78rem, 0.98vw, 0.9rem);
+      line-height: 1.28;
+    }
+    .module-kit {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.25fr;
+      gap: 0.42rem;
+      align-items: stretch;
+      margin-top: 0.2rem;
+    }
+    .module-chip {
+      min-height: clamp(2.4rem, 6.5vh, 3.4rem);
+      border: 1px solid rgba(248, 250, 252, 0.2);
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(255, 255, 255, 0.11) 1px, transparent 1px),
+        rgba(6, 166, 106, 0.2);
+      background-size: 0.55rem 0.55rem;
+      display: grid;
+      place-items: center;
+      color: rgba(248, 250, 252, 0.82);
+      font-family: var(--font-mono);
+      font-size: clamp(0.58rem, 0.76vw, 0.7rem);
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .qr-card {
+      width: min(320px, 100%, calc(60vh * 1.0));
+      justify-self: center;
+    }
+    .asset-card.qr-card img {
+      height: auto;
+      aspect-ratio: 1 / 1;
+      object-fit: cover;
+      background: #fff;
+      padding: 0.6rem;
+    }
+    .qr-card span { text-align: center; }
+    .evidence-card img {
+      object-fit: contain;
+      background: #fff;
+      padding: 0.18rem;
+    }
+    .extension-evidence img {
+      object-fit: cover;
+      object-position: left top;
+      padding: 0;
+    }
+    .compact-assets .asset-card img { height: clamp(84px, 13vh, 118px); }
+    .photo-card img { height: clamp(320px, 58vh, 500px); object-fit: cover; object-position: center; }
+    .team-layout { grid-template-columns: minmax(0, 1.16fr) minmax(240px, 0.72fr); }
+    .team-layout h2 { max-width: 18ch; font-size: clamp(2rem, 3.1vw, 3rem); }
+    .team-layout .matrix.two { grid-template-columns: 1fr; gap: clamp(0.52rem, 0.9vw, 0.78rem); }
+    .team-card { padding: clamp(0.78rem, 1.25vw, 1.08rem); }
+    .team-card small { font-size: clamp(0.78rem, 1vw, 0.94rem); line-height: 1.34; }
+    .team-photos {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--gap);
+      align-items: start;
+    }
+    .team-photo img {
+      height: clamp(220px, 38vh, 300px);
+      object-fit: cover;
+      object-position: center top;
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .price { font-size: clamp(1.14rem, 1.8vw, 1.6rem); color: var(--green); font-weight: 800; }
+    .timeline { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .timeline.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .stage ul { margin-left: 1rem; display: grid; gap: 0.35rem; }
+    .closing-ask {
+      border-left: 0.28rem solid var(--green);
+      background: rgba(6, 166, 106, 0.1);
+      padding: clamp(0.78rem, 1.35vw, 1.15rem) clamp(0.9rem, 1.5vw, 1.35rem);
+      color: rgba(248, 250, 252, 0.86);
+      font-size: clamp(1rem, 1.36vw, 1.22rem);
+      line-height: 1.32;
+      font-weight: 700;
+    }
+    .closing-ask strong { color: #fff; }
+    .contact-email {
+      display: inline-block;
+      margin-top: clamp(1.2rem, 3vh, 2rem);
+      color: #fff;
+      font-family: var(--mono);
+      font-size: clamp(1.4rem, 3.4vw, 3rem);
+      font-weight: 800;
+      text-decoration: none;
+      border-bottom: 0.16rem solid var(--green);
+      line-height: 1.15;
+    }
+    .contact-note {
+      margin-top: clamp(1rem, 2vh, 1.5rem);
+      max-width: 48rem;
+      color: rgba(248, 250, 252, 0.74);
+      font-size: clamp(1rem, 1.65vw, 1.34rem);
+      line-height: 1.42;
+    }
+    .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }
+    .visible .reveal { opacity: 1; transform: translateY(0); }
+    @media (max-width: 900px) {
+      .two-col, .hero-grid, .product-layout, .demo-layout { grid-template-columns: 1fr; }
+      .flow, .timeline, .timeline.three, .asset-grid, .asset-grid.three, .money-stack, .revenue-grid, .partner-grid, .formula-row, .runtime-compare { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .matrix, .matrix.four { grid-template-columns: 1fr; }
+      .metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      h1, h2 { max-width: 100%; }
+      .product-layout {
+        align-content: center;
+        gap: clamp(0.55rem, 2vh, 0.95rem);
+      }
+      .product-layout h2 {
+        font-size: clamp(2.1rem, 7vw, 3.1rem);
+        line-height: 1.02;
+      }
+      .product-layout .subtitle,
+      .product-layout .note {
+        font-size: clamp(0.94rem, 3vw, 1.08rem);
+        line-height: 1.26;
+      }
+      .product-layout .list {
+        gap: clamp(0.3rem, 1vh, 0.5rem);
+        font-size: clamp(0.9rem, 3vw, 1.05rem);
+        line-height: 1.24;
+      }
+      .product-layout .screen-card img {
+        height: clamp(190px, 31vh, 250px);
+      }
+      .product-layout .extension-screen-card {
+        width: min(340px, 100%);
+      }
+      .product-layout .extension-screen-card img {
+        height: auto;
+      }
+      .product-layout .screen-card span {
+        padding: 0.42rem 0.55rem;
+      }
+      .demo-video-card video { height: clamp(230px, 38vh, 340px); }
+      .product-roadmap { padding: 0.72rem; }
+      .module-kit { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .positioning-map { height: clamp(330px, 48vh, 390px); }
+      .bubble { width: clamp(100px, 26vw, 142px); }
+      .bubble.blockless { width: clamp(122px, 32vw, 160px); }
+      .axis-label { font-size: clamp(0.52rem, 1.7vw, 0.64rem); }
+      .bubble.guides { left: 26%; top: 80%; }
+      .bubble.ide { left: 32%; top: 50%; }
+      .bubble.sim { left: 31%; top: 25%; }
+      .bubble.agent { left: 61%; top: 43%; }
+      .bubble.blockless { left: 74%; top: 18%; }
+      .photo-card img { height: clamp(210px, 34vh, 330px); }
+      .team-layout { grid-template-columns: 1fr; }
+      .team-layout h2 { font-size: clamp(1.72rem, 6vw, 2.35rem); }
+      .team-layout .matrix.two { grid-template-columns: 1fr; }
+      .team-card small { font-size: clamp(0.72rem, 2.45vw, 0.86rem); line-height: 1.3; }
+      .team-photo img { height: clamp(150px, 24vh, 210px); }
+    }
+    @media (max-height: 700px) {
+      :root { --gap: 0.48rem; --slide-padding: 1.05rem; }
+      .asset-card img { height: clamp(62px, 12vh, 90px); }
+      .extension-screen-card img { height: auto; }
+      .demo-video-card video { height: clamp(200px, 44vh, 280px); }
+      .photo-card img { height: clamp(230px, 48vh, 360px); }
+      .team-photo img { height: clamp(170px, 32vh, 230px); }
+      .positioning-map { height: clamp(300px, 50vh, 360px); }
+      .compare th, .compare td { padding: 0.34rem; line-height: 1.2; }
+    }
+    @media (max-height: 600px) {
+      .nav { display: none; }
+      .asset-grid { display: none; }
+      .tile, .metric, .flow-step, .stage, .prompt-card { padding: 0.55rem; }
+      .money-card, .revenue-card, .partner-card { padding: 0.62rem; }
+      .runtime-card { padding: 0.58rem; }
+      .runtime-card ol { gap: 0.18rem; line-height: 1.15; }
+      .product-step { padding: 0.52rem; }
+      .module-kit { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="progress" id="progress"></div>
+  <nav class="nav" id="nav" aria-label="slide navigation"></nav>
+
+  <section class="slide dark" id="slide-01" data-no="01">
+    <div class="accent-block"></div>
+    <div class="slide-content hero-grid">
+      <div>
+        <p class="kicker reveal">LOVABLE FOR HARDWARE</p>
+        <h1 class="reveal">Blockless</h1>
+        <p class="subtitle reveal">Remove the blocks between an idea and becoming a maker.</p>
+        <div class="chips reveal">
+          <span class="chip">MicroPython</span>
+          <span class="chip">Verified Recipes</span>
+          <span class="chip">CSP Modules</span>
+          <span class="chip">Home Kits</span>
+        </div>
+      </div>
+      <div class="prompt-card reveal">
+        <div class="prompt-line">"Build a desk thermometer. Vibrate above 30°C, and give me a manufacturable hardware plan."</div>
+        <div class="pipe">
+          <span>Requirement parsing <b>project-manifest.json</b></span>
+          <span>Software loop <b>generate / simulate / flash / autofix</b></span>
+          <span>Hardware loop <b>module selection / PCB / BOM / CPL</b></span>
+          <span>Enclosure loop <b>STL / slicing / assembly</b></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-02" data-no="02">
+    <div class="slide-content">
+      <p class="kicker reveal">PROBLEM</p>
+      <h2 class="reveal">Hours of toolchain hell before the first LED blinks.</h2>
+      <p class="subtitle reveal">Every small fix costs a full compile -> flash -> serial round trip. And even a strong AI agent cannot reach any of it.</p>
+      <div class="runtime-compare reveal">
+        <div class="runtime-card">
+          <h3>If a user builds with C</h3>
+          <ol>
+            <li><strong>Install toolchain:</strong> Arduino core, ESP-IDF, PlatformIO, compiler, USB driver.</li>
+            <li><strong>Match board stack:</strong> SDK version, board package, flash size, pin map, libraries.</li>
+            <li><strong>Compile:</strong> fix headers, CMake, linker, flags, driver versions, memory errors.</li>
+            <li><strong>Flash and monitor:</strong> upload binary, open serial, copy logs back into chat.</li>
+            <li><strong>Repeat slowly:</strong> every small fix returns to compile -> flash -> serial.</li>
+          </ol>
+        </div>
+        <div class="problem-side">
+          <h3>If they ask an AI agent for help</h3>
+          <div class="matrix two">
+            <div class="tile"><strong>No physical truth</strong><small>Voltage, wiring, pin conflicts, module variants, and sensor state are outside the chat.</small></div>
+            <div class="tile"><strong>No package truth</strong><small>Drivers, board support, memory limits, and examples are scattered across docs and repos.</small></div>
+            <div class="tile"><strong>No execution loop</strong><small>Compile, upload, logs, and repair lose context when they live outside the agent.</small></div>
+            <div class="tile"><strong>No rerun artifact</strong><small>A copied answer is not a recipe another user can rebuild.</small></div>
+          </div>
+        </div>
+      </div>
+      <p class="note reveal">Hardware needs a verified workflow, not just a smarter chat box.</p>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-03" data-no="03">
+    <div class="slide-content two-col">
+      <div>
+        <p class="kicker reveal">WHY MICROPYTHON</p>
+        <h2 class="reveal">C hides repair behind toolchains. MicroPython exposes the loop.</h2>
+        <p class="subtitle reveal">Flash the runtime once. After that, every failure is readable code and live device state, not a hidden build step.</p>
+        <p class="repair-note reveal"><strong>Why this matters for AI:</strong> C is better for final firmware and performance, but early prototype repair is hidden across installation, compilation, flashing, and logs. MicroPython keeps more failure state visible and close to the agent.</p>
+      </div>
+      <div class="runtime-card fast reveal">
+        <h3>If a user builds with MicroPython</h3>
+        <ol>
+          <li><strong>Flash runtime once:</strong> board gets a stable interpreter and REPL.</li>
+          <li><strong>Copy recipe code:</strong> Python files, driver packages, board constraints.</li>
+          <li><strong>Run on device:</strong> errors are readable stack traces and serial logs.</li>
+          <li><strong>Inspect state:</strong> REPL can query I2C scan, pin state, sensor values, memory.</li>
+          <li><strong>Patch and rerun:</strong> update one file or driver without rebuilding firmware.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide dark" id="slide-04" data-no="04">
+    <div class="slide-content product-layout">
+      <div>
+        <p class="kicker reveal">PRODUCT</p>
+        <h2 class="reveal">A VS Code extension today. A hardware workbench next.</h2>
+        <p class="subtitle reveal">The user types a hardware goal. Blockless chooses the board, modules, pins, packages, tests, and build artifacts.</p>
+        <ul class="list reveal">
+          <li><span class="mark"></span><span><b>Build:</b> MicroPython code, wiring, PCB/BOM, enclosure files.</span></li>
+          <li><span class="mark"></span><span><b>Verify:</b> simulation, flash logs, serial output, autofix trace.</span></li>
+          <li><span class="mark"></span><span><b>Deliver:</b> modules shipped to your home, ready to snap together.</span></li>
+        </ul>
+      </div>
+      <div class="product-roadmap reveal" aria-label="Blockless product path">
+        <div class="product-step">
+          <div class="step-index">01</div>
+          <div><strong>Now: VS Code extension</strong><small>Generate and verify MicroPython recipes where technical builders already work.</small></div>
+        </div>
+        <div class="product-step">
+          <div class="step-index">02</div>
+          <div><strong>Next: local hardware workbench</strong><small>No VS Code required. Prompt, flash, logs, PCB/BOM, enclosure, and ordering in one app.</small></div>
+        </div>
+        <div class="product-step">
+          <div class="step-index">03</div>
+          <div>
+            <strong>Then: modules delivered home</strong>
+            <small>The verified recipe becomes a kit: sensor, board, actuator, enclosure. You snap it together and run.</small>
+            <div class="module-kit" aria-hidden="true">
+              <div class="module-chip">sensor</div>
+              <div class="module-chip">board</div>
+              <div class="module-chip">actuator</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-05" data-no="05">
+    <div class="slide-content two-col">
+      <div>
+        <p class="kicker reveal">BOTTOM-UP REBUILD</p>
+        <h2 class="reveal">We rebuilt the stack underneath the AI.</h2>
+        <p class="subtitle reveal">The AI only becomes reliable after the hardware world is made structured.</p>
+      </div>
+      <div class="visual-stack">
+        <div class="matrix two reveal">
+          <div class="tile"><strong>MicroPythonOS</strong><small>22 managers, intent communication, app lifecycle, device-side runtime.</small></div>
+          <div class="tile"><strong>uPyPI</strong><small>211+ verified drivers with README, tests, versions, board constraints.</small></div>
+          <div class="tile"><strong>Module library</strong><small>150+ circuit modules by interface, layout, package, and constraints.</small></div>
+          <div class="tile"><strong>Project manifest</strong><small>One object linking software, pins, PCB/BOM, enclosure, and tests.</small></div>
+        </div>
+        <div class="asset-grid three compact-assets reveal">
+          <div class="asset-card"><img src="extracted-assets/image-03.jpg" alt="MicroPythonOS"><span>MicroPythonOS</span></div>
+          <div class="asset-card"><img src="extracted-assets/image-02.jpg" alt="uPyPI repository"><span>uPyPI</span></div>
+          <div class="asset-card"><img src="extracted-assets/image-06.jpg" alt="150+ modules"><span>150+ modules</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-06" data-no="06">
+    <div class="slide-content two-col">
+      <div>
+        <p class="kicker reveal">HARDWARE ENGINE</p>
+        <h2 class="reveal">Hardware generation is verified module constraint solving.</h2>
+        <ul class="list reveal">
+          <li><span class="mark"></span><span><b>150+ circuit modules:</b> sensors, drivers, displays, communication, power, layout.</span></li>
+          <li><span class="mark"></span><span><b>CSP selection:</b> function, voltage, I2C address, pin, footprint, thermal limits.</span></li>
+          <li><span class="mark"></span><span><b>Manufacturing files:</b> Gerber, BOM, CPL for prototype and SMT workflows.</span></li>
+          <li><span class="mark"></span><span><b>Enclosure linkage:</b> PCB/BOM dimensions drive STL openings and assembly.</span></li>
+        </ul>
+      </div>
+      <div class="asset-grid three reveal">
+        <div class="asset-card"><img src="extracted-assets/image-06.jpg" alt="150+ hardware modules"><span>150+ module library</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-07.jpg" alt="PCB case"><span>PCB case</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-09.jpg" alt="Parametric enclosure"><span>Parametric enclosure</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide dark" id="slide-07" data-no="07">
+    <div class="slide-content two-col demo-layout">
+      <div>
+        <p class="kicker reveal">DEMO</p>
+        <h2 class="reveal">From prompt to running hardware.</h2>
+        <p class="subtitle reveal">A muted product demo of the hardware recipe workflow.</p>
+        <ul class="list reveal">
+          <li><span class="mark"></span><span><b>Intent:</b> a maker describes the connected object they want.</span></li>
+          <li><span class="mark"></span><span><b>Build loop:</b> Blockless connects code, modules, flash logs, and repair.</span></li>
+          <li><span class="mark"></span><span><b>Output:</b> a recipe with build state, not a disposable chat answer.</span></li>
+        </ul>
+        <p class="note reveal">The slide shows the product, not an internal benchmark slogan.</p>
+      </div>
+      <div class="demo-video-card reveal">
+        <video src="extracted-assets/blockless-demo-video-2.mp4" muted autoplay loop playsinline controls preload="metadata"></video>
+        <span>Muted demo video: Blockless hardware recipe workflow</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-08" data-no="08">
+    <div class="slide-content">
+      <p class="kicker reveal">COMPETITION</p>
+      <h2 class="reveal">The target quadrant is verified build state.</h2>
+      <div class="positioning-map reveal" aria-label="Competitive positioning map">
+        <span class="axis-label axis-top">Real-device run / repair</span>
+        <span class="axis-label axis-bottom">Planning / code output</span>
+        <span class="axis-label axis-left">One-off project</span>
+        <span class="axis-label axis-right">Rerunnable recipe + order artifact</span>
+        <div class="bubble guides"><strong>ChatGPT / tutorials</strong><small>fast ideas; user still owns wiring, flashing, and repair</small></div>
+        <div class="bubble ide"><strong>Arduino / PlatformIO</strong><small>real-device IDEs; project state is not a reusable recipe</small></div>
+        <div class="bubble sim"><strong>Cirkit / Wokwi</strong><small>visual design and simulation; weaker physical rerun proof</small></div>
+        <div class="bubble agent"><strong>PleaseDontCode / Embedr</strong><small>agentic embedded workflows; benchmark the recipe artifact</small></div>
+        <div class="bubble blockless"><strong>Blockless target</strong><small>run logs + repair trace + BOM/PCB/enclosure for second-user rerun</small></div>
+      </div>
+      <p class="map-note reveal">Positioning is a hypothesis until same-task benchmarks show faster repair, fewer hidden steps, and better second-user reruns.</p>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-09" data-no="09">
+    <div class="slide-content">
+      <p class="kicker reveal">MARKET</p>
+      <h2 class="reveal">TAM/SAM/SOM starts with people already buying prototype parts.</h2>
+      <div class="money-stack reveal">
+        <div class="money-card"><strong>TAM</strong><b>prototype spend pool</b><small>Boards, sensors, modules, PCB, prints, tools, and rework across connected-object prototypes.</small></div>
+        <div class="money-card"><strong>SAM</strong><b>AI-reachable builders</b><small>English-speaking Arduino, ESP32, Raspberry Pi, and MicroPython users who repeatedly prototype.</small></div>
+        <div class="money-card"><strong>SOM</strong><b>10k-25k paid builders</b><small>24-month wedge from workspace seats, paid recipes, and recipe-to-order attach.</small></div>
+      </div>
+      <div class="formula-row reveal">
+        <span>$100-1k prototype spend creates order attach</span>
+        <span>100k+ repeat builders reachable in English</span>
+        <span>10k-25k paid x $25-40/mo = $3M-12M ARR + orders</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-10" data-no="10">
+    <div class="slide-content">
+      <p class="kicker reveal">BUSINESS MODEL</p>
+      <h2 class="reveal">Charge when the prototype becomes buildable.</h2>
+      <div class="revenue-grid reveal">
+        <div class="revenue-card"><strong>$25/mo</strong><b>Workspace</b><small>Save recipes, logs, drivers, and repair history.</small></div>
+        <div class="revenue-card"><strong>$9-49</strong><b>Recipe packs</b><small>Buy a known-good connected-object starting point.</small></div>
+        <div class="revenue-card"><strong>5-15%</strong><b>Order attach</b><small>PCB, BOM, module, and 3D print checkout.</small></div>
+      </div>
+      <div class="path-row reveal">
+        <span>Prompt</span><b>-></b><span>Working recipe</span><b>-></b><span>Order parts</span><b>-></b><span>Rerun or fork</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-11" data-no="11">
+    <div class="slide-content">
+      <p class="kicker reveal">COMMUNITY + CHANNELS</p>
+      <h2 class="reveal">Community proof turns prototypes into production.</h2>
+      <div class="partner-grid reveal">
+        <div class="partner-card"><strong>Thomas Farstrike</strong><b>MicroPython authority signal</b><small>Inbound after launch; discussing technical direction and ecosystem cooperation.</small></div>
+        <div class="partner-card"><strong>WIZnet</strong><b>W5500 maker / Ethernet leader</b><small>Strategic partner integrating WIZnet hardware into uPyPI drivers.</small></div>
+        <div class="partner-card"><strong>Minyuan Sensor</strong><b>4 chip series / 16 module categories</b><small>Sensor modules enter GraftSense so generated projects call industrial chips.</small></div>
+      </div>
+      <div class="channel-line reveal">
+        <b>Channels</b>
+        <span>Arduino</span><span>ESP32</span><span>Raspberry Pi</span><span>Hackster</span><span>Hackaday</span><span>Adafruit/SparkFun</span><span>YouTube</span><span>Discord</span>
+      </div>
+      <div class="path-row reveal">
+        <span>Build prototype</span><b>-></b><span>Publish to uPyPI store</span><b>-></b><span>One-click install</span><b>-></b><span>Factory production intro</span>
+      </div>
+      <p class="store-note reveal"><strong>uPyPI store is the technical bridge:</strong> one recipe bundles MicroPython drivers, board constraints, tests, BOM, and logs. Builders download and rerun it; C hardware stacks usually split this across SDKs, flags, and board ports.</p>
+    </div>
+  </section>
+
+  <section class="slide dark" id="slide-12" data-no="12">
+    <div class="slide-content two-col team-layout">
+      <div>
+        <p class="kicker reveal">TEAM</p>
+        <h2 class="reveal">2 makers who already ship consumer-tech objects.</h2>
+        <div class="matrix two reveal">
+          <div class="tile team-card"><strong>CEO</strong><small>USC background; former CTO at Moorcubes; Miraculus Plus (former YC China). Built AI hardware worth RMB 700k+.</small></div>
+          <div class="tile team-card"><strong>CTO</strong><small>Creator of uPyPI; 5 issued patents; 30+ hardware projects; RMB 3M+ hardware project volume; 13.6M+ developer-platform views.</small></div>
+        </div>
+        <p class="note reveal">We are not discovering hardware from a prompt. We already make things.</p>
+      </div>
+      <div class="team-photos">
+        <div class="asset-card photo-card team-photo reveal">
+          <img src="extracted-assets/maker-consumer-tech.jpg" alt="Maker-built consumer-tech object">
+          <span>Maker-built consumer-tech object from the team</span>
+        </div>
+        <div class="asset-card photo-card team-photo reveal">
+          <img src="extracted-assets/team-robot.jpg" alt="AI robot built by the team">
+          <span>AI robot built by the team</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide dark" id="slide-13" data-no="13">
+    <div class="accent-block"></div>
+    <div class="slide-content">
+      <p class="kicker reveal">ROADMAP</p>
+      <h2 class="reveal">Next: prove repeat use, payment, and orders.</h2>
+      <div class="timeline three reveal">
+        <div class="stage"><h3>0-3 months</h3><ul><li>Lock ESP32 recipe gates</li><li>Recruit US maker cohort</li><li>Ship paid beta workspace</li></ul></div>
+        <div class="stage"><h3>3-6 months</h3><ul><li>Publish same-task benchmarks</li><li>Open recipe gallery</li><li>Connect PCB/BOM/STL orders</li></ul></div>
+        <div class="stage"><h3>6-12 months</h3><ul><li>Launch starter bundles</li><li>Convert repeat builders</li><li>Partner with maker channels</li></ul></div>
+      </div>
+      <p class="closing-ask reveal"><strong>Not raising right now.</strong> We want to meet more engineers, investors, and early users who are interested in verified hardware creation.</p>
+    </div>
+  </section>
+
+  <section class="slide dark" id="slide-14" data-no="14">
+    <div class="accent-block"></div>
+    <div class="slide-content two-col">
+      <div>
+        <p class="kicker reveal">CONTACT</p>
+        <h2 class="reveal">Let us know if hardware creation should feel this direct.</h2>
+        <a class="contact-email reveal" href="mailto:chriswhp04@gmail.com">chriswhp04@gmail.com</a>
+        <p class="contact-note reveal">Interested engineers, investors, prototype builders, and ecosystem partners are welcome.</p>
+      </div>
+      <div class="asset-card qr-card reveal">
+        <img src="extracted-assets/google-form-qr.png" alt="QR code linking to the Blockless interest Google Form">
+        <span>Scan the Google Form — leave your email if you are interested.</span>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    class Deck {
+      constructor() {
+        this.slides = Array.from(document.querySelectorAll(".slide"));
+        this.nav = document.getElementById("nav");
+        this.progress = document.getElementById("progress");
+        this.current = 0;
+        this.buildNav();
+        this.observe();
+        this.bindKeys();
+        this.bindWheel();
+        this.alignHash();
+      }
+      buildNav() {
+        this.nav.innerHTML = "";
+        this.slides.forEach((slide, index) => {
+          const button = document.createElement("button");
+          button.setAttribute("aria-label", `Go to slide ${index + 1}`);
+          button.addEventListener("click", () => this.go(index));
+          this.nav.appendChild(button);
+        });
+      }
+      observe() {
+        const observer = new IntersectionObserver(entries => {
+          entries.forEach(entry => {
+            if (!entry.isIntersecting) return;
+            const index = this.slides.indexOf(entry.target);
+            this.current = index;
+            entry.target.classList.add("visible");
+            this.update();
+          });
+        }, { threshold: 0.55 });
+        this.slides.forEach(slide => observer.observe(slide));
+        this.slides[0].classList.add("visible");
+        this.update();
+      }
+      update() {
+        this.progress.style.width = `${((this.current + 1) / this.slides.length) * 100}%`;
+        Array.from(this.nav.children).forEach((button, index) => {
+          button.classList.toggle("active", index === this.current);
+        });
+      }
+      go(index) {
+        const bounded = Math.max(0, Math.min(this.slides.length - 1, index));
+        this.slides[bounded].scrollIntoView({ behavior: "smooth" });
+      }
+      bindKeys() {
+        window.addEventListener("keydown", event => {
+          if (["ArrowDown", "PageDown", " "].includes(event.key)) {
+            event.preventDefault();
+            this.go(this.current + 1);
+          }
+          if (["ArrowUp", "PageUp"].includes(event.key)) {
+            event.preventDefault();
+            this.go(this.current - 1);
+          }
+          if (event.key === "Home") this.go(0);
+          if (event.key === "End") this.go(this.slides.length - 1);
+        });
+      }
+      bindWheel() {
+        let locked = false;
+        window.addEventListener("wheel", event => {
+          if (locked || Math.abs(event.deltaY) < 20) return;
+          event.preventDefault();
+          locked = true;
+          this.go(this.current + (event.deltaY > 0 ? 1 : -1));
+          setTimeout(() => { locked = false; }, 520);
+        }, { passive: false });
+      }
+      alignHash() {
+        if (!window.location.hash) return;
+        const target = document.querySelector(window.location.hash);
+        if (!target) return;
+        setTimeout(() => target.scrollIntoView({ behavior: "auto", block: "start" }), 80);
+      }
+    }
+    new Deck();
+  </script>
+</body>
+</html>

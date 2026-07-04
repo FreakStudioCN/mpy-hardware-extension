@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blockless: Lovable for Hardware</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    /* ===========================================
+       THEME
+       =========================================== */
+    :root {
+      --bg: #f7f8fa;
+      --ink: #111318;
+      --muted: #5d6675;
+      --line: #d7dde7;
+      --panel: #ffffff;
+      --blue: #1769ff;
+      --green: #06a66a;
+      --red: #f04438;
+      --yellow: #f5b700;
+      --violet: #6f42c1;
+      --trace: rgba(23, 105, 255, 0.14);
+      --shadow: 0 18px 50px rgba(17, 19, 24, 0.10);
+      --font-display: "Noto Sans SC", sans-serif;
+      --font-body: "Noto Sans SC", sans-serif;
+      --font-mono: "IBM Plex Mono", monospace;
+      --title-size: clamp(2.15rem, 5.6vw, 5.4rem);
+      --h2-size: clamp(1.5rem, 3.3vw, 3rem);
+      --h3-size: clamp(1.05rem, 2vw, 1.45rem);
+      --body-size: clamp(0.82rem, 1.25vw, 1.1rem);
+      --small-size: clamp(0.68rem, 0.95vw, 0.9rem);
+      --slide-padding: clamp(1.25rem, 4vw, 4.6rem);
+      --gap: clamp(0.7rem, 1.6vw, 1.4rem);
+      --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      overflow-x: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-body);
+      scroll-snap-type: y mandatory;
+      scroll-behavior: smooth;
+      scrollbar-width: none;
+    }
+    body::-webkit-scrollbar { display: none; }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, var(--trace) 1px, transparent 1px),
+        linear-gradient(var(--trace) 1px, transparent 1px);
+      background-size: clamp(38px, 5vw, 72px) clamp(38px, 5vw, 72px);
+      mask-image: linear-gradient(90deg, transparent, black 18%, black 82%, transparent);
+      z-index: 0;
+    }
+
+    .slide {
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      scroll-snap-align: start;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      padding: var(--slide-padding);
+      isolation: isolate;
+    }
+
+    .slide::after {
+      content: attr(data-no);
+      position: absolute;
+      right: var(--slide-padding);
+      bottom: clamp(0.8rem, 2vw, 1.8rem);
+      font-family: var(--font-mono);
+      font-size: var(--small-size);
+      color: rgba(17, 19, 24, 0.35);
+    }
+
+    .slide-content {
+      flex: 1;
+      max-height: 100%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: var(--gap);
+      position: relative;
+      z-index: 1;
+    }
+
+    .kicker {
+      font-family: var(--font-mono);
+      font-size: var(--small-size);
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+    }
+
+    h1, h2, h3 { font-family: var(--font-display); line-height: 1.04; letter-spacing: 0; }
+    h1 { font-size: var(--title-size); font-weight: 900; max-width: 12ch; }
+    h2 { font-size: var(--h2-size); font-weight: 900; max-width: 18ch; }
+    h3 { font-size: var(--h3-size); font-weight: 800; }
+    p, li, td, th { font-size: var(--body-size); line-height: 1.45; }
+    .muted { color: var(--muted); }
+    .em-blue { color: var(--blue); }
+    .em-green { color: var(--green); }
+    .em-red { color: var(--red); }
+    .mono { font-family: var(--font-mono); }
+
+    .reveal {
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 0.7s var(--ease), transform 0.7s var(--ease);
+    }
+    .visible .reveal { opacity: 1; transform: translateY(0); }
+    .reveal:nth-child(2) { transition-delay: 0.08s; }
+    .reveal:nth-child(3) { transition-delay: 0.16s; }
+    .reveal:nth-child(4) { transition-delay: 0.24s; }
+    .reveal:nth-child(5) { transition-delay: 0.32s; }
+
+    /* ===========================================
+       NAVIGATION
+       =========================================== */
+    .progress {
+      position: fixed;
+      left: 0;
+      top: 0;
+      height: 4px;
+      width: 0;
+      background: linear-gradient(90deg, var(--blue), var(--green), var(--yellow));
+      z-index: 20;
+      transition: width 0.2s ease;
+    }
+    .nav {
+      position: fixed;
+      right: clamp(0.5rem, 1.4vw, 1rem);
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 20;
+    }
+    .nav button {
+      width: 9px;
+      height: 9px;
+      border-radius: 99px;
+      border: 1px solid rgba(17,19,24,0.35);
+      background: rgba(255,255,255,0.7);
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+    .nav button.active {
+      height: 24px;
+      background: var(--blue);
+      border-color: var(--blue);
+    }
+
+    /* ===========================================
+       COMPONENTS
+       =========================================== */
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+      gap: clamp(1.2rem, 4vw, 4rem);
+      align-items: center;
+    }
+    .subtitle {
+      font-size: clamp(1rem, 2vw, 1.55rem);
+      color: var(--muted);
+      max-width: 34ch;
+      margin-top: clamp(0.6rem, 1.2vw, 1rem);
+    }
+    .prompt-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: clamp(1rem, 2.4vw, 2rem);
+      position: relative;
+      overflow: hidden;
+    }
+    .prompt-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 8px;
+      background: linear-gradient(90deg, var(--blue), var(--green), var(--yellow), var(--red));
+    }
+    .prompt-line {
+      font-size: clamp(1.05rem, 2.2vw, 1.8rem);
+      font-weight: 900;
+      line-height: 1.22;
+      margin-bottom: 1rem;
+    }
+    .pipe {
+      display: grid;
+      gap: 0.55rem;
+      margin-top: 1rem;
+    }
+    .pipe span {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border: 1px solid var(--line);
+      padding: 0.65rem 0.8rem;
+      background: #fbfcff;
+      font-size: var(--small-size);
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .chips { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .chip {
+      font-family: var(--font-mono);
+      font-size: var(--small-size);
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: 0.35rem 0.6rem;
+      font-weight: 700;
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: clamp(1rem, 3vw, 3rem);
+      align-items: center;
+    }
+    .list {
+      display: grid;
+      gap: clamp(0.55rem, 1.1vh, 0.9rem);
+      list-style: none;
+    }
+    .list li {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.65rem;
+      align-items: start;
+      color: var(--muted);
+    }
+    .list b { color: var(--ink); }
+    .mark {
+      width: 1.1rem;
+      height: 1.1rem;
+      margin-top: 0.18rem;
+      background: var(--blue);
+      clip-path: polygon(0 0, 100% 0, 72% 100%, 0 100%);
+    }
+    .matrix {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+    .tile {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: clamp(0.8rem, 1.6vw, 1.2rem);
+      min-height: clamp(92px, 17vh, 140px);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 8px 24px rgba(17,19,24,0.04);
+    }
+    .tile strong { font-size: clamp(1rem, 1.6vw, 1.25rem); }
+    .tile small { color: var(--muted); font-size: var(--small-size); line-height: 1.35; margin-top: 0.5rem; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 0.65rem;
+      align-items: stretch;
+    }
+    .flow-step {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: clamp(0.75rem, 1.5vw, 1.1rem);
+      min-height: clamp(98px, 18vh, 132px);
+      position: relative;
+    }
+    .flow-step::after {
+      content: "→";
+      position: absolute;
+      right: -0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--blue);
+      font-weight: 900;
+    }
+    .flow-step:last-child::after { content: ""; }
+    .flow-step b { display: block; font-size: clamp(0.95rem, 1.35vw, 1.15rem); margin-bottom: 0.45rem; }
+    .flow-step span { display: block; color: var(--muted); font-size: var(--small-size); line-height: 1.35; }
+    .compare {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .compare th, .compare td {
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      padding: clamp(0.5rem, 1vw, 0.85rem);
+      text-align: left;
+      vertical-align: top;
+    }
+    .compare th {
+      font-size: var(--small-size);
+      color: var(--muted);
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      background: #f0f4ff;
+    }
+    .compare td { font-size: clamp(0.78rem, 1.05vw, 0.98rem); }
+    .big-number {
+      font-size: clamp(2rem, 5vw, 4.8rem);
+      line-height: 0.95;
+      font-weight: 900;
+      color: var(--blue);
+    }
+    .funnel {
+      display: grid;
+      grid-template-columns: 1.2fr 0.95fr 0.75fr;
+      gap: 0.8rem;
+      align-items: end;
+    }
+    .funnel .tile { min-height: clamp(170px, 33vh, 260px); }
+    .funnel.compact .tile {
+      justify-content: flex-start;
+      gap: 0.8rem;
+      min-height: clamp(125px, 22vh, 170px);
+    }
+    .funnel.compact .big-number { margin-bottom: 0.15rem; }
+    .pricing {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.8rem;
+    }
+    .price-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: clamp(0.9rem, 1.6vw, 1.25rem);
+      box-shadow: 0 12px 30px rgba(17,19,24,0.06);
+      min-height: clamp(190px, 36vh, 270px);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .price-card h3 { margin-bottom: 0.6rem; }
+    .price {
+      font-size: clamp(1.25rem, 2.2vw, 2rem);
+      font-weight: 900;
+      color: var(--green);
+      margin: 0.5rem 0;
+    }
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+    .stage {
+      border-top: 8px solid var(--blue);
+      background: var(--panel);
+      padding: clamp(0.8rem, 1.5vw, 1.2rem);
+      min-height: clamp(185px, 34vh, 270px);
+      box-shadow: 0 12px 30px rgba(17,19,24,0.06);
+    }
+    .stage:nth-child(2) { border-color: var(--green); }
+    .stage:nth-child(3) { border-color: var(--yellow); }
+    .stage:nth-child(4) { border-color: var(--red); }
+    .stage ul { margin-top: 0.7rem; display: grid; gap: 0.45rem; padding-left: 1rem; color: var(--muted); }
+    .stage li { font-size: var(--small-size); }
+    .quote {
+      font-size: clamp(1.6rem, 4vw, 4rem);
+      font-weight: 900;
+      line-height: 1.08;
+      max-width: 17ch;
+    }
+    .accent-block {
+      position: absolute;
+      width: clamp(120px, 18vw, 260px);
+      height: clamp(120px, 18vw, 260px);
+      right: var(--slide-padding);
+      top: var(--slide-padding);
+      background:
+        linear-gradient(90deg, transparent 48%, rgba(255,255,255,0.75) 49%, rgba(255,255,255,0.75) 51%, transparent 52%),
+        linear-gradient(0deg, transparent 48%, rgba(255,255,255,0.75) 49%, rgba(255,255,255,0.75) 51%, transparent 52%),
+        var(--blue);
+      transform: rotate(8deg);
+      z-index: -1;
+    }
+    .dark {
+      background: #111318;
+      color: #fff;
+    }
+    .dark::before { opacity: 0.25; }
+    .dark .muted { color: #b8c0cc; }
+    .dark .chip, .dark .tile, .dark .prompt-card, .dark .flow-step, .dark .price-card, .dark .stage {
+      background: #181c24;
+      border-color: #303847;
+      color: #fff;
+    }
+    .dark .compare { background: #181c24; border-color: #303847; }
+    .dark .compare th { background: #202839; color: #b8c0cc; }
+    .dark .compare td, .dark .compare th { border-color: #303847; }
+    .dark .slide::after { color: rgba(255,255,255,0.38); }
+    .shot-mode .progress,
+    .shot-mode .nav { display: none; }
+    .shot-mode .slide { display: none; }
+    .shot-mode .slide.shot-active { display: flex; }
+
+
+    .wide-copy { max-width: 52ch; }
+    .tight-copy { max-width: 44ch; }
+    .section-note {
+      color: var(--muted);
+      font-size: var(--small-size);
+      line-height: 1.4;
+      max-width: 70ch;
+    }
+    .asset-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.7rem;
+      align-items: stretch;
+    }
+    .asset-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .asset-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .asset-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 26px rgba(17,19,24,0.06);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .asset-card img {
+      width: 100%;
+      height: clamp(86px, 18vh, 150px);
+      object-fit: cover;
+      display: block;
+      background: #e9edf5;
+    }
+    .asset-grid.two .asset-card img { height: clamp(135px, 31vh, 235px); }
+    .asset-grid.four .asset-card img { height: clamp(72px, 15vh, 125px); }
+    .asset-card span {
+      padding: 0.55rem 0.65rem;
+      color: var(--muted);
+      font-size: var(--small-size);
+      line-height: 1.28;
+      font-weight: 700;
+    }
+    .dark .asset-card {
+      background: #181c24;
+      border-color: #303847;
+    }
+    .dark .asset-card span { color: #b8c0cc; }
+    .metric-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.65rem;
+    }
+    .metric {
+      border-left: 5px solid var(--blue);
+      background: var(--panel);
+      padding: clamp(0.65rem, 1.2vw, 0.95rem);
+      box-shadow: 0 10px 24px rgba(17,19,24,0.05);
+    }
+    .metric:nth-child(2) { border-color: var(--green); }
+    .metric:nth-child(3) { border-color: var(--yellow); }
+    .metric:nth-child(4) { border-color: var(--red); }
+    .metric strong {
+      display: block;
+      font-size: clamp(1.15rem, 2.3vw, 2rem);
+      line-height: 1;
+      margin-bottom: 0.35rem;
+    }
+    .metric small {
+      display: block;
+      color: var(--muted);
+      font-size: var(--small-size);
+      line-height: 1.3;
+    }
+    .dark .metric {
+      background: #181c24;
+      border-color: #303847;
+    }
+    .dark .metric small { color: #b8c0cc; }
+    .stack {
+      display: grid;
+      gap: 0.55rem;
+    }
+    .stack-layer {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: clamp(0.65rem, 1.2vw, 0.9rem);
+      display: grid;
+      grid-template-columns: minmax(110px, 0.36fr) 1fr;
+      gap: 0.8rem;
+      align-items: center;
+    }
+    .stack-layer b {
+      color: var(--blue);
+      font-family: var(--font-mono);
+      font-size: var(--small-size);
+    }
+    .stack-layer span {
+      color: var(--muted);
+      font-size: var(--small-size);
+      line-height: 1.35;
+    }
+    .dark .stack-layer {
+      background: #181c24;
+      border-color: #303847;
+    }
+    .dark .stack-layer span { color: #b8c0cc; }
+    .mini-compare td:first-child {
+      width: 24%;
+      font-weight: 800;
+      color: var(--ink);
+    }
+    .dark .mini-compare td:first-child { color: #fff; }
+    .flywheel {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      gap: 0.55rem;
+      align-items: center;
+    }
+    .flywheel .tile { min-height: clamp(105px, 20vh, 145px); }
+    .arrow {
+      font-family: var(--font-mono);
+      color: var(--blue);
+      font-weight: 900;
+      font-size: clamp(1.1rem, 2vw, 1.6rem);
+    }
+
+    @media (max-width: 900px) {
+      .hero-grid, .two-col { grid-template-columns: 1fr; }
+      .asset-grid, .asset-grid.two, .asset-grid.four, .metric-strip, .flywheel { grid-template-columns: 1fr 1fr; }
+      .flywheel .arrow { display: none; }
+      .stack-layer { grid-template-columns: 1fr; }
+      .matrix, .pricing { grid-template-columns: 1fr 1fr; }
+      .flow { grid-template-columns: 1fr; }
+      .flow-step::after { content: ""; }
+      .funnel, .timeline { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-height: 700px) {
+      :root {
+        --slide-padding: clamp(0.75rem, 3vw, 2.2rem);
+        --gap: clamp(0.45rem, 1vw, 0.8rem);
+        --body-size: clamp(0.72rem, 1vw, 0.92rem);
+        --small-size: clamp(0.62rem, 0.8vw, 0.78rem);
+      }
+      .tile, .flow-step { min-height: auto; }
+      .price-card, .stage { min-height: clamp(170px, 35vh, 250px); }
+    }
+    @media (max-height: 600px) {
+      .nav { display: none; }
+      .chips { gap: 0.32rem; }
+      .prompt-card, .tile, .price-card, .stage { padding: 0.65rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="progress" id="progress"></div>
+  <nav class="nav" id="nav" aria-label="slide navigation"></nav>
+
+  <section class="slide dark" id="slide-01" data-no="01">
+    <div class="accent-block"></div>
+    <div class="slide-content hero-grid">
+      <div>
+        <p class="kicker reveal">BLOCKLESS</p>
+        <h1 class="reveal">Lovable for hardware</h1>
+        <p class="subtitle reveal">一句话把硬件想法变成可运行、可复现、可下单的真实设备项目。</p>
+        <div class="chips reveal">
+          <span class="chip">MicroPython</span>
+          <span class="chip">Verified Drivers</span>
+          <span class="chip">CSP Modules</span>
+          <span class="chip">Device Logs</span>
+        </div>
+      </div>
+      <div class="prompt-card reveal">
+        <div class="prompt-line">“做一个桌面温度计，超过 30°C 震动提醒，并给我可制造的硬件方案。”</div>
+        <div class="pipe">
+          <span>需求解析 <b>project-manifest.json</b></span>
+          <span>软件闭环 <b>生成 / 模拟 / 烧录 / 自修复</b></span>
+          <span>硬件闭环 <b>模块选型 / PCB / BOM / CPL</b></span>
+          <span>结构闭环 <b>STL / 切片 / 装配</b></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-02" data-no="02">
+    <div class="slide-content two-col">
+      <div>
+        <p class="kicker reveal">WHY NOW</p>
+        <h2 class="reveal">软件已经可以 Vibe Coding，硬件还卡在手工拼链路。</h2>
+        <p class="subtitle reveal">硬件不是“让 AI 写一段 Arduino 代码”就结束；它要同时穿过代码、驱动、引脚、电路、外壳、制造和真机调试。</p>
+      </div>
+      <ul class="list reveal">
+        <li><span class="mark"></span><span><b>链路长：</b>一个简单 prototype 也要跨 EE、嵌入式、结构、供应链，多数非硬件团队在第一版前就被拖慢。</span></li>
+        <li><span class="mark"></span><span><b>知识碎：</b>MCU、传感器、驱动、I2C 地址、引脚、电源约束分散在数据手册和论坛里，AI 很难直接可靠引用。</span></li>
+        <li><span class="mark"></span><span><b>反馈慢：</b>C/Arduino 环境很难在 PC 侧验证业务逻辑，错误通常要等到真机烧录后才暴露。</span></li>
+        <li><span class="mark"></span><span><b>产物断：</b>现有工具常停在代码、Gerber、购物清单或 STL，下一环仍要人手接上。</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-03" data-no="03">
+    <div class="slide-content">
+      <p class="kicker reveal">MARKET INSIGHT</p>
+      <h2 class="reveal">第一批付费者不是传统 EDA 用户，而是被硬件门槛挡住的创作者。</h2>
+      <div class="matrix reveal">
+        <div class="tile">
+          <strong>创意工作者 / 艺术家</strong>
+          <small>想做 1-50 件交互装置、穿戴设备、展陈道具；价值在表达，不在工业级性能。</small>
+        </div>
+        <div class="tile">
+          <strong>产品经理 / 非技术创始人</strong>
+          <small>想先验证 PMF，再决定是否雇硬件团队；痛点是每次 PCB/结构改版都消耗时间和现金。</small>
+        </div>
+        <div class="tile">
+          <strong>高校 / 创客 / 独立开发者</strong>
+          <small>有动手意愿，但不想把时间耗在环境、驱动、数据手册和玄学调试上。</small>
+        </div>
+      </div>
+      <p class="section-note reveal">真正的购买理由不是“AI 很酷”，而是：少找一个工程角色、少返一版 PCB、少卡一周驱动环境、让课程和 demo 可以稳定复现。</p>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-04" data-no="04">
+    <div class="slide-content">
+      <p class="kicker reveal">WHY MICROPYTHON</p>
+      <h2 class="reveal">MPY 强，不是因为语法简单，而是因为它适合 AI 闭环。</h2>
+      <table class="compare mini-compare reveal">
+        <thead>
+          <tr><th>关键能力</th><th>C / Arduino 常见问题</th><th>MicroPython 对 AI 的优势</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>生成稳定性</td><td>宏、板包、库版本碎片化，LLM 容易猜 API。</td><td>Python-like 结构更清晰，业务逻辑和硬件适配层更容易分离。</td></tr>
+          <tr><td>可验证性</td><td>多数逻辑要等编译、烧录、接线后才知道错。</td><td>业务逻辑可在 PC 侧 mock/simulate，先过一轮确定性检查。</td></tr>
+          <tr><td>错误反馈</td><td>串口错误、编译错误、驱动错误混在一起，自动修复难分层。</td><td>解释型运行时输出文本化错误，适合日志解析和自动修复决策树。</td></tr>
+          <tr><td>生态填充</td><td>库多但质量不一，缺测试、缺硬件上下文。</td><td>upypi 可把 README、测试、板型、低内存版本组织成 AI 可消费索引。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="slide dark" id="slide-05" data-no="05">
+    <div class="slide-content two-col">
+      <div>
+        <p class="kicker reveal">TECH STACK</p>
+        <h2 class="reveal">难点不是写代码，是给 AI 一个标准化的硬件世界。</h2>
+        <div class="stack reveal">
+          <div class="stack-layer"><b>L1 · MicroPython</b><span>结构化语言、PC 端模拟、真机 REPL，是闭环修复的底座。</span></div>
+          <div class="stack-layer"><b>L2 · MicroPythonOS</b><span>22 个框架管理器 + Intent 通信 + App 生命周期，让 AI 面向标准 OS 写 App。</span></div>
+          <div class="stack-layer"><b>L3 · upypi</b><span>211+ 验证驱动，README / 测试 / 版本 / 板型约束变成外部 RAG 索引。</span></div>
+          <div class="stack-layer"><b>L4 · Blockless</b><span>从需求解析到模拟、烧录、串口日志、自动修复的 agent pipeline。</span></div>
+          <div class="stack-layer"><b>L5 · upystore</b><span>应用分发、下载热度、报错模式，反哺推荐和代码生成。</span></div>
+        </div>
+      </div>
+      <div class="asset-grid two reveal">
+        <div class="asset-card"><img src="extracted-assets/image-02.jpg" alt="upypi driver repository"><span>upypi：驱动包索引</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-03.jpg" alt="MicroPythonOS screen"><span>MicroPythonOS：标准运行时</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-04.jpg" alt="driver README"><span>驱动 README + 测试</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-05.jpg" alt="upystore"><span>upystore：应用分发</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-06" data-no="06">
+    <div class="slide-content">
+      <p class="kicker reveal">SOFTWARE LOOP</p>
+      <h2 class="reveal">软件闭环的壁垒在“自动发现错误并回到上游修”。</h2>
+      <div class="flow reveal">
+        <div class="flow-step"><b>upy-analyze</b><span>自然语言转结构化需求、模块清单、验收条件。</span></div>
+        <div class="flow-step"><b>upy-select-hw</b><span>匹配板型、固件、引脚和 BOM 约束。</span></div>
+        <div class="flow-step"><b>generate</b><span>引用 upypi 验证驱动，生成业务代码、mock、测试。</span></div>
+        <div class="flow-step"><b>simulate</b><span>PC 侧先跑纯逻辑与静态检查，减少真机盲烧。</span></div>
+        <div class="flow-step"><b>deploy/autofix</b><span>烧录、采集串口日志、分级修复，最多自动重试。</span></div>
+      </div>
+      <div class="asset-grid two reveal">
+        <div class="asset-card"><img src="extracted-assets/image-01.jpg" alt="Blockless plugin"><span>Blockless 插件：代码生成、安装依赖、部署路径可视</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-08.jpg" alt="internal hardware wiki"><span>内部知识库：驱动、电路、协议、测试记录沉淀成 agent 可读上下文</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-07" data-no="07">
+    <div class="slide-content two-col">
+      <div>
+        <p class="kicker reveal">HARDWARE ENGINE</p>
+        <h2 class="reveal">硬件生成不是让 LLM 画线，而是验证模块的约束求解。</h2>
+        <ul class="list reveal">
+          <li><span class="mark"></span><span><b>150+ 电路模块：</b>传感器、驱动、通信、显示模块按 Grove 4-Pin 和封装/布局约束整理。</span></li>
+          <li><span class="mark"></span><span><b>CSP 选型：</b>从 project-manifest 提取功能，处理电气兼容、I2C 地址、信号完整性、热约束。</span></li>
+          <li><span class="mark"></span><span><b>制造文件：</b>输出 Gerber + BOM + CPL，对接 JLC/立创等打样和 SMT 贴片链路。</span></li>
+          <li><span class="mark"></span><span><b>可复用设计：</b>把 PCB 从“从零画图”变成“验证 IP 模块智能拼装”。</span></li>
+        </ul>
+      </div>
+      <div class="asset-grid reveal">
+        <div class="asset-card"><img src="extracted-assets/image-06.jpg" alt="150+ hardware modules"><span>150+ 模块库</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-07.jpg" alt="UV detector PCB"><span>真实 PCB 案例</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-27.jpg" alt="hardware products"><span>实物交付记录</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-08" data-no="08">
+    <div class="slide-content two-col">
+      <div>
+        <p class="kicker reveal">ENCLOSURE + DEVICE</p>
+        <h2 class="reveal">软件、电路、外壳必须共用同一个项目清单。</h2>
+        <p class="subtitle reveal">否则 AI 只是在分别生成三个文件，最后仍然需要工程师把它们装到一起。</p>
+        <div class="flow reveal">
+          <div class="flow-step"><b>BOM/PCB</b><span>读取外形、接口、屏幕、按键、电源口。</span></div>
+          <div class="flow-step"><b>参数模板</b><span>固定孔、安装柱、开窗和公差自动填充。</span></div>
+          <div class="flow-step"><b>STL/STEP</b><span>生成上下壳结构，支持后续编辑。</span></div>
+          <div class="flow-step"><b>切片</b><span>输出 G-code，面向 3D 打印。</span></div>
+          <div class="flow-step"><b>装配</b><span>软件、PCB、外壳共同形成 recipe。</span></div>
+        </div>
+      </div>
+      <div class="asset-grid two reveal">
+        <div class="asset-card"><img src="extracted-assets/image-09.jpg" alt="parametric enclosure"><span>参数化外壳：PCB 尺寸联动开孔</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-10.jpg" alt="physical demos"><span>实物 demo：统一外壳验证适配</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide dark" id="slide-09" data-no="09">
+    <div class="slide-content">
+      <p class="kicker reveal">DEMO WORKFLOW</p>
+      <h2 class="reveal">可演示的不是聊天框，是从一句话到可复现项目配方。</h2>
+      <div class="flow reveal">
+        <div class="flow-step"><b>1 · Intent</b><span>输入设备目标、环境、预算和验收条件。</span></div>
+        <div class="flow-step"><b>2 · Manifest</b><span>生成板型、模块、接口、外壳、测试项。</span></div>
+        <div class="flow-step"><b>3 · Build</b><span>拉取验证驱动，生成代码、BOM、PCB 组合。</span></div>
+        <div class="flow-step"><b>4 · Verify</b><span>PC 模拟 + 真机日志，失败自动回修。</span></div>
+        <div class="flow-step"><b>5 · Recipe</b><span>输出可烧录、可采购、可复现的项目包。</span></div>
+      </div>
+      <div class="metric-strip reveal">
+        <div class="metric"><strong>代码</strong><small>业务逻辑、驱动依赖、mock、测试</small></div>
+        <div class="metric"><strong>设备</strong><small>固件烧录、串口日志、错误分级</small></div>
+        <div class="metric"><strong>制造</strong><small>Gerber、BOM、CPL、装配约束</small></div>
+        <div class="metric"><strong>外壳</strong><small>STL、开孔、公差、切片参数</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-10" data-no="10">
+    <div class="slide-content">
+      <p class="kicker reveal">COMPETITION</p>
+      <h2 class="reveal">竞品大多解决一环；硬件落地的痛点在环与环之间。</h2>
+      <table class="compare reveal">
+        <thead>
+          <tr><th>类别</th><th>能解决什么</th><th>断点</th><th>Blockless 的不同</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>AI 代码助手</td><td>生成片段或示例工程</td><td>不知道板型、驱动真实性、真机错误，也不管 PCB/外壳。</td><td>生成后继续模拟、部署、采日志、自动修。</td></tr>
+          <tr><td>嵌入式 IDE / 低代码</td><td>降低固件开发门槛</td><td>仍要求用户理解硬件选型、接线和库兼容。</td><td>把板型、模块、引脚、驱动作为同一个 manifest 管理。</td></tr>
+          <tr><td>EDA / PCB 工具</td><td>专业 PCB 设计和制造文件</td><td>面向 EE，不面向自然语言需求和软件闭环。</td><td>CSP 模块拼装，输出可制造文件并连接供应链。</td></tr>
+          <tr><td>3D CAD / 外壳工具</td><td>建模和 STL 输出</td><td>不理解 PCB、接口、BOM 和装配约束。</td><td>外壳由 PCB/BOM 自动驱动，和电路尺寸联动。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="slide dark" id="slide-11" data-no="11">
+    <div class="slide-content">
+      <p class="kicker reveal">MOAT</p>
+      <h2 class="reveal">壁垒在三件脏活累活的叠加：知识、技术、验证。</h2>
+      <div class="matrix reveal">
+        <div class="tile">
+          <strong>知识密集</strong>
+          <small>MPYOS API、驱动 README、板型约束、传感器数据手册被整理成 AI 可消费结构，不是随机 GitHub 代码。</small>
+        </div>
+        <div class="tile">
+          <strong>技术密集</strong>
+          <small>代码、硬件、外壳通过 project-manifest 强耦合；错误从真机日志回流到上游 skill，而不是停在报错页面。</small>
+        </div>
+        <div class="tile">
+          <strong>劳动密集</strong>
+          <small>211+ 驱动、150+ 电路模块、真实设备日志和交付案例需要长期硬件验证，不能只靠模型补齐。</small>
+        </div>
+      </div>
+      <div class="metric-strip reveal">
+        <div class="metric"><strong>22</strong><small>MicroPythonOS 框架管理器</small></div>
+        <div class="metric"><strong>211+</strong><small>验证驱动包与 README / 测试</small></div>
+        <div class="metric"><strong>150+</strong><small>验证电路模块与约束数据</small></div>
+        <div class="metric"><strong>3 层</strong><small>软件 + PCB + 外壳联动闭环</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-12" data-no="12">
+    <div class="slide-content">
+      <p class="kicker reveal">MARKET MODEL</p>
+      <h2 class="reveal">别从一个虚高 TAM 讲起，从愿意付钱的三类预算讲起。</h2>
+      <div class="matrix reveal">
+        <div class="tile">
+          <strong>工具预算</strong>
+          <small>开发者/创客为节省驱动查找、环境配置、真机调试时间付费。定价锚点是 IDE/AI 工具订阅，而非 EDA 授权。</small>
+        </div>
+        <div class="tile">
+          <strong>教学预算</strong>
+          <small>高校/实验室为降低助教支持、统一课程项目、复现实验环境付费。采购逻辑接近课程包 + 工具授权。</small>
+        </div>
+        <div class="tile">
+          <strong>原型预算</strong>
+          <small>PM/创业团队为少返工一版 PCB、少外包一次结构建模付费。Blockless 不替代量产 EE，先占早期验证。</small>
+        </div>
+      </div>
+      <div class="funnel compact reveal">
+        <div class="tile">
+          <strong class="big-number">TAM</strong>
+          <small>硬件原型、创客教育、嵌入式 AI 工具和轻量制造服务的总预算池；不把整个“个人制造”市场都算进来。</small>
+        </div>
+        <div class="tile">
+          <strong class="big-number em-green">SAM</strong>
+          <small>MicroPython/Arduino 入门开发者、中国高校创客实验室、早期硬件 prototype 团队。</small>
+        </div>
+        <div class="tile">
+          <strong class="big-number em-red">SOM</strong>
+          <small>12-18 个月先拿 5k 开发者、100 个课程/实验室账号、若干供应链下单转化，验证可重复获客。</small>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-13" data-no="13">
+    <div class="slide-content">
+      <p class="kicker reveal">BUSINESS MODEL</p>
+      <h2 class="reveal">商业化不是只卖插件，而是用工具入口拿到硬件需求数据。</h2>
+      <div class="pricing reveal">
+        <div class="price-card">
+          <div>
+            <h3>Developer SaaS</h3>
+            <p class="price">¥99/月起</p>
+            <p class="muted">个人版、团队版、企业 seat；付费点是闭环生成和真机调试节省时间。</p>
+          </div>
+          <span class="chip">工具入口</span>
+        </div>
+        <div class="price-card">
+          <div>
+            <h3>Education / Lab</h3>
+            <p class="price">¥600/人·年起</p>
+            <p class="muted">课程项目、实验室统一环境、竞赛训练营、教师培训，适合批量采购。</p>
+          </div>
+          <span class="chip">渠道入口</span>
+        </div>
+        <div class="price-card">
+          <div>
+            <h3>Supply-chain Attach</h3>
+            <p class="price">5-15%</p>
+            <p class="muted">PCB 打样、SMT、元器件、3D 打印、开发板推荐。用户生成 BOM/Gerber/STL 后自然转化。</p>
+          </div>
+          <span class="chip">规模变现</span>
+        </div>
+      </div>
+      <div class="flywheel reveal">
+        <div class="tile"><strong>用户描述需求</strong><small>意图、预算、场景、验收条件</small></div>
+        <div class="arrow">→</div>
+        <div class="tile"><strong>生成 BOM/Gerber/STL</strong><small>知道真实零件、模块和制造需求</small></div>
+        <div class="arrow">→</div>
+        <div class="tile"><strong>推荐与供应链议价</strong><small>更准方案、更高转化、更好返佣</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="slide-14" data-no="14">
+    <div class="slide-content">
+      <p class="kicker reveal">TRACTION ASSETS</p>
+      <h2 class="reveal">我们不是空讲愿景，已有能被审查的产品、硬件和渠道资产。</h2>
+      <div class="metric-strip reveal">
+        <div class="metric"><strong>产品</strong><small>Blockless 插件、upypi、upystore、MPYOS 文档</small></div>
+        <div class="metric"><strong>硬件</strong><small>150+ 模块库、PCB 案例、参数化外壳管线</small></div>
+        <div class="metric"><strong>渠道</strong><small>高校合作、培训、竞赛和创客活动触点</small></div>
+        <div class="metric"><strong>交付</strong><small>企业伴手礼、教育装备、展会 demo 经验</small></div>
+      </div>
+      <div class="asset-grid four reveal">
+        <div class="asset-card"><img src="extracted-assets/image-20.jpg" alt="education projects"><span>高校/实验室项目</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-22.jpg" alt="training event"><span>线下培训与课程</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-59.jpg" alt="hackathon event"><span>黑客松/路演曝光</span></div>
+        <div class="asset-card"><img src="extracted-assets/image-65.jpg" alt="media exposure"><span>展会/媒体触达</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide dark" id="slide-15" data-no="15">
+    <div class="accent-block"></div>
+    <div class="slide-content">
+      <p class="kicker reveal">ROADMAP</p>
+      <h2 class="reveal">下一阶段只验证一件事：硬件 AI 闭环能否稳定转成付费和下单。</h2>
+      <div class="timeline reveal">
+        <div class="stage">
+          <h3>0-3 个月</h3>
+          <ul>
+            <li>代码生成稳定性和自动修复率攻坚</li>
+            <li>upypi 驱动质量门槛和测试模板固定</li>
+            <li>完成首批课程/实验室试点包</li>
+          </ul>
+        </div>
+        <div class="stage">
+          <h3>3-6 个月</h3>
+          <ul>
+            <li>硬件模块选型和 PCB 组合进入公开 demo</li>
+            <li>Gerber/BOM/CPL 到供应链下单链路跑通</li>
+            <li>个人版与教育版启动付费验证</li>
+          </ul>
+        </div>
+        <div class="stage">
+          <h3>6-12 个月</h3>
+          <ul>
+            <li>外壳参数化与 PCB/BOM 完整联动</li>
+            <li>沉淀错误日志与硬件 recipe 数据飞轮</li>
+            <li>扩大高校、创客社区和供应链合作</li>
+          </ul>
+        </div>
+        <div class="stage">
+          <h3>要证明的指标</h3>
+          <ul>
+            <li>可复现项目数</li>
+            <li>自动修复成功率</li>
+            <li>课程/实验室复购</li>
+            <li>BOM/Gerber/STL 下单转化</li>
+          </ul>
+        </div>
+      </div>
+      <div class="chips reveal">
+        <span class="chip">Executable Hardware Recipes</span>
+        <span class="chip">Verified Loop</span>
+        <span class="chip">Prompt to Product</span>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    /* ===========================================
+       SLIDE CONTROLLER
+       =========================================== */
+    class Deck {
+      constructor() {
+        this.slides = Array.from(document.querySelectorAll(".slide"));
+        this.nav = document.getElementById("nav");
+        this.progress = document.getElementById("progress");
+        this.current = 0;
+        this.setupShotMode();
+        this.buildNav();
+        this.observe();
+        this.bindKeys();
+        this.bindWheel();
+        this.alignHash();
+      }
+      setupShotMode() {
+        const shot = new URLSearchParams(window.location.search).get("shot");
+        if (!shot) return;
+        const target = document.getElementById(shot);
+        if (!target) return;
+        document.body.classList.add("shot-mode");
+        target.classList.add("shot-active", "visible");
+      }
+      buildNav() {
+        this.nav.innerHTML = "";
+        this.slides.forEach((slide, index) => {
+          const button = document.createElement("button");
+          button.setAttribute("aria-label", `Go to slide ${index + 1}`);
+          button.addEventListener("click", () => this.go(index));
+          this.nav.appendChild(button);
+        });
+      }
+      observe() {
+        const observer = new IntersectionObserver(entries => {
+          entries.forEach(entry => {
+            if (!entry.isIntersecting) return;
+            const index = this.slides.indexOf(entry.target);
+            this.current = index;
+            entry.target.classList.add("visible");
+            this.update();
+          });
+        }, { threshold: 0.55 });
+        this.slides.forEach(slide => observer.observe(slide));
+        this.slides[0].classList.add("visible");
+        this.update();
+      }
+      update() {
+        const pct = ((this.current + 1) / this.slides.length) * 100;
+        this.progress.style.width = `${pct}%`;
+        Array.from(this.nav.children).forEach((button, index) => {
+          button.classList.toggle("active", index === this.current);
+        });
+      }
+      go(index) {
+        const bounded = Math.max(0, Math.min(this.slides.length - 1, index));
+        this.slides[bounded].scrollIntoView({ behavior: "smooth" });
+      }
+      bindKeys() {
+        window.addEventListener("keydown", event => {
+          if (["ArrowDown", "PageDown", " "].includes(event.key)) {
+            event.preventDefault();
+            this.go(this.current + 1);
+          }
+          if (["ArrowUp", "PageUp"].includes(event.key)) {
+            event.preventDefault();
+            this.go(this.current - 1);
+          }
+          if (event.key === "Home") this.go(0);
+          if (event.key === "End") this.go(this.slides.length - 1);
+        });
+      }
+      bindWheel() {
+        let locked = false;
+        window.addEventListener("wheel", event => {
+          if (locked || Math.abs(event.deltaY) < 20) return;
+          locked = true;
+          this.go(this.current + (event.deltaY > 0 ? 1 : -1));
+          setTimeout(() => { locked = false; }, 520);
+        }, { passive: true });
+      }
+      alignHash() {
+        if (!window.location.hash) return;
+        const target = document.querySelector(window.location.hash);
+        if (!target) return;
+        setTimeout(() => target.scrollIntoView({ behavior: "auto", block: "start" }), 80);
+        setTimeout(() => target.scrollIntoView({ behavior: "auto", block: "start" }), 400);
+      }
+    }
+    new Deck();
+  </script>
+</body>
+</html>
