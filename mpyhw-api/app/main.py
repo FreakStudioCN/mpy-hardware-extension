@@ -31,11 +31,8 @@ _DEFAULT_CORS_ORIGINS = [
     # redirect target (routes_auth.py default, render.yaml MPYHW_BROWSER_AUTH_REDIRECT_ORIGINS).
     "https://block-less.com",
     "https://www.block-less.com",  # www variant of the above; asserted by test_web_recommend_routes.py
-    # NOTE: "https://blockless.co" / "https://www.blockless.co" were removed here (task-6 audit,
-    # 2026-07-03): the domain does not resolve (DNS NXDOMAIN as of this audit), it is absent from
-    # the live website-blockless frontend source, and its only other appearance in this monorepo
-    # family is as a default in the SEPARATE blockless-api product's own CORS config (different
-    # backend, not evidence for this service). See docs/superpowers/sdd/task-6-report.md.
+    # NOTE: "https://blockless.co" / "https://www.blockless.co" removed 2026-07-03: DNS NXDOMAIN
+    # (domain unregistered), no references in live frontend; only citation was a same-commit test.
     "http://localhost:3000",  # local web dev
     "http://127.0.0.1:3000",  # local web dev
 ]
