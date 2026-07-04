@@ -20,3 +20,14 @@ scaffold-dropped host helpers) without touching the gate.
 titled "M5Stack Core (ESP32)". Core and Atom are different devices; the mapping
 would flash wrong firmware. Until corrected upstream, m5stack-core stays out of
 the full-profile catalog.
+
+## 4. esp8266-nodemcu I2C default pins look swapped
+`upy-analyze-plugin/boards/esp8266-nodemcu.json` declares
+`default_bus_pins.i2c0 = {sda: 5, scl: 4}`. Both the Arduino-core NodeMCU
+convention and MicroPython's documented ESP8266 default
+(`machine.I2C(scl=Pin(5), sda=Pin(4))`) say the opposite (sda=4, scl=5), and
+this is the only board file whose sda/scl pairing contradicts the other
+sources. ESP8266 I2C is software-driven so either pairing works when code is
+internally consistent, but the served profile `esp8266-nodemcu.json` currently
+transcribes the upstream values verbatim — if upstream corrects the file, the
+served profile must be updated to match.
