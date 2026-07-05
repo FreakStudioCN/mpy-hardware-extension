@@ -58,16 +58,19 @@ test("Generate driver posts start_gen_driver with the picked source type and val
 
   post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
   (document.querySelector('.gd-tab[data-gdtab="chip"]') as HTMLButtonElement).click();
-  const input = document.querySelector("#gendriver .gd-input") as HTMLInputElement;
-  assert.ok(input, "the chip/module tab shows a text input");
-  input.value = "SHT30";
+  // chip tab renders its full field set from the schema (text inputs + an interface select)
+  assert.ok(document.querySelector("#gendriver select.gd-input"), "the chip tab renders the interface select");
+  const chipModel = document.querySelector("#gendriver [data-gdkey='chip_model']") as HTMLInputElement;
+  assert.ok(chipModel, "the chip_model field is present");
+  chipModel.value = "SHT30";
 
   posted.length = 0;
   (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
   const start = posted.find((m) => m.type === "start_gen_driver");
   assert.ok(start, "clicking Generate posts start_gen_driver");
+  assert.equal(start.tabId, "chip");
   assert.equal(start.sourceType, "chip_model");
-  assert.equal(start.value, "SHT30");
+  assert.equal(start.values.chip_model, "SHT30");
 });
 
 test("the verification-settings tab is config only (Generate disabled)", async () => {

@@ -13,7 +13,11 @@ import {
   buildStartPhase,
   deriveDriverStatus,
   inferMode,
+  validateFields,
+  buildSourceFromFields,
 } from "../src/core/gen-driver-schema.ts";
+
+const tab = (id: string) => GEN_DRIVER_TABS.find((t) => t.id === id)!;
 
 // Contract lock: the plugin's own sample payloads must satisfy this schema. If the
 // upstream plugin (or Ruili's final schema) changes the contract, these fail and
@@ -129,4 +133,19 @@ test("every source tab maps to a known source type; verification tab is config",
     assert.ok(GEN_DRIVER_SOURCE_TYPES.includes(tab.sourceType), `tab ${tab.id} -> ${tab.sourceType}`);
   }
   assert.ok(GEN_DRIVER_TABS.some((t) => t.sourceType === null), "a verification-settings tab exists");
+});
+
+test("validateFields flags missing required inputs per tab", () => {
+  assert.deepEqual(validateFields(tab("github"), {}), ["Repo URL"]);
+  assert.deepEqual(validateFields(tab("github"), { url: "https://github.com/x/y" }), []);
+  assert.deepEqual(validateFields(tab("chip"), {}), ["Chip model"]);
+  assert.deepEqual(validateFields(tab("chip"), { chip_model: "SHT30" }), []);
+  assert.deepEqual(validateFields(tab("current"), {}), []);
+});
+
+test("buildSourceFromFields assembles source.type + non-empty fields, verification is null", () => {
+  const src = buildSourceFromFields(tab("chip"), { chip_model: "SHT30", vendor: "", interface: "i2c" });
+  assert.deepEqual(src, { type: "chip_model", chip_model: "SHT30", interface: "i2c" });
+  assert.equal(buildSourceFromFields(tab("verification"), { port: "COM3" }), null);
+  assert.deepEqual(buildSourceFromFields(tab("current"), {}), { type: "current_cold_driver_item" });
 });

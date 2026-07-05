@@ -36,20 +36,87 @@ export const GEN_DRIVER_SOURCE_TYPES: readonly GenDriverSourceType[] = [
 // UI input tabs. A source tab maps to one source.type; the verification tab is
 // configuration (serial port, board, verify policy), not a source. The panel
 // renders from this list, so adding/renaming a tab is a one-line change here.
+// A single input on a tab. The panel renders by `kind`; the schema stays the
+// source of truth for what each tab collects, so field changes are one edit here.
+export type GenDriverField = {
+  key: string;
+  label: string;
+  kind: "text" | "textarea" | "select" | "checkbox";
+  required?: boolean;
+  placeholder?: string;
+  options?: string[];
+};
 export type GenDriverTab = {
   id: string;
   label: string;
   sourceType: GenDriverSourceType | null;
+  fields: GenDriverField[];
 };
 export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
-  { id: "current", label: "Current project missing driver", sourceType: "current_cold_driver_item" },
-  { id: "pdf", label: "PDF datasheet", sourceType: "pdf" },
-  { id: "arduino", label: "Arduino/C/C++ source", sourceType: "arduino_source" },
-  { id: "github", label: "GitHub repository", sourceType: "github_url" },
-  { id: "chip", label: "Chip/module model", sourceType: "chip_model" },
-  { id: "image", label: "Image / manual facts", sourceType: "image" },
-  { id: "verification", label: "Verification settings", sourceType: null },
+  { id: "current", label: "Current project missing driver", sourceType: "current_cold_driver_item", fields: [] },
+  {
+    id: "pdf", label: "PDF datasheet", sourceType: "pdf", fields: [
+      { key: "chip_model", label: "Chip / module", kind: "text", placeholder: "e.g. SHT30" },
+      { key: "vendor", label: "Vendor", kind: "text" },
+      { key: "page_range", label: "Page range", kind: "text", placeholder: "e.g. 12-18" },
+      { key: "i2c_address", label: "I2C address", kind: "text", placeholder: "0x44" },
+    ],
+  },
+  {
+    id: "arduino", label: "Arduino/C/C++ source", sourceType: "arduino_source", fields: [
+      { key: "entry_example", label: "Main class / example", kind: "text" },
+      { key: "library_version", label: "Library version", kind: "text" },
+    ],
+  },
+  {
+    id: "github", label: "GitHub repository", sourceType: "github_url", fields: [
+      { key: "url", label: "Repo URL", kind: "text", required: true, placeholder: "https://github.com/owner/repo" },
+      { key: "ref", label: "Branch / tag / commit", kind: "text" },
+      { key: "subdir", label: "Subdirectory", kind: "text" },
+    ],
+  },
+  {
+    id: "chip", label: "Chip/module model", sourceType: "chip_model", fields: [
+      { key: "chip_model", label: "Chip model", kind: "text", required: true, placeholder: "e.g. SHT30" },
+      { key: "module_model", label: "Module model", kind: "text" },
+      { key: "vendor", label: "Vendor", kind: "text" },
+      { key: "interface", label: "Interface", kind: "select", options: ["i2c", "spi", "uart", "onewire", "adc", "gpio"] },
+      { key: "default_address", label: "Default address", kind: "text", placeholder: "0x44" },
+    ],
+  },
+  {
+    id: "image", label: "Image / manual facts", sourceType: "image", fields: [
+      { key: "facts", label: "Manual facts", kind: "textarea", placeholder: "Registers, init sequence, read/write commands, conversions" },
+    ],
+  },
+  {
+    id: "verification", label: "Verification settings", sourceType: null, fields: [
+      { key: "port", label: "Serial port", kind: "text" },
+      { key: "board", label: "Target board", kind: "text" },
+      { key: "max_rounds", label: "Max verification rounds", kind: "text", placeholder: "3" },
+      { key: "skip_verification", label: "Skip hardware verification (not recommended)", kind: "checkbox" },
+    ],
+  },
 ];
+
+// Missing required-field labels for a tab's collected values (empty = valid).
+export function validateFields(tab: GenDriverTab, values: Record<string, unknown>): string[] {
+  return tab.fields
+    .filter((f) => f.required && (values[f.key] === undefined || values[f.key] === ""))
+    .map((f) => f.label);
+}
+
+// Assemble the source object from a tab's collected values, per source.type.
+// The verification tab is config, not a source, so it returns null.
+export function buildSourceFromFields(tab: GenDriverTab, values: Record<string, unknown>): GenDriverSource | null {
+  if (tab.sourceType === null) return null;
+  const source: GenDriverSource = { type: tab.sourceType };
+  for (const field of tab.fields) {
+    const value = values[field.key];
+    if (value !== undefined && value !== "" && value !== false) source[field.key] = value;
+  }
+  return source;
+}
 
 // approval_request ids the plugin actually emits (SKILL.md). These are NOT the
 // `driver_source_confirm` / `gen_driver_hardware_verify` the v2 spec guessed.

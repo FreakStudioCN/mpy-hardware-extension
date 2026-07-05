@@ -1520,25 +1520,50 @@
         root.appendChild(strip);
         root.appendChild(gdBody(tabs.find((t) => t.id === gdTab)));
       }
+      function gdField(field) {
+        const wrap = document.createElement("label"); wrap.className = "gd-field";
+        const lbl = document.createElement("span"); lbl.className = "gd-flabel";
+        lbl.textContent = field.label + (field.required ? " *" : "");
+        let control;
+        if (field.kind === "textarea") {
+          control = document.createElement("textarea");
+        } else if (field.kind === "checkbox") {
+          control = document.createElement("input"); control.type = "checkbox";
+        } else if (field.kind === "select") {
+          control = document.createElement("select");
+          for (const opt of field.options || []) {
+            const o = document.createElement("option"); o.value = opt; o.textContent = opt; control.appendChild(o);
+          }
+        } else {
+          control = document.createElement("input"); control.type = "text";
+          if (field.placeholder) control.placeholder = field.placeholder;
+        }
+        control.className = "gd-input"; control.dataset.gdkey = field.key;
+        // checkbox reads better with the control before its label
+        if (field.kind === "checkbox") { wrap.classList.add("gd-check"); wrap.appendChild(control); wrap.appendChild(lbl); }
+        else { wrap.appendChild(lbl); wrap.appendChild(control); }
+        return wrap;
+      }
+      function gdCollect(root) {
+        const values = {};
+        root.querySelectorAll("[data-gdkey]").forEach((el) => {
+          values[el.dataset.gdkey] = el.type === "checkbox" ? el.checked : el.value.trim();
+        });
+        return values;
+      }
       function gdBody(active) {
         const body = document.createElement("div"); body.className = "gd-body";
-        const needsText = active.sourceType === "chip_model" || active.sourceType === "github_url";
-        let input = null;
-        if (needsText) {
-          input = document.createElement("input"); input.className = "gd-input";
-          input.placeholder = active.sourceType === "chip_model" ? "e.g. SHT30" : "https://github.com/owner/repo";
-          body.appendChild(input);
-        } else {
+        if (!active.fields || active.fields.length === 0) {
           const note = document.createElement("p"); note.className = "gd-note";
-          note.textContent = active.sourceType === null ? "Serial port, board, and verification policy."
-            : active.sourceType === "current_cold_driver_item" ? "Uses the current project's missing driver."
-            : "File upload lands in a later step; for now name the chip in the Chip/module tab.";
+          note.textContent = "Uses the current project's missing driver.";
           body.appendChild(note);
+        } else {
+          for (const field of active.fields) body.appendChild(gdField(field));
         }
         const gen = document.createElement("button"); gen.className = "gd-gen"; gen.textContent = "Generate driver";
-        gen.disabled = active.sourceType === null;
+        gen.disabled = active.sourceType === null; // verification tab is config, not a launch
         gen.addEventListener("click", () => vscode.postMessage({
-          type: "start_gen_driver", sourceType: active.sourceType, value: input ? input.value.trim() : null,
+          type: "start_gen_driver", tabId: active.id, sourceType: active.sourceType, values: gdCollect(body),
         }));
         body.appendChild(gen);
         const status = document.createElement("div"); status.className = "gd-status"; status.id = "gdStatus";
