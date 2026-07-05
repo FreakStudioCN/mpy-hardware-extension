@@ -608,11 +608,11 @@ test("quality-gate GENERATE_PLAN errors inject a deterministic corrective messag
   assert.match(lastText, /firmware\/app\/x\.py/);
 });
 
-test("quality-gate JSON on script stdout (the REAL host shape) surfaces structured_errors and fires the corrective message", async () => {
-  // Production reality check: the real host shim (protocol-build.ts runScript) never
-  // populates a structured_errors field -- it returns the script's JSON report as a
-  // stdout STRING (re-serialized result_json). The loop must parse that stdout shape
-  // itself, or the corrective path never fires outside tests.
+// Drives one generate-phase run whose turn-0 script_run returns `gateStdout` as the
+// script's stdout (the real shim shape: report JSON re-serialized onto a stdout string),
+// then asserts the corrective user message that lands before turn 1. Shared by the two
+// real-report-shape tests below.
+async function correctiveTextForGateStdout(gateStdout: string, scriptName: string): Promise<string> {
   const bodies: any[] = [];
   let calls = 0;
   const llm = {
@@ -620,43 +620,98 @@ test("quality-gate JSON on script stdout (the REAL host shape) surfaces structur
       bodies.push({ ...body, messages: [...body.messages] });
       calls++;
       const ev = calls === 1
-        ? [tu("q0", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py", args: ["--project-dir", "."] }), stop]
+        ? [tu("q0", "script_run", { script_id: "q", interpreter: "python", script: scriptName, args: ["--project-dir", "."] }), stop]
         : [tu("q1", "phase_complete", { result: "success", summary: "fixed", next_phase: null, manifest_content: {} }), stop];
       return (async function* () { for (const e of ev) yield e; })();
     },
   };
-  // Exactly what the real shim returns for a failed run_quality_gates.py: ok:true
-  // (transport ok), non-zero exit, and the gate's JSON report as a stdout string.
-  const gateReport = {
-    check: "quality_gates",
-    ok: false,
-    structured_errors: [
-      { code: "GENERATE_PLAN_FAILED", severity: "error", phase_step: "generate_plan", message: "generate_plan quality gate failed" },
-      { code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" },
-    ],
-    warnings: [],
-  };
-  const runScript = async () => ({ ok: true, exit_code: 2, stdout: JSON.stringify(gateReport), stderr: "" });
-
+  const runScript = async () => ({ ok: true, exit_code: 2, stdout: gateStdout, stderr: "" });
   const result = await runProtocolBuild(
     { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5 },
     { llmClient: llm, runScript },
   );
-
   assert.equal(result.terminal, "complete");
   assert.equal(calls, 2);
   const lastMessage = bodies[1].messages.at(-1);
-  assert.equal(lastMessage.role, "user");
-  const lastText = lastMessage.content.map((c: any) => c.text ?? "").join("\n");
-  assert.match(lastText, /GENERATE_PLAN_FAILED/);
-  assert.match(lastText, /GENERATE_PLAN_FILE_PATH_MISSING/);
-  assert.match(lastText, /firmware\/app\/x\.py/);
+  assert.equal(lastMessage.role, "user", "the corrective must be the latest user message before the retry turn");
+  return lastMessage.content.map((c: any) => c.text ?? "").join("\n");
+}
+
+test("standalone check_generate_plan.py report (top-level errors[]) fires the corrective message", async () => {
+  // REAL shape 1, derived from check_generate_plan.py check_project() (:284-324):
+  // granular entries live under top-level `errors` (there is NO structured_errors key).
+  // SKILL.md mandates running this standalone (--require-plan before writes,
+  // --check-files after), so this shape reaches the loop directly.
+  const report = {
+    check: "generate_plan",
+    project_dir: "/work/proj",
+    plan_path: "/work/proj/generate_plan.json",
+    check_files: true,
+    errors: [
+      { code: "GENERATE_PLAN_FILE_PATH_MISSING", section: "tasks", index: 0, message: "Final generate_plan entries must declare project-relative generated file paths" },
+      { code: "GENERATE_PLAN_FILE_MISSING", section: "drivers", index: 1, path: "firmware/app/x.py", message: "generate_plan declares a generated file that does not exist in the project" },
+    ],
+    warnings: [],
+    ok: false,
+  };
+  const text = await correctiveTextForGateStdout(JSON.stringify(report), "check_generate_plan.py");
+  assert.match(text, /GENERATE_PLAN_FILE_PATH_MISSING/);
+  assert.match(text, /GENERATE_PLAN_FILE_MISSING/);
+  assert.match(text, /firmware\/app\/x\.py/);
 });
 
-test("non-JSON or JSON-without-structured_errors stdout changes nothing (no corrective, raw result intact)", async () => {
-  // Parse defensively: plain-text stdout, broken JSON, and JSON with no
-  // structured_errors array must leave the host result exactly as today.
-  for (const stdout of ["all checks passed", "{not json", JSON.stringify({ check: "generate_plan", ok: true, errors: [] })]) {
+test("run_quality_gates.py report (aggregate structured_errors + nested details.errors) fires the corrective with the GRANULAR entries", async () => {
+  // REAL shape 2, derived from run_quality_gates.py (:304-333): one AGGREGATE entry per
+  // failing check (code "<NAME>_FAILED", no path) with the check's own granular entries
+  // nested at structured_errors[i].details.errors (normalize_script_result :122-136).
+  // The corrective must enumerate the granular code+path pairs, not the opaque aggregate.
+  const report = {
+    check: "quality_gates",
+    project_dir: "/work/proj",
+    session_dir: "",
+    checks: {},
+    structured_errors: [
+      {
+        code: "GENERATE_PLAN_FAILED",
+        severity: "error",
+        phase_step: "generate_plan",
+        retryable: true,
+        message: "generate_plan quality gate failed",
+        details: {
+          returncode: 2,
+          errors: [
+            { code: "GENERATE_PLAN_FILE_PATH_MISSING", section: "tasks", index: 0, message: "Final generate_plan entries must declare project-relative generated file paths" },
+            { code: "GENERATE_PLAN_FILE_MISSING", section: "drivers", index: 1, path: "firmware/app/x.py", message: "generate_plan declares a generated file that does not exist in the project" },
+          ],
+          stdout: "",
+          stderr: "",
+        },
+      },
+    ],
+    warnings: [],
+    ok: false,
+  };
+  const text = await correctiveTextForGateStdout(JSON.stringify(report), "run_quality_gates.py");
+  assert.match(text, /GENERATE_PLAN_FILE_PATH_MISSING/);
+  assert.match(text, /GENERATE_PLAN_FILE_MISSING/);
+  assert.match(text, /firmware\/app\/x\.py/);
+  // The aggregate is dropped in favor of its granular details -- an opaque
+  // "GENERATE_PLAN_FAILED: generate_plan quality gate failed" line tells the model
+  // nothing actionable and would dilute the exact-entries instruction.
+  assert.ok(!text.includes("GENERATE_PLAN_FAILED"), text);
+});
+
+test("non-JSON or JSON-without-error-arrays stdout changes nothing (no corrective, raw result intact)", async () => {
+  // Parse defensively: plain-text stdout, broken JSON, JSON with no errors/
+  // structured_errors arrays, and a SUCCESS report (empty error arrays) must all leave
+  // the host result exactly as today -- structured_errors stays absent.
+  for (const stdout of [
+    "all checks passed",
+    "{not json",
+    JSON.stringify({ status: "ok", detail: "no report arrays here" }),
+    JSON.stringify({ check: "generate_plan", ok: true, errors: [], warnings: [] }),
+    JSON.stringify({ check: "quality_gates", ok: true, structured_errors: [], warnings: [] }),
+  ]) {
     const { result } = await executeProtocolTool(
       tu("s", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }) as any,
       { intent: "x" },

@@ -235,19 +235,37 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
   return { phases, manifest, terminal: "incomplete" };
 }
 
-// A V0 gate script (run_quality_gates.py, check_generate_plan.py, ...) reports as a
-// JSON object on stdout carrying a structured_errors array. Extract it when -- and only
-// when -- stdout is exactly that shape; any other stdout (plain text, broken JSON, JSON
-// without the array) returns undefined and changes nothing about existing behavior.
-// A parse failure here is NOT an error condition: it just means "not a JSON report".
+// A V0 gate script reports as a JSON object on stdout, in one of two REAL shapes
+// (derived from the vendored upy-generate-plugin scripts -- adapt this parser to the
+// scripts, never the scripts to the parser):
+//   1. A standalone check (check_generate_plan.py check_project()): granular entries
+//      under a top-level `errors` array; no structured_errors key at all.
+//   2. run_quality_gates.py: a top-level `structured_errors` array with one AGGREGATE
+//      entry per failing check (code "<NAME>_FAILED", no path) whose granular entries
+//      are nested at structured_errors[i].details.errors (normalize_script_result).
+// Normalize both into one flat {code, path?, message?} list. Aggregates that carry
+// granular details are REPLACED by them (the corrective message must enumerate the
+// actionable code+path pairs, not an opaque "<NAME>_FAILED"); an aggregate without
+// details stands for itself. Any other stdout (plain text, broken JSON, JSON without
+// error arrays, or a success report with empty arrays) returns undefined and changes
+// nothing about existing behavior. A parse failure here is NOT an error condition: it
+// just means "not a JSON report".
 function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; path?: string; message?: string }> | undefined {
   const text = typeof stdout === "string" ? stdout.trim() : "";
   if (!text.startsWith("{")) return undefined;
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed && typeof parsed === "object" && Array.isArray(parsed.structured_errors)) return parsed.structured_errors;
-  } catch { /* not a JSON report */ }
-  return undefined;
+  let parsed: any;
+  try { parsed = JSON.parse(text); } catch { return undefined; }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const flat: Array<{ code?: string; path?: string; message?: string }> = [];
+  if (Array.isArray(parsed.errors)) flat.push(...parsed.errors);
+  if (Array.isArray(parsed.structured_errors)) {
+    for (const entry of parsed.structured_errors) {
+      const nested = entry?.details?.errors;
+      if (Array.isArray(nested) && nested.length > 0) flat.push(...nested);
+      else flat.push(entry);
+    }
+  }
+  return flat.length > 0 ? flat : undefined;
 }
 
 // Execute one protocol tool the way a thin plugin would. Returns the result block
