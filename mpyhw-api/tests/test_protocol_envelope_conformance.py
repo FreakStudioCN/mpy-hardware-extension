@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from app.protocol_validate import message_types, validate_protocol_message
+from app.skill_catalog import SERVED_SKILLS
 
 # DB-free: skip the autouse Postgres fixture in conftest.
 pytestmark = pytest.mark.no_db
@@ -33,11 +34,17 @@ _NON_WIRE_TYPES = {"state"}
 
 
 def _collect_sample_messages() -> list[tuple[str, dict]]:
-    """Every upstream sample/mock-message JSON that looks like a protocol envelope."""
+    """Every SERVED plugin's sample/mock-message JSON that looks like a protocol envelope.
+
+    Scoped to SERVED_SKILLS: upstream also ships stages we don't serve yet (e.g.
+    upy-wiring-plugin / upy-diagram-plugin / upy-gen-driver-plugin) whose samples use
+    an extended protocol (new phase_complete.result values). Those aren't drift in
+    our wire surface — they join this sweep when they join SERVED_SKILLS.
+    """
     out: list[tuple[str, dict]] = []
     if not _SKILLS_ROOT.exists():
         return out
-    for plugin in sorted(_SKILLS_ROOT.glob("upy-*-plugin")):
+    for plugin in sorted(_SKILLS_ROOT / name for name in SERVED_SKILLS):
         for sub in ("sample", "mock-messages"):
             base = plugin / sub
             if not base.exists():
