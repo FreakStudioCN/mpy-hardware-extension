@@ -607,3 +607,63 @@ test("quality-gate GENERATE_PLAN errors inject a deterministic corrective messag
   assert.match(lastText, /GENERATE_PLAN_FILE_PATH_MISSING/);
   assert.match(lastText, /firmware\/app\/x\.py/);
 });
+
+test("quality-gate JSON on script stdout (the REAL host shape) surfaces structured_errors and fires the corrective message", async () => {
+  // Production reality check: the real host shim (protocol-build.ts runScript) never
+  // populates a structured_errors field -- it returns the script's JSON report as a
+  // stdout STRING (re-serialized result_json). The loop must parse that stdout shape
+  // itself, or the corrective path never fires outside tests.
+  const bodies: any[] = [];
+  let calls = 0;
+  const llm = {
+    streamMessages: async (body: any) => {
+      bodies.push({ ...body, messages: [...body.messages] });
+      calls++;
+      const ev = calls === 1
+        ? [tu("q0", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py", args: ["--project-dir", "."] }), stop]
+        : [tu("q1", "phase_complete", { result: "success", summary: "fixed", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+  // Exactly what the real shim returns for a failed run_quality_gates.py: ok:true
+  // (transport ok), non-zero exit, and the gate's JSON report as a stdout string.
+  const gateReport = {
+    check: "quality_gates",
+    ok: false,
+    structured_errors: [
+      { code: "GENERATE_PLAN_FAILED", severity: "error", phase_step: "generate_plan", message: "generate_plan quality gate failed" },
+      { code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" },
+    ],
+    warnings: [],
+  };
+  const runScript = async () => ({ ok: true, exit_code: 2, stdout: JSON.stringify(gateReport), stderr: "" });
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5 },
+    { llmClient: llm, runScript },
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.equal(calls, 2);
+  const lastMessage = bodies[1].messages.at(-1);
+  assert.equal(lastMessage.role, "user");
+  const lastText = lastMessage.content.map((c: any) => c.text ?? "").join("\n");
+  assert.match(lastText, /GENERATE_PLAN_FAILED/);
+  assert.match(lastText, /GENERATE_PLAN_FILE_PATH_MISSING/);
+  assert.match(lastText, /firmware\/app\/x\.py/);
+});
+
+test("non-JSON or JSON-without-structured_errors stdout changes nothing (no corrective, raw result intact)", async () => {
+  // Parse defensively: plain-text stdout, broken JSON, and JSON with no
+  // structured_errors array must leave the host result exactly as today.
+  for (const stdout of ["all checks passed", "{not json", JSON.stringify({ check: "generate_plan", ok: true, errors: [] })]) {
+    const { result } = await executeProtocolTool(
+      tu("s", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }) as any,
+      { intent: "x" },
+      { llmClient: scriptedLlm({}), runScript: async () => ({ ok: true, exit_code: 0, stdout, stderr: "" }) },
+    );
+    assert.equal(result.ok, true, stdout);
+    assert.equal(result.stdout, stdout, "raw stdout must flow to the model unchanged");
+    assert.equal(result.structured_errors, undefined, stdout);
+  }
+});

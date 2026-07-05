@@ -235,6 +235,21 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
   return { phases, manifest, terminal: "incomplete" };
 }
 
+// A V0 gate script (run_quality_gates.py, check_generate_plan.py, ...) reports as a
+// JSON object on stdout carrying a structured_errors array. Extract it when -- and only
+// when -- stdout is exactly that shape; any other stdout (plain text, broken JSON, JSON
+// without the array) returns undefined and changes nothing about existing behavior.
+// A parse failure here is NOT an error condition: it just means "not a JSON report".
+function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; path?: string; message?: string }> | undefined {
+  const text = typeof stdout === "string" ? stdout.trim() : "";
+  if (!text.startsWith("{")) return undefined;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.structured_errors)) return parsed.structured_errors;
+  } catch { /* not a JSON report */ }
+  return undefined;
+}
+
 // Execute one protocol tool the way a thin plugin would. Returns the result block
 // fed back to the model, plus (for phase_complete) the phase-advance control.
 // `phaseCtx` (phase + turn index within it) is only needed for the turn-0 generate
@@ -332,7 +347,12 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: r.stderr ?? "", candidates: r.candidates, structured_errors: r.structured_errors } };
     // The script RAN: success keys on its exit code (a non-zero gate is a real, fixable result).
     const exit = r.exit_code ?? 0;
-    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit_code: exit, structured_errors: r.structured_errors } };
+    // The real host shim doesn't populate structured_errors -- it returns the script's
+    // JSON report (run_quality_gates.py etc.) as a stdout STRING. Parse that shape
+    // defensively so the loop's corrective path fires in production too; anything that
+    // isn't a JSON report leaves the result exactly as before.
+    const structuredErrors = r.structured_errors ?? structuredErrorsFromStdout(r.stdout);
+    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit_code: exit, structured_errors: structuredErrors } };
   }
 
   if (route === "device") {
