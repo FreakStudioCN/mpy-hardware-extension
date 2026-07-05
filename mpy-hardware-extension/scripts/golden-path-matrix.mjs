@@ -12,7 +12,7 @@
 //   MPYHW_DEV_JWT=<jwt> npm run golden-matrix            # full IDEAS x 5
 //   MPYHW_DEV_JWT=<jwt> MATRIX_RUNS=1 npm run golden-matrix   # IDEAS x 1 smoke sweep
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,6 +38,15 @@ function slug(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40);
 }
 
+// One hung LLM turn must not wedge an unattended matrix: hard-cap each e2e cell and each
+// code-shape run. A timed-out spawn counts as a failed cell with reason "timeout".
+const E2E_TIMEOUT_MS = 15 * 60 * 1000;
+const CODE_SHAPE_TIMEOUT_MS = 5 * 60 * 1000;
+
+function timedOut(result) {
+  return result.error?.code === "ETIMEDOUT" || (result.status === null && result.signal !== null);
+}
+
 // Direct node invocation (not `npm run e2e:v0`) — npm.cmd on Windows can mangle argv
 // quoting; spawning node directly against the CLI entrypoint is what the e2e SKILL
 // recommends and sidesteps that entirely. Effect is identical to `npm run e2e:v0 -- "<idea>"`.
@@ -45,28 +54,45 @@ function runE2e(idea, logPath) {
   const result = spawnSync(
     process.execPath,
     ["--no-warnings", "--experimental-strip-types", "src/cli/e2e-protocol-v0.ts", idea],
-    { cwd: extRoot, env: process.env, encoding: "utf-8" },
+    { cwd: extRoot, env: process.env, encoding: "utf-8", timeout: E2E_TIMEOUT_MS },
   );
   const combined = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   writeFileSync(logPath, combined, "utf-8");
   const match = combined.match(/^project:\s*(.+)$/m);
   const projectDir = match ? match[1].trim() : join(extRoot, "tmp", "e2e-v0");
+  if (timedOut(result)) return { passed: false, timedOut: true, projectDir, exitCode: null };
   const passed = /E2E-V0-FULLSTACK:\s+PASS/.test(combined) && result.status === 0;
-  return { passed, projectDir, exitCode: result.status };
+  return { passed, timedOut: false, projectDir, exitCode: result.status };
 }
 
 function runCodeShape(projectDir, logPath) {
   const result = spawnSync(
     process.execPath,
     ["scripts/assert-code-shape.mjs", "--project-dir", projectDir],
-    { cwd: extRoot, encoding: "utf-8" },
+    { cwd: extRoot, encoding: "utf-8", timeout: CODE_SHAPE_TIMEOUT_MS },
   );
   const combined = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   writeFileSync(logPath, combined, "utf-8");
+  if (timedOut(result)) return { passed: false, failed: ["timeout"] };
   const failed = [];
   const failMatch = combined.match(/CODE-SHAPE:\s+FAIL\s+\(failed:\s*(.+)\)/);
   if (failMatch) failed.push(...failMatch[1].split(",").map((s) => s.trim()));
   return { passed: result.status === 0, failed };
+}
+
+// e2e-protocol-v0.ts reuses (rm -rf's) a shared tmp/e2e-v0 dir each run, so by default
+// only the LAST cell's project tree survives a matrix. Preserve FAILING cells' trees
+// (passing runs are not hoarded) so any red cell stays debuggable after the sweep.
+function preserveFailingCell(tag, projectDir) {
+  if (!existsSync(projectDir)) return null;
+  const dest = join(logDir, `cell-${tag}`, "project");
+  try {
+    cpSync(projectDir, dest, { recursive: true, force: true });
+    return dest;
+  } catch (error) {
+    console.log(`  (could not preserve failing project tree: ${error.message})`);
+    return null;
+  }
 }
 
 const results = [];
@@ -82,13 +108,19 @@ for (const idea of IDEAS) {
 
     const e2eLog = join(logDir, `${tag}.e2e.log`);
     const e2e = runE2e(idea, e2eLog);
-    console.log(`  e2e:v0 -> ${e2e.passed ? "PASS" : "FAIL"} (project: ${e2e.projectDir})`);
+    console.log(`  e2e:v0 -> ${e2e.passed ? "PASS" : e2e.timedOut ? "FAIL (timeout)" : "FAIL"} (project: ${e2e.projectDir})`);
 
-    let shape = { passed: false, failed: ["e2e:v0 did not PASS"] };
+    let shape = { passed: false, failed: [e2e.timedOut ? "timeout" : "e2e:v0 did not PASS"] };
     if (e2e.passed) {
       const shapeLog = join(logDir, `${tag}.code-shape.log`);
       shape = runCodeShape(e2e.projectDir, shapeLog);
       console.log(`  code-shape -> ${shape.passed ? "PASS" : `FAIL (${shape.failed.join(", ")})`}`);
+    }
+
+    const cellPassed = e2e.passed && shape.passed;
+    if (!cellPassed) {
+      const preserved = preserveFailingCell(tag, e2e.projectDir);
+      if (preserved) console.log(`  failing project tree preserved -> ${preserved}`);
     }
 
     const durationMs = Date.now() - start;
@@ -97,7 +129,7 @@ for (const idea of IDEAS) {
       run,
       e2ePass: e2e.passed,
       shapePass: shape.passed,
-      pass: e2e.passed && shape.passed,
+      pass: cellPassed,
       reasons: shape.failed,
       durationMs,
     });
