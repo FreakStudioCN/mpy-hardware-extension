@@ -1321,3 +1321,35 @@ test("a duplicate approval_request for an already-rendered promptId does not ren
   assert.equal(activity.querySelectorAll('[data-prompt-id="appr-dup"]').length, 1, "duplicate approval_request does not add a second card");
   assert.equal(activity.querySelectorAll(".ev-card.ask").length, 1, "still exactly one approval card total");
 });
+
+test("session_done disables a still-open approval card so stale clicks can't post", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // An approval card is awaiting the user when the session ends (cancel/error/
+  // clean hand-back). Its prompt was resolved on the host, so any later click is
+  // stale — mirror the deploy-card pattern and disable its controls.
+  post(dom, {
+    type: "approval_request",
+    promptId: "appr-stale",
+    card: {
+      question: "Proceed with this plan?",
+      items: [{ id: "part-a", name: "Part A" }],
+      actions: [{ label: "Confirm", value: "confirm", primary: true }, { label: "Cancel", value: "cancel" }],
+    },
+  });
+  post(dom, { type: "session_done", terminal: "cancelled" });
+
+  const card = document.querySelector('[data-prompt-id="appr-stale"]')!;
+  const buttons = [...card.querySelectorAll("button")] as HTMLButtonElement[];
+  assert.ok(buttons.length > 0, "the card has action buttons");
+  assert.ok(buttons.every((b) => b.disabled), "every action button is disabled after session_done");
+  const checks = [...card.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+  assert.ok(checks.length > 0, "the card has item checkboxes");
+  assert.ok(checks.every((c) => c.disabled), "item checkboxes are disabled after session_done");
+
+  posted.length = 0;
+  buttons[0].click();
+  assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "a stale click posts nothing");
+});

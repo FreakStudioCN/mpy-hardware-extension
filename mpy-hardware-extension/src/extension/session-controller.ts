@@ -276,8 +276,10 @@ export class SessionController {
       // pendingPrompts is keyed by promptId and deleted on first resolve, so this
       // branch means a ui_prompt_response arrived for a prompt that's already been
       // resolved (or never existed) — a race the webview's own guards should
-      // prevent, but a silent no-op here would hide it. Log loudly so a live
-      // session leaves a trace to diagnose from.
+      // prevent, but a silent no-op here would hide it. Record it through the
+      // session telemetry pipeline (JSONL + cloud, like every other event) so a
+      // live session leaves a queryable trace, and warn locally for dev hosts.
+      this.record({ type: "ui_prompt_answer_duplicate", promptId, answer });
       console.warn(`[mpyhw] resolvePrompt: promptId "${promptId}" already resolved (or unknown) — ignoring duplicate answer=${JSON.stringify(answer)}`);
     }
   }

@@ -1558,6 +1558,10 @@
           // A still-open deploy card is now stale (its prompt was resolved by the
           // session ending); disable its buttons so clicks can't post stale replies.
           if (currentDeployCard) { document.querySelectorAll(".deploy-go, .deploy-rescan, .deploy-cancel").forEach((b) => { b.disabled = true; }); currentDeployCard = null; }
+          // Same for a still-open approval card ([data-prompt-id] is stamped only on
+          // approval cards): its prompt is resolved too, so a later click would post a
+          // stale ui_prompt_response that the host can only log as a duplicate.
+          document.querySelectorAll("[data-prompt-id] button, [data-prompt-id] input").forEach((b) => { b.disabled = true; });
           $("serialHead").classList.remove("live");
           document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
           const t = String(msg.terminal);

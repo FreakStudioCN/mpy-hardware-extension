@@ -640,3 +640,34 @@ test("retry() without a saved session is a safe no-op", async () => {
   assert.equal(result.terminal, "nothing_to_retry");
   assert.equal(loopStarts, 0);
 });
+
+test("a second resolvePrompt for the same promptId does not re-invoke the resolver and records ui_prompt_answer_duplicate", async () => {
+  const recorded: any[] = [];
+  let loopAnswer: any = "unset";
+  const controller = new SessionController({
+    postMessage: () => {},
+    recorderFactory: () => ({ record: async (event: any) => void recorded.push(event) }),
+    loop: async ({ askUser }) => {
+      loopAnswer = await askUser("Which output should it use?");
+      return { terminal: "generated" };
+    },
+  });
+
+  const started = controller.start({ intent: "x", boardId: "b" });
+  await flushMicrotasks();
+  const prompt = recorded.find((event) => event.type === "ui_prompt");
+  assert.ok(prompt, "expected ui_prompt event");
+
+  controller.resolvePrompt(prompt.promptId, "OLED");
+  // The race under test: a second answer lands for the SAME promptId (stale
+  // card click / re-delivered message). It must not reach the loop.
+  controller.resolvePrompt(prompt.promptId, "TFT");
+  await started;
+
+  assert.equal(loopAnswer, "OLED", "the loop sees only the first answer — the resolver is not re-invoked");
+  assert.equal(recorded.filter((event) => event.type === "ui_prompt_answer").length, 1, "exactly one real answer recorded");
+  const dup = recorded.find((event) => event.type === "ui_prompt_answer_duplicate");
+  assert.ok(dup, "the duplicate resolve leaves a telemetry trace");
+  assert.equal(dup.promptId, prompt.promptId);
+  assert.equal(dup.answer, "TFT", "the trace carries the ignored duplicate answer");
+});
