@@ -201,7 +201,12 @@
       // confirms via ask_user), not a header dropdown. Start is gated only by
       // quota; the board is decided in chat.
       function updateGenerateEnabled() {
-        $("generate").disabled = (!running && quotaExhausted);
+        // Two independent blocks: quotaExhausted follows the live balance (credits
+        // events recompute it), while capBlockedUntil is the sticky daily-cap hold —
+        // a capped user's balance is typically > 0, so a credits refresh must not
+        // lift it. It expires on its own once the deadline (next UTC midnight)
+        // passes; credits events are the natural re-check points.
+        $("generate").disabled = (!running && (quotaExhausted || Date.now() < capBlockedUntil));
       }
 
       // ----- Python highlighter (ported from the design's highlight.js) -----
@@ -239,6 +244,11 @@
       let activeTab = "activity";
       let running = false;
       let quotaExhausted = false;
+      // Daily-cap hold (ms epoch): set when the server 402s with daily_cap_reached,
+      // lifts at the next UTC midnight. The 402's resets_at never reaches this layer
+      // (llm-client keeps only detail.error), but the cap resets at UTC midnight by
+      // definition — the same deadline the server's resets_at carries — so derive it.
+      let capBlockedUntil = 0;
       let selectedMode = "beginner";
       let officialBoards = [];
       let selectedOfficialBoard = null;
@@ -1552,6 +1562,13 @@
         if (msg.type === "session_error") {
           const errKey = "err_" + msg.error;
           const text = (I18N[LOCALE] && I18N[LOCALE][errKey]) || I18N.en[errKey] || msg.error;
+          if (msg.error === "daily_cap_reached") {
+            // Sticky until the cap resets: the next credits event recomputes
+            // quotaExhausted from balance (typically still > 0 for a capped user),
+            // so this independent deadline is what keeps Start disabled.
+            const now = new Date();
+            capBlockedUntil = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+          }
           if (msg.error === "out_of_credits" || msg.error === "daily_cap_reached") { quotaExhausted = true; $("quota").classList.add("exhausted"); updateGenerateEnabled(); }
           addActivity({ text });
         }

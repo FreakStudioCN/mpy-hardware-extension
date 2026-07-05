@@ -598,6 +598,39 @@ test("a daily_cap_reached session_error shows the dedicated message and disables
   assert.equal(generate.disabled, true, "the cap also means no more turns today -> Start disabled, same as out_of_credits");
 });
 
+test("the daily-cap disable is sticky: a later credits event with positive balance does NOT re-enable Start", async () => {
+  // The cap binds on spend, not balance — a capped user's balance is typically > 0,
+  // so the credits handler's quotaExhausted recompute (balance <= 0) must not lift
+  // the block. Otherwise a panel reopen (which fires a fresh credits event) would
+  // re-enable Start before UTC midnight and invite a duplicate 402 error card.
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const generate = document.getElementById("generate") as HTMLButtonElement;
+
+  post(dom, { type: "session_error", error: "daily_cap_reached" });
+  assert.equal(generate.disabled, true, "capped -> Start disabled");
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 47, dailyGrant: 50 } });
+  assert.equal(generate.disabled, true, "a positive-balance credits refresh must NOT re-enable Start before UTC midnight");
+});
+
+test("the daily-cap disable lifts once the UTC-midnight deadline has passed", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const generate = document.getElementById("generate") as HTMLButtonElement;
+
+  post(dom, { type: "session_error", error: "daily_cap_reached" });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 47, dailyGrant: 50 } });
+  assert.equal(generate.disabled, true, "still blocked before the deadline");
+
+  // Cross the deadline: 26h later is past the next UTC midnight from any start time.
+  // Credits events are the natural refresh points where enablement is re-evaluated.
+  const realNow = dom.window.Date.now();
+  dom.window.Date.now = () => realNow + 26 * 3600 * 1000;
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 50, dailyGrant: 50 } });
+  assert.equal(generate.disabled, false, "the block lifts naturally once resets_at (UTC midnight) has passed");
+});
+
 test("a saved_location event tells the user where the project went and offers a reveal button wired to the host", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
