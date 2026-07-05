@@ -44,8 +44,14 @@ side panel.
 
 ## Requirements
 
-- A GitHub account for sign-in and credits.
-- For deployment: a MicroPython-capable board (e.g. ESP32) connected over USB.
+- A GitHub account (sign-in and daily free credits).
+- **Python 3.10+** on PATH (the extension creates its own tool venv at `~/.mpyhw/venv` on first run).
+- A network that can reach **GitHub and micropython.org** (firmware and driver downloads).
+- For deployment: a MicroPython-capable board over USB. Full pin-aware support:
+  ESP32 DevKit V1 · ESP32-S3 DevKitC-1 · ESP32-C3 DevKitM-1 · ESP8266 NodeMCU ·
+  Raspberry Pi Pico · Pico W. Other official MicroPython boards work in
+  firmware-only mode (you confirm wiring yourself).
+- Windows: install the USB-serial driver your board needs (usually CP210x or CH340).
 
 ## Settings
 
@@ -103,8 +109,15 @@ prompts and code are hashed, not stored verbatim.
 
 ## 环境要求
 
-- 一个用于登录和获取额度的 GitHub 账号。
-- 如需部署：一块通过 USB 连接、支持 MicroPython 的开发板（如 ESP32）。
+- 一个 GitHub 账号（用于登录和获取每日免费额度）。
+- 电脑上装好 **Python 3.10 及以上版本**（需在 PATH 中；插件首次运行时会在
+  `~/.mpyhw/venv` 创建自己的工具虚拟环境）。
+- 网络需要能访问 **GitHub 和 micropython.org**（用于下载固件和驱动）。
+- 如需部署：一块通过 USB 连接、支持 MicroPython 的开发板。完整引脚级支持的板卡：
+  ESP32 DevKit V1 · ESP32-S3 DevKitC-1 · ESP32-C3 DevKitM-1 · ESP8266 NodeMCU ·
+  Raspberry Pi Pico · Pico W。其他官方 MicroPython 开发板可在“仅固件”模式下使用
+  （接线需你自行确认）。
+- Windows 用户：请安装你的板卡所需的 USB 转串口驱动（通常是 CP210x 或 CH340）。
 
 ## 设置项
 
