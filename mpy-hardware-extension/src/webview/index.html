@@ -37,6 +37,7 @@
         <button class="tab" data-tab="wiring" data-i18n="tab_wiring">Wiring</button>
         <button class="tab" data-tab="diagram" data-i18n="tab_diagram">Diagram</button>
         <button class="tab" data-tab="doctor" data-i18n="tab_doctor">Env</button>
+        <button class="tab" data-tab="gendriver">Driver</button>
       </div>
 
       <div class="tabwrap">
@@ -72,6 +73,11 @@
           <div class="doc-head"><button id="doctorRecheck" class="doc-recheck" data-i18n="doc_recheck">Re-check</button></div>
           <div id="doctor"></div>
           <div class="empty" id="doctorEmpty"><h4 data-i18n="empty_doctor_h">Checking your setup…</h4><p data-i18n="empty_doctor_p">Blockless verifies what's needed to flash code to a board: Python, device tools, a connected board, and MicroPython.</p></div>
+        </div>
+        <!-- Generate missing driver -->
+        <div class="view hidden" data-view="gendriver">
+          <div id="gendriver"></div>
+          <div class="empty" id="gendriverEmpty"><h4>Generate a missing driver</h4><p>Turn a datasheet, Arduino code, a GitHub repo, or a chip model into a MicroPython driver.</p></div>
         </div>
       </div>
 

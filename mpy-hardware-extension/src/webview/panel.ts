@@ -9,6 +9,7 @@ import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
+import { GEN_DRIVER_TABS } from "../core/gen-driver-schema.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
@@ -142,6 +143,22 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     },
   });
   webview.onDidReceiveMessage(async (message: any) => {
+    if (message.type === "request_gen_driver_config") {
+      // The panel renders its input tabs from the schema module (single source of truth).
+      webview.postMessage({ type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+      return;
+    }
+    if (message.type === "start_gen_driver") {
+      // The global-tools entry is the standalone flow; pipeline (a live cold-driver
+      // session) is chosen from the manifest via inferMode when the session-controller
+      // drives the protocol loop. ponytail: the start_phase dispatch/run is a follow-up.
+      const mode = message.sourceType === "current_cold_driver_item" ? "pipeline" : "standalone";
+      webview.postMessage({
+        type: "gen_driver_status",
+        detail: `Received gen-driver request (mode=${mode}). Driver generation run is wired in a later step.`,
+      });
+      return;
+    }
     if (message.type === "request_boards") {
       // Real device/board list comes from the API — never hardcoded in the UI.
       try {

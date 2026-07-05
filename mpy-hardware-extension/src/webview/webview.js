@@ -1499,10 +1499,64 @@
       // board's REPL); the on-load check stays non-invasive and skips it.
       $("doctorRecheck").addEventListener("click", () => vscode.postMessage({ type: "run_doctor_check", probe: true }));
 
+      // ----- gen-driver panel (Generate Missing Hardware Driver) -----
+      // Input tabs come from the host (GEN_DRIVER_TABS in gen-driver-schema.ts), so the
+      // schema stays the single source of truth; this only renders and posts back.
+      let gdTab = null;
+      function renderGenDriver(tabs) {
+        const root = $("gendriver");
+        if (!root || !Array.isArray(tabs) || !tabs.length) return;
+        $("gendriverEmpty").classList.add("hidden");
+        if (!gdTab || !tabs.some((t) => t.id === gdTab)) gdTab = tabs[0].id;
+        root.innerHTML = "";
+        const strip = document.createElement("div"); strip.className = "gd-tabs";
+        for (const t of tabs) {
+          const b = document.createElement("button");
+          b.className = "gd-tab" + (t.id === gdTab ? " active" : "");
+          b.textContent = t.label; b.dataset.gdtab = t.id;
+          b.addEventListener("click", () => { gdTab = t.id; renderGenDriver(tabs); });
+          strip.appendChild(b);
+        }
+        root.appendChild(strip);
+        root.appendChild(gdBody(tabs.find((t) => t.id === gdTab)));
+      }
+      function gdBody(active) {
+        const body = document.createElement("div"); body.className = "gd-body";
+        const needsText = active.sourceType === "chip_model" || active.sourceType === "github_url";
+        let input = null;
+        if (needsText) {
+          input = document.createElement("input"); input.className = "gd-input";
+          input.placeholder = active.sourceType === "chip_model" ? "e.g. SHT30" : "https://github.com/owner/repo";
+          body.appendChild(input);
+        } else {
+          const note = document.createElement("p"); note.className = "gd-note";
+          note.textContent = active.sourceType === null ? "Serial port, board, and verification policy."
+            : active.sourceType === "current_cold_driver_item" ? "Uses the current project's missing driver."
+            : "File upload lands in a later step; for now name the chip in the Chip/module tab.";
+          body.appendChild(note);
+        }
+        const gen = document.createElement("button"); gen.className = "gd-gen"; gen.textContent = "Generate driver";
+        gen.disabled = active.sourceType === null;
+        gen.addEventListener("click", () => vscode.postMessage({
+          type: "start_gen_driver", sourceType: active.sourceType, value: input ? input.value.trim() : null,
+        }));
+        body.appendChild(gen);
+        const status = document.createElement("div"); status.className = "gd-status"; status.id = "gdStatus";
+        body.appendChild(status);
+        return body;
+      }
+      function setGenDriverStatus(status, detail) {
+        const el = $("gdStatus"); if (!el) return;
+        el.className = "gd-status" + (status ? " gd-" + status : "");
+        el.textContent = detail || (status ? "Driver status: " + status : "");
+      }
+
       window.addEventListener("message", (event) => {
         const msg = event.data;
         if (msg.type === "recipe_imported") { prefillImportedRecipe(msg.payload); }
         if (msg.type === "doctor_results") { renderDoctor(msg.items); }
+        if (msg.type === "gen_driver_config") { renderGenDriver(msg.tabs); }
+        if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "micropython_boards") { loadOfficialBoards(msg); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
@@ -1629,4 +1683,5 @@
       vscode.postMessage({ type: "request_boards" });
       // Run the environment preflight on load so issues surface before the first deploy.
       vscode.postMessage({ type: "run_doctor_check" });
-    
+      // Load the gen-driver input tabs from the host (schema is the source of truth).
+      vscode.postMessage({ type: "request_gen_driver_config" });
