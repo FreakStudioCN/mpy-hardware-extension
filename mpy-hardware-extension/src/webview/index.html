@@ -83,8 +83,19 @@
           <div id="doctor"></div>
           <div class="empty" id="doctorEmpty"><h4 data-i18n="empty_doctor_h">Checking your setup…</h4><p data-i18n="empty_doctor_p">Blockless verifies what's needed to flash code to a board: Python, device tools, a connected board, and MicroPython.</p></div>
         </div>
-        <!-- Generate missing driver -->
-        <div class="view hidden" data-view="gendriver">
+      </div>
+
+      <!-- Global tool surface: a global tool opens over the whole workflow body
+           (not inside the stage area) with its own Back control. -->
+      <div class="tool-view hidden" id="toolGenDriver">
+        <div class="tool-head">
+          <button class="tool-back" id="genDriverBack" title="Back to workflow">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Back</span>
+          </button>
+          <span class="tool-title">Generate Missing Hardware Driver</span>
+        </div>
+        <div class="tool-body">
           <div id="gendriver"></div>
           <div class="empty" id="gendriverEmpty"><h4>Generate a missing driver</h4><p>Turn a datasheet, Arduino code, a GitHub repo, or a chip model into a MicroPython driver.</p></div>
         </div>

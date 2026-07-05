@@ -357,7 +357,20 @@
         }
       }
       document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
-      $("genDriverOpen").addEventListener("click", () => setTab("gendriver"));
+      // A global tool opens as a full-body surface over the workflow (stages + composer
+      // hide), not inside the stage content area. ponytail: one tool today; when more
+      // global tools land, take an id here instead of the single toolGenDriver.
+      const GLOBAL_TOOL_HIDES = ["#globalTools", "#tabs", ".tabwrap", ".composer"];
+      function openGlobalTool() {
+        for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.add("hidden");
+        $("toolGenDriver").classList.remove("hidden");
+      }
+      function closeGlobalTool() {
+        $("toolGenDriver").classList.add("hidden");
+        for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.remove("hidden");
+      }
+      $("genDriverOpen").addEventListener("click", openGlobalTool);
+      $("genDriverBack").addEventListener("click", closeGlobalTool);
 
       // ----- composer / working indicator -----
       // The single "AI is working" affordance is the in-feed spinner card

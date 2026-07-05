@@ -93,18 +93,21 @@ test("a missing required field blocks the confirm card and does not launch", asy
   assert.equal(posted.some((m) => m.type === "start_gen_driver"), false, "not launched");
 });
 
-test("the global tools Generate Missing Hardware Driver button opens the Driver panel", async () => {
+test("the global tools button opens the driver as a full-body surface, and Back returns", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
 
   const btn = document.querySelector("#globalTools #genDriverOpen") as HTMLButtonElement;
   assert.match(btn.textContent!, /Generate Missing Hardware Driver/, "button carries the spec's full label");
+
   btn.click();
-  assert.equal(
-    document.querySelector('[data-view="gendriver"]')!.classList.contains("hidden"),
-    false,
-    "clicking the global-tools button reveals the Driver view",
-  );
+  assert.equal(document.getElementById("toolGenDriver")!.classList.contains("hidden"), false, "tool surface is shown");
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), true, "workflow stage area is hidden");
+  assert.equal(document.querySelector(".composer")!.classList.contains("hidden"), true, "composer is hidden");
+
+  (document.getElementById("genDriverBack") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("toolGenDriver")!.classList.contains("hidden"), true, "Back closes the tool");
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), false, "workflow is restored");
 });
 
 test("the verification-settings tab is config only (Generate disabled)", async () => {
