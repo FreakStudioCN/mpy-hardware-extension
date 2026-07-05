@@ -80,6 +80,28 @@ test("createProtocolLoop retries connect timeouts and ends as llm_unreachable", 
   assert.match(String(events.find((event) => event.type === "connect_retry")?.detail), /UND_ERR_CONNECT_TIMEOUT/);
 });
 
+function sseText(text: string) {
+  return [
+    `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text } })}`,
+    `data: ${JSON.stringify({ type: "message_stop" })}`,
+    "",
+  ].join("\n\n");
+}
+
+test("createProtocolLoop maps a stalled loop (no tool calls, repeated prose) to terminal 'stalled', distinct from awaiting_user", async () => {
+  // The model never emits a tool call; after MAX_TOOLLESS_TURNS the phase gives up
+  // and runProtocolBuild returns terminal: "stalled" (protocol-loop.ts). That must
+  // flow through createProtocolLoop as "stalled", not get folded into the generic
+  // "awaiting_user" hand-back — a stalled build is a stuck build, not a clean pause.
+  const fetchImpl = async () =>
+    new Response(sseText("thinking out loud, never calling a tool"), { status: 200, headers: { "content-type": "text/event-stream" } }) as any;
+
+  const loop = createProtocolLoop({ apiBaseUrl: "http://api.test", fetchImpl: fetchImpl as any, getAuthToken: async () => "token" });
+  const result = await loop({ intent: "build a thermometer", traceId: "trace-stalled" });
+
+  assert.equal(result.terminal, "stalled");
+});
+
 test("createProtocolLoop reports firmware flashing actions as unsupported, not as project run success", async () => {
   const bodies: any[] = [];
   let calls = 0;

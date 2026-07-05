@@ -152,9 +152,11 @@ test("webview defaults to the LLM agent loop and forwards its terminal", async (
     ViewColumn: { One: 1 },
     window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
   };
-  // The LLM replies with plain text and no tool call (e.g. asking the user to
-  // clarify). The loop must hand back after one turn, and the panel must forward
-  // the awaiting_user terminal to the webview rather than spinning to max_turns.
+  // The LLM replies with plain text and no tool call, and keeps doing so even after
+  // the loop's corrective nudge — a genuine stall (protocol-loop.ts gives up after
+  // MAX_TOOLLESS_TURNS consecutive toolless replies), not a clean hand-back. The
+  // panel must forward the distinct "stalled" terminal to the webview rather than
+  // folding it into awaiting_user or spinning to max_turns.
   const fetchImpl = (async (url: string) => {
     assert.match(url, /\/v1\/llm\/messages$/);
     const sse = [
@@ -168,7 +170,7 @@ test("webview defaults to the LLM agent loop and forwards its terminal", async (
   await handler?.({ type: "start_session", intent: "build an ai companion", boardId: "esp32-s3-devkitc-1" });
 
   assert.equal(posted.at(-1).type, "session_done");
-  assert.equal(posted.at(-1).terminal, "awaiting_user");
+  assert.equal(posted.at(-1).terminal, "stalled");
 });
 
 test("webview blocks sessions when the remote protocol version mismatches the bundled contract", async () => {

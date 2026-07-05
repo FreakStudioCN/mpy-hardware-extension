@@ -1266,6 +1266,37 @@ test("an sse_stream_interrupted end offers the same Retry button", async () => {
   assert.ok(posted.some((m) => m.type === "retry_session"));
 });
 
+test("a stalled build says so and offers a retry — distinct from a clean awaiting_user hand-back", async () => {
+  // "stalled" means the loop gave up mid-build (no phase boundary reached); it must
+  // read as a visible, actionable stuck state — not the silent awaiting_user hand-back
+  // a genuinely clean pause gets.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  post(dom, { type: "session_done", terminal: "stalled" });
+
+  assert.match(activity.textContent!, /got stuck/i, "a visible stuck message is shown");
+  const retry = activity.querySelector(".retry-session") as HTMLButtonElement;
+  assert.ok(retry, "a retry card renders for a stalled build");
+  retry.click();
+  assert.ok(posted.some((m) => m.type === "retry_session"), "clicking retry posts retry_session to the host");
+});
+
+test("awaiting_user stays a clean, silent hand-back — no error line and no retry card (pinned behavior)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  post(dom, { type: "session_done", terminal: "awaiting_user" });
+
+  assert.equal(activity.querySelector(".retry-session"), null, "no retry card for a clean hand-back");
+  assert.equal(activity.innerHTML, "", "no terminal/error line rendered — awaiting_user stays silent");
+});
+
 test("connect_retry updates the working spinner so auto-retries are visible", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

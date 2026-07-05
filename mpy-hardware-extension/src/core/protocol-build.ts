@@ -190,6 +190,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
     const terminal = result.terminal === "complete" ? "complete"
       : result.terminal === "cancelled" ? "cancelled"
       : result.terminal === "failed" ? "failed"
+      : result.terminal === "stalled" ? "stalled"
       : "awaiting_user";
     return { terminal, state: { manifest: result.manifest, phase: result.phases.at(-1)?.phase, intent } };
   };

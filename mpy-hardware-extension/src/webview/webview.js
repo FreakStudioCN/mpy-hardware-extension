@@ -74,6 +74,8 @@
           wiring_provisional: "Preview — pins not assigned yet",
           term_generated: "Done", term_success: "Done", term_cancelled: "Stopped",
           term_awaiting_user: "Waiting for your reply", term_max_turns: "Stopped (max turns)",
+          term_stalled: "Build got stuck",
+          session_stuck: "The build got stuck mid-way — this is usually transient. Click retry.",
           term_manifest_unresolved: "Couldn't finish the build",
           term_repair_exhausted: "Couldn't get it working", term_session_error: "Error",
           term_sse_stream_interrupted: "Connection dropped — send again to continue",
@@ -148,6 +150,8 @@
           wiring_provisional: "预览 — 引脚尚未分配",
           term_generated: "完成", term_success: "完成", term_cancelled: "已停止",
           term_awaiting_user: "等待你的回复", term_max_turns: "已停止（达到回合上限）",
+          term_stalled: "构建卡住了",
+          session_stuck: "构建中途卡住了——通常是暂时性的，点击重试。",
           term_manifest_unresolved: "未能完成本次生成",
           term_repair_exhausted: "未能让它正常运行", term_session_error: "出错",
           term_sse_stream_interrupted: "连接中断 — 再次发送即可继续",
@@ -1570,7 +1574,14 @@
           const ok = t === "generated" || t === "success" || t === "complete";
           const label = tr("term_" + t);
           const friendly = label === "term_" + t ? t : label;
-          const isError = !ok && t !== "cancelled" && t !== "awaiting_user";
+          const isError = !ok && t !== "cancelled" && t !== "awaiting_user" && t !== "stalled";
+          // A stalled build gave up mid-way without reaching a phase boundary — unlike
+          // awaiting_user (a clean hand-back), the user must SEE it stalled and get a
+          // one-click way to try again, so it has its own lane before the generic line.
+          if (t === "stalled") {
+            addActivity({ text: tr("session_stuck") });
+            addRetryCard();
+          }
           // The status bar is gone; surface a terminal line in the feed for ends
           // that aren't self-evident from the result (errors and a cancelled run).
           // A successful finish needs none — the summary + code cards say it.
