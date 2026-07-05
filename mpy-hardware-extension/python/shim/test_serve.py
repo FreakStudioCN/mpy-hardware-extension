@@ -157,6 +157,34 @@ def test_resolver_excludes_pre_v0_skills():
     assert len(serve._v0_script_candidates("init_scaffold.py")) == 1
 
 
+def test_resolver_excludes_unserved_plugin_stages():
+    # A CLEAN dev checkout has no <ext>/third_party copy, so scripts_root() falls back
+    # to the FULL repo-root submodule, which also carries `-plugin` stages we don't
+    # serve/bundle (upy-gen-driver-plugin, upy-wiring-plugin, upy-diagram-plugin).
+    # Indexing them would turn served bare names the SKILL.md prose uses into ambiguous
+    # errors in dev (update_session_state.py / run_on_device.py also ship in
+    # upy-gen-driver-plugin) and make dev diverge from the packaged VSIX. Force the
+    # dev-fallback root here: this working copy may hold a stale packaged-subset copy
+    # under <ext>/third_party that would mask the divergence.
+    here = os.path.dirname(os.path.abspath(__file__))
+    dev_root = os.path.abspath(os.path.join(here, "..", "..", "..", "third_party", "MicroPython_Skills"))
+    assert os.path.isdir(os.path.join(dev_root, "upy-gen-driver-plugin")), dev_root
+    orig_root, orig_index = serve.scripts_root, serve._V0_SCRIPT_INDEX
+    serve.scripts_root, serve._V0_SCRIPT_INDEX = (lambda: dev_root), None
+    try:
+        for name, served_dir in (
+            ("update_session_state.py", "upy-generate-plugin"),
+            ("run_on_device.py", "upy-scaffold-plugin"),
+        ):
+            candidates = serve._v0_script_candidates(name)
+            assert len(candidates) == 1, f"{name} must stay unambiguous, got {candidates}"
+            assert served_dir in candidates[0].replace("\\", "/"), candidates
+        for path in serve._v0_script_candidates("common.py"):
+            assert "upy-gen-driver-plugin" not in path.replace("\\", "/"), path
+    finally:
+        serve.scripts_root, serve._V0_SCRIPT_INDEX = orig_root, orig_index
+
+
 def test_run_v0_failed_script_reports_nonzero_not_fake_success():
     record = []
     record_stdout[0] = ""

@@ -102,30 +102,46 @@ def resolve_schema(name: str):
 # old behavior of silently returning success faked every V0 gate.
 _V0_SCRIPT_INDEX: dict | None = None
 
+# The served/bundled V0 plugin dirs — mirrors PLUGIN_DIRS in scripts/prepare-vsce.mjs.
+# The dev-fallback root is the FULL submodule, which also carries upstream `-plugin`
+# stages we don't serve (upy-gen-driver-plugin, upy-wiring-plugin, upy-diagram-plugin);
+# indexing those would turn served bare names ambiguous in dev only
+# (update_session_state.py / run_on_device.py also ship in upy-gen-driver-plugin).
+_V0_PLUGIN_DIRS = (
+    "upy-analyze-plugin",
+    "upy-select-hw-plugin",
+    "upy-flash-mpy-firmware-plugin",
+    "upy-scaffold-plugin",
+    "upy-generate-plugin",
+    "upy-deploy-plugin",
+    "shared-plugin-scripts",
+)
+
 
 def _build_v0_script_index() -> dict:
     """Map each V0 plugin-script basename to the LIST of bundled paths sharing it.
 
-    Only V0 `-plugin` script dirs and shared-plugin-scripts are indexed. The OLD
-    pre-V0 skills (upy-analyze, upy-scaffold, upy-generate, ...) ship the same
-    basenames (init_manifest.py, init_scaffold.py, download_drivers.py); indexing
-    them would let a bare name silently resolve to a stale non-V0 script AND make dev
-    (full submodule on disk) diverge from the packaged VSIX (which drops them). A
-    basename mapping to >1 path is AMBIGUOUS and must fail loud at resolve time —
-    never a silent first-match pick (which would depend on os.walk traversal order)."""
+    Only the served `-plugin` script dirs and shared-plugin-scripts (_V0_PLUGIN_DIRS)
+    are indexed. The OLD pre-V0 skills (upy-analyze, upy-scaffold, upy-generate, ...)
+    ship the same basenames (init_manifest.py, init_scaffold.py, download_drivers.py),
+    and upstream carries `-plugin` stages we don't bundle; indexing either would let a
+    bare name silently resolve to a script the VSIX doesn't ship AND make dev (full
+    submodule on disk) diverge from the packaged VSIX. A basename mapping to >1 path
+    is AMBIGUOUS and must fail loud at resolve time — never a silent first-match pick
+    (which would depend on os.walk traversal order)."""
     index: dict[str, list[str]] = {}
     root = scripts_root()
-    for dirpath, _dirs, files in os.walk(root):
-        norm = dirpath.replace("\\", "/")
-        if "__pycache__" in norm:
-            continue
-        # A V0 plugin's own scripts/ dir, or the shared V0 script pool. The OLD skills'
-        # scripts/ dirs (no `-plugin` segment) are deliberately excluded.
-        if "-plugin/scripts" not in norm and "shared-plugin-scripts" not in norm:
-            continue
-        for fname in files:
-            if fname.endswith(".py"):
-                index.setdefault(fname, []).append(os.path.join(dirpath, fname))
+    for plugin_dir in _V0_PLUGIN_DIRS:
+        for dirpath, _dirs, files in os.walk(os.path.join(root, plugin_dir)):
+            norm = dirpath.replace("\\", "/")
+            if "__pycache__" in norm:
+                continue
+            # A V0 plugin's own scripts/ dir, or the shared V0 script pool.
+            if "-plugin/scripts" not in norm and "shared-plugin-scripts" not in norm:
+                continue
+            for fname in files:
+                if fname.endswith(".py"):
+                    index.setdefault(fname, []).append(os.path.join(dirpath, fname))
     return index
 
 
