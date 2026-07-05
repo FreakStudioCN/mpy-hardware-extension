@@ -357,6 +357,7 @@
         }
       }
       document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
+      $("genDriverOpen").addEventListener("click", () => setTab("gendriver"));
 
       // ----- composer / working indicator -----
       // The single "AI is working" affordance is the in-feed spinner card
@@ -1551,6 +1552,25 @@
         });
         return values;
       }
+      function gdRequiredMissing(active, values) {
+        return active.fields.filter((f) => f.required && !values[f.key]).map((f) => f.label);
+      }
+      // driver_source_confirm: summarize the source and require an explicit confirm
+      // before launching, instead of firing start_gen_driver on the first click.
+      function gdReview(active, values, statusEl) {
+        const missing = gdRequiredMissing(active, values);
+        if (missing.length) { statusEl.className = "gd-status gd-failed"; statusEl.textContent = "Fill required: " + missing.join(", "); return; }
+        statusEl.className = "gd-status"; statusEl.innerHTML = "";
+        const card = document.createElement("div"); card.className = "gd-confirm";
+        const h = document.createElement("div"); h.className = "gd-confirm-h"; h.textContent = "Confirm driver source";
+        const parts = ["source: " + active.sourceType];
+        for (const f of active.fields) { if (values[f.key]) parts.push(f.label + ": " + values[f.key]); }
+        const summary = document.createElement("div"); summary.className = "gd-confirm-body"; summary.textContent = parts.join("  |  ");
+        const confirm = document.createElement("button"); confirm.className = "gd-gen"; confirm.textContent = "Confirm & generate";
+        confirm.addEventListener("click", () => vscode.postMessage({ type: "start_gen_driver", tabId: active.id, sourceType: active.sourceType, values }));
+        card.appendChild(h); card.appendChild(summary); card.appendChild(confirm);
+        statusEl.appendChild(card);
+      }
       function gdBody(active) {
         const body = document.createElement("div"); body.className = "gd-body";
         if (!active.fields || active.fields.length === 0) {
@@ -1560,13 +1580,11 @@
         } else {
           for (const field of active.fields) body.appendChild(gdField(field));
         }
+        const status = document.createElement("div"); status.className = "gd-status"; status.id = "gdStatus";
         const gen = document.createElement("button"); gen.className = "gd-gen"; gen.textContent = "Generate driver";
         gen.disabled = active.sourceType === null; // verification tab is config, not a launch
-        gen.addEventListener("click", () => vscode.postMessage({
-          type: "start_gen_driver", tabId: active.id, sourceType: active.sourceType, values: gdCollect(body),
-        }));
+        gen.addEventListener("click", () => gdReview(active, gdCollect(body), status));
         body.appendChild(gen);
-        const status = document.createElement("div"); status.className = "gd-status"; status.id = "gdStatus";
         body.appendChild(status);
         return body;
       }

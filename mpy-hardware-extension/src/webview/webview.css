@@ -328,4 +328,8 @@
       .gd-field.gd-check { flex-direction: row; align-items: center; gap: 6px; }
       .gd-flabel { color: var(--fg-dim); }
       select.gd-input, textarea.gd-input { font: inherit; }
+      .gd-status.gd-failed { color: #e5534b; }
+      .gd-confirm { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-top: 4px; border: 1px solid #ffffff22; border-radius: 4px; }
+      .gd-confirm-h { font-weight: 650; font-size: 12px; }
+      .gd-confirm-body { font-size: 12px; color: var(--fg-dim); }
     

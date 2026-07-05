@@ -51,7 +51,7 @@ test("the Driver tab requests gen-driver config on load and renders the source t
   assert.equal(document.getElementById("gendriverEmpty")!.classList.contains("hidden"), true, "empty state hidden once rendered");
 });
 
-test("Generate driver posts start_gen_driver with the picked source type and value", async () => {
+test("Generate reviews the source, then Confirm posts start_gen_driver", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
@@ -66,11 +66,42 @@ test("Generate driver posts start_gen_driver with the picked source type and val
 
   posted.length = 0;
   (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
+  assert.ok(document.querySelector("#gendriver .gd-confirm"), "Generate shows a driver_source_confirm card");
+  assert.equal(posted.some((m) => m.type === "start_gen_driver"), false, "nothing launched before Confirm");
+
+  (document.querySelector("#gendriver .gd-confirm .gd-gen") as HTMLButtonElement).click();
   const start = posted.find((m) => m.type === "start_gen_driver");
-  assert.ok(start, "clicking Generate posts start_gen_driver");
+  assert.ok(start, "Confirm posts start_gen_driver");
   assert.equal(start.tabId, "chip");
   assert.equal(start.sourceType, "chip_model");
   assert.equal(start.values.chip_model, "SHT30");
+});
+
+test("a missing required field blocks the confirm card and does not launch", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+  (document.querySelector('.gd-tab[data-gdtab="github"]') as HTMLButtonElement).click();
+  posted.length = 0;
+  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click(); // Repo URL left empty
+
+  assert.equal(document.querySelector("#gendriver .gd-confirm"), null, "no confirm card when a required field is missing");
+  assert.match(document.getElementById("gendriver")!.textContent!, /Fill required/);
+  assert.equal(posted.some((m) => m.type === "start_gen_driver"), false, "not launched");
+});
+
+test("the Generate Missing Hardware Driver button opens the Driver panel", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  (document.getElementById("genDriverOpen") as HTMLButtonElement).click();
+  assert.equal(
+    document.querySelector('[data-view="gendriver"]')!.classList.contains("hidden"),
+    false,
+    "clicking the global-tools button reveals the Driver view",
+  );
 });
 
 test("the verification-settings tab is config only (Generate disabled)", async () => {
