@@ -41,11 +41,16 @@ export const GEN_DRIVER_SOURCE_TYPES: readonly GenDriverSourceType[] = [
 export type GenDriverField = {
   key: string;
   label: string;
-  kind: "text" | "textarea" | "select" | "checkbox";
+  kind: "text" | "textarea" | "select" | "checkbox" | "file";
   required?: boolean;
   placeholder?: string;
   options?: string[];
+  // file fields only: which extension group the host open-dialog filters to.
+  accept?: "pdf" | "arduino" | "image";
 };
+// value carried for a picked "file" field: recorded in the source payload so the
+// plugin gets the path plus integrity metadata (source-tab is source.type).
+export type GenDriverFile = { name: string; path: string; size: number; sha256: string };
 export type GenDriverTab = {
   id: string;
   label: string;
@@ -56,6 +61,7 @@ export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
   { id: "current", label: "Current project missing driver", sourceType: "current_cold_driver_item", fields: [] },
   {
     id: "pdf", label: "PDF datasheet", sourceType: "pdf", fields: [
+      { key: "pdf_file", label: "Datasheet PDF", kind: "file", required: true, accept: "pdf" },
       { key: "chip_model", label: "Chip / module", kind: "text", placeholder: "e.g. SHT30" },
       { key: "vendor", label: "Vendor", kind: "text" },
       { key: "page_range", label: "Page range", kind: "text", placeholder: "e.g. 12-18" },
@@ -64,6 +70,7 @@ export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
   },
   {
     id: "arduino", label: "Arduino/C/C++ source", sourceType: "arduino_source", fields: [
+      { key: "source_file", label: "Arduino / C / C++ file", kind: "file", required: true, accept: "arduino" },
       { key: "entry_example", label: "Main class / example", kind: "text" },
       { key: "library_version", label: "Library version", kind: "text" },
     ],
@@ -86,6 +93,7 @@ export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
   },
   {
     id: "image", label: "Image / manual facts", sourceType: "image", fields: [
+      { key: "image_file", label: "Image", kind: "file", required: true, accept: "image" },
       { key: "facts", label: "Manual facts", kind: "textarea", placeholder: "Registers, init sequence, read/write commands, conversions" },
     ],
   },

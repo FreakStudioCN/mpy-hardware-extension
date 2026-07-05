@@ -149,3 +149,11 @@ test("buildSourceFromFields assembles source.type + non-empty fields, verificati
   assert.equal(buildSourceFromFields(tab("verification"), { port: "COM3" }), null);
   assert.deepEqual(buildSourceFromFields(tab("current"), {}), { type: "current_cold_driver_item" });
 });
+
+test("file-source tabs require an uploaded file and carry its integrity metadata", () => {
+  assert.deepEqual(validateFields(tab("pdf"), {}), ["Datasheet PDF"]);
+  const file = { name: "sht30.pdf", path: "/tmp/sht30.pdf", size: 2048, sha256: "abc123" };
+  assert.deepEqual(validateFields(tab("pdf"), { pdf_file: file }), []);
+  const src = buildSourceFromFields(tab("pdf"), { pdf_file: file, chip_model: "SHT30" });
+  assert.deepEqual(src, { type: "pdf", pdf_file: file, chip_model: "SHT30" });
+});

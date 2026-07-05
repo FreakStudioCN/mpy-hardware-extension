@@ -1521,7 +1521,24 @@
         root.appendChild(strip);
         root.appendChild(gdBody(tabs.find((t) => t.id === gdTab)));
       }
-      function gdField(field) {
+      function gdFileField(field, tabId) {
+        // The host owns the file dialog; the picked value (name/path/size/sha256) comes
+        // back via gen_driver_file_picked and is stashed in a hidden input as JSON.
+        const wrap = document.createElement("div"); wrap.className = "gd-field";
+        const lbl = document.createElement("span"); lbl.className = "gd-flabel";
+        lbl.textContent = field.label + (field.required ? " *" : "");
+        const row = document.createElement("div"); row.className = "gd-filerow";
+        const btn = document.createElement("button"); btn.type = "button"; btn.className = "gd-file-btn"; btn.textContent = "Choose file";
+        const name = document.createElement("span"); name.className = "gd-filename"; name.textContent = "No file selected";
+        const hidden = document.createElement("input"); hidden.type = "hidden"; hidden.className = "gd-input";
+        hidden.dataset.gdkey = field.key; hidden.dataset.gdkind = "file";
+        btn.addEventListener("click", () => vscode.postMessage({ type: "pick_gen_driver_file", tabId, key: field.key, accept: field.accept }));
+        row.appendChild(btn); row.appendChild(name);
+        wrap.appendChild(lbl); wrap.appendChild(row); wrap.appendChild(hidden);
+        return wrap;
+      }
+      function gdField(field, tabId) {
+        if (field.kind === "file") return gdFileField(field, tabId);
         const wrap = document.createElement("label"); wrap.className = "gd-field";
         const lbl = document.createElement("span"); lbl.className = "gd-flabel";
         lbl.textContent = field.label + (field.required ? " *" : "");
@@ -1548,6 +1565,7 @@
       function gdCollect(root) {
         const values = {};
         root.querySelectorAll("[data-gdkey]").forEach((el) => {
+          if (el.dataset.gdkind === "file") { values[el.dataset.gdkey] = el.value ? JSON.parse(el.value) : ""; return; }
           values[el.dataset.gdkey] = el.type === "checkbox" ? el.checked : el.value.trim();
         });
         return values;
@@ -1564,7 +1582,10 @@
         const card = document.createElement("div"); card.className = "gd-confirm";
         const h = document.createElement("div"); h.className = "gd-confirm-h"; h.textContent = "Confirm driver source";
         const parts = ["source: " + active.sourceType];
-        for (const f of active.fields) { if (values[f.key]) parts.push(f.label + ": " + values[f.key]); }
+        for (const f of active.fields) {
+          const v = values[f.key]; if (!v) continue;
+          parts.push(f.label + ": " + (v && v.name ? v.name : v));
+        }
         const summary = document.createElement("div"); summary.className = "gd-confirm-body"; summary.textContent = parts.join("  |  ");
         const confirm = document.createElement("button"); confirm.className = "gd-gen"; confirm.textContent = "Confirm & generate";
         confirm.addEventListener("click", () => vscode.postMessage({ type: "start_gen_driver", tabId: active.id, sourceType: active.sourceType, values }));
@@ -1578,7 +1599,7 @@
           note.textContent = "Uses the current project's missing driver.";
           body.appendChild(note);
         } else {
-          for (const field of active.fields) body.appendChild(gdField(field));
+          for (const field of active.fields) body.appendChild(gdField(field, active.id));
         }
         const status = document.createElement("div"); status.className = "gd-status"; status.id = "gdStatus";
         const gen = document.createElement("button"); gen.className = "gd-gen"; gen.textContent = "Generate driver";
@@ -1593,6 +1614,14 @@
         el.className = "gd-status" + (status ? " gd-" + status : "");
         el.textContent = detail || (status ? "Driver status: " + status : "");
       }
+      function setGenDriverFile(file) {
+        const root = $("gendriver"); if (!root) return;
+        const hidden = root.querySelector("[data-gdkey='" + file.key + "'][data-gdkind='file']");
+        if (!hidden) return;
+        hidden.value = JSON.stringify({ name: file.name, path: file.path, size: file.size, sha256: file.sha256 });
+        const label = hidden.parentElement.querySelector(".gd-filename");
+        if (label) label.textContent = file.name;
+      }
 
       window.addEventListener("message", (event) => {
         const msg = event.data;
@@ -1600,6 +1629,7 @@
         if (msg.type === "doctor_results") { renderDoctor(msg.items); }
         if (msg.type === "gen_driver_config") { renderGenDriver(msg.tabs); }
         if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
+        if (msg.type === "gen_driver_file_picked") { setGenDriverFile(msg); }
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "micropython_boards") { loadOfficialBoards(msg); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {

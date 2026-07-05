@@ -114,6 +114,35 @@ test("the verification-settings tab is config only (Generate disabled)", async (
   assert.equal(gen.disabled, true, "verification tab has no source, so Generate is disabled");
 });
 
+test("a file-source tab picks a file through the host and carries its metadata to launch", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+  (document.querySelector('.gd-tab[data-gdtab="pdf"]') as HTMLButtonElement).click();
+
+  // Choosing a file is a host round-trip: the panel asks, the host answers.
+  posted.length = 0;
+  (document.querySelector("#gendriver .gd-file-btn") as HTMLButtonElement).click();
+  const ask = posted.find((m) => m.type === "pick_gen_driver_file");
+  assert.ok(ask, "the Choose file button asks the host to open a dialog");
+  assert.equal(ask.tabId, "pdf");
+  assert.equal(ask.key, "pdf_file");
+
+  const file = { name: "sht30.pdf", path: "/tmp/sht30.pdf", size: 2048, sha256: "abc123" };
+  post(dom, { type: "gen_driver_file_picked", key: "pdf_file", ...file });
+  assert.match(document.querySelector("#gendriver .gd-filename")!.textContent!, /sht30\.pdf/);
+
+  posted.length = 0;
+  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click(); // required file now set -> confirm
+  (document.querySelector("#gendriver .gd-confirm .gd-gen") as HTMLButtonElement).click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.ok(start, "launch carries the picked file");
+  assert.equal(start.values.pdf_file.sha256, "abc123");
+  assert.equal(start.values.pdf_file.path, "/tmp/sht30.pdf");
+});
+
 test("gen_driver_status detail renders in the panel status line", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
