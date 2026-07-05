@@ -272,6 +272,13 @@ export class SessionController {
       this.pendingPrompts.delete(promptId);
       this.record({ type: "ui_prompt_answer", promptId, answer });
       resolve(answer, extra);
+    } else {
+      // pendingPrompts is keyed by promptId and deleted on first resolve, so this
+      // branch means a ui_prompt_response arrived for a prompt that's already been
+      // resolved (or never existed) — a race the webview's own guards should
+      // prevent, but a silent no-op here would hide it. Log loudly so a live
+      // session leaves a trace to diagnose from.
+      console.warn(`[mpyhw] resolvePrompt: promptId "${promptId}" already resolved (or unknown) — ignoring duplicate answer=${JSON.stringify(answer)}`);
     }
   }
 

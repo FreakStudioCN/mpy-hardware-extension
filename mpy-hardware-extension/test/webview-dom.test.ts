@@ -1281,3 +1281,43 @@ test("connect_retry updates the working spinner so auto-retries are visible", as
 
   post(dom, { type: "session_done", terminal: "generated" }); // ends the run
 });
+
+test("rapid double-click on an approval action posts exactly one ui_prompt_response", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "approval_request",
+    promptId: "appr-race",
+    card: { header: "Confirm plan", question: "Proceed with this plan?", actions: [{ label: "Confirm", value: "confirm", primary: true }] },
+  });
+
+  const btn = document.querySelector(".ev-card.ask button.ask-opt") as HTMLButtonElement;
+  assert.ok(btn, "approval action button renders");
+  posted.length = 0;
+  // Two clicks in the same tick, before any disabling/round-trip can land —
+  // the classic double-click race on a single approval action.
+  btn.click();
+  btn.click();
+
+  const responses = posted.filter((m) => m.type === "ui_prompt_response" && m.promptId === "appr-race");
+  assert.equal(responses.length, 1, "only one ui_prompt_response posted despite the double-click");
+});
+
+test("a duplicate approval_request for an already-rendered promptId does not render a second card", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  const card = { header: "Confirm plan", question: "Proceed with this plan?", actions: [{ label: "Confirm", value: "confirm", primary: true }] };
+  post(dom, { type: "approval_request", promptId: "appr-dup", card });
+  assert.equal(activity.querySelectorAll('[data-prompt-id="appr-dup"]').length, 1, "first approval_request renders one card");
+  assert.equal(activity.querySelectorAll(".ev-card.ask").length, 1, "exactly one card so far");
+
+  // The host re-delivers the same promptId (e.g. a retried/replayed message). This
+  // must not render a second card for a prompt that's already on screen.
+  post(dom, { type: "approval_request", promptId: "appr-dup", card });
+  assert.equal(activity.querySelectorAll('[data-prompt-id="appr-dup"]').length, 1, "duplicate approval_request does not add a second card");
+  assert.equal(activity.querySelectorAll(".ev-card.ask").length, 1, "still exactly one approval card total");
+});

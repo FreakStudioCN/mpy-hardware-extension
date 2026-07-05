@@ -699,7 +699,7 @@
         const textInputs = Array.isArray(card.text_inputs) ? card.text_inputs : [];
         const el = document.createElement("div");
         el.className = "ev fade-in";
-        const wrap = document.createElement("div"); wrap.className = "ev-card ask";
+        const wrap = document.createElement("div"); wrap.className = "ev-card ask"; wrap.dataset.promptId = String(promptId);
         const head = document.createElement("div"); head.className = "ev-head";
         const main = document.createElement("div"); main.className = "ev-main";
         const label = document.createElement("div"); label.className = "ev-label";
@@ -1520,7 +1520,17 @@
         if (msg.type === "plan_needed") { addPlanPrompt(msg.promptId, msg.plan); }
         if (msg.type === "deploy_needed") { addDeployPrompt(msg.promptId, msg.manifest); }
         // Protocol (plugin-interface) renderers:
-        if (msg.type === "approval_request") { addApprovalPrompt(msg.promptId, msg.card); }
+        if (msg.type === "approval_request") {
+          // The webview's own per-card `answered` guard covers a same-card double
+          // click; this guards the render itself — a re-delivered/duplicated
+          // approval_request for a promptId already on screen must not stack a
+          // second card the user could double-answer.
+          if (document.querySelector(`[data-prompt-id="${msg.promptId}"]`)) {
+            console.warn("duplicate approval_request ignored", msg.promptId);
+          } else {
+            addApprovalPrompt(msg.promptId, msg.card);
+          }
+        }
         if (msg.type === "status_update" && running) { addStatusUpdate(msg.payload); }
         if (msg.type === "phase_start") { setPending(tr("working")); }
         if (msg.type === "phase_complete") { addPhaseComplete(msg.payload); }
