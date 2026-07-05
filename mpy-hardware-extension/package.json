@@ -1,6 +1,6 @@
 {
   "name": "mpy-hardware-extension",
-  "version": "0.3.12",
+  "version": "0.4.0",
   "publisher": "blockless",
   "displayName": "Blockless",
   "description": "Turn a sentence into a wired, deployable MicroPython hardware project.",
@@ -89,7 +89,9 @@
     "package": "node -e \"require('fs').mkdirSync('build',{recursive:true})\" && vsce package --out build/mpy-hardware-extension.vsix",
     "publish": "vsce publish",
     "smoke:extension": "npm test && npm run typecheck && npm run package",
-    "test:v0": "node --no-warnings --experimental-strip-types --test test/protocol-build.test.ts test/protocol-loop.test.ts test/protocol-registry.test.ts test/sse-contract.test.ts"
+    "test:v0": "node --no-warnings --experimental-strip-types --test test/protocol-build.test.ts test/protocol-loop.test.ts test/protocol-registry.test.ts test/sse-contract.test.ts",
+    "code-shape": "node scripts/assert-code-shape.mjs",
+    "golden-matrix": "node scripts/golden-path-matrix.mjs"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
