@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app import db, llm_sessions
@@ -216,6 +217,42 @@ def llm_turns_for(*, trace_id: str) -> list[dict[str, Any]]:
 def session_for(*, trace_id: str) -> dict[str, Any] | None:
     with db.connect() as conn:
         return db.fetchone(conn, "SELECT * FROM sessions WHERE trace_id=?", (trace_id,))
+
+
+# Rough cost model for /v1/admin/usage. 1 credit == 10_000 billable tokens
+# (credit_store.CREDIT_TOKENS); billable already discounts DeepSeek cache hits
+# via MPYHW_CACHE_HIT_WEIGHT (default 0.1, ~85-99% observed hit rate on later
+# rounds — see routes_llm._billable_tokens). Estimate is env-tunable, NOT a bill.
+EST_USD_PER_CREDIT = float(os.getenv("MPYHW_EST_USD_PER_CREDIT", "0.014"))
+
+
+def usage_rollup(days: int) -> list[dict[str, Any]]:
+    """Per-day per-user rollup of llm_turns. db.fetchall returns dict rows;
+    use ? placeholders (db._sql rewrites them to %s)."""
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with db.connect() as conn:
+        rows = db.fetchall(
+            conn,
+            """
+            SELECT substr(started_at, 1, 10) AS day, user_id,
+                   COUNT(*) AS turns,
+                   COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                   COALESCE(SUM(credits_charged), 0) AS credits_charged
+            FROM llm_turns
+            WHERE started_at >= ?
+            GROUP BY substr(started_at, 1, 10), user_id
+            ORDER BY day DESC, user_id
+            """,
+            (since,),
+        )
+    return [
+        {
+            "date": r["day"], "user_id": r["user_id"], "turns": r["turns"],
+            "total_tokens": r["total_tokens"], "credits_charged": r["credits_charged"],
+            "est_cost_usd": round(r["credits_charged"] * EST_USD_PER_CREDIT, 4),
+        }
+        for r in rows
+    ]
 
 
 def metrics_snapshot() -> dict[str, Any]:

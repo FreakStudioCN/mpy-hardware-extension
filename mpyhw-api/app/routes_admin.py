@@ -23,6 +23,14 @@ def session_detail(trace_id: str, _: None = Depends(require_admin)):
     }
 
 
+@router.get("/v1/admin/usage")
+def usage(days: int = 7, _: None = Depends(require_admin)) -> dict:
+    """Read-only per-day per-user rollup of llm_turns, with a documented (env-tunable,
+    NOT a bill) cost estimate — see analytics.EST_USD_PER_CREDIT."""
+    days = max(1, min(days, 90))
+    return {"days": days, "est_usd_per_credit": analytics.EST_USD_PER_CREDIT, "rows": analytics.usage_rollup(days)}
+
+
 @router.post("/v1/admin/credits")
 def set_credits(
     login: str = Body(...),
