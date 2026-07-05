@@ -166,6 +166,40 @@ def test_run_v0_failed_script_reports_nonzero_not_fake_success():
     assert res["status"] == "ok" and res["success"] is False and res["exit_code"] == 1, res
 
 
+def test_quality_gate_run_removes_firmware_tools_first(tmp_path):
+    proj = tmp_path / "proj"
+    (proj / "firmware" / "tools").mkdir(parents=True)
+    (proj / "firmware" / "tools" / "flash_device.py").write_text("import subprocess\n")
+    (proj / "firmware").joinpath("main.py").write_text("print('hi')\n")
+
+    serve.prepare_quality_gate_project(str(proj))
+
+    assert not (proj / "firmware" / "tools").exists()
+    assert (proj / "firmware" / "main.py").exists()
+
+
+def test_prepare_quality_gate_project_is_idempotent_and_safe_without_tools(tmp_path):
+    proj = tmp_path / "proj"
+    (proj / "firmware").mkdir(parents=True)
+    serve.prepare_quality_gate_project(str(proj))  # no tools dir -> no-op, no raise
+
+
+def test_run_v0_dispatch_removes_firmware_tools_for_quality_gates(tmp_path):
+    """Dispatch-level guard: the REAL caller shape (script.run_v0 with a
+    project_dir param and no --project-dir arg, mirroring test_serve.py:165)
+    must trigger the cleanup."""
+    proj = tmp_path / "proj"
+    (proj / "firmware" / "tools").mkdir(parents=True)
+    (proj / "firmware" / "tools" / "flash_device.py").write_text("import subprocess\n")
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {"interpreter": "python", "script": "run_quality_gates.py", "project_dir": str(proj)})
+    assert res["status"] == "ok" and res["success"] is True, res
+    assert not (proj / "firmware" / "tools").exists()
+
+
 def _patch_mpremote(fn):
     # Swap serve._run_mpremote (a module helper the device fs ops call directly) for a
     # fake. Returns a restore() so each test leaves the module clean.

@@ -3,6 +3,7 @@ import os
 import platform
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -511,6 +512,25 @@ def _v0_result(r):
             "stderr": err[:4000], "result_json": result_json}
 
 
+def prepare_quality_gate_project(project_dir: str) -> None:
+    """Scaffold drops host-only helpers under firmware/tools/ (e.g. flash_device.py,
+    which imports subprocess). The mpy_imports gate hard-fails on them. Remove the
+    directory deterministically instead of asking the model to (A3a)."""
+    tools_dir = os.path.join(project_dir, "firmware", "tools")
+    if os.path.isdir(tools_dir):
+        shutil.rmtree(tools_dir)
+
+
+def _project_dir_from_args(args: list) -> str | None:
+    # Fallback for a caller that passes project_dir as a "--project-dir <value>" CLI
+    # arg instead of the params["project_dir"] the real V0 caller uses.
+    if "--project-dir" in args:
+        idx = args.index("--project-dir")
+        if idx + 1 < len(args):
+            return args[idx + 1]
+    return None
+
+
 def _run_v0_script(shim, params):
     interpreter = params.get("interpreter", "python")
     script = params.get("script", "") or ""
@@ -545,6 +565,13 @@ def _run_v0_script(shim, params):
     if not candidates:
         return {"status": "error", "error_kind": "script_not_found",
                 "message": f"no bundled V0 plugin script named {base!r}"}
+    if base.endswith("run_quality_gates.py"):
+        # A3a: deterministically strip firmware/tools/ (host-only helpers the
+        # mpy_imports gate would hard-fail on) before the gates run, instead of
+        # relying on the model to remember to delete it first.
+        project_dir = cwd or _project_dir_from_args(args)
+        if project_dir:
+            prepare_quality_gate_project(project_dir)
     return _v0_result(shim.run_v0_python(candidates[0], args, cwd=cwd, stdin=stdin_content, timeout=timeout))
 
 
