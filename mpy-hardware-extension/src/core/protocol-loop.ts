@@ -71,8 +71,10 @@ export type ProtocolDeps = {
   deletePath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>;
   // Host script runner: runs a bundled V0 plugin script (or shell command) on the
   // user's machine. `extra` carries the model's stdin/timeout. ABSENT or a missing
-  // script is a hard failure (ok:false), never a faked success.
-  runScript?: (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string; candidates?: string[] }>;
+  // script is a hard failure (ok:false), never a faked success. `structured_errors`
+  // (when the host has parsed the script's JSON, e.g. run_quality_gates' generate_plan
+  // gate) lets the loop react deterministically instead of the model parsing raw JSON.
+  runScript?: (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string; candidates?: string[]; structured_errors?: Array<{ code?: string; path?: string; message?: string }> }>;
 };
 
 export type ProtocolInput = {
@@ -167,15 +169,32 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     if (input.signal?.aborted) return { done: false, cancelled: true };
 
     const toolResults: any[] = [];
+    const correctiveMessages: any[] = [];
     let control: any = null;
     for (const tu of toolUses) {
       // Honor a cancel that lands between tools in the same streamed batch.
       if (input.signal?.aborted) return { done: false, cancelled: true };
-      const { result, phaseControl } = await executeProtocolTool(tu, input, deps);
+      const { result, phaseControl } = await executeProtocolTool(tu, input, deps, { phase, turn });
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
       if (tu.name === "phase_complete" && phaseControl) control = phaseControl;
+      // A host script result carrying GENERATE_PLAN_* structured errors gets a
+      // deterministic corrective message enumerating code+path -- don't rely on the
+      // model parsing the raw JSON tool_result to find its own mistakes.
+      const planErrors = (result?.structured_errors ?? []).filter((e: any) => String(e?.code ?? "").startsWith("GENERATE_PLAN"));
+      if (planErrors.length > 0) {
+        correctiveMessages.push({
+          role: "user",
+          content: [{
+            type: "text",
+            text:
+              "Quality gate failed on generate_plan.json. Fix exactly these entries, then re-run the gate:\n" +
+              planErrors.map((e: any) => `- ${e.code}: ${e.path ?? e.message ?? ""}`).join("\n"),
+          }],
+        });
+      }
     }
     messages.push({ role: "user", content: toolResults });
+    for (const m of correctiveMessages) messages.push(m);
     if (control) return { done: true, control };
   }
   input.onEvent?.({ type: "phase_stalled", phase, reason: "max_turns" });
@@ -218,7 +237,9 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
 
 // Execute one protocol tool the way a thin plugin would. Returns the result block
 // fed back to the model, plus (for phase_complete) the phase-advance control.
-export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput, deps: ProtocolDeps): Promise<{ result: any; phaseControl?: any }> {
+// `phaseCtx` (phase + turn index within it) is only needed for the turn-0 generate
+// empty-project guard below; callers that don't care (most direct tests) omit it.
+export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput, deps: ProtocolDeps, phaseCtx: { phase?: string; turn?: number } = {}): Promise<{ result: any; phaseControl?: any }> {
   const name = tu.name ?? "";
   const p = tu.input ?? {};
 
@@ -242,6 +263,27 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // instead of silently ending the build with an undefined result.
     if (!p.result) {
       return { result: { ok: false, error_kind: "phase_complete_incomplete", detail: "phase_complete requires a result (success/partial/failed) and, on success, a next_phase" } };
+    }
+    // Turn 0 of the generate phase: upy-scaffold-plugin already ran, so the project is
+    // never empty at this point. A failed bail back to analyze here is a hallucination,
+    // not a real failure -- reject it (no phaseControl) so the phase keeps going and the
+    // model retries, instead of destroying completed work by restarting from analyze.
+    const requestedNext = phaseToken(p.next_skill) ?? phaseToken(p.next_phase);
+    if (
+      phaseCtx.phase === "upy-generate-plugin" &&
+      phaseCtx.turn === 0 &&
+      p.result === "failed" &&
+      requestedNext?.toLowerCase().includes("analyze")
+    ) {
+      return {
+        result: {
+          ok: false,
+          error_kind: "empty_project_hallucination",
+          message:
+            "Rejected: scaffold already ran; the project is not empty. Use file_operation " +
+            "(op=\"list\") on firmware/ to see the real tree, then continue generate. Do not bail to analyze.",
+        },
+      };
     }
     input.onEvent?.({ type: "phase_complete", payload: p });
     if (p.manifest_content) input.onEvent?.({ type: "manifest_updated", manifest: p.manifest_content });
@@ -287,10 +329,10 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // ok:false = the call itself failed (host_runner_absent / script_not_found /
     // ambiguous_script_name) 鈥?surface it, forwarding any candidate qualified names so the
     // model can retry an ambiguous bare script name instead of re-sending it.
-    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: r.stderr ?? "", candidates: r.candidates } };
+    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: r.stderr ?? "", candidates: r.candidates, structured_errors: r.structured_errors } };
     // The script RAN: success keys on its exit code (a non-zero gate is a real, fixable result).
     const exit = r.exit_code ?? 0;
-    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit_code: exit } };
+    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit_code: exit, structured_errors: r.structured_errors } };
   }
 
   if (route === "device") {

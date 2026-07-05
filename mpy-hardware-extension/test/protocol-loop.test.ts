@@ -505,3 +505,105 @@ test("a persistently prose-only phase stalls AND surfaces a phase_stalled event 
     "a real stall must surface a phase_stalled event so the UI shows a stuck/retry state, not a frozen step",
   );
 });
+
+test("generate phase rejects a turn-0 failed bail to analyze and retries", async () => {
+  // Direct unit check (same pattern as "executeProtocolTool rejects a phase_complete
+  // with no result" above): on turn 0 of the generate phase, a failed bail to analyze
+  // is a hallucination (scaffold already ran) -> rejected with a corrective error_kind,
+  // no phaseControl, so the phase loop is not ended.
+  const rejected = await executeProtocolTool(
+    tu("g0", "phase_complete", { result: "failed", summary: "project looks empty", next_phase: "upy-analyze-plugin" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}) },
+    { phase: "upy-generate-plugin", turn: 0 },
+  );
+  assert.equal(rejected.result.ok, false);
+  assert.equal(rejected.result.error_kind, "empty_project_hallucination");
+  assert.equal(rejected.phaseControl, undefined);
+
+  // Guard must NOT fire outside its exact trigger: wrong phase, later turn, or a
+  // genuine (non-hallucinated) failed result all pass through to normal acceptance.
+  const wrongPhase = await executeProtocolTool(
+    tu("w", "phase_complete", { result: "failed", next_phase: "upy-analyze-plugin" }) as any,
+    { intent: "x" }, { llmClient: scriptedLlm({}) },
+    { phase: "upy-scaffold-plugin", turn: 0 },
+  );
+  assert.equal(wrongPhase.result.ok, true, "guard is generate-phase-only");
+  assert.ok(wrongPhase.phaseControl, "non-generate phases accept a failed bail to analyze normally");
+
+  const laterTurn = await executeProtocolTool(
+    tu("l", "phase_complete", { result: "failed", next_phase: "upy-analyze-plugin" }) as any,
+    { intent: "x" }, { llmClient: scriptedLlm({}) },
+    { phase: "upy-generate-plugin", turn: 1 },
+  );
+  assert.equal(laterTurn.result.ok, true, "guard is turn-0-only");
+  assert.ok(laterTurn.phaseControl, "a failed bail on turn 1+ is accepted, not rejected as a hallucination");
+
+  const genuineFailure = await executeProtocolTool(
+    tu("f", "phase_complete", { result: "failed", next_phase: null }) as any,
+    { intent: "x" }, { llmClient: scriptedLlm({}) },
+    { phase: "upy-generate-plugin", turn: 0 },
+  );
+  assert.equal(genuineFailure.result.ok, true, "guard only fires when next_phase names analyze");
+  assert.ok(genuineFailure.phaseControl);
+
+  // Full phase run: turn 0 emits the hallucinated bail; turn 1 emits a normal
+  // successful phase_complete. The loop must not end "failed" at turn 0 -- it retries
+  // and the phase result reflects the turn-1 success (bounded naturally by maxTurns).
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls++;
+      const ev = calls === 1
+        ? [tu("g0", "phase_complete", { result: "failed", summary: "project looks empty", next_phase: "upy-analyze-plugin" }), stop]
+        : [tu("g1", "phase_complete", { result: "success", summary: "generated", next_phase: null, manifest_content: { phase: "upy-generate-plugin" } }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+  const result = await runProtocolBuild({ intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5 }, { llmClient: llm });
+  assert.equal(result.terminal, "complete");
+  assert.deepEqual(result.phases, [{ phase: "upy-generate-plugin", result: "success" }]);
+  assert.ok(calls >= 2, "turn-0 hallucinated bail must not end the phase; the model must be re-prompted");
+});
+
+test("quality-gate GENERATE_PLAN errors inject a deterministic corrective message", async () => {
+  const bodies: any[] = [];
+  let calls = 0;
+  const llm = {
+    streamMessages: async (body: any) => {
+      // body.messages is the SAME array reference across turns (mutated in place by
+      // later turns) -- snapshot it now (message objects themselves are never mutated
+      // after being pushed, only appended-to), or a later turn's push would corrupt
+      // what this turn actually saw.
+      bodies.push({ ...body, messages: [...body.messages] });
+      calls++;
+      const ev = calls === 1
+        ? [tu("q0", "script_run", { script_id: "q", interpreter: "python", script: "check_generate_plan.py", args: ["--require-plan"] }), stop]
+        : [tu("q1", "phase_complete", { result: "success", summary: "fixed", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+  const runScript = async () => ({
+    ok: true,
+    exit_code: 2,
+    stdout: "",
+    stderr: "",
+    structured_errors: [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }],
+  });
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5 },
+    { llmClient: llm, runScript },
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.equal(calls, 2);
+  // The turn-1 request body's messages must carry a deterministic corrective as the
+  // latest user entry -- not just the raw tool_result JSON the model would have to parse.
+  const secondBody = bodies[1];
+  const lastMessage = secondBody.messages.at(-1);
+  assert.equal(lastMessage.role, "user");
+  const lastText = lastMessage.content.map((c: any) => c.text ?? "").join("\n");
+  assert.match(lastText, /GENERATE_PLAN_FILE_PATH_MISSING/);
+  assert.match(lastText, /firmware\/app\/x\.py/);
+});
