@@ -217,6 +217,44 @@ def test_global_spend_rolls_back_with_the_failed_balance_op(monkeypatch):
     assert credit_store.global_spend_today() == 1
 
 
+def test_user_spend_today_nets_debit_and_reserve_minus_refund_excludes_grant():
+    # Sign semantics from credit_ledger: debit/reserve are negative, refund positive,
+    # grant excluded entirely (a refill must never read as spend).
+    credit_store.ensure_daily_grant(USER, 50)  # grant, excluded
+
+    credit_store.reserve(USER, 5)  # -5
+    credit_store.debit(USER, 3)    # -3
+    credit_store.refund(USER, 4)   # +4
+
+    assert credit_store.user_spend_today(USER) == 4  # 5 + 3 - 4
+
+
+def test_user_spend_today_excludes_admin_set():
+    # An admin topping up (or setting) the balance is not spend — the cap must bind
+    # even after a top-up, so admin_set must never count toward it.
+    credit_store.ensure_daily_grant(USER, 50)
+    credit_store.set_balance(USER, 20)  # admin_set: credits = 20-50 = -30, excluded
+
+    assert credit_store.user_spend_today(USER) == 0
+
+
+def test_user_spend_today_floors_at_zero_when_refunds_exceed_spend():
+    credit_store.ensure_daily_grant(USER, 50)
+    credit_store.refund(USER, 10)  # +10 with no offsetting debit/reserve today
+
+    assert credit_store.user_spend_today(USER) == 0
+
+
+def test_user_spend_today_resets_across_utc_day_boundary():
+    credit_store.ensure_daily_grant(USER, 50)
+    credit_store.reserve(USER, 1)
+    credit_store.debit(USER, 2)
+
+    now = credit_store._now()
+    assert credit_store.user_spend_today(USER, now=now) == 3
+    assert credit_store.user_spend_today(USER, now=now + timedelta(days=1)) == 0
+
+
 def test_concurrent_first_grant_creates_exactly_one_row_no_error():
     # Session start fires several authenticated calls at once (the agent turn, the nested
     # generate_code turn, and the webview's /v1/credits poll), all hitting a brand-new

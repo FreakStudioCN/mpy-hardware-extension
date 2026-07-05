@@ -183,6 +183,17 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
                 detail={"error": "daily_free_budget_exhausted", "resets_at": state["resets_at"]},
             )
 
+        # Per-user daily credit cap: env-tunable, off by default. Distinct from the
+        # balance/grant check above — this binds even when an admin has topped up the
+        # user's balance, so a comped user still can't run unlimited turns in a day.
+        user_cap = _daily_user_cap()
+        if user_cap and credit_store.user_spend_today(user) >= user_cap:
+            llm_sessions.release(session_id, "daily_cap_reached")
+            raise HTTPException(
+                status_code=402,
+                detail={"error": "daily_cap_reached", "resets_at": state["resets_at"]},
+            )
+
         reserved_remaining = credit_store.reserve(user, 1)
         if reserved_remaining is None:
             llm_sessions.release(session_id, "out_of_credits")
@@ -254,6 +265,17 @@ def _daily_global_budget() -> int:
     """Free-tier daily credit ceiling; 0 / unset / invalid means unlimited (no gate)."""
     try:
         return max(0, int(os.getenv("MPYHW_DAILY_GLOBAL_BUDGET", "0") or "0"))
+    except ValueError:
+        return 0
+
+
+def _daily_user_cap() -> int:
+    """Per-user daily credit ceiling; 0 / unset / invalid means unlimited (no gate).
+    Distinct from the global free-tier budget above: this binds a single user even
+    when an admin has topped up their balance (credit_store.set_balance) — the cap
+    is about turns-per-day, not remaining balance."""
+    try:
+        return max(0, int(os.getenv("MPYHW_DAILY_USER_CAP", "0") or "0"))
     except ValueError:
         return 0
 

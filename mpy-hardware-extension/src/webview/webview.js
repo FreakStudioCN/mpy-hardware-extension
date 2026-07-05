@@ -82,6 +82,7 @@
           term_llm_unreachable: "Can't reach the server — your progress is saved",
           retry_btn: "Retry", retrying: "Network unstable — retrying ({n}/{m})…",
           err_out_of_credits: "Out of credits — resets at midnight UTC",
+          err_daily_cap_reached: "Daily limit reached — resets at midnight UTC",
           err_sign_in_required: "Sign in with GitHub to start",
           err_auth_provider_unavailable: "VS Code GitHub auth is unavailable",
           err_github_session_failed: "GitHub sign-in did not complete in VS Code",
@@ -158,6 +159,7 @@
           term_llm_unreachable: "无法连接服务器 — 进度已保留",
           retry_btn: "重试", retrying: "网络不稳定，正在重试（{n}/{m}）…",
           err_out_of_credits: "额度已用完——UTC 午夜重置",
+          err_daily_cap_reached: "今日额度已达上限——UTC 午夜重置",
           err_sign_in_required: "请用 GitHub 登录后开始",
           err_auth_provider_unavailable: "VS Code 的 GitHub 登录不可用",
           err_github_session_failed: "GitHub 登录未在 VS Code 中完成",
@@ -1550,7 +1552,7 @@
         if (msg.type === "session_error") {
           const errKey = "err_" + msg.error;
           const text = (I18N[LOCALE] && I18N[LOCALE][errKey]) || I18N.en[errKey] || msg.error;
-          if (msg.error === "out_of_credits") { quotaExhausted = true; $("quota").classList.add("exhausted"); updateGenerateEnabled(); }
+          if (msg.error === "out_of_credits" || msg.error === "daily_cap_reached") { quotaExhausted = true; $("quota").classList.add("exhausted"); updateGenerateEnabled(); }
           addActivity({ text });
         }
         if (msg.type === "session_done") {

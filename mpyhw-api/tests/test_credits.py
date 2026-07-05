@@ -113,6 +113,68 @@ def test_llm_messages_returns_402_when_out_of_credits():
     assert response.json()["detail"]["error"] == "out_of_credits"
 
 
+class _FakeCapProvider:
+    """A non-deepseek provider so the daily-cap tests never depend on a real
+    DeepSeek network round-trip — the cap gate must fire (or not) BEFORE
+    reserve/open_stream, and using a fake keeps a false-negative gate from
+    masquerading as network flakiness instead of failing loudly."""
+
+    name = "fake"
+
+    def ensure_configured(self):
+        return None
+
+    def open_stream(self, body):
+        return ["raw"]
+
+    def translate_stream(self, upstream, meter=None):
+        if meter is not None:
+            meter({"total_tokens": 0})
+        yield 'data: {"type":"message_stop"}\n\n'
+
+
+def test_llm_messages_returns_402_daily_cap_reached_when_user_cap_hit(monkeypatch):
+    # Distinct from the balance/grant check: a user with plenty of balance left can
+    # still be capped for the day once their net spend (not balance) hits the cap.
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setattr("app.routes_llm.get_llm_provider", lambda: _FakeCapProvider())
+    monkeypatch.setenv("MPYHW_DAILY_USER_CAP", "3")
+
+    user = {"id": "capped", "login": "capped", "email": None}
+    credit_store.ensure_daily_grant(user, 50)
+    credit_store.debit(user, 3)  # balance 47, but 3 credits already spent today == cap
+
+    response = client.post(
+        "/v1/llm/messages",
+        headers=_auth_header(user_id="capped", login="capped"),
+        json={"messages": [{"role": "user", "content": "blink"}], "tools": []},
+    )
+
+    assert response.status_code == 402
+    assert response.json()["detail"]["error"] == "daily_cap_reached"
+    assert response.json()["detail"]["resets_at"]
+
+
+def test_daily_cap_disabled_by_default(monkeypatch):
+    # Env unset (the shipped default) must not gate anything, even for a user who
+    # spent heavily today — off by default is the whole point of A4b.
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setattr("app.routes_llm.get_llm_provider", lambda: _FakeCapProvider())
+    monkeypatch.delenv("MPYHW_DAILY_USER_CAP", raising=False)
+
+    user = {"id": "uncapped", "login": "uncapped", "email": None}
+    credit_store.ensure_daily_grant(user, 50)
+    credit_store.debit(user, 40)  # heavy spend today, but no cap set
+
+    response = client.post(
+        "/v1/llm/messages",
+        headers=_auth_header(user_id="uncapped", login="uncapped"),
+        json={"messages": [{"role": "user", "content": "blink"}], "tools": []},
+    )
+
+    assert response.status_code == 200
+
+
 def test_llm_messages_refunds_reservation_when_no_tokens_reported(monkeypatch):
     # A turn that streams but reports no usage costs 0 credits: the up-front
     # reservation must be refunded, leaving the balance untouched.

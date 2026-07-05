@@ -582,6 +582,22 @@ test("credits message updates the quota label and gates Start", async () => {
   assert.equal(generate.disabled, true, "out of credits -> Start disabled");
 });
 
+test("a daily_cap_reached session_error shows the dedicated message and disables Start, like out_of_credits", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const generate = document.getElementById("generate") as HTMLButtonElement;
+
+  post(dom, { type: "session_error", error: "daily_cap_reached" });
+
+  assert.match(
+    document.getElementById("activity")!.textContent!,
+    /Daily limit reached — resets at midnight UTC/,
+    "the dedicated daily-cap string is shown, not the raw error code",
+  );
+  assert.ok(document.getElementById("quota")!.classList.contains("exhausted"), "quota marked exhausted");
+  assert.equal(generate.disabled, true, "the cap also means no more turns today -> Start disabled, same as out_of_credits");
+});
+
 test("a saved_location event tells the user where the project went and offers a reveal button wired to the host", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

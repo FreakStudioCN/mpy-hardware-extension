@@ -238,6 +238,30 @@ def global_spend_today(now: datetime | None = None) -> int:
     return row["credits_spent"] if row else 0
 
 
+def user_spend_today(user: dict[str, Any], now: datetime | None = None) -> int:
+    """Net credits THIS USER spent since UTC midnight, from `credit_ledger` — NOT a
+    mirror of `global_spend_today` (that reads `daily_global_spend`, which has no user
+    column). `debit`/`reserve` rows are negative, `refund` positive; `grant`/`admin_set`
+    are excluded so a daily refill or an admin top-up never counts as spend (the whole
+    point of the per-user daily cap is that it binds even after a top-up). Floored at
+    0: a refund that crosses the UTC-day boundary must not go negative."""
+    now = now or _now()
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    uid = _user_id(user)
+    with db.connect() as conn:
+        row = db.fetchone(
+            conn,
+            """
+            SELECT COALESCE(SUM(credits), 0) AS net
+            FROM credit_ledger
+            WHERE user_id=? AND created_at >= ?
+              AND action IN ('debit', 'reserve', 'refund')
+            """,
+            (uid, midnight),
+        )
+    return max(0, -int(row["net"]))
+
+
 def get_user(user_id: str) -> dict[str, Any] | None:
     with db.connect() as conn:
         return db.fetchone(conn, "SELECT * FROM users WHERE id=?", (str(user_id),))
