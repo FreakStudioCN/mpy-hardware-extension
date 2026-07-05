@@ -79,6 +79,10 @@
       .quota.exhausted .quota-warn { color: #ff7b72; background: #f14c4c14; border-color: #f14c4c33; }
 
       /* tabs */
+      .gtools { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--vsc-border); }
+      .gtool-btn { display: flex; align-items: center; gap: 6px; padding: 5px 10px; font: inherit; font-size: 12px;
+        color: var(--fg); background: transparent; border: 1px solid var(--vsc-border); border-radius: 4px; cursor: pointer; }
+      .gtool-btn:hover { color: var(--fg-bright); border-color: var(--accent); }
       .tabs { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--vsc-border); padding: 0 4px; gap: 1px; }
       .tab { position: relative; padding: 9px 7px 8px; font-size: 12px; color: var(--fg-muted); white-space: nowrap;
         background: transparent; border: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;

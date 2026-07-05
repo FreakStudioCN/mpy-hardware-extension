@@ -42,7 +42,8 @@ test("the Driver tab requests gen-driver config on load and renders the source t
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
-  assert.ok(document.querySelector('.tab[data-tab="gendriver"]'), "Driver tab present in the chrome");
+  assert.equal(document.querySelector('.tab[data-tab="gendriver"]'), null, "gen-driver is a global tool, not a workflow tab");
+  assert.ok(document.querySelector("#globalTools #genDriverOpen"), "gen-driver entry lives in the global tools area");
   assert.ok(posted.some((m) => m.type === "request_gen_driver_config"), "config requested on load");
 
   post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
@@ -92,11 +93,13 @@ test("a missing required field blocks the confirm card and does not launch", asy
   assert.equal(posted.some((m) => m.type === "start_gen_driver"), false, "not launched");
 });
 
-test("the Generate Missing Hardware Driver button opens the Driver panel", async () => {
+test("the global tools Generate Missing Hardware Driver button opens the Driver panel", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
 
-  (document.getElementById("genDriverOpen") as HTMLButtonElement).click();
+  const btn = document.querySelector("#globalTools #genDriverOpen") as HTMLButtonElement;
+  assert.match(btn.textContent!, /Generate Missing Hardware Driver/, "button carries the spec's full label");
+  btn.click();
   assert.equal(
     document.querySelector('[data-view="gendriver"]')!.classList.contains("hidden"),
     false,
