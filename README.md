@@ -138,6 +138,20 @@ All tests should pass (a few that spawn a Python subprocess are skipped in a res
 
 Some extension tests start a Python subprocess. If you see `spawn EPERM`, the current sandbox is blocking subprocess launch; re-run in a normal terminal or with approved permissions.
 
+Or run the whole extension baseline (build, typecheck, TS tests, Python shim tests, and every plugin smoke suite) in one command:
+
+```powershell
+cd mpy-hardware-extension
+npm run baseline
+```
+
+It prints the Node/npm/Python/mpremote versions first, runs each step with its own timeout, ignores stdin for the plugin smoke so it cannot hang on an interactive terminal, and on any failure prints the command, working directory, duration, exit code, and an output tail. It exits non-zero if any step fails. The Python steps need a local venv with the shim deps (once):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -r python\shim\requirements.txt   # macOS/Linux: .venv/bin/pip install -r python/shim/requirements.txt
+```
+
 ## Run the extension in VS Code (dev mode, recommended)
 
 Day-to-day extension iteration does not need a VSIX every time. The repo root is set up for F5 debugging:
@@ -394,6 +408,20 @@ npm test
 全部用例应通过（个别需要启动 Python 子进程的用例，在受限沙箱里会被跳过——见下）。
 
 部分扩展测试会启动 Python 子进程。如果看到 `spawn EPERM`，说明当前沙箱阻止了子进程启动，请在普通终端或批准权限下重跑。
+
+也可以用一条命令跑完整扩展基线（构建、类型检查、TS 测试、Python shim 测试和每个插件的冒烟）：
+
+```powershell
+cd mpy-hardware-extension
+npm run baseline
+```
+
+它会先打印 Node/npm/Python/mpremote 版本，每一步都有独立超时，插件冒烟忽略 stdin 因此在交互式终端里不会卡住；任一步失败时会打印命令、工作目录、耗时、退出码和输出尾部，只要有一步失败就以非零码退出。Python 步骤需要一个带 shim 依赖的本地 venv（一次即可）：
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -r python\shim\requirements.txt   # macOS/Linux: .venv/bin/pip install -r python/shim/requirements.txt
+```
 
 ## 在 VS Code 里运行扩展（开发模式，推荐）
 

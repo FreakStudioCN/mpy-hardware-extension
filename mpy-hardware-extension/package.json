@@ -83,6 +83,7 @@
   "scripts": {
     "test": "node --no-warnings --experimental-strip-types --test test/*.test.ts",
     "typecheck": "node scripts/typecheck.mjs",
+    "baseline": "node scripts/baseline.mjs",
     "e2e:v0": "node --no-warnings --experimental-strip-types src/cli/e2e-protocol-v0.ts",
     "build": "node scripts/build-extension.mjs",
     "vscode:prepublish": "node scripts/prepare-vsce.mjs",
