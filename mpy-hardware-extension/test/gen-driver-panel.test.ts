@@ -52,45 +52,49 @@ test("the Driver tab requests gen-driver config on load and renders the source t
   assert.equal(document.getElementById("gendriverEmpty")!.classList.contains("hidden"), true, "empty state hidden once rendered");
 });
 
-test("Generate reviews the source, then Confirm posts start_gen_driver", async () => {
+test("adding sources builds the list, then Generate + Confirm posts sources[]", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
   post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
   (document.querySelector('.gd-tab[data-gdtab="chip"]') as HTMLButtonElement).click();
-  // chip tab renders its full field set from the schema (text inputs + an interface select)
   assert.ok(document.querySelector("#gendriver select.gd-input"), "the chip tab renders the interface select");
-  const chipModel = document.querySelector("#gendriver [data-gdkey='chip_model']") as HTMLInputElement;
-  assert.ok(chipModel, "the chip_model field is present");
-  chipModel.value = "SHT30";
+  (document.querySelector("#gendriver [data-gdkey='chip_model']") as HTMLInputElement).value = "SHT30";
+
+  // Generate is gated until at least one source is added
+  assert.equal((document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).disabled, true, "Generate disabled with no sources");
+  (document.querySelector("#gendriver .gd-add") as HTMLButtonElement).click();
+  assert.equal(document.querySelectorAll("#gendriver .gd-source-row").length, 1, "the source is added to the list");
+  assert.equal((document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).disabled, false, "Generate enabled once a source exists");
 
   posted.length = 0;
   (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
-  assert.ok(document.querySelector("#gendriver .gd-confirm"), "Generate shows a driver_source_confirm card");
+  assert.ok(document.querySelector("#gendriver .gd-confirm"), "Generate shows the confirm card");
   assert.equal(posted.some((m) => m.type === "start_gen_driver"), false, "nothing launched before Confirm");
 
   (document.querySelector("#gendriver .gd-confirm .gd-gen") as HTMLButtonElement).click();
   const start = posted.find((m) => m.type === "start_gen_driver");
   assert.ok(start, "Confirm posts start_gen_driver");
-  assert.equal(start.tabId, "chip");
-  assert.equal(start.sourceType, "chip_model");
-  assert.equal(start.values.chip_model, "SHT30");
+  assert.equal(start.sources.length, 1);
+  assert.equal(start.sources[0].type, "chip_model");
+  assert.equal(start.sources[0].chip_model, "SHT30");
+  // the interface select defaults to its first option (i2c), so it rides along
+  assert.equal(start.sources[0].interface, "i2c");
+  assert.equal(start.verification.policy, "hardware_required");
 });
 
-test("a missing required field blocks the confirm card and does not launch", async () => {
-  const posted: any[] = [];
-  const dom = await loadWebview(posted);
+test("Add source blocks on a missing required field and does not add to the list", async () => {
+  const dom = await loadWebview();
   const { document } = dom.window;
 
   post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
   (document.querySelector('.gd-tab[data-gdtab="github"]') as HTMLButtonElement).click();
-  posted.length = 0;
-  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click(); // Repo URL left empty
+  (document.querySelector("#gendriver .gd-add") as HTMLButtonElement).click(); // Repo URL left empty
 
-  assert.equal(document.querySelector("#gendriver .gd-confirm"), null, "no confirm card when a required field is missing");
-  assert.match(document.getElementById("gendriver")!.textContent!, /Fill required/);
-  assert.equal(posted.some((m) => m.type === "start_gen_driver"), false, "not launched");
+  assert.equal(document.querySelectorAll("#gendriver .gd-source-row").length, 0, "nothing added when a required field is missing");
+  assert.match(document.querySelector("#gendriver .gd-add-status")!.textContent!, /Fill required/);
+  assert.equal((document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).disabled, true, "Generate stays disabled");
 });
 
 test("the global tools button opens the driver as a full-body surface, and Back returns", async () => {
@@ -110,14 +114,14 @@ test("the global tools button opens the driver as a full-body surface, and Back 
   assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), false, "workflow is restored");
 });
 
-test("the verification-settings tab is config only (Generate disabled)", async () => {
+test("the verification tab is config only (no Add source) and Generate is gated", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
 
   post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
   (document.querySelector('.gd-tab[data-gdtab="verification"]') as HTMLButtonElement).click();
-  const gen = document.querySelector("#gendriver .gd-gen") as HTMLButtonElement;
-  assert.equal(gen.disabled, true, "verification tab has no source, so Generate is disabled");
+  assert.equal(document.querySelector("#gendriver .gd-add"), null, "verification tab has no + Add source (it is not a source)");
+  assert.equal((document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).disabled, true, "Generate disabled with no sources added");
 });
 
 test("a file-source tab picks a file through the host and carries its metadata to launch", async () => {
@@ -140,13 +144,17 @@ test("a file-source tab picks a file through the host and carries its metadata t
   post(dom, { type: "gen_driver_file_picked", key: "pdf_file", ...file });
   assert.match(document.querySelector("#gendriver .gd-filename")!.textContent!, /sht30\.pdf/);
 
+  (document.querySelector("#gendriver .gd-add") as HTMLButtonElement).click(); // add the pdf source
+  assert.equal(document.querySelectorAll("#gendriver .gd-source-row").length, 1, "the pdf source is added");
+
   posted.length = 0;
-  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click(); // required file now set -> confirm
+  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
   (document.querySelector("#gendriver .gd-confirm .gd-gen") as HTMLButtonElement).click();
   const start = posted.find((m) => m.type === "start_gen_driver");
-  assert.ok(start, "launch carries the picked file");
-  assert.equal(start.values.pdf_file.sha256, "abc123");
-  assert.equal(start.values.pdf_file.path, "/tmp/sht30.pdf");
+  assert.ok(start, "launch carries the picked file in sources[]");
+  assert.equal(start.sources[0].type, "pdf");
+  assert.equal(start.sources[0].pdf_file.sha256, "abc123");
+  assert.equal(start.sources[0].pdf_file.path, "/tmp/sht30.pdf");
 });
 
 test("gen_driver_status detail renders in the panel status line", async () => {

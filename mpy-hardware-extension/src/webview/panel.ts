@@ -10,7 +10,7 @@ import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
-import { GEN_DRIVER_TABS, validateFields, buildSourceFromFields } from "../core/gen-driver-schema.ts";
+import { GEN_DRIVER_TABS, canStartGeneration } from "../core/gen-driver-schema.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
@@ -157,21 +157,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return;
     }
     if (message.type === "start_gen_driver") {
-      // Validate + assemble the source from the schema (the source of truth). The
-      // global-tools entry is standalone; pipeline is chosen from the manifest when
-      // the session-controller drives the loop. ponytail: start_phase dispatch/run is Day 6/8.
-      const tab = GEN_DRIVER_TABS.find((t) => t.id === message.tabId);
-      const values = message.values ?? {};
-      const missing = tab ? validateFields(tab, values) : [];
-      if (missing.length) {
-        webview.postMessage({ type: "gen_driver_status", status: "failed", detail: `Missing required: ${missing.join(", ")}` });
+      // Normalized contract (Ruili 2026-07-06): canonical input is sources[]. Gate on
+      // >=1 source or a driver_request; mode is pipeline when a cold-driver source is present.
+      // ponytail: start_phase dispatch/run is Day 6/8.
+      const sources = Array.isArray(message.sources) ? message.sources : [];
+      if (!canStartGeneration(sources, message.driverRequest)) {
+        webview.postMessage({ type: "gen_driver_status", status: "failed", detail: "Add at least one source (or a target driver) before generating." });
         return;
       }
-      const source = tab ? buildSourceFromFields(tab, values) : null;
-      const mode = source?.type === "current_cold_driver_item" ? "pipeline" : "standalone";
+      const mode = sources.some((s: any) => s?.type === "current_cold_driver_item") ? "pipeline" : "standalone";
       webview.postMessage({
         type: "gen_driver_status",
-        detail: `Received ${source?.type ?? "request"} (mode=${mode}). Driver generation run is wired in a later step.`,
+        detail: `Received ${sources.length} source(s) (mode=${mode}). Driver generation run is wired in a later step.`,
       });
       return;
     }

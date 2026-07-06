@@ -94,9 +94,13 @@ export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
     ],
   },
   {
-    id: "image", label: "Image / manual facts", sourceType: "image", fields: [
+    id: "image", label: "Image / screenshot", sourceType: "image", fields: [
       { key: "image_file", label: "Image", kind: "file", required: true, accept: "image" },
-      { key: "facts", label: "Manual facts", kind: "textarea", placeholder: "Registers, init sequence, read/write commands, conversions" },
+    ],
+  },
+  {
+    id: "manual", label: "Manual facts", sourceType: "manual_facts", fields: [
+      { key: "facts", label: "Manual facts", kind: "textarea", required: true, placeholder: "Registers, init sequence, read/write commands, conversions" },
     ],
   },
   {

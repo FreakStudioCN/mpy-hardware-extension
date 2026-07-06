@@ -346,4 +346,15 @@
       .gd-filerow { display: flex; align-items: center; gap: 8px; }
       .gd-file-btn { font: inherit; padding: 3px 8px; cursor: pointer; }
       .gd-filename { font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gd-add { font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer; align-self: flex-start;
+        color: var(--fg); background: transparent; border: 1px solid var(--vsc-border); border-radius: 4px; }
+      .gd-add:hover { border-color: var(--accent); color: var(--fg-bright); }
+      .gd-add-status { font-size: 12px; min-height: 14px; }
+      .gd-add-status.gd-failed { color: #e5534b; }
+      .gd-foot { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--vsc-border); }
+      .gd-sources { display: flex; flex-direction: column; gap: 4px; }
+      .gd-source-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+      .gd-source-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gd-source-rm { font: inherit; cursor: pointer; color: var(--fg-dim); background: transparent; border: 0; padding: 0 4px; }
+      .gd-source-rm:hover { color: #e5534b; }
     

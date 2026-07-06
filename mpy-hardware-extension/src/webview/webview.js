@@ -1517,6 +1517,9 @@
       // Input tabs come from the host (GEN_DRIVER_TABS in gen-driver-schema.ts), so the
       // schema stays the single source of truth; this only renders and posts back.
       let gdTab = null;
+      // Assembled sources[] (Ruili's normalized contract: canonical input is a list, not
+      // one source). Lives in JS because renderGenDriver rebuilds the DOM on tab switch.
+      let gdSources = [];
       function renderGenDriver(tabs) {
         const root = $("gendriver");
         if (!root || !Array.isArray(tabs) || !tabs.length) return;
@@ -1532,7 +1535,8 @@
           strip.appendChild(b);
         }
         root.appendChild(strip);
-        root.appendChild(gdBody(tabs.find((t) => t.id === gdTab)));
+        root.appendChild(gdBody(tabs.find((t) => t.id === gdTab), tabs));
+        root.appendChild(gdFooter(tabs));
       }
       function gdFileField(field, tabId) {
         // The host owns the file dialog; the picked value (name/path/size/sha256) comes
@@ -1586,26 +1590,39 @@
       function gdRequiredMissing(active, values) {
         return active.fields.filter((f) => f.required && !values[f.key]).map((f) => f.label);
       }
-      // driver_source_confirm: summarize the source and require an explicit confirm
-      // before launching, instead of firing start_gen_driver on the first click.
-      function gdReview(active, values, statusEl) {
-        const missing = gdRequiredMissing(active, values);
-        if (missing.length) { statusEl.className = "gd-status gd-failed"; statusEl.textContent = "Fill required: " + missing.join(", "); return; }
-        statusEl.className = "gd-status"; statusEl.innerHTML = "";
-        const card = document.createElement("div"); card.className = "gd-confirm";
-        const h = document.createElement("div"); h.className = "gd-confirm-h"; h.textContent = "Confirm driver source";
-        const parts = ["source: " + active.sourceType];
+      // Build a source object from the active tab's values (client mirror of
+      // buildSourceFromFields): { type, ...non-empty fields }.
+      function gdBuildSource(active, values) {
+        const src = { type: active.sourceType };
         for (const f of active.fields) {
-          const v = values[f.key]; if (!v) continue;
-          parts.push(f.label + ": " + (v && v.name ? v.name : v));
+          const v = values[f.key];
+          if (v !== undefined && v !== "" && v !== false) src[f.key] = v;
         }
-        const summary = document.createElement("div"); summary.className = "gd-confirm-body"; summary.textContent = parts.join("  |  ");
-        const confirm = document.createElement("button"); confirm.className = "gd-gen"; confirm.textContent = "Confirm & generate";
-        confirm.addEventListener("click", () => vscode.postMessage({ type: "start_gen_driver", tabId: active.id, sourceType: active.sourceType, values }));
-        card.appendChild(h); card.appendChild(summary); card.appendChild(confirm);
-        statusEl.appendChild(card);
+        return src;
       }
-      function gdBody(active) {
+      function gdSourceLabel(src) {
+        const bits = [];
+        for (const k in src) {
+          if (k === "type") continue;
+          const v = src[k]; if (!v) continue;
+          bits.push(v && v.name ? v.name : v);
+        }
+        return src.type + (bits.length ? " — " + bits.slice(0, 2).join(", ") : "");
+      }
+      // Add the active source tab's input to the sources[] list (validated), then
+      // re-render so the tab clears and the footer list updates.
+      function gdAddSource(active, body, tabs) {
+        const values = gdCollect(body);
+        const missing = gdRequiredMissing(active, values);
+        const err = body.querySelector(".gd-add-status");
+        if (missing.length) {
+          if (err) { err.className = "gd-add-status gd-failed"; err.textContent = "Fill required: " + missing.join(", "); }
+          return;
+        }
+        gdSources.push(gdBuildSource(active, values));
+        renderGenDriver(tabs);
+      }
+      function gdBody(active, tabs) {
         const body = document.createElement("div"); body.className = "gd-body";
         if (!active.fields || active.fields.length === 0) {
           const note = document.createElement("p"); note.className = "gd-note";
@@ -1614,13 +1631,56 @@
         } else {
           for (const field of active.fields) body.appendChild(gdField(field, active.id));
         }
-        const status = document.createElement("div"); status.className = "gd-status"; status.id = "gdStatus";
-        const gen = document.createElement("button"); gen.className = "gd-gen"; gen.textContent = "Generate driver";
-        gen.disabled = active.sourceType === null; // verification tab is config, not a launch
-        gen.addEventListener("click", () => gdReview(active, gdCollect(body), status));
-        body.appendChild(gen);
-        body.appendChild(status);
+        // Source tabs add to the list; the verification tab is config (wired in 2c), no add.
+        if (active.sourceType !== null) {
+          const add = document.createElement("button"); add.className = "gd-add"; add.type = "button"; add.textContent = "+ Add source";
+          add.addEventListener("click", () => gdAddSource(active, body, tabs));
+          body.appendChild(add);
+          const err = document.createElement("div"); err.className = "gd-add-status"; body.appendChild(err);
+        }
         return body;
+      }
+      // Persistent footer: assembled sources[] list + a gated Generate + status line.
+      function gdFooter(tabs) {
+        const foot = document.createElement("div"); foot.className = "gd-foot";
+        const list = document.createElement("div"); list.className = "gd-sources";
+        if (!gdSources.length) {
+          const empty = document.createElement("p"); empty.className = "gd-note"; empty.textContent = "No sources added yet.";
+          list.appendChild(empty);
+        } else {
+          gdSources.forEach((src, i) => {
+            const row = document.createElement("div"); row.className = "gd-source-row";
+            const label = document.createElement("span"); label.className = "gd-source-label"; label.textContent = gdSourceLabel(src);
+            const rm = document.createElement("button"); rm.className = "gd-source-rm"; rm.type = "button"; rm.textContent = "✕"; rm.title = "Remove source";
+            rm.addEventListener("click", () => { gdSources.splice(i, 1); renderGenDriver(tabs); });
+            row.appendChild(label); row.appendChild(rm); list.appendChild(row);
+          });
+        }
+        foot.appendChild(list);
+        const gen = document.createElement("button"); gen.className = "gd-gen"; gen.textContent = "Generate driver";
+        gen.disabled = gdSources.length === 0; // gate: >=1 source (driver_request section lands in 2c)
+        const status = document.createElement("div"); status.className = "gd-status"; status.id = "gdStatus";
+        gen.addEventListener("click", () => gdReview(status));
+        foot.appendChild(gen); foot.appendChild(status);
+        return foot;
+      }
+      // driver_source_confirm: summarize the assembled sources[] and require an explicit
+      // confirm before launching.
+      function gdReview(statusEl) {
+        if (!gdSources.length) return;
+        statusEl.className = "gd-status"; statusEl.innerHTML = "";
+        const card = document.createElement("div"); card.className = "gd-confirm";
+        const h = document.createElement("div"); h.className = "gd-confirm-h"; h.textContent = "Confirm driver sources";
+        const summary = document.createElement("div"); summary.className = "gd-confirm-body";
+        summary.textContent = gdSources.map(gdSourceLabel).join("  |  ");
+        const confirm = document.createElement("button"); confirm.className = "gd-gen"; confirm.textContent = "Confirm & generate";
+        confirm.addEventListener("click", () => vscode.postMessage({
+          type: "start_gen_driver",
+          sources: gdSources,
+          verification: { required: true, policy: "hardware_required" },
+        }));
+        card.appendChild(h); card.appendChild(summary); card.appendChild(confirm);
+        statusEl.appendChild(card);
       }
       function setGenDriverStatus(status, detail) {
         const el = $("gdStatus"); if (!el) return;
