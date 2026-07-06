@@ -79,6 +79,10 @@
       .quota.exhausted .quota-warn { color: #ff7b72; background: #f14c4c14; border-color: #f14c4c33; }
 
       /* tabs */
+      .gtools { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--vsc-border); }
+      .gtool-btn { display: flex; align-items: center; gap: 6px; padding: 5px 10px; font: inherit; font-size: 12px;
+        color: var(--fg); background: transparent; border: 1px solid var(--vsc-border); border-radius: 4px; cursor: pointer; }
+      .gtool-btn:hover { color: var(--fg-bright); border-color: var(--accent); }
       .tabs { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--vsc-border); padding: 0 4px; gap: 1px; }
       .tab { position: relative; padding: 9px 7px 8px; font-size: 12px; color: var(--fg-muted); white-space: nowrap;
         background: transparent; border: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;
@@ -91,6 +95,13 @@
       @keyframes pulse { 0%{box-shadow:0 0 0 0 #3fb95066;} 70%{box-shadow:0 0 0 6px #3fb95000;} 100%{box-shadow:0 0 0 0 #3fb95000;} }
 
       .tabwrap { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+      .tool-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+      .tool-head { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--vsc-border); }
+      .tool-back { display: flex; align-items: center; gap: 5px; font: inherit; font-size: 12px; color: var(--fg-muted);
+        background: transparent; border: 0; cursor: pointer; padding: 2px 4px; }
+      .tool-back:hover { color: var(--fg-bright); }
+      .tool-title { font-size: 12px; font-weight: 650; color: var(--fg-bright); }
+      .tool-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
       .tabwrap::-webkit-scrollbar { width: 10px; }
       .tabwrap::-webkit-scrollbar-thumb { background: #ffffff1a; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
       .tabwrap::-webkit-scrollbar-thumb:hover { background: #ffffff33; background-clip: padding-box; }
@@ -315,4 +326,35 @@
       .fade-in { animation: fadeIn .28s ease both; }
       @keyframes fadeIn { from { transform: translateY(5px); } to { transform: none; } }
       @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .feed-spin { animation: none; } }
+      .gd-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+      .gd-tab { font-size: 11px; padding: 3px 8px; border: 1px solid #ffffff22; background: transparent; color: inherit; border-radius: 4px; cursor: pointer; }
+      .gd-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+      .gd-body { display: flex; flex-direction: column; gap: 8px; }
+      .gd-input { padding: 6px 8px; border: 1px solid #ffffff22; border-radius: 4px; background: transparent; color: inherit; font: inherit; }
+      .gd-note { font-size: 12px; color: var(--fg-dim); margin: 0; }
+      .gd-gen { align-self: flex-start; padding: 5px 12px; border: 0; border-radius: 4px; cursor: pointer; background: var(--accent); color: #fff; }
+      .gd-gen:disabled { opacity: .5; cursor: default; }
+      .gd-status { font-size: 12px; color: var(--fg-dim); min-height: 14px; }
+      .gd-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+      .gd-field.gd-check { flex-direction: row; align-items: center; gap: 6px; }
+      .gd-flabel { color: var(--fg-dim); }
+      select.gd-input, textarea.gd-input { font: inherit; }
+      .gd-status.gd-failed { color: #e5534b; }
+      .gd-confirm { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-top: 4px; border: 1px solid #ffffff22; border-radius: 4px; }
+      .gd-confirm-h { font-weight: 650; font-size: 12px; }
+      .gd-confirm-body { font-size: 12px; color: var(--fg-dim); }
+      .gd-filerow { display: flex; align-items: center; gap: 8px; }
+      .gd-file-btn { font: inherit; padding: 3px 8px; cursor: pointer; }
+      .gd-filename { font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gd-add { font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer; align-self: flex-start;
+        color: var(--fg); background: transparent; border: 1px solid var(--vsc-border); border-radius: 4px; }
+      .gd-add:hover { border-color: var(--accent); color: var(--fg-bright); }
+      .gd-add-status { font-size: 12px; min-height: 14px; }
+      .gd-add-status.gd-failed { color: #e5534b; }
+      .gd-foot { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--vsc-border); }
+      .gd-sources { display: flex; flex-direction: column; gap: 4px; }
+      .gd-source-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+      .gd-source-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .gd-source-rm { font: inherit; cursor: pointer; color: var(--fg-dim); background: transparent; border: 0; padding: 0 4px; }
+      .gd-source-rm:hover { color: #e5534b; }
     

@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { SessionController } from "../extension/session-controller.ts";
@@ -9,6 +10,7 @@ import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
+import { GEN_DRIVER_TABS, canStartGeneration } from "../core/gen-driver-schema.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
@@ -52,6 +54,13 @@ async function ensureGitConfig(projectFolder: string, key: string, value: string
 // pointing it at the open workspace root would clobber those files (e.g. when the
 // dev repo itself is the open folder). A dedicated subfolder makes that impossible.
 const PROJECT_SUBDIR = "blockless-project";
+
+// Maps a gen-driver file field's `accept` group to a vscode open-dialog filter.
+const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
+  pdf: { "PDF datasheet": ["pdf"] },
+  arduino: { "Arduino / C / C++": ["ino", "c", "cpp", "cc", "h", "hpp"] },
+  image: { Images: ["png", "jpg", "jpeg", "webp", "bmp"] },
+};
 
 // Open the UI as an editor-area tab. Kept for the mpyhw.openPanel command and
 // existing tests; the docked sidebar uses createViewProvider below.
@@ -142,6 +151,39 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     },
   });
   webview.onDidReceiveMessage(async (message: any) => {
+    if (message.type === "request_gen_driver_config") {
+      // The panel renders its input tabs from the schema module (single source of truth).
+      webview.postMessage({ type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+      return;
+    }
+    if (message.type === "start_gen_driver") {
+      // Normalized contract (Ruili 2026-07-06): canonical input is sources[]. Gate on
+      // >=1 source or a driver_request; mode is pipeline when a cold-driver source is present.
+      // ponytail: start_phase dispatch/run is Day 6/8.
+      const sources = Array.isArray(message.sources) ? message.sources : [];
+      if (!canStartGeneration(sources, message.driverRequest)) {
+        webview.postMessage({ type: "gen_driver_status", status: "failed", detail: "Add at least one source (or a target driver) before generating." });
+        return;
+      }
+      const mode = sources.some((s: any) => s?.type === "current_cold_driver_item") ? "pipeline" : "standalone";
+      webview.postMessage({
+        type: "gen_driver_status",
+        detail: `Received ${sources.length} source(s) (mode=${mode}). Driver generation run is wired in a later step.`,
+      });
+      return;
+    }
+    if (message.type === "pick_gen_driver_file") {
+      // The host owns the file dialog; return the path plus integrity metadata so the
+      // source payload records what was uploaded (sha256 lets the plugin dedupe/verify).
+      const filters = GEN_DRIVER_FILE_FILTERS[message.accept];
+      const picked = await vscode.window.showOpenDialog?.({ canSelectMany: false, ...(filters ? { filters } : {}) });
+      const path = picked?.[0]?.fsPath;
+      if (!path) return;
+      const bytes = readFileSync(path);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      webview.postMessage({ type: "gen_driver_file_picked", tabId: message.tabId, key: message.key, name: basename(path), path, size: bytes.length, sha256 });
+      return;
+    }
     if (message.type === "request_boards") {
       // Real device/board list comes from the API — never hardcoded in the UI.
       try {
