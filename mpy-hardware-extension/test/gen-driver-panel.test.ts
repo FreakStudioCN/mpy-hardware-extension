@@ -165,3 +165,57 @@ test("gen_driver_status detail renders in the panel status line", async () => {
   post(dom, { type: "gen_driver_status", detail: "Received gen-driver request (mode=standalone)." });
   assert.match(document.getElementById("gendriver")!.textContent!, /mode=standalone/);
 });
+
+test("a driver_request alone (no sources) enables Generate and is posted", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+  (document.querySelector('.gd-tab[data-gdtab="driver"]') as HTMLButtonElement).click();
+  assert.equal(document.querySelector("#gendriver .gd-add"), null, "target-driver tab is config, no Add source");
+
+  const chip = document.querySelector("#gendriver [data-gdkey='chip_model']") as HTMLInputElement;
+  chip.value = "BMP390";
+  chip.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  const addrs = document.querySelector("#gendriver [data-gdkey='i2c_addresses']") as HTMLInputElement;
+  addrs.value = "0x76, 0x77";
+  addrs.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+
+  assert.equal((document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).disabled, false, "driver_request opens the gate even with no sources");
+
+  posted.length = 0;
+  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
+  (document.querySelector("#gendriver .gd-confirm .gd-gen") as HTMLButtonElement).click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.ok(start, "posts start_gen_driver");
+  assert.equal(start.sources.length, 0);
+  assert.equal(start.driverRequest.chip_model, "BMP390");
+  assert.equal(start.driverRequest.i2c_addresses.length, 2);
+  assert.equal(start.driverRequest.i2c_addresses[0], "0x76");
+  assert.equal(start.verification.policy, "hardware_required");
+});
+
+test("the skip-verification toggle sets policy=skipped in the payload", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+  (document.querySelector('.gd-tab[data-gdtab="chip"]') as HTMLButtonElement).click();
+  (document.querySelector("#gendriver [data-gdkey='chip_model']") as HTMLInputElement).value = "SHT30";
+  (document.querySelector("#gendriver .gd-add") as HTMLButtonElement).click();
+
+  (document.querySelector('.gd-tab[data-gdtab="verification"]') as HTMLButtonElement).click();
+  const skip = document.querySelector("#gendriver [data-gdkey='skip_verification']") as HTMLInputElement;
+  skip.checked = true;
+  skip.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+
+  posted.length = 0;
+  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
+  (document.querySelector("#gendriver .gd-confirm .gd-gen") as HTMLButtonElement).click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.ok(start, "posts start_gen_driver");
+  assert.equal(start.verification.policy, "skipped");
+  assert.equal(start.verification.required, false);
+});

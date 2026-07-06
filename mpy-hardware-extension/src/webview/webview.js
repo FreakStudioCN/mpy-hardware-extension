@@ -1520,6 +1520,9 @@
       // Assembled sources[] (Ruili's normalized contract: canonical input is a list, not
       // one source). Lives in JS because renderGenDriver rebuilds the DOM on tab switch.
       let gdSources = [];
+      // Config-tab values by tab id ("driver" -> driver_request, "verification"), kept in
+      // JS across tab switches; the tabs' inputs are non-source config, not sources[].
+      const gdConfig = { driver: {}, verification: {} };
       function renderGenDriver(tabs) {
         const root = $("gendriver");
         if (!root || !Array.isArray(tabs) || !tabs.length) return;
@@ -1622,6 +1625,39 @@
         gdSources.push(gdBuildSource(active, values));
         renderGenDriver(tabs);
       }
+      function gdPrefill(body, values) {
+        body.querySelectorAll("[data-gdkey]").forEach((el) => {
+          const v = values[el.dataset.gdkey];
+          if (v === undefined) return;
+          if (el.type === "checkbox") el.checked = Boolean(v); else el.value = v;
+        });
+      }
+      // Map the flat driver tab values to the driver_request shape (Jul-6 doc §2.1).
+      function gdBuildDriverRequest(v) {
+        const dr = {};
+        for (const k of ["driver_id", "chip_model", "module_model", "vendor", "interface"]) if (v[k]) dr[k] = v[k];
+        if (v.i2c_addresses) dr.i2c_addresses = String(v.i2c_addresses).split(/[,\s]+/).filter(Boolean);
+        if (v.board_id || v.mcu) dr.target_board = Object.assign({}, v.board_id ? { board_id: v.board_id } : {}, v.mcu ? { mcu: v.mcu } : {});
+        return dr;
+      }
+      // P0 default: hardware_required; the skip toggle flips it to skipped.
+      function gdBuildVerification(v) {
+        const skip = v.skip_verification === true;
+        const out = { required: !skip, policy: skip ? "skipped" : "hardware_required" };
+        if (v.port) out.port = v.port;
+        if (v.board) out.board = v.board;
+        if (v.max_rounds) { const n = Number(v.max_rounds); if (n) out.max_rounds = n; }
+        return out;
+      }
+      // Gate (Ruili): >=1 source OR a driver_request with a chip/id.
+      function gdGateOpen() {
+        const dr = gdBuildDriverRequest(gdConfig.driver || {});
+        return gdSources.length > 0 || Boolean(dr.chip_model || dr.driver_id);
+      }
+      function gdUpdateGate() {
+        const gen = $("gendriver") && $("gendriver").querySelector(".gd-foot .gd-gen");
+        if (gen) gen.disabled = !gdGateOpen();
+      }
       function gdBody(active, tabs) {
         const body = document.createElement("div"); body.className = "gd-body";
         if (!active.fields || active.fields.length === 0) {
@@ -1631,12 +1667,16 @@
         } else {
           for (const field of active.fields) body.appendChild(gdField(field, active.id));
         }
-        // Source tabs add to the list; the verification tab is config (wired in 2c), no add.
         if (active.sourceType !== null) {
+          // source tab: add its input to sources[]
           const add = document.createElement("button"); add.className = "gd-add"; add.type = "button"; add.textContent = "+ Add source";
           add.addEventListener("click", () => gdAddSource(active, body, tabs));
           body.appendChild(add);
           const err = document.createElement("div"); err.className = "gd-add-status"; body.appendChild(err);
+        } else if (gdConfig[active.id]) {
+          // config tab (driver_request / verification): persist across tab switches, refresh the gate
+          gdPrefill(body, gdConfig[active.id]);
+          body.addEventListener("input", () => { gdConfig[active.id] = gdCollect(body); gdUpdateGate(); });
         }
         return body;
       }
@@ -1658,7 +1698,7 @@
         }
         foot.appendChild(list);
         const gen = document.createElement("button"); gen.className = "gd-gen"; gen.textContent = "Generate driver";
-        gen.disabled = gdSources.length === 0; // gate: >=1 source (driver_request section lands in 2c)
+        gen.disabled = !gdGateOpen(); // gate: >=1 source OR a driver_request
         const status = document.createElement("div"); status.className = "gd-status"; status.id = "gdStatus";
         gen.addEventListener("click", () => gdReview(status));
         foot.appendChild(gen); foot.appendChild(status);
@@ -1667,17 +1707,23 @@
       // driver_source_confirm: summarize the assembled sources[] and require an explicit
       // confirm before launching.
       function gdReview(statusEl) {
-        if (!gdSources.length) return;
+        if (!gdGateOpen()) return;
         statusEl.className = "gd-status"; statusEl.innerHTML = "";
+        const driverRequest = gdBuildDriverRequest(gdConfig.driver || {});
+        const verification = gdBuildVerification(gdConfig.verification || {});
         const card = document.createElement("div"); card.className = "gd-confirm";
         const h = document.createElement("div"); h.className = "gd-confirm-h"; h.textContent = "Confirm driver sources";
-        const summary = document.createElement("div"); summary.className = "gd-confirm-body";
-        summary.textContent = gdSources.map(gdSourceLabel).join("  |  ");
+        const parts = [];
+        if (gdSources.length) parts.push("sources: " + gdSources.map(gdSourceLabel).join(", "));
+        if (driverRequest.driver_id || driverRequest.chip_model) parts.push("target: " + (driverRequest.driver_id || driverRequest.chip_model));
+        parts.push("verify: " + verification.policy);
+        const summary = document.createElement("div"); summary.className = "gd-confirm-body"; summary.textContent = parts.join("  |  ");
         const confirm = document.createElement("button"); confirm.className = "gd-gen"; confirm.textContent = "Confirm & generate";
         confirm.addEventListener("click", () => vscode.postMessage({
           type: "start_gen_driver",
           sources: gdSources,
-          verification: { required: true, policy: "hardware_required" },
+          driverRequest,
+          verification,
         }));
         card.appendChild(h); card.appendChild(summary); card.appendChild(confirm);
         statusEl.appendChild(card);

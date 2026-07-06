@@ -104,6 +104,18 @@ export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
     ],
   },
   {
+    id: "driver", label: "Target driver", sourceType: null, fields: [
+      { key: "driver_id", label: "Driver id", kind: "text", placeholder: "e.g. bmp390" },
+      { key: "chip_model", label: "Chip model", kind: "text", placeholder: "e.g. BMP390" },
+      { key: "module_model", label: "Module model", kind: "text" },
+      { key: "vendor", label: "Vendor", kind: "text" },
+      { key: "interface", label: "Interface", kind: "select", options: ["i2c", "spi", "uart", "onewire", "adc", "gpio"] },
+      { key: "i2c_addresses", label: "I2C addresses", kind: "text", placeholder: "0x76, 0x77" },
+      { key: "board_id", label: "Target board id", kind: "text" },
+      { key: "mcu", label: "MCU", kind: "text" },
+    ],
+  },
+  {
     id: "verification", label: "Verification settings", sourceType: null, fields: [
       { key: "port", label: "Serial port", kind: "text" },
       { key: "board", label: "Target board", kind: "text" },
