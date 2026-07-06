@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Blockless Extension (dev)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/mpy-hardware-extension"],
+      "outFiles": ["${workspaceFolder}/mpy-hardware-extension/dist/**/*.cjs"],
+      "preLaunchTask": "build-extension"
+    }
+  ]
+}

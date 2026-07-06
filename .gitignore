@@ -20,7 +20,11 @@ Thumbs.db
 desktop.ini
 
 # Editor
-.vscode/
+# Ignore .vscode except the shared F5 debug config the README + dev-up skill reference.
+# settings.json stays local (machine-specific apiBaseUrl, etc.).
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
 .idea/
 *.swp
 
