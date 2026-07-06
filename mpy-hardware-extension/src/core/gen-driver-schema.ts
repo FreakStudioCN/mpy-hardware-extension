@@ -15,15 +15,16 @@ export const GEN_DRIVER_PROTOCOL_VERSION = "1.0";
 export type GenDriverMode = "pipeline" | "standalone" | "resume" | "fix";
 export const GEN_DRIVER_MODES: readonly GenDriverMode[] = ["pipeline", "standalone", "resume", "fix"];
 
-// source.type values the plugin accepts (SKILL.md / plugin.json). The real
-// contract uses `image`, not the provisional's "manual_facts".
+// source.type values the plugin accepts. Normalized contract (Ruili 2026-07-06,
+// Jul-6 gen-driver-contract doc §2.2) includes `manual_facts` as its own source type.
 export type GenDriverSourceType =
   | "current_cold_driver_item"
   | "pdf"
   | "arduino_source"
   | "github_url"
   | "chip_model"
-  | "image";
+  | "image"
+  | "manual_facts";
 export const GEN_DRIVER_SOURCE_TYPES: readonly GenDriverSourceType[] = [
   "current_cold_driver_item",
   "pdf",
@@ -31,6 +32,7 @@ export const GEN_DRIVER_SOURCE_TYPES: readonly GenDriverSourceType[] = [
   "github_url",
   "chip_model",
   "image",
+  "manual_facts",
 ];
 
 // UI input tabs. A source tab maps to one source.type; the verification tab is
@@ -251,15 +253,66 @@ export type GenDriverRuntimeContext = {
   artifact_root_mode?: string;
 };
 
-export type GenDriverSource = { type: GenDriverSourceType; [key: string]: unknown };
+// A source entry. `type` + optional file metadata (artifact_path/sha256) + `primary`
+// + per-type fields. Normalized contract: sources is an ARRAY of these.
+export type GenDriverSource = {
+  type: GenDriverSourceType;
+  artifact_path?: string;
+  sha256?: string;
+  primary?: boolean;
+  [key: string]: unknown;
+};
+
+// Canonical target-driver description (Jul-6 doc §2.1). Pipeline prefills from the
+// cold_driver_required item + manifest; standalone from user input; fix from artifact.
+export type GenDriverDriverRequest = {
+  driver_id?: string;
+  chip_model?: string;
+  module_model?: string;
+  vendor?: string;
+  interface?: string;
+  i2c_addresses?: string[];
+  target_board?: { board_id?: string; mcu?: string };
+  expected_output?: { driver_dir?: string; module_file?: string; test_file?: string; example_file?: string };
+};
+
+// Hardware-verification settings (Jul-6 doc §2.1). P0 default: required + hardware_required.
+export type GenDriverVerificationPolicy = "hardware_required" | "skipped";
+export type GenDriverVerification = {
+  required: boolean;
+  policy: GenDriverVerificationPolicy;
+  port?: string | null;
+  board?: string;
+  marker?: string;
+  max_rounds?: number;
+};
+
+// Compat rule (Ruili): a legacy single `source` normalizes to `sources: [source]`.
+// New code emits `sources[]`; this keeps the old shorthand working.
+export function normalizeSources(source: GenDriverSource | null, sources?: GenDriverSource[]): GenDriverSource[] {
+  if (sources && sources.length > 0) return sources;
+  return source ? [source] : [];
+}
+
+// Generation gate (Ruili): do not start until there is >=1 valid source OR a
+// driver_request carrying at least a driver_id/chip_model. Standalone may sit at [].
+export function canStartGeneration(sources: GenDriverSource[], driverRequest?: GenDriverDriverRequest): boolean {
+  if (sources.some((s) => s && typeof s.type === "string")) return true;
+  return Boolean(driverRequest && (driverRequest.driver_id || driverRequest.chip_model));
+}
 
 export type BuildStartPhaseInput = {
   sessionId: string;
   msgId: string;
   timestamp: string;
   mode: GenDriverMode;
-  source: GenDriverSource | null;
   runtimeContext: GenDriverRuntimeContext;
+  // Normalized business payload (Jul-6 doc). `source` is the legacy singular shorthand,
+  // normalized into `sources[]`; prefer passing `sources`.
+  sources?: GenDriverSource[];
+  source?: GenDriverSource | null;
+  driverRequest?: GenDriverDriverRequest;
+  verification?: GenDriverVerification;
   capabilities?: GenDriverCapabilities;
   // pipeline mode carries the upstream project context:
   manifestContent?: unknown;
@@ -267,17 +320,20 @@ export type BuildStartPhaseInput = {
   sourcePhaseCompletePath?: string;
 };
 
-// Build the start_phase envelope+payload for the plugin host to send. Shape matches
-// sample/start_phase.upy_gen_driver_plugin.{pipeline,standalone}.json.
+// Build the start_phase envelope+payload for the plugin host to send. Normalized
+// contract (Ruili 2026-07-06): sample envelope + runtime_context + capabilities, with
+// the Jul-6 doc business payload (sources[] + driver_request + verification).
 export function buildStartPhase(input: BuildStartPhaseInput): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     mode: input.mode,
     phase: GEN_DRIVER_DOMAIN_PHASE,
     domain_phase: GEN_DRIVER_DOMAIN_PHASE,
-    source: input.source,
+    sources: normalizeSources(input.source ?? null, input.sources),
     runtime_context: input.runtimeContext,
     capabilities: input.capabilities ?? DEFAULT_GEN_DRIVER_CAPABILITIES,
   };
+  if (input.driverRequest !== undefined) payload.driver_request = input.driverRequest;
+  if (input.verification !== undefined) payload.verification = input.verification;
   if (input.mode === "pipeline") {
     if (input.sourcePhase !== undefined) payload.source_phase = input.sourcePhase;
     if (input.sourcePhaseCompletePath !== undefined) payload.source_phase_complete_path = input.sourcePhaseCompletePath;

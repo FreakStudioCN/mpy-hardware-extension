@@ -15,6 +15,8 @@ import {
   inferMode,
   validateFields,
   buildSourceFromFields,
+  normalizeSources,
+  canStartGeneration,
 } from "../src/core/gen-driver-schema.ts";
 
 const tab = (id: string) => GEN_DRIVER_TABS.find((t) => t.id === id)!;
@@ -65,7 +67,9 @@ test("buildStartPhase reproduces the standalone sample shape", () => {
   assert.equal(payload.mode, "standalone");
   assert.equal(payload.phase, GEN_DRIVER_DOMAIN_PHASE);
   assert.equal(payload.domain_phase, GEN_DRIVER_DOMAIN_PHASE);
-  assert.equal(payload.source, null);
+  // normalized contract: canonical input is sources[]; a null legacy source -> []
+  assert.deepEqual(payload.sources, []);
+  assert.equal("source" in payload, false, "new payload emits sources[], not a singular source");
 });
 
 test("buildStartPhase carries pipeline-only fields (source_phase, manifest_content)", () => {
@@ -156,4 +160,37 @@ test("file-source tabs require an uploaded file and carry its integrity metadata
   assert.deepEqual(validateFields(tab("pdf"), { pdf_file: file }), []);
   const src = buildSourceFromFields(tab("pdf"), { pdf_file: file, chip_model: "SHT30" });
   assert.deepEqual(src, { type: "pdf", pdf_file: file, chip_model: "SHT30" });
+});
+
+test("normalizeSources: legacy single source -> [source], array passes through, null -> []", () => {
+  const s = { type: "chip_model" as const, chip_model: "SHT30" };
+  assert.deepEqual(normalizeSources(s), [s]);
+  assert.deepEqual(normalizeSources(null, [s, { type: "pdf" }]), [s, { type: "pdf" }]);
+  assert.deepEqual(normalizeSources(null), []);
+});
+
+test("canStartGeneration gates on >=1 source or a driver_request", () => {
+  assert.equal(canStartGeneration([]), false);
+  assert.equal(canStartGeneration([{ type: "pdf" }]), true);
+  assert.equal(canStartGeneration([], { chip_model: "SHT30" }), true);
+  assert.equal(canStartGeneration([], { driver_id: "sht30" }), true);
+  assert.equal(canStartGeneration([], {}), false);
+});
+
+test("buildStartPhase emits the normalized business payload (sources[]/driver_request/verification)", () => {
+  const built = buildStartPhase({
+    sessionId: "s", msgId: "m", timestamp: "t", mode: "standalone",
+    runtimeContext: { artifact_root: ".", session_root: "s", project_root: "p", file_operation_root: "p", resource_root: "r" },
+    sources: [{ type: "pdf", artifact_path: "gen-driver/input/BMP390.pdf", sha256: "abc", primary: true }],
+    driverRequest: { driver_id: "bmp390", chip_model: "BMP390", interface: "i2c", i2c_addresses: ["0x76", "0x77"] },
+    verification: { required: true, policy: "hardware_required", marker: "SELF_TEST_PASS:BMP390:PRESSURE_TEMP_READ_OK", max_rounds: 3 },
+  });
+  const payload = built.payload as any;
+  assert.deepEqual(payload.sources, [{ type: "pdf", artifact_path: "gen-driver/input/BMP390.pdf", sha256: "abc", primary: true }]);
+  assert.equal(payload.driver_request.driver_id, "bmp390");
+  assert.deepEqual(payload.driver_request.i2c_addresses, ["0x76", "0x77"]);
+  assert.equal(payload.verification.policy, "hardware_required");
+  // envelope + runtime_context + capabilities kept from the sample shape
+  assert.equal(built.phase, GEN_DRIVER_ENVELOPE_PHASE);
+  assert.ok(payload.runtime_context && payload.capabilities);
 });
