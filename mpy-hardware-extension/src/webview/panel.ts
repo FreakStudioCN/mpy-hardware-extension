@@ -12,6 +12,7 @@ import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, canStartGeneration } from "../core/gen-driver-schema.ts";
 import { SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, orderContactsByLocale } from "../core/support-config.ts";
+import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
@@ -183,6 +184,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // hardcoded in the webview render.
       const contacts = orderContactsByLocale(SUPPORT_CONTACTS, vscode.env?.language ?? "en");
       webview.postMessage({ type: "support_config", contacts, diagnosticsFields: SUPPORT_DIAGNOSTICS_FIELDS });
+      return;
+    }
+    if (message.type === "request_partners") {
+      // Serve the home partner logos as data URIs (config-driven; logos read from disk).
+      const partners = PARTNERS.map((p) => ({ id: p.id, name: p.name, url: p.url, logo: readPartnerLogo(p.file) })).filter((p) => p.logo);
+      webview.postMessage({ type: "partners_config", partners });
       return;
     }
     if (message.type === "request_diagnostics") {
@@ -543,6 +550,20 @@ function makeWorkspaceDeleter(workspaceFolder?: string) {
     try { await rm(target, { recursive: true, force: true }); return { ok: true as const }; }
     catch { return { ok: false as const, error_kind: "delete_failed" }; }
   };
+}
+
+// Read a committed partner logo and inline it as a data URI. Reuses the readWebviewHtml
+// base resolution (src in dev/test, ../../src/webview in the bundled build).
+function readPartnerLogo(file: string): string | null {
+  for (const base of ["./assets/partners/", "../../src/webview/assets/partners/"]) {
+    try {
+      const buf = readFileSync(new URL(base + file, import.meta.url));
+      return `data:image/png;base64,${buf.toString("base64")}`;
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
 }
 
 function readWebviewHtml(): string {

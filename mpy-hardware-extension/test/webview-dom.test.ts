@@ -237,6 +237,31 @@ test("Copy diagnostics requests a snapshot from the host and copies it", async (
   assert.match(document.getElementById("scDiag")!.textContent!, /copied/i);
 });
 
+test("home partner logos render from config and open the site externally on click", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  assert.ok(posted.some((m) => m.type === "request_partners"), "requests partner config on load");
+
+  post(dom, {
+    type: "partners_config",
+    partners: [
+      { id: "wiznet", name: "WIZnet", url: "https://wiznet.io/", logo: "data:image/png;base64,AAAA" },
+      { id: "cocube", name: "CoCube", url: "https://cocube.cn/cn/", logo: "data:image/png;base64,BBBB" },
+    ],
+  });
+  const partners = document.getElementById("partners")!;
+  assert.equal(partners.querySelectorAll("button.partner").length, 2, "one button per partner");
+  assert.equal(partners.querySelectorAll("img.partner-logo").length, 2, "each partner has a logo image");
+
+  posted.length = 0;
+  (partners.querySelector("button.partner") as HTMLButtonElement).click();
+  const ext = posted.find((m) => m.type === "open_external");
+  assert.ok(ext, "clicking a partner posts open_external");
+  assert.match(ext.url, /wiznet\.io/);
+});
+
 test("board picker exposes refresh and stale cache state", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

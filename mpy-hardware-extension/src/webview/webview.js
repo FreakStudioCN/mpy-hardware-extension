@@ -1759,6 +1759,24 @@
         if (label) label.textContent = file.name;
       }
 
+      // Home partner-logo area (section-06 doc): host-served logos as data URIs, click
+      // opens the partner site externally. Text fallback if a logo fails to load.
+      function renderPartners(partners) {
+        const root = $("partners"); if (!root) return;
+        root.innerHTML = "";
+        if (!partners || !partners.length) return;
+        const h = document.createElement("div"); h.className = "partners-h"; h.textContent = "Partners";
+        const row = document.createElement("div"); row.className = "partners-row";
+        for (const p of partners) {
+          const a = document.createElement("button"); a.className = "partner"; a.type = "button"; a.title = "Open " + p.name + " website";
+          const img = document.createElement("img"); img.className = "partner-logo"; img.src = p.logo; img.alt = p.name;
+          img.addEventListener("error", () => { a.textContent = p.name; });
+          a.appendChild(img);
+          a.addEventListener("click", () => vscode.postMessage({ type: "open_external", url: p.url }));
+          row.appendChild(a);
+        }
+        root.appendChild(h); root.appendChild(row);
+      }
       function scButton(label, action) {
         const b = document.createElement("button"); b.className = "sc-btn"; b.type = "button"; b.textContent = label;
         b.addEventListener("click", action);
@@ -1802,6 +1820,7 @@
         if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
         if (msg.type === "gen_driver_file_picked") { setGenDriverFile(msg); }
         if (msg.type === "support_config") { renderSupport(msg); }
+        if (msg.type === "partners_config") { renderPartners(msg.partners); }
         if (msg.type === "diagnostics") {
           vscode.postMessage({ type: "copy_code", text: msg.text });
           const n = $("scDiag"); if (n) n.textContent = "Diagnostics copied to clipboard.";
@@ -1936,3 +1955,5 @@
       vscode.postMessage({ type: "request_gen_driver_config" });
       // Load the support contacts + diagnostics fields (config is the source of truth).
       vscode.postMessage({ type: "request_support_config" });
+      // Load the home partner logos (config-driven; host inlines them as data URIs).
+      vscode.postMessage({ type: "request_partners" });
