@@ -189,6 +189,7 @@ export class SessionController {
     this.recordedStart = false;
     this.preferences = undefined;
     this.preSelectedBoard = undefined;
+    this.boardSelectionMode = undefined;
     this.latestManifest = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];

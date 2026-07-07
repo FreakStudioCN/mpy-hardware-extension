@@ -51,7 +51,7 @@ test("listRecentSessions summarizes past sessions newest-first, capped at the li
   assert.equal(all[0].id, "trace-new", "newest session first");
   assert.equal(all[0].intent, "blink an LED");
   assert.equal(all[0].finalPhase, "generated");
-  assert.match(all[0].path, /trace-new\/session\.jsonl$/);
+  assert.match(all[0].path, /trace-new[\\/]session\.jsonl$/);
   assert.equal(all[1].id, "trace-old");
   assert.equal(all[1].finalPhase, "cancelled");
 

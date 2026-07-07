@@ -202,12 +202,17 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return;
     }
     if (message.type === "open_external" && typeof message.url === "string") {
-      // Open a support URL (Discord / GitHub / mailto) in the OS default handler. The
-      // webview sandbox can't openExternal itself, so it asks the host.
+      // Open a support / partner / board URL in the OS default handler. The webview sandbox
+      // can't openExternal itself, so it asks the host. Some of these URLs are backend-supplied
+      // (a board's official download page), so validate the scheme before handing it off:
+      // allow only http/https/mailto, never file://, UNC, or other exotic schemes.
       try {
-        await vscode.env?.openExternal?.(vscode.Uri.parse(message.url));
+        const uri = vscode.Uri.parse(message.url, true);
+        if (/^(https?|mailto)$/.test(uri.scheme)) {
+          await vscode.env?.openExternal?.(uri);
+        }
       } catch {
-        // headless host without openExternal — ignore
+        // malformed URL or headless host without openExternal — ignore
       }
       return;
     }

@@ -82,6 +82,25 @@ test("a fresh session (board change / reset) does not inherit stale preferences"
   assert.equal(inputs[2].preferences?.existing_hardware, undefined, "a reset build must not inherit stale preferences");
 });
 
+test("a reset does not leak the recommend board_selection_mode into the next build", async () => {
+  // reset() must clear boardSelectionMode like it clears preferences/preSelectedBoard.
+  // It sets boardId=null, so the next start()'s board-change clear is skipped — without an
+  // explicit clear here, a recommend run leaks the stale flag into a post-reset build that
+  // never asked for a recommendation (buildContext then forwards board_selection_mode).
+  const inputs: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async (input: any) => { inputs.push(input); return { terminal: "complete" }; },
+  });
+
+  await controller.start({ intent: "recommend me a board", boardId: "auto", boardSelectionMode: "recommend" });
+  assert.equal(inputs[0].boardSelectionMode, "recommend");
+
+  controller.reset();
+  await controller.start({ intent: "a build with no recommend this time", boardId: "auto" }); // post-reset, no flag
+  assert.equal(inputs[1].boardSelectionMode, undefined, "a reset build must not inherit the stale recommend flag");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];
