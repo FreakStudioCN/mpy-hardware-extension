@@ -252,6 +252,7 @@ test("home partner logos render from config and open the site externally on clic
     ],
   });
   const partners = document.getElementById("partners")!;
+  assert.equal(partners.getAttribute("data-zone"), "partners", "partners is its own home-workbench zone");
   assert.equal(partners.querySelectorAll("button.partner").length, 2, "one button per partner");
   assert.equal(partners.querySelectorAll("img.partner-logo").length, 2, "each partner has a logo image");
 
@@ -265,6 +266,10 @@ test("home partner logos render from config and open the site externally on clic
 test("Start Workflow reveals the board picker and focuses the prompt", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;
+
+  // Start Workflow lives in the "start" home-workbench zone
+  const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
+  assert.ok(startZone.contains(document.getElementById("startWorkflow")), "Start Workflow is inside the start zone");
 
   document.getElementById("boardPicker")!.classList.add("hidden");
   (document.getElementById("startWorkflow") as HTMLButtonElement).click();
