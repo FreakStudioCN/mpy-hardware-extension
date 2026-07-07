@@ -72,6 +72,30 @@ test("protocol build walks the full V0 plugin chain and sends the cloud envelope
   }
 });
 
+test("protocol build forwards streamed credit events to onEvent (production quota-bar path)", async () => {
+  // The production loop (createProtocolLoop -> runProtocolBuild -> runPhase) consumes the SSE
+  // stream itself. It must forward the `{ type: "credits" }` frame sse-client emits after each
+  // turn to input.onEvent, or the live credit balance never reaches the webview quota bar in a
+  // normal session (only the panel-load REST fetch would keep it fresh).
+  const events: any[] = [];
+  const credits = { type: "credits", remaining: 5, dailyGrant: 100, resetsAt: "2026-07-07T00:00:00Z" };
+  const llm = scriptedLlm({
+    analyze: [[
+      credits,
+      tu("a", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: { phase: "analyze" } }),
+      stop,
+    ]],
+  });
+
+  const result = await runProtocolBuild({ intent: "x", traceId: "t", onEvent: (e: any) => events.push(e) }, { llmClient: llm });
+
+  assert.equal(result.terminal, "complete");
+  assert.ok(
+    events.some((e) => e.type === "credits" && e.remaining === 5 && e.dailyGrant === 100),
+    "the streamed credits frame must be forwarded to onEvent, not swallowed by the phase read loop",
+  );
+});
+
 test("phase_complete next_skill wins over legacy next_phase and is normalized to the production plugin phase", async () => {
   const seen: string[] = [];
   const baseLlm = scriptedLlm({

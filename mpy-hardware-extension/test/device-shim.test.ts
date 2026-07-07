@@ -1,7 +1,48 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { DeviceShim } from "../src/extension/device-shim.ts";
+import { DeviceShim, singleFlight } from "../src/extension/device-shim.ts";
+
+test("singleFlight retries after a failed start (a rejected start is not memoized forever)", async () => {
+  // Regression: createDeviceShim's ensure() used `if (!starting) starting = start()`. A pre-spawn
+  // failure (python_not_found / venv install) left `starting` a REJECTED promise — still truthy —
+  // so every later device op on the long-lived shim replayed the same stale rejection, and the user
+  // could not recover (short of a window reload) even after fixing Python.
+  let attempts = 0;
+  const run = singleFlight(async () => {
+    attempts++;
+    if (attempts === 1) throw new Error("python_not_found");
+  });
+
+  await assert.rejects(() => run(), /python_not_found/);
+  await assert.doesNotReject(() => run(), "a later touch must retry start(), not replay the memoized rejection");
+  assert.equal(attempts, 2, "start() must be re-invoked after the first failure");
+});
+
+test("singleFlight is single-flight: concurrent callers share one in-flight start", async () => {
+  let attempts = 0;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const run = singleFlight(async () => { attempts++; await gate; });
+
+  const a = run();
+  const b = run();
+  release();
+  await Promise.all([a, b]);
+
+  assert.equal(attempts, 1, "two concurrent ensure() calls must not launch two starts");
+});
+
+test("singleFlight.reset() forces a fresh start on the next call (post-crash respawn)", async () => {
+  let attempts = 0;
+  const run = singleFlight(async () => { attempts++; });
+  await run();
+  await run();
+  assert.equal(attempts, 1, "a resolved start is reused while alive");
+  run.reset();            // the exit handler nulls the slot after the child crashes
+  await run();
+  assert.equal(attempts, 2, "after reset, the next touch respawns");
+});
 
 test("DeviceShim resolves+caches the port from device.scan and maps loop methods to RPC", async () => {
   const calls: any[] = [];

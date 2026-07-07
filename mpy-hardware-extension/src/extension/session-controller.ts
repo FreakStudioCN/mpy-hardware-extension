@@ -345,9 +345,15 @@ export class SessionController {
       this.deps.postMessage({ type: "phase_complete", payload: event.payload });
       return;
     }
-    if (event.kind === "credits") {
-      this.record({ type: "session_event", event });
-      this.deps.postMessage({ type: "session_event", event });
+    if (event.type === "credits") {
+      // Live credit balance streamed by the backend after each turn. sse-client maps the
+      // SSE `{ remaining, daily_grant, resets_at }` to `{ type: "credits", remaining,
+      // dailyGrant, resetsAt }`; normalize it to the shape the quota bar and telemetry
+      // both read — `{ kind: "credits", balance, ... }` — so the balance updates live
+      // (and low/exhausted trip mid-build) instead of falling through to trace_event.
+      const normalized = { kind: "credits", balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt };
+      this.record({ type: "session_event", event: normalized });
+      this.deps.postMessage({ type: "session_event", event: normalized });
       return;
     }
     if (event.type === "summary_delta") {

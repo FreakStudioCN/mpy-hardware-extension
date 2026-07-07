@@ -141,6 +141,10 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       else if (ev.type === "thinking_delta") thinking += ev.text ?? "";
       else if (ev.type === "tool_use_complete") toolUses.push(ev);
       else if (ev.type === "stream_error") streamError = ev.message ?? "stream_error";
+      // Live credit balance streamed after each turn. Forward it so the controller can
+      // update the quota bar; without this the production protocol path swallows it and
+      // the balance never moves mid-build (only the panel-load REST fetch keeps it fresh).
+      else if (ev.type === "credits") input.onEvent?.(ev);
     }
     // A mid-stream abort throws out of it.next() and lands here with the signal set 鈥?    // surface it as cancelled, not a normal (stalled) end.
     if (input.signal?.aborted) { try { await it.return?.(undefined); } catch { /* ignore */ } return { done: false, cancelled: true }; }
