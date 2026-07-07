@@ -127,22 +127,28 @@
 
       <div class="composer">
         <div class="composer-box" id="composerBox">
+          <!-- Board picker: mode row stays compact; the tall body (search, filters,
+               board list) is collapsed by default so it doesn't bury the welcome.
+               Start Workflow expands it; the disclosure toggles it. -->
           <div class="start-controls" id="boardPicker">
             <div class="mode-row">
               <button class="mode-chip active" id="modeBeginner" type="button" data-mode="beginner" data-i18n="mode_beginner">Beginner</button>
               <button class="mode-chip" id="modeCustom" type="button" data-mode="custom" data-i18n="mode_custom">Custom</button>
               <button class="board-auto chosen" id="boardAuto" type="button" data-i18n="board_auto">Recommend board</button>
+              <button class="board-more" id="boardMore" type="button" aria-expanded="false" aria-controls="boardPickerBody" data-i18n="board_browse" data-i18n-title="board_browse_tip" title="Browse and pick a specific board">Browse boards</button>
             </div>
-            <input class="board-search" id="boardSearch" data-i18n-ph="board_search_ph" placeholder="Search official MicroPython boards" />
-            <div class="board-cache-row"><button class="board-refresh" id="boardRefresh" type="button" data-i18n="board_refresh">Refresh</button><span class="board-cache-status" id="boardCacheStatus"></span></div>
-            <div class="board-filter-row">
-              <select class="board-filter" id="boardVendor" aria-label="Vendor"></select>
-              <select class="board-filter" id="boardPort" aria-label="Port"></select>
-              <select class="board-filter" id="boardMcu" aria-label="MCU"></select>
-              <select class="board-filter" id="boardFeature" aria-label="Feature"></select>
+            <div class="board-picker-body" id="boardPickerBody" hidden>
+              <input class="board-search" id="boardSearch" data-i18n-ph="board_search_ph" placeholder="Search official MicroPython boards" />
+              <div class="board-cache-row"><button class="board-refresh" id="boardRefresh" type="button" data-i18n="board_refresh">Refresh</button><span class="board-cache-status" id="boardCacheStatus"></span></div>
+              <div class="board-filter-row">
+                <select class="board-filter" id="boardVendor" aria-label="Vendor"></select>
+                <select class="board-filter" id="boardPort" aria-label="Port"></select>
+                <select class="board-filter" id="boardMcu" aria-label="MCU"></select>
+                <select class="board-filter" id="boardFeature" aria-label="Feature"></select>
+              </div>
+              <div class="board-list" id="boardList"></div>
+              <div class="board-pager"><button class="board-page-btn" id="boardPrev" type="button">&lt;</button><span class="board-status" id="boardStatus"></span><button class="board-page-btn" id="boardNext" type="button">&gt;</button></div>
             </div>
-            <div class="board-list" id="boardList"></div>
-            <div class="board-pager"><button class="board-page-btn" id="boardPrev" type="button">&lt;</button><span class="board-status" id="boardStatus"></span><button class="board-page-btn" id="boardNext" type="button">&gt;</button></div>
           </div>
           <textarea id="intent" data-i18n-ph="intent_ph" placeholder="I want to build… (e.g. light a red LED when the temperature goes above 30°C)" rows="1"></textarea>
           <div class="composer-bar">

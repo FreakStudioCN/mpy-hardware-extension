@@ -271,11 +271,31 @@ test("Start Workflow reveals the board picker and focuses the prompt", async () 
   const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
   assert.ok(startZone.contains(document.getElementById("startWorkflow")), "Start Workflow is inside the start zone");
 
+  const body = document.getElementById("boardPickerBody") as HTMLElement;
+  assert.equal(body.hidden, true, "board picker body is collapsed by default");
+
   document.getElementById("boardPicker")!.classList.add("hidden");
   (document.getElementById("startWorkflow") as HTMLButtonElement).click();
 
   assert.equal(document.getElementById("boardPicker")!.classList.contains("hidden"), false, "board picker shown");
+  assert.equal(body.hidden, false, "Start Workflow expands the board picker body");
+  assert.equal(document.getElementById("boardMore")!.getAttribute("aria-expanded"), "true", "disclosure marked expanded");
   assert.equal(document.activeElement, document.getElementById("intent"), "prompt is focused");
+});
+
+test("Browse boards disclosure toggles the board picker body", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const body = document.getElementById("boardPickerBody") as HTMLElement;
+  const more = document.getElementById("boardMore") as HTMLButtonElement;
+
+  assert.equal(body.hidden, true, "collapsed by default");
+  more.click();
+  assert.equal(body.hidden, false, "disclosure expands the body");
+  assert.equal(more.getAttribute("aria-expanded"), "true", "aria-expanded reflects open");
+  more.click();
+  assert.equal(body.hidden, true, "disclosure collapses the body again");
+  assert.equal(more.getAttribute("aria-expanded"), "false", "aria-expanded reflects closed");
 });
 
 test("board picker exposes refresh and stale cache state", async () => {

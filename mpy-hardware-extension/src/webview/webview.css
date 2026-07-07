@@ -151,7 +151,12 @@
          (clearConversation restores it; any feed event hides it). Copy follows the
          session locale via data-i18n like the rest of the chrome. The title font
          scales down on a narrow sidebar so the English line never overflows. */
-      .welcome { min-height: calc(100vh - 172px); padding: 32px 20px 28px;
+      /* Fill the activity area and center the welcome so the empty state doesn't
+         hug the top with a bare gap below the logos. When a conversation exists the
+         welcome is hidden and the (non-empty) message list flows from the top. */
+      .view[data-view="activity"] { min-height: 100%; display: flex; flex-direction: column; }
+      .activity:empty { display: none; }
+      .welcome { margin: auto 0; padding: 32px 20px 28px;
         display: flex; flex-direction: column; align-items: center; text-align: center; }
       .welcome-title { font-size: clamp(23px, 7.5vw, 30px); line-height: 1.14; font-weight: 800; color: #ededed; letter-spacing: .3px; }
       .welcome-sq { display: block; margin: 8px auto 0; color: #7c5cff; }
@@ -333,6 +338,14 @@
       .mode-row, .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
       .mode-chip, .board-chip, .board-page-btn, .board-auto, .board-refresh { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
       .mode-chip.active, .board-chip.chosen, .board-auto.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
+      /* disclosure for the collapsed board picker; caret flips when open */
+      .board-more { margin-left: auto; border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+      .board-more::after { content: "\25be"; font-size: 9px; transition: transform .15s; }
+      .board-more.open { border-color: var(--accent); color: var(--fg); }
+      .board-more.open::after { transform: rotate(180deg); }
+      .board-picker-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      /* explicit display defeats the [hidden] attribute; restore it so collapse works */
+      .board-picker-body[hidden] { display: none; }
       .board-search, .board-filter { min-width: 0; border: 1px solid var(--vsc-card-border); background: #101012; color: var(--fg); border-radius: 6px; padding: 6px 8px; font-size: 11px; }
       .board-search { width: 100%; }
       .board-filter { flex: 1 1 92px; }

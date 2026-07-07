@@ -35,7 +35,7 @@
           serial_monitor: "Serial monitor",
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
-          mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_firmware: "Official firmware", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
+          mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_browse: "Browse boards", board_browse_tip: "Browse and pick a specific board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_firmware: "Official firmware", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
           new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
           deploying: "Deploying…", confirm_wiring: "Confirm wiring & connection…",
@@ -112,7 +112,7 @@
           serial_monitor: "串口监视器",
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
-          mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_firmware: "官方固件", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡",
+          mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_browse: "浏览板卡", board_browse_tip: "浏览并选择具体板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_firmware: "官方固件", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡",
           new_session: "重新开始", new_session_tip: "重新开始项目——会清空当前对话",
           waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",
           deploying: "正在部署…", confirm_wiring: "确认接线与连接…",
@@ -265,6 +265,14 @@
       function setBoardPickerVisible(visible) {
         $("boardPicker").classList.toggle("hidden", !visible);
       }
+      // The board picker body (search + filters + list) is collapsed by default so
+      // it doesn't bury the welcome; Start Workflow and the disclosure open it.
+      function setBoardBodyExpanded(expanded) {
+        $("boardPickerBody").hidden = !expanded;
+        const more = $("boardMore");
+        more.setAttribute("aria-expanded", expanded ? "true" : "false");
+        more.classList.toggle("open", expanded);
+      }
       function boardLabel(board) { return board.display_name || board.id || board.download_slug || ""; }
       function optionLabelAll(key) { return tr(key); }
       function setFilterOptions(id, values, allKey) {
@@ -388,7 +396,8 @@
       // ponytail: the rest of the launch-area inventory (Import Existing Project,
       // Recent Sessions, Device Tools=Day-7, Git history / Save Version) is stubbed
       // pending confirmation of which entries are Day-3 vs later.
-      $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); $("intent").focus(); });
+      $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); setBoardBodyExpanded(true); $("intent").focus(); });
+      $("boardMore").addEventListener("click", () => setBoardBodyExpanded($("boardPickerBody").hidden));
 
       // ----- composer / working indicator -----
       // The single "AI is working" affordance is the in-feed spinner card
