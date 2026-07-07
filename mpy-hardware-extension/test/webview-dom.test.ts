@@ -162,10 +162,10 @@ test("board cards show a firmware format and a details link that opens the downl
     ],
   });
   const row = document.querySelector('.board-row')!;
-  assert.match(row.querySelector(".board-meta")!.textContent!, /firmware: bin/, "esp32 port → bin firmware format");
+  assert.match(row.querySelector(".board-meta")!.textContent!, /firmware: bin/, "esp32 port → bin firmware format in the meta line");
 
-  const link = row.querySelector(".board-detail") as HTMLAnchorElement;
-  assert.ok(link, "a details link is rendered when a download URL exists");
+  const link = row.querySelector(".board-detail") as HTMLButtonElement;
+  assert.ok(link, "a details icon is rendered when a download URL exists");
   posted.length = 0;
   link.click();
   const ext = posted.find((m) => m.type === "open_external");
