@@ -1,0 +1,73 @@
+# deploy/compose.yml — run mpyhw-api (the plugin / VS Code extension backend) behind an
+# EXISTING Caddy reverse proxy, on ben0i0d's server.
+#
+# Constraints this stack respects (from the ops owner):
+#   - Container only: the image is built from mpyhw-api/Dockerfile; no raw code runs on the host.
+#   - No host :80/:443 grab. The API is reachable ONLY on the shared Docker network; Caddy
+#     reverse-proxies to `api:8080` by name (see deploy/Caddyfile.snippet). No host port published.
+#   - Single worker in prod: session/rate-limit state is in-process (WEB_CONCURRENCY stays 1).
+#
+# IMPORTANT: the image builds from the REPO ROOT (context: ../..) because it needs
+# third_party/MicroPython_Skills (a git submodule) + contracts/. Initialize submodules first:
+#   git submodule update --init --recursive
+#
+# Bring up:
+#   docker compose -f mpyhw-api/deploy/compose.yml --env-file mpyhw-api/deploy/.env up -d --build
+
+name: mpyhw
+
+services:
+  api:
+    # Path A (default) — build from source. Context is the repo root; Dockerfile is under mpyhw-api/.
+    build:
+      context: ../..
+      dockerfile: mpyhw-api/Dockerfile
+    # Path B — or pull a prebuilt image (comment out `build:` above) once CI publishes one:
+    # image: ghcr.io/CHANGE-ME-ORG/mpyhw-api:0.4.0
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      MPYHW_ENV: prod          # turns on strict secret validation + prod behavior
+      PORT: "8080"
+      WEB_CONCURRENCY: "1"      # prod is single-worker (in-process session/rate-limit state)
+    expose:
+      - "8080"                 # visible to Caddy over `edge`, NOT published to the host
+    networks: [edge, internal]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/v1/health')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  # Bundled Postgres — clean "start fresh" deploy; the app creates its schema on boot
+  # (CREATE TABLE IF NOT EXISTS in app/db.py). For a managed Postgres, delete this service
+  # and point DATABASE_URL in deploy/.env at your instance instead.
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mpyhw
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: mpyhw
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mpyhw -d mpyhw"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+networks:
+  # Shared with Caddy so it can reach `api:8080` by name. Set to your real Caddy network.
+  edge:
+    external: true
+    name: caddy_net          # <-- CHANGE to your existing Caddy network name
+  internal: {}
+
+volumes:
+  pgdata: {}
