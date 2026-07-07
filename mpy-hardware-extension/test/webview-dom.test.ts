@@ -98,6 +98,38 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   assert.equal(start.pre_selected_board.firmware.board_name, "ESP32_GENERIC_S3");
 });
 
+test("the last-used preference mode persists across panel reopens", async () => {
+  // a shared vscode state store, so a reopen (second JSDOM load) sees the first session's setState
+  const store: { state: any } = { state: null };
+  const open = async (): Promise<JSDOM> => {
+    const dom = new JSDOM(html, {
+      runScripts: "dangerously",
+      beforeParse: (window: any) => {
+        window.acquireVsCodeApi = () => ({
+          postMessage: () => {},
+          getState: () => store.state,
+          setState: (s: any) => { store.state = s; },
+        });
+      },
+    });
+    await new Promise<void>((resolve) => {
+      if (dom.window.document.readyState === "complete") resolve();
+      else dom.window.addEventListener("load", () => resolve());
+    });
+    return dom;
+  };
+
+  const first = await open();
+  (first.window.document.getElementById("modeCustom") as HTMLButtonElement).click();
+  assert.equal(store.state?.mode, "custom", "switching mode persists it to vscode state");
+
+  const reopened = await open();
+  const custom = reopened.window.document.getElementById("modeCustom") as HTMLElement;
+  const beginner = reopened.window.document.getElementById("modeBeginner") as HTMLElement;
+  assert.equal(custom.classList.contains("active"), true, "custom mode is restored active on reopen");
+  assert.equal(beginner.classList.contains("active"), false, "beginner is no longer the active chip");
+});
+
 test("board picker exposes refresh and stale cache state", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
