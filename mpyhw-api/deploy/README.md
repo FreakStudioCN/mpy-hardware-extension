@@ -17,15 +17,24 @@ on `/v1/health`, listens on `8080`.
 
 ## Getting the image (pick one)
 
-- **Build from GitHub (default).**
+- **Pull the prebuilt image (default).** Our CI (`.github/workflows/publish-image.yml`) builds and
+  pushes it to GHCR on every push to main: `ghcr.io/freakstudiocn/mpyhw-api:latest` (v* tags also get
+  `:<version>`). `compose.yml` already points at it, so no repo/source on the server - just:
   ```sh
-  git submodule update --init --recursive     # REQUIRED: image needs third_party/MicroPython_Skills
+  docker compose -f mpyhw-api/deploy/compose.yml --env-file mpyhw-api/deploy/.env up -d
+  ```
+- **Build from source (alternative).** If you'd rather build:
+  ```sh
+  git submodule update --init --recursive     # image needs third_party/MicroPython_Skills + contracts/
+  # in compose.yml: comment out `image:`, uncomment the `build:` block, then:
   docker compose -f mpyhw-api/deploy/compose.yml --env-file mpyhw-api/deploy/.env up -d --build
   ```
-  The build context is the **repo root** (the image also needs `contracts/`); raw code never runs
-  on the host  -  it's compiled into an image first.
-- **Pull a prebuilt image.** If you'd rather not build on the server, we can add a CI job that
-  publishes `ghcr.io/<org>/mpyhw-api:<tag>`; then swap `build:` for `image:` in `compose.yml`.
+  Builds from the repo root; raw code never runs on the host - it's compiled into an image first.
+
+> **GHCR package visibility (one-time):** the first CI publish creates the package as *private*. A
+> repo/org admin must set `ghcr.io/freakstudiocn/mpyhw-api` to **public** (GitHub -> Packages -> the
+> package -> Package settings -> Change visibility) so the server can pull without credentials.
+> Alternatively keep it private and `docker login ghcr.io` on the server with a `read:packages` token.
 
 ## Networking / Caddy
 
