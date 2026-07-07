@@ -25,6 +25,8 @@ export class SessionController {
   // Handoff user context (mode/locale/existing_hardware), session-level. Carried into the
   // loop request and preserved across retry().
   private preferences: { mode?: string; locale?: string; existing_hardware?: string } | undefined;
+  // "recommend" when the user let the system pick the board; carried into the loop, cleared on a fresh session.
+  private boardSelectionMode: string | undefined;
   // Board list from the last start(), reused by retry() so the continued loop
   // resolves "auto" the same way the original run did.
   private availableBoards: any[] | undefined;
@@ -47,7 +49,7 @@ export class SessionController {
     this.deps = deps;
   }
 
-  async start(input: { intent: string; boardId: string; availableBoards?: any[]; preSelectedBoard?: any; preferences?: { mode?: string; locale?: string; existing_hardware?: string } }) {
+  async start(input: { intent: string; boardId: string; availableBoards?: any[]; preSelectedBoard?: any; preferences?: { mode?: string; locale?: string; existing_hardware?: string }; boardSelectionMode?: string }) {
     // Single in-flight run per controller: a concurrent start would clobber the
     // shared abort controller, files, and conversation state of the running one
     // (and cancel() would then abort the wrong run). Reject re-entry instead.
@@ -62,10 +64,12 @@ export class SessionController {
       this.recordedStart = false;
       this.preferences = undefined;  // fresh session: don't inherit the prior build's context
       this.preSelectedBoard = undefined;
+      this.boardSelectionMode = undefined;
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
     if (input.preferences) this.preferences = input.preferences;
+    if (input.boardSelectionMode !== undefined) this.boardSelectionMode = input.boardSelectionMode;
     if (!this.traceId) {
       this.traceId = createTraceId();
     }
@@ -111,6 +115,7 @@ export class SessionController {
         boardId: input.boardId,
         preferences: this.preferences,
         preSelectedBoard: this.preSelectedBoard,
+        boardSelectionMode: this.boardSelectionMode,
         traceId: this.traceId,
         availableBoards: input.availableBoards,
         state: this.state,
@@ -184,6 +189,7 @@ export class SessionController {
     this.recordedStart = false;
     this.preferences = undefined;
     this.preSelectedBoard = undefined;
+    this.boardSelectionMode = undefined;
     this.latestManifest = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];

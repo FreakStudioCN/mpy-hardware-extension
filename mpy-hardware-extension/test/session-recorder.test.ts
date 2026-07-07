@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { CloudTelemetryRecorder, JsonlSessionRecorder } from "../src/extension/session-recorder.ts";
+import { CloudTelemetryRecorder, JsonlSessionRecorder, listRecentSessions } from "../src/extension/session-recorder.ts";
 
 test("JSONL session recorder writes complete ordered events under the session trace id", async () => {
   const root = await mkdtemp(join(tmpdir(), "mpyhw-sessions-"));
@@ -32,6 +32,36 @@ test("JSONL session recorder writes complete ordered events under the session tr
   assert.equal(lines[0].traceId, "trace-1");
   assert.deepEqual(lines[1].input, { question: "OLED or speaker?" });
   assert.deepEqual(lines[2].observation, { ok: true, answer: "OLED" });
+});
+
+test("listRecentSessions summarizes past sessions newest-first, capped at the limit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-recent-"));
+
+  // Older session (finished).
+  const older = new JsonlSessionRecorder({ workspaceFolder: root, traceId: "trace-old" });
+  await older.record({ type: "session_started", intent: "read a sensor", boardId: "pico" });
+  await older.record({ type: "session_finished", terminal: "cancelled" });
+  // Newer session (finished) — written second so its first-event ts is later.
+  const newer = new JsonlSessionRecorder({ workspaceFolder: root, traceId: "trace-new" });
+  await newer.record({ type: "session_started", intent: "blink an LED", boardId: "esp32" });
+  await newer.record({ type: "session_finished", terminal: "generated" });
+
+  const all = await listRecentSessions(root, 20);
+  assert.equal(all.length, 2);
+  assert.equal(all[0].id, "trace-new", "newest session first");
+  assert.equal(all[0].intent, "blink an LED");
+  assert.equal(all[0].finalPhase, "generated");
+  assert.match(all[0].path, /trace-new[\\/]session\.jsonl$/);
+  assert.equal(all[1].id, "trace-old");
+  assert.equal(all[1].finalPhase, "cancelled");
+
+  const capped = await listRecentSessions(root, 1);
+  assert.deepEqual(capped.map((s) => s.id), ["trace-new"], "limit caps the list to newest N");
+});
+
+test("listRecentSessions returns [] when no sessions dir exists", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-recent-empty-"));
+  assert.deepEqual(await listRecentSessions(root, 20), []);
 });
 
 test("cloud telemetry recorder maps session events to backend telemetry", async () => {

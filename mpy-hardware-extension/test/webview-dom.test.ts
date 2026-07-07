@@ -98,6 +98,281 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   assert.equal(start.pre_selected_board.firmware.board_name, "ESP32_GENERIC_S3");
 });
 
+test("the last-used preference mode persists across panel reopens", async () => {
+  // a shared vscode state store, so a reopen (second JSDOM load) sees the first session's setState
+  const store: { state: any } = { state: null };
+  const open = async (): Promise<JSDOM> => {
+    const dom = new JSDOM(html, {
+      runScripts: "dangerously",
+      beforeParse: (window: any) => {
+        window.acquireVsCodeApi = () => ({
+          postMessage: () => {},
+          getState: () => store.state,
+          setState: (s: any) => { store.state = s; },
+        });
+      },
+    });
+    await new Promise<void>((resolve) => {
+      if (dom.window.document.readyState === "complete") resolve();
+      else dom.window.addEventListener("load", () => resolve());
+    });
+    return dom;
+  };
+
+  const first = await open();
+  (first.window.document.getElementById("modeCustom") as HTMLButtonElement).click();
+  assert.equal(store.state?.mode, "custom", "switching mode persists it to vscode state");
+
+  const reopened = await open();
+  const custom = reopened.window.document.getElementById("modeCustom") as HTMLElement;
+  const beginner = reopened.window.document.getElementById("modeBeginner") as HTMLElement;
+  assert.equal(custom.classList.contains("active"), true, "custom mode is restored active on reopen");
+  assert.equal(beginner.classList.contains("active"), false, "beginner is no longer the active chip");
+});
+
+test("board cards show the 3-way badges (firmware + local-layout state)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    source_url: "https://micropython.org/download/",
+    fetched_at: "2026-06-20T00:07:34+00:00",
+    boards: [
+      { id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: ["WiFi"], firmware: { board_name: "ESP32_GENERIC_S3" }, support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" },
+      { id: "PYBD_SF2", display_name: "Pyboard D-series SF2", vendor: "George Robotics", port: "stm32", mcu: "stm32f722", features: [], firmware: { board_name: "PYBD_SF2" }, support_status: "official_firmware_only" },
+    ],
+  });
+  const builtin = document.querySelector('.board-card[data-board-id="esp32-s3-devkitc"]')!.textContent!;
+  const officialOnly = document.querySelector('.board-card[data-board-id="PYBD_SF2"]')!.textContent!;
+  assert.match(builtin, /Official firmware/, "firmware badge shown");
+  assert.match(builtin, /Pin layout/, "local-layout badge for a builtin_pin_layout board");
+  assert.match(officialOnly, /Official firmware/, "firmware badge shown");
+  assert.match(officialOnly, /Official only/, "official-only badge when no local layout");
+  assert.doesNotMatch(officialOnly, /Pin layout/, "no local-layout badge without builtin_pin_layout");
+});
+
+test("board cards show a firmware format and a details link that opens the download page (not selecting the card)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    boards: [
+      { id: "esp32-s3-devkitc", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: ["WiFi"], firmware: { url: "https://micropython.org/download/ESP32_GENERIC_S3/" }, support_status: "official_firmware_only" },
+    ],
+  });
+  const row = document.querySelector('.board-row')!;
+  assert.match(row.querySelector(".board-meta")!.textContent!, /firmware: bin/, "esp32 port → bin firmware format in the meta line");
+
+  const link = row.querySelector(".board-detail") as HTMLButtonElement;
+  assert.ok(link, "a details icon is rendered when a download URL exists");
+  posted.length = 0;
+  link.click();
+  const ext = posted.find((m) => m.type === "open_external");
+  assert.ok(ext, "clicking details opens the page externally");
+  assert.match(ext.url, /micropython\.org\/download\/ESP32_GENERIC_S3/);
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("chosen"), true, "details click does not select the board (stopPropagation)");
+});
+
+test("the recommend path sends board_selection_mode=recommend; selecting a board omits it", async () => {
+  const recommend: any[] = [];
+  const d1 = await loadWebview(recommend);
+  (d1.window.document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (d1.window.document.getElementById("generate") as HTMLButtonElement).click();
+  const s1 = recommend.find((m) => m.type === "start_session");
+  assert.equal(s1.pre_selected_board, null, "no board selected");
+  assert.equal(s1.board_selection_mode, "recommend");
+
+  const selected: any[] = [];
+  const d2 = await loadWebview(selected);
+  post(d2, { type: "micropython_boards", boards: [{ id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: [], firmware: { board_name: "X" }, support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" }] });
+  (d2.window.document.querySelector('.board-card[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+  (d2.window.document.getElementById("intent") as HTMLTextAreaElement).value = "temp sensor";
+  (d2.window.document.getElementById("generate") as HTMLButtonElement).click();
+  const s2 = selected.find((m) => m.type === "start_session");
+  assert.ok(s2.pre_selected_board, "a board is selected");
+  assert.equal(s2.board_selection_mode, undefined, "board_selection_mode omitted when a board is chosen");
+});
+
+test("the support panel opens from global tools and drives config-driven contacts", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  assert.ok(posted.some((m) => m.type === "request_support_config"), "requests support config on load");
+
+  (document.querySelector("#globalTools #supportOpen") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("toolSupport")!.classList.contains("hidden"), false, "support surface shown");
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), true, "workflow hidden while the tool is open");
+
+  post(dom, {
+    type: "support_config",
+    contacts: [
+      { id: "wechat", label: "WeChat Contact", value: "wxinliliszdyyr", copyable: true },
+      { id: "discord", label: "Discord Community", url: "https://discord.gg/EPRn28fJ2" },
+      { id: "github_issues", label: "GitHub Issues", url: "https://github.com/FreakStudioCN/mpy-hardware-extension/issues" },
+    ],
+    diagnosticsFields: ["session_id", "submodule_commit"],
+  });
+  const support = document.getElementById("support")!;
+  assert.match(support.textContent!, /WeChat Contact/);
+  assert.match(support.textContent!, /Discord Community/);
+  assert.match(support.textContent!, /Report an issue/);
+  assert.match(support.textContent!, /session_id/, "diagnostics fields are listed");
+
+  // copy the WeChat id via the host clipboard
+  posted.length = 0;
+  const wechatRow = [...support.querySelectorAll(".sc-row")].find((r) => r.textContent!.includes("WeChat"))!;
+  (wechatRow.querySelector(".sc-btn") as HTMLButtonElement).click();
+  const copy = posted.find((m) => m.type === "copy_code");
+  assert.ok(copy, "copy posts copy_code");
+  assert.equal(copy.text, "wxinliliszdyyr");
+
+  // report an issue opens GitHub Issues externally
+  posted.length = 0;
+  const reportBtn = [...support.querySelectorAll(".sc-btn")].find((b) => b.textContent === "Open GitHub Issues") as HTMLButtonElement;
+  reportBtn.click();
+  const ext = posted.find((m) => m.type === "open_external");
+  assert.ok(ext, "posts open_external");
+  assert.match(ext.url, /github\.com/);
+
+  (document.getElementById("supportBack") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("toolSupport")!.classList.contains("hidden"), true, "Back closes the support surface");
+});
+
+test("Copy diagnostics requests a snapshot from the host and copies it", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.querySelector("#globalTools #supportOpen") as HTMLButtonElement).click();
+  post(dom, { type: "support_config", contacts: [], diagnosticsFields: ["session_id", "node"] });
+
+  posted.length = 0;
+  const diagBtn = [...document.querySelectorAll("#support .sc-btn")].find((b) => b.textContent === "Copy diagnostics") as HTMLButtonElement;
+  diagBtn.click();
+  assert.ok(posted.find((m) => m.type === "request_diagnostics"), "asks the host to gather diagnostics");
+
+  posted.length = 0;
+  post(dom, { type: "diagnostics", text: "toolchain_version: 1\nos: darwin arm64\nnode: v25", fields: { node: "v25" } });
+  const copy = posted.find((m) => m.type === "copy_code");
+  assert.ok(copy, "copies the returned diagnostics text");
+  assert.match(copy.text, /toolchain_version/);
+  assert.match(document.getElementById("scDiag")!.textContent!, /copied/i);
+});
+
+test("home partner logos render from config and open the site externally on click", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  assert.ok(posted.some((m) => m.type === "request_partners"), "requests partner config on load");
+
+  post(dom, {
+    type: "partners_config",
+    partners: [
+      { id: "wiznet", name: "WIZnet", url: "https://wiznet.io/", logo: "data:image/png;base64,AAAA" },
+      { id: "cocube", name: "CoCube", url: "https://cocube.cn/cn/", logo: "data:image/png;base64,BBBB" },
+    ],
+  });
+  const partners = document.getElementById("partners")!;
+  assert.equal(partners.getAttribute("data-zone"), "partners", "partners is its own home-workbench zone");
+  assert.equal(partners.querySelectorAll("button.partner").length, 2, "one button per partner");
+  assert.equal(partners.querySelectorAll("img.partner-logo").length, 2, "each partner has a logo image");
+
+  posted.length = 0;
+  (partners.querySelector("button.partner") as HTMLButtonElement).click();
+  const ext = posted.find((m) => m.type === "open_external");
+  assert.ok(ext, "clicking a partner posts open_external");
+  assert.match(ext.url, /wiznet\.io/);
+});
+
+test("Import Existing Project posts import_project to the host", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  const btn = document.getElementById("importProject") as HTMLButtonElement;
+  const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
+  assert.ok(startZone.contains(btn), "Import Existing Project is in the start zone");
+
+  posted.length = 0;
+  btn.click();
+  assert.ok(posted.some((m) => m.type === "import_project"), "clicking posts import_project");
+});
+
+test("Recent Sessions opens the surface, lists host-served summaries, opens the jsonl on click", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  posted.length = 0;
+  (document.getElementById("recentSessions") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("toolRecent")!.classList.contains("hidden"), false, "recent surface opens");
+  assert.ok(posted.some((m) => m.type === "request_recent_sessions"), "requests recent sessions");
+
+  post(dom, {
+    type: "recent_sessions",
+    sessions: [
+      { id: "trace-a", date: "2026-07-07T10:00:00.000Z", intent: "blink an LED", finalPhase: "done", path: "/w/.mpyhw/sessions/trace-a/session.jsonl" },
+      { id: "trace-b", date: "2026-07-06T09:00:00.000Z", intent: "read a sensor", finalPhase: "cancelled", path: "/w/.mpyhw/sessions/trace-b/session.jsonl" },
+    ],
+  });
+  const cards = document.querySelectorAll("#recent .recent-card");
+  assert.equal(cards.length, 2, "one card per session");
+  assert.match((cards[0] as HTMLElement).textContent!, /blink an LED/, "shows the session intent");
+  assert.equal(document.getElementById("recentEmpty")!.classList.contains("hidden"), true, "empty state hidden when sessions exist");
+
+  posted.length = 0;
+  (cards[0] as HTMLButtonElement).click();
+  const open = posted.find((m) => m.type === "open_path");
+  assert.ok(open, "clicking a session posts open_path");
+  assert.match(open.path, /trace-a\/session\.jsonl$/, "opens that session's jsonl");
+});
+
+test("Recent Sessions shows the empty state when the host returns none", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("recentSessions") as HTMLButtonElement).click();
+  post(dom, { type: "recent_sessions", sessions: [] });
+  assert.equal(document.getElementById("recentEmpty")!.classList.contains("hidden"), false, "empty state visible");
+  assert.equal(document.querySelectorAll("#recent .recent-card").length, 0, "no cards rendered");
+});
+
+test("Start Workflow reveals the board picker and focuses the prompt", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+
+  // Start Workflow lives in the "start" home-workbench zone
+  const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
+  assert.ok(startZone.contains(document.getElementById("startWorkflow")), "Start Workflow is inside the start zone");
+
+  const body = document.getElementById("boardPickerBody") as HTMLElement;
+  assert.equal(body.hidden, true, "board picker body is collapsed by default");
+
+  document.getElementById("boardPicker")!.classList.add("hidden");
+  (document.getElementById("startWorkflow") as HTMLButtonElement).click();
+
+  assert.equal(document.getElementById("boardPicker")!.classList.contains("hidden"), false, "board picker shown");
+  assert.equal(body.hidden, false, "Start Workflow expands the board picker body");
+  assert.equal(document.getElementById("boardMore")!.getAttribute("aria-expanded"), "true", "disclosure marked expanded");
+  assert.equal(document.activeElement, document.getElementById("intent"), "prompt is focused");
+});
+
+test("Browse boards disclosure toggles the board picker body", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const body = document.getElementById("boardPickerBody") as HTMLElement;
+  const more = document.getElementById("boardMore") as HTMLButtonElement;
+
+  assert.equal(body.hidden, true, "collapsed by default");
+  more.click();
+  assert.equal(body.hidden, false, "disclosure expands the body");
+  assert.equal(more.getAttribute("aria-expanded"), "true", "aria-expanded reflects open");
+  more.click();
+  assert.equal(body.hidden, true, "disclosure collapses the body again");
+  assert.equal(more.getAttribute("aria-expanded"), "false", "aria-expanded reflects closed");
+});
+
 test("board picker exposes refresh and stale cache state", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

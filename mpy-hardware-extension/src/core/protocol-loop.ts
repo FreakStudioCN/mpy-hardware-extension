@@ -94,6 +94,8 @@ export type ProtocolInput = {
   // any hardware the user already owns, and an optional full official board fact object.
   preferences?: { mode?: string; locale?: string; existing_hardware?: string };
   preSelectedBoard?: any;
+  // "recommend" when the user asked the system to pick the board (no pre_selected_board).
+  boardSelectionMode?: string;
 };
 
 export type ProtocolResult = {
@@ -113,6 +115,8 @@ function buildContext(input: ProtocolInput): Record<string, any> | null {
   const ctx: Record<string, any> = { ...(input.preferences ?? {}) };
   if (input.preSelectedBoard) ctx.pre_selected_board = input.preSelectedBoard;
   else if (input.boardId && input.boardId !== "auto") ctx.pre_selected_board = input.boardId;
+  // Carry the explicit recommend signal only when no board was pre-selected.
+  if (input.boardSelectionMode && !ctx.pre_selected_board) ctx.board_selection_mode = input.boardSelectionMode;
   return Object.keys(ctx).length ? ctx : null;
 }
 

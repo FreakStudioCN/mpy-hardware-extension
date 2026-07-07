@@ -6,11 +6,14 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { SessionController } from "../extension/session-controller.ts";
+import { listRecentSessions } from "../extension/session-recorder.ts";
 import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, canStartGeneration } from "../core/gen-driver-schema.ts";
+import { SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, orderContactsByLocale } from "../core/support-config.ts";
+import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
@@ -54,6 +57,30 @@ async function ensureGitConfig(projectFolder: string, key: string, value: string
 // pointing it at the open workspace root would clobber those files (e.g. when the
 // dev repo itself is the open folder). A dedicated subfolder makes that impossible.
 const PROJECT_SUBDIR = "blockless-project";
+
+// Best-effort environment diagnostics for a bug report (section 08). Gathers the always-
+// available fields (toolchain version, OS, node, python); session-scoped fields
+// (session id / phase / recent activity) are a follow-up once the controller exposes them.
+function collectDiagnostics(vscode: any): { text: string; fields: Record<string, string> } {
+  let python = "unknown";
+  try {
+    const p = detectPython(vscode);
+    python = p.ok ? (p.version ?? "found") : "not found";
+  } catch {
+    // detection failed (no python / headless) — leave "unknown"
+  }
+  const fields: Record<string, string> = {
+    toolchain_version: BUNDLED_TOOLCHAIN_VERSION,
+    os: `${process.platform} ${process.arch}`,
+    node: process.version,
+    python,
+  };
+  const text = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join("\n");
+  return { text, fields };
+}
+
+// How many past sessions the "View Recent Sessions" launch entry lists (newest first).
+const RECENT_SESSIONS_LIMIT = 20;
 
 // Maps a gen-driver file field's `accept` group to a vscode open-dialog filter.
 const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
@@ -154,6 +181,39 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "request_gen_driver_config") {
       // The panel renders its input tabs from the schema module (single source of truth).
       webview.postMessage({ type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+      return;
+    }
+    if (message.type === "request_support_config") {
+      // Contacts/diagnostics come from the config module (single source of truth), never
+      // hardcoded in the webview render.
+      const contacts = orderContactsByLocale(SUPPORT_CONTACTS, vscode.env?.language ?? "en");
+      webview.postMessage({ type: "support_config", contacts, diagnosticsFields: SUPPORT_DIAGNOSTICS_FIELDS });
+      return;
+    }
+    if (message.type === "request_partners") {
+      // Serve the home partner logos as data URIs (config-driven; logos read from disk).
+      const partners = PARTNERS.map((p) => ({ id: p.id, name: p.name, url: p.url, logo: readPartnerLogo(p.file) })).filter((p) => p.logo);
+      webview.postMessage({ type: "partners_config", partners });
+      return;
+    }
+    if (message.type === "request_diagnostics") {
+      // Gather env diagnostics on demand so a bug report carries an actionable snapshot.
+      webview.postMessage({ type: "diagnostics", ...collectDiagnostics(vscode) });
+      return;
+    }
+    if (message.type === "open_external" && typeof message.url === "string") {
+      // Open a support / partner / board URL in the OS default handler. The webview sandbox
+      // can't openExternal itself, so it asks the host. Some of these URLs are backend-supplied
+      // (a board's official download page), so validate the scheme before handing it off:
+      // allow only http/https/mailto, never file://, UNC, or other exotic schemes.
+      try {
+        const uri = vscode.Uri.parse(message.url, true);
+        if (/^(https?|mailto)$/.test(uri.scheme)) {
+          await vscode.env?.openExternal?.(uri);
+        }
+      } catch {
+        // malformed URL or headless host without openExternal — ignore
+      }
       return;
     }
     if (message.type === "start_gen_driver") {
@@ -266,6 +326,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         availableBoards,
         preSelectedBoard: message.pre_selected_board ?? undefined,
         preferences: { ...(message.preferences ?? {}), locale: vscode.env?.language },
+        boardSelectionMode: message.board_selection_mode,
       });
     }
     if (message.type === "retry_session") {
@@ -334,6 +395,26 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         // command/Uri unavailable (e.g. headless host) — ignore
       }
+    }
+    if (message.type === "import_project") {
+      // Open an existing MicroPython project folder as the workspace root so
+      // generate/deploy target it. Native folder picker, then vscode.openFolder.
+      try {
+        const picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Open Project" });
+        if (picked && picked[0]) await vscode.commands?.executeCommand?.("vscode.openFolder", picked[0]);
+      } catch {
+        // dialog/command unavailable (e.g. headless host) — ignore
+      }
+    }
+    if (message.type === "request_recent_sessions") {
+      // List past session summaries (read-only) from this workspace's .mpyhw/sessions.
+      let sessions: any[] = [];
+      try {
+        if (workspaceFolder) sessions = await listRecentSessions(workspaceFolder, RECENT_SESSIONS_LIMIT);
+      } catch {
+        // unreadable sessions dir — return an empty list, the panel shows its empty state
+      }
+      webview.postMessage({ type: "recent_sessions", sessions });
     }
     if (message.type === "copy_code") {
       // Copy the code card's source to the clipboard via the host (reliable in the
@@ -499,6 +580,20 @@ function makeWorkspaceDeleter(workspaceFolder?: string) {
     try { await rm(target, { recursive: true, force: true }); return { ok: true as const }; }
     catch { return { ok: false as const, error_kind: "delete_failed" }; }
   };
+}
+
+// Read a committed partner logo and inline it as a data URI. Reuses the readWebviewHtml
+// base resolution (src in dev/test, ../../src/webview in the bundled build).
+function readPartnerLogo(file: string): string | null {
+  for (const base of ["./assets/partners/", "../../src/webview/assets/partners/"]) {
+    try {
+      const buf = readFileSync(new URL(base + file, import.meta.url));
+      return `data:image/png;base64,${buf.toString("base64")}`;
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
 }
 
 function readWebviewHtml(): string {

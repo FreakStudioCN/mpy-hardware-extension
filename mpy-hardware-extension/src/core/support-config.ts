@@ -1,0 +1,55 @@
+// Single source of truth for the support / community / feedback config, from Ruili's
+// section-08 deliverable (support-contact-and-feedback-config). Config-driven: the
+// SupportContactPanel renders from this list, contacts are never hardcoded in render
+// logic. Swap the values here when Ruili updates them; the panel doesn't change.
+
+export type SupportContact = {
+  id: string;
+  label: string;
+  value?: string; // copyable text (WeChat id, QQ group, email address)
+  url?: string; // mailto: / https: opened via the host openExternal
+  localePriority?: string[]; // locales that should see this contact first
+  copyable?: boolean; // one-click copy (WeChat / QQ / email)
+};
+
+export const SUPPORT_CONTACTS: readonly SupportContact[] = [
+  { id: "wechat", label: "WeChat Contact", value: "wxinliliszdyyr", localePriority: ["zh-CN"], copyable: true },
+  { id: "qq_group", label: "QQ Group", value: "347622978", localePriority: ["zh-CN"], copyable: true },
+  { id: "email", label: "Email Feedback", value: "1069653183@qq.com", url: "mailto:1069653183@qq.com", copyable: true },
+  { id: "discord", label: "Discord Community", url: "https://discord.gg/EPRn28fJ2", localePriority: ["en", "default"] },
+  { id: "github_repo", label: "GitHub Repository", url: "https://github.com/FreakStudioCN/mpy-hardware-extension" },
+  { id: "github_issues", label: "GitHub Issues", url: "https://github.com/FreakStudioCN/mpy-hardware-extension/issues" },
+];
+
+// Order contacts so the locale's priority entries come first (zh-CN sees WeChat/QQ first;
+// other locales see Discord first via the "default" tag), stable within each group.
+export function orderContactsByLocale(contacts: readonly SupportContact[], locale: string): SupportContact[] {
+  const prioritized = (c: SupportContact): boolean => {
+    const p = c.localePriority ?? [];
+    return p.includes(locale) || (locale !== "zh-CN" && p.includes("default"));
+  };
+  return [...contacts].sort((a, b) => Number(prioritized(b)) - Number(prioritized(a)));
+}
+
+// Fields to gather when reporting an issue (section 08 minimal diagnostics). Keys only —
+// the host fills the values; the panel shows/exports them so a bug report is actionable.
+export const SUPPORT_DIAGNOSTICS_FIELDS = [
+  "session_id",
+  "current_phase",
+  "recent_activity",
+  "key_errors",
+  "artifact_index",
+  "plugin_version",
+  "extension_version",
+  "submodule_commit",
+  "os",
+  "node",
+  "npm",
+  "python",
+  "mpremote",
+  "selected_board",
+  "serial_port",
+  "last_command",
+  "stdout_stderr_summary",
+] as const;
+export type SupportDiagnosticsField = (typeof SUPPORT_DIAGNOSTICS_FIELDS)[number];

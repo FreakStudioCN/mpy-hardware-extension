@@ -29,13 +29,14 @@
           doc_mpy_recheck: "Connected — Re-check to test MicroPython", doc_mpy_probe_failed: "Couldn't check the board",
           empty_diagram_h: "No diagram yet", empty_diagram_p: "When the project architecture is generated, its module layers and run flow appear here.",
           diagram_architecture: "Architecture", diagram_flow: "Run flow", diagram_deps: "Dependencies", diagram_dataflow: "Data flow",
-          welcome_t1: "Where ideas", welcome_t2: "become hardware", welcome_sub: "Hi, welcome to Blockless. Describe the hardware you want in a sentence — I'll pick the board, wire it up, write the code, and flash it to run.", welcome_hint: "↓ Type below to start",
+          welcome_t1: "Where ideas", welcome_t2: "become hardware", welcome_sub: "Hi, welcome to Blockless. Describe the hardware you want in a sentence — I'll pick the board, wire it up, write the code, and flash it to run.", start_workflow: "Start Workflow",
+          import_project: "Import Existing Project", import_project_tip: "Open an existing MicroPython project folder as the workspace", recent_sessions: "Recent Sessions", recent_sessions_tip: "Browse your recent Blockless sessions in this project", recent_empty_h: "No recent sessions", recent_empty_p: "Past Blockless sessions in this project will appear here.",
           empty_serial_h: "No output", empty_serial_p: "Device output streams here after flashing.",
           empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
           serial_monitor: "Serial monitor",
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
-          mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
+          mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_browse: "Browse boards", board_browse_tip: "Browse and pick a specific board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_firmware: "Official firmware", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_details_tip: "Open the official download page", board_firmware_fmt: "firmware:", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
           new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
           deploying: "Deploying…", confirm_wiring: "Confirm wiring & connection…",
@@ -106,13 +107,14 @@
           doc_mpy_recheck: "已连接——点「重新检测」测试 MicroPython", doc_mpy_probe_failed: "无法检测开发板",
           empty_diagram_h: "暂无架构图", empty_diagram_p: "生成项目架构后，模块分层与运行流程会在这里展示。",
           diagram_architecture: "架构分层", diagram_flow: "运行流程", diagram_deps: "依赖关系", diagram_dataflow: "数据流",
-          welcome_t1: "让想法", welcome_t2: "变成硬件", welcome_sub: "你好，欢迎来到 Blockless。用一句话描述你想做的硬件，我来选板子、接线、写代码、烧录运行。", welcome_hint: "↓ 在下面输入，开始",
+          welcome_t1: "让想法", welcome_t2: "变成硬件", welcome_sub: "你好，欢迎来到 Blockless。用一句话描述你想做的硬件，我来选板子、接线、写代码、烧录运行。", start_workflow: "开始工作流",
+          import_project: "导入已有项目", import_project_tip: "打开一个已有的 MicroPython 项目文件夹作为工作区", recent_sessions: "最近会话", recent_sessions_tip: "浏览本项目最近的 Blockless 会话", recent_empty_h: "暂无最近会话", recent_empty_p: "本项目过往的 Blockless 会话会显示在这里。",
           empty_serial_h: "暂无输出", empty_serial_p: "烧录后，设备输出会显示在这里。",
           empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
           serial_monitor: "串口监视器",
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
-          mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡",
+          mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_browse: "浏览板卡", board_browse_tip: "浏览并选择具体板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_firmware: "官方固件", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡", board_details_tip: "打开官方下载页面", board_firmware_fmt: "固件:",
           new_session: "重新开始", new_session_tip: "重新开始项目——会清空当前对话",
           waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",
           deploying: "正在部署…", confirm_wiring: "确认接线与连接…",
@@ -260,9 +262,18 @@
       function setMode(mode) {
         selectedMode = mode === "custom" ? "custom" : "beginner";
         document.querySelectorAll(".mode-chip").forEach((b) => b.classList.toggle("active", b.dataset.mode === selectedMode));
+        vscode.setState({ ...(vscode.getState() || {}), mode: selectedMode }); // remember across panel reopens
       }
       function setBoardPickerVisible(visible) {
         $("boardPicker").classList.toggle("hidden", !visible);
+      }
+      // The board picker body (search + filters + list) is collapsed by default so
+      // it doesn't bury the welcome; Start Workflow and the disclosure open it.
+      function setBoardBodyExpanded(expanded) {
+        $("boardPickerBody").hidden = !expanded;
+        const more = $("boardMore");
+        more.setAttribute("aria-expanded", expanded ? "true" : "false");
+        more.classList.toggle("open", expanded);
       }
       function boardLabel(board) { return board.display_name || board.id || board.download_slug || ""; }
       function optionLabelAll(key) { return tr(key); }
@@ -316,6 +327,22 @@
           && (!feature || (board.features || []).includes(feature));
       }
       function filteredOfficialBoards() { return officialBoards.filter(currentBoardMatches); }
+      // Board-selector doc §3 badges: firmware availability + the local-layout state
+      // (derived from the canonical support_status; local_support is a view helper only).
+      function boardBadges(board) {
+        const badges = [];
+        if (board.firmware) badges.push(tr("board_firmware"));
+        badges.push(board.support_status === "builtin_pin_layout" ? tr("board_builtin") : tr("board_official_only"));
+        return badges;
+      }
+      // The official download page for a board (board-selector doc §3 "Board details").
+      function boardDetailUrl(board) { return board.detail_url || (board.firmware && board.firmware.url) || ""; }
+      // ponytail: the API sends no firmware.format and firmware.url is a download *page*
+      // (no file extension), so we map the port/family to its flashing format — the same
+      // taxonomy the hardware-acceptance cards use (esp32→bin, rp2→uf2, stm32→dfu/hex).
+      // A real backend firmware.format field would supersede this heuristic.
+      var PORT_FIRMWARE_FORMAT = { esp32: "bin", esp8266: "bin", rp2: "uf2", samd: "uf2", stm32: "dfu/hex", nrf: "hex", mimxrt: "hex" };
+      function firmwareFormat(board) { return board.firmware ? (PORT_FIRMWARE_FORMAT[board.port] || "") : ""; }
       function renderBoardPicker() {
         const list = $("boardList"); const status = $("boardStatus");
         if (!list || !status) return;
@@ -327,14 +354,22 @@
         const page = boards.slice(start, start + BOARD_PAGE_SIZE);
         list.innerHTML = page.map((board) => {
           const chosen = selectedOfficialBoard && selectedOfficialBoard.id === board.id;
-          const badge = board.support_status === "builtin_pin_layout" ? tr("board_builtin") : tr("board_official_only");
-          const meta = [board.vendor, board.port, board.mcu, (board.features || []).join("/")].filter(Boolean).join(" | ");
-          return '<button type="button" class="board-card' + (chosen ? ' chosen' : '') + '" data-board-id="' + esc(board.id) + '"><div class="board-card-top"><span>' + esc(boardLabel(board)) + '</span><span class="board-badge">' + esc(badge) + '</span></div><div class="board-meta">' + esc(meta || board.download_slug) + '</div></button>';
+          const badges = boardBadges(board).map((b) => '<span class="board-badge">' + esc(b) + '</span>').join("");
+          const fmt = firmwareFormat(board);
+          const meta = [board.vendor, board.port, board.mcu, (board.features || []).join("/"), fmt ? (tr("board_firmware_fmt") + " " + fmt) : ""].filter(Boolean).join(" | ");
+          const url = boardDetailUrl(board);
+          const detail = url ? '<button type="button" class="board-detail" data-detail-url="' + esc(url) + '" title="' + esc(tr("board_details_tip")) + '" aria-label="' + esc(tr("board_details_tip")) + '"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' : "";
+          return '<div class="board-row"><button type="button" class="board-card' + (chosen ? ' chosen' : '') + '" data-board-id="' + esc(board.id) + '"><div class="board-card-top"><span>' + esc(boardLabel(board)) + '</span><span class="board-badges">' + badges + '</span></div><div class="board-meta">' + esc(meta || board.download_slug) + '</div></button>' + detail + '</div>';
         }).join("");
         list.querySelectorAll(".board-card").forEach((btn) => btn.addEventListener("click", () => {
           selectedOfficialBoard = officialBoards.find((b) => b.id === btn.dataset.boardId) || null;
           $("boardAuto").classList.toggle("chosen", selectedOfficialBoard == null);
           renderBoardPicker();
+        }));
+        // Open the official download page; stop the click so it doesn't also select the card.
+        list.querySelectorAll(".board-detail").forEach((a) => a.addEventListener("click", (e) => {
+          e.stopPropagation();
+          vscode.postMessage({ type: "open_external", url: a.dataset.detailUrl });
         }));
         const total = boards.length;
         status.textContent = total ? (String(start + 1) + "-" + String(start + page.length) + "/" + String(total)) : tr("board_none");
@@ -358,19 +393,34 @@
       }
       document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
       // A global tool opens as a full-body surface over the workflow (stages + composer
-      // hide), not inside the stage content area. ponytail: one tool today; when more
-      // global tools land, take an id here instead of the single toolGenDriver.
+      // hide), not inside the stage content area. Each global tool has its own surface;
+      // opening one shows it and hides the others + the workflow.
       const GLOBAL_TOOL_HIDES = ["#globalTools", "#tabs", ".tabwrap", ".composer"];
-      function openGlobalTool() {
+      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent"];
+      function openGlobalTool(id) {
         for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.add("hidden");
-        $("toolGenDriver").classList.remove("hidden");
+        for (const t of GLOBAL_TOOL_SURFACES) $(t).classList.toggle("hidden", t !== id);
       }
       function closeGlobalTool() {
-        $("toolGenDriver").classList.add("hidden");
+        for (const t of GLOBAL_TOOL_SURFACES) $(t).classList.add("hidden");
         for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.remove("hidden");
       }
-      $("genDriverOpen").addEventListener("click", openGlobalTool);
+      $("genDriverOpen").addEventListener("click", () => openGlobalTool("toolGenDriver"));
       $("genDriverBack").addEventListener("click", closeGlobalTool);
+      $("supportOpen").addEventListener("click", () => openGlobalTool("toolSupport"));
+      $("supportBack").addEventListener("click", closeGlobalTool);
+      // Home hero action: begin a build. The composer is always mounted, so "start"
+      // just reveals the board picker and focuses the prompt (no session yet).
+      // ponytail: the rest of the launch-area inventory (Device Tools=Day-7, Git
+      // history / Save Version per spec 3.8) is still stubbed pending its own cards.
+      $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); setBoardBodyExpanded(true); $("intent").focus(); });
+      // Import Existing Project: host opens a folder picker then reloads on that
+      // folder (no webview surface). Recent Sessions: read-only list of past session
+      // summaries in a global-tool surface; the host serves them from .mpyhw/sessions.
+      $("importProject").addEventListener("click", () => vscode.postMessage({ type: "import_project" }));
+      $("recentSessions").addEventListener("click", () => { openGlobalTool("toolRecent"); vscode.postMessage({ type: "request_recent_sessions" }); });
+      $("recentBack").addEventListener("click", closeGlobalTool);
+      $("boardMore").addEventListener("click", () => setBoardBodyExpanded($("boardPickerBody").hidden));
 
       // ----- composer / working indicator -----
       // The single "AI is working" affordance is the in-feed spinner card
@@ -403,7 +453,9 @@
         setTab("activity"); setBoardPickerVisible(false); setRunning(true);
         const preSelectedBoard = selectedOfficialBoard;
         const boardId = preSelectedBoard && preSelectedBoard.local_board_id ? preSelectedBoard.local_board_id : "auto";
-        vscode.postMessage({ type: "start_session", intent, boardId, pre_selected_board: preSelectedBoard || null, preferences: { mode: selectedMode } });
+        const msg = { type: "start_session", intent, boardId, pre_selected_board: preSelectedBoard || null, preferences: { mode: selectedMode } };
+        if (!preSelectedBoard) msg.board_selection_mode = "recommend"; // board-selector doc §6 recommend path
+        vscode.postMessage(msg);
       });
       // Wipe every per-conversation surface back to its empty state. The host clears
       // its durable state in parallel (reset_session), so the next request is a
@@ -437,6 +489,9 @@
       const ta = $("intent");
       $("modeBeginner").addEventListener("click", () => setMode("beginner"));
       $("modeCustom").addEventListener("click", () => setMode("custom"));
+      // restore the last-used mode across panel reopens (persisted in setMode)
+      const savedMode = (vscode.getState() || {}).mode;
+      if (savedMode) setMode(savedMode);
       $("boardAuto").addEventListener("click", () => { selectedOfficialBoard = null; $("boardAuto").classList.add("chosen"); renderBoardPicker(); });
       $("boardRefresh").addEventListener("click", () => vscode.postMessage({ type: "request_boards" }));
       ["boardSearch", "boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { const el = $(id); el.addEventListener("input", () => { boardPage = 0; renderBoardPicker(); }); el.addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
@@ -1742,6 +1797,78 @@
         if (label) label.textContent = file.name;
       }
 
+      // Home partner-logo area (section-06 doc): host-served logos as data URIs, click
+      // opens the partner site externally. Text fallback if a logo fails to load.
+      function renderPartners(partners) {
+        const root = $("partners"); if (!root) return;
+        root.innerHTML = "";
+        if (!partners || !partners.length) return;
+        const h = document.createElement("div"); h.className = "partners-h"; h.textContent = "Partners";
+        const row = document.createElement("div"); row.className = "partners-row";
+        for (const p of partners) {
+          const a = document.createElement("button"); a.className = "partner"; a.type = "button"; a.title = "Open " + p.name + " website";
+          const img = document.createElement("img"); img.className = "partner-logo"; img.src = p.logo; img.alt = p.name;
+          img.addEventListener("error", () => { a.textContent = p.name; });
+          a.appendChild(img);
+          a.addEventListener("click", () => vscode.postMessage({ type: "open_external", url: p.url }));
+          row.appendChild(a);
+        }
+        root.appendChild(h); root.appendChild(row);
+      }
+      // Read-only list of past session summaries (host-served from .mpyhw/sessions).
+      // Clicking a card reveals its session.jsonl via the host's open_path handler.
+      function renderRecent(sessions) {
+        const box = $("recent"); if (!box) return;
+        box.innerHTML = "";
+        const empty = $("recentEmpty");
+        if (!sessions || !sessions.length) { empty.classList.remove("hidden"); return; }
+        empty.classList.add("hidden");
+        for (const s of sessions) {
+          const card = document.createElement("button"); card.className = "recent-card"; card.type = "button";
+          const title = document.createElement("span"); title.className = "recent-intent"; title.textContent = s.intent || s.id;
+          const meta = document.createElement("span"); meta.className = "recent-meta";
+          const when = s.date ? new Date(s.date).toLocaleString() : "";
+          meta.textContent = s.finalPhase ? (when + " · " + s.finalPhase) : when;
+          card.appendChild(title); card.appendChild(meta);
+          card.addEventListener("click", () => vscode.postMessage({ type: "open_path", path: s.path }));
+          box.appendChild(card);
+        }
+      }
+      function scButton(label, action) {
+        const b = document.createElement("button"); b.className = "sc-btn"; b.type = "button"; b.textContent = label;
+        b.addEventListener("click", action);
+        return b;
+      }
+      // SupportContactPanel: render the host-served (locale-ordered) contacts + a report-issue
+      // section. Contacts are config-driven; copy/mailto/openExternal go through the host.
+      function renderSupport(msg) {
+        const root = $("support"); if (!root) return;
+        $("supportEmpty").classList.add("hidden");
+        root.innerHTML = "";
+        const list = document.createElement("div"); list.className = "sc-list";
+        for (const c of msg.contacts || []) {
+          const row = document.createElement("div"); row.className = "sc-row";
+          const label = document.createElement("span"); label.className = "sc-label"; label.textContent = c.label;
+          const val = document.createElement("span"); val.className = "sc-val"; val.textContent = c.value || c.url || "";
+          row.appendChild(label); row.appendChild(val);
+          if (c.copyable && c.value) row.appendChild(scButton("Copy", () => vscode.postMessage({ type: "copy_code", text: c.value })));
+          if (c.url) row.appendChild(scButton("Open", () => vscode.postMessage({ type: "open_external", url: c.url })));
+          list.appendChild(row);
+        }
+        root.appendChild(list);
+        const report = document.createElement("div"); report.className = "sc-report";
+        const h = document.createElement("div"); h.className = "sc-report-h"; h.textContent = "Report an issue";
+        const note = document.createElement("p"); note.className = "gd-note";
+        note.textContent = "Please include diagnostics: " + (msg.diagnosticsFields || []).join(", ") + ".";
+        report.appendChild(h); report.appendChild(note);
+        const issues = (msg.contacts || []).find((c) => c.id === "github_issues");
+        if (issues && issues.url) report.appendChild(scButton("Open GitHub Issues", () => vscode.postMessage({ type: "open_external", url: issues.url })));
+        report.appendChild(scButton("Copy diagnostics", () => vscode.postMessage({ type: "request_diagnostics" })));
+        const diag = document.createElement("div"); diag.className = "gd-note"; diag.id = "scDiag";
+        report.appendChild(diag);
+        root.appendChild(report);
+      }
+
       window.addEventListener("message", (event) => {
         const msg = event.data;
         if (msg.type === "recipe_imported") { prefillImportedRecipe(msg.payload); }
@@ -1749,6 +1876,13 @@
         if (msg.type === "gen_driver_config") { renderGenDriver(msg.tabs); }
         if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
         if (msg.type === "gen_driver_file_picked") { setGenDriverFile(msg); }
+        if (msg.type === "support_config") { renderSupport(msg); }
+        if (msg.type === "partners_config") { renderPartners(msg.partners); }
+        if (msg.type === "recent_sessions") { renderRecent(msg.sessions); }
+        if (msg.type === "diagnostics") {
+          vscode.postMessage({ type: "copy_code", text: msg.text });
+          const n = $("scDiag"); if (n) n.textContent = "Diagnostics copied to clipboard.";
+        }
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "micropython_boards") { loadOfficialBoards(msg); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
@@ -1877,3 +2011,7 @@
       vscode.postMessage({ type: "run_doctor_check" });
       // Load the gen-driver input tabs from the host (schema is the source of truth).
       vscode.postMessage({ type: "request_gen_driver_config" });
+      // Load the support contacts + diagnostics fields (config is the source of truth).
+      vscode.postMessage({ type: "request_support_config" });
+      // Load the home partner logos (config-driven; host inlines them as data URIs).
+      vscode.postMessage({ type: "request_partners" });
