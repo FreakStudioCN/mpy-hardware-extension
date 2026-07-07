@@ -373,6 +373,36 @@ test("session controller routes confirmComponents to the webview as components_n
   assert.deepEqual(decision, { action: "confirm", devices: ["SSD1306 OLED"], feedback: "加 DHT22" });
 });
 
+test("streamed SSE credit updates reach the webview as a credits session_event (not a swallowed trace_event)", async () => {
+  // The backend emits a live SSE `{ type: "credits", remaining, daily_grant, resets_at }`
+  // after each turn; sse-client maps it to `{ type: "credits", remaining, dailyGrant, resetsAt }`
+  // and agent-loop forwards it to onEvent. The controller must hand it to the webview in the
+  // exact shape the quota bar reads — `{ type: "session_event", event: { kind: "credits",
+  // balance, dailyGrant, resetsAt } }` — or the live balance never updates and the low/exhausted
+  // states never trip mid-build.
+  const messages: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "credits", remaining: 7, dailyGrant: 100, resetsAt: "2026-07-07T00:00:00Z" });
+      return { terminal: "generated" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "b" });
+
+  const credits = messages.find((m) => m.type === "session_event" && m.event?.kind === "credits");
+  assert.ok(credits, "a streamed credits event must post as a session_event the quota bar can read, not be swallowed as a trace_event");
+  assert.equal(credits.event.balance, 7, "the webview reads event.balance — it must carry the stream's `remaining`");
+  assert.equal(credits.event.dailyGrant, 100);
+  assert.equal(credits.event.resetsAt, "2026-07-07T00:00:00Z");
+  assert.equal(
+    messages.some((m) => m.type === "trace_event" && m.event?.type === "credits"),
+    false,
+    "the raw SSE credits event must not fall through to the generic trace_event branch",
+  );
+});
+
 test("session controller forwards a loop summary event to the webview as a summary message", async () => {
   const messages: any[] = [];
   const controller = new SessionController({
