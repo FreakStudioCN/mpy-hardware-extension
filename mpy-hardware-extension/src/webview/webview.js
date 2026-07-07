@@ -367,19 +367,22 @@
       }
       document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setTab(t.dataset.tab)));
       // A global tool opens as a full-body surface over the workflow (stages + composer
-      // hide), not inside the stage content area. ponytail: one tool today; when more
-      // global tools land, take an id here instead of the single toolGenDriver.
+      // hide), not inside the stage content area. Each global tool has its own surface;
+      // opening one shows it and hides the others + the workflow.
       const GLOBAL_TOOL_HIDES = ["#globalTools", "#tabs", ".tabwrap", ".composer"];
-      function openGlobalTool() {
+      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport"];
+      function openGlobalTool(id) {
         for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.add("hidden");
-        $("toolGenDriver").classList.remove("hidden");
+        for (const t of GLOBAL_TOOL_SURFACES) $(t).classList.toggle("hidden", t !== id);
       }
       function closeGlobalTool() {
-        $("toolGenDriver").classList.add("hidden");
+        for (const t of GLOBAL_TOOL_SURFACES) $(t).classList.add("hidden");
         for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.remove("hidden");
       }
-      $("genDriverOpen").addEventListener("click", openGlobalTool);
+      $("genDriverOpen").addEventListener("click", () => openGlobalTool("toolGenDriver"));
       $("genDriverBack").addEventListener("click", closeGlobalTool);
+      $("supportOpen").addEventListener("click", () => openGlobalTool("toolSupport"));
+      $("supportBack").addEventListener("click", closeGlobalTool);
 
       // ----- composer / working indicator -----
       // The single "AI is working" affordance is the in-feed spinner card
@@ -1756,6 +1759,38 @@
         if (label) label.textContent = file.name;
       }
 
+      function scButton(label, action) {
+        const b = document.createElement("button"); b.className = "sc-btn"; b.type = "button"; b.textContent = label;
+        b.addEventListener("click", action);
+        return b;
+      }
+      // SupportContactPanel: render the host-served (locale-ordered) contacts + a report-issue
+      // section. Contacts are config-driven; copy/mailto/openExternal go through the host.
+      function renderSupport(msg) {
+        const root = $("support"); if (!root) return;
+        $("supportEmpty").classList.add("hidden");
+        root.innerHTML = "";
+        const list = document.createElement("div"); list.className = "sc-list";
+        for (const c of msg.contacts || []) {
+          const row = document.createElement("div"); row.className = "sc-row";
+          const label = document.createElement("span"); label.className = "sc-label"; label.textContent = c.label;
+          const val = document.createElement("span"); val.className = "sc-val"; val.textContent = c.value || c.url || "";
+          row.appendChild(label); row.appendChild(val);
+          if (c.copyable && c.value) row.appendChild(scButton("Copy", () => vscode.postMessage({ type: "copy_code", text: c.value })));
+          if (c.url) row.appendChild(scButton("Open", () => vscode.postMessage({ type: "open_external", url: c.url })));
+          list.appendChild(row);
+        }
+        root.appendChild(list);
+        const report = document.createElement("div"); report.className = "sc-report";
+        const h = document.createElement("div"); h.className = "sc-report-h"; h.textContent = "Report an issue";
+        const note = document.createElement("p"); note.className = "gd-note";
+        note.textContent = "Please include diagnostics: " + (msg.diagnosticsFields || []).join(", ") + ".";
+        report.appendChild(h); report.appendChild(note);
+        const issues = (msg.contacts || []).find((c) => c.id === "github_issues");
+        if (issues && issues.url) report.appendChild(scButton("Open GitHub Issues", () => vscode.postMessage({ type: "open_external", url: issues.url })));
+        root.appendChild(report);
+      }
+
       window.addEventListener("message", (event) => {
         const msg = event.data;
         if (msg.type === "recipe_imported") { prefillImportedRecipe(msg.payload); }
@@ -1763,6 +1798,7 @@
         if (msg.type === "gen_driver_config") { renderGenDriver(msg.tabs); }
         if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
         if (msg.type === "gen_driver_file_picked") { setGenDriverFile(msg); }
+        if (msg.type === "support_config") { renderSupport(msg); }
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "micropython_boards") { loadOfficialBoards(msg); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
@@ -1891,3 +1927,5 @@
       vscode.postMessage({ type: "run_doctor_check" });
       // Load the gen-driver input tabs from the host (schema is the source of truth).
       vscode.postMessage({ type: "request_gen_driver_config" });
+      // Load the support contacts + diagnostics fields (config is the source of truth).
+      vscode.postMessage({ type: "request_support_config" });

@@ -102,6 +102,15 @@
       .tool-back:hover { color: var(--fg-bright); }
       .tool-title { font-size: 12px; font-weight: 650; color: var(--fg-bright); }
       .tool-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+      .sc-list { display: flex; flex-direction: column; gap: 6px; padding: 8px 4px; }
+      .sc-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+      .sc-label { flex: 0 0 auto; color: var(--fg-dim); min-width: 120px; }
+      .sc-val { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .sc-btn { flex: 0 0 auto; font: inherit; font-size: 12px; padding: 3px 10px; cursor: pointer;
+        color: var(--fg); background: transparent; border: 1px solid var(--vsc-border); border-radius: 4px; }
+      .sc-btn:hover { border-color: var(--accent); color: var(--fg-bright); }
+      .sc-report { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--vsc-border); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+      .sc-report-h { font-size: 12px; font-weight: 650; color: var(--fg-bright); }
       .tabwrap::-webkit-scrollbar { width: 10px; }
       .tabwrap::-webkit-scrollbar-thumb { background: #ffffff1a; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
       .tabwrap::-webkit-scrollbar-thumb:hover { background: #ffffff33; background-clip: padding-box; }

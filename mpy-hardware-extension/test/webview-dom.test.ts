@@ -171,6 +171,52 @@ test("the recommend path sends board_selection_mode=recommend; selecting a board
   assert.equal(s2.board_selection_mode, undefined, "board_selection_mode omitted when a board is chosen");
 });
 
+test("the support panel opens from global tools and drives config-driven contacts", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  assert.ok(posted.some((m) => m.type === "request_support_config"), "requests support config on load");
+
+  (document.querySelector("#globalTools #supportOpen") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("toolSupport")!.classList.contains("hidden"), false, "support surface shown");
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), true, "workflow hidden while the tool is open");
+
+  post(dom, {
+    type: "support_config",
+    contacts: [
+      { id: "wechat", label: "WeChat Contact", value: "wxinliliszdyyr", copyable: true },
+      { id: "discord", label: "Discord Community", url: "https://discord.gg/EPRn28fJ2" },
+      { id: "github_issues", label: "GitHub Issues", url: "https://github.com/FreakStudioCN/mpy-hardware-extension/issues" },
+    ],
+    diagnosticsFields: ["session_id", "submodule_commit"],
+  });
+  const support = document.getElementById("support")!;
+  assert.match(support.textContent!, /WeChat Contact/);
+  assert.match(support.textContent!, /Discord Community/);
+  assert.match(support.textContent!, /Report an issue/);
+  assert.match(support.textContent!, /session_id/, "diagnostics fields are listed");
+
+  // copy the WeChat id via the host clipboard
+  posted.length = 0;
+  const wechatRow = [...support.querySelectorAll(".sc-row")].find((r) => r.textContent!.includes("WeChat"))!;
+  (wechatRow.querySelector(".sc-btn") as HTMLButtonElement).click();
+  const copy = posted.find((m) => m.type === "copy_code");
+  assert.ok(copy, "copy posts copy_code");
+  assert.equal(copy.text, "wxinliliszdyyr");
+
+  // report an issue opens GitHub Issues externally
+  posted.length = 0;
+  const reportBtn = [...support.querySelectorAll(".sc-btn")].find((b) => b.textContent === "Open GitHub Issues") as HTMLButtonElement;
+  reportBtn.click();
+  const ext = posted.find((m) => m.type === "open_external");
+  assert.ok(ext, "posts open_external");
+  assert.match(ext.url, /github\.com/);
+
+  (document.getElementById("supportBack") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("toolSupport")!.classList.contains("hidden"), true, "Back closes the support surface");
+});
+
 test("board picker exposes refresh and stale cache state", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
