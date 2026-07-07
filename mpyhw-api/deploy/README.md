@@ -65,7 +65,9 @@ If this isn't updated, sign-in breaks after the move even though the API is up.
 ## Database
 
 `compose.yml` bundles Postgres with a named volume  -  a clean, fresh start (app builds its own
-schema on boot). For a managed Postgres, delete the `db:` service and point `DATABASE_URL` at it.
+schema on boot). You set the DB password once (`POSTGRES_PASSWORD` in `.env`); compose assembles
+`DATABASE_URL` from it. For a managed Postgres, delete the `db:` service and set `DATABASE_URL`
+directly in `compose.yml`'s `environment:` to your instance.
 
 ## Verify it's up
 

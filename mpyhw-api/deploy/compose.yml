@@ -34,6 +34,9 @@ services:
       MPYHW_ENV: prod          # turns on strict secret validation + prod behavior
       PORT: "8080"
       WEB_CONCURRENCY: "1"      # prod is single-worker (in-process session/rate-limit state)
+      # DATABASE_URL is assembled from POSTGRES_PASSWORD (single source of truth) for the bundled
+      # `db` service. For a managed/external Postgres, replace this line with your own DSN.
+      DATABASE_URL: postgresql://mpyhw:${POSTGRES_PASSWORD}@db:5432/mpyhw
     expose:
       - "8080"                 # visible to Caddy over `edge`, NOT published to the host
     networks: [edge, internal]
