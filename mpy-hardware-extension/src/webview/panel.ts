@@ -317,6 +317,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         availableBoards,
         preSelectedBoard: message.pre_selected_board ?? undefined,
         preferences: { ...(message.preferences ?? {}), locale: vscode.env?.language },
+        boardSelectionMode: message.board_selection_mode,
       });
     }
     if (message.type === "retry_session") {

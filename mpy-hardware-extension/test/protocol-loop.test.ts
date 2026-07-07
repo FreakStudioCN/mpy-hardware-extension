@@ -227,6 +227,32 @@ test("the request body carries a context block (pre_selected_board + preferences
   assert.equal(sentBody.context.existing_hardware, "ESP32-C3 + DHT22");
 });
 
+test("the recommend path carries board_selection_mode in the context; a picked board omits it", async () => {
+  // #43: when the user asks the system to recommend (no pre_selected_board), the server must
+  // receive board_selection_mode: "recommend". When a board is picked, the flag is redundant and dropped.
+  let recommendBody: any = null;
+  let pickedBody: any = null;
+  const mk = (sink: (b: any) => void) => ({
+    streamMessages: async (body: any) => {
+      sink(body);
+      return (async function* () { yield tu("p", "phase_complete", { result: "success", next_phase: null, manifest_content: {} }); yield stop; })();
+    },
+  });
+  await runProtocolBuild(
+    { intent: "pick one", boardId: "auto", boardSelectionMode: "recommend" },
+    { llmClient: mk((b) => { recommendBody = b; }) },
+  );
+  assert.equal(recommendBody.context.board_selection_mode, "recommend", "recommend flag reaches the server context");
+  assert.equal(recommendBody.context.pre_selected_board, undefined, "no board on the recommend path");
+
+  await runProtocolBuild(
+    { intent: "this one", boardId: "esp32-c3-devkitm-1", preSelectedBoard: { id: "esp32-c3-devkitm-1" }, boardSelectionMode: "recommend" },
+    { llmClient: mk((b) => { pickedBody = b; }) },
+  );
+  assert.equal(pickedBody.context.board_selection_mode, undefined, "a picked board drops the redundant recommend flag");
+  assert.deepEqual(pickedBody.context.pre_selected_board, { id: "esp32-c3-devkitm-1" });
+});
+
 
 test("protocol build carries a full pre_selected_board object when the UI selected one", async () => {
   let sentBody: any = null;

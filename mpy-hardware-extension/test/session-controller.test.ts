@@ -48,6 +48,22 @@ test("carries start() preferences into the loop input so the server gets the use
   assert.equal(loopInput.preferences?.mode, "beginner");
 });
 
+test("carries the recommend board_selection_mode into the loop (not dropped at the host)", async () => {
+  // #43: the webview emits board_selection_mode: "recommend" on the no-board path; the host
+  // must forward it so the server knows the user asked it to pick, and must clear it on a fresh session.
+  const inputs: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async (input: any) => { inputs.push(input); return { terminal: "complete" }; },
+  });
+
+  await controller.start({ intent: "recommend me a board", boardId: "auto", boardSelectionMode: "recommend" });
+  assert.equal(inputs[0].boardSelectionMode, "recommend", "recommend flag reaches the loop input");
+
+  await controller.start({ intent: "now a specific one", boardId: "rpi-pico-w" }); // fresh session, no flag
+  assert.equal(inputs[1].boardSelectionMode, undefined, "a fresh session does not inherit the stale recommend flag");
+});
+
 test("a fresh session (board change / reset) does not inherit stale preferences", async () => {
   // Codex review of #3: preferences are session-level; a new board or a reset must not
   // ground an unrelated build with the previous session's context.
