@@ -4,7 +4,7 @@
 # Constraints this stack respects (from the ops owner):
 #   - Container only: the image is built from mpyhw-api/Dockerfile; no raw code runs on the host.
 #   - No host :80/:443 grab. The API is reachable ONLY on the shared Docker network; Caddy
-#     reverse-proxies to `api:8080` by name (see deploy/Caddyfile.snippet). No host port published.
+#     reverse-proxies to `mpyhw-api:8080` by name (see deploy/Caddyfile.snippet). No host port published.
 #   - Single worker in prod: session/rate-limit state is in-process (WEB_CONCURRENCY stays 1).
 #
 # IMPORTANT: the image builds from the REPO ROOT (context: ../..) because it needs
@@ -17,12 +17,16 @@
 name: mpyhw
 
 services:
-  api:
-    # Path A (default)  -  build from source. Context is the repo root; Dockerfile is under mpyhw-api/.
+  # Named `mpyhw-api` (not the generic `api`) so it can't collide with another service on the
+  # shared Caddy network.
+  mpyhw-api:
+    # Path A  -  build the image from source. Needs THIS repo + submodules present wherever you
+    # run compose (context is the repo root; Dockerfile is under mpyhw-api/).
     build:
       context: ../..
       dockerfile: mpyhw-api/Dockerfile
-    # Path B  -  or pull a prebuilt image (comment out `build:` above) once CI publishes one:
+    # Path B (if you'd rather NOT have the repo on the server)  -  pull a prebuilt image instead:
+    # comment out the `build:` block above and set this to the image our CI publishes.
     # image: ghcr.io/CHANGE-ME-ORG/mpyhw-api:0.4.0
     restart: unless-stopped
     env_file: [.env]

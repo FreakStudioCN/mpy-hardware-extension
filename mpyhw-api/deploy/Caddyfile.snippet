@@ -1,18 +1,21 @@
 # Add this block to your existing Caddyfile. Caddy auto-provisions TLS (Let's Encrypt) for a
 # real, publicly-resolvable hostname  -  no cert work on our side.
 #
-# Prerequisite: the `api` container and Caddy share a Docker network (the `edge` / caddy_net
-# network in deploy/compose.yml), so Caddy can reach the service by name `api`.
+# Prerequisite: the `mpyhw-api` container and Caddy share a Docker network (the `edge` / caddy_net
+# network in deploy/compose.yml), so Caddy can reach the service by name `mpyhw-api`.
+# (The service is deliberately named `mpyhw-api`, not the generic `api`, to avoid colliding with
+#  any other service on the shared Caddy network.)
 
-api.block-less.com {             # <-- the hostname the plugin backend is served at (a domain you control DNS for)
-    reverse_proxy api:8080
+api.block-less.com {                 # <-- the hostname the plugin backend is served at (a domain you control DNS for)
+    reverse_proxy mpyhw-api:8080
 }
 
 # -----------------------------------------------------------------------------
-# Alternative: if Caddy runs on the HOST (not in Docker), it can't resolve `api` by name.
+# Alternative: if Caddy runs on the HOST (not in Docker), it can't resolve `mpyhw-api` by name.
 # Then in compose.yml replace `expose: ["8080"]` with `ports: ["127.0.0.1:8080:8080"]`
-# (loopback only  -  still no public :80/:443 grab) and use:
+# (loopback only  -  still no public :80/:443 grab). If host port 8080 is already taken, pick any
+# free loopback port, e.g. `ports: ["127.0.0.1:8090:8080"]`, and point Caddy at that port:
 #
 # api.block-less.com {
-#     reverse_proxy 127.0.0.1:8080
+#     reverse_proxy 127.0.0.1:8090
 # }
