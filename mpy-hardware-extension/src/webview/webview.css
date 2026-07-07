@@ -352,6 +352,9 @@
       .board-cache-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .board-cache-status { min-width: 0; color: var(--fg-dim); font-size: 10.5px; min-height: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .board-list { display: grid; gap: 5px; max-height: 168px; overflow: auto; }
+      .board-row { display: flex; flex-direction: column; }
+      .board-detail { align-self: flex-start; margin: 3px 0 0 2px; font-size: 10.5px; color: var(--accent); cursor: pointer; text-decoration: none; }
+      .board-detail:hover { text-decoration: underline; }
       .board-card { width: 100%; border: 1px solid var(--vsc-card-border); background: #151518; color: var(--fg); border-radius: 7px; padding: 8px; text-align: left; cursor: pointer; }
       .board-card:hover, .board-card.chosen { border-color: var(--accent); }
       /* wrap so the badges drop below the name on a narrow panel instead of

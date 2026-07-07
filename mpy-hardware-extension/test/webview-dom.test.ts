@@ -151,6 +151,29 @@ test("board cards show the 3-way badges (firmware + local-layout state)", async 
   assert.doesNotMatch(officialOnly, /Pin layout/, "no local-layout badge without builtin_pin_layout");
 });
 
+test("board cards show a firmware format and a details link that opens the download page (not selecting the card)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    boards: [
+      { id: "esp32-s3-devkitc", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: ["WiFi"], firmware: { url: "https://micropython.org/download/ESP32_GENERIC_S3/" }, support_status: "official_firmware_only" },
+    ],
+  });
+  const row = document.querySelector('.board-row')!;
+  assert.match(row.querySelector(".board-meta")!.textContent!, /firmware: bin/, "esp32 port → bin firmware format");
+
+  const link = row.querySelector(".board-detail") as HTMLAnchorElement;
+  assert.ok(link, "a details link is rendered when a download URL exists");
+  posted.length = 0;
+  link.click();
+  const ext = posted.find((m) => m.type === "open_external");
+  assert.ok(ext, "clicking details opens the page externally");
+  assert.match(ext.url, /micropython\.org\/download\/ESP32_GENERIC_S3/);
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("chosen"), true, "details click does not select the board (stopPropagation)");
+});
+
 test("the recommend path sends board_selection_mode=recommend; selecting a board omits it", async () => {
   const recommend: any[] = [];
   const d1 = await loadWebview(recommend);
