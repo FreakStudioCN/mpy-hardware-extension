@@ -35,7 +35,7 @@
           serial_monitor: "Serial monitor",
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
-          mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
+          mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_firmware: "Official firmware", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
           new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
           deploying: "Deploying…", confirm_wiring: "Confirm wiring & connection…",
@@ -112,7 +112,7 @@
           serial_monitor: "串口监视器",
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
-          mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡",
+          mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_firmware: "官方固件", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡",
           new_session: "重新开始", new_session_tip: "重新开始项目——会清空当前对话",
           waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",
           deploying: "正在部署…", confirm_wiring: "确认接线与连接…",
@@ -317,6 +317,14 @@
           && (!feature || (board.features || []).includes(feature));
       }
       function filteredOfficialBoards() { return officialBoards.filter(currentBoardMatches); }
+      // Board-selector doc §3 badges: firmware availability + the local-layout state
+      // (derived from the canonical support_status; local_support is a view helper only).
+      function boardBadges(board) {
+        const badges = [];
+        if (board.firmware) badges.push(tr("board_firmware"));
+        badges.push(board.support_status === "builtin_pin_layout" ? tr("board_builtin") : tr("board_official_only"));
+        return badges;
+      }
       function renderBoardPicker() {
         const list = $("boardList"); const status = $("boardStatus");
         if (!list || !status) return;
@@ -328,9 +336,9 @@
         const page = boards.slice(start, start + BOARD_PAGE_SIZE);
         list.innerHTML = page.map((board) => {
           const chosen = selectedOfficialBoard && selectedOfficialBoard.id === board.id;
-          const badge = board.support_status === "builtin_pin_layout" ? tr("board_builtin") : tr("board_official_only");
+          const badges = boardBadges(board).map((b) => '<span class="board-badge">' + esc(b) + '</span>').join("");
           const meta = [board.vendor, board.port, board.mcu, (board.features || []).join("/")].filter(Boolean).join(" | ");
-          return '<button type="button" class="board-card' + (chosen ? ' chosen' : '') + '" data-board-id="' + esc(board.id) + '"><div class="board-card-top"><span>' + esc(boardLabel(board)) + '</span><span class="board-badge">' + esc(badge) + '</span></div><div class="board-meta">' + esc(meta || board.download_slug) + '</div></button>';
+          return '<button type="button" class="board-card' + (chosen ? ' chosen' : '') + '" data-board-id="' + esc(board.id) + '"><div class="board-card-top"><span>' + esc(boardLabel(board)) + '</span><span class="board-badges">' + badges + '</span></div><div class="board-meta">' + esc(meta || board.download_slug) + '</div></button>';
         }).join("");
         list.querySelectorAll(".board-card").forEach((btn) => btn.addEventListener("click", () => {
           selectedOfficialBoard = officialBoards.find((b) => b.id === btn.dataset.boardId) || null;
@@ -404,7 +412,9 @@
         setTab("activity"); setBoardPickerVisible(false); setRunning(true);
         const preSelectedBoard = selectedOfficialBoard;
         const boardId = preSelectedBoard && preSelectedBoard.local_board_id ? preSelectedBoard.local_board_id : "auto";
-        vscode.postMessage({ type: "start_session", intent, boardId, pre_selected_board: preSelectedBoard || null, preferences: { mode: selectedMode } });
+        const msg = { type: "start_session", intent, boardId, pre_selected_board: preSelectedBoard || null, preferences: { mode: selectedMode } };
+        if (!preSelectedBoard) msg.board_selection_mode = "recommend"; // board-selector doc §6 recommend path
+        vscode.postMessage(msg);
       });
       // Wipe every per-conversation surface back to its empty state. The host clears
       // its durable state in parallel (reset_session), so the next request is a

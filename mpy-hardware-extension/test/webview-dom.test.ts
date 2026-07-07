@@ -130,6 +130,47 @@ test("the last-used preference mode persists across panel reopens", async () => 
   assert.equal(beginner.classList.contains("active"), false, "beginner is no longer the active chip");
 });
 
+test("board cards show the 3-way badges (firmware + local-layout state)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    source_url: "https://micropython.org/download/",
+    fetched_at: "2026-06-20T00:07:34+00:00",
+    boards: [
+      { id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: ["WiFi"], firmware: { board_name: "ESP32_GENERIC_S3" }, support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" },
+      { id: "PYBD_SF2", display_name: "Pyboard D-series SF2", vendor: "George Robotics", port: "stm32", mcu: "stm32f722", features: [], firmware: { board_name: "PYBD_SF2" }, support_status: "official_firmware_only" },
+    ],
+  });
+  const builtin = document.querySelector('.board-card[data-board-id="esp32-s3-devkitc"]')!.textContent!;
+  const officialOnly = document.querySelector('.board-card[data-board-id="PYBD_SF2"]')!.textContent!;
+  assert.match(builtin, /Official firmware/, "firmware badge shown");
+  assert.match(builtin, /Pin layout/, "local-layout badge for a builtin_pin_layout board");
+  assert.match(officialOnly, /Official firmware/, "firmware badge shown");
+  assert.match(officialOnly, /Official only/, "official-only badge when no local layout");
+  assert.doesNotMatch(officialOnly, /Pin layout/, "no local-layout badge without builtin_pin_layout");
+});
+
+test("the recommend path sends board_selection_mode=recommend; selecting a board omits it", async () => {
+  const recommend: any[] = [];
+  const d1 = await loadWebview(recommend);
+  (d1.window.document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (d1.window.document.getElementById("generate") as HTMLButtonElement).click();
+  const s1 = recommend.find((m) => m.type === "start_session");
+  assert.equal(s1.pre_selected_board, null, "no board selected");
+  assert.equal(s1.board_selection_mode, "recommend");
+
+  const selected: any[] = [];
+  const d2 = await loadWebview(selected);
+  post(d2, { type: "micropython_boards", boards: [{ id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: [], firmware: { board_name: "X" }, support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" }] });
+  (d2.window.document.querySelector('.board-card[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+  (d2.window.document.getElementById("intent") as HTMLTextAreaElement).value = "temp sensor";
+  (d2.window.document.getElementById("generate") as HTMLButtonElement).click();
+  const s2 = selected.find((m) => m.type === "start_session");
+  assert.ok(s2.pre_selected_board, "a board is selected");
+  assert.equal(s2.board_selection_mode, undefined, "board_selection_mode omitted when a board is chosen");
+});
+
 test("board picker exposes refresh and stale cache state", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
