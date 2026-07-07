@@ -1,7 +1,7 @@
 # Deploying mpyhw-api behind Caddy (server migration)
 
 Everything the ops owner needs to run the **plugin / VS Code extension backend** as a container
-behind an existing Caddy reverse proxy — no host-level code, no `:80/:443` grab. This is the
+behind an existing Caddy reverse proxy  -  no host-level code, no `:80/:443` grab. This is the
 Caddy-based counterpart to [DEPLOY.md](../DEPLOY.md) (which covers the Render Blueprint).
 
 ## What's here
@@ -23,29 +23,29 @@ on `/v1/health`, listens on `8080`.
   docker compose -f mpyhw-api/deploy/compose.yml --env-file mpyhw-api/deploy/.env up -d --build
   ```
   The build context is the **repo root** (the image also needs `contracts/`); raw code never runs
-  on the host — it's compiled into an image first.
+  on the host  -  it's compiled into an image first.
 - **Pull a prebuilt image.** If you'd rather not build on the server, we can add a CI job that
   publishes `ghcr.io/<org>/mpyhw-api:<tag>`; then swap `build:` for `image:` in `compose.yml`.
 
 ## Networking / Caddy
 
-- The API is **not** published to the host — only on the shared Docker network, reached by Caddy
+- The API is **not** published to the host  -  only on the shared Docker network, reached by Caddy
   as `api:8080`. Set the real Caddy network name under `networks: edge:` in `compose.yml`.
 - Add the `Caddyfile.snippet` block at the hostname the backend should live at (`api.block-less.com`).
 
 ## Secrets we (Blockless side) still owe you
 
-Not in the repo — provide out-of-band (not pasted into the chat group):
+Not in the repo  -  provide out-of-band (not pasted into the chat group):
 
-1. `DEEPSEEK_API_KEY` — a **fresh** DeepSeek key (the previous one is dead).
-2. `MPYHW_GITHUB_CLIENT_ID` / `MPYHW_GITHUB_CLIENT_SECRET` — the extension's GitHub sign-in.
-3. `MPYHW_JWT_SECRET`, `MPYHW_ADMIN_TOKEN`, `POSTGRES_PASSWORD` — random (`openssl rand -hex 32`).
+1. `DEEPSEEK_API_KEY`  -  a **fresh** DeepSeek key (the previous one is dead).
+2. `MPYHW_GITHUB_CLIENT_ID` / `MPYHW_GITHUB_CLIENT_SECRET`  -  the extension's GitHub sign-in.
+3. `MPYHW_JWT_SECRET`, `MPYHW_ADMIN_TOKEN`, `POSTGRES_PASSWORD`  -  random (`openssl rand -hex 32`).
 
-## GitHub OAuth callback — must be updated for the new host
+## GitHub OAuth callback  -  must be updated for the new host
 
 Login builds its callback from `MPYHW_PUBLIC_API_BASE`. After migration set it to
 `https://api.block-less.com`, and register this exact callback in the GitHub OAuth app
-(github.com → Settings → Developer settings → OAuth Apps):
+(github.com -> Settings -> Developer settings -> OAuth Apps):
 
 ```
 https://api.block-less.com/v1/auth/github/callback
@@ -55,7 +55,7 @@ If this isn't updated, sign-in breaks after the move even though the API is up.
 
 ## Database
 
-`compose.yml` bundles Postgres with a named volume — a clean, fresh start (app builds its own
+`compose.yml` bundles Postgres with a named volume  -  a clean, fresh start (app builds its own
 schema on boot). For a managed Postgres, delete the `db:` service and point `DATABASE_URL` at it.
 
 ## Verify it's up

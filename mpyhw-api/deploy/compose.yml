@@ -1,4 +1,4 @@
-# deploy/compose.yml — run mpyhw-api (the plugin / VS Code extension backend) behind an
+# deploy/compose.yml  -  run mpyhw-api (the plugin / VS Code extension backend) behind an
 # EXISTING Caddy reverse proxy, on ben0i0d's server.
 #
 # Constraints this stack respects (from the ops owner):
@@ -18,11 +18,11 @@ name: mpyhw
 
 services:
   api:
-    # Path A (default) — build from source. Context is the repo root; Dockerfile is under mpyhw-api/.
+    # Path A (default)  -  build from source. Context is the repo root; Dockerfile is under mpyhw-api/.
     build:
       context: ../..
       dockerfile: mpyhw-api/Dockerfile
-    # Path B — or pull a prebuilt image (comment out `build:` above) once CI publishes one:
+    # Path B  -  or pull a prebuilt image (comment out `build:` above) once CI publishes one:
     # image: ghcr.io/CHANGE-ME-ORG/mpyhw-api:0.4.0
     restart: unless-stopped
     env_file: [.env]
@@ -43,7 +43,7 @@ services:
       retries: 3
       start_period: 15s
 
-  # Bundled Postgres — clean "start fresh" deploy; the app creates its schema on boot
+  # Bundled Postgres  -  clean "start fresh" deploy; the app creates its schema on boot
   # (CREATE TABLE IF NOT EXISTS in app/db.py). For a managed Postgres, delete this service
   # and point DATABASE_URL in deploy/.env at your instance instead.
   db:
