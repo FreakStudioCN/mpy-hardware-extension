@@ -11,6 +11,7 @@ import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, canStartGeneration } from "../core/gen-driver-schema.ts";
+import { SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, orderContactsByLocale } from "../core/support-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
@@ -154,6 +155,23 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "request_gen_driver_config") {
       // The panel renders its input tabs from the schema module (single source of truth).
       webview.postMessage({ type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+      return;
+    }
+    if (message.type === "request_support_config") {
+      // Contacts/diagnostics come from the config module (single source of truth), never
+      // hardcoded in the webview render.
+      const contacts = orderContactsByLocale(SUPPORT_CONTACTS, vscode.env?.language ?? "en");
+      webview.postMessage({ type: "support_config", contacts, diagnosticsFields: SUPPORT_DIAGNOSTICS_FIELDS });
+      return;
+    }
+    if (message.type === "open_external" && typeof message.url === "string") {
+      // Open a support URL (Discord / GitHub / mailto) in the OS default handler. The
+      // webview sandbox can't openExternal itself, so it asks the host.
+      try {
+        await vscode.env?.openExternal?.(vscode.Uri.parse(message.url));
+      } catch {
+        // headless host without openExternal — ignore
+      }
       return;
     }
     if (message.type === "start_gen_driver") {
