@@ -262,6 +262,17 @@ test("home partner logos render from config and open the site externally on clic
   assert.match(ext.url, /wiznet\.io/);
 });
 
+test("Start Workflow reveals the board picker and focuses the prompt", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+
+  document.getElementById("boardPicker")!.classList.add("hidden");
+  (document.getElementById("startWorkflow") as HTMLButtonElement).click();
+
+  assert.equal(document.getElementById("boardPicker")!.classList.contains("hidden"), false, "board picker shown");
+  assert.equal(document.activeElement, document.getElementById("intent"), "prompt is focused");
+});
+
 test("board picker exposes refresh and stale cache state", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

@@ -29,7 +29,7 @@
           doc_mpy_recheck: "Connected — Re-check to test MicroPython", doc_mpy_probe_failed: "Couldn't check the board",
           empty_diagram_h: "No diagram yet", empty_diagram_p: "When the project architecture is generated, its module layers and run flow appear here.",
           diagram_architecture: "Architecture", diagram_flow: "Run flow", diagram_deps: "Dependencies", diagram_dataflow: "Data flow",
-          welcome_t1: "Where ideas", welcome_t2: "become hardware", welcome_sub: "Hi, welcome to Blockless. Describe the hardware you want in a sentence — I'll pick the board, wire it up, write the code, and flash it to run.", welcome_hint: "↓ Type below to start",
+          welcome_t1: "Where ideas", welcome_t2: "become hardware", welcome_sub: "Hi, welcome to Blockless. Describe the hardware you want in a sentence — I'll pick the board, wire it up, write the code, and flash it to run.", start_workflow: "Start Workflow",
           empty_serial_h: "No output", empty_serial_p: "Device output streams here after flashing.",
           empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
           serial_monitor: "Serial monitor",
@@ -106,7 +106,7 @@
           doc_mpy_recheck: "已连接——点「重新检测」测试 MicroPython", doc_mpy_probe_failed: "无法检测开发板",
           empty_diagram_h: "暂无架构图", empty_diagram_p: "生成项目架构后，模块分层与运行流程会在这里展示。",
           diagram_architecture: "架构分层", diagram_flow: "运行流程", diagram_deps: "依赖关系", diagram_dataflow: "数据流",
-          welcome_t1: "让想法", welcome_t2: "变成硬件", welcome_sub: "你好，欢迎来到 Blockless。用一句话描述你想做的硬件，我来选板子、接线、写代码、烧录运行。", welcome_hint: "↓ 在下面输入，开始",
+          welcome_t1: "让想法", welcome_t2: "变成硬件", welcome_sub: "你好，欢迎来到 Blockless。用一句话描述你想做的硬件，我来选板子、接线、写代码、烧录运行。", start_workflow: "开始工作流",
           empty_serial_h: "暂无输出", empty_serial_p: "烧录后，设备输出会显示在这里。",
           empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
           serial_monitor: "串口监视器",
@@ -383,6 +383,12 @@
       $("genDriverBack").addEventListener("click", closeGlobalTool);
       $("supportOpen").addEventListener("click", () => openGlobalTool("toolSupport"));
       $("supportBack").addEventListener("click", closeGlobalTool);
+      // Home hero action: begin a build. The composer is always mounted, so "start"
+      // just reveals the board picker and focuses the prompt (no session yet).
+      // ponytail: the rest of the launch-area inventory (Import Existing Project,
+      // Recent Sessions, Device Tools=Day-7, Git history / Save Version) is stubbed
+      // pending confirmation of which entries are Day-3 vs later.
+      $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); $("intent").focus(); });
 
       // ----- composer / working indicator -----
       // The single "AI is working" affordance is the in-feed spinner card
