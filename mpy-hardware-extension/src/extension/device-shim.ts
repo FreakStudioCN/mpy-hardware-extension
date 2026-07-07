@@ -246,12 +246,16 @@ export class DeviceShim {
 export function createDeviceShim(opts: { vscode: any; extensionUri: any }): DeviceShim {
   let proc: ShimProcess | null = null;
   let child: any = null;
-  let starting: Promise<void> | null = null;
+  // Lazy single-flight start. runStart() runs start() at most once concurrently AND clears
+  // its slot when start() rejects, so a pre-spawn failure (python_not_found, venv/dependency
+  // install) is retried on the next touch instead of poisoning this long-lived shim with a
+  // memoized rejection until the window reloads. reset() lets the exit handler force a fresh
+  // start after the child crashes post-spawn (where start() already resolved).
+  const runStart = singleFlight(start);
 
   async function ensure(): Promise<void> {
     if (proc) return;
-    if (!starting) starting = start();
-    return starting;
+    return runStart();
   }
 
   async function start(): Promise<void> {
@@ -276,14 +280,14 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
       child.once("error", (error: Error) => {
         proc = null;
         child = null;
-        starting = null;
+        runStart.reset();
         reject(new Error(`shim_start_failed: ${error.message}`));
       });
       child.on("exit", (code: number) => {
         proc?.handleExit(code ?? -1);
         proc = null;
         child = null;
-        starting = null;
+        runStart.reset();
         if (!spawned) reject(new Error(`shim exited with code ${code ?? -1}`));
       });
     });
@@ -314,6 +318,20 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
     }
   };
   return shim;
+}
+
+// Single-flight lazy runner with retry-on-failure. A naive `if (!p) p = start()` memoizes
+// the promise forever — but a REJECTED promise is still truthy, so a failed start would pin
+// every later call to the same stale rejection. Clearing the slot when start() rejects lets
+// the next call retry; reset() lets a process-exit handler force a fresh start after a crash.
+export function singleFlight(start: () => Promise<void>): { (): Promise<void>; reset: () => void } {
+  let pending: Promise<void> | null = null;
+  const run = () => {
+    if (!pending) pending = start().catch((error) => { pending = null; throw error; });
+    return pending;
+  };
+  run.reset = () => { pending = null; };
+  return run;
 }
 
 // ---- Python environment helpers ----
