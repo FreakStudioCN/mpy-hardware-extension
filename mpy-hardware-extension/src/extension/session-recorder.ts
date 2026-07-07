@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { sessionEventToTelemetry } from "../core/telemetry.ts";
@@ -92,4 +92,62 @@ export class CloudTelemetryRecorder implements SessionRecorder {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+// A read-only summary of a past session, for the "View Recent Sessions" launch entry.
+export type RecentSession = {
+  id: string;
+  date: string; // ISO timestamp of the first event
+  intent: string;
+  finalPhase: string; // session_finished terminal/state, or "" if still open/crashed
+  path: string; // absolute path to the session.jsonl
+};
+
+function parseLine(line: string): Record<string, any> | null {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null; // partial/truncated line — skip
+  }
+}
+
+// Build one RecentSession from a session dir, or null if its jsonl is empty/unreadable.
+async function readSessionSummary(sessionsRoot: string, id: string): Promise<RecentSession | null> {
+  const path = join(sessionsRoot, id, "session.jsonl");
+  let events: Array<Record<string, any>>;
+  try {
+    const text = await readFile(path, "utf-8");
+    events = text.split("\n").map(parseLine).filter((e): e is Record<string, any> => e !== null);
+  } catch {
+    return null; // no jsonl in this dir
+  }
+  if (events.length === 0) return null;
+  const started = events.find((e) => e.type === "session_started" || e.type === "user_message");
+  const finished = [...events].reverse().find((e) => e.type === "session_finished");
+  return {
+    id,
+    date: events[0].ts ?? "",
+    intent: started?.intent ?? "",
+    finalPhase: finished?.terminal ?? finished?.state ?? "",
+    path,
+  };
+}
+
+// List past sessions (newest first) written under <workspaceFolder>/.mpyhw/sessions
+// by JsonlSessionRecorder. Read-only: reads each session.jsonl for a summary, never
+// mutates. Returns [] when no sessions dir exists yet.
+export async function listRecentSessions(workspaceFolder: string, limit: number): Promise<RecentSession[]> {
+  const sessionsRoot = join(workspaceFolder, ".mpyhw", "sessions");
+  let ids: string[];
+  try {
+    ids = await readdir(sessionsRoot);
+  } catch {
+    return []; // sessions dir not created yet
+  }
+  const summaries = await Promise.all(ids.map((id) => readSessionSummary(sessionsRoot, id)));
+  const sessions = summaries.filter((s): s is RecentSession => s !== null);
+  // Newest first by ISO date (lexicographic on the timestamp); the list is displayed
+  // ordered, so a sort is the right tool, then cap to the requested count.
+  sessions.sort((a, b) => b.date.localeCompare(a.date));
+  return sessions.slice(0, limit);
 }

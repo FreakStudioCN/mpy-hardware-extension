@@ -286,6 +286,58 @@ test("home partner logos render from config and open the site externally on clic
   assert.match(ext.url, /wiznet\.io/);
 });
 
+test("Import Existing Project posts import_project to the host", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  const btn = document.getElementById("importProject") as HTMLButtonElement;
+  const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
+  assert.ok(startZone.contains(btn), "Import Existing Project is in the start zone");
+
+  posted.length = 0;
+  btn.click();
+  assert.ok(posted.some((m) => m.type === "import_project"), "clicking posts import_project");
+});
+
+test("Recent Sessions opens the surface, lists host-served summaries, opens the jsonl on click", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  posted.length = 0;
+  (document.getElementById("recentSessions") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("toolRecent")!.classList.contains("hidden"), false, "recent surface opens");
+  assert.ok(posted.some((m) => m.type === "request_recent_sessions"), "requests recent sessions");
+
+  post(dom, {
+    type: "recent_sessions",
+    sessions: [
+      { id: "trace-a", date: "2026-07-07T10:00:00.000Z", intent: "blink an LED", finalPhase: "done", path: "/w/.mpyhw/sessions/trace-a/session.jsonl" },
+      { id: "trace-b", date: "2026-07-06T09:00:00.000Z", intent: "read a sensor", finalPhase: "cancelled", path: "/w/.mpyhw/sessions/trace-b/session.jsonl" },
+    ],
+  });
+  const cards = document.querySelectorAll("#recent .recent-card");
+  assert.equal(cards.length, 2, "one card per session");
+  assert.match((cards[0] as HTMLElement).textContent!, /blink an LED/, "shows the session intent");
+  assert.equal(document.getElementById("recentEmpty")!.classList.contains("hidden"), true, "empty state hidden when sessions exist");
+
+  posted.length = 0;
+  (cards[0] as HTMLButtonElement).click();
+  const open = posted.find((m) => m.type === "open_path");
+  assert.ok(open, "clicking a session posts open_path");
+  assert.match(open.path, /trace-a\/session\.jsonl$/, "opens that session's jsonl");
+});
+
+test("Recent Sessions shows the empty state when the host returns none", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("recentSessions") as HTMLButtonElement).click();
+  post(dom, { type: "recent_sessions", sessions: [] });
+  assert.equal(document.getElementById("recentEmpty")!.classList.contains("hidden"), false, "empty state visible");
+  assert.equal(document.querySelectorAll("#recent .recent-card").length, 0, "no cards rendered");
+});
+
 test("Start Workflow reveals the board picker and focuses the prompt", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

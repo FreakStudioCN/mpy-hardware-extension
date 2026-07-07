@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { SessionController } from "../extension/session-controller.ts";
+import { listRecentSessions } from "../extension/session-recorder.ts";
 import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
@@ -77,6 +78,9 @@ function collectDiagnostics(vscode: any): { text: string; fields: Record<string,
   const text = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join("\n");
   return { text, fields };
 }
+
+// How many past sessions the "View Recent Sessions" launch entry lists (newest first).
+const RECENT_SESSIONS_LIMIT = 20;
 
 // Maps a gen-driver file field's `accept` group to a vscode open-dialog filter.
 const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
@@ -386,6 +390,26 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         // command/Uri unavailable (e.g. headless host) — ignore
       }
+    }
+    if (message.type === "import_project") {
+      // Open an existing MicroPython project folder as the workspace root so
+      // generate/deploy target it. Native folder picker, then vscode.openFolder.
+      try {
+        const picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Open Project" });
+        if (picked && picked[0]) await vscode.commands?.executeCommand?.("vscode.openFolder", picked[0]);
+      } catch {
+        // dialog/command unavailable (e.g. headless host) — ignore
+      }
+    }
+    if (message.type === "request_recent_sessions") {
+      // List past session summaries (read-only) from this workspace's .mpyhw/sessions.
+      let sessions: any[] = [];
+      try {
+        if (workspaceFolder) sessions = await listRecentSessions(workspaceFolder, RECENT_SESSIONS_LIMIT);
+      } catch {
+        // unreadable sessions dir — return an empty list, the panel shows its empty state
+      }
+      webview.postMessage({ type: "recent_sessions", sessions });
     }
     if (message.type === "copy_code") {
       // Copy the code card's source to the clipboard via the host (reliable in the

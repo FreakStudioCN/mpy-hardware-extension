@@ -30,6 +30,7 @@
           empty_diagram_h: "No diagram yet", empty_diagram_p: "When the project architecture is generated, its module layers and run flow appear here.",
           diagram_architecture: "Architecture", diagram_flow: "Run flow", diagram_deps: "Dependencies", diagram_dataflow: "Data flow",
           welcome_t1: "Where ideas", welcome_t2: "become hardware", welcome_sub: "Hi, welcome to Blockless. Describe the hardware you want in a sentence — I'll pick the board, wire it up, write the code, and flash it to run.", start_workflow: "Start Workflow",
+          import_project: "Import Existing Project", import_project_tip: "Open an existing MicroPython project folder as the workspace", recent_sessions: "Recent Sessions", recent_sessions_tip: "Browse your recent Blockless sessions in this project", recent_empty_h: "No recent sessions", recent_empty_p: "Past Blockless sessions in this project will appear here.",
           empty_serial_h: "No output", empty_serial_p: "Device output streams here after flashing.",
           empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
           serial_monitor: "Serial monitor",
@@ -107,6 +108,7 @@
           empty_diagram_h: "暂无架构图", empty_diagram_p: "生成项目架构后，模块分层与运行流程会在这里展示。",
           diagram_architecture: "架构分层", diagram_flow: "运行流程", diagram_deps: "依赖关系", diagram_dataflow: "数据流",
           welcome_t1: "让想法", welcome_t2: "变成硬件", welcome_sub: "你好，欢迎来到 Blockless。用一句话描述你想做的硬件，我来选板子、接线、写代码、烧录运行。", start_workflow: "开始工作流",
+          import_project: "导入已有项目", import_project_tip: "打开一个已有的 MicroPython 项目文件夹作为工作区", recent_sessions: "最近会话", recent_sessions_tip: "浏览本项目最近的 Blockless 会话", recent_empty_h: "暂无最近会话", recent_empty_p: "本项目过往的 Blockless 会话会显示在这里。",
           empty_serial_h: "暂无输出", empty_serial_p: "烧录后，设备输出会显示在这里。",
           empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
           serial_monitor: "串口监视器",
@@ -394,7 +396,7 @@
       // hide), not inside the stage content area. Each global tool has its own surface;
       // opening one shows it and hides the others + the workflow.
       const GLOBAL_TOOL_HIDES = ["#globalTools", "#tabs", ".tabwrap", ".composer"];
-      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport"];
+      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent"];
       function openGlobalTool(id) {
         for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.add("hidden");
         for (const t of GLOBAL_TOOL_SURFACES) $(t).classList.toggle("hidden", t !== id);
@@ -409,10 +411,15 @@
       $("supportBack").addEventListener("click", closeGlobalTool);
       // Home hero action: begin a build. The composer is always mounted, so "start"
       // just reveals the board picker and focuses the prompt (no session yet).
-      // ponytail: the rest of the launch-area inventory (Import Existing Project,
-      // Recent Sessions, Device Tools=Day-7, Git history / Save Version) is stubbed
-      // pending confirmation of which entries are Day-3 vs later.
+      // ponytail: the rest of the launch-area inventory (Device Tools=Day-7, Git
+      // history / Save Version per spec 3.8) is still stubbed pending its own cards.
       $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); setBoardBodyExpanded(true); $("intent").focus(); });
+      // Import Existing Project: host opens a folder picker then reloads on that
+      // folder (no webview surface). Recent Sessions: read-only list of past session
+      // summaries in a global-tool surface; the host serves them from .mpyhw/sessions.
+      $("importProject").addEventListener("click", () => vscode.postMessage({ type: "import_project" }));
+      $("recentSessions").addEventListener("click", () => { openGlobalTool("toolRecent"); vscode.postMessage({ type: "request_recent_sessions" }); });
+      $("recentBack").addEventListener("click", closeGlobalTool);
       $("boardMore").addEventListener("click", () => setBoardBodyExpanded($("boardPickerBody").hidden));
 
       // ----- composer / working indicator -----
@@ -1808,6 +1815,25 @@
         }
         root.appendChild(h); root.appendChild(row);
       }
+      // Read-only list of past session summaries (host-served from .mpyhw/sessions).
+      // Clicking a card reveals its session.jsonl via the host's open_path handler.
+      function renderRecent(sessions) {
+        const box = $("recent"); if (!box) return;
+        box.innerHTML = "";
+        const empty = $("recentEmpty");
+        if (!sessions || !sessions.length) { empty.classList.remove("hidden"); return; }
+        empty.classList.add("hidden");
+        for (const s of sessions) {
+          const card = document.createElement("button"); card.className = "recent-card"; card.type = "button";
+          const title = document.createElement("span"); title.className = "recent-intent"; title.textContent = s.intent || s.id;
+          const meta = document.createElement("span"); meta.className = "recent-meta";
+          const when = s.date ? new Date(s.date).toLocaleString() : "";
+          meta.textContent = s.finalPhase ? (when + " · " + s.finalPhase) : when;
+          card.appendChild(title); card.appendChild(meta);
+          card.addEventListener("click", () => vscode.postMessage({ type: "open_path", path: s.path }));
+          box.appendChild(card);
+        }
+      }
       function scButton(label, action) {
         const b = document.createElement("button"); b.className = "sc-btn"; b.type = "button"; b.textContent = label;
         b.addEventListener("click", action);
@@ -1852,6 +1878,7 @@
         if (msg.type === "gen_driver_file_picked") { setGenDriverFile(msg); }
         if (msg.type === "support_config") { renderSupport(msg); }
         if (msg.type === "partners_config") { renderPartners(msg.partners); }
+        if (msg.type === "recent_sessions") { renderRecent(msg.sessions); }
         if (msg.type === "diagnostics") {
           vscode.postMessage({ type: "copy_code", text: msg.text });
           const n = $("scDiag"); if (n) n.textContent = "Diagnostics copied to clipboard.";
