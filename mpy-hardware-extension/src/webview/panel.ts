@@ -56,6 +56,27 @@ async function ensureGitConfig(projectFolder: string, key: string, value: string
 // dev repo itself is the open folder). A dedicated subfolder makes that impossible.
 const PROJECT_SUBDIR = "blockless-project";
 
+// Best-effort environment diagnostics for a bug report (section 08). Gathers the always-
+// available fields (toolchain version, OS, node, python); session-scoped fields
+// (session id / phase / recent activity) are a follow-up once the controller exposes them.
+function collectDiagnostics(vscode: any): { text: string; fields: Record<string, string> } {
+  let python = "unknown";
+  try {
+    const p = detectPython(vscode);
+    python = p.ok ? (p.version ?? "found") : "not found";
+  } catch {
+    // detection failed (no python / headless) — leave "unknown"
+  }
+  const fields: Record<string, string> = {
+    toolchain_version: BUNDLED_TOOLCHAIN_VERSION,
+    os: `${process.platform} ${process.arch}`,
+    node: process.version,
+    python,
+  };
+  const text = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join("\n");
+  return { text, fields };
+}
+
 // Maps a gen-driver file field's `accept` group to a vscode open-dialog filter.
 const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
   pdf: { "PDF datasheet": ["pdf"] },
@@ -162,6 +183,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // hardcoded in the webview render.
       const contacts = orderContactsByLocale(SUPPORT_CONTACTS, vscode.env?.language ?? "en");
       webview.postMessage({ type: "support_config", contacts, diagnosticsFields: SUPPORT_DIAGNOSTICS_FIELDS });
+      return;
+    }
+    if (message.type === "request_diagnostics") {
+      // Gather env diagnostics on demand so a bug report carries an actionable snapshot.
+      webview.postMessage({ type: "diagnostics", ...collectDiagnostics(vscode) });
       return;
     }
     if (message.type === "open_external" && typeof message.url === "string") {

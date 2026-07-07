@@ -1788,6 +1788,9 @@
         report.appendChild(h); report.appendChild(note);
         const issues = (msg.contacts || []).find((c) => c.id === "github_issues");
         if (issues && issues.url) report.appendChild(scButton("Open GitHub Issues", () => vscode.postMessage({ type: "open_external", url: issues.url })));
+        report.appendChild(scButton("Copy diagnostics", () => vscode.postMessage({ type: "request_diagnostics" })));
+        const diag = document.createElement("div"); diag.className = "gd-note"; diag.id = "scDiag";
+        report.appendChild(diag);
         root.appendChild(report);
       }
 
@@ -1799,6 +1802,10 @@
         if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
         if (msg.type === "gen_driver_file_picked") { setGenDriverFile(msg); }
         if (msg.type === "support_config") { renderSupport(msg); }
+        if (msg.type === "diagnostics") {
+          vscode.postMessage({ type: "copy_code", text: msg.text });
+          const n = $("scDiag"); if (n) n.textContent = "Diagnostics copied to clipboard.";
+        }
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "micropython_boards") { loadOfficialBoards(msg); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {

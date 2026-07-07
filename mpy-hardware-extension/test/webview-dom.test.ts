@@ -217,6 +217,26 @@ test("the support panel opens from global tools and drives config-driven contact
   assert.equal(document.getElementById("toolSupport")!.classList.contains("hidden"), true, "Back closes the support surface");
 });
 
+test("Copy diagnostics requests a snapshot from the host and copies it", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.querySelector("#globalTools #supportOpen") as HTMLButtonElement).click();
+  post(dom, { type: "support_config", contacts: [], diagnosticsFields: ["session_id", "node"] });
+
+  posted.length = 0;
+  const diagBtn = [...document.querySelectorAll("#support .sc-btn")].find((b) => b.textContent === "Copy diagnostics") as HTMLButtonElement;
+  diagBtn.click();
+  assert.ok(posted.find((m) => m.type === "request_diagnostics"), "asks the host to gather diagnostics");
+
+  posted.length = 0;
+  post(dom, { type: "diagnostics", text: "toolchain_version: 1\nos: darwin arm64\nnode: v25", fields: { node: "v25" } });
+  const copy = posted.find((m) => m.type === "copy_code");
+  assert.ok(copy, "copies the returned diagnostics text");
+  assert.match(copy.text, /toolchain_version/);
+  assert.match(document.getElementById("scDiag")!.textContent!, /copied/i);
+});
+
 test("board picker exposes refresh and stale cache state", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
