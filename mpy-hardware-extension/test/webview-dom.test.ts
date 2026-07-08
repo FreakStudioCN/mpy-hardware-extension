@@ -1277,7 +1277,8 @@ test("a Chinese request skins the whole UI in Chinese — no English labels arou
   (document.getElementById("intent") as HTMLTextAreaElement).value = "做一个温度计";
   (document.getElementById("generate") as HTMLButtonElement).click();
   assert.equal(document.querySelector('.tab[data-tab="activity"]')!.textContent, "动态", "tabs localized");
-  assert.equal((document.getElementById("intent") as HTMLTextAreaElement).placeholder, "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）", "composer placeholder localized");
+  // Running, so the composer placeholder is the (localized) note hint, not the build prompt.
+  assert.equal((document.getElementById("intent") as HTMLTextAreaElement).placeholder, "为当前构建添加备注 — 在下一个安全点应用", "composer placeholder localized (note hint while running)");
 
   // The plan card (the reported mix) is fully Chinese: labels + friendly feature
   // names, while package ids and pins stay as identifiers.
@@ -1707,4 +1708,124 @@ test("session_done disables a still-open approval card so stale clicks can't pos
   posted.length = 0;
   buttons[0].click();
   assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "a stale click posts nothing");
+});
+
+test("the add-note button appears while running and posts a user_supplement", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  const addNote = document.getElementById("addNote") as HTMLButtonElement;
+  assert.ok(addNote.classList.contains("hidden"), "add-note is hidden before a run starts");
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(addNote.classList.contains("hidden"), false, "add-note shows once the run is live");
+
+  posted.length = 0;
+  const intent = document.getElementById("intent") as HTMLTextAreaElement;
+  intent.value = "also add a buzzer";
+  addNote.click();
+
+  const supplement = posted.find((m) => m.type === "user_supplement");
+  assert.ok(supplement, "clicking add-note posts a user_supplement");
+  assert.equal(supplement.text, "also add a buzzer");
+  assert.equal(intent.value, "", "the composer is cleared after queueing the note");
+});
+
+test("supplement received/applied events render into the activity feed", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "user_supplement_received", phase: "analyze", status: "queued", summary: "add a buzzer", received_at: "t" });
+  post(dom, { type: "user_supplement_applied", phase: "upy-analyze-plugin", decision: "reroute", reason: "New hardware changes the device list." });
+
+  const feed = (document.getElementById("activity") as HTMLElement).textContent ?? "";
+  assert.ok(feed.includes("add a buzzer"), "the queued note summary is shown");
+  assert.ok(feed.includes("New hardware changes the device list."), "the applied decision reason is shown");
+  // Each supplement is its OWN card (kind=note), not coalesced into the open thinking stream.
+  assert.equal(document.querySelectorAll(".ev-ico.note").length, 2, "received + applied each render as a dedicated note card");
+});
+
+test("queuing a note keeps the working spinner while the build is still running", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click(); // running -> spinner armed
+  assert.ok(document.querySelector(".feed-pending"), "the working spinner is present while running");
+
+  post(dom, { type: "user_supplement_received", phase: "analyze", status: "queued", summary: "raise the threshold", received_at: "t" });
+
+  assert.ok(document.querySelector(".feed-pending"), "the working spinner survives a queued note (addActivity cleared it, re-armed)");
+});
+
+test("a thinking card is live (spinner + heading) while streaming, then settles to a dot", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click(); // running
+
+  // A status line with no tool/result/error keyword classifies as "thinking".
+  post(dom, { type: "status_update", payload: { message: "Analyzing requirements" } });
+  assert.ok(document.querySelector(".ev-ico.think-live"), "while thinking the icon shows the live spinner");
+  assert.ok(document.querySelector(".think-head"), "while thinking a heading is shown");
+
+  // Any non-thinking event closes the stream and settles the card.
+  post(dom, { type: "files_written", paths: ["main.py"] });
+  assert.equal(document.querySelector(".ev-ico.think-live"), null, "the spinner is gone once thinking ends");
+  assert.equal(document.querySelector(".think-head"), null, "the heading is gone once thinking ends");
+});
+
+test("the composer placeholder flips to a note hint while running, restores when idle", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const intent = document.getElementById("intent") as HTMLTextAreaElement;
+  const idle = intent.placeholder;
+
+  intent.value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.match(intent.placeholder, /note/i, "while running the placeholder invites a note");
+  assert.notEqual(intent.placeholder, idle, "it is not the build-intent placeholder while running");
+
+  (document.getElementById("newSession") as HTMLButtonElement).click(); // Restart -> idle
+  assert.equal(intent.placeholder, idle, "the build-intent placeholder is restored when idle");
+});
+
+test("stopping the session leaves no spinning thinking card", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click(); // running
+  post(dom, { type: "status_update", payload: { message: "Analyzing requirements" } });
+  assert.ok(document.querySelector(".ev-ico.think-live"), "a live thinking card exists while running");
+
+  // Stop: session_done settles the open card, and the terminal "Session ended" line
+  // (which classifies as thinking) must render static, not as a new spinner.
+  post(dom, { type: "session_done", terminal: "cancelled" });
+  assert.equal(document.querySelector(".ev-ico.think-live"), null, "no spinning thinking card remains after stop");
+  assert.equal(document.querySelector(".feed-pending"), null, "the working spinner is gone after stop");
+});
+
+test("a duplicate session_done renders exactly one terminal line", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // Cancel posts session_done twice (optimistic in panel.ts + loop-unwind in the controller).
+  post(dom, { type: "session_done", terminal: "cancelled" });
+  post(dom, { type: "session_done", terminal: "cancelled" });
+
+  const feed = (document.getElementById("activity") as HTMLElement).textContent ?? "";
+  const count = (feed.match(/Session ended/g) || []).length;
+  assert.equal(count, 1, "only one 'Session ended' line despite the duplicate session_done");
 });

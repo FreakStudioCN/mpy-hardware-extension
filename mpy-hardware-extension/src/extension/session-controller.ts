@@ -1,4 +1,7 @@
 import type { SessionRecorder } from "./session-recorder.ts";
+import type { PendingSupplement } from "./pending-supplement.ts";
+import { classifySupplement } from "../core/supplement-router.ts";
+import type { SupplementAttachment } from "../core/supplement-router.ts";
 
 export class SessionController {
   deps: {
@@ -44,13 +47,19 @@ export class SessionController {
   // and the files_written toast is built from these. Empty in headless/test runs
   // with no loop-time writer, where the post-loop batch is the fallback writer.
   private persistedPaths: string[] = [];
-  // Diagnostics snapshot state (section 08): the current phase, a short ring of recent
-  // activity summaries, and any error strings — surfaced by getDiagnostics() for a bug
-  // report. Cleared on a fresh session (board switch) alongside the other run state.
+  // The phase the loop is currently in, tracked off phase_start. Stamps a queued
+  // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
+  // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
   private currentPhase: string | null = null;
+  // Diagnostics snapshot state (section 08): a short ring of recent activity summaries and
+  // any error strings — surfaced by getDiagnostics() for a bug report.
   private recentActivity: string[] = [];
   private keyErrors: string[] = [];
   private static readonly RECENT_ACTIVITY_CAP = 10;
+  // User supplements queued during a running build (deliverables 07 §3), consumed FIFO at
+  // the after-phase_complete safe point. A queue (not a single slot) so a second note
+  // added before the next safe point is not lost (§9 acceptance).
+  private pendingSupplements: PendingSupplement[] = [];
 
   constructor(deps: { postMessage: (message: any) => void; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any> }) {
     this.deps = deps;
@@ -75,6 +84,7 @@ export class SessionController {
       this.currentPhase = null;
       this.recentActivity = [];
       this.keyErrors = [];
+      this.pendingSupplements = [];
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -130,6 +140,10 @@ export class SessionController {
         availableBoards: input.availableBoards,
         state: this.state,
         onEvent: (event: any) => { if (current()) this.postEvent(event); },
+        // Safe-point hook (deliverables 07 §5, after phase_complete): drain queued
+        // supplements, classify + surface each, and return absorb text for the loop to
+        // fold into the next phase's context.
+        onSafePoint: (phase: string) => (current() ? this.consumeSupplementsAtSafePoint(phase) : null),
         askUser: (question: string, options?: string[], optionsRequiringText?: string[], textPlaceholder?: string) => this.askUser(question, options, optionsRequiringText, textPlaceholder),
         confirmPlan: (plan: any) => this.confirmPlan(plan),
         confirmDeploy: () => this.confirmDeploy(),
@@ -204,6 +218,10 @@ export class SessionController {
     this.latestManifest = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
+    this.currentPhase = null;
+    this.recentActivity = [];
+    this.keyErrors = [];
+    this.pendingSupplements = [];
   }
 
   // Send a question to the webview and resolve when the user answers. Optional
@@ -308,6 +326,55 @@ export class SessionController {
       resolve(null);
     }
     this.pendingPrompts.clear();
+  }
+
+  // Intake (webview -> host): queue a user supplement raised during a running build. It
+  // does NOT interrupt the current turn (deliverables 07 §2); it is consumed at the next
+  // safe point. Emits the Activity `user_supplement_received` (§8).
+  submitSupplement(text: string, attachments?: SupplementAttachment[]) {
+    const trimmed = (text ?? "").trim();
+    if (!trimmed) return;
+    const supplement: PendingSupplement = {
+      text: trimmed,
+      attachments: attachments ?? [],
+      receivedPhase: this.currentPhase ?? "",
+      receivedAt: new Date().toISOString(),
+      status: "queued",
+    };
+    this.pendingSupplements.push(supplement);
+    const event = { type: "user_supplement_received", phase: supplement.receivedPhase, status: "queued", summary: summarizeSupplement(trimmed), received_at: supplement.receivedAt };
+    this.record(event);
+    this.deps.postMessage(event);
+  }
+
+  // Safe-point consume (deliverables 07 §5, after phase_complete): classify every queued
+  // supplement, surface each in Activity, and return the concatenated absorb text for the
+  // loop to fold into the next phase's context. reroute/reconfirm are flag-and-surface for
+  // P0 (status reroute_required, no auto-jump); absorb marks applied. Null when empty.
+  private consumeSupplementsAtSafePoint(completedPhase: string): string | null {
+    const queued = this.pendingSupplements.filter((s) => s.status === "queued");
+    if (queued.length === 0) return null;
+    const codeExists = Object.keys(this.latestFiles).length > 0 || this.persistedPaths.length > 0;
+    const absorbed: string[] = [];
+    for (const supplement of queued) {
+      const route = classifySupplement(supplement.text, supplement.attachments);
+      const decision = route.reconfirmIfCode && codeExists ? "reconfirm" : route.decision;
+      if (decision === "absorb") {
+        supplement.status = "applied";
+        absorbed.push(supplement.text);
+      } else {
+        supplement.status = "reroute_required";
+      }
+      this.emitSupplementApplied(route.target ?? this.currentPhase ?? completedPhase, decision, route.reason);
+    }
+    return absorbed.length > 0 ? absorbed.join("\n") : null;
+  }
+
+  // Activity `user_supplement_applied` (deliverables 07 §8): record + forward to the feed.
+  private emitSupplementApplied(phase: string, decision: string, reason: string) {
+    const event = { type: "user_supplement_applied", phase, decision, reason };
+    this.record(event);
+    this.deps.postMessage(event);
   }
 
   postEvent(event: any) {
@@ -490,4 +557,11 @@ export class SessionController {
 function createTraceId() {
   const random = Math.random().toString(36).slice(2, 10);
   return `session-${Date.now().toString(36)}-${random}`;
+}
+
+// A short, single-line summary of a supplement for the Activity `received` event (§8).
+const SUPPLEMENT_SUMMARY_MAX = 80;
+function summarizeSupplement(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > SUPPLEMENT_SUMMARY_MAX ? `${oneLine.slice(0, SUPPLEMENT_SUMMARY_MAX - 1)}…` : oneLine;
 }

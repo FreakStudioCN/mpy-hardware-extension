@@ -343,6 +343,9 @@
       .gen-btn:disabled { background: #3a3a3c; color: #8a8a8a; cursor: not-allowed; }
       .gen-btn.stop { background: #5a2b2b; color: #ffb3b3; }
       .gen-btn.stop:hover { background: #6e3434; }
+      .note-btn { height: 30px; padding: 0 11px; margin-right: 6px; border: 1px solid var(--vsc-card-border);
+        border-radius: 7px; background: transparent; color: var(--fg-muted); font-size: 12px; cursor: pointer; font-family: var(--ui); }
+      .note-btn:hover { color: var(--fg-bright); border-color: var(--fg-dim); background: #ffffff0a; }
       /* minmax(0,1fr): clamp the single grid column to the panel width so a wide
          child (nowrap cache date, badge row, filter selects) can't force the whole
          composer — and the body — wider than a narrow VS Code side panel. */

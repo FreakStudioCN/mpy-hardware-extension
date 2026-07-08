@@ -469,6 +469,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // which confirmApproval unpacks into the approval_response.
       controller.resolvePrompt(message.promptId, message.answer, { feedback: message.feedback, devices: message.devices, selected_ids: message.selected_ids, text_values: message.text_values, added_items: message.added_items });
     }
+    if (message.type === "user_supplement" && typeof message.text === "string") {
+      // A note the user added mid-build (deliverables 07): queue it, don't interrupt.
+      // It's consumed at the next safe point (after phase_complete).
+      controller.submitSupplement(message.text, message.attachments);
+    }
     if (message.type === "cancel_session") {
       controller.cancel();
       webview.postMessage({ type: "session_done", terminal: "cancelled" });

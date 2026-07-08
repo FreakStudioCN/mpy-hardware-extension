@@ -245,3 +245,19 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
     await rm(projectDir, { recursive: true, force: true });
   }
 });
+
+test("createProtocolLoop forwards onSafePoint so supplements are consumed at phase boundaries", async () => {
+  // Regression: protocol-build built the runProtocolBuild input WITHOUT onSafePoint, so
+  // queued user supplements were never consumed in production even though the unit tests
+  // (which call runProtocolBuild directly / use a mock loop) all passed. This drives the
+  // real production glue and asserts the hook fires at each phase boundary.
+  const fetchImpl = async (_url: any, init: any) => {
+    const body = JSON.parse(String(init.body));
+    const next = body.phase === "analyze" ? "select-hw" : null;
+    return new Response(sseTool("done", "phase_complete", { result: "success", summary: "ok", next_phase: next, manifest_content: {} }), { status: 200, headers: { "content-type": "text/event-stream" } }) as any;
+  };
+  const safePointPhases: string[] = [];
+  const loop = createProtocolLoop({ apiBaseUrl: "http://api.test", fetchImpl: fetchImpl as any, getAuthToken: async () => "token" });
+  await loop({ intent: "x", traceId: "t", onSafePoint: (phase: string) => { safePointPhases.push(phase); return null; } });
+  assert.deepEqual(safePointPhases, ["analyze", "select-hw"], "onSafePoint must fire after each phase_complete via the production glue");
+});

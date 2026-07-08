@@ -35,7 +35,10 @@
           empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
           serial_monitor: "Serial monitor",
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
+          note_ph: "Add a note to this build — applied at the next safe point",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
+          add_note: "Add note", add_note_tip: "Add a note to the running build (applied at the next safe point)",
+          kind_thinking: "Thinking", kind_note: "Note", supplement_received: "queued: {s}", supplement_applied: "{d}: {r}",
           mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_browse: "Browse boards", board_browse_tip: "Browse and pick a specific board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_firmware: "Official firmware", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_details_tip: "Open the official download page", board_firmware_fmt: "firmware:", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
           new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
@@ -113,7 +116,10 @@
           empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
           serial_monitor: "串口监视器",
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
+          note_ph: "为当前构建添加备注 — 在下一个安全点应用",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
+          add_note: "添加备注", add_note_tip: "为运行中的构建添加备注（在下一个安全点应用）",
+          kind_thinking: "思考中", kind_note: "备注", supplement_received: "已排队：{s}", supplement_applied: "{d}：{r}",
           mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_browse: "浏览板卡", board_browse_tip: "浏览并选择具体板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_firmware: "官方固件", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡", board_details_tip: "打开官方下载页面", board_firmware_fmt: "固件:",
           new_session: "重新开始", new_session_tip: "重新开始项目——会清空当前对话",
           waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",
@@ -429,9 +435,16 @@
       // model's raw reasoning. There is no separate status bar.
       function setRunning(on) {
         running = on;
+        if (on) terminalShown = false; // a fresh run (or retry) may end again
         const btn = $("generate");
         btn.textContent = on ? tr("stop") : tr("generate");
         btn.classList.toggle("stop", on);
+        // The "add note" affordance is only meaningful while a build is running: it queues
+        // a supplement for the next safe point (deliverables 07). Hidden otherwise. The
+        // composer placeholder flips to a note hint too, so it doesn't read as "start a
+        // build" while running.
+        $("addNote").classList.toggle("hidden", !on);
+        $("intent").placeholder = tr(on ? "note_ph" : "intent_ph");
         if (on) setPending(tr("working")); // immediate spinner; trace_event refines the label
         updateGenerateEnabled();
       }
@@ -446,7 +459,7 @@
         // later same-session request in another language keeps the locked language
         // (the backend pins prose to the first message too); Restart re-detects.
         if (!localeLocked) { setLocale(detectLocale(intent)); localeLocked = true; }
-        currentThink = null;
+        finalizeThinking();
         addUserMessage(intent);
         $("intent").value = "";
         $("intent").style.height = "auto";
@@ -456,6 +469,17 @@
         const msg = { type: "start_session", intent, boardId, pre_selected_board: preSelectedBoard || null, preferences: { mode: selectedMode } };
         if (!preSelectedBoard) msg.board_selection_mode = "recommend"; // board-selector doc §6 recommend path
         vscode.postMessage(msg);
+      });
+      // Add-note (mid-build supplement): queue the composer text as a supplement without
+      // interrupting the run. The host applies it at the next safe point and echoes a
+      // user_supplement_received into the feed. Cleared optimistically here.
+      $("addNote").addEventListener("click", () => {
+        if (!running) return;
+        const text = $("intent").value.trim();
+        if (!text) return;
+        vscode.postMessage({ type: "user_supplement", text });
+        $("intent").value = "";
+        $("intent").style.height = "auto";
       });
       // Wipe every per-conversation surface back to its empty state. The host clears
       // its durable state in parallel (reset_session), so the next request is a
@@ -472,7 +496,7 @@
         $("wiringEmpty").classList.remove("hidden");
         $("diagram").innerHTML = "";
         $("diagramEmpty").classList.remove("hidden");
-        currentThink = null; currentCode = null; currentSummary = null;
+        finalizeThinking(); currentCode = null; currentSummary = null;
         currentDeployCard = null; pendingCard = null; pendingLabel = "";
         localeLocked = false; // next project re-detects its language (LOCALE left as-is until then)
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
@@ -513,8 +537,10 @@
         if (/loaded skill|skill:/i.test(text)) return "skill";
         return "thinking";
       }
-      const ICONS = { thinking: "•", skill: "•", tool: "•", result: "•", error: "•" };
+      const ICONS = { thinking: "•", skill: "•", tool: "•", result: "•", error: "•", note: "•" };
       let currentThink = null; // open thinking card's text node, or null
+      let currentThinkCard = null; // the open thinking card element (live = spinner + heading), or null
+      let terminalShown = false; // guards the once-per-session terminal line (session_done is posted twice on cancel: optimistic + loop-unwind)
       let currentCode = null;  // open streaming code card { pre, host, path }, or null
       let currentSummary = null; // open streaming reply card { card, sum, raw }, or null
       // In-feed "working" indicator. After a user action (confirm plan / answer) the
@@ -535,6 +561,17 @@
         const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
       }
       function clearPending() { if (pendingCard) { pendingCard.remove(); pendingCard = null; } }
+      // Settle the open thinking card: spinner -> dot, drop the "Thinking" heading. Called
+      // whenever the thinking stream closes (a non-thinking event, code/summary, or reset).
+      function finalizeThinking() {
+        if (currentThinkCard) {
+          const ico = currentThinkCard.querySelector(".ev-ico");
+          if (ico) { ico.classList.remove("think-live"); ico.textContent = ICONS.thinking; }
+          const head = currentThinkCard.querySelector(".think-head");
+          if (head) head.remove();
+        }
+        currentThink = currentThinkCard = null;
+      }
       function prefillImportedRecipe(payload) {
         const prompt = String((payload && (payload.prompt || payload.starter_prompt || payload.intent)) || "").trim();
         if (!prompt) return;
@@ -657,7 +694,7 @@
       // on the first token. The text types out char-by-char; addSummary() ends it.
       function streamSummaryDelta(text) {
         clearPending();
-        currentThink = null;
+        finalizeThinking();
         if (!currentSummary) currentSummary = openSummaryCard();
         currentSummary.tw.feed(text);
       }
@@ -667,7 +704,7 @@
       function addSummary(text) {
         const t = (text == null ? "" : String(text)).trim();
         if (!t) { discardSummary(); return; }
-        currentThink = null; clearPending();
+        finalizeThinking(); clearPending();
         if (!currentSummary) currentSummary = openSummaryCard();
         currentSummary.tw.end(t);
         currentSummary = null;
@@ -683,29 +720,38 @@
       function sealSummary() {
         if (currentSummary) { currentSummary.tw.end(); currentSummary = null; }
       }
-      function addActivity(ev) {
+      function addActivity(ev, forcedKind) {
         const text = (ev && typeof ev.text === "string") ? ev.text : JSON.stringify(ev);
         if (!text) return;
         if (isInternalActivity(text)) return;
         clearPending();
         $("activityEmpty").classList.add("hidden");
-        const kind = classifyActivity(text);
+        // forcedKind lets a discrete event (e.g. a user note) render as its own card
+        // instead of being text-classified and coalesced into the open thinking stream.
+        const kind = forcedKind || classifyActivity(text);
         const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
         // The agent streams thinking token-by-token (each delta is its own
         // trace_event). Coalesce consecutive thinking deltas into one growing
         // card instead of a new card per token.
         if (kind === "thinking") {
           if (currentThink) { currentThink.textContent += text; scroll(); return; }
+          // Only LIVE (spinner + "Thinking" heading) while a build is running — an
+          // uncategorized line that lands after the session ends (e.g. "Session ended:
+          // Stopped") must render static, or its spinner would never settle.
+          const live = running;
           const card = document.createElement("div");
           card.className = "ev fade-in";
-          card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico thinking">•</div><div class="ev-main"><div class="ev-think"></div></div></div></div>';
+          const ico = live ? '<div class="ev-ico thinking think-live"><span class="feed-spin"></span></div>' : '<div class="ev-ico thinking">' + ICONS.thinking + "</div>";
+          const head = live ? '<div class="ev-label think-head"><span class="kind">' + tr("kind_thinking") + "</span></div>" : "";
+          card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main">' + head + '<div class="ev-think"></div></div></div></div>';
           currentThink = card.querySelector(".ev-think");
+          currentThinkCard = live ? card : null; // only a live card needs finalizing
           currentThink.textContent = text;
           $("activity").appendChild(card);
           scroll();
           return;
         }
-        currentThink = null; // any non-thinking event closes the open stream
+        finalizeThinking(); // any non-thinking event closes + settles the open stream
         const card = document.createElement("div");
         card.className = "ev fade-in";
         const ico = '<div class="ev-ico ' + kind + '">' + ICONS[kind] + "</div>";
@@ -714,7 +760,7 @@
           card.querySelector(".ev-tool").textContent = text.replace(/^→\s*/, "");
         } else {
           const cls = kind === "error" ? " is-error" : "";
-          const label = kind === "result" ? tr("kind_result") : kind === "skill" ? tr("kind_skill") : tr("kind_error");
+          const label = kind === "result" ? tr("kind_result") : kind === "skill" ? tr("kind_skill") : kind === "note" ? tr("kind_note") : tr("kind_error");
           card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main"><div class="ev-label"><span class="kind">' + label + '</span></div><div class="ev-sum' + cls + '"></div></div></div></div>';
           card.querySelector(".ev-sum").innerHTML = renderMarkdown(text);
         }
@@ -748,7 +794,7 @@
         if (!path) return;
         clearPending();
         $("activityEmpty").classList.add("hidden");
-        currentThink = null;
+        finalizeThinking();
         const card = document.createElement("div");
         card.className = "ev fade-in";
         card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">' + ICONS.result + '</div><div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_result") + '</span></div><div class="ev-sum"></div></div></div></div>';
@@ -771,7 +817,7 @@
       // buttons; the chosen action + selected ids + text values ride back as a
       // ui_prompt_response, which the controller resolves into approval_response.
       function addApprovalPrompt(promptId, card) {
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -861,7 +907,7 @@
       }
 
       function addAskPrompt(promptId, question, options, optionsRequiringText, textPlaceholder) {
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -944,7 +990,7 @@
       // user unchecks to remove and/or types missing parts; Confirm posts the kept
       // device names + the free-text additions back to the host.
       function addComponentPrompt(promptId, devices) {
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -994,7 +1040,7 @@
       // ----- build plan (confirmation gate before codegen spends credits) -----
       function addPlanPrompt(promptId, plan) {
         plan = plan || {};
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -1068,7 +1114,7 @@
       // ----- deploy checkpoint (board connection + wiring, before install/flash) -----
       let currentDeployCard = null;
       function addDeployPrompt(promptId, manifest) {
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -1160,7 +1206,7 @@
         const file = path || "main.py";
         const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
         if (currentCode && currentCode.path === file) { currentCode.raw += text; currentCode.tw.feed(text); currentCode.card.__code = currentCode.raw; return; }
-        currentThink = null; // a code stream closes any open thinking card
+        finalizeThinking(); // a code stream closes any open thinking card
         $("activityEmpty").classList.add("hidden");
         const card = document.createElement("div");
         card.className = "ev fade-in";
@@ -1937,6 +1983,10 @@
         if (msg.type === "diagram_updated") { renderDiagram(msg.diagram); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
         if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
+        // A supplement line is an annotation, not a step: addActivity() clears the working
+        // spinner, so re-arm it (with the same label) while the build is still running.
+        if (msg.type === "user_supplement_received") { addActivity({ type: "trace", text: tr("supplement_received", { s: msg.summary }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
+        if (msg.type === "user_supplement_applied") { addActivity({ type: "trace", text: tr("supplement_applied", { d: msg.decision, r: msg.reason }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
         if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); }
         if (msg.type === "files_write_failed") { addActivity({ type: "trace", text: tr("files_write_failed", { e: msg.error }) }); }
         if (msg.type === "session_error") {
@@ -1954,7 +2004,7 @@
         }
         if (msg.type === "session_done") {
           setRunning(false);
-          currentThink = null;
+          finalizeThinking();
           currentCode = null;
           currentSummary = null;
           clearPending();
@@ -1974,6 +2024,11 @@
           const label = tr("term_" + t);
           const friendly = label === "term_" + t ? t : label;
           const isError = !ok && t !== "cancelled" && t !== "awaiting_user" && t !== "stalled";
+          // session_done is posted twice on a cancel (optimistic + loop-unwind); render the
+          // terminal line / retry card only once. The cleanup above is idempotent, so it may
+          // run on both.
+          if (terminalShown) return;
+          terminalShown = true;
           // A stalled build gave up mid-way without reaching a phase boundary — unlike
           // awaiting_user (a clean hand-back), the user must SEE it stalled and get a
           // one-click way to try again, so it has its own lane before the generic line.

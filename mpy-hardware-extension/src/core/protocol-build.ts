@@ -174,6 +174,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
         traceId: input.traceId,
         signal: input.signal,
         onEvent: input.onEvent,
+        onSafePoint: input.onSafePoint,
         confirmApproval: input.confirmApproval,
         startPhase: input.state?.phase,
         startManifest: input.state?.manifest,
