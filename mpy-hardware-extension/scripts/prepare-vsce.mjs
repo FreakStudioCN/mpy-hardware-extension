@@ -2,6 +2,8 @@ import { build } from "esbuild";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
+import { readSkillsCommit } from "./skills-commit.mjs";
+
 // `vscode:prepublish` — produce everything that must ship in the VSIX but is not a
 // committed source file:
 //   1. the bundled CommonJS entry (dist/extension/activate.cjs), and
@@ -13,6 +15,7 @@ import { dirname, join, relative } from "node:path";
 
 // 1. Bundle src/extension/activate.ts -> dist/extension/activate.cjs (same config
 //    as build-extension.mjs; import.meta.url shimmed so readWebviewHtml resolves).
+//    Bake the submodule commit so the packaged VSIX reports it (it ships no .git).
 mkdirSync("dist/extension", { recursive: true });
 await build({
   entryPoints: ["src/extension/activate.ts"],
@@ -23,7 +26,7 @@ await build({
   target: "node18",
   external: ["vscode"],
   banner: { js: "const __import_meta_url = require('node:url').pathToFileURL(__filename).href;" },
-  define: { "import.meta.url": "__import_meta_url" },
+  define: { "import.meta.url": "__import_meta_url", "process.env.SKILLS_COMMIT": JSON.stringify(readSkillsCommit()) },
   logLevel: "info",
 });
 
