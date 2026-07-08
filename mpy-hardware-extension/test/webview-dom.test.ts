@@ -1759,3 +1759,22 @@ test("queuing a note keeps the working spinner while the build is still running"
 
   assert.ok(document.querySelector(".feed-pending"), "the working spinner survives a queued note (addActivity cleared it, re-armed)");
 });
+
+test("a thinking card is live (spinner + heading) while streaming, then settles to a dot", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click(); // running
+
+  // A status line with no tool/result/error keyword classifies as "thinking".
+  post(dom, { type: "status_update", payload: { message: "Analyzing requirements" } });
+  assert.ok(document.querySelector(".ev-ico.think-live"), "while thinking the icon shows the live spinner");
+  assert.ok(document.querySelector(".think-head"), "while thinking a heading is shown");
+
+  // Any non-thinking event closes the stream and settles the card.
+  post(dom, { type: "files_written", paths: ["main.py"] });
+  assert.equal(document.querySelector(".ev-ico.think-live"), null, "the spinner is gone once thinking ends");
+  assert.equal(document.querySelector(".think-head"), null, "the heading is gone once thinking ends");
+});

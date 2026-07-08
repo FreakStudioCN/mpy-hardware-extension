@@ -37,7 +37,7 @@
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
           add_note: "Add note", add_note_tip: "Add a note to the running build (applied at the next safe point)",
-          kind_note: "Note", supplement_received: "queued: {s}", supplement_applied: "{d}: {r}",
+          kind_thinking: "Thinking", kind_note: "Note", supplement_received: "queued: {s}", supplement_applied: "{d}: {r}",
           mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_browse: "Browse boards", board_browse_tip: "Browse and pick a specific board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_firmware: "Official firmware", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_details_tip: "Open the official download page", board_firmware_fmt: "firmware:", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
           new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
@@ -117,7 +117,7 @@
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
           add_note: "添加备注", add_note_tip: "为运行中的构建添加备注（在下一个安全点应用）",
-          kind_note: "备注", supplement_received: "已排队：{s}", supplement_applied: "{d}：{r}",
+          kind_thinking: "思考中", kind_note: "备注", supplement_received: "已排队：{s}", supplement_applied: "{d}：{r}",
           mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_browse: "浏览板卡", board_browse_tip: "浏览并选择具体板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_firmware: "官方固件", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡", board_details_tip: "打开官方下载页面", board_firmware_fmt: "固件:",
           new_session: "重新开始", new_session_tip: "重新开始项目——会清空当前对话",
           waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",
@@ -453,7 +453,7 @@
         // later same-session request in another language keeps the locked language
         // (the backend pins prose to the first message too); Restart re-detects.
         if (!localeLocked) { setLocale(detectLocale(intent)); localeLocked = true; }
-        currentThink = null;
+        finalizeThinking();
         addUserMessage(intent);
         $("intent").value = "";
         $("intent").style.height = "auto";
@@ -490,7 +490,7 @@
         $("wiringEmpty").classList.remove("hidden");
         $("diagram").innerHTML = "";
         $("diagramEmpty").classList.remove("hidden");
-        currentThink = null; currentCode = null; currentSummary = null;
+        finalizeThinking(); currentCode = null; currentSummary = null;
         currentDeployCard = null; pendingCard = null; pendingLabel = "";
         localeLocked = false; // next project re-detects its language (LOCALE left as-is until then)
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
@@ -533,6 +533,7 @@
       }
       const ICONS = { thinking: "•", skill: "•", tool: "•", result: "•", error: "•", note: "•" };
       let currentThink = null; // open thinking card's text node, or null
+      let currentThinkCard = null; // the open thinking card element (live = spinner + heading), or null
       let currentCode = null;  // open streaming code card { pre, host, path }, or null
       let currentSummary = null; // open streaming reply card { card, sum, raw }, or null
       // In-feed "working" indicator. After a user action (confirm plan / answer) the
@@ -553,6 +554,17 @@
         const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
       }
       function clearPending() { if (pendingCard) { pendingCard.remove(); pendingCard = null; } }
+      // Settle the open thinking card: spinner -> dot, drop the "Thinking" heading. Called
+      // whenever the thinking stream closes (a non-thinking event, code/summary, or reset).
+      function finalizeThinking() {
+        if (currentThinkCard) {
+          const ico = currentThinkCard.querySelector(".ev-ico");
+          if (ico) { ico.classList.remove("think-live"); ico.textContent = ICONS.thinking; }
+          const head = currentThinkCard.querySelector(".think-head");
+          if (head) head.remove();
+        }
+        currentThink = currentThinkCard = null;
+      }
       function prefillImportedRecipe(payload) {
         const prompt = String((payload && (payload.prompt || payload.starter_prompt || payload.intent)) || "").trim();
         if (!prompt) return;
@@ -675,7 +687,7 @@
       // on the first token. The text types out char-by-char; addSummary() ends it.
       function streamSummaryDelta(text) {
         clearPending();
-        currentThink = null;
+        finalizeThinking();
         if (!currentSummary) currentSummary = openSummaryCard();
         currentSummary.tw.feed(text);
       }
@@ -685,7 +697,7 @@
       function addSummary(text) {
         const t = (text == null ? "" : String(text)).trim();
         if (!t) { discardSummary(); return; }
-        currentThink = null; clearPending();
+        finalizeThinking(); clearPending();
         if (!currentSummary) currentSummary = openSummaryCard();
         currentSummary.tw.end(t);
         currentSummary = null;
@@ -716,16 +728,19 @@
         // card instead of a new card per token.
         if (kind === "thinking") {
           if (currentThink) { currentThink.textContent += text; scroll(); return; }
+          // Live while it streams: spinner + "Thinking" heading. finalizeThinking() swaps
+          // the spinner for a dot and drops the heading when the stream closes.
           const card = document.createElement("div");
           card.className = "ev fade-in";
-          card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico thinking">•</div><div class="ev-main"><div class="ev-think"></div></div></div></div>';
+          card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico thinking think-live"><span class="feed-spin"></span></div><div class="ev-main"><div class="ev-label think-head"><span class="kind">' + tr("kind_thinking") + '</span></div><div class="ev-think"></div></div></div></div>';
           currentThink = card.querySelector(".ev-think");
+          currentThinkCard = card;
           currentThink.textContent = text;
           $("activity").appendChild(card);
           scroll();
           return;
         }
-        currentThink = null; // any non-thinking event closes the open stream
+        finalizeThinking(); // any non-thinking event closes + settles the open stream
         const card = document.createElement("div");
         card.className = "ev fade-in";
         const ico = '<div class="ev-ico ' + kind + '">' + ICONS[kind] + "</div>";
@@ -768,7 +783,7 @@
         if (!path) return;
         clearPending();
         $("activityEmpty").classList.add("hidden");
-        currentThink = null;
+        finalizeThinking();
         const card = document.createElement("div");
         card.className = "ev fade-in";
         card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">' + ICONS.result + '</div><div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_result") + '</span></div><div class="ev-sum"></div></div></div></div>';
@@ -791,7 +806,7 @@
       // buttons; the chosen action + selected ids + text values ride back as a
       // ui_prompt_response, which the controller resolves into approval_response.
       function addApprovalPrompt(promptId, card) {
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -881,7 +896,7 @@
       }
 
       function addAskPrompt(promptId, question, options, optionsRequiringText, textPlaceholder) {
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -964,7 +979,7 @@
       // user unchecks to remove and/or types missing parts; Confirm posts the kept
       // device names + the free-text additions back to the host.
       function addComponentPrompt(promptId, devices) {
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -1014,7 +1029,7 @@
       // ----- build plan (confirmation gate before codegen spends credits) -----
       function addPlanPrompt(promptId, plan) {
         plan = plan || {};
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -1088,7 +1103,7 @@
       // ----- deploy checkpoint (board connection + wiring, before install/flash) -----
       let currentDeployCard = null;
       function addDeployPrompt(promptId, manifest) {
-        currentThink = null;
+        finalizeThinking();
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
@@ -1180,7 +1195,7 @@
         const file = path || "main.py";
         const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
         if (currentCode && currentCode.path === file) { currentCode.raw += text; currentCode.tw.feed(text); currentCode.card.__code = currentCode.raw; return; }
-        currentThink = null; // a code stream closes any open thinking card
+        finalizeThinking(); // a code stream closes any open thinking card
         $("activityEmpty").classList.add("hidden");
         const card = document.createElement("div");
         card.className = "ev fade-in";
@@ -1978,7 +1993,7 @@
         }
         if (msg.type === "session_done") {
           setRunning(false);
-          currentThink = null;
+          finalizeThinking();
           currentCode = null;
           currentSummary = null;
           clearPending();
