@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -12,16 +12,16 @@ import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, canStartGeneration } from "../core/gen-driver-schema.ts";
-import { SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, orderContactsByLocale } from "../core/support-config.ts";
+import { SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, orderContactsByLocale } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
-import { createDeviceShim, detectPython, venvReady, installVenvAsync } from "../extension/device-shim.ts";
+import { createDeviceShim, detectPython, venvReady, venvMpremoteVersion, installVenvAsync } from "../extension/device-shim.ts";
 import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
-import { BUNDLED_TOOLCHAIN_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
+import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
@@ -58,10 +58,41 @@ async function ensureGitConfig(projectFolder: string, key: string, value: string
 // dev repo itself is the open folder). A dedicated subfolder makes that impossible.
 const PROJECT_SUBDIR = "blockless-project";
 
-// Best-effort environment diagnostics for a bug report (section 08). Gathers the always-
-// available fields (toolchain version, OS, node, python); session-scoped fields
-// (session id / phase / recent activity) are a follow-up once the controller exposes them.
-function collectDiagnostics(vscode: any): { text: string; fields: Record<string, string> } {
+// Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
+// timeout, never throws — a headless/missing tool yields "unknown".
+const DIAGNOSTICS_EXEC_TIMEOUT_MS = 2000;
+function tryExecVersion(cmd: string, args: string[]): string {
+  try {
+    const out = execFileSync(cmd, args, { timeout: DIAGNOSTICS_EXEC_TIMEOUT_MS, windowsHide: true }).toString();
+    return out.trim().split("\n")[0] || "unknown";
+  } catch {
+    return "unknown"; // tool not installed / not on PATH / headless
+  }
+}
+
+// The MicroPython_Skills submodule commit. In a packaged VSIX this is baked at build
+// time (esbuild define, build-extension.mjs) and read from here — the installed extension
+// has no .git. In a dev/CI checkout there is no baked value, so fall back to walking the
+// cwd and its parents (package.json is nested one level under the repo root) for git.
+function skillsSubmoduleCommit(): string {
+  const baked = process.env.SKILLS_COMMIT; // replaced with the literal SHA in the bundle
+  if (baked && baked !== "unknown") return baked;
+  for (const root of [process.cwd(), resolve(process.cwd(), ".."), resolve(process.cwd(), "..", "..")]) {
+    const dir = join(root, "third_party", "MicroPython_Skills");
+    if (!existsSync(dir)) continue;
+    try {
+      return execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { timeout: DIAGNOSTICS_EXEC_TIMEOUT_MS, windowsHide: true }).toString().trim();
+    } catch {
+      // not a git checkout at this candidate — try the next
+    }
+  }
+  return "unknown";
+}
+
+// The section-08 diagnostics snapshot: session-scoped fields (from the controller) merged
+// with always-available host fields (versions, os/node/npm, python, mpremote). Emits every
+// declared SUPPORT_DIAGNOSTICS_FIELDS key, in order, so a bug report is complete.
+function collectDiagnostics(vscode: any, session: Record<string, string>): { text: string; fields: Record<string, string> } {
   let python = "unknown";
   try {
     const p = detectPython(vscode);
@@ -69,14 +100,17 @@ function collectDiagnostics(vscode: any): { text: string; fields: Record<string,
   } catch {
     // detection failed (no python / headless) — leave "unknown"
   }
-  const fields: Record<string, string> = {
-    toolchain_version: BUNDLED_TOOLCHAIN_VERSION,
+  const host: Record<string, string> = {
+    plugin_version: BUNDLED_TOOLCHAIN_VERSION,
+    extension_version: EXTENSION_VERSION,
+    submodule_commit: skillsSubmoduleCommit(),
     os: `${process.platform} ${process.arch}`,
     node: process.version,
+    npm: tryExecVersion("npm", ["--version"]),
     python,
+    mpremote: venvMpremoteVersion() ?? tryExecVersion("mpremote", ["--version"]),
   };
-  const text = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join("\n");
-  return { text, fields };
+  return buildDiagnosticsFields({ ...session, ...host });
 }
 
 // How many past sessions the "View Recent Sessions" launch entry lists (newest first).
@@ -198,7 +232,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     if (message.type === "request_diagnostics") {
       // Gather env diagnostics on demand so a bug report carries an actionable snapshot.
-      webview.postMessage({ type: "diagnostics", ...collectDiagnostics(vscode) });
+      webview.postMessage({ type: "diagnostics", ...collectDiagnostics(vscode, controller.getDiagnostics()) });
       return;
     }
     if (message.type === "open_external" && typeof message.url === "string") {

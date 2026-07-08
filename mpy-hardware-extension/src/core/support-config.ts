@@ -56,3 +56,14 @@ export const SUPPORT_DIAGNOSTICS_FIELDS = [
   "stdout_stderr_summary",
 ] as const;
 export type SupportDiagnosticsField = (typeof SUPPORT_DIAGNOSTICS_FIELDS)[number];
+
+// Assemble the diagnostics snapshot from a merged field bag (session + host values):
+// every declared field in canonical order, any missing value as "", plus the joined
+// text form for one-click copy. Keeps the 17-field contract and its ordering in one
+// place — callers can only over-supply; unknown keys are dropped, absent keys are blank.
+export function buildDiagnosticsFields(merged: Record<string, string>): { text: string; fields: Record<string, string> } {
+  const fields: Record<string, string> = {};
+  for (const key of SUPPORT_DIAGNOSTICS_FIELDS) fields[key] = merged[key] ?? "";
+  const text = SUPPORT_DIAGNOSTICS_FIELDS.map((key) => `${key}: ${fields[key]}`).join("\n");
+  return { text, fields };
+}

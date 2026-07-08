@@ -44,6 +44,13 @@ export class SessionController {
   // and the files_written toast is built from these. Empty in headless/test runs
   // with no loop-time writer, where the post-loop batch is the fallback writer.
   private persistedPaths: string[] = [];
+  // Diagnostics snapshot state (section 08): the current phase, a short ring of recent
+  // activity summaries, and any error strings — surfaced by getDiagnostics() for a bug
+  // report. Cleared on a fresh session (board switch) alongside the other run state.
+  private currentPhase: string | null = null;
+  private recentActivity: string[] = [];
+  private keyErrors: string[] = [];
+  private static readonly RECENT_ACTIVITY_CAP = 10;
 
   constructor(deps: { postMessage: (message: any) => void; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any> }) {
     this.deps = deps;
@@ -65,6 +72,9 @@ export class SessionController {
       this.preferences = undefined;  // fresh session: don't inherit the prior build's context
       this.preSelectedBoard = undefined;
       this.boardSelectionMode = undefined;
+      this.currentPhase = null;
+      this.recentActivity = [];
+      this.keyErrors = [];
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -142,6 +152,7 @@ export class SessionController {
       const causeDetail = error?.cause?.code ?? error?.cause?.message;
       const base = error?.message ?? "session_error";
       const message = causeDetail && !String(base).includes(causeDetail) ? `${base} (${causeDetail})` : base;
+      this.keyErrors.push(`session_error: ${message}`);
       const result = { terminal: "session_error", error: message };
       await this.record({ type: "session_error", error: message });
       await this.record({ type: "session_finished", terminal: result.terminal });
@@ -337,16 +348,20 @@ export class SessionController {
     // Protocol events: a status_update timeline entry, a phase boundary, or a
     // phase_complete result (with artifacts). Forwarded to the webview renderers.
     if (event.type === "status_update") {
+      this.pushActivity(`status: ${event.payload?.message ?? event.payload?.status ?? "update"}`);
       this.record({ type: "status_update", payload: event.payload });
       this.deps.postMessage({ type: "status_update", payload: event.payload });
       return;
     }
     if (event.type === "phase_start") {
+      this.currentPhase = event.phase;
+      this.pushActivity(`phase_start: ${event.phase}`);
       this.record({ type: "phase_start", phase: event.phase });
       this.deps.postMessage({ type: "phase_start", phase: event.phase });
       return;
     }
     if (event.type === "phase_complete") {
+      this.pushActivity(`phase_complete: ${event.payload?.phase ?? this.currentPhase ?? ""}`);
       this.record({ type: "phase_complete", payload: event.payload });
       this.deps.postMessage({ type: "phase_complete", payload: event.payload });
       return;
@@ -397,6 +412,7 @@ export class SessionController {
       // A phase gave up (the model never emitted a tool, or the turn budget ran out).
       // Record + post it as itself so the cloud DB shows the stall and the webview can
       // render a stuck/retry state instead of a frozen step with no error.
+      this.keyErrors.push(`stalled: ${event.phase} (${event.reason})`);
       this.record({ type: "phase_stalled", phase: event.phase, reason: event.reason });
       this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason });
       return;
@@ -407,6 +423,39 @@ export class SessionController {
 
   private record(event: Record<string, any>) {
     return this.recorder?.record(event) ?? Promise.resolve();
+  }
+
+  // Append a short summary to the recent-activity ring, keeping only the newest N.
+  private pushActivity(summary: string) {
+    this.recentActivity.push(summary);
+    if (this.recentActivity.length > SessionController.RECENT_ACTIVITY_CAP) {
+      this.recentActivity.shift();
+    }
+  }
+
+  // Artifact paths produced this session: the loop's own writes plus any accumulated
+  // generated files, deduped. Empty before the first generate.
+  private artifactIndex(): string[] {
+    return [...new Set([...this.persistedPaths, ...Object.keys(this.latestFiles)])];
+  }
+
+  // The session-scoped half of the section-08 diagnostics snapshot. The panel merges
+  // this with the always-available host fields (versions, os/node/npm, python) and
+  // fills every declared key so a bug report carries an actionable, complete picture.
+  getDiagnostics(): Record<string, string> {
+    const board = this.preSelectedBoard;
+    const selectedBoard = board?.display_name ?? board?.id ?? (this.boardId && this.boardId !== "auto" ? this.boardId : "");
+    return {
+      session_id: this.traceId ?? "",
+      current_phase: this.currentPhase ?? "",
+      recent_activity: this.recentActivity.join("; "),
+      key_errors: this.keyErrors.join("; "),
+      artifact_index: this.artifactIndex().join(", "),
+      selected_board: selectedBoard,
+      last_command: this.recentActivity.at(-1) ?? "",
+      serial_port: "", // best-effort: no serial-port signal is tracked in the host yet
+      stdout_stderr_summary: "", // best-effort: not accumulated at the session layer
+    };
   }
 
   private async writeArtifactsIfReady() {
@@ -427,6 +476,7 @@ export class SessionController {
       "manifest.json": JSON.stringify(this.latestManifest, null, 2),
     });
     if (result?.ok === false) {
+      this.keyErrors.push(`write_failed: ${result.error_kind ?? "write_failed"}`);
       await this.record({ type: "files_write_failed", error: result.error_kind ?? "write_failed" });
       this.deps.postMessage({ type: "files_write_failed", error: result.error_kind ?? "write_failed" });
       return;

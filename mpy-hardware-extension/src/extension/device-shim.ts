@@ -382,6 +382,21 @@ export function venvReady(): boolean {
   return existsSync(python) && canRun(python, SHIM_IMPORT_PROBE);
 }
 
+// Best-effort mpremote version from the managed venv (where the shim installs it) — the
+// diagnostics snapshot needs it, and mpremote is rarely on the global PATH. Runs
+// `<venvPython> -m mpremote --version`; undefined if the venv/mpremote is absent or fails.
+// The pythonPath arg is for tests; production uses the managed venv path.
+export function venvMpremoteVersion(pythonPath: string = venvPaths().python): string | undefined {
+  if (!existsSync(pythonPath)) return undefined;
+  try {
+    const r = spawnSync(pythonPath, ["-m", "mpremote", "--version"], { encoding: "utf8", timeout: 5_000 });
+    if (r.status !== 0) return undefined;
+    return ((r.stdout || "") + (r.stderr || "")).trim().split("\n")[0] || undefined;
+  } catch {
+    return undefined; // spawn failed (no python / headless)
+  }
+}
+
 function ensureVenv(python: string, vscode: any, requirementsPath: string): string {
   const { dir: venvDir, python: venvPython } = venvPaths();
   if (!existsSync(venvPython)) {
