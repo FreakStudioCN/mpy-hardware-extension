@@ -26,6 +26,15 @@ test("orderContactsByLocale surfaces locale-priority contacts first", () => {
   assert.equal(en.length, SUPPORT_CONTACTS.length);
 });
 
+test("orderContactsByLocale matches the locale case-insensitively", () => {
+  // vscode.env.language is lowercase BCP-47 (VS Code sends "zh-cn", never "zh-CN"),
+  // but the config priority is written "zh-CN". A Chinese user must still see the
+  // China-first contacts (WeChat/QQ) ahead of Discord.
+  const zh = orderContactsByLocale(SUPPORT_CONTACTS, "zh-cn").map((c) => c.id);
+  assert.ok(zh.indexOf("wechat") < zh.indexOf("discord"), "zh-cn sees WeChat before Discord");
+  assert.ok(zh.indexOf("qq_group") < zh.indexOf("discord"), "zh-cn sees QQ before Discord");
+});
+
 test("diagnostics fields cover the section-08 essentials", () => {
   for (const key of ["session_id", "current_phase", "submodule_commit", "mpremote", "stdout_stderr_summary"]) {
     assert.ok(SUPPORT_DIAGNOSTICS_FIELDS.includes(key as any), `${key} in diagnostics fields`);
