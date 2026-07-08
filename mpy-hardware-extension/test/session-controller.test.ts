@@ -736,3 +736,112 @@ test("a second resolvePrompt for the same promptId does not re-invoke the resolv
   assert.equal(dup.promptId, prompt.promptId);
   assert.equal(dup.answer, "TFT", "the trace carries the ignored duplicate answer");
 });
+
+// ---- User supplements at the after-phase_complete safe point (deliverables 07) ----
+
+test("queues a supplement mid-run and surfaces it at the safe point (absorb -> folded into next context)", async () => {
+  const posted: any[] = [];
+  let safePoint: string | null | undefined;
+  let controller: SessionController;
+  controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent, onSafePoint }: any) => {
+      onEvent({ type: "phase_start", phase: "analyze" });
+      controller.submitSupplement("raise the temperature threshold to 40");
+      safePoint = onSafePoint("analyze");
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "env monitor", boardId: "auto" });
+
+  const received = posted.find((m) => m.type === "user_supplement_received");
+  assert.ok(received, "a queued supplement emits user_supplement_received");
+  assert.equal(received.status, "queued");
+  assert.equal(received.phase, "analyze", "receivedPhase is stamped from the current phase");
+  const applied = posted.find((m) => m.type === "user_supplement_applied");
+  assert.equal(applied.decision, "absorb", "a logic change absorbs");
+  assert.equal(safePoint, "raise the temperature threshold to 40", "absorbed text is returned to the loop for the next phase context");
+});
+
+test("a reroute supplement is flag-and-surface: applied event, but NO auto-jump text returned", async () => {
+  const posted: any[] = [];
+  let safePoint: string | null | undefined;
+  let controller: SessionController;
+  controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent, onSafePoint }: any) => {
+      onEvent({ type: "phase_start", phase: "analyze" });
+      controller.submitSupplement("use an esp32 board instead");
+      safePoint = onSafePoint("analyze");
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const applied = posted.find((m) => m.type === "user_supplement_applied");
+  assert.equal(applied.decision, "reroute");
+  assert.equal(applied.phase, "upy-select-hw-plugin", "the applied event names the reroute target");
+  assert.equal(safePoint, null, "reroute does not fold text into the next phase (no auto-jump for P0)");
+});
+
+test("a pin change becomes reconfirm once code already exists (spec §6)", async () => {
+  const posted: any[] = [];
+  let controller: SessionController;
+  controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent, onSafePoint }: any) => {
+      onEvent({ type: "phase_start", phase: "upy-generate-plugin" });
+      onEvent({ type: "code_updated", code: "print('hi')", path: "main.py" }); // code now exists
+      controller.submitSupplement("move the sensor to GPIO 15");
+      onSafePoint("upy-generate-plugin");
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const applied = posted.find((m) => m.type === "user_supplement_applied");
+  assert.equal(applied.decision, "reconfirm", "pin change + existing code -> reconfirm, not a silent reroute");
+});
+
+test("two notes queued before a safe point are both surfaced (not lost, §9)", async () => {
+  const posted: any[] = [];
+  let controller: SessionController;
+  controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent, onSafePoint }: any) => {
+      onEvent({ type: "phase_start", phase: "analyze" });
+      controller.submitSupplement("raise the threshold to 40");
+      controller.submitSupplement("also lower the sample interval");
+      onSafePoint("analyze");
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  assert.equal(posted.filter((m) => m.type === "user_supplement_received").length, 2);
+  assert.equal(posted.filter((m) => m.type === "user_supplement_applied").length, 2, "both queued notes are consumed");
+});
+
+test("an empty/whitespace supplement is ignored (no queue entry, no event)", async () => {
+  const posted: any[] = [];
+  let safePoint: string | null | undefined;
+  let controller: SessionController;
+  controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent, onSafePoint }: any) => {
+      onEvent({ type: "phase_start", phase: "analyze" });
+      controller.submitSupplement("   ");
+      safePoint = onSafePoint("analyze");
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  assert.equal(posted.some((m) => m.type === "user_supplement_received"), false, "blank note is not queued");
+  assert.equal(safePoint, null, "nothing to consume");
+});

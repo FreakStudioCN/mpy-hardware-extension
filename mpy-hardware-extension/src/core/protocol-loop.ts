@@ -83,6 +83,11 @@ export type ProtocolInput = {
   traceId?: string;
   signal?: { aborted: boolean };
   onEvent?: (event: any) => void;
+  // Safe-point hook (deliverables 07 §5): called after each phase_complete, before the
+  // next phase starts. The host consumes queued user supplements and returns absorb text
+  // to fold into the NEXT phase's context (null = nothing to absorb). reroute/reconfirm
+  // are surfaced by the host; for P0 they do not change the loop's phase advance.
+  onSafePoint?: (phase: string) => string | null;
   // The single rich approval gate (replaces ask/components/plan/deploy). Resolves the
   // user's decision; null/undefined = headless auto-confirm (select all items).
   confirmApproval?: (card: any) => Promise<{ action: string; selected_ids?: string[]; added_items?: any[]; text_values?: any; notes?: string } | null>;
@@ -111,21 +116,24 @@ function asyncEvents(source: AsyncIterable<StreamEvent>): AsyncIterator<StreamEv
 // The handoff-required user context: preferences + pre_selected_board. The new UI
 // passes the full official board fact object; legacy callers that only know boardId
 // still get the old string shape for compatibility.
-function buildContext(input: ProtocolInput): Record<string, any> | null {
+function buildContext(input: ProtocolInput, absorbedSupplements: string[]): Record<string, any> | null {
   const ctx: Record<string, any> = { ...(input.preferences ?? {}) };
   if (input.preSelectedBoard) ctx.pre_selected_board = input.preSelectedBoard;
   else if (input.boardId && input.boardId !== "auto") ctx.pre_selected_board = input.boardId;
   // Carry the explicit recommend signal only when no board was pre-selected.
   if (input.boardSelectionMode && !ctx.pre_selected_board) ctx.board_selection_mode = input.boardSelectionMode;
+  // Absorbed user supplements (deliverables 07 §6): extra guidance folded into the phase
+  // context so the model sees the note without a schema change.
+  if (absorbedSupplements.length) ctx.user_supplements = absorbedSupplements;
   return Object.keys(ctx).length ? ctx : null;
 }
 
 // Drive one phase to its phase_complete (or stall/cancel). Returns the control the
 // notify executor captured from phase_complete.
-async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps) {
+async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps, absorbedSupplements: string[]) {
   const messages: any[] = [{ role: "user", content: input.intent }];
   const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_PER_PHASE;
-  const context = buildContext(input);
+  const context = buildContext(input, absorbedSupplements);
   let toollessTurns = 0;
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
@@ -213,10 +221,12 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
   let phase = input.startPhase ?? "analyze";
   let manifest = input.startManifest ?? {};
   const phases: Array<{ phase: string; result: string | null }> = [];
+  // User supplements absorbed at safe points, carried into subsequent phases' context.
+  const absorbedSupplements: string[] = [];
   for (let i = 0; i < MAX_PHASES; i++) {
     if (input.signal?.aborted) return { phases, manifest, terminal: "cancelled" };
     input.onEvent?.({ type: "phase_start", phase });
-    const outcome = await runPhase(phase, manifest, input, deps);
+    const outcome = await runPhase(phase, manifest, input, deps, absorbedSupplements);
     if (outcome.cancelled) return { phases, manifest, terminal: "cancelled" };
     if (!outcome.done || !outcome.control) {
       phases.push({ phase, result: null });
@@ -225,6 +235,11 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
     const ctrl = outcome.control;
     phases.push({ phase, result: ctrl.result ?? "success" });
     if (ctrl.manifest && typeof ctrl.manifest === "object") manifest = ctrl.manifest;
+    // Safe point (deliverables 07 §5): consume queued supplements before auto-advancing.
+    // Absorbed text is folded into the next phase's context; reroute/reconfirm are
+    // surfaced by the host and, for P0, do not change the phase the model chose next.
+    const absorb = input.onSafePoint?.(phase);
+    if (absorb) absorbedSupplements.push(absorb);
     // Terminal when there's no next phase. The model sometimes emits the literal
     // string "null"/"none"/"" instead of JSON null 鈥?treat those as terminal too,
     // otherwise the loop spawns a phantom phase named "null".

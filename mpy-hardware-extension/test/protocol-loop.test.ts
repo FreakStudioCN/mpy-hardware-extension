@@ -772,3 +772,30 @@ test("non-JSON or JSON-without-error-arrays stdout changes nothing (no correctiv
     assert.equal(result.structured_errors, undefined, stdout);
   }
 });
+
+test("onSafePoint fires after phase_complete and absorbed text folds into the next phase context", async () => {
+  // analyze -> select-hw. The host returns absorb text at the safe point after analyze;
+  // it must reach select-hw's request context as user_supplements (no schema change).
+  const sentBodies: any[] = [];
+  const safePointPhases: string[] = [];
+  const script: Record<string, any[][]> = {
+    "analyze": [[tu("a", "phase_complete", { result: "success", summary: "analyze", next_phase: "select-hw" }), stop]],
+    "select-hw": [[tu("s", "phase_complete", { result: "success", summary: "select-hw", next_phase: null }), stop]],
+  };
+  const baseLlm = scriptedLlm(script);
+  const llm = {
+    streamMessages: async (body: any) => { sentBodies.push(body); return baseLlm.streamMessages(body); },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", traceId: "t", onSafePoint: (phase: string) => { safePointPhases.push(phase); return phase === "analyze" ? "also add a buzzer" : null; } },
+    { llmClient: llm },
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.deepEqual(safePointPhases, ["analyze", "select-hw"], "safe point runs after each phase_complete");
+  const selectHw = sentBodies.find((b) => b.phase === "select-hw");
+  assert.deepEqual(selectHw.context?.user_supplements, ["also add a buzzer"], "absorbed note reaches the next phase context");
+  const analyze = sentBodies.find((b) => b.phase === "analyze");
+  assert.equal(analyze.context?.user_supplements, undefined, "the phase that produced the note does not see it in its own context");
+});
