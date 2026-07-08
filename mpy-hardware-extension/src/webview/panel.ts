@@ -63,7 +63,11 @@ const PROJECT_SUBDIR = "blockless-project";
 const DIAGNOSTICS_EXEC_TIMEOUT_MS = 2000;
 function tryExecVersion(cmd: string, args: string[]): string {
   try {
-    const out = execFileSync(cmd, args, { timeout: DIAGNOSTICS_EXEC_TIMEOUT_MS, windowsHide: true }).toString();
+    // On Windows these tools are usually `.cmd`/`.bat` shims (e.g. npm.cmd); execFileSync
+    // without a shell can't launch them (EPERM), so the field would read "unknown" even
+    // when installed. Run through the shell on Windows — args here are fixed literals, so
+    // there is no injection surface. Matches baseline.mjs's `shell: isWin` convention.
+    const out = execFileSync(cmd, args, { timeout: DIAGNOSTICS_EXEC_TIMEOUT_MS, windowsHide: true, shell: process.platform === "win32" }).toString();
     return out.trim().split("\n")[0] || "unknown";
   } catch {
     return "unknown"; // tool not installed / not on PATH / headless
