@@ -133,10 +133,38 @@ async function readSessionSummary(sessionsRoot: string, id: string): Promise<Rec
   };
 }
 
+// Rank real session dir names newest-first without opening any of them. The trace id
+// JsonlSessionRecorder writes is `session-<base36 creation ms>-<rand>` (createTraceId) —
+// a base36-ms segment then a random segment — so an end-anchored shape match drops
+// foreign entries (.DS_Store, a legacy "trace-*" id that would otherwise sort ahead of
+// "session-*"), and a descending string compare (not localeCompare, so it's a
+// deterministic code-point sort) is recency order. The second segment is [0-9a-z]* (may
+// be empty) because Math.random().toString(36).slice(2,10) is empty when random()===0, so
+// a real id can be `session-<ts>-`. (base36 timestamps are equal-width — and thus
+// lexicographically ordered — until the 9-digit rollover in 2059.)
+export function selectRecentSessionIds(ids: string[]): string[] {
+  return ids
+    .filter((id) => /^session-[0-9a-z]+-[0-9a-z]*$/.test(id))
+    .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+}
+
 // List past sessions (newest first) written under <workspaceFolder>/.mpyhw/sessions
 // by JsonlSessionRecorder. Read-only: reads each session.jsonl for a summary, never
 // mutates. Returns [] when no sessions dir exists yet.
+//
+// Opens only as many sessions as it takes to collect `limit` valid summaries, reading
+// newest-first in batches of `limit`: the common case (dirs are valid) reads exactly one
+// batch, and a rare crashed/empty dir (dir created, session.jsonl never written) is
+// skipped and backfilled from the next batch rather than shrinking the list. Bounded by
+// the number of session dirs, so cost is not proportional to the whole history.
+//
+// Recency by dir name is a proxy for recency by first-event ts: createTraceId mints the
+// name and the first event is recorded within ~ms in the same start(), so the two orders
+// agree except sub-millisecond — which cannot cross the `limit` batch boundary. Reading
+// every session's ts to guarantee a globally exact top-`limit` would defeat the bound;
+// the read summaries are still re-sorted by real ts for display.
 export async function listRecentSessions(workspaceFolder: string, limit: number): Promise<RecentSession[]> {
+  if (limit <= 0) return [];
   const sessionsRoot = join(workspaceFolder, ".mpyhw", "sessions");
   let ids: string[];
   try {
@@ -144,10 +172,15 @@ export async function listRecentSessions(workspaceFolder: string, limit: number)
   } catch {
     return []; // sessions dir not created yet
   }
-  const summaries = await Promise.all(ids.map((id) => readSessionSummary(sessionsRoot, id)));
-  const sessions = summaries.filter((s): s is RecentSession => s !== null);
-  // Newest first by ISO date (lexicographic on the timestamp); the list is displayed
-  // ordered, so a sort is the right tool, then cap to the requested count.
+  const ranked = selectRecentSessionIds(ids);
+  const sessions: RecentSession[] = [];
+  for (let i = 0; i < ranked.length && sessions.length < limit; i += limit) {
+    const batch = ranked.slice(i, i + limit);
+    const summaries = await Promise.all(batch.map((id) => readSessionSummary(sessionsRoot, id)));
+    for (const s of summaries) if (s !== null) sessions.push(s);
+  }
+  // Order by real first-event ts (the dir-name sort is only a recency proxy for capping;
+  // the actual event ts is authoritative for display order), then cap to the limit.
   sessions.sort((a, b) => b.date.localeCompare(a.date));
   return sessions.slice(0, limit);
 }
