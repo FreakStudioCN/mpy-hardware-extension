@@ -143,7 +143,7 @@ export class SessionController {
         // Safe-point hook (deliverables 07 §5, after phase_complete): drain queued
         // supplements, classify + surface each, and return absorb text for the loop to
         // fold into the next phase's context.
-        onSafePoint: (phase: string) => (current() ? this.consumeSupplementsAtSafePoint(phase) : null),
+        onSafePoint: (phase: string, hasNextPhase: boolean) => (current() ? this.consumeSupplementsAtSafePoint(phase, hasNextPhase) : null),
         askUser: (question: string, options?: string[], optionsRequiringText?: string[], textPlaceholder?: string) => this.askUser(question, options, optionsRequiringText, textPlaceholder),
         confirmPlan: (plan: any) => this.confirmPlan(plan),
         confirmDeploy: () => this.confirmDeploy(),
@@ -350,22 +350,31 @@ export class SessionController {
   // Safe-point consume (deliverables 07 §5, after phase_complete): classify every queued
   // supplement, surface each in Activity, and return the concatenated absorb text for the
   // loop to fold into the next phase's context. reroute/reconfirm are flag-and-surface for
-  // P0 (status reroute_required, no auto-jump); absorb marks applied. Null when empty.
-  private consumeSupplementsAtSafePoint(completedPhase: string): string | null {
+  // P0 (status reroute_required, no auto-jump); absorb marks applied. When hasNextPhase is
+  // false (the build is terminating) an absorb note has nowhere to fold, so it is surfaced
+  // as deferred rather than falsely reported applied. Null when empty.
+  private consumeSupplementsAtSafePoint(completedPhase: string, hasNextPhase: boolean = true): string | null {
     const queued = this.pendingSupplements.filter((s) => s.status === "queued");
     if (queued.length === 0) return null;
     const codeExists = Object.keys(this.latestFiles).length > 0 || this.persistedPaths.length > 0;
     const absorbed: string[] = [];
     for (const supplement of queued) {
       const route = classifySupplement(supplement.text, supplement.attachments);
-      const decision = route.reconfirmIfCode && codeExists ? "reconfirm" : route.decision;
-      if (decision === "absorb") {
+      let decision: string = route.reconfirmIfCode && codeExists ? "reconfirm" : route.decision;
+      let reason = route.reason;
+      if (decision === "absorb" && hasNextPhase) {
         supplement.status = "applied";
         absorbed.push(supplement.text);
+      } else if (decision === "absorb") {
+        // No phase left to fold this note into — surface it honestly instead of reporting
+        // it applied to a phase that never runs. Cleared on Restart; start a new build to use it.
+        supplement.status = "discarded";
+        decision = "deferred";
+        reason = "The build finished before this note could be applied — start a new build to include it.";
       } else {
         supplement.status = "reroute_required";
       }
-      this.emitSupplementApplied(route.target ?? this.currentPhase ?? completedPhase, decision, route.reason);
+      this.emitSupplementApplied(route.target ?? this.currentPhase ?? completedPhase, decision, reason);
     }
     return absorbed.length > 0 ? absorbed.join("\n") : null;
   }

@@ -65,3 +65,29 @@ test("an unrecognized note absorbs into the next phase context", () => {
   assert.equal(r.decision, "absorb");
   assert.equal(r.target, null);
 });
+
+// A deploy-failure note that also names the board is deploy feedback, not a board
+// change: the deploy-failure signal (deploy/upload/flash + a failure word) must win
+// over the bare board mention, so it absorbs into the fix step instead of rerouting
+// the user back to hardware selection.
+test("deploy failure naming the board still absorbs (deploy wins over the board mention)", () => {
+  const r = classifySupplement("upload failed on my esp32 board", []);
+  assert.equal(r.decision, "absorb");
+  assert.equal(r.target, null);
+});
+
+// Swapping a component phrased as "... instead" is a hardware replacement even without
+// the words replace/swap; it must reroute to analyze (may change pins/drivers/board).
+test("replacing hardware phrased as '... instead' reroutes to analyze", () => {
+  const r = classifySupplement("use a DHT22 sensor instead", []);
+  assert.equal(r.decision, "reroute");
+  assert.equal(r.target, "upy-analyze-plugin");
+});
+
+// The '... instead' replacement rule must NOT swallow a board change — a board named
+// with "instead" still routes to select-hw, not analyze.
+test("a board change phrased as '... instead' still reroutes to select-hw", () => {
+  const r = classifySupplement("use an esp32 board instead", []);
+  assert.equal(r.decision, "reroute");
+  assert.equal(r.target, "upy-select-hw-plugin");
+});

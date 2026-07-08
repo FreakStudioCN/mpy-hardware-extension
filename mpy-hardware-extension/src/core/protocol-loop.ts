@@ -87,7 +87,10 @@ export type ProtocolInput = {
   // next phase starts. The host consumes queued user supplements and returns absorb text
   // to fold into the NEXT phase's context (null = nothing to absorb). reroute/reconfirm
   // are surfaced by the host; for P0 they do not change the loop's phase advance.
-  onSafePoint?: (phase: string) => string | null;
+  // hasNextPhase tells the host whether a phase actually follows: on the terminal phase
+  // there is nowhere to fold absorbed text, so the host surfaces such a note as deferred
+  // instead of falsely reporting it applied.
+  onSafePoint?: (phase: string, hasNextPhase: boolean) => string | null;
   // The single rich approval gate (replaces ask/components/plan/deploy). Resolves the
   // user's decision; null/undefined = headless auto-confirm (select all items).
   confirmApproval?: (card: any) => Promise<{ action: string; selected_ids?: string[]; added_items?: any[]; text_values?: any; notes?: string } | null>;
@@ -235,19 +238,21 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
     const ctrl = outcome.control;
     phases.push({ phase, result: ctrl.result ?? "success" });
     if (ctrl.manifest && typeof ctrl.manifest === "object") manifest = ctrl.manifest;
+    // Resolve the next phase FIRST so the safe point knows whether absorbed text has
+    // anywhere to go. The model sometimes emits the literal string "null"/"none"/""
+    // instead of JSON null — treat those as terminal too, otherwise the loop spawns a
+    // phantom phase named "null".
+    const requestedNext = phaseToken(ctrl.next_skill) ?? phaseToken(ctrl.next_phase);
+    const next = requestedNext ? normalizePhase(requestedNext) : null;
     // Safe point (deliverables 07 §5): consume queued supplements before auto-advancing.
     // Absorbed text is folded into the next phase's context; reroute/reconfirm are
     // surfaced by the host and, for P0, do not change the phase the model chose next.
-    const absorb = input.onSafePoint?.(phase);
+    const absorb = input.onSafePoint?.(phase, !!next);
     if (absorb) absorbedSupplements.push(absorb);
-    // Terminal when there's no next phase. The model sometimes emits the literal
-    // string "null"/"none"/"" instead of JSON null 鈥?treat those as terminal too,
-    // otherwise the loop spawns a phantom phase named "null".
-    const requestedNext = phaseToken(ctrl.next_skill) ?? phaseToken(ctrl.next_phase);
+    // Terminal when there's no next phase.
     if (!requestedNext) {
       return { phases, manifest, terminal: ctrl.result === "failed" ? "failed" : "complete" };
     }
-    const next = normalizePhase(requestedNext);
     if (!next) {
       input.onEvent?.({ type: "phase_error", error_kind: "unknown_next_phase", next_phase: requestedNext });
       return { phases, manifest, terminal: "failed" };

@@ -845,3 +845,27 @@ test("an empty/whitespace supplement is ignored (no queue entry, no event)", asy
   assert.equal(posted.some((m) => m.type === "user_supplement_received"), false, "blank note is not queued");
   assert.equal(safePoint, null, "nothing to consume");
 });
+
+test("an absorb note queued on the FINAL phase is surfaced as deferred, not falsely applied", async () => {
+  // The safe point after the last phase_complete has no next phase to fold an absorb
+  // note into. It must be surfaced honestly (decision "deferred") rather than claimed
+  // "applied"/absorbed, and it must NOT be returned as fold-in text (nowhere to go).
+  const posted: any[] = [];
+  let safePoint: string | null | undefined;
+  let controller: SessionController;
+  controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent, onSafePoint }: any) => {
+      onEvent({ type: "phase_start", phase: "upy-generate-plugin" });
+      controller.submitSupplement("raise the threshold to 40");
+      safePoint = onSafePoint("upy-generate-plugin", false); // no next phase
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const applied = posted.find((m) => m.type === "user_supplement_applied");
+  assert.equal(applied.decision, "deferred", "an absorb note with no next phase is deferred, not applied");
+  assert.equal(safePoint, null, "nothing is folded forward when there is no next phase");
+});

@@ -799,3 +799,21 @@ test("onSafePoint fires after phase_complete and absorbed text folds into the ne
   const analyze = sentBodies.find((b) => b.phase === "analyze");
   assert.equal(analyze.context?.user_supplements, undefined, "the phase that produced the note does not see it in its own context");
 });
+
+test("onSafePoint is told whether a next phase exists (false on the terminal phase)", async () => {
+  // The host needs hasNextPhase to decide whether an absorb note can actually be folded
+  // forward: true after analyze (select-hw follows), false after select-hw (terminal).
+  const seen: Array<{ phase: string; hasNext: boolean }> = [];
+  const script: Record<string, any[][]> = {
+    "analyze": [[tu("a", "phase_complete", { result: "success", summary: "analyze", next_phase: "select-hw" }), stop]],
+    "select-hw": [[tu("s", "phase_complete", { result: "success", summary: "select-hw", next_phase: null }), stop]],
+  };
+  const llm = scriptedLlm(script);
+
+  await runProtocolBuild(
+    { intent: "x", traceId: "t", onSafePoint: (phase: string, hasNextPhase: boolean) => { seen.push({ phase, hasNext: hasNextPhase }); return null; } },
+    { llmClient: llm },
+  );
+
+  assert.deepEqual(seen, [{ phase: "analyze", hasNext: true }, { phase: "select-hw", hasNext: false }]);
+});
