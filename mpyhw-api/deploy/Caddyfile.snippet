@@ -2,11 +2,11 @@
 # real, publicly-resolvable hostname  -  no cert work on our side.
 #
 # Prerequisite: the `mpyhw-api` container and Caddy share a Docker network (the `edge` / caddy_net
-# network in deploy/compose.yml), so Caddy can reach the service by name `mpyhw-api`.
+# network in compose.yml), so Caddy can reach the service by name `mpyhw-api`.
 # (The service is deliberately named `mpyhw-api`, not the generic `api`, to avoid colliding with
 #  any other service on the shared Caddy network.)
 
-api.block-less.com {                 # <-- the hostname the plugin backend is served at (a domain you control DNS for)
+blockless.upypi.net {                # <-- the hostname the plugin backend is served at
     reverse_proxy mpyhw-api:8080
 }
 
@@ -16,6 +16,6 @@ api.block-less.com {                 # <-- the hostname the plugin backend is se
 # (loopback only  -  still no public :80/:443 grab). If host port 8080 is already taken, pick any
 # free loopback port, e.g. `ports: ["127.0.0.1:8090:8080"]`, and point Caddy at that port:
 #
-# api.block-less.com {
+# blockless.upypi.net {
 #     reverse_proxy 127.0.0.1:8090
 # }
