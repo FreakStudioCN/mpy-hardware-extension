@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { withVenvOnPath } from "./venv-path.mjs";
+
 // One-command baseline: build, typecheck, TS tests, Python shim tests, and every
 // plugin smoke suite, each as a captured subprocess with its own timeout. It only
 // wraps the existing test commands, it does not replace any test logic.
@@ -12,7 +14,8 @@ import { join, resolve } from "node:path";
 // on Windows.
 
 const isWin = process.platform === "win32";
-const venvPython = resolve(".venv", isWin ? "Scripts/python.exe" : "bin/python");
+const venvBin = resolve(".venv", isWin ? "Scripts" : "bin");
+const venvPython = join(venvBin, isWin ? "python.exe" : "python");
 const skillsDir = resolve("..", "third_party", "MicroPython_Skills");
 
 const STEP_TIMEOUT_MS = 300_000; // build / typecheck / TS tests / shim pytest
@@ -57,6 +60,7 @@ function runStep(name, cmd, args, opts) {
     shell: opts.shell ?? false,
     stdio: ["ignore", "pipe", "pipe"],
     encoding: "utf-8",
+    env: opts.env ?? process.env,
     timeout,
   });
   const seconds = ((Date.now() - start) / 1000).toFixed(1);
@@ -93,7 +97,10 @@ printEnv();
 
 runStep("build", "npm", ["run", "build"], { shell: isWin });
 runStep("typecheck", "npm", ["run", "typecheck"], { shell: isWin });
-runStep("test", "npm", ["test"], { shell: isWin });
+// Run the TS tests with the venv bin first on PATH so the shim roundtrip's bare `python`
+// resolves to the project venv, not a system python earlier on PATH (Windows: 3.9 vs 3.12).
+const testEnv = existsSync(venvBin) ? withVenvOnPath(process.env, venvBin) : process.env;
+runStep("test", "npm", ["test"], { shell: isWin, env: testEnv });
 
 if (existsSync(venvPython)) {
   runStep("shim pytest", venvPython, ["-m", "pytest", "python/shim", "-q"], {});
