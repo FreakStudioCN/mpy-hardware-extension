@@ -1708,3 +1708,38 @@ test("session_done disables a still-open approval card so stale clicks can't pos
   buttons[0].click();
   assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "a stale click posts nothing");
 });
+
+test("the add-note button appears while running and posts a user_supplement", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  const addNote = document.getElementById("addNote") as HTMLButtonElement;
+  assert.ok(addNote.classList.contains("hidden"), "add-note is hidden before a run starts");
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(addNote.classList.contains("hidden"), false, "add-note shows once the run is live");
+
+  posted.length = 0;
+  const intent = document.getElementById("intent") as HTMLTextAreaElement;
+  intent.value = "also add a buzzer";
+  addNote.click();
+
+  const supplement = posted.find((m) => m.type === "user_supplement");
+  assert.ok(supplement, "clicking add-note posts a user_supplement");
+  assert.equal(supplement.text, "also add a buzzer");
+  assert.equal(intent.value, "", "the composer is cleared after queueing the note");
+});
+
+test("supplement received/applied events render into the activity feed", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "user_supplement_received", phase: "analyze", status: "queued", summary: "add a buzzer", received_at: "t" });
+  post(dom, { type: "user_supplement_applied", phase: "upy-analyze-plugin", decision: "reroute", reason: "New hardware changes the device list." });
+
+  const feed = (document.getElementById("activity") as HTMLElement).textContent ?? "";
+  assert.ok(feed.includes("add a buzzer"), "the queued note summary is shown");
+  assert.ok(feed.includes("New hardware changes the device list."), "the applied decision reason is shown");
+});
