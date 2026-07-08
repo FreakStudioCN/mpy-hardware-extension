@@ -272,6 +272,34 @@ def test_concurrent_first_grant_creates_exactly_one_row_no_error():
     assert grants == [{"action": "grant", "credits": 50, "balance_after": 50, "status": "posted"}]
 
 
+def test_unlimited_account_gets_unlimited_grant_by_login_or_email():
+    # Comped accounts are hardcoded (not env): the grant must resolve for them by
+    # GitHub login or email, case-insensitively, without any deploy configuration.
+    unlimited = credit_store.UNLIMITED_DAILY_GRANT
+    assert credit_store.grant_for({"id": "9", "login": "ersonp", "email": None}) == unlimited
+    assert credit_store.grant_for({"id": "9", "login": "ErsonP", "email": None}) == unlimited
+    assert credit_store.grant_for({"id": "9", "login": "other", "email": "ErsonPereiraCR7@gmail.com"}) == unlimited
+    assert credit_store.grant_for({"id": "1", "login": "octocat", "email": None}) == credit_store.DAILY_GRANT
+
+
+def test_unlimited_account_spend_never_touches_global_budget():
+    # An unlimited account must not be able to burn the free tier's daily global
+    # budget: none of reserve/debit/refund may move the global tally. All three must
+    # skip together — if reserve skipped but refund decremented, a reserve+refund
+    # cycle would push the tally toward the floor and weaken the breaker.
+    user = {"id": "88", "login": "ersonp", "email": None}
+    credit_store.ensure_daily_grant(user, credit_store.grant_for(user))
+
+    credit_store.reserve(user, 1)
+    credit_store.debit(user, 3)
+    credit_store.refund(user, 1)
+
+    assert credit_store.global_spend_today() == 0
+    # The user's own ledger/balance accounting stays real for audit.
+    balance = credit_store.ensure_daily_grant(user, credit_store.grant_for(user))["balance"]
+    assert balance == credit_store.UNLIMITED_DAILY_GRANT - 3
+
+
 def test_grant_for_resolves_login_override_else_default(monkeypatch):
     # Per-user override is keyed by lowercased GitHub login; everyone else gets the global.
     monkeypatch.setattr(credit_store, "_GRANT_OVERRIDES", {"xinruili-git": 500})

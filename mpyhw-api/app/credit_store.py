@@ -12,6 +12,21 @@ from app import db
 CREDIT_TOKENS = 10_000
 DAILY_GRANT = int(os.getenv("MPYHW_DAILY_GRANT", "50"))
 
+# Accounts comped with permanent unlimited credits, matched by lowercased GitHub
+# login OR email. Hardcoded in source on purpose (not an env override): it must
+# survive every redeploy/env rewrite, and the grant refills daily so nothing ever
+# runs out. Both keys are listed because GitHub only exposes `email` when the user
+# makes it public — the login is the reliable match.
+UNLIMITED_ACCOUNTS = frozenset({"ersonp", "ersonpereiracr7@gmail.com"})
+UNLIMITED_DAILY_GRANT = 1_000_000
+
+
+def is_unlimited(user: dict[str, Any]) -> bool:
+    """Whether this account is comped with permanent unlimited credits."""
+    login = (user.get("login") or "").lower()
+    email = (user.get("email") or "").lower()
+    return login in UNLIMITED_ACCOUNTS or email in UNLIMITED_ACCOUNTS
+
 
 def _parse_grant_overrides(raw: str) -> dict[str, int]:
     """Map of GitHub login (lowercased) -> per-user daily grant, e.g.
@@ -30,6 +45,8 @@ def grant_for(user: dict[str, Any]) -> int:
     credit_balances.daily_grant) is what makes an override durable: the UTC-midnight
     refill in `ensure_daily_grant` rewrites daily_grant from whatever grant is passed in,
     so a raw DB edit would be clobbered the next day while this is reapplied every day."""
+    if is_unlimited(user):
+        return UNLIMITED_DAILY_GRANT
     return _GRANT_OVERRIDES.get((user.get("login") or "").lower(), DAILY_GRANT)
 
 
@@ -167,7 +184,11 @@ def debit(user: dict[str, Any], credits: int) -> int:
             )
             remaining = _balance(conn, uid)
             if amount:
-                _bump_global_spend(conn, amount, now)
+                # Unlimited accounts never count toward the free-tier global budget
+                # (they'd exhaust it for everyone). Skipped in reserve/refund too so
+                # the tally stays symmetric.
+                if not is_unlimited(user):
+                    _bump_global_spend(conn, amount, now)
                 _ledger(conn, uid, "debit", -amount, remaining, "posted", now)
             conn.commit()
         except Exception:
@@ -193,8 +214,9 @@ def reserve(user: dict[str, Any], credits: int) -> int | None:
                 conn.rollback()
                 return None
             remaining = _balance(conn, uid)
-            if amount:
+            if amount and not is_unlimited(user):
                 _bump_global_spend(conn, amount, now)
+            if amount:
                 _ledger(conn, uid, "reserve", -amount, remaining, "reserved", now)
             conn.commit()
         except Exception:
@@ -213,8 +235,9 @@ def refund(user: dict[str, Any], credits: int) -> int:
             _upsert_user(conn, user, now)
             db.execute(conn, "UPDATE credit_balances SET balance=balance + ? WHERE user_id=?", (amount, uid))
             remaining = _balance(conn, uid)
-            if amount:
+            if amount and not is_unlimited(user):
                 _bump_global_spend(conn, -amount, now)
+            if amount:
                 _ledger(conn, uid, "refund", amount, remaining, "posted", now)
             conn.commit()
         except Exception:

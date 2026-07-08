@@ -175,6 +175,54 @@ def test_daily_cap_disabled_by_default(monkeypatch):
     assert response.status_code == 200
 
 
+def test_unlimited_account_bypasses_daily_user_cap(monkeypatch):
+    # The per-user cap is about limiting free-tier turns; a hardcoded unlimited
+    # account must keep working even after spending past the cap.
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setattr("app.routes_llm.get_llm_provider", lambda: _FakeCapProvider())
+    monkeypatch.setenv("MPYHW_DAILY_USER_CAP", "1")
+
+    user = {"id": "700", "login": "ersonp", "email": None}
+    credit_store.ensure_daily_grant(user, credit_store.grant_for(user))
+    credit_store.debit(user, 5)  # already past the 1-credit cap today
+
+    response = client.post(
+        "/v1/llm/messages",
+        headers=_auth_header(user_id="700", login="ersonp"),
+        json={"messages": [{"role": "user", "content": "blink"}], "tools": []},
+    )
+
+    assert response.status_code == 200
+
+
+def test_unlimited_account_bypasses_global_budget_breaker(monkeypatch):
+    # Once ordinary free traffic exhausts the global daily budget, normal users get
+    # 503 but an unlimited account still gets through (its own spend also never
+    # counts toward that budget — covered in test_credit_store).
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setattr("app.routes_llm.get_llm_provider", lambda: _FakeCapProvider())
+    monkeypatch.setenv("MPYHW_DAILY_GLOBAL_BUDGET", "1")
+
+    other = {"id": "701", "login": "normie", "email": None}
+    credit_store.ensure_daily_grant(other, 50)
+    credit_store.reserve(other, 1)  # global spend hits the budget
+
+    blocked = client.post(
+        "/v1/llm/messages",
+        headers=_auth_header(user_id="701", login="normie"),
+        json={"messages": [{"role": "user", "content": "blink"}], "tools": []},
+    )
+    assert blocked.status_code == 503
+    assert blocked.json()["detail"]["error"] == "daily_free_budget_exhausted"
+
+    response = client.post(
+        "/v1/llm/messages",
+        headers=_auth_header(user_id="700", login="ersonp"),
+        json={"messages": [{"role": "user", "content": "blink"}], "tools": []},
+    )
+    assert response.status_code == 200
+
+
 def test_llm_messages_refunds_reservation_when_no_tokens_reported(monkeypatch):
     # A turn that streams but reports no usage costs 0 credits: the up-front
     # reservation must be refunded, leaving the balance untouched.

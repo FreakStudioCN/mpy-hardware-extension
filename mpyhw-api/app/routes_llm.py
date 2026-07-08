@@ -171,12 +171,17 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
             llm_sessions.release(session_id, "upstream_unavailable")
             raise HTTPException(status_code=503, detail={"error": "llm_upstream_unavailable"})
 
+        # Hardcoded comped accounts skip both free-tier caps below: the caps exist to
+        # protect the free tier's budget, and unlimited spend is excluded from that
+        # budget at the credit_store layer.
+        unlimited = credit_store.is_unlimited(user)
+
         # Free-tier global daily budget breaker: once today's cumulative free-tier
         # spend hits the cap, refuse new turns BEFORE reserving so abusive free traffic
         # can't drive DeepSeek to its hard console cap and DoS every user. Checked after
         # the breaker (don't churn) and only on the paid path (stub costs nothing).
         budget = _daily_global_budget()
-        if budget and credit_store.global_spend_today() >= budget:
+        if budget and not unlimited and credit_store.global_spend_today() >= budget:
             llm_sessions.release(session_id, "daily_free_budget_exhausted")
             raise HTTPException(
                 status_code=503,
@@ -187,7 +192,7 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
         # balance/grant check above — this binds even when an admin has topped up the
         # user's balance, so a comped user still can't run unlimited turns in a day.
         user_cap = _daily_user_cap()
-        if user_cap and credit_store.user_spend_today(user) >= user_cap:
+        if user_cap and not unlimited and credit_store.user_spend_today(user) >= user_cap:
             llm_sessions.release(session_id, "daily_cap_reached")
             raise HTTPException(
                 status_code=402,
