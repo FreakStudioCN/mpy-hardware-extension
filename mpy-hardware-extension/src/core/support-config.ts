@@ -23,10 +23,13 @@ export const SUPPORT_CONTACTS: readonly SupportContact[] = [
 
 // Order contacts so the locale's priority entries come first (zh-CN sees WeChat/QQ first;
 // other locales see Discord first via the "default" tag), stable within each group.
+// Case-insensitive: vscode.env.language is lowercase BCP-47 ("zh-cn"), while the config
+// priorities are written "zh-CN" — compare in one case so a Chinese user still matches.
 export function orderContactsByLocale(contacts: readonly SupportContact[], locale: string): SupportContact[] {
+  const loc = (locale ?? "").toLowerCase();
   const prioritized = (c: SupportContact): boolean => {
-    const p = c.localePriority ?? [];
-    return p.includes(locale) || (locale !== "zh-CN" && p.includes("default"));
+    const p = (c.localePriority ?? []).map((x) => x.toLowerCase());
+    return p.includes(loc) || (loc !== "zh-cn" && p.includes("default"));
   };
   return [...contacts].sort((a, b) => Number(prioritized(b)) - Number(prioritized(a)));
 }
