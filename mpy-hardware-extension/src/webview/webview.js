@@ -35,6 +35,7 @@
           empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
           serial_monitor: "Serial monitor",
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
+          note_ph: "Add a note to this build — applied at the next safe point",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
           add_note: "Add note", add_note_tip: "Add a note to the running build (applied at the next safe point)",
           kind_thinking: "Thinking", kind_note: "Note", supplement_received: "queued: {s}", supplement_applied: "{d}: {r}",
@@ -115,6 +116,7 @@
           empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
           serial_monitor: "串口监视器",
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
+          note_ph: "为当前构建添加备注 — 在下一个安全点应用",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
           add_note: "添加备注", add_note_tip: "为运行中的构建添加备注（在下一个安全点应用）",
           kind_thinking: "思考中", kind_note: "备注", supplement_received: "已排队：{s}", supplement_applied: "{d}：{r}",
@@ -433,12 +435,16 @@
       // model's raw reasoning. There is no separate status bar.
       function setRunning(on) {
         running = on;
+        if (on) terminalShown = false; // a fresh run (or retry) may end again
         const btn = $("generate");
         btn.textContent = on ? tr("stop") : tr("generate");
         btn.classList.toggle("stop", on);
         // The "add note" affordance is only meaningful while a build is running: it queues
-        // a supplement for the next safe point (deliverables 07). Hidden otherwise.
+        // a supplement for the next safe point (deliverables 07). Hidden otherwise. The
+        // composer placeholder flips to a note hint too, so it doesn't read as "start a
+        // build" while running.
         $("addNote").classList.toggle("hidden", !on);
+        $("intent").placeholder = tr(on ? "note_ph" : "intent_ph");
         if (on) setPending(tr("working")); // immediate spinner; trace_event refines the label
         updateGenerateEnabled();
       }
@@ -534,6 +540,7 @@
       const ICONS = { thinking: "•", skill: "•", tool: "•", result: "•", error: "•", note: "•" };
       let currentThink = null; // open thinking card's text node, or null
       let currentThinkCard = null; // the open thinking card element (live = spinner + heading), or null
+      let terminalShown = false; // guards the once-per-session terminal line (session_done is posted twice on cancel: optimistic + loop-unwind)
       let currentCode = null;  // open streaming code card { pre, host, path }, or null
       let currentSummary = null; // open streaming reply card { card, sum, raw }, or null
       // In-feed "working" indicator. After a user action (confirm plan / answer) the
@@ -728,13 +735,17 @@
         // card instead of a new card per token.
         if (kind === "thinking") {
           if (currentThink) { currentThink.textContent += text; scroll(); return; }
-          // Live while it streams: spinner + "Thinking" heading. finalizeThinking() swaps
-          // the spinner for a dot and drops the heading when the stream closes.
+          // Only LIVE (spinner + "Thinking" heading) while a build is running — an
+          // uncategorized line that lands after the session ends (e.g. "Session ended:
+          // Stopped") must render static, or its spinner would never settle.
+          const live = running;
           const card = document.createElement("div");
           card.className = "ev fade-in";
-          card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico thinking think-live"><span class="feed-spin"></span></div><div class="ev-main"><div class="ev-label think-head"><span class="kind">' + tr("kind_thinking") + '</span></div><div class="ev-think"></div></div></div></div>';
+          const ico = live ? '<div class="ev-ico thinking think-live"><span class="feed-spin"></span></div>' : '<div class="ev-ico thinking">' + ICONS.thinking + "</div>";
+          const head = live ? '<div class="ev-label think-head"><span class="kind">' + tr("kind_thinking") + "</span></div>" : "";
+          card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main">' + head + '<div class="ev-think"></div></div></div></div>';
           currentThink = card.querySelector(".ev-think");
-          currentThinkCard = card;
+          currentThinkCard = live ? card : null; // only a live card needs finalizing
           currentThink.textContent = text;
           $("activity").appendChild(card);
           scroll();
@@ -2013,6 +2024,11 @@
           const label = tr("term_" + t);
           const friendly = label === "term_" + t ? t : label;
           const isError = !ok && t !== "cancelled" && t !== "awaiting_user" && t !== "stalled";
+          // session_done is posted twice on a cancel (optimistic + loop-unwind); render the
+          // terminal line / retry card only once. The cleanup above is idempotent, so it may
+          // run on both.
+          if (terminalShown) return;
+          terminalShown = true;
           // A stalled build gave up mid-way without reaching a phase boundary — unlike
           // awaiting_user (a clean hand-back), the user must SEE it stalled and get a
           // one-click way to try again, so it has its own lane before the generic line.
