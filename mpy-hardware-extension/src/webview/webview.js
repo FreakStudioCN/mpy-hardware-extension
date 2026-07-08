@@ -37,7 +37,7 @@
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
           add_note: "Add note", add_note_tip: "Add a note to the running build (applied at the next safe point)",
-          supplement_received: "Note queued: {s}", supplement_applied: "Note {d}: {r}",
+          kind_note: "Note", supplement_received: "queued: {s}", supplement_applied: "{d}: {r}",
           mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend board", board_browse: "Browse boards", board_browse_tip: "Browse and pick a specific board", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_firmware: "Official firmware", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_details_tip: "Open the official download page", board_firmware_fmt: "firmware:", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
           new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
@@ -117,7 +117,7 @@
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
           add_note: "添加备注", add_note_tip: "为运行中的构建添加备注（在下一个安全点应用）",
-          supplement_received: "备注已排队：{s}", supplement_applied: "备注{d}：{r}",
+          kind_note: "备注", supplement_received: "已排队：{s}", supplement_applied: "{d}：{r}",
           mode_beginner: "小白", mode_custom: "自定义", board_auto: "系统推荐板卡", board_browse: "浏览板卡", board_browse_tip: "浏览并选择具体板卡", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_firmware: "官方固件", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡", board_details_tip: "打开官方下载页面", board_firmware_fmt: "固件:",
           new_session: "重新开始", new_session_tip: "重新开始项目——会清空当前对话",
           waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",
@@ -531,7 +531,7 @@
         if (/loaded skill|skill:/i.test(text)) return "skill";
         return "thinking";
       }
-      const ICONS = { thinking: "•", skill: "•", tool: "•", result: "•", error: "•" };
+      const ICONS = { thinking: "•", skill: "•", tool: "•", result: "•", error: "•", note: "•" };
       let currentThink = null; // open thinking card's text node, or null
       let currentCode = null;  // open streaming code card { pre, host, path }, or null
       let currentSummary = null; // open streaming reply card { card, sum, raw }, or null
@@ -701,13 +701,15 @@
       function sealSummary() {
         if (currentSummary) { currentSummary.tw.end(); currentSummary = null; }
       }
-      function addActivity(ev) {
+      function addActivity(ev, forcedKind) {
         const text = (ev && typeof ev.text === "string") ? ev.text : JSON.stringify(ev);
         if (!text) return;
         if (isInternalActivity(text)) return;
         clearPending();
         $("activityEmpty").classList.add("hidden");
-        const kind = classifyActivity(text);
+        // forcedKind lets a discrete event (e.g. a user note) render as its own card
+        // instead of being text-classified and coalesced into the open thinking stream.
+        const kind = forcedKind || classifyActivity(text);
         const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
         // The agent streams thinking token-by-token (each delta is its own
         // trace_event). Coalesce consecutive thinking deltas into one growing
@@ -732,7 +734,7 @@
           card.querySelector(".ev-tool").textContent = text.replace(/^→\s*/, "");
         } else {
           const cls = kind === "error" ? " is-error" : "";
-          const label = kind === "result" ? tr("kind_result") : kind === "skill" ? tr("kind_skill") : tr("kind_error");
+          const label = kind === "result" ? tr("kind_result") : kind === "skill" ? tr("kind_skill") : kind === "note" ? tr("kind_note") : tr("kind_error");
           card.innerHTML = '<div class="ev-card"><div class="ev-head">' + ico + '<div class="ev-main"><div class="ev-label"><span class="kind">' + label + '</span></div><div class="ev-sum' + cls + '"></div></div></div></div>';
           card.querySelector(".ev-sum").innerHTML = renderMarkdown(text);
         }
@@ -1955,8 +1957,10 @@
         if (msg.type === "diagram_updated") { renderDiagram(msg.diagram); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
         if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
-        if (msg.type === "user_supplement_received") { addActivity({ type: "trace", text: tr("supplement_received", { s: msg.summary }) }); }
-        if (msg.type === "user_supplement_applied") { addActivity({ type: "trace", text: tr("supplement_applied", { d: msg.decision, r: msg.reason }) }); }
+        // A supplement line is an annotation, not a step: addActivity() clears the working
+        // spinner, so re-arm it (with the same label) while the build is still running.
+        if (msg.type === "user_supplement_received") { addActivity({ type: "trace", text: tr("supplement_received", { s: msg.summary }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
+        if (msg.type === "user_supplement_applied") { addActivity({ type: "trace", text: tr("supplement_applied", { d: msg.decision, r: msg.reason }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
         if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); }
         if (msg.type === "files_write_failed") { addActivity({ type: "trace", text: tr("files_write_failed", { e: msg.error }) }); }
         if (msg.type === "session_error") {

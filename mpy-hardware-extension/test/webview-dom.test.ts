@@ -1742,4 +1742,20 @@ test("supplement received/applied events render into the activity feed", async (
   const feed = (document.getElementById("activity") as HTMLElement).textContent ?? "";
   assert.ok(feed.includes("add a buzzer"), "the queued note summary is shown");
   assert.ok(feed.includes("New hardware changes the device list."), "the applied decision reason is shown");
+  // Each supplement is its OWN card (kind=note), not coalesced into the open thinking stream.
+  assert.equal(document.querySelectorAll(".ev-ico.note").length, 2, "received + applied each render as a dedicated note card");
+});
+
+test("queuing a note keeps the working spinner while the build is still running", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click(); // running -> spinner armed
+  assert.ok(document.querySelector(".feed-pending"), "the working spinner is present while running");
+
+  post(dom, { type: "user_supplement_received", phase: "analyze", status: "queued", summary: "raise the threshold", received_at: "t" });
+
+  assert.ok(document.querySelector(".feed-pending"), "the working spinner survives a queued note (addActivity cleared it, re-armed)");
 });
