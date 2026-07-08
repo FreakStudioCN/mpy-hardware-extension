@@ -9,3 +9,6 @@ flake8==7.3.0
 pylint==4.0.5
 requests==2.34.2
 pypdf==6.13.0
+# The plugin smoke validator imports yaml; 6.0.3 is the release with cp314 wheels
+# (installs on the 3.14 venv as well as 3.12).
+PyYAML==6.0.3
