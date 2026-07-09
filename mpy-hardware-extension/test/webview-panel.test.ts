@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -575,4 +575,85 @@ test("retry_session resumes the saved phase with the saved intent (not an empty 
   // message log), resuming the saved phase with the saved intent — never an empty turn.
   assert.equal(retried.phase, "analyze", "retry resumes the saved phase");
   assert.ok(retried.messages.at(-1).content, "retry re-sends the saved intent, not an empty user turn");
+});
+
+test("artifact browser lists on-disk project artifacts without a build (reopened panel)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    // A prior build's output already on disk; no session runs this time (reopened panel).
+    mkdirSync(join(ws, "blockless-project", "firmware", "drivers"), { recursive: true });
+    writeFileSync(join(ws, "blockless-project", "main.py"), "print('hi')");
+    writeFileSync(join(ws, "blockless-project", "project-manifest.json"), "{}");
+    writeFileSync(join(ws, "blockless-project", "firmware", "drivers", "aht20.py"), "# driver");
+
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "", options: undefined as any,
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}), loopMode: "template" });
+    await handler?.({ type: "request_artifacts" });
+
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    const rels = index.artifacts.map((a: any) => a.relative_path);
+    assert.ok(rels.includes("blockless-project/main.py"), "on-disk main.py indexed without a build");
+    assert.ok(rels.includes("blockless-project/project-manifest.json"), "on-disk manifest indexed");
+    assert.ok(rels.some((r: string) => r.endsWith("firmware/drivers/aht20.py")), "on-disk driver indexed (nested)");
+    const kinds = new Set(index.artifacts.map((a: any) => a.kind));
+    assert.ok(kinds.has("manifest") && kinds.has("code") && kinds.has("driver"), "kinds classified from disk paths");
+    for (const a of index.artifacts) {
+      assert.ok(!("absolute_path" in a), "no absolute_path leaked");
+      assert.doesNotMatch(a.relative_path, /^([A-Za-z]:|\/)/, "relative display path");
+    }
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("artifact browser stays session-scoped in the no-workspace fallback (no shared bucket)", async () => {
+  const gs = mkdtempSync(join(tmpdir(), "mpyhw-gs-"));
+  try {
+    // Prior/other-session leftovers sitting in the SHARED globalStorage project dir.
+    mkdirSync(join(gs, "blockless-project", "firmware"), { recursive: true });
+    writeFileSync(join(gs, "blockless-project", "select_hw_validated.json"), "{}");
+    writeFileSync(join(gs, "blockless-project", "firmware", "main.py"), "print('old')");
+
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "", options: undefined as any,
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: undefined }, // no workspace open -> globalStorage fallback
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}), loopMode: "template", globalStoragePath: gs });
+    await handler?.({ type: "request_artifacts" });
+
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    // The shared bucket's cross-session leftovers must NOT appear (no build ran this session).
+    assert.equal(index.artifacts.length, 0, "no shared-bucket files surfaced without a session build");
+  } finally {
+    rmSync(gs, { recursive: true, force: true });
+  }
 });

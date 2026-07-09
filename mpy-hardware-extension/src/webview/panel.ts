@@ -23,8 +23,8 @@ import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder 
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
-import { artifactOpenAction, buildArtifactIndex, resolveArtifactPath } from "../extension/artifact-index.ts";
-import type { Artifact } from "../extension/artifact-index.ts";
+import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath } from "../extension/artifact-index.ts";
+import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
@@ -128,6 +128,34 @@ const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
   arduino: { "Arduino / C / C++": ["ino", "c", "cpp", "cc", "h", "hpp"] },
   image: { Images: ["png", "jpg", "jpeg", "webp", "bmp"] },
 };
+
+// Artifact-file discovery on disk (spec §8.3: browse the project tree). Lets a reopened /
+// resumed panel show prior artifacts before any new build runs — the live session's
+// producedPaths only cover what THIS session wrote. Bounded so a large project can't stall.
+const ARTIFACT_EXTS = new Set(["py", "json", "jsonl", "md", "svg", "png", "html", "log", "uf2", "bin"]);
+const ARTIFACT_SCAN_MAX_FILES = 500;
+const ARTIFACT_SCAN_MAX_DEPTH = 6;
+function scanProjectArtifacts(root: string): ArtifactSource[] {
+  const out: ArtifactSource[] = [];
+  const stack: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  while (stack.length > 0 && out.length < ARTIFACT_SCAN_MAX_FILES) {
+    const { dir, depth } = stack.pop()!;
+    let entries: Array<{ name: string; isDirectory: () => boolean }>;
+    try { entries = readdirSync(dir, { withFileTypes: true }); }
+    catch { continue; } // unreadable dir — skip, not fatal
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue; // hidden/vendor
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (depth < ARTIFACT_SCAN_MAX_DEPTH) stack.push({ dir: full, depth: depth + 1 });
+        continue;
+      }
+      const ext = entry.name.slice(entry.name.lastIndexOf(".") + 1).toLowerCase();
+      if (ARTIFACT_EXTS.has(ext)) out.push({ absolute_path: full, kind: classifyArtifactKind(full), phase: "" });
+    }
+  }
+  return out;
+}
 
 // Open the UI as an editor-area tab. Kept for the mpyhw.openPanel command and
 // existing tests; the docked sidebar uses createViewProvider below.
@@ -243,7 +271,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     isoFromMs: (ms: number) => new Date(ms).toISOString(),
   };
   function refreshArtifacts() {
+    // Live-session sources first (they carry the producing phase) so they win the
+    // absolute_path dedup in buildArtifactIndex over the same files found on disk.
     const sources = controller.artifactSources();
+    // Only walk the on-disk project when a real workspace is open: each workspace is a
+    // distinct project, so browsing its blockless-project/ on reopen is meaningful. The
+    // no-workspace globalStorage fallback is ONE shared scratch dir reused across sessions,
+    // so walking it would surface stale cross-session files — there we stay session-scoped
+    // (producedPaths + this session's log only).
+    if (workspaceFolder && projectFolder) sources.push(...scanProjectArtifacts(projectFolder));
     const sessionId = controller.getDiagnostics().session_id;
     if (workspaceFolder && sessionId) {
       sources.push({ absolute_path: join(workspaceFolder, ".mpyhw", "sessions", sessionId, "session.jsonl"), kind: "log", phase: "" });
