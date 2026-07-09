@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, toRelativeDisplayPath } from "../src/extension/artifact-index.ts";
+import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, toRelativeDisplayPath } from "../src/extension/artifact-index.ts";
 import type { ArtifactSource } from "../src/extension/artifact-index.ts";
 
 // Deterministic injected IO: every path "exists" with a fixed size/mtime and a
@@ -99,6 +99,17 @@ test("classifyArtifactKind maps produced paths to kinds", () => {
   assert.equal(classifyArtifactKind("/ws/blockless-project/main.py"), "code");
   // Windows backslash path classifies the same
   assert.equal(classifyArtifactKind("C:\\ws\\blockless-project\\firmware\\drivers\\x.py"), "driver");
+});
+
+test("artifactOpenAction routes by mime: preview / native open / editor / reveal", () => {
+  assert.equal(artifactOpenAction("text/markdown", false), "preview");
+  assert.equal(artifactOpenAction("image/png", true), "open");
+  assert.equal(artifactOpenAction("image/svg+xml", false), "open");
+  assert.equal(artifactOpenAction("text/html", false), "open");
+  assert.equal(artifactOpenAction("text/x-python", false), "editor");
+  assert.equal(artifactOpenAction("application/json", false), "editor");
+  assert.equal(artifactOpenAction("application/x-ndjson", false), "editor");
+  assert.equal(artifactOpenAction("application/octet-stream", true), "reveal");
 });
 
 test("resolveArtifactPath opens only in-index paths (trust boundary)", () => {

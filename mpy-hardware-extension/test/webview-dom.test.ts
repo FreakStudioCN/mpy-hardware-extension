@@ -1905,3 +1905,17 @@ test("a SELF_TEST_PASS serial line is highlighted as a verification result", asy
   assert.ok(verify, "verification line got the verify class");
   assert.match((verify as HTMLElement).textContent ?? "", /SELF_TEST_PASS/);
 });
+
+test("a single-phase artifact index shows no phase-filter chips", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "code", phase: "generate", relative_path: "blockless-project/main.py", role: "code", size: 10, sha256: "aa", created_at: "2026-07-09T00:00:00.000Z", mime: "text/x-python", is_binary: false },
+      { kind: "manifest", phase: "generate", relative_path: "blockless-project/manifest.json", role: "project-manifest", size: 20, sha256: "bb", created_at: "2026-07-09T00:00:00.000Z", mime: "application/json", is_binary: false },
+    ],
+  });
+  assert.equal(document.querySelectorAll("#artifacts .art-row").length, 2, "rows still render");
+  assert.equal(document.querySelectorAll("#artifactFilter .art-chip").length, 0, "no filter chips for a single phase");
+});

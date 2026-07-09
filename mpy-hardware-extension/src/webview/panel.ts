@@ -23,7 +23,7 @@ import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder 
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
-import { buildArtifactIndex, resolveArtifactPath } from "../extension/artifact-index.ts";
+import { artifactOpenAction, buildArtifactIndex, resolveArtifactPath } from "../extension/artifact-index.ts";
 import type { Artifact } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
@@ -303,14 +303,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       if (absolute) {
         const entry = artifactIndex.find((a) => a.absolute_path === absolute);
         const uri = vscode.Uri.file(absolute);
+        // Route by mime via the pure helper (unit-tested): markdown -> native preview,
+        // png/svg/html -> native viewer, other text -> editor, binary -> reveal.
+        const action = entry ? artifactOpenAction(entry.mime, entry.is_binary) : "reveal";
         try {
-          if (entry?.mime === "text/markdown") {
-            // Native markdown preview (CSP-safe; not injected into the webview).
+          if (action === "preview") {
             await vscode.commands?.executeCommand?.("markdown.showPreview", uri);
-          } else if (entry && (entry.mime === "image/png" || entry.mime === "image/svg+xml" || entry.mime === "text/html")) {
-            // vscode.open picks the right native viewer (image preview for png, editor for svg/html).
+          } else if (action === "open") {
             await vscode.commands?.executeCommand?.("vscode.open", uri);
-          } else if (entry && !entry.is_binary) {
+          } else if (action === "editor") {
             const doc = await vscode.workspace?.openTextDocument?.(uri);
             if (doc) await vscode.window?.showTextDocument?.(doc, { preview: false });
           } else {

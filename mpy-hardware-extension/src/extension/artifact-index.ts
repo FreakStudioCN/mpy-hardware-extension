@@ -132,6 +132,18 @@ export function buildArtifactIndex(
   return out;
 }
 
+export type ArtifactOpenAction = "preview" | "open" | "editor" | "reveal";
+
+// How the host should open an artifact, decided by mime/binary. Pure so the routing is
+// unit-tested without spawning VS Code commands: markdown -> native markdown preview;
+// png/svg/html -> native viewer (vscode.open picks image preview / editor); other text
+// (code, json, log, jsonl) -> text editor; binary (bin/uf2) -> reveal in the file manager.
+export function artifactOpenAction(mime: string, isBinary: boolean): ArtifactOpenAction {
+  if (mime === "text/markdown") return "preview";
+  if (mime === "image/png" || mime === "image/svg+xml" || mime === "text/html") return "open";
+  return isBinary ? "reveal" : "editor";
+}
+
 // Trust boundary: the webview only ever knows relative paths and echoes one back on open.
 // Resolve it to an absolute path ONLY if it exactly matches an indexed artifact — this
 // rejects traversal (`../`), absolute paths, drive letters, and any out-of-index path,
