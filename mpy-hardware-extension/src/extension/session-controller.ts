@@ -2,6 +2,8 @@ import type { SessionRecorder } from "./session-recorder.ts";
 import type { PendingSupplement } from "./pending-supplement.ts";
 import { classifySupplement } from "../core/supplement-router.ts";
 import type { SupplementAttachment } from "../core/supplement-router.ts";
+import { classifyArtifactKind } from "./artifact-index.ts";
+import type { ArtifactSource } from "./artifact-index.ts";
 
 export class SessionController {
   deps: {
@@ -47,6 +49,11 @@ export class SessionController {
   // and the files_written toast is built from these. Empty in headless/test runs
   // with no loop-time writer, where the post-loop batch is the fallback writer.
   private persistedPaths: string[] = [];
+  // Absolute paths of every artifact file written this session, from BOTH writers: the
+  // loop's own write_project_file (persistedPaths) and the headless post-loop batch.
+  // Feeds the Artifact Browser index; kept separate from persistedPaths so the diagnostics
+  // artifact_index and the loop-owns-writes decision above are unchanged.
+  private producedPaths: string[] = [];
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -85,6 +92,7 @@ export class SessionController {
       this.recentActivity = [];
       this.keyErrors = [];
       this.pendingSupplements = [];
+      this.producedPaths = [];
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -515,6 +523,18 @@ export class SessionController {
     return [...new Set([...this.persistedPaths, ...Object.keys(this.latestFiles)])];
   }
 
+  // Structured artifact descriptors for the Artifact Browser (spec §8.3): the paths the
+  // loop persisted this session, typed by kind. The panel adds metadata (size/sha256/
+  // created_at) + relative display paths via buildArtifactIndex, and owns opening. The
+  // session log + diagnostics are appended by the panel, which knows their locations.
+  artifactSources(): ArtifactSource[] {
+    return this.producedPaths.map((absolute_path) => ({
+      absolute_path,
+      kind: classifyArtifactKind(absolute_path),
+      phase: this.currentPhase ?? "",
+    }));
+  }
+
   // The session-scoped half of the section-08 diagnostics snapshot. The panel merges
   // this with the always-available host fields (versions, os/node/npm, python) and
   // fills every declared key so a bug report carries an actionable, complete picture.
@@ -540,6 +560,7 @@ export class SessionController {
     // (project-manifest.json is among the persisted paths, so there is no stray
     // manifest.json). This is the path the real extension always takes.
     if (this.persistedPaths.length > 0) {
+      this.producedPaths = [...this.persistedPaths];
       await this.record({ type: "files_written", paths: this.persistedPaths });
       this.deps.postMessage({ type: "files_written", paths: this.persistedPaths });
       return;
@@ -558,6 +579,7 @@ export class SessionController {
       return;
     }
     const paths = result?.paths ?? [];
+    this.producedPaths = paths;
     await this.record({ type: "files_written", paths });
     this.deps.postMessage({ type: "files_written", paths });
   }

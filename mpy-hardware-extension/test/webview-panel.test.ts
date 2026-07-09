@@ -73,6 +73,84 @@ test("webview start_session runs API-backed pipeline and renders generated outpu
   }
 });
 
+test("artifact browser: request_artifacts indexes relative paths; open_artifact honors the trust boundary", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    const opened: string[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:",
+        html: "",
+        postMessage: (message: any) => posted.push(message),
+        onDidReceiveMessage: (next: any) => { handler = next; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: {
+        workspaceFolders: [{ uri: { fsPath: ws } }],
+        openTextDocument: async (uri: any) => { opened.push(uri.fsPath ?? String(uri)); return { uri }; },
+      },
+      window: {
+        createWebviewPanel: () => panel,
+        showWarningMessage: async (message: string) => message.startsWith("Overwrite ") ? "Overwrite" : "Cancel",
+        showTextDocument: async () => {},
+      },
+      commands: { executeCommand: async () => {} },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+    const fetchImpl = async (url: string) => {
+      if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+      if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+      if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+      if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") return jsonResponse(board());
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      throw new Error(`unexpected URL ${url}`);
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+    assert.ok(existsSync(join(ws, "blockless-project", "main.py")), "artifact persisted to disk");
+
+    await handler?.({ type: "request_artifacts" });
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    const main = index.artifacts.find((a: any) => a.relative_path.endsWith("main.py"));
+    assert.ok(main, "main.py is indexed");
+    assert.equal(main.relative_path, "blockless-project/main.py");
+    assert.doesNotMatch(main.relative_path, /^[A-Za-z]:/, "no drive letter to the UI");
+    assert.doesNotMatch(main.relative_path, /^\//, "path is relative");
+    assert.equal(main.kind, "code");
+    assert.ok(main.size > 0 && main.sha256.length === 64, "metadata computed");
+    // The absolute path must never cross to the webview (§4.2): no absolute_path field,
+    // and no value in any emitted row is an absolute/drive-letter path.
+    for (const a of index.artifacts) {
+      assert.ok(!("absolute_path" in a), "absolute_path stripped from the webview payload");
+      for (const v of Object.values(a)) {
+        if (typeof v === "string") {
+          assert.doesNotMatch(v, /^([A-Za-z]:|\/)/, `no absolute value leaked: ${v}`);
+        }
+      }
+    }
+
+    // in-index open resolves to the real absolute path in the editor. (Clear first: the
+    // start_session flow auto-opens main.py once, which we don't want to count here.)
+    opened.length = 0;
+    await handler?.({ type: "open_artifact", relative_path: "blockless-project/main.py" });
+    assert.deepEqual(opened, [join(ws, "blockless-project", "main.py")]);
+
+    // trust boundary: traversal / out-of-index paths never open
+    opened.length = 0;
+    await handler?.({ type: "open_artifact", relative_path: "../../etc/passwd" });
+    await handler?.({ type: "open_artifact", relative_path: "blockless-project/nope.py" });
+    assert.deepEqual(opened, [], "hostile / out-of-index paths refused");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
 test("with no workspace open, generation saves to the globalStorage fallback and tells the user where, with a reveal action", async () => {
   const gs = mkdtempSync(join(tmpdir(), "mpyhw-gs-"));
   try {

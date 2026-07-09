@@ -23,6 +23,8 @@ import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder 
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
+import { buildArtifactIndex, resolveArtifactPath } from "../extension/artifact-index.ts";
+import type { Artifact } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
@@ -215,6 +217,36 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return result;
     },
   });
+
+  // Artifact Browser (spec §8.3): the current session's artifacts, indexed with metadata
+  // and RELATIVE display paths (the P0 rule — never a hardcoded drive path to the UI).
+  // Relativized against the workspace/storage root, the common ancestor of both the
+  // generated project (blockless-project/) and the session log (.mpyhw/sessions/).
+  let artifactIndex: Artifact[] = [];
+  const artifactRoot = workspaceFolder ?? deps.globalStoragePath ?? projectFolder ?? "";
+  const artifactIo = {
+    stat: (p: string) => {
+      try { const s = statSync(p); return { size: s.size, mtimeMs: s.mtimeMs }; } catch { return null; }
+    },
+    hash: (p: string) => {
+      try { return createHash("sha256").update(readFileSync(p)).digest("hex"); } catch { return null; }
+    },
+    isoFromMs: (ms: number) => new Date(ms).toISOString(),
+  };
+  function refreshArtifacts() {
+    const sources = controller.artifactSources();
+    const sessionId = controller.getDiagnostics().session_id;
+    if (workspaceFolder && sessionId) {
+      sources.push({ absolute_path: join(workspaceFolder, ".mpyhw", "sessions", sessionId, "session.jsonl"), kind: "log", phase: "" });
+    }
+    artifactIndex = buildArtifactIndex(sources, artifactRoot, artifactIo);
+    // The host keeps the full index (with absolute_path) to resolve opens; the webview
+    // gets a projection WITHOUT absolute_path — it only needs the relative path (which it
+    // echoes back on open), so an absolute/drive-letter path never crosses to the UI (§4.2).
+    const forWebview = artifactIndex.map(({ absolute_path, ...rest }) => rest);
+    webview.postMessage({ type: "artifacts_index", artifacts: forWebview });
+  }
+
   webview.onDidReceiveMessage(async (message: any) => {
     if (message.type === "request_gen_driver_config") {
       // The panel renders its input tabs from the schema module (single source of truth).
@@ -237,6 +269,32 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "request_diagnostics") {
       // Gather env diagnostics on demand so a bug report carries an actionable snapshot.
       webview.postMessage({ type: "diagnostics", ...collectDiagnostics(vscode, controller.getDiagnostics()) });
+      return;
+    }
+    if (message.type === "request_artifacts") {
+      // The browser pulls the artifact index (on load and after files land).
+      refreshArtifacts();
+      return;
+    }
+    if (message.type === "open_artifact" && typeof message.relative_path === "string") {
+      // Trust boundary: resolve the webview-supplied RELATIVE path only if it exactly
+      // matches an indexed artifact — never open a path the webview hands us directly
+      // (rejects traversal / absolute / drive-letter / out-of-index). Text opens in the
+      // editor; binary (png/bin/uf2) reveals in the OS file manager.
+      const absolute = resolveArtifactPath(artifactIndex, message.relative_path);
+      if (absolute) {
+        const entry = artifactIndex.find((a) => a.absolute_path === absolute);
+        try {
+          if (entry && !entry.is_binary) {
+            const doc = await vscode.workspace?.openTextDocument?.(vscode.Uri.file(absolute));
+            if (doc) await vscode.window?.showTextDocument?.(doc, { preview: false });
+          } else {
+            await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(absolute));
+          }
+        } catch {
+          // editor/command unavailable (e.g. headless host) — ignore
+        }
+      }
       return;
     }
     if (message.type === "open_external" && typeof message.url === "string") {
