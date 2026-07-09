@@ -168,12 +168,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const fallbackRoot = deps.globalStoragePath ? join(deps.globalStoragePath, PROJECT_SUBDIR) : undefined;
   const projectFolder = workspaceFolder ? join(workspaceFolder, PROJECT_SUBDIR) : fallbackRoot;
   const usingFallback = !workspaceFolder && !!fallbackRoot;
+  // Root that holds the .mpyhw/sessions trace logs: the workspace when one is open, else
+  // the guaranteed-writable globalStorage dir. Without this fallback a no-workspace session
+  // would be cloud-only, leaving the log reveal/export actions with nothing to show.
+  const logsRoot = workspaceFolder ?? deps.globalStoragePath;
   let availableBoards: any[] = [];
   let toolchainChecked = false;
-  const recorderFactory = workspaceFolder || vscode.authentication
+  const recorderFactory = logsRoot || vscode.authentication
     ? (traceId: string) => {
       const recorders = [];
-      if (workspaceFolder) recorders.push(new JsonlSessionRecorder({ workspaceFolder, traceId }));
+      if (logsRoot) recorders.push(new JsonlSessionRecorder({ workspaceFolder: logsRoot, traceId }));
       if (vscode.authentication) recorders.push(new CloudTelemetryRecorder({ traceId, apiBaseUrl, fetchImpl, getAuthToken: () => auth.getToken(false), log: deps.log }));
       return recorders.length === 1 ? recorders[0] : new CompositeSessionRecorder(recorders);
     }
@@ -445,10 +449,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
     }
     if (message.type === "request_recent_sessions") {
-      // List past session summaries (read-only) from this workspace's .mpyhw/sessions.
+      // List past session summaries (read-only) from the active logs root's .mpyhw/sessions.
       let sessions: any[] = [];
       try {
-        if (workspaceFolder) sessions = await listRecentSessions(workspaceFolder, RECENT_SESSIONS_LIMIT);
+        if (logsRoot) sessions = await listRecentSessions(logsRoot, RECENT_SESSIONS_LIMIT);
       } catch {
         // unreadable sessions dir — return an empty list, the panel shows its empty state
       }
@@ -464,9 +468,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
     }
     if (message.type === "reveal_logs_folder") {
-      // Open <workspace>/.mpyhw/sessions in the OS file manager so users can grab the raw
+      // Open <logsRoot>/.mpyhw/sessions in the OS file manager so users can grab the raw
       // session.jsonl logs (per-session transcript) for Skill debugging. Best-effort.
-      const root = workspaceFolder ? sessionsDir(workspaceFolder) : undefined;
+      const root = logsRoot ? sessionsDir(logsRoot) : undefined;
       if (root && existsSync(root)) {
         try {
           await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(root));
@@ -480,12 +484,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "export_session_log") {
       // Save the newest session's session.jsonl to a location the user picks, so it can be
       // handed over for Skill debugging (correlatable with the cloud trace by session id).
-      const sessions = workspaceFolder ? await listRecentSessions(workspaceFolder, 1) : [];
-      if (!workspaceFolder || sessions.length === 0) {
+      const sessions = logsRoot ? await listRecentSessions(logsRoot, 1) : [];
+      if (!logsRoot || sessions.length === 0) {
         webview.postMessage({ type: "logs_status", text: "No session logs yet." });
       } else {
         const src = sessions[0].path;
-        const defaultUri = vscode.Uri?.file?.(join(workspaceFolder, `session-${sessions[0].id}.jsonl`));
+        const defaultUri = vscode.Uri?.file?.(join(logsRoot, `session-${sessions[0].id}.jsonl`));
         const target = await vscode.window?.showSaveDialog?.({ defaultUri, filters: { "Session log": ["jsonl"] } });
         if (target?.fsPath) {
           try {

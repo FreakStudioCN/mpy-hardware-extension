@@ -556,3 +556,27 @@ test("reveal_logs_folder reveals the .mpyhw/sessions dir when logs exist", async
     rmSync(ws, { recursive: true, force: true });
   }
 });
+
+test("export_session_log falls back to globalStorage logs when no workspace is open", async () => {
+  const gs = mkdtempSync(join(tmpdir(), "mpyhw-gs-"));
+  try {
+    const srcContent = seedSession(gs); // writes <gs>/.mpyhw/sessions/session-aaa111-bbb/session.jsonl
+    const target = join(gs, "exported.jsonl");
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+      window: { createWebviewPanel: () => panel, showSaveDialog: async () => ({ fsPath: target }) },
+      // no workspace.workspaceFolders -> logsRoot falls back to globalStorage
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: (async () => { throw new Error("no network"); }) as any, loopMode: "template", globalStoragePath: gs });
+    await handler?.({ type: "export_session_log" });
+    assert.ok(existsSync(target), "export works with no workspace open, using the globalStorage logs root");
+    assert.equal(readFileSync(target, "utf-8"), srcContent, "exported content matches the globalStorage session log");
+    assert.ok(posted.some((m) => m.type === "logs_status" && /exported/i.test(m.text)));
+  } finally {
+    rmSync(gs, { recursive: true, force: true });
+  }
+});
