@@ -1,12 +1,15 @@
 [
-  "Shared.js",
+  "message-bus.js",
+  "shared.js",
+  "PreferencesSelector.js",
   "BoardSelector.js",
-  "HomeWorkbench.js",
   "ActivityTimeline.js",
   "ApprovalCardHost.js",
   "ArtifactBrowser.js",
-  "CreditsDoctorPanel.js",
+  "OptionalFlowPanel.js",
+  "EnvDoctorPanel.js",
   "GenDriverPanel.js",
   "SupportContactPanel.js",
-  "Dispatch.js"
+  "HomeWorkbench.js",
+  "bootstrap.js"
 ]

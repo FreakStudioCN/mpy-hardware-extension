@@ -1,13 +1,3 @@
-      // ----- tab state -----
-      let activeTab = "activity";
-      let running = false;
-      let quotaExhausted = false;
-      // Daily-cap hold (ms epoch): set when the server 402s with daily_cap_reached,
-      // lifts at the next UTC midnight. The 402's resets_at never reaches this layer
-      // (llm-client keeps only detail.error), but the cap resets at UTC midnight by
-      // definition — the same deadline the server's resets_at carries — so derive it.
-      let capBlockedUntil = 0;
-      let selectedMode = "beginner";
       let officialBoards = [];
       let selectedOfficialBoard = null;
       let boardCacheFetchedAt = "";
@@ -15,11 +5,6 @@
       let boardPage = 0;
       const BOARD_PAGE_SIZE = 6;
 
-      function setMode(mode) {
-        selectedMode = mode === "custom" ? "custom" : "beginner";
-        document.querySelectorAll(".mode-chip").forEach((b) => b.classList.toggle("active", b.dataset.mode === selectedMode));
-        vscode.setState({ ...(vscode.getState() || {}), mode: selectedMode }); // remember across panel reopens
-      }
       function setBoardPickerVisible(visible) {
         $("boardPicker").classList.toggle("hidden", !visible);
       }
@@ -132,3 +117,9 @@
         $("boardPrev").disabled = boardPage <= 0;
         $("boardNext").disabled = boardPage >= maxPage;
       }
+      $("boardAuto").addEventListener("click", () => { selectedOfficialBoard = null; $("boardAuto").classList.add("chosen"); renderBoardPicker(); });
+      $("boardRefresh").addEventListener("click", () => vscode.postMessage({ type: "request_boards" }));
+      ["boardSearch", "boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { const el = $(id); el.addEventListener("input", () => { boardPage = 0; renderBoardPicker(); }); el.addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
+      $("boardPrev").addEventListener("click", () => { boardPage = Math.max(0, boardPage - 1); renderBoardPicker(); });
+      $("boardNext").addEventListener("click", () => { boardPage += 1; renderBoardPicker(); });
+      renderBoardPicker();

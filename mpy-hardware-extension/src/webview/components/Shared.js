@@ -1,7 +1,3 @@
-
-      const vscode = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : { postMessage: (m) => console.log(m), getState: () => null, setState: () => {} };
-      const $ = (id) => document.getElementById(id);
-
       // ----- i18n: the whole UI follows the user's input language -----
       // Detected once per session from the first request (zh if it contains CJK,
       // else en) and locked. The model already writes its prose (summary /
@@ -204,18 +200,6 @@
         if (!running) $("generate").textContent = tr("generate");
       }
 
-      // ----- device list (from API, never hardcoded) -----
-      // Board selection happens in the conversation (the agent recommends and
-      // confirms via ask_user), not a header dropdown. Start is gated only by
-      // quota; the board is decided in chat.
-      function updateGenerateEnabled() {
-        // Two independent blocks: quotaExhausted follows the live balance (credits
-        // events recompute it), while capBlockedUntil is the sticky daily-cap hold —
-        // a capped user's balance is typically > 0, so a credits refresh must not
-        // lift it. It expires on its own once the deadline (next UTC midnight)
-        // passes; credits events are the natural re-check points.
-        $("generate").disabled = (!running && (quotaExhausted || Date.now() < capBlockedUntil));
-      }
 
       // ----- Python highlighter (ported from the design's highlight.js) -----
       const KW = new Set(["from","import","as","def","return","if","else","elif","while","for","in","not","and","or","class","with","try","except","finally","pass","break","continue","global","nonlocal","lambda","yield","raise","assert","del","is","await","async"]);
@@ -248,3 +232,11 @@
         return lines;
       }
 
+      let running = false;
+      let quotaExhausted = false;
+      // Daily-cap hold (ms epoch): set when the server 402s with daily_cap_reached,
+      // lifts at the next UTC midnight. The 402's resets_at never reaches this layer
+      // (llm-client keeps only detail.error), but the cap resets at UTC midnight by
+      // definition — the same deadline the server's resets_at carries — so derive it.
+      let capBlockedUntil = 0;
+      let selectedMode = "beginner";

@@ -1,3 +1,17 @@
+      // ----- device list (from API, never hardcoded) -----
+      // Board selection happens in the conversation (the agent recommends and
+      // confirms via ask_user), not a header dropdown. Start is gated only by
+      // quota; the board is decided in chat.
+      function updateGenerateEnabled() {
+        // Two independent blocks: quotaExhausted follows the live balance (credits
+        // events recompute it), while capBlockedUntil is the sticky daily-cap hold —
+        // a capped user's balance is typically > 0, so a credits refresh must not
+        // lift it. It expires on its own once the deadline (next UTC midnight)
+        // passes; credits events are the natural re-check points.
+        $("generate").disabled = (!running && (quotaExhausted || Date.now() < capBlockedUntil));
+      }
+      // ----- tab state -----
+      let activeTab = "activity";
       function setTab(name) {
         activeTab = name;
         document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
@@ -127,17 +141,65 @@
         $("intent").value = ""; $("intent").style.height = "auto";
       });
       const ta = $("intent");
-      $("modeBeginner").addEventListener("click", () => setMode("beginner"));
-      $("modeCustom").addEventListener("click", () => setMode("custom"));
-      // restore the last-used mode across panel reopens (persisted in setMode)
-      const savedMode = (vscode.getState() || {}).mode;
-      if (savedMode) setMode(savedMode);
-      $("boardAuto").addEventListener("click", () => { selectedOfficialBoard = null; $("boardAuto").classList.add("chosen"); renderBoardPicker(); });
-      $("boardRefresh").addEventListener("click", () => vscode.postMessage({ type: "request_boards" }));
-      ["boardSearch", "boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { const el = $(id); el.addEventListener("input", () => { boardPage = 0; renderBoardPicker(); }); el.addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
-      $("boardPrev").addEventListener("click", () => { boardPage = Math.max(0, boardPage - 1); renderBoardPicker(); });
-      $("boardNext").addEventListener("click", () => { boardPage += 1; renderBoardPicker(); });
-      renderBoardPicker();
       ta.addEventListener("focus", () => $("composerBox").classList.add("focused"));
       ta.addEventListener("blur", () => $("composerBox").classList.remove("focused"));
       ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; });
+
+      // ----- credits -----
+      let lastDailyGrant = 0;
+      function setCredits(balance, dailyGrant) {
+        if (dailyGrant > 0) lastDailyGrant = dailyGrant;
+        $("qUsed").textContent = balance;
+        const max = dailyGrant > 0 ? dailyGrant : balance;
+        const pct = max > 0 ? Math.min(100, Math.round((balance / max) * 100)) : 0;
+        $("qFill").style.width = pct + "%";
+        const q = $("quota"); q.classList.remove("hidden", "low", "exhausted");
+        if (balance <= 0) q.classList.add("exhausted");
+        else if (balance <= Math.max(1, Math.round(max * 0.2))) q.classList.add("low");
+        quotaExhausted = balance <= 0;
+        updateGenerateEnabled();
+      }
+
+      // Show the STUB badge only when the backend reports stub mode; live/unknown
+      // hides it. Surfacing this is what keeps a stub backend from reading as a hang.
+      function setServerMode(mode) {
+        $("modeBadge").classList.toggle("hidden", mode !== "stub");
+      }
+
+      // Home partner-logo area (section-06 doc): host-served logos as data URIs, click
+      // opens the partner site externally. Text fallback if a logo fails to load.
+      function renderPartners(partners) {
+        const root = $("partners"); if (!root) return;
+        root.innerHTML = "";
+        if (!partners || !partners.length) return;
+        const h = document.createElement("div"); h.className = "partners-h"; h.textContent = "Partners";
+        const row = document.createElement("div"); row.className = "partners-row";
+        for (const p of partners) {
+          const a = document.createElement("button"); a.className = "partner"; a.type = "button"; a.title = "Open " + p.name + " website";
+          const img = document.createElement("img"); img.className = "partner-logo"; img.src = p.logo; img.alt = p.name;
+          img.addEventListener("error", () => { a.textContent = p.name; });
+          a.appendChild(img);
+          a.addEventListener("click", () => vscode.postMessage({ type: "open_external", url: p.url }));
+          row.appendChild(a);
+        }
+        root.appendChild(h); root.appendChild(row);
+      }
+      // Read-only list of past session summaries (host-served from .mpyhw/sessions).
+      // Clicking a card reveals its session.jsonl via the host's open_path handler.
+      function renderRecent(sessions) {
+        const box = $("recent"); if (!box) return;
+        box.innerHTML = "";
+        const empty = $("recentEmpty");
+        if (!sessions || !sessions.length) { empty.classList.remove("hidden"); return; }
+        empty.classList.add("hidden");
+        for (const s of sessions) {
+          const card = document.createElement("button"); card.className = "recent-card"; card.type = "button";
+          const title = document.createElement("span"); title.className = "recent-intent"; title.textContent = s.intent || s.id;
+          const meta = document.createElement("span"); meta.className = "recent-meta";
+          const when = s.date ? new Date(s.date).toLocaleString() : "";
+          meta.textContent = s.finalPhase ? (when + " · " + s.finalPhase) : when;
+          card.appendChild(title); card.appendChild(meta);
+          card.addEventListener("click", () => vscode.postMessage({ type: "open_path", path: s.path }));
+          box.appendChild(card);
+        }
+      }

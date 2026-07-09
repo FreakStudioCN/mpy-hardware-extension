@@ -1,25 +1,3 @@
-
-      // ----- credits -----
-      let lastDailyGrant = 0;
-      function setCredits(balance, dailyGrant) {
-        if (dailyGrant > 0) lastDailyGrant = dailyGrant;
-        $("qUsed").textContent = balance;
-        const max = dailyGrant > 0 ? dailyGrant : balance;
-        const pct = max > 0 ? Math.min(100, Math.round((balance / max) * 100)) : 0;
-        $("qFill").style.width = pct + "%";
-        const q = $("quota"); q.classList.remove("hidden", "low", "exhausted");
-        if (balance <= 0) q.classList.add("exhausted");
-        else if (balance <= Math.max(1, Math.round(max * 0.2))) q.classList.add("low");
-        quotaExhausted = balance <= 0;
-        updateGenerateEnabled();
-      }
-
-      // Show the STUB badge only when the backend reports stub mode; live/unknown
-      // hides it. Surfacing this is what keeps a stub backend from reading as a hang.
-      function setServerMode(mode) {
-        $("modeBadge").classList.toggle("hidden", mode !== "stub");
-      }
-
       // ----- host messages (protocol unchanged) -----
       // ----- Environment doctor -----
       // Turns each raw error_kind into an actionable, localized hint line so the user

@@ -227,3 +227,4 @@
         const label = hidden.parentElement.querySelector(".gd-filename");
         if (label) label.textContent = file.name;
       }
+
