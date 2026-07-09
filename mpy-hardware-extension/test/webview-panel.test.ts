@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -690,5 +690,47 @@ test("with no workspace open, sessions record to globalStorage and appear in Rec
     assert.match(recent.sessions[0].id, /^session-/, "id is a real session dir");
   } finally {
     rmSync(gs, { recursive: true, force: true });
+  }
+});
+
+test("the current session's tree (log + checkpoints) is browsable, not just blockless-project", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "",
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: pipelineFetch, loopMode: "template" });
+    await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+
+    // The recorder wrote ws/.mpyhw/sessions/<id>/session.jsonl during the run; add a checkpoint
+    // like the safe-point mechanism would, then confirm both surface (§8.3 sessions/<id>/ tree).
+    const sessionsDir = join(ws, ".mpyhw", "sessions");
+    const id = readdirSync(sessionsDir)[0];
+    mkdirSync(join(sessionsDir, id, "checkpoints"), { recursive: true });
+    writeFileSync(join(sessionsDir, id, "checkpoints", "analyze.json"), "{}");
+
+    await handler?.({ type: "request_artifacts" });
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    const rels = index.artifacts.map((a: any) => a.relative_path);
+    assert.ok(rels.some((r: string) => r.endsWith("session.jsonl") && r.includes("/sessions/")), "session log is browsable from the session tree");
+    const cp = index.artifacts.find((a: any) => a.relative_path.endsWith("checkpoints/analyze.json"));
+    assert.ok(cp, "checkpoint file is browsable");
+    assert.equal(cp.kind, "checkpoint", "checkpoint files classify as their own kind, not generic log");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
   }
 });

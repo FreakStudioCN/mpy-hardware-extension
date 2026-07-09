@@ -129,13 +129,13 @@ const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
   image: { Images: ["png", "jpg", "jpeg", "webp", "bmp"] },
 };
 
-// Artifact-file discovery on disk (spec §8.3: browse the project tree). Lets a reopened /
-// resumed panel show prior artifacts before any new build runs — the live session's
-// producedPaths only cover what THIS session wrote. Bounded so a large project can't stall.
+// Artifact-file discovery on disk (spec §8.3: browse the project AND session trees). Lets a
+// reopened/resumed panel show prior artifacts before any new build runs — the live session's
+// producedPaths only cover what THIS session wrote. Bounded so a large tree can't stall.
 const ARTIFACT_EXTS = new Set(["py", "json", "jsonl", "md", "svg", "png", "html", "log", "uf2", "bin"]);
 const ARTIFACT_SCAN_MAX_FILES = 500;
 const ARTIFACT_SCAN_MAX_DEPTH = 6;
-function scanProjectArtifacts(root: string): ArtifactSource[] {
+function scanArtifactTree(root: string, origin: "session" | "disk"): ArtifactSource[] {
   const out: ArtifactSource[] = [];
   const stack: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
   while (stack.length > 0 && out.length < ARTIFACT_SCAN_MAX_FILES) {
@@ -151,7 +151,7 @@ function scanProjectArtifacts(root: string): ArtifactSource[] {
         continue;
       }
       const ext = entry.name.slice(entry.name.lastIndexOf(".") + 1).toLowerCase();
-      if (ARTIFACT_EXTS.has(ext)) out.push({ absolute_path: full, kind: classifyArtifactKind(full), phase: "", origin: "disk" });
+      if (ARTIFACT_EXTS.has(ext)) out.push({ absolute_path: full, kind: classifyArtifactKind(full), phase: "", origin });
     }
   }
   return out;
@@ -303,12 +303,14 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     // Only walk the on-disk project when a real workspace is open: each workspace is a
     // distinct project, so browsing its blockless-project/ on reopen is meaningful. The
     // no-workspace globalStorage fallback is ONE shared scratch dir reused across sessions,
-    // so walking it would surface stale cross-session files — there we stay session-scoped
-    // (producedPaths + this session's log only).
-    if (workspaceFolder && projectFolder) sources.push(...scanProjectArtifacts(projectFolder));
+    // so walking it would surface stale cross-session files — there we stay session-scoped.
+    if (workspaceFolder && projectFolder) sources.push(...scanArtifactTree(projectFolder, "disk"));
+    // Walk THIS session's tree (§8.3 sessions/<id>/: logs, checkpoints, artifacts). Safe in
+    // either mode — the dir is id-scoped (no shared-bucket cross-session mixing), so we use
+    // sessionRoot (workspace or globalStorage) rather than gating on a workspace.
     const sessionId = controller.getDiagnostics().session_id;
-    if (workspaceFolder && sessionId) {
-      sources.push({ absolute_path: join(workspaceFolder, ".mpyhw", "sessions", sessionId, "session.jsonl"), kind: "log", phase: "" });
+    if (sessionRoot && sessionId) {
+      sources.push(...scanArtifactTree(join(sessionRoot, ".mpyhw", "sessions", sessionId), "session"));
     }
     artifactIndex = buildArtifactIndex(sources, artifactRoot, artifactIo);
     // The host keeps the full index (with absolute_path) to resolve opens; the webview

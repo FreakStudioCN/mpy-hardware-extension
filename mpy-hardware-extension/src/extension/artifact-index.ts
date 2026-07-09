@@ -7,7 +7,7 @@
 // guarantee is asserted directly.
 
 export type ArtifactKind =
-  | "manifest" | "code" | "wiring" | "diagram" | "driver" | "log" | "diagnostics";
+  | "manifest" | "code" | "wiring" | "diagram" | "driver" | "log" | "checkpoint" | "diagnostics";
 
 // One artifact row. `relative_path` is what the webview shows and echoes back on open;
 // `absolute_path` is host-only (never sent as the display path) and is what actually opens.
@@ -81,6 +81,7 @@ function roleFor(source: ArtifactSource, relativePath: string): string {
   if (base === "project-manifest.json" || base === "manifest.json") return "project-manifest";
   if (relativePath.includes("firmware/drivers/")) return "firmware-driver";
   if (relativePath.includes("firmware/")) return "firmware";
+  if (relativePath.includes("/checkpoints/")) return "checkpoint";
   if (base === "session.jsonl" || relativePath.includes("/sessions/")) return "session-log";
   return source.kind;
 }
@@ -95,6 +96,7 @@ export function classifyArtifactKind(absolutePath: string): ArtifactKind {
   if (base === "project-manifest.json" || base === "manifest.json") return "manifest";
   if (base === "wiring.json") return "wiring";
   if (base === "diagram.json") return "diagram";
+  if (p.includes("/checkpoints/")) return "checkpoint";
   if (base === "session.jsonl" || p.includes("/sessions/")) return "log";
   if (p.includes("/firmware/")) return "driver";
   return "code";

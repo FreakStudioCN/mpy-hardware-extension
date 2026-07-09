@@ -150,3 +150,9 @@ test("buildArtifactIndex uses the source-provided role over the path heuristic",
   );
   assert.equal(index[0].role, "firmware", "Skill-provided role wins over the roleFor() heuristic");
 });
+
+test("classifyArtifactKind tags session checkpoints as their own kind", () => {
+  assert.equal(classifyArtifactKind("/ws/.mpyhw/sessions/s-1/checkpoints/analyze.json"), "checkpoint");
+  // still a log for the session trace itself
+  assert.equal(classifyArtifactKind("/ws/.mpyhw/sessions/s-1/session.jsonl"), "log");
+});
