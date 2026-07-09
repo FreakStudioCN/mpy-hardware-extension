@@ -646,6 +646,7 @@ function readWebviewHtml(): string {
   // sibling files (Phase B split) and are inlined here so the webview still
   // receives a single self-contained HTML string.
   const candidates = ["./", "../../src/webview/"];
+  let lastError: unknown;
   for (const base of candidates) {
     try {
       const html = readFileSync(new URL(base + "index.html", import.meta.url), "utf-8");
@@ -659,11 +660,17 @@ function readWebviewHtml(): string {
       const order: string[] = JSON.parse(readFileSync(new URL("manifest.json", compDir), "utf-8"));
       const js = order.map((f) => readFileSync(new URL(f, compDir), "utf-8")).join("");
       return html.replace("/*__WEBVIEW_CSS__*/", () => css).replace("//__WEBVIEW_JS__", () => js);
-    } catch {
-      // try next candidate
+    } catch (error) {
+      // Keep the real cause visible: a missing/renamed component (e.g. a case-only
+      // mismatch that only bites case-sensitive filesystems) would otherwise vanish
+      // into the generic webview_html_not_found thrown below.
+      lastError = error;
+      console.error(`readWebviewHtml: candidate "${base}" failed`, error);
     }
   }
-  throw new Error("webview_html_not_found");
+  // Message stays stable (asserted by tests / used as an error contract); the cause
+  // carries the underlying readFileSync/JSON.parse failure for diagnosis.
+  throw new Error("webview_html_not_found", { cause: lastError });
 }
 
 function createApiPipelineLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch }) {
