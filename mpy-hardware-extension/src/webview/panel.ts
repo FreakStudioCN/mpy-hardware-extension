@@ -650,7 +650,14 @@ function readWebviewHtml(): string {
     try {
       const html = readFileSync(new URL(base + "index.html", import.meta.url), "utf-8");
       const css = readFileSync(new URL(base + "webview.css", import.meta.url), "utf-8");
-      const js = readFileSync(new URL(base + "webview.js", import.meta.url), "utf-8");
+      // The webview JS is split by functionality into src/webview/components/ (spec §6.2).
+      // components/manifest.json lists the components in load order (= concatenation order):
+      // the webview is one shared inline <script> with no bundler, so they must load as one
+      // script and order is load-bearing (Shared first, Dispatch last). Concatenating them
+      // in manifest order reproduces the single script byte-for-byte.
+      const compDir = new URL(base + "components/", import.meta.url);
+      const order: string[] = JSON.parse(readFileSync(new URL("manifest.json", compDir), "utf-8"));
+      const js = order.map((f) => readFileSync(new URL(f, compDir), "utf-8")).join("");
       return html.replace("/*__WEBVIEW_CSS__*/", () => css).replace("//__WEBVIEW_JS__", () => js);
     } catch {
       // try next candidate

@@ -1,0 +1,12 @@
+[
+  "Shared.js",
+  "BoardSelector.js",
+  "HomeWorkbench.js",
+  "ActivityTimeline.js",
+  "ApprovalCardHost.js",
+  "ArtifactBrowser.js",
+  "CreditsDoctorPanel.js",
+  "GenDriverPanel.js",
+  "SupportContactPanel.js",
+  "Dispatch.js"
+]
