@@ -1919,3 +1919,20 @@ test("a single-phase artifact index shows no phase-filter chips", async () => {
   assert.equal(document.querySelectorAll("#artifacts .art-row").length, 2, "rows still render");
   assert.equal(document.querySelectorAll("#artifactFilter .art-chip").length, 0, "no filter chips for a single phase");
 });
+
+test("wiring/diagram rows jump to their rendered tab instead of opening raw JSON", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "wiring", phase: "generate", relative_path: "blockless-project/docs/wiring.json", role: "wiring", size: 30, sha256: "aa", created_at: "2026-07-09T00:00:00.000Z", mime: "application/json", is_binary: false },
+    ],
+  });
+  const row = document.querySelector("#artifacts .art-row") as HTMLButtonElement;
+  assert.ok(row, "wiring row present");
+  row.click();
+  assert.ok(!posted.some((m) => m.type === "open_artifact"), "wiring row does not post open_artifact");
+  assert.ok(!(document.querySelector('.view[data-view="wiring"]') as HTMLElement).classList.contains("hidden"), "Wiring tab activated by the row");
+});
