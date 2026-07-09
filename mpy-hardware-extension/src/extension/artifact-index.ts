@@ -22,6 +22,7 @@ export interface Artifact {
   created_at: string;     // ISO 8601, from the injected clock
   mime: string;
   is_binary: boolean;
+  origin: "session" | "disk"; // produced by the live session vs found on disk (reopen)
 }
 
 // The raw on-disk descriptor the host collects before metadata/relativization.
@@ -30,6 +31,7 @@ export interface ArtifactSource {
   kind: ArtifactKind;
   phase?: string;
   role?: string;
+  origin?: "session" | "disk";
 }
 
 export interface StatLike { size: number; mtimeMs: number; }
@@ -127,6 +129,7 @@ export function buildArtifactIndex(
       created_at: deps.isoFromMs(stat.mtimeMs),
       mime: MIME_BY_EXT[ext] ?? "application/octet-stream",
       is_binary: BINARY_EXT.has(ext),
+      origin: source.origin ?? "session",
     });
   }
   return out;

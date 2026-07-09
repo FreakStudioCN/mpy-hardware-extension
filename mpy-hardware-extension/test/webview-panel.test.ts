@@ -613,6 +613,7 @@ test("artifact browser lists on-disk project artifacts without a build (reopened
     assert.ok(rels.some((r: string) => r.endsWith("firmware/drivers/aht20.py")), "on-disk driver indexed (nested)");
     const kinds = new Set(index.artifacts.map((a: any) => a.kind));
     assert.ok(kinds.has("manifest") && kinds.has("code") && kinds.has("driver"), "kinds classified from disk paths");
+    assert.ok(index.artifacts.every((a: any) => a.origin === "disk"), "on-disk scan marks origin=disk");
     for (const a of index.artifacts) {
       assert.ok(!("absolute_path" in a), "no absolute_path leaked");
       assert.doesNotMatch(a.relative_path, /^([A-Za-z]:|\/)/, "relative display path");

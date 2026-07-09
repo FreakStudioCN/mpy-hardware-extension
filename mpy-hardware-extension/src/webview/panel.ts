@@ -151,7 +151,7 @@ function scanProjectArtifacts(root: string): ArtifactSource[] {
         continue;
       }
       const ext = entry.name.slice(entry.name.lastIndexOf(".") + 1).toLowerCase();
-      if (ARTIFACT_EXTS.has(ext)) out.push({ absolute_path: full, kind: classifyArtifactKind(full), phase: "" });
+      if (ARTIFACT_EXTS.has(ext)) out.push({ absolute_path: full, kind: classifyArtifactKind(full), phase: "", origin: "disk" });
     }
   }
   return out;

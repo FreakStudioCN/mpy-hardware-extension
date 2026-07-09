@@ -428,4 +428,5 @@
       .serial-line.verify .txt { color: var(--green); font-weight: 600; }
       .art-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; }
       .art-meta { flex: none; color: var(--fg-dim); font-size: 11px; }
+      .art-tag { flex: none; font-size: 10px; color: var(--fg-dim); border: 1px solid var(--vsc-border); border-radius: 4px; padding: 0 4px; }
     

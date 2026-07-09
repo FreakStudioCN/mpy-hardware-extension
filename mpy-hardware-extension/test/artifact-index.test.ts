@@ -49,6 +49,7 @@ test("buildArtifactIndex covers every kind with relative paths and full metadata
     assert.equal(typeof a.size, "number");
     assert.equal(a.created_at, "2023-11-14T22:13:20.000Z");
     assert.ok(a.sha256.startsWith("sha-"), "sha256 computed");
+    assert.equal(a.origin, "session", "sources without an origin default to session");
   }
 
   const manifest = index.find((a) => a.kind === "manifest")!;
@@ -88,6 +89,19 @@ test("png/bin are flagged binary; svg/md/py are text", () => {
   assert.equal(by("d.svg").mime, "image/svg+xml");
   assert.equal(by("r.md").is_binary, false);
   assert.equal(by("r.md").mime, "text/markdown");
+});
+
+test("origin marks disk-sourced artifacts distinctly from session ones", () => {
+  const index = buildArtifactIndex(
+    [
+      { absolute_path: "/ws/a.py", kind: "code" },                   // no origin -> session
+      { absolute_path: "/ws/b.py", kind: "code", origin: "disk" },
+    ],
+    "/ws",
+    deps,
+  );
+  assert.equal(index.find((a) => a.relative_path === "a.py")!.origin, "session");
+  assert.equal(index.find((a) => a.relative_path === "b.py")!.origin, "disk");
 });
 
 test("classifyArtifactKind maps produced paths to kinds", () => {

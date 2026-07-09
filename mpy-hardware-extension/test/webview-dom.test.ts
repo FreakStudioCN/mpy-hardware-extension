@@ -1936,3 +1936,18 @@ test("wiring/diagram rows jump to their rendered tab instead of opening raw JSON
   assert.ok(!posted.some((m) => m.type === "open_artifact"), "wiring row does not post open_artifact");
   assert.ok(!(document.querySelector('.view[data-view="wiring"]') as HTMLElement).classList.contains("hidden"), "Wiring tab activated by the row");
 });
+
+test("artifact rows show role + created_at, and an 'on disk' tag for disk-origin files", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "manifest", phase: "", relative_path: "blockless-project/project-manifest.json", role: "project-manifest", size: 120, sha256: "abc12345de", created_at: "2026-07-09T12:00:00.000Z", mime: "application/json", is_binary: false, origin: "disk" },
+    ],
+  });
+  const meta = (document.querySelector("#artifacts .art-row .art-meta") as HTMLElement).textContent ?? "";
+  assert.match(meta, /project-manifest/, "role shown");
+  assert.match(meta, /2026-07-09/, "created_at date shown");
+  assert.ok(document.querySelector("#artifacts .art-row .art-tag"), "'on disk' tag present for disk origin");
+});
