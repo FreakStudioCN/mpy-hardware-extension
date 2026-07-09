@@ -658,3 +658,37 @@ test("artifact browser stays session-scoped in the no-workspace fallback (no sha
     rmSync(gs, { recursive: true, force: true });
   }
 });
+
+test("with no workspace open, sessions record to globalStorage and appear in Recent Sessions", async () => {
+  const gs = mkdtempSync(join(tmpdir(), "mpyhw-gs-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "",
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+      // no workspace.workspaceFolders → globalStorage fallback
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: pipelineFetch, loopMode: "template", globalStoragePath: gs });
+    await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+
+    // The session was recorded under <globalStorage>/.mpyhw/sessions even with no workspace open.
+    assert.ok(existsSync(join(gs, ".mpyhw", "sessions")), "sessions dir created under globalStorage");
+    await handler?.({ type: "request_recent_sessions" });
+    const recent = posted.filter((m) => m.type === "recent_sessions").at(-1);
+    assert.ok(recent, "recent_sessions posted");
+    assert.equal(recent.sessions.length, 1, "the just-run session appears in Recent Sessions");
+    assert.match(recent.sessions[0].id, /^session-/, "id is a real session dir");
+  } finally {
+    rmSync(gs, { recursive: true, force: true });
+  }
+});

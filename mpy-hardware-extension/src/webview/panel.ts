@@ -209,10 +209,14 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   }
   let availableBoards: any[] = [];
   let toolchainChecked = false;
-  const recorderFactory = workspaceFolder || vscode.authentication
+  // Session logs live under <sessionRoot>/.mpyhw/sessions. Prefer the open workspace; fall back
+  // to globalStorage so recording + Recent Sessions work with no folder open. Safe unlike the
+  // shared blockless-project dir: session dirs are id-scoped (session-<id>/), so no collision.
+  const sessionRoot = workspaceFolder ?? deps.globalStoragePath;
+  const recorderFactory = sessionRoot || vscode.authentication
     ? (traceId: string) => {
       const recorders = [];
-      if (workspaceFolder) recorders.push(new JsonlSessionRecorder({ workspaceFolder, traceId }));
+      if (sessionRoot) recorders.push(new JsonlSessionRecorder({ workspaceFolder: sessionRoot, traceId }));
       if (vscode.authentication) recorders.push(new CloudTelemetryRecorder({ traceId, apiBaseUrl, fetchImpl, getAuthToken: () => auth.getToken(false), log: deps.log }));
       return recorders.length === 1 ? recorders[0] : new CompositeSessionRecorder(recorders);
     }
@@ -565,10 +569,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
     }
     if (message.type === "request_recent_sessions") {
-      // List past session summaries (read-only) from this workspace's .mpyhw/sessions.
+      // List past session summaries (read-only) from <sessionRoot>/.mpyhw/sessions — the same
+      // root the recorder writes to (workspace, or globalStorage when no folder is open).
       let sessions: any[] = [];
       try {
-        if (workspaceFolder) sessions = await listRecentSessions(workspaceFolder, RECENT_SESSIONS_LIMIT);
+        if (sessionRoot) sessions = await listRecentSessions(sessionRoot, RECENT_SESSIONS_LIMIT);
       } catch {
         // unreadable sessions dir — return an empty list, the panel shows its empty state
       }
