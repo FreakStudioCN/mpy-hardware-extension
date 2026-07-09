@@ -1257,6 +1257,8 @@
 
       // ----- Serial -----
       function serialClass(line) {
+        // gen-driver / deploy verification marker (spec 8.3: surface verification results).
+        if (/SELF_TEST_PASS\b/.test(line)) return "verify";
         if (/^MPY:|MicroPython|\[boot\]/.test(line)) return "boot";
         if (/\bi2c\b|0x[0-9a-f]{2}|SSD1306|AHT|found/i.test(line)) return "i2c";
         if (/alert|warn|>|threshold|ON\b/i.test(line)) return "alert";
@@ -1927,6 +1929,13 @@
         row.className = "art-row";
         row.type = "button";
         row.title = tr(a.is_binary ? "art_reveal" : "art_open");
+        // Inline preview for images (svg/png): the host attaches a webview-safe URI
+        // (asWebviewUri) that loads under the CSP img-src; still no filesystem path here.
+        if (a.webview_uri) {
+          const thumb = document.createElement("img");
+          thumb.className = "art-thumb"; thumb.src = a.webview_uri; thumb.alt = "";
+          row.appendChild(thumb);
+        }
         const kind = document.createElement("span"); kind.className = "art-kind"; kind.textContent = a.kind;
         const path = document.createElement("span"); path.className = "art-path"; path.textContent = a.relative_path;
         const meta = document.createElement("span"); meta.className = "art-meta"; meta.textContent = artifactMeta(a);

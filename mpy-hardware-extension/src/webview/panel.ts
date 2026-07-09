@@ -170,6 +170,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const fallbackRoot = deps.globalStoragePath ? join(deps.globalStoragePath, PROJECT_SUBDIR) : undefined;
   const projectFolder = workspaceFolder ? join(workspaceFolder, PROJECT_SUBDIR) : fallbackRoot;
   const usingFallback = !workspaceFolder && !!fallbackRoot;
+  // Let the webview load artifact images (svg/png) it references via asWebviewUri (task-03).
+  // Roots cover the workspace (project + .mpyhw logs), the globalStorage fallback, and the
+  // extension assets. Guarded: a headless/test host may not have vscode.Uri or settable options.
+  if (vscode.Uri?.file) {
+    const roots = [workspaceFolder, deps.globalStoragePath].filter(Boolean).map((p: string) => vscode.Uri.file(p));
+    if (extensionUri) roots.push(extensionUri);
+    try { webview.options = { ...(webview.options ?? {}), enableScripts: true, localResourceRoots: roots }; }
+    catch { /* host without settable options — skip */ }
+  }
   let availableBoards: any[] = [];
   let toolchainChecked = false;
   const recorderFactory = workspaceFolder || vscode.authentication
@@ -243,7 +252,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     // The host keeps the full index (with absolute_path) to resolve opens; the webview
     // gets a projection WITHOUT absolute_path — it only needs the relative path (which it
     // echoes back on open), so an absolute/drive-letter path never crosses to the UI (§4.2).
-    const forWebview = artifactIndex.map(({ absolute_path, ...rest }) => rest);
+    // For images (svg/png) we attach a webview-safe URI so the browser can show a preview
+    // inline under the strict CSP (img-src ${webviewCspSource}); still no filesystem path.
+    const forWebview = artifactIndex.map(({ absolute_path, ...rest }) => {
+      const isImage = rest.mime === "image/png" || rest.mime === "image/svg+xml";
+      if (isImage && webview.asWebviewUri && vscode.Uri?.file) {
+        try { return { ...rest, webview_uri: String(webview.asWebviewUri(vscode.Uri.file(absolute_path))) }; }
+        catch { /* asWebviewUri unavailable (headless host) — omit the preview URI */ }
+      }
+      return rest;
+    });
     webview.postMessage({ type: "artifacts_index", artifacts: forWebview });
   }
 
@@ -284,12 +302,19 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const absolute = resolveArtifactPath(artifactIndex, message.relative_path);
       if (absolute) {
         const entry = artifactIndex.find((a) => a.absolute_path === absolute);
+        const uri = vscode.Uri.file(absolute);
         try {
-          if (entry && !entry.is_binary) {
-            const doc = await vscode.workspace?.openTextDocument?.(vscode.Uri.file(absolute));
+          if (entry?.mime === "text/markdown") {
+            // Native markdown preview (CSP-safe; not injected into the webview).
+            await vscode.commands?.executeCommand?.("markdown.showPreview", uri);
+          } else if (entry && (entry.mime === "image/png" || entry.mime === "image/svg+xml" || entry.mime === "text/html")) {
+            // vscode.open picks the right native viewer (image preview for png, editor for svg/html).
+            await vscode.commands?.executeCommand?.("vscode.open", uri);
+          } else if (entry && !entry.is_binary) {
+            const doc = await vscode.workspace?.openTextDocument?.(uri);
             if (doc) await vscode.window?.showTextDocument?.(doc, { preview: false });
           } else {
-            await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(absolute));
+            await vscode.commands?.executeCommand?.("revealFileInOS", uri);
           }
         } catch {
           // editor/command unavailable (e.g. headless host) — ignore

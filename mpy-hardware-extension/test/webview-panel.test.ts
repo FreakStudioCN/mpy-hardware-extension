@@ -78,13 +78,16 @@ test("artifact browser: request_artifacts indexes relative paths; open_artifact 
   try {
     const posted: any[] = [];
     const opened: string[] = [];
+    const commandCalls: Array<{ cmd: string; path?: string }> = [];
     let handler: ((message: any) => Promise<void>) | undefined;
     const panel = {
       webview: {
         cspSource: "vscode-resource:",
         html: "",
+        options: undefined as any,
         postMessage: (message: any) => posted.push(message),
         onDidReceiveMessage: (next: any) => { handler = next; },
+        asWebviewUri: (uri: any) => ({ toString: () => `vscode-resource://${uri.fsPath}` }),
       },
     };
     const vscode = {
@@ -98,7 +101,7 @@ test("artifact browser: request_artifacts indexes relative paths; open_artifact 
         showWarningMessage: async (message: string) => message.startsWith("Overwrite ") ? "Overwrite" : "Cancel",
         showTextDocument: async () => {},
       },
-      commands: { executeCommand: async () => {} },
+      commands: { executeCommand: async (cmd: string, arg: any) => { commandCalls.push({ cmd, path: arg?.fsPath }); } },
       Uri: { file: (p: string) => ({ fsPath: p }) },
     };
     const fetchImpl = async (url: string) => {
@@ -111,6 +114,12 @@ test("artifact browser: request_artifacts indexes relative paths; open_artifact 
     };
 
     createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    // Image artifacts load under CSP via asWebviewUri, so the workspace must be an allowed root.
+    assert.ok(
+      Array.isArray(panel.webview.options?.localResourceRoots)
+        && panel.webview.options.localResourceRoots.some((r: any) => r.fsPath === ws),
+      "localResourceRoots includes the workspace",
+    );
     await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
     assert.ok(existsSync(join(ws, "blockless-project", "main.py")), "artifact persisted to disk");
 
@@ -140,6 +149,9 @@ test("artifact browser: request_artifacts indexes relative paths; open_artifact 
     opened.length = 0;
     await handler?.({ type: "open_artifact", relative_path: "blockless-project/main.py" });
     assert.deepEqual(opened, [join(ws, "blockless-project", "main.py")]);
+    // A text/code artifact opens in the editor, not via a preview command (md/image routing).
+    assert.ok(!commandCalls.some((c) => c.cmd === "vscode.open" || c.cmd === "markdown.showPreview"),
+      "text artifact routed to the editor, not a preview command");
 
     // trust boundary: traversal / out-of-index paths never open
     opened.length = 0;

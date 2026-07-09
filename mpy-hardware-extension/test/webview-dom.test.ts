@@ -1882,3 +1882,26 @@ test("files_written surfaces a 'View artifacts' jump from the Activity feed", as
     "clicking it activates the Artifacts tab",
   );
 });
+
+test("an image artifact renders an inline preview thumbnail from its webview uri", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "diagram", phase: "generate", relative_path: "blockless-project/docs/diagram.png", role: "diagram", size: 900, sha256: "aa11bb22", created_at: "2026-07-09T00:00:00.000Z", mime: "image/png", is_binary: true, webview_uri: "https://vscode-resource.test/diagram.png" },
+    ],
+  });
+  const img = document.querySelector("#artifacts .art-row img.art-thumb") as HTMLImageElement;
+  assert.ok(img, "thumbnail rendered for the image artifact");
+  assert.equal(img.getAttribute("src"), "https://vscode-resource.test/diagram.png");
+});
+
+test("a SELF_TEST_PASS serial line is highlighted as a verification result", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, { type: "serial_output", lines: ["boot ok", "SELF_TEST_PASS:AHT20:I2C_READ"] });
+  const verify = document.querySelector("#serial .serial-line.verify");
+  assert.ok(verify, "verification line got the verify class");
+  assert.match((verify as HTMLElement).textContent ?? "", /SELF_TEST_PASS/);
+});
