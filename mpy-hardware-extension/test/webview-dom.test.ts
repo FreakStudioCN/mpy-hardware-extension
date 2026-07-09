@@ -1829,3 +1829,23 @@ test("a duplicate session_done renders exactly one terminal line", async () => {
   const count = (feed.match(/Session ended/g) || []).length;
   assert.equal(count, 1, "only one 'Session ended' line despite the duplicate session_done");
 });
+
+test("support panel exposes log reveal/export buttons that post the right messages", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "support_config", contacts: [], diagnosticsFields: ["os", "node"] });
+  const btns = [...document.querySelectorAll("#support button")] as HTMLButtonElement[];
+  const reveal = btns.find((b) => b.textContent === "Reveal logs folder");
+  const exp = btns.find((b) => b.textContent === "Export session log");
+  assert.ok(reveal && exp, "reveal + export buttons render in the support panel");
+
+  reveal!.click();
+  exp!.click();
+  assert.ok(posted.some((m) => m.type === "reveal_logs_folder"), "reveal posts reveal_logs_folder");
+  assert.ok(posted.some((m) => m.type === "export_session_log"), "export posts export_session_log");
+
+  post(dom, { type: "logs_status", text: "Session log exported." });
+  assert.match((document.getElementById("scDiag") as HTMLElement).textContent ?? "", /exported/i, "logs_status updates the status line");
+});

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -485,4 +485,74 @@ test("retry_session resumes the saved phase with the saved intent (not an empty 
   // message log), resuming the saved phase with the saved intent — never an empty turn.
   assert.equal(retried.phase, "analyze", "retry resumes the saved phase");
   assert.ok(retried.messages.at(-1).content, "retry re-sends the saved intent, not an empty user turn");
+});
+
+// --- local session-log export / reveal (Support & Feedback) ---
+
+function seedSession(ws: string): string {
+  const dir = join(ws, ".mpyhw", "sessions", "session-aaa111-bbb");
+  mkdirSync(dir, { recursive: true });
+  const content = '{"type":"session_started","ts":"2026-07-08T19:00:00.000Z","intent":"blink"}\n{"type":"phase_start","phase":"analyze"}\n';
+  writeFileSync(join(dir, "session.jsonl"), content, "utf-8");
+  return content;
+}
+
+function exportPanel(ws: string, opts: { windowExtra?: any } & Record<string, any> = {}) {
+  const { windowExtra = {}, ...topExtra } = opts;
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { file: (p: string) => ({ fsPath: p }) },
+    workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    // keep createWebviewPanel (wires the handler) and merge any extra window methods
+    window: { createWebviewPanel: () => panel, ...windowExtra },
+    ...topExtra,
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: (async () => { throw new Error("no network in export test"); }) as any, loopMode: "template" });
+  return { posted, run: (m: any) => handler?.(m) };
+}
+
+test("export_session_log saves the newest session.jsonl to the chosen path", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const srcContent = seedSession(ws);
+    const target = join(ws, "exported.jsonl");
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => ({ fsPath: target }) } });
+    await run({ type: "export_session_log" });
+    assert.ok(existsSync(target), "export file written to the chosen path");
+    assert.equal(readFileSync(target, "utf-8"), srcContent, "exported content matches the session log");
+    assert.ok(posted.some((m) => m.type === "logs_status" && /exported/i.test(m.text)), "posts an exported status");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log with no logs posts a 'no logs yet' status and writes nothing", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    let dialogCalled = false;
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => { dialogCalled = true; return undefined; } } });
+    await run({ type: "export_session_log" });
+    assert.equal(dialogCalled, false, "no save dialog when there is nothing to export");
+    assert.ok(posted.some((m) => m.type === "logs_status" && /no session logs/i.test(m.text)));
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("reveal_logs_folder reveals the .mpyhw/sessions dir when logs exist", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    seedSession(ws);
+    const revealed: any[] = [];
+    const { run } = exportPanel(ws, { commands: { executeCommand: (cmd: string, arg: any) => { revealed.push({ cmd, arg }); } } });
+    await run({ type: "reveal_logs_folder" });
+    const hit = revealed.find((r) => r.cmd === "revealFileInOS");
+    assert.ok(hit, "revealFileInOS is invoked");
+    assert.ok(String(hit.arg.fsPath).endsWith(join(".mpyhw", "sessions")), "reveals the sessions dir");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
 });

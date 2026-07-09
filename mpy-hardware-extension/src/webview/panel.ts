@@ -6,7 +6,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { SessionController } from "../extension/session-controller.ts";
-import { listRecentSessions } from "../extension/session-recorder.ts";
+import { listRecentSessions, sessionsDir } from "../extension/session-recorder.ts";
 import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
@@ -461,6 +461,40 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         await vscode.env?.clipboard?.writeText?.(String(message.text ?? ""));
       } catch {
         // clipboard unavailable (e.g. headless host) — ignore
+      }
+    }
+    if (message.type === "reveal_logs_folder") {
+      // Open <workspace>/.mpyhw/sessions in the OS file manager so users can grab the raw
+      // session.jsonl logs (per-session transcript) for Skill debugging. Best-effort.
+      const root = workspaceFolder ? sessionsDir(workspaceFolder) : undefined;
+      if (root && existsSync(root)) {
+        try {
+          await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(root));
+        } catch {
+          // command/Uri unavailable (e.g. headless host) — ignore
+        }
+      } else {
+        webview.postMessage({ type: "logs_status", text: "No session logs yet." });
+      }
+    }
+    if (message.type === "export_session_log") {
+      // Save the newest session's session.jsonl to a location the user picks, so it can be
+      // handed over for Skill debugging (correlatable with the cloud trace by session id).
+      const sessions = workspaceFolder ? await listRecentSessions(workspaceFolder, 1) : [];
+      if (!workspaceFolder || sessions.length === 0) {
+        webview.postMessage({ type: "logs_status", text: "No session logs yet." });
+      } else {
+        const src = sessions[0].path;
+        const defaultUri = vscode.Uri?.file?.(join(workspaceFolder, `session-${sessions[0].id}.jsonl`));
+        const target = await vscode.window?.showSaveDialog?.({ defaultUri, filters: { "Session log": ["jsonl"] } });
+        if (target?.fsPath) {
+          try {
+            await writeFile(target.fsPath, readFileSync(src, "utf-8"), "utf-8");
+            webview.postMessage({ type: "logs_status", text: "Session log exported." });
+          } catch (error: any) {
+            webview.postMessage({ type: "logs_status", text: `Export failed: ${error?.message ?? error}` });
+          }
+        }
       }
     }
     if (message.type === "ui_prompt_response") {
