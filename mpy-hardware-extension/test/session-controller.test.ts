@@ -890,3 +890,34 @@ test("artifactSources stamps each file with the phase it was written in (not the
   assert.equal(byPath("/ws/blockless-project/firmware/main.py")?.phase, "upy-generate-plugin");
   assert.ok(sources.every((s) => s.origin === "session"), "live artifacts are session-origin");
 });
+
+test("phase_complete artifacts are captured with their Skill role and producing phase", async () => {
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "upy-analyze-plugin" });
+      onEvent({ type: "phase_complete", payload: { phase: "upy-analyze-plugin", artifacts: [
+        { type: "project_manifest", path: "project-manifest.json" },
+        { type: "session_state", path: ".mpyhw/sessions/s/session_state.json" },
+        { type: "table", headers: ["a"] }, // no path -> skipped
+      ] } });
+      onEvent({ type: "phase_start", phase: "upy-select-hw-plugin" });
+      onEvent({ type: "phase_complete", payload: { phase: "upy-select-hw-plugin", artifacts: [
+        { type: "project_manifest", path: "project-manifest.json" }, // dup path -> first phase wins
+        { type: "generate_plan", path: "select_hw_validated.json" },
+      ] } });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const recs = controller.phaseArtifactRecords();
+  const byPath = (p: string) => recs.find((r) => r.path === p);
+  assert.equal(byPath("project-manifest.json")?.role, "project_manifest");
+  assert.equal(byPath("project-manifest.json")?.phase, "upy-analyze-plugin", "keeps first producing phase");
+  assert.equal(byPath("select_hw_validated.json")?.role, "generate_plan");
+  assert.equal(byPath("select_hw_validated.json")?.phase, "upy-select-hw-plugin");
+  assert.ok(!recs.some((r) => (r as any).role === "table"), "artifacts without a path are skipped");
+  assert.equal(recs.length, 3, "manifest (deduped) + session_state + generate_plan");
+});

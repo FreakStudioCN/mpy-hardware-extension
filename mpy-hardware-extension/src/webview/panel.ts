@@ -2,7 +2,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { SessionController } from "../extension/session-controller.ts";
@@ -274,10 +274,32 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     },
     isoFromMs: (ms: number) => new Date(ms).toISOString(),
   };
+  // Resolve a phase-declared artifact path (relative, from the Skill) to an absolute file.
+  // The path's base is not fixed (project vs session vs workspace), so try each candidate
+  // and pick the first that exists on disk; unresolved paths are dropped, not indexed.
+  function resolvePhaseArtifactPath(relativePath: string): string | null {
+    if (!relativePath) return null;
+    if (isAbsolute(relativePath)) return existsSync(relativePath) ? relativePath : null;
+    const bases = [projectFolder, workspaceFolder, deps.globalStoragePath].filter(Boolean) as string[];
+    for (const base of bases) {
+      const full = join(base, relativePath);
+      if (existsSync(full)) return full;
+    }
+    return null;
+  }
+
   function refreshArtifacts() {
-    // Live-session sources first (they carry the producing phase) so they win the
+    // Phase-declared artifacts FIRST so their real role (Skill `type`) and producing phase
+    // win the dedup over the same file found via file_written or the disk walk. These cover
+    // pre-generate outputs (analyze manifest, select-hw plan) that host scripts write directly.
+    const sources: ArtifactSource[] = [];
+    for (const rec of controller.phaseArtifactRecords()) {
+      const abs = resolvePhaseArtifactPath(rec.path);
+      if (abs) sources.push({ absolute_path: abs, kind: classifyArtifactKind(abs), phase: rec.phase, role: rec.role, origin: "session" });
+    }
+    // Live-session sources next (they carry the producing phase) so they win the
     // absolute_path dedup in buildArtifactIndex over the same files found on disk.
-    const sources = controller.artifactSources();
+    sources.push(...controller.artifactSources());
     // Only walk the on-disk project when a real workspace is open: each workspace is a
     // distinct project, so browsing its blockless-project/ on reopen is meaningful. The
     // no-workspace globalStorage fallback is ONE shared scratch dir reused across sessions,

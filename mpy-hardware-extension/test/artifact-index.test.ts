@@ -141,3 +141,12 @@ test("resolveArtifactPath opens only in-index paths (trust boundary)", () => {
     assert.equal(resolveArtifactPath(index, bad), null, `refused: ${bad}`);
   }
 });
+
+test("buildArtifactIndex uses the source-provided role over the path heuristic", () => {
+  const index = buildArtifactIndex(
+    [{ absolute_path: "/ws/blockless-project/main.py", kind: "code", role: "firmware" }],
+    "/ws",
+    deps,
+  );
+  assert.equal(index[0].role, "firmware", "Skill-provided role wins over the roleFor() heuristic");
+});

@@ -2080,7 +2080,7 @@
         }
         if (msg.type === "status_update" && running) { addStatusUpdate(msg.payload); }
         if (msg.type === "phase_start") { setPending(tr("working")); }
-        if (msg.type === "phase_complete") { addPhaseComplete(msg.payload); }
+        if (msg.type === "phase_complete") { addPhaseComplete(msg.payload); vscode.postMessage({ type: "request_artifacts" }); }
         if (msg.type === "deploy_ports_updated") { if (currentDeployCard) currentDeployCard.setPorts(msg.ports); }
         if (msg.type === "code_delta") { streamCodeDelta(msg.text, msg.path); }
         if (msg.type === "code_updated") { finalizeCode(msg.code, msg.path); }

@@ -1951,3 +1951,10 @@ test("artifact rows show role + created_at, and an 'on disk' tag for disk-origin
   assert.match(meta, /2026-07-09/, "created_at date shown");
   assert.ok(document.querySelector("#artifacts .art-row .art-tag"), "'on disk' tag present for disk origin");
 });
+
+test("phase_complete triggers an artifact refresh (request_artifacts)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  post(dom, { type: "phase_complete", payload: { phase: "upy-analyze-plugin", artifacts: [] } });
+  assert.ok(posted.some((m) => m.type === "request_artifacts"), "phase_complete asks the host to refresh artifacts");
+});

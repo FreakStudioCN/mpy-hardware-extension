@@ -57,6 +57,11 @@ export class SessionController {
   // The phase each file was written in, stamped from currentPhase at file_written time,
   // so the Artifact Browser attributes the PRODUCING phase per file (not the final phase).
   private producedPhase = new Map<string, string>();
+  // Artifacts each phase declares in its phase_complete ({type, path}). Host Skill scripts
+  // (analyze manifest, select-hw plan) write these directly — they never emit a file_written
+  // event — so this is the only way the Artifact Browser learns about pre-generate outputs,
+  // with their real role (the Skill's `type`) and producing phase.
+  private phaseArtifacts: Array<{ path: string; role: string; phase: string }> = [];
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -97,6 +102,7 @@ export class SessionController {
       this.pendingSupplements = [];
       this.producedPaths = [];
       this.producedPhase.clear();
+      this.phaseArtifacts = [];
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -453,6 +459,7 @@ export class SessionController {
     }
     if (event.type === "phase_complete") {
       this.pushActivity(`phase_complete: ${event.payload?.phase ?? this.currentPhase ?? ""}`);
+      this.capturePhaseArtifacts(event.payload);
       this.record({ type: "phase_complete", payload: event.payload });
       this.deps.postMessage({ type: "phase_complete", payload: event.payload });
       return;
@@ -551,6 +558,25 @@ export class SessionController {
       });
     }
     return out;
+  }
+
+  // Fold a phase_complete's declared artifacts ({type, path}) into the browser source list.
+  // First occurrence of a path wins, so a file keeps the phase that first produced it.
+  private capturePhaseArtifacts(payload: any) {
+    const artifacts = payload?.artifacts;
+    if (!Array.isArray(artifacts)) return;
+    const phase = payload?.phase ?? this.currentPhase ?? "";
+    for (const a of artifacts) {
+      if (!a || typeof a.path !== "string" || !a.path) continue;
+      if (this.phaseArtifacts.some((p) => p.path === a.path)) continue;
+      this.phaseArtifacts.push({ path: a.path, role: typeof a.type === "string" ? a.type : "", phase });
+    }
+  }
+
+  // Raw phase-declared artifact records ({relative path, role, phase}); the panel resolves
+  // each path to an absolute file it can stat + index. Read-only view of the accumulator.
+  phaseArtifactRecords(): ReadonlyArray<{ path: string; role: string; phase: string }> {
+    return this.phaseArtifacts;
   }
 
   // The session-scoped half of the section-08 diagnostics snapshot. The panel merges
