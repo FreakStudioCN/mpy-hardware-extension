@@ -17,7 +17,9 @@
         en: {
           credits: "Credits", lowCredits: "Running low on credits today.",
           stub_badge: "Stub", stub_badge_tip: "This backend runs a stub LLM: it returns a fixed reply and never generates code. Restart the API without MPYHW_LLM_STUB=1 for real output.",
-          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram", tab_doctor: "Env",
+          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram", tab_artifacts: "Artifacts", tab_doctor: "Env",
+          empty_artifacts_h: "No artifacts yet", empty_artifacts_p: "Files generated this session — manifest, code, wiring, diagram, drivers, and logs — appear here to open and trace.",
+          art_all_phases: "All", art_open: "Open in editor", art_reveal: "Reveal in file manager", view_artifacts: "View artifacts",
           empty_doctor_h: "Checking your setup…", empty_doctor_p: "Blockless verifies what's needed to flash code to a board: Python, device tools, a connected board, and MicroPython.",
           doc_recheck: "Re-check", doc_install: "Install dependencies", doc_installing: "Installing…",
           doc_link_python: "Download Python", doc_link_firmware: "Download MicroPython", doc_open: "Open",
@@ -98,7 +100,9 @@
         zh: {
           credits: "额度", lowCredits: "今日额度快用完了。",
           stub_badge: "桩", stub_badge_tip: "当前后端跑的是桩 LLM：只返回固定回复、不会真正生成代码。重启 API 时去掉 MPYHW_LLM_STUB=1 才是真实输出。",
-          tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线", tab_diagram: "架构图", tab_doctor: "环境",
+          tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线", tab_diagram: "架构图", tab_artifacts: "产物", tab_doctor: "环境",
+          empty_artifacts_h: "暂无产物", empty_artifacts_p: "本次会话生成的文件（清单、代码、接线、架构图、驱动和日志）会显示在这里，可打开和追溯。",
+          art_all_phases: "全部", art_open: "在编辑器中打开", art_reveal: "在文件管理器中显示", view_artifacts: "查看产物",
           empty_doctor_h: "正在检查环境…", empty_doctor_p: "Blockless 会检查把代码烧进开发板所需的一切：Python、设备工具、已连接的开发板，以及 MicroPython。",
           doc_recheck: "重新检测", doc_install: "安装依赖", doc_installing: "正在安装…",
           doc_link_python: "下载 Python", doc_link_firmware: "下载 MicroPython", doc_open: "打开",
@@ -496,6 +500,7 @@
         $("wiringEmpty").classList.remove("hidden");
         $("diagram").innerHTML = "";
         $("diagramEmpty").classList.remove("hidden");
+        ARTIFACTS = []; artifactPhase = ""; artifactsLinkShown = false; drawArtifacts();
         finalizeThinking(); currentCode = null; currentSummary = null;
         currentDeployCard = null; pendingCard = null; pendingLabel = "";
         localeLocked = false; // next project re-detects its language (LOCALE left as-is until then)
@@ -1863,6 +1868,83 @@
       }
       // Read-only list of past session summaries (host-served from .mpyhw/sessions).
       // Clicking a card reveals its session.jsonl via the host's open_path handler.
+      // Artifact Browser (spec 8.3): the session's artifacts, grouped by phase. The host
+      // sends a RELATIVE-path index (never absolute paths); a row click asks the host to
+      // open the file, which maps the relative path back to an absolute one — the trust
+      // boundary lives in the host, not here.
+      const BYTES_PER_KB = 1024;
+      const SHA_DISPLAY_LEN = 8;
+      let ARTIFACTS = [];
+      let artifactPhase = ""; // "" = all phases
+      let artifactsLinkShown = false; // one "View artifacts" jump per session
+      // A one-time affordance in the Activity feed to jump to the Artifacts tab, so the user
+      // can open/trace produced files straight from the timeline (card #36).
+      function addArtifactsLink() {
+        if (artifactsLinkShown) return;
+        artifactsLinkShown = true;
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card"><div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_result") + '</span></div></div></div>';
+        const btn = document.createElement("button");
+        btn.className = "doc-fix";
+        btn.textContent = tr("view_artifacts");
+        btn.addEventListener("click", () => setTab("artifacts"));
+        card.querySelector(".ev-main").appendChild(btn);
+        $("activity").appendChild(card);
+      }
+      function renderArtifacts(list) {
+        ARTIFACTS = Array.isArray(list) ? list : [];
+        if (artifactPhase && !ARTIFACTS.some((a) => a.phase === artifactPhase)) artifactPhase = "";
+        drawArtifacts();
+      }
+      function drawArtifacts() {
+        const box = $("artifacts"); if (!box) return;
+        box.innerHTML = "";
+        $("artifactFilter").innerHTML = "";
+        if (!ARTIFACTS.length) { $("artifactsEmpty").classList.remove("hidden"); return; }
+        $("artifactsEmpty").classList.add("hidden");
+        drawArtifactFilter();
+        const rows = ARTIFACTS.filter((a) => !artifactPhase || a.phase === artifactPhase);
+        for (const a of rows) box.appendChild(artifactRow(a));
+      }
+      function drawArtifactFilter() {
+        const phases = [...new Set(ARTIFACTS.map((a) => a.phase).filter(Boolean))];
+        if (phases.length < 2) return; // nothing to filter by
+        const filter = $("artifactFilter");
+        filter.appendChild(artifactChip(tr("art_all_phases"), ""));
+        for (const p of phases) filter.appendChild(artifactChip(p, p));
+      }
+      function artifactChip(label, phase) {
+        const chip = document.createElement("button");
+        chip.className = "art-chip" + (artifactPhase === phase ? " active" : "");
+        chip.type = "button";
+        chip.textContent = label;
+        chip.addEventListener("click", () => { artifactPhase = phase; drawArtifacts(); });
+        return chip;
+      }
+      function artifactRow(a) {
+        const row = document.createElement("button");
+        row.className = "art-row";
+        row.type = "button";
+        row.title = tr(a.is_binary ? "art_reveal" : "art_open");
+        const kind = document.createElement("span"); kind.className = "art-kind"; kind.textContent = a.kind;
+        const path = document.createElement("span"); path.className = "art-path"; path.textContent = a.relative_path;
+        const meta = document.createElement("span"); meta.className = "art-meta"; meta.textContent = artifactMeta(a);
+        row.append(kind, path, meta);
+        row.addEventListener("click", () => vscode.postMessage({ type: "open_artifact", relative_path: a.relative_path }));
+        return row;
+      }
+      function artifactMeta(a) {
+        const parts = [];
+        if (typeof a.size === "number") parts.push(formatBytes(a.size));
+        if (a.sha256) parts.push(a.sha256.slice(0, SHA_DISPLAY_LEN));
+        return parts.join(" · ");
+      }
+      function formatBytes(n) {
+        if (n < BYTES_PER_KB) return n + " B";
+        if (n < BYTES_PER_KB * BYTES_PER_KB) return (n / BYTES_PER_KB).toFixed(1) + " KB";
+        return (n / (BYTES_PER_KB * BYTES_PER_KB)).toFixed(1) + " MB";
+      }
       function renderRecent(sessions) {
         const box = $("recent"); if (!box) return;
         box.innerHTML = "";
@@ -1981,13 +2063,14 @@
         if (msg.type === "code_updated") { finalizeCode(msg.code, msg.path); }
         if (msg.type === "manifest_updated") { renderWiring(msg.manifest); }
         if (msg.type === "diagram_updated") { renderDiagram(msg.diagram); }
+        if (msg.type === "artifacts_index") { renderArtifacts(msg.artifacts); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
         if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
         // A supplement line is an annotation, not a step: addActivity() clears the working
         // spinner, so re-arm it (with the same label) while the build is still running.
         if (msg.type === "user_supplement_received") { addActivity({ type: "trace", text: tr("supplement_received", { s: msg.summary }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
         if (msg.type === "user_supplement_applied") { addActivity({ type: "trace", text: tr("supplement_applied", { d: msg.decision, r: msg.reason }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
-        if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); }
+        if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); vscode.postMessage({ type: "request_artifacts" }); addArtifactsLink(); }
         if (msg.type === "files_write_failed") { addActivity({ type: "trace", text: tr("files_write_failed", { e: msg.error }) }); }
         if (msg.type === "session_error") {
           const errKey = "err_" + msg.error;
@@ -2070,3 +2153,5 @@
       vscode.postMessage({ type: "request_support_config" });
       // Load the home partner logos (config-driven; host inlines them as data URIs).
       vscode.postMessage({ type: "request_partners" });
+      // Pull the artifact index so the Artifacts tab is populated for a resumed session.
+      vscode.postMessage({ type: "request_artifacts" });

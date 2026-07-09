@@ -50,6 +50,7 @@
         <button class="tab" data-tab="serial" data-i18n="tab_serial">Serial</button>
         <button class="tab" data-tab="wiring" data-i18n="tab_wiring">Wiring</button>
         <button class="tab" data-tab="diagram" data-i18n="tab_diagram">Diagram</button>
+        <button class="tab" data-tab="artifacts" data-i18n="tab_artifacts">Artifacts</button>
         <button class="tab" data-tab="doctor" data-i18n="tab_doctor">Env</button>
       </div>
 
@@ -90,6 +91,12 @@
         <div class="view hidden" data-view="diagram">
           <div id="diagram"></div>
           <div class="empty" id="diagramEmpty"><h4 data-i18n="empty_diagram_h">No diagram yet</h4><p data-i18n="empty_diagram_p">When the project architecture is generated, its module layers and run flow appear here.</p></div>
+        </div>
+        <!-- Artifacts (spec 8.3): browse/open the files this session produced, by phase. -->
+        <div class="view hidden" data-view="artifacts">
+          <div class="art-filter" id="artifactFilter"></div>
+          <div id="artifacts"></div>
+          <div class="empty" id="artifactsEmpty"><h4 data-i18n="empty_artifacts_h">No artifacts yet</h4><p data-i18n="empty_artifacts_p">Files generated this session — manifest, code, wiring, diagram, drivers, and logs — appear here to open and trace.</p></div>
         </div>
         <!-- Environment (Doctor) -->
         <div class="view hidden" data-view="doctor">

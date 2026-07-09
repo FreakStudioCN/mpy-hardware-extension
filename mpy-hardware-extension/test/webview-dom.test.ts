@@ -1829,3 +1829,56 @@ test("a duplicate session_done renders exactly one terminal line", async () => {
   const count = (feed.match(/Session ended/g) || []).length;
   assert.equal(count, 1, "only one 'Session ended' line despite the duplicate session_done");
 });
+
+test("artifacts_index renders a phase-filterable list; a row click opens by relative path", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  assert.ok(document.querySelector('.tab[data-tab="artifacts"]'), "Artifacts tab present");
+
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "manifest", phase: "analyze", relative_path: "blockless-project/project-manifest.json", role: "project-manifest", size: 120, sha256: "abc12345def", created_at: "2026-07-09T00:00:00.000Z", mime: "application/json", is_binary: false },
+      { kind: "code", phase: "generate", relative_path: "blockless-project/main.py", role: "code", size: 2048, sha256: "deadbeefcafe", created_at: "2026-07-09T00:00:00.000Z", mime: "text/x-python", is_binary: false },
+      { kind: "log", phase: "", relative_path: ".mpyhw/sessions/s1/session.jsonl", role: "session-log", size: 50, sha256: "99990000", created_at: "2026-07-09T00:00:00.000Z", mime: "application/x-ndjson", is_binary: false },
+    ],
+  });
+
+  const rowPaths = () => [...document.querySelectorAll("#artifacts .art-row .art-path")].map((n) => n.textContent);
+  assert.equal(rowPaths().length, 3, "all artifacts listed");
+  assert.ok(rowPaths().includes("blockless-project/main.py"));
+  assert.ok(rowPaths().every((p) => !/^([A-Za-z]:|\/)/.test(p!)), "every display path is relative");
+  assert.match((document.querySelector("#artifacts .art-row .art-meta") as HTMLElement).textContent ?? "", /B|KB/);
+
+  // phase filter: All + analyze + generate; clicking "generate" narrows to that phase
+  const chips = [...document.querySelectorAll("#artifactFilter .art-chip")] as HTMLButtonElement[];
+  assert.ok(chips.length >= 3, "phase filter chips rendered");
+  chips.find((c) => c.textContent === "generate")!.click();
+  assert.deepEqual(rowPaths(), ["blockless-project/main.py"], "filtered to the generate phase");
+
+  // clicking a row asks the host to open it by RELATIVE path (host owns the trust boundary)
+  (document.querySelector("#artifacts .art-row") as HTMLButtonElement).click();
+  const open = posted.find((m) => m.type === "open_artifact");
+  assert.ok(open, "open_artifact posted");
+  assert.equal(open.relative_path, "blockless-project/main.py");
+});
+
+test("files_written surfaces a 'View artifacts' jump from the Activity feed", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "files_written", paths: ["/ws/blockless-project/main.py"] });
+
+  assert.ok(posted.some((m) => m.type === "request_artifacts"), "files_written re-pulls the artifact index");
+  const jump = ([...document.querySelectorAll("#activity button")] as HTMLButtonElement[])
+    .find((b) => /View artifacts/.test(b.textContent ?? ""));
+  assert.ok(jump, "'View artifacts' affordance present in the feed");
+  jump!.click();
+  assert.ok(
+    !(document.querySelector('.view[data-view="artifacts"]') as HTMLElement).classList.contains("hidden"),
+    "clicking it activates the Artifacts tab",
+  );
+});
