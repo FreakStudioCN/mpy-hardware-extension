@@ -54,6 +54,9 @@ export class SessionController {
   // Feeds the Artifact Browser index; kept separate from persistedPaths so the diagnostics
   // artifact_index and the loop-owns-writes decision above are unchanged.
   private producedPaths: string[] = [];
+  // The phase each file was written in, stamped from currentPhase at file_written time,
+  // so the Artifact Browser attributes the PRODUCING phase per file (not the final phase).
+  private producedPhase = new Map<string, string>();
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -93,6 +96,7 @@ export class SessionController {
       this.keyErrors = [];
       this.pendingSupplements = [];
       this.producedPaths = [];
+      this.producedPhase.clear();
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -422,6 +426,9 @@ export class SessionController {
       // The loop persisted a file to disk itself; track it so writeArtifactsIfReady
       // skips the redundant post-loop re-write and reports these paths instead.
       if (event.path && !this.persistedPaths.includes(event.path)) this.persistedPaths.push(event.path);
+      // Stamp the producing phase now (currentPhase is the phase in flight), so the
+      // Artifact Browser shows where each file came from, not the phase that ran last.
+      if (event.path) this.producedPhase.set(event.path, this.currentPhase ?? "");
       return;
     }
     if (event.type === "serial_output") {
@@ -528,11 +535,22 @@ export class SessionController {
   // created_at) + relative display paths via buildArtifactIndex, and owns opening. The
   // session log + diagnostics are appended by the panel, which knows their locations.
   artifactSources(): ArtifactSource[] {
-    return this.producedPaths.map((absolute_path) => ({
-      absolute_path,
-      kind: classifyArtifactKind(absolute_path),
-      phase: this.currentPhase ?? "",
-    }));
+    // Union of loop-persisted files (live, available mid-run) and the post-loop batch's
+    // produced paths (headless fallback), deduped. Each carries the phase it was written
+    // in (producedPhase), not the session's final phase.
+    const out: ArtifactSource[] = [];
+    const seen = new Set<string>();
+    for (const absolute_path of [...this.persistedPaths, ...this.producedPaths]) {
+      if (seen.has(absolute_path)) continue;
+      seen.add(absolute_path);
+      out.push({
+        absolute_path,
+        kind: classifyArtifactKind(absolute_path),
+        phase: this.producedPhase.get(absolute_path) ?? "",
+        origin: "session",
+      });
+    }
+    return out;
   }
 
   // The session-scoped half of the section-08 diagnostics snapshot. The panel merges

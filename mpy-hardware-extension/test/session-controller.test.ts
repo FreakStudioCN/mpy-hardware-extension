@@ -869,3 +869,24 @@ test("an absorb note queued on the FINAL phase is surfaced as deferred, not fals
   assert.equal(applied.decision, "deferred", "an absorb note with no next phase is deferred, not applied");
   assert.equal(safePoint, null, "nothing is folded forward when there is no next phase");
 });
+
+test("artifactSources stamps each file with the phase it was written in (not the final phase)", async () => {
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "upy-analyze-plugin" });
+      onEvent({ type: "file_written", path: "/ws/blockless-project/project-manifest.json" });
+      onEvent({ type: "phase_start", phase: "upy-generate-plugin" });
+      onEvent({ type: "file_written", path: "/ws/blockless-project/firmware/main.py" });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const sources = controller.artifactSources();
+  const byPath = (p: string) => sources.find((s) => s.absolute_path === p);
+  assert.equal(byPath("/ws/blockless-project/project-manifest.json")?.phase, "upy-analyze-plugin");
+  assert.equal(byPath("/ws/blockless-project/firmware/main.py")?.phase, "upy-generate-plugin");
+  assert.ok(sources.every((s) => s.origin === "session"), "live artifacts are session-origin");
+});
