@@ -7,10 +7,14 @@ import { JSDOM } from "jsdom";
 import { GEN_DRIVER_TABS } from "../src/core/gen-driver-schema.ts";
 
 // Loads the real shipped webview (assembled like readWebviewHtml) into jsdom and drives
-// the gen-driver panel through window 'message' events, same as the host posts them.
+// the gen-driver panel through window 'message' events, same as the host posts them. The
+// webview JS is concatenated from webview/components/*.js in manifest (load) order —
+// byte-identical to the pre-split webview.js, so the assertions below are unchanged.
 const rawHtml = readFileSync(new URL("../src/webview/index.html", import.meta.url), "utf-8");
 const webviewCss = readFileSync(new URL("../src/webview/webview.css", import.meta.url), "utf-8");
-const webviewJs = readFileSync(new URL("../src/webview/webview.js", import.meta.url), "utf-8");
+const compDir = new URL("../src/webview/components/", import.meta.url);
+const compOrder: string[] = JSON.parse(readFileSync(new URL("manifest.json", compDir), "utf-8"));
+const webviewJs = compOrder.map((f) => readFileSync(new URL(f, compDir), "utf-8")).join("");
 const html = rawHtml.replace("/*__WEBVIEW_CSS__*/", () => webviewCss).replace("//__WEBVIEW_JS__", () => webviewJs);
 
 async function loadWebview(posted?: any[]): Promise<JSDOM> {

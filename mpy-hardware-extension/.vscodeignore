@@ -7,7 +7,7 @@
 src/**
 !src/webview/index.html
 !src/webview/webview.css
-!src/webview/webview.js
+!src/webview/components/**
 
 # tests, build scripts, tooling
 test/**
