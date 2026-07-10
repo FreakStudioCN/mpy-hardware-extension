@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, toRelativeDisplayPath } from "../src/extension/artifact-index.ts";
+import { resolve } from "node:path";
+
+import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../src/extension/artifact-index.ts";
 import type { ArtifactSource } from "../src/extension/artifact-index.ts";
 
 // Deterministic injected IO: every path "exists" with a fixed size/mtime and a
@@ -155,4 +157,26 @@ test("classifyArtifactKind tags session checkpoints as their own kind", () => {
   assert.equal(classifyArtifactKind("/ws/.mpyhw/sessions/s-1/checkpoints/analyze.json"), "checkpoint");
   // still a log for the session trace itself
   assert.equal(classifyArtifactKind("/ws/.mpyhw/sessions/s-1/session.jsonl"), "log");
+});
+
+test("resolveContainedArtifactPath refuses absolute + `..`-escaping phase paths (#28 F1)", () => {
+  const base = resolve("/ws/blockless-project");
+  // Everything that exists is "on disk"; the containment check must gate what resolves.
+  const exists = () => true;
+  // A normal in-base relative path resolves under the base.
+  assert.equal(resolveContainedArtifactPath([base], "main.py", exists), resolve(base, "main.py"));
+  assert.equal(resolveContainedArtifactPath([base], "firmware/drivers/aht20.py", exists), resolve(base, "firmware/drivers/aht20.py"));
+  // Hostile declarations are refused even though the target "exists".
+  for (const bad of ["../../etc/passwd", "../outside.py", "/etc/passwd", "C:\\Windows\\x", ""]) {
+    assert.equal(resolveContainedArtifactPath([base], bad, exists), null, `refused: ${JSON.stringify(bad)}`);
+  }
+  // A non-existent (but contained) path still resolves to null — nothing to index.
+  assert.equal(resolveContainedArtifactPath([base], "gone.py", () => false), null);
+  // Tries bases in order; skips a base the path escapes, honors the next that contains it.
+  const other = resolve("/other");
+  assert.equal(
+    resolveContainedArtifactPath([base, other], "x.py", (p) => p === resolve(other, "x.py")),
+    resolve(other, "x.py"),
+    "falls through to a later base that contains the file",
+  );
 });

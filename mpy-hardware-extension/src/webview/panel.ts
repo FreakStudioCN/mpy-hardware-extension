@@ -2,7 +2,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { SessionController } from "../extension/session-controller.ts";
@@ -23,7 +23,7 @@ import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder 
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
-import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath } from "../extension/artifact-index.ts";
+import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
@@ -277,15 +277,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Resolve a phase-declared artifact path (relative, from the Skill) to an absolute file.
   // The path's base is not fixed (project vs session vs workspace), so try each candidate
   // and pick the first that exists on disk; unresolved paths are dropped, not indexed.
+  // Containment-checked (#28 F1): absolute or `..`-escaping declarations are refused so a
+  // buggy/hostile phase payload can't inject an out-of-tree file into the openable index.
   function resolvePhaseArtifactPath(relativePath: string): string | null {
-    if (!relativePath) return null;
-    if (isAbsolute(relativePath)) return existsSync(relativePath) ? relativePath : null;
     const bases = [projectFolder, workspaceFolder, deps.globalStoragePath].filter(Boolean) as string[];
-    for (const base of bases) {
-      const full = join(base, relativePath);
-      if (existsSync(full)) return full;
-    }
-    return null;
+    return resolveContainedArtifactPath(bases, relativePath, existsSync);
   }
 
   function refreshArtifacts() {

@@ -6,7 +6,7 @@
 // are injected, so it unit-tests without a real filesystem or VS Code, and the relative-path
 // guarantee is asserted directly.
 
-import { sep } from "node:path";
+import { isAbsolute, resolve, sep } from "node:path";
 
 export type ArtifactKind =
   | "manifest" | "code" | "wiring" | "diagram" | "driver" | "log" | "checkpoint" | "diagnostics";
@@ -172,4 +172,26 @@ export function resolveArtifactPath(index: Artifact[], relativePath: string): st
   const norm = toPosix(relativePath).replace(/^\/+/, "");
   const hit = index.find((a) => a.relative_path === norm);
   return hit ? hit.absolute_path : null;
+}
+
+// Resolve a phase-declared (Skill-provided) relative artifact path to an absolute file under
+// one of the approved bases. Trust hardening (#28 F1): the phase payload is not the webview,
+// but a buggy/hostile Skill could declare an absolute path or one that escapes its base via
+// `..`; either would inject an out-of-tree file into the openable index. Reject absolute
+// inputs and any resolved path that is not contained under its base. Returns the first base
+// under which the (existing) file resolves, or null.
+export function resolveContainedArtifactPath(
+  bases: string[],
+  relativePath: string,
+  fileExists: (absolutePath: string) => boolean,
+): string | null {
+  if (typeof relativePath !== "string" || !relativePath || isAbsolute(relativePath)) return null;
+  for (const base of bases) {
+    if (!base) continue;
+    const baseResolved = resolve(base);
+    const full = resolve(baseResolved, relativePath);
+    if (full !== baseResolved && !full.startsWith(baseResolved + sep)) continue; // escaped the base
+    if (fileExists(full)) return full;
+  }
+  return null;
 }
