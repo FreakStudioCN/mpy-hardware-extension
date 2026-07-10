@@ -167,8 +167,16 @@ test("resolveContainedArtifactPath refuses absolute + `..`-escaping phase paths 
   assert.equal(resolveContainedArtifactPath([base], "main.py", exists), resolve(base, "main.py"));
   assert.equal(resolveContainedArtifactPath([base], "firmware/drivers/aht20.py", exists), resolve(base, "firmware/drivers/aht20.py"));
   // Hostile declarations are refused even though the target "exists".
-  for (const bad of ["../../etc/passwd", "../outside.py", "/etc/passwd", "C:\\Windows\\x", ""]) {
+  for (const bad of ["../../etc/passwd", "../outside.py", "/etc/passwd", ""]) {
     assert.equal(resolveContainedArtifactPath([base], bad, exists), null, `refused: ${JSON.stringify(bad)}`);
+  }
+  // Drive-letter paths are absolute only on Windows (refused); on POSIX "C:\\..." is just a
+  // odd relative FILENAME that resolves UNDER the base — contained, so allowing it is correct.
+  const drive = resolveContainedArtifactPath([base], "C:\\Windows\\x", exists);
+  if (process.platform === "win32") {
+    assert.equal(drive, null, "drive-letter path refused as absolute on Windows");
+  } else {
+    assert.ok(drive === null || drive.startsWith(base), "on POSIX a drive-letter-looking name must stay contained under the base");
   }
   // A non-existent (but contained) path still resolves to null — nothing to index.
   assert.equal(resolveContainedArtifactPath([base], "gone.py", () => false), null);
