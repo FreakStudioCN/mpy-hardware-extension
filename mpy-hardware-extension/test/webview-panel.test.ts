@@ -144,6 +144,18 @@ test("artifact browser: request_artifacts indexes relative paths; open_artifact 
       }
     }
 
+    // §4.2 also covers the files_written message (#28 F3/F7): it renders its paths in the
+    // activity feed, so an absolute/drive-letter path there is a leak the artifacts_index
+    // check above would miss. The generate flow above wrote main.py, so it was posted.
+    const written = posted.filter((m) => m.type === "files_written");
+    assert.ok(written.length > 0, "generate posted a files_written");
+    for (const m of written) {
+      for (const p of m.paths ?? []) {
+        assert.doesNotMatch(p, /^([A-Za-z]:|\/)/, `files_written path must be relative, got: ${p}`);
+      }
+      assert.ok((m.paths ?? []).some((p: string) => p.endsWith("main.py")), "the written file is still reported");
+    }
+
     // in-index open resolves to the real absolute path in the editor. (Clear first: the
     // start_session flow auto-opens main.py once, which we don't want to count here.)
     opened.length = 0;

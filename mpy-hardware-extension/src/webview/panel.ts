@@ -23,7 +23,7 @@ import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder 
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
-import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath } from "../extension/artifact-index.ts";
+import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
@@ -234,7 +234,17 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     : undefined;
   const controller = new SessionController({
-    postMessage: (message) => webview.postMessage(message),
+    // Relativize the files_written paths before they cross to the webview (#28 F3): the
+    // controller carries absolute persisted paths, but §4.2 forbids a drive-letter path
+    // reaching the UI (this message renders them in the activity feed). The Artifacts index
+    // has its own relative paths; nothing downstream needs these absolute.
+    postMessage: (message: any) => {
+      if (message?.type === "files_written" && Array.isArray(message.paths)) {
+        const root = workspaceFolder ?? deps.globalStoragePath ?? projectFolder ?? "";
+        message = { ...message, paths: message.paths.map((p: string) => toRelativeDisplayPath(root, p)) };
+      }
+      webview.postMessage(message);
+    },
     loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder), projectRoot: projectFolder }),
     recorderFactory,
     writeFiles: async (files) => {
