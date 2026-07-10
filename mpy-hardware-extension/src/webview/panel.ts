@@ -135,16 +135,28 @@ const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
 const ARTIFACT_EXTS = new Set(["py", "json", "jsonl", "md", "svg", "png", "html", "log", "uf2", "bin"]);
 const ARTIFACT_SCAN_MAX_FILES = 500;
 const ARTIFACT_SCAN_MAX_DEPTH = 6;
+// Breadth cap (#28 F5): a tree with no matching files never consumes the file budget, so an
+// artifact-free but wide/deep tree could be walked in full. Cap total entries visited too.
+const ARTIFACT_SCAN_MAX_ENTRIES = 5000;
 function scanArtifactTree(root: string, origin: "session" | "disk"): ArtifactSource[] {
   const out: ArtifactSource[] = [];
   const stack: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
-  while (stack.length > 0 && out.length < ARTIFACT_SCAN_MAX_FILES) {
+  let visited = 0;
+  while (stack.length > 0 && out.length < ARTIFACT_SCAN_MAX_FILES && visited < ARTIFACT_SCAN_MAX_ENTRIES) {
     const { dir, depth } = stack.pop()!;
-    let entries: Array<{ name: string; isDirectory: () => boolean }>;
+    let entries: Array<{ name: string; isDirectory: () => boolean; isSymbolicLink: () => boolean }>;
     try { entries = readdirSync(dir, { withFileTypes: true }); }
     catch { continue; } // unreadable dir — skip, not fatal
     for (const entry of entries) {
+      // Enforce both caps INSIDE the loop (#28 F5): the while-condition alone lets a single
+      // directory append far more than the budget before it is re-checked.
+      if (out.length >= ARTIFACT_SCAN_MAX_FILES || visited >= ARTIFACT_SCAN_MAX_ENTRIES) break;
+      visited++;
       if (entry.name.startsWith(".") || entry.name === "node_modules") continue; // hidden/vendor
+      // Never index or descend a symlink (#28 F2): its target can live outside the root, and
+      // stat/hash/open would follow it. isDirectory() is false for a file symlink, so without
+      // this it would be indexed and openable as an out-of-tree file.
+      if (entry.isSymbolicLink()) continue;
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
         if (depth < ARTIFACT_SCAN_MAX_DEPTH) stack.push({ dir: full, depth: depth + 1 });

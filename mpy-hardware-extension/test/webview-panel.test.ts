@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -618,6 +618,49 @@ test("artifact browser lists on-disk project artifacts without a build (reopened
       assert.ok(!("absolute_path" in a), "no absolute_path leaked");
       assert.doesNotMatch(a.relative_path, /^([A-Za-z]:|\/)/, "relative display path");
     }
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("artifact browser never indexes a symlink that escapes the project root (#28 F2)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    mkdirSync(join(ws, "blockless-project"), { recursive: true });
+    writeFileSync(join(ws, "blockless-project", "main.py"), "print('hi')");
+    // A secret file OUTSIDE the project, and a symlink inside the project pointing at it.
+    const secret = join(ws, "secret.py");
+    writeFileSync(secret, "# out-of-tree secret");
+    try {
+      symlinkSync(secret, join(ws, "blockless-project", "leak.py"));
+    } catch {
+      return; // symlink creation needs privilege (Windows without dev mode) — skip, not fail
+    }
+
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "", options: undefined as any,
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}), loopMode: "template" });
+    await handler?.({ type: "request_artifacts" });
+
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    const rels = index.artifacts.map((a: any) => a.relative_path);
+    assert.ok(rels.includes("blockless-project/main.py"), "the real file is indexed");
+    assert.ok(!rels.some((r: string) => r.endsWith("leak.py")), "the escaping symlink is not indexed");
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }
