@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
-import { deleteProjectPath, writeProjectFile, normalizeGeneratedArtifactPath } from "../src/extension/workspace-writer.ts";
+import { canonicalPathKey, deleteProjectPath, snapshotExistingPaths, writeProjectFile, normalizeGeneratedArtifactPath } from "../src/extension/workspace-writer.ts";
 
 function capturingWriter() {
   const writes = new Map<string, string>();
@@ -144,4 +147,63 @@ test("delete_project_path with no guard removes (the build's own scratch cleanup
   const result = await deleteProjectPath({ workspaceFolder: "/ws/project", path: "firmware/tools", removePath });
   assert.equal(result.ok, true);
   assert.equal(removed.length, 1, "no guard = removes session-created scratch without prompting");
+});
+
+// ---- Start-of-run snapshot: the pre-existing set behind both guards ----
+
+// Regression (#30 review): the snapshot recorded only leaf FILES, but
+// file_operation(delete) accepts a directory and rm is recursive — so deleting a
+// pre-existing user directory bypassed the confirm card and silently wiped every
+// file inside it. Directories must be in the set too.
+test("snapshotExistingPaths records pre-existing DIRECTORIES, not just files (dir delete must hit the gate)", () => {
+  const root = mkdtempSync(join(tmpdir(), "mpyhw-snap-"));
+  try {
+    mkdirSync(join(root, "firmware", "drivers"), { recursive: true });
+    writeFileSync(join(root, "firmware", "drivers", "custom.py"), "x");
+    mkdirSync(join(root, ".git")); // skip-listed
+    writeFileSync(join(root, ".git", "config"), "x");
+
+    const snapshot = new Set<string>();
+    snapshotExistingPaths(root, snapshot);
+
+    assert.ok(snapshot.has(canonicalPathKey(join(root, "firmware", "drivers", "custom.py"))), "files are recorded");
+    assert.ok(snapshot.has(canonicalPathKey(join(root, "firmware"))), "top-level dir is recorded");
+    assert.ok(snapshot.has(canonicalPathKey(join(root, "firmware", "drivers"))), "nested dir is recorded — its recursive delete must prompt");
+    assert.equal(snapshot.has(canonicalPathKey(join(root, ".git"))), false, ".git stays skip-listed");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// Regression (#30 review): Set lookups compared resolve() output, which preserves
+// letter case — but Windows and default macOS filesystems are case-insensitive, so a
+// model path `firmware/main.py` overwrote a pre-existing `firmware/Main.py` with no
+// confirm. Keys must fold case exactly where the filesystem does — and must NOT on
+// Linux, where different case IS a different file (the #28 platform-mirror lesson).
+test("canonicalPathKey folds case only on case-insensitive filesystems (win32/darwin)", () => {
+  const a = canonicalPathKey("/ws/project/firmware/Main.py");
+  const b = canonicalPathKey("/ws/project/firmware/main.py");
+  if (process.platform === "win32" || process.platform === "darwin") {
+    assert.equal(a, b, "case-insensitive fs: Main.py and main.py are the same gate key");
+  } else {
+    assert.notEqual(a, b, "case-sensitive fs: different case = different file, keys must differ");
+  }
+});
+
+test("snapshot lookups match through a case-mismatched model path on win32/darwin", () => {
+  const root = mkdtempSync(join(tmpdir(), "mpyhw-case-"));
+  try {
+    mkdirSync(join(root, "firmware"));
+    writeFileSync(join(root, "firmware", "Main.py"), "user code");
+    const snapshot = new Set<string>();
+    snapshotExistingPaths(root, snapshot);
+    const modelPath = canonicalPathKey(join(root, "firmware", "main.py"));
+    if (process.platform === "win32" || process.platform === "darwin") {
+      assert.ok(snapshot.has(modelPath), "model's lowercased path must hit the pre-existing Main.py");
+    } else {
+      assert.equal(snapshot.has(modelPath), false, "on linux main.py is genuinely a different file");
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

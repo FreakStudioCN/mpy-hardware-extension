@@ -357,3 +357,82 @@ test("DeviceShim fs ops throw their error_kind (never a fake success)", async ()
   const { shim } = fsShim({ "device.fs_remove": { status: "error", error_kind: "mpremote_error" } });
   await assert.rejects(() => shim.removePath("/x"), /mpremote_error/);
 });
+
+// ---- kill()/exit-handler race (#30 review, finding 3) ----
+// Fake child: enough surface for createShimLifecycle (stdin/stdout/stderr, spawn/exit
+// events, kill). pid stays undefined so killProcessTree is a no-op — these tests pin the
+// STATE machine, not the process kill (the real group-kill test above covers that).
+import { EventEmitter } from "node:events";
+import { createShimLifecycle } from "../src/extension/device-shim.ts";
+
+class FakeShimChild extends EventEmitter {
+  stdout = new EventEmitter();
+  stderr = new EventEmitter();
+  pid: number | undefined = undefined;
+  name: string;
+  dead = false;
+  stdin = {
+    write: (line: string) => {
+      const msg = JSON.parse(line);
+      setImmediate(() => {
+        if (this.dead) return;
+        this.stdout.emit("data", Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { status: "ok", devices: [{ port: `COM-${this.name}` }] } }) + "\n"));
+      });
+      return true;
+    },
+  };
+  constructor(name: string) {
+    super();
+    this.name = name;
+    setImmediate(() => this.emit("spawn"));
+  }
+  kill() { this.dead = true; }
+}
+
+test("kill() clears the shim state SYNCHRONOUSLY: the next device touch respawns instead of using the dying process", async () => {
+  const children: FakeShimChild[] = [];
+  const shim = createShimLifecycle(() => {
+    const c = new FakeShimChild(`c${children.length}`);
+    children.push(c);
+    return c;
+  });
+
+  assert.deepEqual(await shim.scan(), ["COM-c0"], "first scan runs on the first child");
+  (shim as any).kill();
+  // No exit event has fired yet — the OLD code only cleared proc/child in the async exit
+  // handler, so this immediate next touch was routed to the dying child.
+  const ports = await shim.scan();
+  assert.equal(children.length, 2, "kill() + next touch must spawn a FRESH shim, not reuse the killed one");
+  assert.deepEqual(ports, ["COM-c1"], "the new session's first RPC is served by the new child");
+});
+
+test("a killed child's LATE exit event does not wipe a newly respawned shim's state", async () => {
+  const children: FakeShimChild[] = [];
+  const shim = createShimLifecycle(() => {
+    const c = new FakeShimChild(`c${children.length}`);
+    children.push(c);
+    return c;
+  });
+
+  await shim.scan();            // child 0 up
+  (shim as any).kill();         // stop: child 0 dying, no exit event yet
+  await shim.scan();            // child 1 up (new build)
+  children[0].emit("exit", 1);  // child 0's exit event finally arrives
+  await shim.scan();            // must still be served by child 1
+  assert.equal(children.length, 2, "the stale exit handler must not clear the NEW shim (which would force a third spawn)");
+});
+
+test("kill() rejects the in-flight RPC immediately instead of leaving it hanging until the process exit event", async () => {
+  const children: FakeShimChild[] = [];
+  const shim = createShimLifecycle(() => {
+    const c = new FakeShimChild(`c${children.length}`);
+    c.stdin.write = () => true; // swallow the request: the RPC stays pending, like a blocked flash
+    children.push(c);
+    return c;
+  });
+
+  const inflight = shim.scan();
+  await new Promise((r) => setImmediate(r)); // let the spawn settle and the request get written
+  (shim as any).kill();
+  await assert.rejects(inflight, /shim exited/, "Stop must fail the blocked RPC now — the loop is waiting on it");
+});

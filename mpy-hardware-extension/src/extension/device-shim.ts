@@ -257,10 +257,17 @@ export function killProcessTree(child: { pid?: number; kill: (signal?: any) => v
   catch { try { child.kill("SIGKILL"); } catch { /* already gone */ } }
 }
 
-// Spawn the Python shim and wire a DeviceShim to it. Everything is lazy: Python
-// discovery, venv creation, and the process spawn only happen the first time the
-// loop actually touches a device.
-export function createDeviceShim(opts: { vscode: any; extensionUri: any }): DeviceShim {
+// Lifecycle around a spawned shim child: lazy single-flight start, RPC routing, and the
+// kill/respawn state machine. Extracted from createDeviceShim (which supplies the real
+// python/venv spawner) so the kill-vs-exit-handler races are unit-testable with fake
+// children. Two invariants the tests lock:
+//   1. kill() clears proc/child/starting SYNCHRONOUSLY (and rejects pending RPCs itself) —
+//      waiting for the child's async "exit" event would let a reset-then-restart hand the
+//      new session the dying process, whose first RPC then spuriously fails.
+//   2. Every child handler is guarded by instance (thisChild/thisProc): after kill(), a NEW
+//      shim may already be running when the OLD child's late "exit" event finally fires —
+//      an unguarded handler would wipe the new shim's state and orphan it.
+export function createShimLifecycle(spawnShim: () => any): DeviceShim {
   let proc: ShimProcess | null = null;
   let child: any = null;
   // Lazy single-flight start. runStart() runs start() at most once concurrently AND clears
@@ -276,6 +283,72 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
   }
 
   async function start(): Promise<void> {
+    const thisChild = spawnShim();
+    const thisProc = new ShimProcess({ write: (line: string) => thisChild.stdin.write(line) });
+    child = thisChild;
+    proc = thisProc;
+    // Feed handlers bind to THIS child's proc, never the module-level slot: after a kill,
+    // a late chunk from the dying child must not reach a newly spawned shim's parser.
+    thisChild.stdout.on("data", (data: Buffer) => thisProc.feed(data.toString()));
+    thisChild.stderr.on("data", (data: Buffer) => thisProc.handleStderr(data.toString()));
+    await new Promise<void>((resolve, reject) => {
+      let spawned = false;
+      thisChild.once("spawn", () => {
+        spawned = true;
+        resolve();
+      });
+      thisChild.once("error", (error: Error) => {
+        if (child === thisChild) {
+          proc = null;
+          child = null;
+          runStart.reset();
+        }
+        reject(new Error(`shim_start_failed: ${error.message}`));
+      });
+      thisChild.on("exit", (code: number) => {
+        // Reject THIS child's pending RPCs (no-op if kill() already did); only clear the
+        // live slots if they still belong to this child — a respawn may have replaced them.
+        thisProc.handleExit(code ?? -1);
+        if (child === thisChild) {
+          proc = null;
+          child = null;
+          runStart.reset();
+        }
+        if (!spawned) reject(new Error(`shim exited with code ${code ?? -1}`));
+      });
+    });
+  }
+
+  const shim = new DeviceShim((method, params) => {
+    if (!proc) throw new Error("shim_not_started");
+    return proc.request(method, params);
+  }, ensure);
+  // Hard-interrupt an in-flight operation (user pressed Stop / reset): kill the shim's whole
+  // process group so a blocked flash/upload (esptool / mpremote) dies now instead of running
+  // to completion. State is cleared HERE, synchronously — see invariant 1 above — so the
+  // next device touch lazily respawns a clean shim with no race against the exit event.
+  // Pending RPCs are rejected immediately for the same reason (the exit handler's
+  // handleExit becomes a no-op). Same mechanism as dispose, but kept distinct: dispose is
+  // teardown, kill is a recoverable mid-session stop.
+  const killTree = () => {
+    const dyingChild = child;
+    const dyingProc = proc;
+    proc = null;
+    child = null;
+    runStart.reset();
+    killProcessTree(dyingChild);
+    dyingProc?.handleExit(-1);
+  };
+  (shim as any).dispose = killTree;
+  (shim as any).kill = killTree;
+  return shim;
+}
+
+// Spawn the Python shim and wire a DeviceShim to it. Everything is lazy: Python
+// discovery, venv creation, and the process spawn only happen the first time the
+// loop actually touches a device.
+export function createDeviceShim(opts: { vscode: any; extensionUri: any }): DeviceShim {
+  return createShimLifecycle(() => {
     const python = resolvePython(opts.vscode);
     const shimDir = join(opts.extensionUri?.fsPath ?? process.cwd(), "python", "shim");
     const venvPython = ensureVenv(python, opts.vscode, join(shimDir, "requirements.txt"));
@@ -287,46 +360,8 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
     // (serve.py + every descendant it spawns — the flash plugin's esptool, mpremote) instead
     // of just serve.py, which would orphan an in-flight flash. stdio stays piped and we keep
     // the reference (no unref), so communication + lifecycle are unchanged.
-    child = spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env, detached: true });
-    proc = new ShimProcess({ write: (line: string) => child.stdin.write(line) });
-
-    child.stdout.on("data", (data: Buffer) => proc!.feed(data.toString()));
-    child.stderr.on("data", (data: Buffer) => proc!.handleStderr(data.toString()));
-    await new Promise<void>((resolve, reject) => {
-      let spawned = false;
-      child.once("spawn", () => {
-        spawned = true;
-        resolve();
-      });
-      child.once("error", (error: Error) => {
-        proc = null;
-        child = null;
-        runStart.reset();
-        reject(new Error(`shim_start_failed: ${error.message}`));
-      });
-      child.on("exit", (code: number) => {
-        proc?.handleExit(code ?? -1);
-        proc = null;
-        child = null;
-        runStart.reset();
-        if (!spawned) reject(new Error(`shim exited with code ${code ?? -1}`));
-      });
-    });
-  }
-
-  const shim = new DeviceShim((method, params) => {
-    if (!proc) throw new Error("shim_not_started");
-    return proc.request(method, params);
-  }, ensure);
-  const killTree = () => killProcessTree(child);
-  (shim as any).dispose = killTree;
-  // Hard-interrupt an in-flight operation (user pressed Stop): kill the shim's whole process
-  // group so a blocked flash/upload (esptool / mpremote) dies now instead of running to
-  // completion. The child's exit handler rejects every pending RPC and clears proc/child/
-  // starting, so the next device touch lazily respawns a clean shim. Same mechanism as
-  // dispose, but kept distinct: dispose is teardown, kill is a recoverable mid-session stop.
-  (shim as any).kill = killTree;
-  return shim;
+    return spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env, detached: true });
+  });
 }
 
 // Single-flight lazy runner with retry-on-failure. A naive `if (!p) p = start()` memoizes

@@ -1,4 +1,46 @@
-import { resolve, sep } from "node:path";
+import { lstatSync, readdirSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+
+// Canonical Set key for pre-existing-path comparisons. resolve() normalizes separators
+// and relative segments but NOT letter case — and Windows and (default) macOS filesystems
+// are case-insensitive, so `firmware/Main.py` and `firmware/main.py` are the SAME file
+// there. Folding case on those platforms keeps the overwrite/delete gate from being
+// bypassed by a case-mismatched model path; on Linux different case = different file,
+// so the key must stay case-sensitive.
+const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
+export function canonicalPathKey(p: string): string {
+  const resolved = resolve(p);
+  return CASE_INSENSITIVE_FS ? resolved.toLowerCase() : resolved;
+}
+
+// Start-of-run project-tree snapshot (deliverables 07 §4): record every existing FILE and
+// DIRECTORY (as canonicalPathKey for cross-platform Set matching) into `into`. Called
+// before the loop writes anything, so the set is exactly the user's pre-build tree — the
+// overwrite/delete gate prompts only for these, never for build output created during the
+// run. Directories matter: file_operation(delete) accepts a directory and removes it
+// recursively, so a pre-existing dir absent from the set would wipe user files with no
+// confirm. Same skip list as the lister (.git / node_modules); unreadable dirs are
+// skipped, not fatal.
+export function snapshotExistingPaths(root: string | undefined, into: Set<string>) {
+  into.clear();
+  if (!root) return;
+  // lstatSync (not statSync): a symlink is recorded as a leaf, never followed, so a symlink
+  // loop can't hang the walk. An unreadable dir is skipped (best-effort snapshot — the gate
+  // is a confirmation, not a security boundary; containment in deleteProjectPath is).
+  const walk = (dir: string) => {
+    let names: string[];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const name of names) {
+      if (name === ".git" || name === "node_modules") continue;
+      const full = join(dir, name);
+      let isDir = false;
+      try { isDir = lstatSync(full).isDirectory(); } catch { continue; }
+      into.add(canonicalPathKey(full));
+      if (isDir) walk(full);
+    }
+  };
+  walk(resolve(root));
+}
 
 export function planWorkspaceWrites(input: { workspaceFolder?: string; generatedRoot?: string; files: Record<string, string> }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";

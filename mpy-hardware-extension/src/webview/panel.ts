@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -22,7 +22,7 @@ import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
-import { deleteProjectPath, writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
+import { canonicalPathKey, deleteProjectPath, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
@@ -215,7 +215,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // scratch) is not in here, so overwriting/deleting it never prompts. Repopulated on each
   // start_session before the loop writes anything (see snapshotExistingPaths).
   const preExistingPaths = new Set<string>();
-  const isPreExisting = (p: string) => preExistingPaths.has(resolve(p));
+  const isPreExisting = (p: string) => preExistingPaths.has(canonicalPathKey(p));
   // The destructive-file confirm is shown as an in-panel card by the controller (deliverables
   // 07 §4). Late-bound: the writer/deleter capture these stable closures now, but the real
   // controller.confirmFileOp is wired in after the controller exists (below). Until then (and
@@ -850,32 +850,6 @@ function makeWorkspaceLister(workspaceFolder?: string) {
     try { walk(base); return { ok: true as const, entries }; }
     catch { return { ok: false as const, error_kind: "not_found" }; }
   };
-}
-
-// Start-of-run project-tree snapshot (deliverables 07 §4): record every existing FILE
-// (absolute, resolved for cross-platform Set matching) into `into`. Called before the loop
-// writes anything, so the set is exactly the user's pre-build files — the overwrite/delete
-// gate prompts only for these, never for build output created during the run. Same skip
-// list as the lister (.git / node_modules); unreadable dirs are skipped, not fatal.
-function snapshotExistingPaths(root: string | undefined, into: Set<string>) {
-  into.clear();
-  if (!root) return;
-  // lstatSync (not statSync): a symlink is recorded as a leaf, never followed, so a symlink
-  // loop can't hang the walk. An unreadable dir is skipped (best-effort snapshot — the gate
-  // is a confirmation, not a security boundary; containment in deleteProjectPath is).
-  const walk = (dir: string) => {
-    let names: string[];
-    try { names = readdirSync(dir); } catch { return; }
-    for (const name of names) {
-      if (name === ".git" || name === "node_modules") continue;
-      const full = join(dir, name);
-      let isDir = false;
-      try { isDir = lstatSync(full).isDirectory(); } catch { continue; }
-      if (isDir) walk(full);
-      else into.add(resolve(full));
-    }
-  };
-  walk(resolve(root));
 }
 
 // file_operation(mkdir) backing: creates a project-tree directory (recursive).
