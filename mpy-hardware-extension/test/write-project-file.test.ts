@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { writeProjectFile, normalizeGeneratedArtifactPath } from "../src/extension/workspace-writer.ts";
+import { deleteProjectPath, writeProjectFile, normalizeGeneratedArtifactPath } from "../src/extension/workspace-writer.ts";
 
 function capturingWriter() {
   const writes = new Map<string, string>();
   return { writes, writeFile: async (path: string, content: string) => { writes.set(path, content); } };
+}
+
+function capturingRemover() {
+  const removed: string[] = [];
+  return { removed, removePath: async (target: string) => { removed.push(target); } };
 }
 
 test("write_project_file writes the manifest and firmware/test tree files", async () => {
@@ -72,4 +77,71 @@ test("allowProjectTree extends the allowlist without changing the base set", () 
   // The base set still works under allowProjectTree (defaults stay on).
   assert.equal(normalizeGeneratedArtifactPath("main.py", { allowProjectTree: true }), "main.py");
   assert.equal(normalizeGeneratedArtifactPath("lib/aht20.py", { allowProjectTree: true }), "lib/aht20.py");
+});
+
+// ---- Overwrite / delete confirmation gate (deliverables 07 §4) ----
+
+test("write_project_file overwrite guard: a decline blocks the write, an allow proceeds", async () => {
+  const declined = capturingWriter();
+  const dResult = await writeProjectFile({
+    workspaceFolder: "C:/project", path: "firmware/main.py", content: "x",
+    writeFile: declined.writeFile,
+    guardOverwrite: async () => false,
+  });
+  assert.equal(dResult.ok, false);
+  assert.equal(dResult.error_kind, "overwrite_declined");
+  assert.equal(declined.writes.size, 0, "a declined overwrite writes nothing");
+
+  const allowed = capturingWriter();
+  const aResult = await writeProjectFile({
+    workspaceFolder: "C:/project", path: "firmware/main.py", content: "x",
+    writeFile: allowed.writeFile,
+    guardOverwrite: async () => true,
+  });
+  assert.equal(aResult.ok, true);
+  assert.equal(allowed.writes.get("C:/project/firmware/main.py"), "x", "an allowed overwrite writes");
+});
+
+test("write_project_file with no overwrite guard writes through (headless/e2e back-compat)", async () => {
+  const { writes, writeFile } = capturingWriter();
+  const result = await writeProjectFile({ workspaceFolder: "C:/project", path: "firmware/main.py", content: "x", writeFile });
+  assert.equal(result.ok, true);
+  assert.equal(writes.size, 1, "no guard = prior write-through behavior");
+});
+
+test("delete_project_path containment refuses the root itself and any path outside it", async () => {
+  const cases = ["", ".", "..", "../outside", "/etc/passwd"];
+  for (const path of cases) {
+    const { removed, removePath } = capturingRemover();
+    const result = await deleteProjectPath({ workspaceFolder: "/ws/project", path, removePath });
+    assert.equal(result.ok, false, path);
+    assert.equal(result.error_kind, "path_outside_workspace", path);
+    assert.equal(removed.length, 0, `no remove for ${path}`);
+  }
+});
+
+test("delete_project_path guard: a decline blocks the remove, an allow proceeds", async () => {
+  const declined = capturingRemover();
+  const dResult = await deleteProjectPath({
+    workspaceFolder: "/ws/project", path: "firmware/main.py",
+    removePath: declined.removePath, guardDelete: async () => false,
+  });
+  assert.equal(dResult.ok, false);
+  assert.equal(dResult.error_kind, "delete_declined");
+  assert.equal(declined.removed.length, 0, "a declined delete removes nothing");
+
+  const allowed = capturingRemover();
+  const aResult = await deleteProjectPath({
+    workspaceFolder: "/ws/project", path: "firmware/tools",
+    removePath: allowed.removePath, guardDelete: async () => true,
+  });
+  assert.equal(aResult.ok, true);
+  assert.equal(allowed.removed.length, 1, "an allowed delete removes the target");
+});
+
+test("delete_project_path with no guard removes (the build's own scratch cleanup, no prompt)", async () => {
+  const { removed, removePath } = capturingRemover();
+  const result = await deleteProjectPath({ workspaceFolder: "/ws/project", path: "firmware/tools", removePath });
+  assert.equal(result.ok, true);
+  assert.equal(removed.length, 1, "no guard = removes session-created scratch without prompting");
 });

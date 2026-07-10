@@ -1,3 +1,5 @@
+import { resolve, sep } from "node:path";
+
 export function planWorkspaceWrites(input: { workspaceFolder?: string; generatedRoot?: string; files: Record<string, string> }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   // Apply the same containment as writeGeneratedFiles: skip any name that fails
@@ -76,17 +78,53 @@ export async function writeProjectFile(input: {
   path: string;
   content: string;
   writeFile: (path: string, content: string) => Promise<void>;
+  // Overwrite gate (deliverables 07 §4): return true to proceed, false to decline. The host
+  // injects a guard that returns true for new / session-created targets (silent write) and
+  // only asks the user on a still-present pre-existing file. Absent = prior write-through
+  // behavior (headless/e2e callers), so this stays backward-compatible.
+  guardOverwrite?: (target: string) => Promise<boolean>;
 }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   const safe = normalizeGeneratedArtifactPath(input.path, { allowProjectTree: true });
   if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path };
   const target = joinPath(root, safe);
+  if (input.guardOverwrite && !(await input.guardOverwrite(target))) {
+    return { ok: false as const, error_kind: "overwrite_declined", path: target };
+  }
   try {
     await input.writeFile(target, input.content);
   } catch {
     return { ok: false as const, error_kind: "file_write_failed", path: target };
   }
   return { ok: true as const, path: target };
+}
+
+// file_operation(delete) core: containment (refuse the workspace root itself and any path
+// outside it — never wipe the project or escape it), an optional guardDelete gate
+// (deliverables 07 §4 — confirm before removing a pre-existing user file), then the injected
+// remove. force-removing an already-absent path is a success (the desired end-state holds).
+// The injected removePath keeps this unit-testable without touching the real fs.
+export async function deleteProjectPath(input: {
+  workspaceFolder?: string;
+  generatedRoot?: string;
+  path: string;
+  removePath: (target: string) => Promise<void>;
+  guardDelete?: (target: string) => Promise<boolean>;
+}) {
+  const root = resolve(input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated");
+  const target = resolve(root, input.path);
+  if (target === root || !target.startsWith(root + sep)) {
+    return { ok: false as const, error_kind: "path_outside_workspace" };
+  }
+  if (input.guardDelete && !(await input.guardDelete(target))) {
+    return { ok: false as const, error_kind: "delete_declined", path: target };
+  }
+  try {
+    await input.removePath(target);
+  } catch {
+    return { ok: false as const, error_kind: "delete_failed" };
+  }
+  return { ok: true as const };
 }
 
 function joinPath(root: string, name: string) {
