@@ -4,15 +4,20 @@ import test from "node:test";
 
 import { JSDOM } from "jsdom";
 
-// Loads the REAL shipped webview (index.html + its sibling webview.css/webview.js,
-// assembled the same way readWebviewHtml() does) into jsdom and drives it through
-// window 'message' events, exactly as the extension host posts them. The script
-// falls back to a mock vscode when acquireVsCodeApi is absent, so no production
-// extraction is needed. This is the only coverage of the streaming code card /
+// Loads the REAL shipped webview (index.html + its sibling webview.css + the
+// webview/components/*.js, assembled the same way readWebviewHtml() does) into jsdom and
+// drives it through window 'message' events, exactly as the extension host posts them.
+// The script falls back to a mock vscode when acquireVsCodeApi is absent, so no
+// production extraction is needed. This is the only coverage of the streaming code card /
 // renderWiring (dual-shape) / the deploy checkpoint / setCredits / the HTML-escape guard.
 const rawHtml = readFileSync(new URL("../src/webview/index.html", import.meta.url), "utf-8");
 const webviewCss = readFileSync(new URL("../src/webview/webview.css", import.meta.url), "utf-8");
-const webviewJs = readFileSync(new URL("../src/webview/webview.js", import.meta.url), "utf-8");
+// Same assembly as readWebviewHtml(): concatenate the components in manifest (load) order.
+// The result is byte-identical to the pre-split webview.js, so every assertion below is
+// unchanged — only where the bytes come from moved.
+const compDir = new URL("../src/webview/components/", import.meta.url);
+const compOrder: string[] = JSON.parse(readFileSync(new URL("manifest.json", compDir), "utf-8"));
+const webviewJs = compOrder.map((f) => readFileSync(new URL(f, compDir), "utf-8")).join("");
 const html = rawHtml.replace("/*__WEBVIEW_CSS__*/", () => webviewCss).replace("//__WEBVIEW_JS__", () => webviewJs);
 
 async function loadWebview(posted?: any[]): Promise<JSDOM> {
@@ -1828,4 +1833,153 @@ test("a duplicate session_done renders exactly one terminal line", async () => {
   const feed = (document.getElementById("activity") as HTMLElement).textContent ?? "";
   const count = (feed.match(/Session ended/g) || []).length;
   assert.equal(count, 1, "only one 'Session ended' line despite the duplicate session_done");
+});
+
+test("artifacts_index renders a phase-filterable list; a row click opens by relative path", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  assert.ok(document.querySelector('.tab[data-tab="artifacts"]'), "Artifacts tab present");
+
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "manifest", phase: "analyze", relative_path: "blockless-project/project-manifest.json", role: "project-manifest", size: 120, sha256: "abc12345def", created_at: "2026-07-09T00:00:00.000Z", mime: "application/json", is_binary: false },
+      { kind: "code", phase: "generate", relative_path: "blockless-project/main.py", role: "code", size: 2048, sha256: "deadbeefcafe", created_at: "2026-07-09T00:00:00.000Z", mime: "text/x-python", is_binary: false },
+      { kind: "log", phase: "", relative_path: ".mpyhw/sessions/s1/session.jsonl", role: "session-log", size: 50, sha256: "99990000", created_at: "2026-07-09T00:00:00.000Z", mime: "application/x-ndjson", is_binary: false },
+    ],
+  });
+
+  const rowPaths = () => [...document.querySelectorAll("#artifacts .art-row .art-path")].map((n) => n.textContent);
+  assert.equal(rowPaths().length, 3, "all artifacts listed");
+  assert.ok(rowPaths().includes("blockless-project/main.py"));
+  assert.ok(rowPaths().every((p) => !/^([A-Za-z]:|\/)/.test(p!)), "every display path is relative");
+  assert.match((document.querySelector("#artifacts .art-row .art-meta") as HTMLElement).textContent ?? "", /B|KB/);
+
+  // phase filter: All + analyze + generate; clicking "generate" narrows to that phase
+  const chips = [...document.querySelectorAll("#artifactFilter .art-chip")] as HTMLButtonElement[];
+  assert.ok(chips.length >= 3, "phase filter chips rendered");
+  chips.find((c) => c.textContent === "generate")!.click();
+  assert.deepEqual(rowPaths(), ["blockless-project/main.py"], "filtered to the generate phase");
+
+  // clicking a row asks the host to open it by RELATIVE path (host owns the trust boundary)
+  (document.querySelector("#artifacts .art-row") as HTMLButtonElement).click();
+  const open = posted.find((m) => m.type === "open_artifact");
+  assert.ok(open, "open_artifact posted");
+  assert.equal(open.relative_path, "blockless-project/main.py");
+});
+
+test("files_written surfaces a 'View artifacts' jump from the Activity feed", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "files_written", paths: ["/ws/blockless-project/main.py"] });
+
+  assert.ok(posted.some((m) => m.type === "request_artifacts"), "files_written re-pulls the artifact index");
+  const jump = ([...document.querySelectorAll("#activity button")] as HTMLButtonElement[])
+    .find((b) => /View artifacts/.test(b.textContent ?? ""));
+  assert.ok(jump, "'View artifacts' affordance present in the feed");
+  jump!.click();
+  assert.ok(
+    !(document.querySelector('.view[data-view="artifacts"]') as HTMLElement).classList.contains("hidden"),
+    "clicking it activates the Artifacts tab",
+  );
+});
+
+test("an image artifact renders an inline preview thumbnail from its webview uri", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "diagram", phase: "generate", relative_path: "blockless-project/docs/diagram.png", role: "diagram", size: 900, sha256: "aa11bb22", created_at: "2026-07-09T00:00:00.000Z", mime: "image/png", is_binary: true, webview_uri: "https://vscode-resource.test/diagram.png" },
+    ],
+  });
+  const img = document.querySelector("#artifacts .art-row img.art-thumb") as HTMLImageElement;
+  assert.ok(img, "thumbnail rendered for the image artifact");
+  assert.equal(img.getAttribute("src"), "https://vscode-resource.test/diagram.png");
+});
+
+test("a SELF_TEST_PASS serial line is highlighted as a verification result", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, { type: "serial_output", lines: ["boot ok", "SELF_TEST_PASS:AHT20:I2C_READ"] });
+  const verify = document.querySelector("#serial .serial-line.verify");
+  assert.ok(verify, "verification line got the verify class");
+  assert.match((verify as HTMLElement).textContent ?? "", /SELF_TEST_PASS/);
+});
+
+test("a single-phase artifact index shows no phase-filter chips", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "code", phase: "generate", relative_path: "blockless-project/main.py", role: "code", size: 10, sha256: "aa", created_at: "2026-07-09T00:00:00.000Z", mime: "text/x-python", is_binary: false },
+      { kind: "manifest", phase: "generate", relative_path: "blockless-project/manifest.json", role: "project-manifest", size: 20, sha256: "bb", created_at: "2026-07-09T00:00:00.000Z", mime: "application/json", is_binary: false },
+    ],
+  });
+  assert.equal(document.querySelectorAll("#artifacts .art-row").length, 2, "rows still render");
+  assert.equal(document.querySelectorAll("#artifactFilter .art-chip").length, 0, "no filter chips for a single phase");
+});
+
+test("wiring/diagram rows jump to their rendered tab instead of opening raw JSON", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "wiring", phase: "generate", relative_path: "blockless-project/docs/wiring.json", role: "wiring", size: 30, sha256: "aa", created_at: "2026-07-09T00:00:00.000Z", mime: "application/json", is_binary: false },
+    ],
+  });
+  const row = document.querySelector("#artifacts .art-row") as HTMLButtonElement;
+  assert.ok(row, "wiring row present");
+  row.click();
+  assert.ok(!posted.some((m) => m.type === "open_artifact"), "wiring row does not post open_artifact");
+  assert.ok(!(document.querySelector('.view[data-view="wiring"]') as HTMLElement).classList.contains("hidden"), "Wiring tab activated by the row");
+});
+
+test("artifact rows show role + created_at, and an 'on disk' tag for disk-origin files", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "artifacts_index",
+    artifacts: [
+      { kind: "manifest", phase: "", relative_path: "blockless-project/project-manifest.json", role: "project-manifest", size: 120, sha256: "abc12345de", created_at: "2026-07-09T12:00:00.000Z", mime: "application/json", is_binary: false, origin: "disk" },
+    ],
+  });
+  const meta = (document.querySelector("#artifacts .art-row .art-meta") as HTMLElement).textContent ?? "";
+  assert.match(meta, /project-manifest/, "role shown");
+  assert.match(meta, /2026-07-09/, "created_at date shown");
+  assert.ok(document.querySelector("#artifacts .art-row .art-tag"), "'on disk' tag present for disk origin");
+});
+
+test("phase_complete triggers an artifact refresh (request_artifacts)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  post(dom, { type: "phase_complete", payload: { phase: "upy-analyze-plugin", artifacts: [] } });
+  assert.ok(posted.some((m) => m.type === "request_artifacts"), "phase_complete asks the host to refresh artifacts");
+});
+
+test("support panel exposes log reveal/export buttons that post the right messages (#25)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "support_config", contacts: [], diagnosticsFields: ["os", "node"] });
+  const btns = [...document.querySelectorAll("#support button")] as HTMLButtonElement[];
+  const reveal = btns.find((b) => b.textContent === "Reveal logs folder");
+  const exp = btns.find((b) => b.textContent === "Export session log");
+  assert.ok(reveal && exp, "reveal + export buttons render in the support panel");
+
+  reveal!.click();
+  exp!.click();
+  assert.ok(posted.some((m) => m.type === "reveal_logs_folder"), "reveal posts reveal_logs_folder");
+  assert.ok(posted.some((m) => m.type === "export_session_log"), "export posts export_session_log");
+
+  post(dom, { type: "logs_status", text: "Session log exported." });
+  assert.match((document.getElementById("scDiag") as HTMLElement).textContent ?? "", /exported/i, "logs_status updates the status line");
 });

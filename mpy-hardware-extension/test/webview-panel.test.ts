@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -68,6 +68,108 @@ test("webview start_session runs API-backed pipeline and renders generated outpu
     assert.ok(existsSync(join(ws, "blockless-project", "main.py")));
     assert.ok(existsSync(join(ws, "blockless-project", ".git")), "project folder is initialized as a git repo for generate commits");
     assert.ok(!posted.some((m) => m.type === "session_event" && m.event?.kind === "saved_location"));
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("artifact browser: request_artifacts indexes relative paths; open_artifact honors the trust boundary", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    const opened: string[] = [];
+    const commandCalls: Array<{ cmd: string; path?: string }> = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:",
+        html: "",
+        options: undefined as any,
+        postMessage: (message: any) => posted.push(message),
+        onDidReceiveMessage: (next: any) => { handler = next; },
+        asWebviewUri: (uri: any) => ({ toString: () => `vscode-resource://${uri.fsPath}` }),
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: {
+        workspaceFolders: [{ uri: { fsPath: ws } }],
+        openTextDocument: async (uri: any) => { opened.push(uri.fsPath ?? String(uri)); return { uri }; },
+      },
+      window: {
+        createWebviewPanel: () => panel,
+        showWarningMessage: async (message: string) => message.startsWith("Overwrite ") ? "Overwrite" : "Cancel",
+        showTextDocument: async () => {},
+      },
+      commands: { executeCommand: async (cmd: string, arg: any) => { commandCalls.push({ cmd, path: arg?.fsPath }); } },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+    const fetchImpl = async (url: string) => {
+      if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+      if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+      if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+      if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") return jsonResponse(board());
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      throw new Error(`unexpected URL ${url}`);
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    // Image artifacts load under CSP via asWebviewUri, so the workspace must be an allowed root.
+    assert.ok(
+      Array.isArray(panel.webview.options?.localResourceRoots)
+        && panel.webview.options.localResourceRoots.some((r: any) => r.fsPath === ws),
+      "localResourceRoots includes the workspace",
+    );
+    await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+    assert.ok(existsSync(join(ws, "blockless-project", "main.py")), "artifact persisted to disk");
+
+    await handler?.({ type: "request_artifacts" });
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    const main = index.artifacts.find((a: any) => a.relative_path.endsWith("main.py"));
+    assert.ok(main, "main.py is indexed");
+    assert.equal(main.relative_path, "blockless-project/main.py");
+    assert.doesNotMatch(main.relative_path, /^[A-Za-z]:/, "no drive letter to the UI");
+    assert.doesNotMatch(main.relative_path, /^\//, "path is relative");
+    assert.equal(main.kind, "code");
+    assert.ok(main.size > 0 && main.sha256.length === 64, "metadata computed");
+    // The absolute path must never cross to the webview (§4.2): no absolute_path field,
+    // and no value in any emitted row is an absolute/drive-letter path.
+    for (const a of index.artifacts) {
+      assert.ok(!("absolute_path" in a), "absolute_path stripped from the webview payload");
+      for (const v of Object.values(a)) {
+        if (typeof v === "string") {
+          assert.doesNotMatch(v, /^([A-Za-z]:|\/)/, `no absolute value leaked: ${v}`);
+        }
+      }
+    }
+
+    // §4.2 also covers the files_written message (#28 F3/F7): it renders its paths in the
+    // activity feed, so an absolute/drive-letter path there is a leak the artifacts_index
+    // check above would miss. The generate flow above wrote main.py, so it was posted.
+    const written = posted.filter((m) => m.type === "files_written");
+    assert.ok(written.length > 0, "generate posted a files_written");
+    for (const m of written) {
+      for (const p of m.paths ?? []) {
+        assert.doesNotMatch(p, /^([A-Za-z]:|\/)/, `files_written path must be relative, got: ${p}`);
+      }
+      assert.ok((m.paths ?? []).some((p: string) => p.endsWith("main.py")), "the written file is still reported");
+    }
+
+    // in-index open resolves to the real absolute path in the editor. (Clear first: the
+    // start_session flow auto-opens main.py once, which we don't want to count here.)
+    opened.length = 0;
+    await handler?.({ type: "open_artifact", relative_path: "blockless-project/main.py" });
+    assert.deepEqual(opened, [join(ws, "blockless-project", "main.py")]);
+    // A text/code artifact opens in the editor, not via a preview command (md/image routing).
+    assert.ok(!commandCalls.some((c) => c.cmd === "vscode.open" || c.cmd === "markdown.showPreview"),
+      "text artifact routed to the editor, not a preview command");
+
+    // trust boundary: traversal / out-of-index paths never open
+    opened.length = 0;
+    await handler?.({ type: "open_artifact", relative_path: "../../etc/passwd" });
+    await handler?.({ type: "open_artifact", relative_path: "blockless-project/nope.py" });
+    assert.deepEqual(opened, [], "hostile / out-of-index paths refused");
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }
@@ -485,4 +587,343 @@ test("retry_session resumes the saved phase with the saved intent (not an empty 
   // message log), resuming the saved phase with the saved intent — never an empty turn.
   assert.equal(retried.phase, "analyze", "retry resumes the saved phase");
   assert.ok(retried.messages.at(-1).content, "retry re-sends the saved intent, not an empty user turn");
+});
+
+test("artifact browser lists on-disk project artifacts without a build (reopened panel)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    // A prior build's output already on disk; no session runs this time (reopened panel).
+    mkdirSync(join(ws, "blockless-project", "firmware", "drivers"), { recursive: true });
+    writeFileSync(join(ws, "blockless-project", "main.py"), "print('hi')");
+    writeFileSync(join(ws, "blockless-project", "project-manifest.json"), "{}");
+    writeFileSync(join(ws, "blockless-project", "firmware", "drivers", "aht20.py"), "# driver");
+
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "", options: undefined as any,
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}), loopMode: "template" });
+    await handler?.({ type: "request_artifacts" });
+
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    const rels = index.artifacts.map((a: any) => a.relative_path);
+    assert.ok(rels.includes("blockless-project/main.py"), "on-disk main.py indexed without a build");
+    assert.ok(rels.includes("blockless-project/project-manifest.json"), "on-disk manifest indexed");
+    assert.ok(rels.some((r: string) => r.endsWith("firmware/drivers/aht20.py")), "on-disk driver indexed (nested)");
+    const kinds = new Set(index.artifacts.map((a: any) => a.kind));
+    assert.ok(kinds.has("manifest") && kinds.has("code") && kinds.has("driver"), "kinds classified from disk paths");
+    assert.ok(index.artifacts.every((a: any) => a.origin === "disk"), "on-disk scan marks origin=disk");
+    for (const a of index.artifacts) {
+      assert.ok(!("absolute_path" in a), "no absolute_path leaked");
+      assert.doesNotMatch(a.relative_path, /^([A-Za-z]:|\/)/, "relative display path");
+    }
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("artifact browser never indexes a symlink that escapes the project root (#28 F2)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    mkdirSync(join(ws, "blockless-project"), { recursive: true });
+    writeFileSync(join(ws, "blockless-project", "main.py"), "print('hi')");
+    // A secret file OUTSIDE the project, and a symlink inside the project pointing at it.
+    const secret = join(ws, "secret.py");
+    writeFileSync(secret, "# out-of-tree secret");
+    try {
+      symlinkSync(secret, join(ws, "blockless-project", "leak.py"));
+    } catch {
+      return; // symlink creation needs privilege (Windows without dev mode) — skip, not fail
+    }
+
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "", options: undefined as any,
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}), loopMode: "template" });
+    await handler?.({ type: "request_artifacts" });
+
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    const rels = index.artifacts.map((a: any) => a.relative_path);
+    assert.ok(rels.includes("blockless-project/main.py"), "the real file is indexed");
+    assert.ok(!rels.some((r: string) => r.endsWith("leak.py")), "the escaping symlink is not indexed");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("artifact browser stays session-scoped in the no-workspace fallback (no shared bucket)", async () => {
+  const gs = mkdtempSync(join(tmpdir(), "mpyhw-gs-"));
+  try {
+    // Prior/other-session leftovers sitting in the SHARED globalStorage project dir.
+    mkdirSync(join(gs, "blockless-project", "firmware"), { recursive: true });
+    writeFileSync(join(gs, "blockless-project", "select_hw_validated.json"), "{}");
+    writeFileSync(join(gs, "blockless-project", "firmware", "main.py"), "print('old')");
+
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "", options: undefined as any,
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: undefined }, // no workspace open -> globalStorage fallback
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}), loopMode: "template", globalStoragePath: gs });
+    await handler?.({ type: "request_artifacts" });
+
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    // The shared bucket's cross-session leftovers must NOT appear (no build ran this session).
+    assert.equal(index.artifacts.length, 0, "no shared-bucket files surfaced without a session build");
+  } finally {
+    rmSync(gs, { recursive: true, force: true });
+  }
+});
+
+test("with no workspace open, sessions record to globalStorage and appear in Recent Sessions", async () => {
+  const gs = mkdtempSync(join(tmpdir(), "mpyhw-gs-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "",
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+      // no workspace.workspaceFolders → globalStorage fallback
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: pipelineFetch, loopMode: "template", globalStoragePath: gs });
+    await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+
+    // The session was recorded under <globalStorage>/.mpyhw/sessions even with no workspace open.
+    assert.ok(existsSync(join(gs, ".mpyhw", "sessions")), "sessions dir created under globalStorage");
+    await handler?.({ type: "request_recent_sessions" });
+    const recent = posted.filter((m) => m.type === "recent_sessions").at(-1);
+    assert.ok(recent, "recent_sessions posted");
+    assert.equal(recent.sessions.length, 1, "the just-run session appears in Recent Sessions");
+    assert.match(recent.sessions[0].id, /^session-/, "id is a real session dir");
+  } finally {
+    rmSync(gs, { recursive: true, force: true });
+  }
+});
+
+test("the current session's tree (log + checkpoints) is browsable, not just blockless-project", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "vscode-resource:", html: "",
+        postMessage: (m: any) => posted.push(m),
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+    };
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: pipelineFetch, loopMode: "template" });
+    await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+
+    // The recorder wrote ws/.mpyhw/sessions/<id>/session.jsonl during the run; add a checkpoint
+    // like the safe-point mechanism would, then confirm both surface (§8.3 sessions/<id>/ tree).
+    const sessionsDir = join(ws, ".mpyhw", "sessions");
+    const id = readdirSync(sessionsDir)[0];
+    mkdirSync(join(sessionsDir, id, "checkpoints"), { recursive: true });
+    writeFileSync(join(sessionsDir, id, "checkpoints", "analyze.json"), "{}");
+
+    await handler?.({ type: "request_artifacts" });
+    const index = posted.filter((m) => m.type === "artifacts_index").at(-1);
+    assert.ok(index, "artifacts_index posted");
+    const rels = index.artifacts.map((a: any) => a.relative_path);
+    assert.ok(rels.some((r: string) => r.endsWith("session.jsonl") && r.includes("/sessions/")), "session log is browsable from the session tree");
+    const cp = index.artifacts.find((a: any) => a.relative_path.endsWith("checkpoints/analyze.json"));
+    assert.ok(cp, "checkpoint file is browsable");
+    assert.equal(cp.kind, "checkpoint", "checkpoint files classify as their own kind, not generic log");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+// --- local session-log export / reveal (Support & Feedback, #25) ---
+
+// ids are time-sortable (session-<base36 ms>-<rand>), so a lexicographically-larger id is a
+// newer session. Content embeds the id so a test can tell which session was exported.
+function seedSession(ws: string, id = "session-aaa111-bbb", ts = "2026-07-08T19:00:00.000Z"): string {
+  const dir = join(ws, ".mpyhw", "sessions", id);
+  mkdirSync(dir, { recursive: true });
+  const content = `{"type":"session_started","ts":"${ts}","intent":"${id}"}\n{"type":"phase_start","phase":"analyze"}\n`;
+  writeFileSync(join(dir, "session.jsonl"), content, "utf-8");
+  return content;
+}
+
+function exportPanel(ws: string, opts: { windowExtra?: any } & Record<string, any> = {}) {
+  const { windowExtra = {}, ...topExtra } = opts;
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { file: (p: string) => ({ fsPath: p }) },
+    workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, ...windowExtra },
+    ...topExtra,
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: (async () => { throw new Error("no network in export test"); }) as any, loopMode: "template" });
+  return { posted, run: (m: any) => handler?.(m) };
+}
+
+test("export_session_log saves the NEWEST session.jsonl, not an older one (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    seedSession(ws, "session-aaa111-old", "2026-07-08T10:00:00.000Z");
+    const newest = seedSession(ws, "session-zzz999-new", "2026-07-08T20:00:00.000Z");
+    const target = join(ws, "exported.jsonl");
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => ({ fsPath: target }) } });
+    await run({ type: "export_session_log" });
+    assert.ok(existsSync(target), "export file written");
+    assert.equal(readFileSync(target, "utf-8"), newest, "the NEWEST session's log is exported (id sorts last), not the older one");
+    assert.ok(posted.some((m) => m.type === "logs_status" && /exported/i.test(m.text)), "posts an exported status");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log default filename is the session id without a double 'session-' prefix (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    seedSession(ws, "session-aaa111-bbb");
+    let defaultName: string | undefined;
+    const { run } = exportPanel(ws, { windowExtra: { showSaveDialog: async (o: any) => { defaultName = o?.defaultUri?.fsPath; return undefined; } } });
+    await run({ type: "export_session_log" });
+    assert.ok(defaultName, "save dialog was offered a default filename");
+    assert.ok(defaultName!.endsWith(join("session-aaa111-bbb.jsonl")), `default is <id>.jsonl, got ${defaultName}`);
+    assert.doesNotMatch(defaultName!, /session-session-/, "no doubled 'session-' prefix");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log with a cancelled save dialog writes nothing and posts no status (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    seedSession(ws);
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => undefined } });
+    await run({ type: "export_session_log" });
+    assert.ok(!posted.some((m) => m.type === "logs_status"), "a cancelled dialog is a no-op: no status, no error");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log surfaces a real listing error instead of a misleading 'no logs' (#25 fail-fast)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    // .mpyhw/sessions is a FILE, so readdir throws ENOTDIR (not ENOENT) — must surface.
+    mkdirSync(join(ws, ".mpyhw"), { recursive: true });
+    writeFileSync(join(ws, ".mpyhw", "sessions"), "not a dir");
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => ({ fsPath: join(ws, "x.jsonl") }) } });
+    await run({ type: "export_session_log" });
+    assert.ok(posted.some((m) => m.type === "logs_status" && /export failed/i.test(m.text)), "a real listing error is surfaced");
+    assert.ok(!posted.some((m) => m.type === "logs_status" && /no session logs/i.test(m.text)), "must not mask a real error as 'no logs'");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log with no logs posts a 'no logs yet' status and writes nothing (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    let dialogCalled = false;
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => { dialogCalled = true; return undefined; } } });
+    await run({ type: "export_session_log" });
+    assert.equal(dialogCalled, false, "no save dialog when there is nothing to export");
+    assert.ok(posted.some((m) => m.type === "logs_status" && /no session logs/i.test(m.text)));
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("reveal_logs_folder reveals the .mpyhw/sessions dir when logs exist (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    seedSession(ws);
+    const revealed: any[] = [];
+    const { run } = exportPanel(ws, { commands: { executeCommand: (cmd: string, arg: any) => { revealed.push({ cmd, arg }); } } });
+    await run({ type: "reveal_logs_folder" });
+    const hit = revealed.find((r) => r.cmd === "revealFileInOS");
+    assert.ok(hit, "revealFileInOS is invoked");
+    assert.ok(String(hit.arg.fsPath).endsWith(join(".mpyhw", "sessions")), "reveals the sessions dir");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log falls back to globalStorage logs when no workspace is open (#25)", async () => {
+  const gs = mkdtempSync(join(tmpdir(), "mpyhw-gs-"));
+  try {
+    const srcContent = seedSession(gs); // <gs>/.mpyhw/sessions/session-aaa111-bbb/session.jsonl
+    const target = join(gs, "exported.jsonl");
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+      window: { createWebviewPanel: () => panel, showSaveDialog: async () => ({ fsPath: target }) },
+      // no workspace.workspaceFolders -> sessionRoot falls back to globalStorage
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: (async () => { throw new Error("no network"); }) as any, loopMode: "template", globalStoragePath: gs });
+    await handler?.({ type: "export_session_log" });
+    assert.ok(existsSync(target), "export works with no workspace open, using the globalStorage logs root");
+    assert.equal(readFileSync(target, "utf-8"), srcContent, "exported content matches the globalStorage session log");
+    assert.ok(posted.some((m) => m.type === "logs_status" && /exported/i.test(m.text)));
+  } finally {
+    rmSync(gs, { recursive: true, force: true });
+  }
 });

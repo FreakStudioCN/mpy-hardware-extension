@@ -1,0 +1,16 @@
+[
+  "message-bus.js",
+  "shared.js",
+  "PreferencesSelector.js",
+  "BoardSelector.js",
+  "ActivityTimeline.js",
+  "ApprovalCardHost.js",
+  "CodeSerialPanel.js",
+  "ArtifactBrowser.js",
+  "OptionalFlowPanel.js",
+  "EnvDoctorPanel.js",
+  "GenDriverPanel.js",
+  "SupportContactPanel.js",
+  "HomeWorkbench.js",
+  "bootstrap.js"
+]

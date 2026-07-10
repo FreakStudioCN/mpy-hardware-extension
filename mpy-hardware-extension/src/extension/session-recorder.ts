@@ -28,7 +28,7 @@ export class JsonlSessionRecorder implements SessionRecorder {
   constructor(input: { workspaceFolder: string; traceId: string }) {
     this.traceId = input.traceId;
     const safeTraceId = input.traceId.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
-    this.filePath = join(input.workspaceFolder, ".mpyhw", "sessions", safeTraceId, "session.jsonl");
+    this.filePath = join(sessionsDir(input.workspaceFolder), safeTraceId, "session.jsonl");
   }
 
   async record(event: Record<string, any>) {
@@ -118,8 +118,12 @@ async function readSessionSummary(sessionsRoot: string, id: string): Promise<Rec
   try {
     const text = await readFile(path, "utf-8");
     events = text.split("\n").map(parseLine).filter((e): e is Record<string, any> => e !== null);
-  } catch {
-    return null; // no jsonl in this dir
+  } catch (err: any) {
+    // A dir without session.jsonl is a crashed/partial session — skip it (backfilled by the
+    // caller). Any other read error (EACCES, ...) must surface, or the export would silently
+    // fall back to an OLDER session while claiming the newest.
+    if (err?.code === "ENOENT") return null;
+    throw err;
   }
   if (events.length === 0) return null;
   const started = events.find((e) => e.type === "session_started" || e.type === "user_message");
@@ -163,14 +167,22 @@ export function selectRecentSessionIds(ids: string[]): string[] {
 // agree except sub-millisecond — which cannot cross the `limit` batch boundary. Reading
 // every session's ts to guarantee a globally exact top-`limit` would defeat the bound;
 // the read summaries are still re-sorted by real ts for display.
+// The directory JsonlSessionRecorder writes session.jsonl trees under. Single source of
+// truth for the path so the recorder, the recent-sessions list, and the log-export /
+// reveal actions all agree.
+export function sessionsDir(workspaceFolder: string): string {
+  return join(workspaceFolder, ".mpyhw", "sessions");
+}
+
 export async function listRecentSessions(workspaceFolder: string, limit: number): Promise<RecentSession[]> {
   if (limit <= 0) return [];
-  const sessionsRoot = join(workspaceFolder, ".mpyhw", "sessions");
+  const sessionsRoot = sessionsDir(workspaceFolder);
   let ids: string[];
   try {
     ids = await readdir(sessionsRoot);
-  } catch {
-    return []; // sessions dir not created yet
+  } catch (err: any) {
+    if (err?.code === "ENOENT") return []; // sessions dir not created yet — legitimately empty
+    throw err; // a real error (EACCES, etc.) must surface, not masquerade as "no sessions"
   }
   const ranked = selectRecentSessionIds(ids);
   const sessions: RecentSession[] = [];
