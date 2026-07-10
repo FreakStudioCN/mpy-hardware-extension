@@ -6,6 +6,8 @@
 // are injected, so it unit-tests without a real filesystem or VS Code, and the relative-path
 // guarantee is asserted directly.
 
+import { sep } from "node:path";
+
 export type ArtifactKind =
   | "manifest" | "code" | "wiring" | "diagram" | "driver" | "log" | "checkpoint" | "diagnostics";
 
@@ -54,6 +56,18 @@ const BINARY_EXT = new Set(["png", "bin", "uf2"]);
 
 function toPosix(p: string): string {
   return p.replace(/\\/g, "/");
+}
+
+// The stored absolute_path is what actually opens/reveals the file, so it must use the
+// host's native separator. Sources built by joining a POSIX-style relative segment onto a
+// Windows base come out mixed (C:\ws\project/main.py); normalize to `\` on Windows so the
+// open path is canonical (and matches what path.join would produce). Only touch genuine
+// Windows paths (a drive letter or an existing backslash) — a pure-forward-slash value is
+// a POSIX path (or a synthetic test fixture) and must be left alone. No-op on POSIX.
+function toNativePath(p: string): string {
+  if (sep !== "\\") return p;
+  if (!p.includes("\\") && !/^[A-Za-z]:/.test(p)) return p;
+  return p.replace(/\//g, "\\");
 }
 
 function extensionOf(relativePath: string): string {
@@ -124,7 +138,7 @@ export function buildArtifactIndex(
       kind: source.kind,
       phase: source.phase ?? "",
       relative_path,
-      absolute_path: source.absolute_path,
+      absolute_path: toNativePath(source.absolute_path),
       role: roleFor(source, relative_path),
       size: stat.size,
       sha256: deps.hash(source.absolute_path) ?? "",
