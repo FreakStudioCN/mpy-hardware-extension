@@ -240,6 +240,23 @@ export class DeviceShim {
   }
 }
 
+// Take down a detached child AND everything it spawned. The flash plugin runs esptool as a
+// deep descendant (serve.py -> plugin script -> esptool in its own venv); a plain child.kill()
+// signals only serve.py, orphaning an in-flight flash that then runs to completion. Because
+// the shim is spawned detached (its own group), a NEGATIVE pid signals the whole group;
+// Windows has no such groups, so taskkill /T walks the tree. Falls back to child.kill().
+// Exported so the group-kill behavior is testable against a real process tree.
+export function killProcessTree(child: { pid?: number; kill: (signal?: any) => void } | null | undefined) {
+  if (!child?.pid) return;
+  if (process.platform === "win32") {
+    try { spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"]); }
+    catch { try { child.kill(); } catch { /* already gone */ } }
+    return;
+  }
+  try { process.kill(-child.pid, "SIGKILL"); }
+  catch { try { child.kill("SIGKILL"); } catch { /* already gone */ } }
+}
+
 // Spawn the Python shim and wire a DeviceShim to it. Everything is lazy: Python
 // discovery, venv creation, and the process spawn only happen the first time the
 // loop actually touches a device.
@@ -266,7 +283,11 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
     const scriptPath = join(shimDir, "serve.py");
     // Put the venv's bin on PATH so serve.py's bare `mpremote` calls resolve.
     const env = { ...process.env, PATH: venvBin + delimiter + (process.env.PATH ?? "") };
-    child = spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env });
+    // detached: the shim leads its OWN process group, so Stop can signal the whole group
+    // (serve.py + every descendant it spawns — the flash plugin's esptool, mpremote) instead
+    // of just serve.py, which would orphan an in-flight flash. stdio stays piped and we keep
+    // the reference (no unref), so communication + lifecycle are unchanged.
+    child = spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env, detached: true });
     proc = new ShimProcess({ write: (line: string) => child.stdin.write(line) });
 
     child.stdout.on("data", (data: Buffer) => proc!.feed(data.toString()));
@@ -297,26 +318,14 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
     if (!proc) throw new Error("shim_not_started");
     return proc.request(method, params);
   }, ensure);
-  (shim as any).dispose = () => {
-    try {
-      child?.kill();
-    } catch {
-      // already gone
-    }
-  };
-  // Hard-interrupt an in-flight operation (user pressed Stop): kill the Python shim
-  // so its blocked subprocess (mpremote / flake8 / pytest) dies now instead of
-  // running to completion. The child's exit handler rejects every pending RPC and
-  // clears proc/child/starting, so the next device touch lazily respawns a clean
-  // shim. Same mechanism as dispose, but kept distinct: dispose is teardown, kill is
-  // a mid-session interrupt the shim is expected to recover from.
-  (shim as any).kill = () => {
-    try {
-      child?.kill();
-    } catch {
-      // already gone
-    }
-  };
+  const killTree = () => killProcessTree(child);
+  (shim as any).dispose = killTree;
+  // Hard-interrupt an in-flight operation (user pressed Stop): kill the shim's whole process
+  // group so a blocked flash/upload (esptool / mpremote) dies now instead of running to
+  // completion. The child's exit handler rejects every pending RPC and clears proc/child/
+  // starting, so the next device touch lazily respawns a clean shim. Same mechanism as
+  // dispose, but kept distinct: dispose is teardown, kill is a recoverable mid-session stop.
+  (shim as any).kill = killTree;
   return shim;
 }
 

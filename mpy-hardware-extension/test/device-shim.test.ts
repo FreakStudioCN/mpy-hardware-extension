@@ -1,7 +1,29 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import test from "node:test";
 
-import { DeviceShim, singleFlight } from "../src/extension/device-shim.ts";
+import { DeviceShim, killProcessTree, singleFlight } from "../src/extension/device-shim.ts";
+
+// Stop must kill the WHOLE process group, not just the shim: the flash plugin runs esptool as
+// a deep descendant, so a plain child.kill() (serve.py only) orphans an in-flight flash that
+// then runs to completion (confirmed on real ESP32-C6 hardware). This checks the group-kill
+// primitive the fix relies on, against a real detached parent -> grandchild `sleep` tree.
+test("killProcessTree takes down the whole group (grandchild), not just the direct child", async (t) => {
+  if (process.platform === "win32") { t.skip("POSIX process-group semantics; Windows uses taskkill /T"); return; }
+  const parent = spawn("bash", ["-c", "sleep 30 & echo $!; wait"], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
+  parent.on("error", () => {}); // ignore teardown races
+  const grandchildPid = await new Promise<number>((resolve, reject) => {
+    parent.stdout!.once("data", (d) => resolve(parseInt(String(d).trim(), 10)));
+    parent.once("error", reject);
+  });
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  assert.ok(grandchildPid > 0 && alive(grandchildPid), "grandchild sleep is running before the kill");
+
+  killProcessTree(parent); // a plain parent.kill() would leave the grandchild orphaned
+
+  const dead = await (async () => { for (let i = 0; i < 40; i++) { if (!alive(grandchildPid)) return true; await new Promise((r) => setTimeout(r, 50)); } return false; })();
+  assert.equal(dead, true, "killProcessTree killed the grandchild too — the whole group went down");
+});
 
 test("singleFlight retries after a failed start (a rejected start is not memoized forever)", async () => {
   // Regression: createDeviceShim's ensure() used `if (!starting) starting = start()`. A pre-spawn
