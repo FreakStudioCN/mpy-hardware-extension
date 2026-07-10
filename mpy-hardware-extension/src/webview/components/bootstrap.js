@@ -12,3 +12,5 @@
       vscode.postMessage({ type: "request_support_config" });
       // Load the home partner logos (config-driven; host inlines them as data URIs).
       vscode.postMessage({ type: "request_partners" });
+      // Pull the artifact index so the Artifacts tab is populated for a resumed session.
+      vscode.postMessage({ type: "request_artifacts" });

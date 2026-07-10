@@ -101,6 +101,39 @@ test("a reset does not leak the recommend board_selection_mode into the next bui
   assert.equal(inputs[1].boardSelectionMode, undefined, "a reset build must not inherit the stale recommend flag");
 });
 
+test("a reset clears the artifact accumulators so a new session does not surface the prior session's artifacts", async () => {
+  // #28 F6: reset() sets boardId=null, so the next start()'s board-change clear is skipped
+  // (same trap as boardSelectionMode above). Without an explicit clear, producedPaths and
+  // phaseArtifacts persist across Restart, so request_artifacts in the new session would show
+  // (and let you open) the previous session's files with stale phase attribution.
+  // Only session A produces artifacts; session B's loop is silent, so any artifact present
+  // after B starts can only be A's leftovers.
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ intent, onEvent }: any) => {
+      if (typeof intent === "string" && intent.includes("session A")) {
+        onEvent({ type: "phase_complete", payload: { phase: "analyze", artifacts: [{ type: "manifest", path: "project-manifest.json" }] } });
+        onEvent({ type: "file_written", path: "/abs/session-a/main.py" });
+      }
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "session A", boardId: "auto" });
+  assert.equal(controller.phaseArtifactRecords().length, 1, "phase-declared artifact captured during session A");
+  assert.ok(controller.artifactSources().some((s) => s.absolute_path === "/abs/session-a/main.py"), "loop-written file tracked during session A");
+
+  controller.reset();
+  assert.equal(controller.phaseArtifactRecords().length, 0, "reset clears phase-declared artifacts");
+  assert.equal(controller.artifactSources().length, 0, "reset clears produced/persisted paths");
+
+  // A post-reset start on the SAME board (boardId was nulled -> board-change clear is skipped)
+  // must still begin with an empty accumulator, not session A's leftovers.
+  await controller.start({ intent: "session B, produces nothing", boardId: "auto" });
+  assert.equal(controller.phaseArtifactRecords().length, 0, "session B does not inherit session A's phase artifacts");
+  assert.ok(!controller.artifactSources().some((s) => s.absolute_path === "/abs/session-a/main.py"), "session B does not inherit session A's produced files");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];
@@ -868,4 +901,56 @@ test("an absorb note queued on the FINAL phase is surfaced as deferred, not fals
   const applied = posted.find((m) => m.type === "user_supplement_applied");
   assert.equal(applied.decision, "deferred", "an absorb note with no next phase is deferred, not applied");
   assert.equal(safePoint, null, "nothing is folded forward when there is no next phase");
+});
+
+test("artifactSources stamps each file with the phase it was written in (not the final phase)", async () => {
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "upy-analyze-plugin" });
+      onEvent({ type: "file_written", path: "/ws/blockless-project/project-manifest.json" });
+      onEvent({ type: "phase_start", phase: "upy-generate-plugin" });
+      onEvent({ type: "file_written", path: "/ws/blockless-project/firmware/main.py" });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const sources = controller.artifactSources();
+  const byPath = (p: string) => sources.find((s) => s.absolute_path === p);
+  assert.equal(byPath("/ws/blockless-project/project-manifest.json")?.phase, "upy-analyze-plugin");
+  assert.equal(byPath("/ws/blockless-project/firmware/main.py")?.phase, "upy-generate-plugin");
+  assert.ok(sources.every((s) => s.origin === "session"), "live artifacts are session-origin");
+});
+
+test("phase_complete artifacts are captured with their Skill role and producing phase", async () => {
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "upy-analyze-plugin" });
+      onEvent({ type: "phase_complete", payload: { phase: "upy-analyze-plugin", artifacts: [
+        { type: "project_manifest", path: "project-manifest.json" },
+        { type: "session_state", path: ".mpyhw/sessions/s/session_state.json" },
+        { type: "table", headers: ["a"] }, // no path -> skipped
+      ] } });
+      onEvent({ type: "phase_start", phase: "upy-select-hw-plugin" });
+      onEvent({ type: "phase_complete", payload: { phase: "upy-select-hw-plugin", artifacts: [
+        { type: "project_manifest", path: "project-manifest.json" }, // dup path -> first phase wins
+        { type: "generate_plan", path: "select_hw_validated.json" },
+      ] } });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const recs = controller.phaseArtifactRecords();
+  const byPath = (p: string) => recs.find((r) => r.path === p);
+  assert.equal(byPath("project-manifest.json")?.role, "project_manifest");
+  assert.equal(byPath("project-manifest.json")?.phase, "upy-analyze-plugin", "keeps first producing phase");
+  assert.equal(byPath("select_hw_validated.json")?.role, "generate_plan");
+  assert.equal(byPath("select_hw_validated.json")?.phase, "upy-select-hw-plugin");
+  assert.ok(!recs.some((r) => (r as any).role === "table"), "artifacts without a path are skipped");
+  assert.equal(recs.length, 3, "manifest (deduped) + session_state + generate_plan");
 });

@@ -126,6 +126,7 @@
         $("wiringEmpty").classList.remove("hidden");
         $("diagram").innerHTML = "";
         $("diagramEmpty").classList.remove("hidden");
+        ARTIFACTS = []; artifactPhase = ""; artifactsLinkShown = false; drawArtifacts();
         finalizeThinking(); currentCode = null; currentSummary = null;
         currentDeployCard = null; pendingCard = null; pendingLabel = "";
         localeLocked = false; // next project re-detects its language (LOCALE left as-is until then)

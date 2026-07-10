@@ -416,4 +416,17 @@
       .gd-source-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .gd-source-rm { font: inherit; cursor: pointer; color: var(--fg-dim); background: transparent; border: 0; padding: 0 4px; }
       .gd-source-rm:hover { color: #e5534b; }
+      /* Artifact Browser */
+      .art-filter { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 4px; }
+      .art-chip { font: inherit; font-size: 11px; cursor: pointer; color: var(--fg-muted); background: var(--vsc-input); border: 1px solid var(--vsc-input-border); border-radius: 10px; padding: 2px 9px; }
+      .art-chip:hover { color: var(--fg); }
+      .art-chip.active { color: var(--fg-bright); border-color: var(--accent); }
+      .art-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font: inherit; cursor: pointer; color: var(--fg); background: var(--vsc-card); border: 1px solid var(--vsc-card-border); border-radius: 6px; padding: 6px 9px; margin: 4px 10px; }
+      .art-row:hover { background: var(--vsc-hover); }
+      .art-kind { flex: none; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--cyan); border: 1px solid var(--vsc-border); border-radius: 4px; padding: 1px 5px; }
+      .art-thumb { flex: none; width: 28px; height: 28px; object-fit: contain; border-radius: 4px; background: var(--vsc-input); }
+      .serial-line.verify .txt { color: var(--green); font-weight: 600; }
+      .art-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; }
+      .art-meta { flex: none; color: var(--fg-dim); font-size: 11px; }
+      .art-tag { flex: none; font-size: 10px; color: var(--fg-dim); border: 1px solid var(--vsc-border); border-radius: 4px; padding: 0 4px; }
     

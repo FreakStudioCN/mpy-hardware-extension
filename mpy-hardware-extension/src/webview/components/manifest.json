@@ -6,6 +6,7 @@
   "ActivityTimeline.js",
   "ApprovalCardHost.js",
   "CodeSerialPanel.js",
+  "ArtifactBrowser.js",
   "OptionalFlowPanel.js",
   "EnvDoctorPanel.js",
   "GenDriverPanel.js",

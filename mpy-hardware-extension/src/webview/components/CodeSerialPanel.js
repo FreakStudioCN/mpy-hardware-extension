@@ -65,6 +65,8 @@
 
       // ----- Serial -----
       function serialClass(line) {
+        // gen-driver / deploy verification marker (spec 8.3: surface verification results).
+        if (/SELF_TEST_PASS\b/.test(line)) return "verify";
         if (/^MPY:|MicroPython|\[boot\]/.test(line)) return "boot";
         if (/\bi2c\b|0x[0-9a-f]{2}|SSD1306|AHT|found/i.test(line)) return "i2c";
         if (/alert|warn|>|threshold|ON\b/i.test(line)) return "alert";

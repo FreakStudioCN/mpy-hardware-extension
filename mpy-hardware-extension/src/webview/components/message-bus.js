@@ -63,19 +63,20 @@
         }
         if (msg.type === "status_update" && running) { addStatusUpdate(msg.payload); }
         if (msg.type === "phase_start") { setPending(tr("working")); }
-        if (msg.type === "phase_complete") { addPhaseComplete(msg.payload); }
+        if (msg.type === "phase_complete") { addPhaseComplete(msg.payload); vscode.postMessage({ type: "request_artifacts" }); }
         if (msg.type === "deploy_ports_updated") { if (currentDeployCard) currentDeployCard.setPorts(msg.ports); }
         if (msg.type === "code_delta") { streamCodeDelta(msg.text, msg.path); }
         if (msg.type === "code_updated") { finalizeCode(msg.code, msg.path); }
         if (msg.type === "manifest_updated") { renderWiring(msg.manifest); }
         if (msg.type === "diagram_updated") { renderDiagram(msg.diagram); }
+        if (msg.type === "artifacts_index") { renderArtifacts(msg.artifacts); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
         if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
         // A supplement line is an annotation, not a step: addActivity() clears the working
         // spinner, so re-arm it (with the same label) while the build is still running.
         if (msg.type === "user_supplement_received") { addActivity({ type: "trace", text: tr("supplement_received", { s: msg.summary }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
         if (msg.type === "user_supplement_applied") { addActivity({ type: "trace", text: tr("supplement_applied", { d: msg.decision, r: msg.reason }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
-        if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); }
+        if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); vscode.postMessage({ type: "request_artifacts" }); addArtifactsLink(); }
         if (msg.type === "files_write_failed") { addActivity({ type: "trace", text: tr("files_write_failed", { e: msg.error }) }); }
         if (msg.type === "session_error") {
           const errKey = "err_" + msg.error;

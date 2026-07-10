@@ -23,6 +23,8 @@ import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder 
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
+import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
+import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
@@ -127,6 +129,46 @@ const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
   image: { Images: ["png", "jpg", "jpeg", "webp", "bmp"] },
 };
 
+// Artifact-file discovery on disk (spec §8.3: browse the project AND session trees). Lets a
+// reopened/resumed panel show prior artifacts before any new build runs — the live session's
+// producedPaths only cover what THIS session wrote. Bounded so a large tree can't stall.
+const ARTIFACT_EXTS = new Set(["py", "json", "jsonl", "md", "svg", "png", "html", "log", "uf2", "bin"]);
+const ARTIFACT_SCAN_MAX_FILES = 500;
+const ARTIFACT_SCAN_MAX_DEPTH = 6;
+// Breadth cap (#28 F5): a tree with no matching files never consumes the file budget, so an
+// artifact-free but wide/deep tree could be walked in full. Cap total entries visited too.
+const ARTIFACT_SCAN_MAX_ENTRIES = 5000;
+function scanArtifactTree(root: string, origin: "session" | "disk"): ArtifactSource[] {
+  const out: ArtifactSource[] = [];
+  const stack: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  let visited = 0;
+  while (stack.length > 0 && out.length < ARTIFACT_SCAN_MAX_FILES && visited < ARTIFACT_SCAN_MAX_ENTRIES) {
+    const { dir, depth } = stack.pop()!;
+    let entries: Array<{ name: string; isDirectory: () => boolean; isSymbolicLink: () => boolean }>;
+    try { entries = readdirSync(dir, { withFileTypes: true }); }
+    catch { continue; } // unreadable dir — skip, not fatal
+    for (const entry of entries) {
+      // Enforce both caps INSIDE the loop (#28 F5): the while-condition alone lets a single
+      // directory append far more than the budget before it is re-checked.
+      if (out.length >= ARTIFACT_SCAN_MAX_FILES || visited >= ARTIFACT_SCAN_MAX_ENTRIES) break;
+      visited++;
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue; // hidden/vendor
+      // Never index or descend a symlink (#28 F2): its target can live outside the root, and
+      // stat/hash/open would follow it. isDirectory() is false for a file symlink, so without
+      // this it would be indexed and openable as an out-of-tree file.
+      if (entry.isSymbolicLink()) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (depth < ARTIFACT_SCAN_MAX_DEPTH) stack.push({ dir: full, depth: depth + 1 });
+        continue;
+      }
+      const ext = entry.name.slice(entry.name.lastIndexOf(".") + 1).toLowerCase();
+      if (ARTIFACT_EXTS.has(ext)) out.push({ absolute_path: full, kind: classifyArtifactKind(full), phase: "", origin });
+    }
+  }
+  return out;
+}
+
 // Open the UI as an editor-area tab. Kept for the mpyhw.openPanel command and
 // existing tests; the docked sidebar uses createViewProvider below.
 export function createPanel(vscode: any, extensionUri: any, deps: PanelDeps = {}) {
@@ -168,18 +210,41 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const fallbackRoot = deps.globalStoragePath ? join(deps.globalStoragePath, PROJECT_SUBDIR) : undefined;
   const projectFolder = workspaceFolder ? join(workspaceFolder, PROJECT_SUBDIR) : fallbackRoot;
   const usingFallback = !workspaceFolder && !!fallbackRoot;
+  // Let the webview load artifact images (svg/png) it references via asWebviewUri (task-03).
+  // Roots cover the workspace (project + .mpyhw logs), the globalStorage fallback, and the
+  // extension assets. Guarded: a headless/test host may not have vscode.Uri or settable options.
+  if (vscode.Uri?.file) {
+    const roots = [workspaceFolder, deps.globalStoragePath].filter(Boolean).map((p: string) => vscode.Uri.file(p));
+    if (extensionUri) roots.push(extensionUri);
+    try { webview.options = { ...(webview.options ?? {}), enableScripts: true, localResourceRoots: roots }; }
+    catch { /* host without settable options — skip */ }
+  }
   let availableBoards: any[] = [];
   let toolchainChecked = false;
-  const recorderFactory = workspaceFolder || vscode.authentication
+  // Session logs live under <sessionRoot>/.mpyhw/sessions. Prefer the open workspace; fall back
+  // to globalStorage so recording + Recent Sessions work with no folder open. Safe unlike the
+  // shared blockless-project dir: session dirs are id-scoped (session-<id>/), so no collision.
+  const sessionRoot = workspaceFolder ?? deps.globalStoragePath;
+  const recorderFactory = sessionRoot || vscode.authentication
     ? (traceId: string) => {
       const recorders = [];
-      if (workspaceFolder) recorders.push(new JsonlSessionRecorder({ workspaceFolder, traceId }));
+      if (sessionRoot) recorders.push(new JsonlSessionRecorder({ workspaceFolder: sessionRoot, traceId }));
       if (vscode.authentication) recorders.push(new CloudTelemetryRecorder({ traceId, apiBaseUrl, fetchImpl, getAuthToken: () => auth.getToken(false), log: deps.log }));
       return recorders.length === 1 ? recorders[0] : new CompositeSessionRecorder(recorders);
     }
     : undefined;
   const controller = new SessionController({
-    postMessage: (message) => webview.postMessage(message),
+    // Relativize the files_written paths before they cross to the webview (#28 F3): the
+    // controller carries absolute persisted paths, but §4.2 forbids a drive-letter path
+    // reaching the UI (this message renders them in the activity feed). The Artifacts index
+    // has its own relative paths; nothing downstream needs these absolute.
+    postMessage: (message: any) => {
+      if (message?.type === "files_written" && Array.isArray(message.paths)) {
+        const root = workspaceFolder ?? deps.globalStoragePath ?? projectFolder ?? "";
+        message = { ...message, paths: message.paths.map((p: string) => toRelativeDisplayPath(root, p)) };
+      }
+      webview.postMessage(message);
+    },
     loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder), projectRoot: projectFolder }),
     recorderFactory,
     writeFiles: async (files) => {
@@ -215,6 +280,88 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return result;
     },
   });
+
+  // Artifact Browser (spec §8.3): the current session's artifacts, indexed with metadata
+  // and RELATIVE display paths (the P0 rule — never a hardcoded drive path to the UI).
+  // Relativized against the workspace/storage root, the common ancestor of both the
+  // generated project (blockless-project/) and the session log (.mpyhw/sessions/).
+  let artifactIndex: Artifact[] = [];
+  const artifactRoot = workspaceFolder ?? deps.globalStoragePath ?? projectFolder ?? "";
+  // sha256 the file contents, but bounded (#28 F4): the index rebuilds on every
+  // phase_complete, and reading a whole multi-MB .bin/.uf2 synchronously on the extension-host
+  // thread each time would jank the UI. Skip the hash above a size cap (the row still shows
+  // size/kind), and memoize by path:size:mtime so an unchanged file is hashed at most once.
+  const ARTIFACT_MAX_HASH_BYTES = 4 * 1024 * 1024;
+  const hashCache = new Map<string, string>();
+  const artifactIo = {
+    stat: (p: string) => {
+      try { const s = statSync(p); return { size: s.size, mtimeMs: s.mtimeMs }; } catch { return null; }
+    },
+    hash: (p: string) => {
+      try {
+        const s = statSync(p);
+        if (s.size > ARTIFACT_MAX_HASH_BYTES) return ""; // too big to hash on the host thread
+        const key = `${p}:${s.size}:${s.mtimeMs}`;
+        const cached = hashCache.get(key);
+        if (cached !== undefined) return cached;
+        const digest = createHash("sha256").update(readFileSync(p)).digest("hex");
+        hashCache.set(key, digest);
+        return digest;
+      } catch { return null; }
+    },
+    isoFromMs: (ms: number) => new Date(ms).toISOString(),
+  };
+  // Resolve a phase-declared artifact path (relative, from the Skill) to an absolute file.
+  // The path's base is not fixed (project vs session vs workspace), so try each candidate
+  // and pick the first that exists on disk; unresolved paths are dropped, not indexed.
+  // Containment-checked (#28 F1): absolute or `..`-escaping declarations are refused so a
+  // buggy/hostile phase payload can't inject an out-of-tree file into the openable index.
+  function resolvePhaseArtifactPath(relativePath: string): string | null {
+    const bases = [projectFolder, workspaceFolder, deps.globalStoragePath].filter(Boolean) as string[];
+    return resolveContainedArtifactPath(bases, relativePath, existsSync);
+  }
+
+  function refreshArtifacts() {
+    // Phase-declared artifacts FIRST so their real role (Skill `type`) and producing phase
+    // win the dedup over the same file found via file_written or the disk walk. These cover
+    // pre-generate outputs (analyze manifest, select-hw plan) that host scripts write directly.
+    const sources: ArtifactSource[] = [];
+    for (const rec of controller.phaseArtifactRecords()) {
+      const abs = resolvePhaseArtifactPath(rec.path);
+      if (abs) sources.push({ absolute_path: abs, kind: classifyArtifactKind(abs), phase: rec.phase, role: rec.role, origin: "session" });
+    }
+    // Live-session sources next (they carry the producing phase) so they win the
+    // absolute_path dedup in buildArtifactIndex over the same files found on disk.
+    sources.push(...controller.artifactSources());
+    // Only walk the on-disk project when a real workspace is open: each workspace is a
+    // distinct project, so browsing its blockless-project/ on reopen is meaningful. The
+    // no-workspace globalStorage fallback is ONE shared scratch dir reused across sessions,
+    // so walking it would surface stale cross-session files — there we stay session-scoped.
+    if (workspaceFolder && projectFolder) sources.push(...scanArtifactTree(projectFolder, "disk"));
+    // Walk THIS session's tree (§8.3 sessions/<id>/: logs, checkpoints, artifacts). Safe in
+    // either mode — the dir is id-scoped (no shared-bucket cross-session mixing), so we use
+    // sessionRoot (workspace or globalStorage) rather than gating on a workspace.
+    const sessionId = controller.getDiagnostics().session_id;
+    if (sessionRoot && sessionId) {
+      sources.push(...scanArtifactTree(join(sessionRoot, ".mpyhw", "sessions", sessionId), "session"));
+    }
+    artifactIndex = buildArtifactIndex(sources, artifactRoot, artifactIo);
+    // The host keeps the full index (with absolute_path) to resolve opens; the webview
+    // gets a projection WITHOUT absolute_path — it only needs the relative path (which it
+    // echoes back on open), so an absolute/drive-letter path never crosses to the UI (§4.2).
+    // For images (svg/png) we attach a webview-safe URI so the browser can show a preview
+    // inline under the strict CSP (img-src ${webviewCspSource}); still no filesystem path.
+    const forWebview = artifactIndex.map(({ absolute_path, ...rest }) => {
+      const isImage = rest.mime === "image/png" || rest.mime === "image/svg+xml";
+      if (isImage && webview.asWebviewUri && vscode.Uri?.file) {
+        try { return { ...rest, webview_uri: String(webview.asWebviewUri(vscode.Uri.file(absolute_path))) }; }
+        catch { /* asWebviewUri unavailable (headless host) — omit the preview URI */ }
+      }
+      return rest;
+    });
+    webview.postMessage({ type: "artifacts_index", artifacts: forWebview });
+  }
+
   webview.onDidReceiveMessage(async (message: any) => {
     if (message.type === "request_gen_driver_config") {
       // The panel renders its input tabs from the schema module (single source of truth).
@@ -237,6 +384,40 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "request_diagnostics") {
       // Gather env diagnostics on demand so a bug report carries an actionable snapshot.
       webview.postMessage({ type: "diagnostics", ...collectDiagnostics(vscode, controller.getDiagnostics()) });
+      return;
+    }
+    if (message.type === "request_artifacts") {
+      // The browser pulls the artifact index (on load and after files land).
+      refreshArtifacts();
+      return;
+    }
+    if (message.type === "open_artifact" && typeof message.relative_path === "string") {
+      // Trust boundary: resolve the webview-supplied RELATIVE path only if it exactly
+      // matches an indexed artifact — never open a path the webview hands us directly
+      // (rejects traversal / absolute / drive-letter / out-of-index). Text opens in the
+      // editor; binary (png/bin/uf2) reveals in the OS file manager.
+      const absolute = resolveArtifactPath(artifactIndex, message.relative_path);
+      if (absolute) {
+        const entry = artifactIndex.find((a) => a.absolute_path === absolute);
+        const uri = vscode.Uri.file(absolute);
+        // Route by mime via the pure helper (unit-tested): markdown -> native preview,
+        // png/svg/html -> native viewer, other text -> editor, binary -> reveal.
+        const action = entry ? artifactOpenAction(entry.mime, entry.is_binary) : "reveal";
+        try {
+          if (action === "preview") {
+            await vscode.commands?.executeCommand?.("markdown.showPreview", uri);
+          } else if (action === "open") {
+            await vscode.commands?.executeCommand?.("vscode.open", uri);
+          } else if (action === "editor") {
+            const doc = await vscode.workspace?.openTextDocument?.(uri);
+            if (doc) await vscode.window?.showTextDocument?.(doc, { preview: false });
+          } else {
+            await vscode.commands?.executeCommand?.("revealFileInOS", uri);
+          }
+        } catch {
+          // editor/command unavailable (e.g. headless host) — ignore
+        }
+      }
       return;
     }
     if (message.type === "open_external" && typeof message.url === "string") {
@@ -445,10 +626,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
     }
     if (message.type === "request_recent_sessions") {
-      // List past session summaries (read-only) from this workspace's .mpyhw/sessions.
+      // List past session summaries (read-only) from <sessionRoot>/.mpyhw/sessions — the same
+      // root the recorder writes to (workspace, or globalStorage when no folder is open).
       let sessions: any[] = [];
       try {
-        if (workspaceFolder) sessions = await listRecentSessions(workspaceFolder, RECENT_SESSIONS_LIMIT);
+        if (sessionRoot) sessions = await listRecentSessions(sessionRoot, RECENT_SESSIONS_LIMIT);
       } catch {
         // unreadable sessions dir — return an empty list, the panel shows its empty state
       }

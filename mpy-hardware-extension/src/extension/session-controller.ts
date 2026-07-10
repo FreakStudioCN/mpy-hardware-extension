@@ -2,6 +2,8 @@ import type { SessionRecorder } from "./session-recorder.ts";
 import type { PendingSupplement } from "./pending-supplement.ts";
 import { classifySupplement } from "../core/supplement-router.ts";
 import type { SupplementAttachment } from "../core/supplement-router.ts";
+import { classifyArtifactKind } from "./artifact-index.ts";
+import type { ArtifactSource } from "./artifact-index.ts";
 
 export class SessionController {
   deps: {
@@ -47,6 +49,19 @@ export class SessionController {
   // and the files_written toast is built from these. Empty in headless/test runs
   // with no loop-time writer, where the post-loop batch is the fallback writer.
   private persistedPaths: string[] = [];
+  // Absolute paths of every artifact file written this session, from BOTH writers: the
+  // loop's own write_project_file (persistedPaths) and the headless post-loop batch.
+  // Feeds the Artifact Browser index; kept separate from persistedPaths so the diagnostics
+  // artifact_index and the loop-owns-writes decision above are unchanged.
+  private producedPaths: string[] = [];
+  // The phase each file was written in, stamped from currentPhase at file_written time,
+  // so the Artifact Browser attributes the PRODUCING phase per file (not the final phase).
+  private producedPhase = new Map<string, string>();
+  // Artifacts each phase declares in its phase_complete ({type, path}). Host Skill scripts
+  // (analyze manifest, select-hw plan) write these directly — they never emit a file_written
+  // event — so this is the only way the Artifact Browser learns about pre-generate outputs,
+  // with their real role (the Skill's `type`) and producing phase.
+  private phaseArtifacts: Array<{ path: string; role: string; phase: string }> = [];
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -85,6 +100,9 @@ export class SessionController {
       this.recentActivity = [];
       this.keyErrors = [];
       this.pendingSupplements = [];
+      this.producedPaths = [];
+      this.producedPhase.clear();
+      this.phaseArtifacts = [];
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -218,6 +236,12 @@ export class SessionController {
     this.latestManifest = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
+    // Artifact accumulators (#28 F6): reset sets boardId=null, so the next start()'s
+    // board-change clear is skipped (same trap as boardSelectionMode). Clear them here or
+    // a Restart would surface the previous session's files with stale phase attribution.
+    this.producedPaths = [];
+    this.producedPhase.clear();
+    this.phaseArtifacts = [];
     this.currentPhase = null;
     this.recentActivity = [];
     this.keyErrors = [];
@@ -414,6 +438,9 @@ export class SessionController {
       // The loop persisted a file to disk itself; track it so writeArtifactsIfReady
       // skips the redundant post-loop re-write and reports these paths instead.
       if (event.path && !this.persistedPaths.includes(event.path)) this.persistedPaths.push(event.path);
+      // Stamp the producing phase now (currentPhase is the phase in flight), so the
+      // Artifact Browser shows where each file came from, not the phase that ran last.
+      if (event.path) this.producedPhase.set(event.path, this.currentPhase ?? "");
       return;
     }
     if (event.type === "serial_output") {
@@ -438,6 +465,7 @@ export class SessionController {
     }
     if (event.type === "phase_complete") {
       this.pushActivity(`phase_complete: ${event.payload?.phase ?? this.currentPhase ?? ""}`);
+      this.capturePhaseArtifacts(event.payload);
       this.record({ type: "phase_complete", payload: event.payload });
       this.deps.postMessage({ type: "phase_complete", payload: event.payload });
       return;
@@ -515,6 +543,48 @@ export class SessionController {
     return [...new Set([...this.persistedPaths, ...Object.keys(this.latestFiles)])];
   }
 
+  // Structured artifact descriptors for the Artifact Browser (spec §8.3): the paths the
+  // loop persisted this session, typed by kind. The panel adds metadata (size/sha256/
+  // created_at) + relative display paths via buildArtifactIndex, and owns opening. The
+  // session log + diagnostics are appended by the panel, which knows their locations.
+  artifactSources(): ArtifactSource[] {
+    // Union of loop-persisted files (live, available mid-run) and the post-loop batch's
+    // produced paths (headless fallback), deduped. Each carries the phase it was written
+    // in (producedPhase), not the session's final phase.
+    const out: ArtifactSource[] = [];
+    const seen = new Set<string>();
+    for (const absolute_path of [...this.persistedPaths, ...this.producedPaths]) {
+      if (seen.has(absolute_path)) continue;
+      seen.add(absolute_path);
+      out.push({
+        absolute_path,
+        kind: classifyArtifactKind(absolute_path),
+        phase: this.producedPhase.get(absolute_path) ?? "",
+        origin: "session",
+      });
+    }
+    return out;
+  }
+
+  // Fold a phase_complete's declared artifacts ({type, path}) into the browser source list.
+  // First occurrence of a path wins, so a file keeps the phase that first produced it.
+  private capturePhaseArtifacts(payload: any) {
+    const artifacts = payload?.artifacts;
+    if (!Array.isArray(artifacts)) return;
+    const phase = payload?.phase ?? this.currentPhase ?? "";
+    for (const a of artifacts) {
+      if (!a || typeof a.path !== "string" || !a.path) continue;
+      if (this.phaseArtifacts.some((p) => p.path === a.path)) continue;
+      this.phaseArtifacts.push({ path: a.path, role: typeof a.type === "string" ? a.type : "", phase });
+    }
+  }
+
+  // Raw phase-declared artifact records ({relative path, role, phase}); the panel resolves
+  // each path to an absolute file it can stat + index. Read-only view of the accumulator.
+  phaseArtifactRecords(): ReadonlyArray<{ path: string; role: string; phase: string }> {
+    return this.phaseArtifacts;
+  }
+
   // The session-scoped half of the section-08 diagnostics snapshot. The panel merges
   // this with the always-available host fields (versions, os/node/npm, python) and
   // fills every declared key so a bug report carries an actionable, complete picture.
@@ -540,6 +610,7 @@ export class SessionController {
     // (project-manifest.json is among the persisted paths, so there is no stray
     // manifest.json). This is the path the real extension always takes.
     if (this.persistedPaths.length > 0) {
+      this.producedPaths = [...this.persistedPaths];
       await this.record({ type: "files_written", paths: this.persistedPaths });
       this.deps.postMessage({ type: "files_written", paths: this.persistedPaths });
       return;
@@ -558,6 +629,7 @@ export class SessionController {
       return;
     }
     const paths = result?.paths ?? [];
+    this.producedPaths = paths;
     await this.record({ type: "files_written", paths });
     this.deps.postMessage({ type: "files_written", paths });
   }

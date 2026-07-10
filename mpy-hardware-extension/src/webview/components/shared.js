@@ -13,7 +13,9 @@
         en: {
           credits: "Credits", lowCredits: "Running low on credits today.",
           stub_badge: "Stub", stub_badge_tip: "This backend runs a stub LLM: it returns a fixed reply and never generates code. Restart the API without MPYHW_LLM_STUB=1 for real output.",
-          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram", tab_doctor: "Env",
+          tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram", tab_artifacts: "Artifacts", tab_doctor: "Env",
+          empty_artifacts_h: "No artifacts yet", empty_artifacts_p: "Files this build produced appear here to open and trace. Wiring and diagram open in their own tabs.",
+          art_all_phases: "All", art_open: "Open in editor", art_reveal: "Reveal in file manager", art_open_tab: "Open in its tab", art_on_disk: "on disk", view_artifacts: "View artifacts",
           empty_doctor_h: "Checking your setup…", empty_doctor_p: "Blockless verifies what's needed to flash code to a board: Python, device tools, a connected board, and MicroPython.",
           doc_recheck: "Re-check", doc_install: "Install dependencies", doc_installing: "Installing…",
           doc_link_python: "Download Python", doc_link_firmware: "Download MicroPython", doc_open: "Open",
@@ -94,7 +96,9 @@
         zh: {
           credits: "额度", lowCredits: "今日额度快用完了。",
           stub_badge: "桩", stub_badge_tip: "当前后端跑的是桩 LLM：只返回固定回复、不会真正生成代码。重启 API 时去掉 MPYHW_LLM_STUB=1 才是真实输出。",
-          tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线", tab_diagram: "架构图", tab_doctor: "环境",
+          tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线", tab_diagram: "架构图", tab_artifacts: "产物", tab_doctor: "环境",
+          empty_artifacts_h: "暂无产物", empty_artifacts_p: "本次构建生成的文件会显示在这里，可打开和追溯。接线和架构图请在各自的标签页中查看。",
+          art_all_phases: "全部", art_open: "在编辑器中打开", art_reveal: "在文件管理器中显示", art_open_tab: "在对应标签页打开", art_on_disk: "磁盘", view_artifacts: "查看产物",
           empty_doctor_h: "正在检查环境…", empty_doctor_p: "Blockless 会检查把代码烧进开发板所需的一切：Python、设备工具、已连接的开发板，以及 MicroPython。",
           doc_recheck: "重新检测", doc_install: "安装依赖", doc_installing: "正在安装…",
           doc_link_python: "下载 Python", doc_link_firmware: "下载 MicroPython", doc_open: "打开",
