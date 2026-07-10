@@ -50,6 +50,7 @@
         if (msg.type === "components_needed") { addComponentPrompt(msg.promptId, msg.devices); }
         if (msg.type === "plan_needed") { addPlanPrompt(msg.promptId, msg.plan); }
         if (msg.type === "deploy_needed") { addDeployPrompt(msg.promptId, msg.manifest); }
+        if (msg.type === "file_op_confirm_needed") { addFileOpPrompt(msg.promptId, msg.op, msg.path); }
         // Protocol (plugin-interface) renderers:
         if (msg.type === "approval_request") {
           // The webview's own per-card `answered` guard covers a same-card double

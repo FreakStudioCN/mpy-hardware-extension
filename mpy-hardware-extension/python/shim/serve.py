@@ -10,14 +10,24 @@ import tempfile
 import time
 
 
+# macOS always exposes these built-in callout/serial ports; none is ever a MicroPython
+# board. Without this filter a Mac with ANY real board lists >1 port, and the single-port
+# device path (device-shim: ports.length > 1 -> device_selection_required) refuses to pick,
+# blocking flash/deploy with no way to unplug the built-ins.
+_MACOS_NON_BOARD = ("Bluetooth-Incoming-Port", "debug-console", "wlan-debug")
+
+
 def parse_scan_output(output: str) -> list[str]:
     ports: list[str] = []
     for line in output.splitlines():
         first = line.split(maxsplit=1)[0] if line.split() else ""
         # COM* (Windows), /dev/tty* (Linux ttyUSB/ttyACM + macOS tty.*),
         # /dev/cu.* (macOS callout device mpremote sometimes lists).
-        if first.startswith(("COM", "/dev/tty", "/dev/cu.")):
-            ports.append(first)
+        if not first.startswith(("COM", "/dev/tty", "/dev/cu.")):
+            continue
+        if any(name in first for name in _MACOS_NON_BOARD):
+            continue
+        ports.append(first)
     return ports
 
 

@@ -11,6 +11,11 @@ export class SessionController {
     loop: (input: any) => Promise<any>;
     recorderFactory?: (traceId: string) => SessionRecorder;
     writeFiles?: (files: Record<string, string>) => Promise<any>;
+    // Hard-interrupt an in-flight device operation on Stop (deliverables 07 §4): the
+    // signal abort only stops the loop between turns/tools, so a running mpremote
+    // flash/upload keeps going until it finishes. killDevice kills the shim subprocess
+    // now and releases the serial lock. Idempotent — a no-op when nothing is in flight.
+    killDevice?: () => void;
   };
 
   // Pending ask_user prompts: promptId -> resolve fn. The loop awaits askUser();
@@ -76,7 +81,7 @@ export class SessionController {
   // added before the next safe point is not lost (§9 acceptance).
   private pendingSupplements: PendingSupplement[] = [];
 
-  constructor(deps: { postMessage: (message: any) => void; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any> }) {
+  constructor(deps: { postMessage: (message: any) => void; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any>; killDevice?: () => void }) {
     this.deps = deps;
   }
 
@@ -203,9 +208,10 @@ export class SessionController {
     }
   }
 
-  // Stop the running session: abort the loop (between turns / in-flight request)
-  // and unblock any pending question.
+  // Stop the running session: hard-interrupt any in-flight device op (deliverables 07 §4),
+  // abort the loop (between turns / in-flight request), and unblock any pending question.
   cancel() {
+    this.deps.killDevice?.();
     this.abort?.abort();
     this.cancelPrompts();
   }
@@ -322,6 +328,21 @@ export class SessionController {
       ));
       this.record({ type: "approval_requested", promptId, card });
       this.deps.postMessage({ type: "approval_request", promptId, card });
+    });
+  }
+
+  // Destructive-file gate (deliverables 07 §4): a HOST-initiated confirmation (not an LLM
+  // ask), shown as an in-panel card with the file path + Overwrite/Delete vs Ignore. Reuses
+  // the pendingPrompts round-trip, so the request (file_op_proposed) and the answer
+  // (ui_prompt_answer) are both recorded in the session log — durable proof without catching
+  // a toast. Resolves false (keep the file) on cancel/finish via cancelPrompts — the safe
+  // default for a destructive action. Answer "proceed" = do it; anything else = keep the file.
+  confirmFileOp(op: "overwrite" | "delete", path: string): Promise<boolean> {
+    const promptId = `file-${op}-${++this.promptSeq}`;
+    return new Promise<boolean>((resolve) => {
+      this.pendingPrompts.set(promptId, (answer) => resolve(answer === "proceed"));
+      this.record({ type: "file_op_proposed", promptId, op, path });
+      this.deps.postMessage({ type: "file_op_confirm_needed", promptId, op, path });
     });
   }
 

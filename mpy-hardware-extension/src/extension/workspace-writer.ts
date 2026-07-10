@@ -1,3 +1,47 @@
+import { lstatSync, readdirSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+
+// Canonical Set key for pre-existing-path comparisons. resolve() normalizes separators
+// and relative segments but NOT letter case — and Windows and (default) macOS filesystems
+// are case-insensitive, so `firmware/Main.py` and `firmware/main.py` are the SAME file
+// there. Folding case on those platforms keeps the overwrite/delete gate from being
+// bypassed by a case-mismatched model path; on Linux different case = different file,
+// so the key must stay case-sensitive.
+const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
+export function canonicalPathKey(p: string): string {
+  const resolved = resolve(p);
+  return CASE_INSENSITIVE_FS ? resolved.toLowerCase() : resolved;
+}
+
+// Start-of-run project-tree snapshot (deliverables 07 §4): record every existing FILE and
+// DIRECTORY (as canonicalPathKey for cross-platform Set matching) into `into`. Called
+// before the loop writes anything, so the set is exactly the user's pre-build tree — the
+// overwrite/delete gate prompts only for these, never for build output created during the
+// run. Directories matter: file_operation(delete) accepts a directory and removes it
+// recursively, so a pre-existing dir absent from the set would wipe user files with no
+// confirm. Same skip list as the lister (.git / node_modules); unreadable dirs are
+// skipped, not fatal.
+export function snapshotExistingPaths(root: string | undefined, into: Set<string>) {
+  into.clear();
+  if (!root) return;
+  // lstatSync (not statSync): a symlink is recorded as a leaf, never followed, so a symlink
+  // loop can't hang the walk. An unreadable dir is skipped (best-effort snapshot — the gate
+  // is a confirmation, not a security boundary; containment in deleteProjectPath is).
+  const walk = (dir: string) => {
+    let names: string[];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const name of names) {
+      if (name === ".git" || name === "node_modules") continue;
+      const full = join(dir, name);
+      let isDir = false;
+      try { isDir = lstatSync(full).isDirectory(); } catch { continue; }
+      into.add(canonicalPathKey(full));
+      if (isDir) walk(full);
+    }
+  };
+  walk(resolve(root));
+}
+
 export function planWorkspaceWrites(input: { workspaceFolder?: string; generatedRoot?: string; files: Record<string, string> }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   // Apply the same containment as writeGeneratedFiles: skip any name that fails
@@ -76,17 +120,53 @@ export async function writeProjectFile(input: {
   path: string;
   content: string;
   writeFile: (path: string, content: string) => Promise<void>;
+  // Overwrite gate (deliverables 07 §4): return true to proceed, false to decline. The host
+  // injects a guard that returns true for new / session-created targets (silent write) and
+  // only asks the user on a still-present pre-existing file. Absent = prior write-through
+  // behavior (headless/e2e callers), so this stays backward-compatible.
+  guardOverwrite?: (target: string) => Promise<boolean>;
 }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   const safe = normalizeGeneratedArtifactPath(input.path, { allowProjectTree: true });
   if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path };
   const target = joinPath(root, safe);
+  if (input.guardOverwrite && !(await input.guardOverwrite(target))) {
+    return { ok: false as const, error_kind: "overwrite_declined", path: target };
+  }
   try {
     await input.writeFile(target, input.content);
   } catch {
     return { ok: false as const, error_kind: "file_write_failed", path: target };
   }
   return { ok: true as const, path: target };
+}
+
+// file_operation(delete) core: containment (refuse the workspace root itself and any path
+// outside it — never wipe the project or escape it), an optional guardDelete gate
+// (deliverables 07 §4 — confirm before removing a pre-existing user file), then the injected
+// remove. force-removing an already-absent path is a success (the desired end-state holds).
+// The injected removePath keeps this unit-testable without touching the real fs.
+export async function deleteProjectPath(input: {
+  workspaceFolder?: string;
+  generatedRoot?: string;
+  path: string;
+  removePath: (target: string) => Promise<void>;
+  guardDelete?: (target: string) => Promise<boolean>;
+}) {
+  const root = resolve(input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated");
+  const target = resolve(root, input.path);
+  if (target === root || !target.startsWith(root + sep)) {
+    return { ok: false as const, error_kind: "path_outside_workspace" };
+  }
+  if (input.guardDelete && !(await input.guardDelete(target))) {
+    return { ok: false as const, error_kind: "delete_declined", path: target };
+  }
+  try {
+    await input.removePath(target);
+  } catch {
+    return { ok: false as const, error_kind: "delete_failed" };
+  }
+  return { ok: true as const };
 }
 
 function joinPath(root: string, name: string) {

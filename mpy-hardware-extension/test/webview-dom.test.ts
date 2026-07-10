@@ -1983,3 +1983,29 @@ test("support panel exposes log reveal/export buttons that post the right messag
   post(dom, { type: "logs_status", text: "Session log exported." });
   assert.match((document.getElementById("scDiag") as HTMLElement).textContent ?? "", /exported/i, "logs_status updates the status line");
 });
+
+test("file_op_confirm_needed renders an in-panel card with the file path and posts a stable proceed/ignore (§4)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Overwrite card -> click Overwrite -> posts the STABLE answer "proceed"
+  post(dom, { type: "file_op_confirm_needed", promptId: "file-overwrite-1", op: "overwrite", path: "firmware/main.py" });
+  const card = document.querySelector('[data-prompt-id="file-overwrite-1"]') as HTMLElement | null;
+  assert.ok(card, "an in-panel card appears for the overwrite confirm");
+  assert.match(card!.textContent ?? "", /firmware\/main\.py/, "the card shows the file path");
+  const proceed = card!.querySelector(".fileop-proceed") as HTMLElement;
+  const ignore = card!.querySelector(".fileop-ignore") as HTMLElement;
+  assert.ok(proceed && ignore, "Overwrite and Ignore buttons render");
+  proceed.click();
+  const reply = posted.find((m) => m.type === "ui_prompt_response" && m.promptId === "file-overwrite-1");
+  assert.ok(reply, "clicking Overwrite posts a ui_prompt_response");
+  assert.equal(reply.answer, "proceed", "the answer is the STABLE value, not the localized button label");
+
+  // Ignore on a delete card -> posts the stable "ignore"
+  post(dom, { type: "file_op_confirm_needed", promptId: "file-delete-1", op: "delete", path: "firmware/old.py" });
+  const del = document.querySelector('[data-prompt-id="file-delete-1"]') as HTMLElement;
+  (del.querySelector(".fileop-ignore") as HTMLElement).click();
+  const reply2 = posted.find((m) => m.type === "ui_prompt_response" && m.promptId === "file-delete-1");
+  assert.equal(reply2.answer, "ignore", "clicking Ignore posts the stable 'ignore' answer");
+});

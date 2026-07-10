@@ -954,3 +954,86 @@ test("phase_complete artifacts are captured with their Skill role and producing 
   assert.ok(!recs.some((r) => (r as any).role === "table"), "artifacts without a path are skipped");
   assert.equal(recs.length, 3, "manifest (deduped) + session_state + generate_plan");
 });
+
+// ---- Immediate Stop for in-flight device actions (deliverables 07 §4) ----
+
+test("cancel() hard-interrupts the device (killDevice) and aborts the loop signal, preserving the log (§4/§9)", async () => {
+  // Stop must kill an in-flight device op NOW, not wait for the tool to finish. A mock
+  // loop parks in a device()-like await that only settles once the signal aborts; cancel()
+  // fires killDevice alongside the signal abort, and the cancelled run still records
+  // session_finished WITH state (log + resumable checkpoint preserved).
+  let killed = 0;
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => {},
+    killDevice: () => { killed++; },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ signal }: any) => {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) return resolve();
+        signal?.addEventListener?.("abort", () => resolve(), { once: true });
+      });
+      return { terminal: "cancelled", state: { messages: [{ role: "user", content: "flash it" }] } };
+    },
+  });
+
+  const started = controller.start({ intent: "flash it", boardId: "esp32-s3-devkitc-1" });
+  await Promise.resolve();
+  controller.cancel();
+  const result = await started;
+
+  assert.equal(killed, 1, "cancel() calls killDevice so the in-flight mpremote op dies now, not after it completes");
+  assert.equal(result.terminal, "cancelled", "the aborted signal ends the run as cancelled");
+  const finished = recorded.find((e) => e.type === "session_finished");
+  assert.ok(finished, "a cancelled run still records session_finished (log preserved, §9)");
+  assert.deepEqual(finished.state, { messages: [{ role: "user", content: "flash it" }] }, "the checkpoint state is preserved on Stop");
+});
+
+test("cancel() is a safe no-op when idle and when killDevice is not provided", async () => {
+  // killDevice is optional (shim.kill is idempotent); a controller with no killDevice dep
+  // and no run in flight must cancel without throwing.
+  const controller = new SessionController({ postMessage: () => {}, loop: async () => ({ terminal: "complete" }) });
+  assert.doesNotThrow(() => controller.cancel(), "cancel with nothing in flight and no killDevice is a no-op");
+});
+
+test("reset() also hard-interrupts an in-flight device op (killDevice) so a new build leaves nothing running", async () => {
+  let killed = 0;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const controller = new SessionController({
+    postMessage: () => {},
+    killDevice: () => { killed++; },
+    loop: async ({ signal }: any) => { await gate; return { terminal: signal?.aborted ? "cancelled" : "success" }; },
+  });
+
+  const first = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  await Promise.resolve();
+  controller.reset();       // supersede + abort + kill the in-flight device op
+  release();
+  await first;
+
+  assert.equal(killed, 1, "reset() supersede path also kills the in-flight device op");
+});
+
+test("confirmFileOp posts an in-panel confirm card carrying the path; proceed=true, else keep the file (§4)", async () => {
+  const messages: any[] = [];
+  const controller = new SessionController({ postMessage: (m) => messages.push(m), loop: async () => ({ terminal: "complete" }) });
+
+  const proceed = controller.confirmFileOp("overwrite", "firmware/main.py");
+  const card = messages.find((m) => m.type === "file_op_confirm_needed");
+  assert.ok(card, "posts a file_op_confirm_needed card (not a VS Code toast)");
+  assert.equal(card.op, "overwrite");
+  assert.equal(card.path, "firmware/main.py", "the card carries the file path for the in-chat prompt");
+  controller.resolvePrompt(card.promptId, "proceed");
+  assert.equal(await proceed, true, "proceed -> overwrite");
+
+  const ignored = controller.confirmFileOp("delete", "firmware/old.py");
+  const c2 = messages.find((m) => m.type === "file_op_confirm_needed" && m.path === "firmware/old.py");
+  controller.resolvePrompt(c2.promptId, "ignore");
+  assert.equal(await ignored, false, "ignore -> keep the file");
+
+  const cancelled = controller.confirmFileOp("overwrite", "firmware/x.py");
+  const c3 = messages.find((m) => m.type === "file_op_confirm_needed" && m.path === "firmware/x.py");
+  controller.resolvePrompt(c3.promptId, null); // session cancel/finish
+  assert.equal(await cancelled, false, "a cancelled prompt keeps the file (safe default for a destructive op)");
+});

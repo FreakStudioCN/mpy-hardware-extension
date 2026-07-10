@@ -22,7 +22,7 @@ import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
-import { writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
+import { canonicalPathKey, deleteProjectPath, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
@@ -210,6 +210,19 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const fallbackRoot = deps.globalStoragePath ? join(deps.globalStoragePath, PROJECT_SUBDIR) : undefined;
   const projectFolder = workspaceFolder ? join(workspaceFolder, PROJECT_SUBDIR) : fallbackRoot;
   const usingFallback = !workspaceFolder && !!fallbackRoot;
+  // Start-of-run snapshot of the project tree (deliverables 07 §4): files present when a
+  // build starts are the user's; anything created during the run (codegen output, build
+  // scratch) is not in here, so overwriting/deleting it never prompts. Repopulated on each
+  // start_session before the loop writes anything (see snapshotExistingPaths).
+  const preExistingPaths = new Set<string>();
+  const isPreExisting = (p: string) => preExistingPaths.has(canonicalPathKey(p));
+  // The destructive-file confirm is shown as an in-panel card by the controller (deliverables
+  // 07 §4). Late-bound: the writer/deleter capture these stable closures now, but the real
+  // controller.confirmFileOp is wired in after the controller exists (below). Until then (and
+  // in any host with no controller) they resolve false — keep the file — the safe default.
+  let confirmFileOp: (op: "overwrite" | "delete", target: string) => Promise<boolean> = async () => false;
+  const confirmOverwrite = (target: string) => confirmFileOp("overwrite", target);
+  const confirmDelete = (target: string) => confirmFileOp("delete", target);
   // Let the webview load artifact images (svg/png) it references via asWebviewUri (task-03).
   // Roots cover the workspace (project + .mpyhw logs), the globalStorage fallback, and the
   // extension assets. Guarded: a headless/test host may not have vscode.Uri or settable options.
@@ -245,7 +258,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       webview.postMessage(message);
     },
-    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder), projectRoot: projectFolder }),
+    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete), projectRoot: projectFolder }),
+    // Stop must hard-interrupt an in-flight device op, not just abort the loop signal
+    // (deliverables 07 §4). shim.kill() dies the blocked mpremote/script now and frees
+    // the serial lock; idempotent, so a Stop with nothing in flight is a no-op.
+    killDevice: () => shim.kill?.(),
     recorderFactory,
     writeFiles: async (files) => {
       if (!projectFolder) return { ok: false, error_kind: "workspace_unavailable" };
@@ -287,6 +304,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // generated project (blockless-project/) and the session log (.mpyhw/sessions/).
   let artifactIndex: Artifact[] = [];
   const artifactRoot = workspaceFolder ?? deps.globalStoragePath ?? projectFolder ?? "";
+  // Wire the destructive-file confirm to the controller's in-panel card (deliverables 07 §4),
+  // showing a RELATIVE path (§4.2 forbids an absolute/drive-letter path reaching the UI).
+  confirmFileOp = (op, target) => controller.confirmFileOp(op, toRelativeDisplayPath(artifactRoot, target));
   // sha256 the file contents, but bounded (#28 F4): the index rebuilds on every
   // phase_complete, and reading a whole multi-MB .bin/.uf2 synchronously on the extension-host
   // thread each time would jank the UI. Skip the hash above a size cap (the row still shows
@@ -541,6 +561,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
       }
       await ensureProjectGitRepo(projectFolder, deps.log);
+      // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
+      // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
+      // build's own codegen output or scratch created during this run.
+      snapshotExistingPaths(projectFolder, preExistingPaths);
       await controller.start({
         intent: message.intent,
         boardId: message.boardId,
@@ -779,13 +803,22 @@ function makeWorkspaceReader(workspaceFolder?: string) {
 // (mkdir -p + writeFile). Returns undefined when there is no project root (mirrors
 // makeWorkspaceReader) so write_project_file reports workspace_unavailable instead
 // of writing somewhere unfindable; the caller passes a globalStorage fallback root.
-function makeWorkspaceWriter(workspaceFolder?: string) {
+function makeWorkspaceWriter(
+  workspaceFolder: string | undefined,
+  isPreExisting: (target: string) => boolean,
+  confirmOverwrite: (target: string) => Promise<boolean>,
+) {
   if (!workspaceFolder) return undefined;
   return (relPath: string, content: string) =>
     writeProjectFile({
       workspaceFolder,
       path: relPath,
       content,
+      // Prompt only when clobbering a still-present pre-existing user file (deliverables 07
+      // §4). New and session-created files write silently, so iterative codegen (which
+      // rewrites its own output on gate retries) is never spammed with a confirm.
+      guardOverwrite: async (target) =>
+        isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true,
       writeFile: async (path, fileContent) => {
         await mkdir(dirname(path), { recursive: true });
         await writeFile(path, fileContent, "utf-8");
@@ -839,17 +872,23 @@ function makeWorkspaceMkdir(workspaceFolder?: string) {
 // refuses anything outside the root AND the root itself (never wipe the workspace).
 // force:true makes "delete an already-absent path" succeed — the desired end-state
 // (path gone) holds — which is not a fake success.
-function makeWorkspaceDeleter(workspaceFolder?: string) {
+function makeWorkspaceDeleter(
+  workspaceFolder: string | undefined,
+  isPreExisting: (target: string) => boolean,
+  confirmDelete: (target: string) => Promise<boolean>,
+) {
   if (!workspaceFolder) return undefined;
-  const root = resolve(workspaceFolder);
-  return async (relPath: string) => {
-    const target = resolve(root, relPath);
-    if (target === root || !target.startsWith(root + sep)) {
-      return { ok: false as const, error_kind: "path_outside_workspace" };
-    }
-    try { await rm(target, { recursive: true, force: true }); return { ok: true as const }; }
-    catch { return { ok: false as const, error_kind: "delete_failed" }; }
-  };
+  return (relPath: string) =>
+    deleteProjectPath({
+      workspaceFolder,
+      path: relPath,
+      removePath: (target) => rm(target, { recursive: true, force: true }),
+      // Confirm only for a still-present pre-existing user file (deliverables 07 §4); the
+      // build's own scratch (e.g. firmware/tools/ removed before the mpy_imports gate) is
+      // session-created, not in the start snapshot, so it deletes silently.
+      guardDelete: async (target) =>
+        isPreExisting(target) && existsSync(target) ? confirmDelete(target) : true,
+    });
 }
 
 // Read a committed partner logo and inline it as a data URI. Reuses the readWebviewHtml

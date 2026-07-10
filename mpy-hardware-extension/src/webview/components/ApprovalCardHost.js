@@ -97,6 +97,49 @@
         });
       }
 
+      // Destructive-file confirm card (deliverables 07 §4): host-initiated (file_op_confirm_needed),
+      // shows the file path with Overwrite/Delete vs Ignore. Posts a STABLE answer ("proceed"/
+      // "ignore") decoupled from the localized labels, like the deploy/components gates. The
+      // card is stamped data-prompt-id so session_done disables its buttons.
+      function addFileOpPrompt(promptId, op, path) {
+        finalizeThinking();
+        clearPending();
+        $("activityEmpty").classList.add("hidden");
+        setTab("activity");
+        const proceedLabel = op === "delete" ? tr("fileop_delete") : tr("fileop_overwrite");
+        const question = tr(op === "delete" ? "fileop_delete_q" : "fileop_overwrite_q", { p: path });
+        const card = document.createElement("div");
+        card.className = "ev fade-in";
+        card.setAttribute("data-prompt-id", promptId);
+        card.innerHTML = '<div class="ev-card ask"><div class="ev-head">' +
+          '<div class="ev-ico skill">•</div>' +
+          '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_confirm") + '</span></div>' +
+          '<div class="ev-sum fileop-q"></div>' +
+          '<div class="ask-options">' +
+            '<button class="ask-opt fileop-proceed" type="button"></button>' +
+            '<button class="ask-opt fileop-ignore" type="button"></button>' +
+          '</div></div></div></div>';
+        // textContent for the question (carries the file path) and the labels — never innerHTML.
+        card.querySelector(".fileop-q").textContent = question;
+        const proceedBtn = card.querySelector(".fileop-proceed");
+        const ignoreBtn = card.querySelector(".fileop-ignore");
+        proceedBtn.textContent = proceedLabel;
+        ignoreBtn.textContent = tr("fileop_ignore");
+        let answered = false;
+        const reply = (answer, btn) => {
+          if (answered) return;
+          answered = true;
+          vscode.postMessage({ type: "ui_prompt_response", promptId, answer });
+          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; });
+          btn.classList.add("chosen");
+          setPending(tr("working"));
+        };
+        proceedBtn.addEventListener("click", () => reply("proceed", proceedBtn));
+        ignoreBtn.addEventListener("click", () => reply("ignore", ignoreBtn));
+        $("activity").appendChild(card);
+        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
+      }
+
       function addAskPrompt(promptId, question, options, optionsRequiringText, textPlaceholder) {
         finalizeThinking();
         clearPending();
