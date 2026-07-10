@@ -236,6 +236,12 @@ export class SessionController {
     this.latestManifest = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
+    // Artifact accumulators (#28 F6): reset sets boardId=null, so the next start()'s
+    // board-change clear is skipped (same trap as boardSelectionMode). Clear them here or
+    // a Restart would surface the previous session's files with stale phase attribution.
+    this.producedPaths = [];
+    this.producedPhase.clear();
+    this.phaseArtifacts = [];
     this.currentPhase = null;
     this.recentActivity = [];
     this.keyErrors = [];

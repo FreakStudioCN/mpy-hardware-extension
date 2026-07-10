@@ -101,6 +101,39 @@ test("a reset does not leak the recommend board_selection_mode into the next bui
   assert.equal(inputs[1].boardSelectionMode, undefined, "a reset build must not inherit the stale recommend flag");
 });
 
+test("a reset clears the artifact accumulators so a new session does not surface the prior session's artifacts", async () => {
+  // #28 F6: reset() sets boardId=null, so the next start()'s board-change clear is skipped
+  // (same trap as boardSelectionMode above). Without an explicit clear, producedPaths and
+  // phaseArtifacts persist across Restart, so request_artifacts in the new session would show
+  // (and let you open) the previous session's files with stale phase attribution.
+  // Only session A produces artifacts; session B's loop is silent, so any artifact present
+  // after B starts can only be A's leftovers.
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ intent, onEvent }: any) => {
+      if (typeof intent === "string" && intent.includes("session A")) {
+        onEvent({ type: "phase_complete", payload: { phase: "analyze", artifacts: [{ type: "manifest", path: "project-manifest.json" }] } });
+        onEvent({ type: "file_written", path: "/abs/session-a/main.py" });
+      }
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "session A", boardId: "auto" });
+  assert.equal(controller.phaseArtifactRecords().length, 1, "phase-declared artifact captured during session A");
+  assert.ok(controller.artifactSources().some((s) => s.absolute_path === "/abs/session-a/main.py"), "loop-written file tracked during session A");
+
+  controller.reset();
+  assert.equal(controller.phaseArtifactRecords().length, 0, "reset clears phase-declared artifacts");
+  assert.equal(controller.artifactSources().length, 0, "reset clears produced/persisted paths");
+
+  // A post-reset start on the SAME board (boardId was nulled -> board-change clear is skipped)
+  // must still begin with an empty accumulator, not session A's leftovers.
+  await controller.start({ intent: "session B, produces nothing", boardId: "auto" });
+  assert.equal(controller.phaseArtifactRecords().length, 0, "session B does not inherit session A's phase artifacts");
+  assert.ok(!controller.artifactSources().some((s) => s.absolute_path === "/abs/session-a/main.py"), "session B does not inherit session A's produced files");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];
