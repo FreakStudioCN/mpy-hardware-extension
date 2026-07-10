@@ -18,6 +18,7 @@ import {
   normalizeSources,
   canStartGeneration,
 } from "../src/core/gen-driver-schema.ts";
+import type { DriverStatus } from "../src/core/gen-driver-schema.ts";
 
 const tab = (id: string) => GEN_DRIVER_TABS.find((t) => t.id === id)!;
 
@@ -107,7 +108,9 @@ test("standalone build omits pipeline-only fields", () => {
   assert.equal("manifest_content" in payload, false);
 });
 
-test("deriveDriverStatus projects result + verification_mode into the UI status", () => {
+// Fallback path: payloads WITHOUT an authoritative driver_status fall back to the
+// result + hardware_verified + verification_mode heuristic.
+test("deriveDriverStatus (fallback) projects result + verification_mode when driver_status is absent", () => {
   assert.equal(deriveDriverStatus({ result: "success", hardware_verified: true, verification_mode: "hardware" }), "ready");
   assert.equal(deriveDriverStatus({ result: "success", hardware_verified: false, verification_mode: "skipped" }), "unverified");
   assert.equal(deriveDriverStatus({ result: "success", hardware_verified: false, verification_mode: "mock" }), "unverified");
@@ -116,12 +119,35 @@ test("deriveDriverStatus projects result + verification_mode into the UI status"
   assert.equal(deriveDriverStatus({}), "failed");
 });
 
-test("deriveDriverStatus agrees with the plugin's phase_complete samples", () => {
-  const success = pluginSample("phase_complete.upy_gen_driver_plugin.success.json").payload;
-  const status = deriveDriverStatus(success);
-  assert.ok(status === "ready" || status === "unverified", `success sample -> ${status}`);
-  const noDevice = pluginSample("phase_complete.upy_gen_driver_plugin.partial.no_device.json").payload;
-  assert.equal(deriveDriverStatus(noDevice), "pending_validation");
+// Contract lock: the 42e9314 samples carry driver_status directly. no_device / cancelled /
+// timeout are indistinguishable on result+hardware_verified+verification_mode, so the field
+// IS the contract — lock each sample to its own declared status.
+test("deriveDriverStatus trusts the authoritative driver_status in every phase_complete sample", () => {
+  const cases: Array<[string, DriverStatus]> = [
+    ["phase_complete.upy_gen_driver_plugin.success.json", "ready"],
+    ["phase_complete.upy_gen_driver_plugin.success.retry.json", "ready"],
+    ["phase_complete.upy_gen_driver_plugin.partial.no_device.json", "pending_validation"],
+    ["phase_complete.upy_gen_driver_plugin.partial.cancelled.json", "partial"],
+    ["phase_complete.upy_gen_driver_plugin.partial.timeout.json", "failed"],
+  ];
+  for (const [name, expected] of cases) {
+    const payload = pluginSample(name).payload;
+    assert.equal(payload.driver_status, expected, `${name} sample declares driver_status ${expected}`);
+    assert.equal(deriveDriverStatus(payload), expected, `${name} -> ${expected}`);
+  }
+});
+
+// "ready" is only real with a hardware marker: the success samples must carry a
+// SELF_TEST_PASS hardware_marker and an observed marker matching the required one.
+test("ready phase_complete samples carry a real SELF_TEST_PASS marker", () => {
+  for (const name of [
+    "phase_complete.upy_gen_driver_plugin.success.json",
+    "phase_complete.upy_gen_driver_plugin.success.retry.json",
+  ]) {
+    const payload = pluginSample(name).payload;
+    assert.match(payload.hardware_marker ?? "", /^SELF_TEST_PASS:/, `${name} hardware_marker`);
+    assert.equal(payload.verification.observed_marker, payload.verification.marker, `${name} observed == required marker`);
+  }
 });
 
 test("inferMode picks pipeline only for a cold-driver manifest", () => {

@@ -198,16 +198,27 @@ export const GEN_DRIVER_ERROR_CODES = [
 ] as const;
 export type GenDriverErrorCode = (typeof GEN_DRIVER_ERROR_CODES)[number];
 
-// UI-level driver status. The plugin does NOT emit this as one field; phase_complete
-// carries `result` + `hardware_verified` + `verification_mode`. This projects them
-// into the four states the UI shows. Keep this the single place that mapping lives.
-export type DriverStatus = "ready" | "pending_validation" | "unverified" | "failed";
+// UI-level driver status. The updated plugin (MicroPython_Skills 42e9314) emits an
+// authoritative `driver_status` in phase_complete, so we trust it when present. The
+// legacy heuristic over `result` + `hardware_verified` + `verification_mode` stays as a
+// fallback for payloads that omit it — necessary because no_device / cancelled / timeout
+// are indistinguishable on those three proxy signals alone. Single place this mapping lives.
+export type DriverStatus = "ready" | "pending_validation" | "partial" | "unverified" | "failed";
+
+const DRIVER_STATUSES: readonly DriverStatus[] = [
+  "ready", "pending_validation", "partial", "unverified", "failed",
+];
 
 export function deriveDriverStatus(complete: {
+  driver_status?: string;
   result?: string;
   hardware_verified?: boolean;
   verification_mode?: string;
 }): DriverStatus {
+  // Authoritative field wins when the plugin supplies a known status.
+  if (DRIVER_STATUSES.includes(complete.driver_status as DriverStatus)) {
+    return complete.driver_status as DriverStatus;
+  }
   if (complete.result === "success") {
     // Only real hardware verification earns "ready"; skipped/mock success is
     // usable but unproven (protocol_fields.md: verification_mode).
