@@ -277,12 +277,27 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // generated project (blockless-project/) and the session log (.mpyhw/sessions/).
   let artifactIndex: Artifact[] = [];
   const artifactRoot = workspaceFolder ?? deps.globalStoragePath ?? projectFolder ?? "";
+  // sha256 the file contents, but bounded (#28 F4): the index rebuilds on every
+  // phase_complete, and reading a whole multi-MB .bin/.uf2 synchronously on the extension-host
+  // thread each time would jank the UI. Skip the hash above a size cap (the row still shows
+  // size/kind), and memoize by path:size:mtime so an unchanged file is hashed at most once.
+  const ARTIFACT_MAX_HASH_BYTES = 4 * 1024 * 1024;
+  const hashCache = new Map<string, string>();
   const artifactIo = {
     stat: (p: string) => {
       try { const s = statSync(p); return { size: s.size, mtimeMs: s.mtimeMs }; } catch { return null; }
     },
     hash: (p: string) => {
-      try { return createHash("sha256").update(readFileSync(p)).digest("hex"); } catch { return null; }
+      try {
+        const s = statSync(p);
+        if (s.size > ARTIFACT_MAX_HASH_BYTES) return ""; // too big to hash on the host thread
+        const key = `${p}:${s.size}:${s.mtimeMs}`;
+        const cached = hashCache.get(key);
+        if (cached !== undefined) return cached;
+        const digest = createHash("sha256").update(readFileSync(p)).digest("hex");
+        hashCache.set(key, digest);
+        return digest;
+      } catch { return null; }
     },
     isoFromMs: (ms: number) => new Date(ms).toISOString(),
   };
