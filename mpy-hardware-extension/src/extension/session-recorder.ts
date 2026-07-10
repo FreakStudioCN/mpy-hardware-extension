@@ -118,8 +118,12 @@ async function readSessionSummary(sessionsRoot: string, id: string): Promise<Rec
   try {
     const text = await readFile(path, "utf-8");
     events = text.split("\n").map(parseLine).filter((e): e is Record<string, any> => e !== null);
-  } catch {
-    return null; // no jsonl in this dir
+  } catch (err: any) {
+    // A dir without session.jsonl is a crashed/partial session — skip it (backfilled by the
+    // caller). Any other read error (EACCES, ...) must surface, or the export would silently
+    // fall back to an OLDER session while claiming the newest.
+    if (err?.code === "ENOENT") return null;
+    throw err;
   }
   if (events.length === 0) return null;
   const started = events.find((e) => e.type === "session_started" || e.type === "user_message");

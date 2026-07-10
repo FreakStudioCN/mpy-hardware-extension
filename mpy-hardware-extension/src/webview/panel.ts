@@ -291,6 +291,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // phase_complete, and reading a whole multi-MB .bin/.uf2 synchronously on the extension-host
   // thread each time would jank the UI. Skip the hash above a size cap (the row still shows
   // size/kind), and memoize by path:size:mtime so an unchanged file is hashed at most once.
+  // Known limit: a same-size rewrite within one mtime tick serves a stale digest — acceptable
+  // for a display-only field (opens/reveals never key off the sha).
   const ARTIFACT_MAX_HASH_BYTES = 4 * 1024 * 1024;
   const hashCache = new Map<string, string>();
   const artifactIo = {
