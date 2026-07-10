@@ -56,6 +56,19 @@ def test_scan_parses_linux_ports():
     assert ports == ["COM3", "/dev/ttyUSB0", "/dev/ttyACM0"]
 
 
+def test_scan_excludes_macos_builtin_pseudo_ports():
+    # A Mac always exposes Bluetooth/debug-console callout ports; keeping them makes any
+    # real board look like "multiple boards" and blocks the single-port flash/deploy path.
+    ports = parse_scan_output(
+        "/dev/cu.Bluetooth-Incoming-Port\n"
+        "/dev/cu.debug-console\n"
+        "/dev/cu.wlan-debug\n"
+        "/dev/cu.wchusbserial57280348821 303A:1001 MicroPython\n"
+    )
+
+    assert ports == ["/dev/cu.wchusbserial57280348821"]
+
+
 def test_install_command_uses_mpremote_mip_package_json_url():
     shim = Shim(runner=lambda cmd, **_kwargs: subprocess.CompletedProcess(cmd, 0, "", ""))
 
