@@ -11,6 +11,7 @@
         if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
         if (msg.type === "gen_driver_file_picked") { setGenDriverFile(msg); }
         if (msg.type === "support_config") { renderSupport(msg); }
+        if (msg.type === "logs_status") { const n = $("scDiag"); if (n) n.textContent = msg.text; }
         if (msg.type === "partners_config") { renderPartners(msg.partners); }
         if (msg.type === "recent_sessions") { renderRecent(msg.sessions); }
         if (msg.type === "diagnostics") {

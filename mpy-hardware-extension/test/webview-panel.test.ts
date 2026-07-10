@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -787,5 +787,143 @@ test("the current session's tree (log + checkpoints) is browsable, not just bloc
     assert.equal(cp.kind, "checkpoint", "checkpoint files classify as their own kind, not generic log");
   } finally {
     rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+// --- local session-log export / reveal (Support & Feedback, #25) ---
+
+// ids are time-sortable (session-<base36 ms>-<rand>), so a lexicographically-larger id is a
+// newer session. Content embeds the id so a test can tell which session was exported.
+function seedSession(ws: string, id = "session-aaa111-bbb", ts = "2026-07-08T19:00:00.000Z"): string {
+  const dir = join(ws, ".mpyhw", "sessions", id);
+  mkdirSync(dir, { recursive: true });
+  const content = `{"type":"session_started","ts":"${ts}","intent":"${id}"}\n{"type":"phase_start","phase":"analyze"}\n`;
+  writeFileSync(join(dir, "session.jsonl"), content, "utf-8");
+  return content;
+}
+
+function exportPanel(ws: string, opts: { windowExtra?: any } & Record<string, any> = {}) {
+  const { windowExtra = {}, ...topExtra } = opts;
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { file: (p: string) => ({ fsPath: p }) },
+    workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, ...windowExtra },
+    ...topExtra,
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: (async () => { throw new Error("no network in export test"); }) as any, loopMode: "template" });
+  return { posted, run: (m: any) => handler?.(m) };
+}
+
+test("export_session_log saves the NEWEST session.jsonl, not an older one (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    seedSession(ws, "session-aaa111-old", "2026-07-08T10:00:00.000Z");
+    const newest = seedSession(ws, "session-zzz999-new", "2026-07-08T20:00:00.000Z");
+    const target = join(ws, "exported.jsonl");
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => ({ fsPath: target }) } });
+    await run({ type: "export_session_log" });
+    assert.ok(existsSync(target), "export file written");
+    assert.equal(readFileSync(target, "utf-8"), newest, "the NEWEST session's log is exported (id sorts last), not the older one");
+    assert.ok(posted.some((m) => m.type === "logs_status" && /exported/i.test(m.text)), "posts an exported status");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log default filename is the session id without a double 'session-' prefix (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    seedSession(ws, "session-aaa111-bbb");
+    let defaultName: string | undefined;
+    const { run } = exportPanel(ws, { windowExtra: { showSaveDialog: async (o: any) => { defaultName = o?.defaultUri?.fsPath; return undefined; } } });
+    await run({ type: "export_session_log" });
+    assert.ok(defaultName, "save dialog was offered a default filename");
+    assert.ok(defaultName!.endsWith(join("session-aaa111-bbb.jsonl")), `default is <id>.jsonl, got ${defaultName}`);
+    assert.doesNotMatch(defaultName!, /session-session-/, "no doubled 'session-' prefix");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log with a cancelled save dialog writes nothing and posts no status (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    seedSession(ws);
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => undefined } });
+    await run({ type: "export_session_log" });
+    assert.ok(!posted.some((m) => m.type === "logs_status"), "a cancelled dialog is a no-op: no status, no error");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log surfaces a real listing error instead of a misleading 'no logs' (#25 fail-fast)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    // .mpyhw/sessions is a FILE, so readdir throws ENOTDIR (not ENOENT) — must surface.
+    mkdirSync(join(ws, ".mpyhw"), { recursive: true });
+    writeFileSync(join(ws, ".mpyhw", "sessions"), "not a dir");
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => ({ fsPath: join(ws, "x.jsonl") }) } });
+    await run({ type: "export_session_log" });
+    assert.ok(posted.some((m) => m.type === "logs_status" && /export failed/i.test(m.text)), "a real listing error is surfaced");
+    assert.ok(!posted.some((m) => m.type === "logs_status" && /no session logs/i.test(m.text)), "must not mask a real error as 'no logs'");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log with no logs posts a 'no logs yet' status and writes nothing (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    let dialogCalled = false;
+    const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => { dialogCalled = true; return undefined; } } });
+    await run({ type: "export_session_log" });
+    assert.equal(dialogCalled, false, "no save dialog when there is nothing to export");
+    assert.ok(posted.some((m) => m.type === "logs_status" && /no session logs/i.test(m.text)));
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("reveal_logs_folder reveals the .mpyhw/sessions dir when logs exist (#25)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    seedSession(ws);
+    const revealed: any[] = [];
+    const { run } = exportPanel(ws, { commands: { executeCommand: (cmd: string, arg: any) => { revealed.push({ cmd, arg }); } } });
+    await run({ type: "reveal_logs_folder" });
+    const hit = revealed.find((r) => r.cmd === "revealFileInOS");
+    assert.ok(hit, "revealFileInOS is invoked");
+    assert.ok(String(hit.arg.fsPath).endsWith(join(".mpyhw", "sessions")), "reveals the sessions dir");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("export_session_log falls back to globalStorage logs when no workspace is open (#25)", async () => {
+  const gs = mkdtempSync(join(tmpdir(), "mpyhw-gs-"));
+  try {
+    const srcContent = seedSession(gs); // <gs>/.mpyhw/sessions/session-aaa111-bbb/session.jsonl
+    const target = join(gs, "exported.jsonl");
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+      window: { createWebviewPanel: () => panel, showSaveDialog: async () => ({ fsPath: target }) },
+      // no workspace.workspaceFolders -> sessionRoot falls back to globalStorage
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: (async () => { throw new Error("no network"); }) as any, loopMode: "template", globalStoragePath: gs });
+    await handler?.({ type: "export_session_log" });
+    assert.ok(existsSync(target), "export works with no workspace open, using the globalStorage logs root");
+    assert.equal(readFileSync(target, "utf-8"), srcContent, "exported content matches the globalStorage session log");
+    assert.ok(posted.some((m) => m.type === "logs_status" && /exported/i.test(m.text)));
+  } finally {
+    rmSync(gs, { recursive: true, force: true });
   }
 });

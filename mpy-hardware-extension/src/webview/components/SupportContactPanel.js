@@ -28,6 +28,9 @@
         const issues = (msg.contacts || []).find((c) => c.id === "github_issues");
         if (issues && issues.url) report.appendChild(scButton("Open GitHub Issues", () => vscode.postMessage({ type: "open_external", url: issues.url })));
         report.appendChild(scButton("Copy diagnostics", () => vscode.postMessage({ type: "request_diagnostics" })));
+        // Local session logs (raw .jsonl transcript per run) for Skill debugging.
+        report.appendChild(scButton("Reveal logs folder", () => vscode.postMessage({ type: "reveal_logs_folder" })));
+        report.appendChild(scButton("Export session log", () => vscode.postMessage({ type: "export_session_log" })));
         const diag = document.createElement("div"); diag.className = "gd-note"; diag.id = "scDiag";
         report.appendChild(diag);
         root.appendChild(report);

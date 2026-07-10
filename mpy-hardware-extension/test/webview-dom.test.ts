@@ -1963,3 +1963,23 @@ test("phase_complete triggers an artifact refresh (request_artifacts)", async ()
   post(dom, { type: "phase_complete", payload: { phase: "upy-analyze-plugin", artifacts: [] } });
   assert.ok(posted.some((m) => m.type === "request_artifacts"), "phase_complete asks the host to refresh artifacts");
 });
+
+test("support panel exposes log reveal/export buttons that post the right messages (#25)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "support_config", contacts: [], diagnosticsFields: ["os", "node"] });
+  const btns = [...document.querySelectorAll("#support button")] as HTMLButtonElement[];
+  const reveal = btns.find((b) => b.textContent === "Reveal logs folder");
+  const exp = btns.find((b) => b.textContent === "Export session log");
+  assert.ok(reveal && exp, "reveal + export buttons render in the support panel");
+
+  reveal!.click();
+  exp!.click();
+  assert.ok(posted.some((m) => m.type === "reveal_logs_folder"), "reveal posts reveal_logs_folder");
+  assert.ok(posted.some((m) => m.type === "export_session_log"), "export posts export_session_log");
+
+  post(dom, { type: "logs_status", text: "Session log exported." });
+  assert.match((document.getElementById("scDiag") as HTMLElement).textContent ?? "", /exported/i, "logs_status updates the status line");
+});
