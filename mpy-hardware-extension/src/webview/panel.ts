@@ -216,10 +216,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // start_session before the loop writes anything (see snapshotExistingPaths).
   const preExistingPaths = new Set<string>();
   const isPreExisting = (p: string) => preExistingPaths.has(resolve(p));
-  const confirmOverwrite = async (target: string) =>
-    (await vscode.window?.showWarningMessage?.(`Overwrite ${target}?`, "Overwrite", "Cancel")) === "Overwrite";
-  const confirmDelete = async (target: string) =>
-    (await vscode.window?.showWarningMessage?.(`Delete ${target}?`, "Delete", "Cancel")) === "Delete";
+  // The destructive-file confirm is shown as an in-panel card by the controller (deliverables
+  // 07 §4). Late-bound: the writer/deleter capture these stable closures now, but the real
+  // controller.confirmFileOp is wired in after the controller exists (below). Until then (and
+  // in any host with no controller) they resolve false — keep the file — the safe default.
+  let confirmFileOp: (op: "overwrite" | "delete", target: string) => Promise<boolean> = async () => false;
+  const confirmOverwrite = (target: string) => confirmFileOp("overwrite", target);
+  const confirmDelete = (target: string) => confirmFileOp("delete", target);
   // Let the webview load artifact images (svg/png) it references via asWebviewUri (task-03).
   // Roots cover the workspace (project + .mpyhw logs), the globalStorage fallback, and the
   // extension assets. Guarded: a headless/test host may not have vscode.Uri or settable options.
@@ -301,6 +304,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // generated project (blockless-project/) and the session log (.mpyhw/sessions/).
   let artifactIndex: Artifact[] = [];
   const artifactRoot = workspaceFolder ?? deps.globalStoragePath ?? projectFolder ?? "";
+  // Wire the destructive-file confirm to the controller's in-panel card (deliverables 07 §4),
+  // showing a RELATIVE path (§4.2 forbids an absolute/drive-letter path reaching the UI).
+  confirmFileOp = (op, target) => controller.confirmFileOp(op, toRelativeDisplayPath(artifactRoot, target));
   // sha256 the file contents, but bounded (#28 F4): the index rebuilds on every
   // phase_complete, and reading a whole multi-MB .bin/.uf2 synchronously on the extension-host
   // thread each time would jank the UI. Skip the hash above a size cap (the row still shows

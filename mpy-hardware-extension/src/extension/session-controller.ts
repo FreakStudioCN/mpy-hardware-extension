@@ -331,6 +331,21 @@ export class SessionController {
     });
   }
 
+  // Destructive-file gate (deliverables 07 §4): a HOST-initiated confirmation (not an LLM
+  // ask), shown as an in-panel card with the file path + Overwrite/Delete vs Ignore. Reuses
+  // the pendingPrompts round-trip, so the request (file_op_proposed) and the answer
+  // (ui_prompt_answer) are both recorded in the session log — durable proof without catching
+  // a toast. Resolves false (keep the file) on cancel/finish via cancelPrompts — the safe
+  // default for a destructive action. Answer "proceed" = do it; anything else = keep the file.
+  confirmFileOp(op: "overwrite" | "delete", path: string): Promise<boolean> {
+    const promptId = `file-${op}-${++this.promptSeq}`;
+    return new Promise<boolean>((resolve) => {
+      this.pendingPrompts.set(promptId, (answer) => resolve(answer === "proceed"));
+      this.record({ type: "file_op_proposed", promptId, op, path });
+      this.deps.postMessage({ type: "file_op_confirm_needed", promptId, op, path });
+    });
+  }
+
   resolvePrompt(promptId: string, answer: string | null, extra?: any) {
     const resolve = this.pendingPrompts.get(promptId);
     if (resolve) {

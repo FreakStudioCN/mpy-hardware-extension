@@ -1014,3 +1014,26 @@ test("reset() also hard-interrupts an in-flight device op (killDevice) so a new 
 
   assert.equal(killed, 1, "reset() supersede path also kills the in-flight device op");
 });
+
+test("confirmFileOp posts an in-panel confirm card carrying the path; proceed=true, else keep the file (§4)", async () => {
+  const messages: any[] = [];
+  const controller = new SessionController({ postMessage: (m) => messages.push(m), loop: async () => ({ terminal: "complete" }) });
+
+  const proceed = controller.confirmFileOp("overwrite", "firmware/main.py");
+  const card = messages.find((m) => m.type === "file_op_confirm_needed");
+  assert.ok(card, "posts a file_op_confirm_needed card (not a VS Code toast)");
+  assert.equal(card.op, "overwrite");
+  assert.equal(card.path, "firmware/main.py", "the card carries the file path for the in-chat prompt");
+  controller.resolvePrompt(card.promptId, "proceed");
+  assert.equal(await proceed, true, "proceed -> overwrite");
+
+  const ignored = controller.confirmFileOp("delete", "firmware/old.py");
+  const c2 = messages.find((m) => m.type === "file_op_confirm_needed" && m.path === "firmware/old.py");
+  controller.resolvePrompt(c2.promptId, "ignore");
+  assert.equal(await ignored, false, "ignore -> keep the file");
+
+  const cancelled = controller.confirmFileOp("overwrite", "firmware/x.py");
+  const c3 = messages.find((m) => m.type === "file_op_confirm_needed" && m.path === "firmware/x.py");
+  controller.resolvePrompt(c3.promptId, null); // session cancel/finish
+  assert.equal(await cancelled, false, "a cancelled prompt keeps the file (safe default for a destructive op)");
+});
