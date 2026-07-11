@@ -2010,6 +2010,16 @@ test("file_op_confirm_needed renders an in-panel card with the file path and pos
   assert.equal(reply2.answer, "ignore", "clicking Ignore posts the stable 'ignore' answer");
 });
 
+test("global tools: the scroll chevrons exist and stay hidden when the row fits", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // Guards the load path: a missing chevron id would throw in the arrow wiring and
+  // blank the panel. JSDOM has no layout, so no overflow -> both chevrons hidden.
+  assert.ok(document.getElementById("gtoolsLeft") && document.getElementById("gtoolsRight"), "both chevrons exist");
+  assert.ok(document.getElementById("gtoolsLeft").classList.contains("hidden"), "no overflow -> left chevron hidden");
+  assert.ok(document.getElementById("gtoolsRight").classList.contains("hidden"), "no overflow -> right chevron hidden");
+});
+
 test("device tools: clicking the Device Tools button shows its surface and hides the workflow", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;
@@ -2019,6 +2029,23 @@ test("device tools: clicking the Device Tools button shows its surface and hides
   assert.ok(!document.getElementById("toolDeviceTools").classList.contains("hidden"), "the Device Tools surface must be shown on open");
   assert.ok(document.getElementById("tabs").classList.contains("hidden"), "the workflow tabs hide behind a global tool");
   assert.ok(document.getElementById("toolSupport").classList.contains("hidden"), "the other global-tool surfaces stay hidden");
+});
+
+test("global tools: the open tool's circle is selected, switches without Back, and clears on Back", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  document.getElementById("deviceToolsOpen").click();
+  assert.ok(document.getElementById("deviceToolsOpen").classList.contains("active"), "the open tool is selected");
+  assert.equal(document.getElementById("deviceToolsOpen").getAttribute("aria-current"), "true", "selection is exposed to screen readers");
+  assert.ok(!document.getElementById("supportOpen").classList.contains("active"), "other tools are not selected");
+  // the bar persists, so clicking another tool switches the surface + the selection
+  document.getElementById("supportOpen").click();
+  assert.ok(document.getElementById("supportOpen").classList.contains("active"), "switching moves the selection");
+  assert.ok(!document.getElementById("deviceToolsOpen").classList.contains("active"), "the previous tool deselects");
+  assert.equal(document.getElementById("deviceToolsOpen").getAttribute("aria-current"), null, "the previous tool drops aria-current");
+  document.getElementById("supportBack").click();
+  assert.ok(!document.getElementById("supportOpen").classList.contains("active"), "Back clears the selection");
+  assert.equal(document.getElementById("supportOpen").getAttribute("aria-current"), null, "Back clears aria-current");
 });
 
 test("device tools: a list result renders device-file rows and hides the empty state", async () => {

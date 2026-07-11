@@ -79,10 +79,30 @@
       .quota.exhausted .quota-warn { color: #ff7b72; background: #f14c4c14; border-color: #f14c4c33; }
 
       /* tabs */
-      .gtools { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--vsc-border); }
-      .gtool-btn { display: flex; align-items: center; gap: 6px; padding: 5px 10px; font: inherit; font-size: 12px;
-        color: var(--fg); background: transparent; border: 1px solid var(--vsc-border); border-radius: 4px; cursor: pointer; }
-      .gtool-btn:hover { color: var(--fg-bright); border-color: var(--accent); }
+      /* Global tools: icon-only circles, centered; each expands to a pill on hover.
+         The track scrolls horizontally with chevrons that show only when it clips. */
+      .gtools-wrap { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; padding: 6px 6px; border-bottom: 1px solid var(--vsc-border); }
+      .gtools { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; overflow-x: auto; scroll-behavior: smooth;
+        justify-content: safe center; scrollbar-width: none; }
+      .gtools::-webkit-scrollbar { display: none; }
+      .gtool-btn { flex: 0 0 auto; display: flex; align-items: center; height: 34px; min-width: 34px; padding: 0; overflow: hidden;
+        font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--vsc-border); border-radius: 999px; cursor: pointer;
+        transition: background .15s, border-color .15s, color .15s; }
+      .gtool-ic { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 32px; }
+      .gtool-label { max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap; font-size: 12px; padding-right: 0;
+        transition: max-width .45s ease, opacity .4s ease, padding-right .45s ease; }
+      .gtool-btn:hover, .gtool-btn:focus-visible { color: var(--fg-bright); border-color: var(--accent); background: var(--vsc-hover); }
+      /* Selected: the tool whose surface is currently open — stays an accent pill. */
+      .gtool-btn.active { color: var(--accent); border-color: var(--accent); background: var(--vsc-hover); }
+      /* Expand the label pill on hover, keyboard focus, or when selected. */
+      .gtool-btn:hover .gtool-label, .gtool-btn:focus-visible .gtool-label, .gtool-btn.active .gtool-label { max-width: 240px; opacity: 1; padding-right: 12px; }
+      @media (prefers-reduced-motion: reduce) {
+        .gtool-label { transition: none; }
+        .gtools { scroll-behavior: auto; }
+      }
+      .gtools-arrow { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 22px; height: 34px; padding: 0;
+        color: var(--fg-muted); background: transparent; border: 0; cursor: pointer; }
+      .gtools-arrow:hover { color: var(--fg-bright); }
       .tabs { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--vsc-border); padding: 0 4px; gap: 1px; }
       .tab { position: relative; padding: 9px 7px 8px; font-size: 12px; color: var(--fg-muted); white-space: nowrap;
         background: transparent; border: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;
