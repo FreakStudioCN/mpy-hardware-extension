@@ -1037,3 +1037,53 @@ test("confirmFileOp posts an in-panel confirm card carrying the path; proceed=tr
   controller.resolvePrompt(c3.promptId, null); // session cancel/finish
   assert.equal(await cancelled, false, "a cancelled prompt keeps the file (safe default for a destructive op)");
 });
+
+test("isRunning gates device tools: true while a run owns the port, false once it finishes", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async () => { await gate; return { terminal: "success" }; },
+  });
+
+  assert.equal(controller.isRunning(), false, "an idle controller is not running");
+  const run = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  await Promise.resolve();
+  assert.equal(controller.isRunning(), true, "a run in flight owns the device");
+  release();
+  await run;
+  assert.equal(controller.isRunning(), false, "the device is free once the run finishes");
+});
+
+test("reset() releases the device gate so device tools work after a Stop", async () => {
+  const gate = new Promise<void>(() => {}); // never resolves — a stuck run
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async () => { await gate; return { terminal: "success" }; },
+  });
+
+  const run = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  run.catch(() => {}); // the superseded run is left to unwind; ignore its settle
+  await Promise.resolve();
+  assert.equal(controller.isRunning(), true);
+  controller.reset();
+  assert.equal(controller.isRunning(), false, "reset() nulls abort so the device is free");
+});
+
+test("recordDeviceTool writes a device_tool log line for each command (spec 41 log artifacts)", async () => {
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => {},
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async () => ({ terminal: "complete" }),
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" }); // creates the session recorder
+  await controller.recordDeviceTool("list", { path: "/" }, { ok: true });
+  await controller.recordDeviceTool("mip_install", { url: "github:x" }, { ok: false, error: "boom" });
+
+  const tools = recorded.filter((e) => e.type === "device_tool");
+  assert.equal(tools.length, 2);
+  assert.equal(tools[0].command, "list"); assert.equal(tools[0].ok, true);
+  assert.equal(tools[1].command, "mip_install"); assert.equal(tools[1].ok, false); assert.equal(tools[1].error, "boom");
+});

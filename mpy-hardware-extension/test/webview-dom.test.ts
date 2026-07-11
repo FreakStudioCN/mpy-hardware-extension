@@ -2009,3 +2009,44 @@ test("file_op_confirm_needed renders an in-panel card with the file path and pos
   const reply2 = posted.find((m) => m.type === "ui_prompt_response" && m.promptId === "file-delete-1");
   assert.equal(reply2.answer, "ignore", "clicking Ignore posts the stable 'ignore' answer");
 });
+
+test("device tools: a list result renders device-file rows and hides the empty state", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py", "lib"] } });
+  const rows = document.querySelectorAll("#dtEntries .dt-row");
+  assert.equal(rows.length, 2);
+  assert.ok([...rows].some((r: any) => r.querySelector(".dt-name")?.textContent === "boot.py"));
+  assert.ok(document.getElementById("dtEmpty").classList.contains("hidden"));
+});
+
+test("device tools: device_busy shows the busy banner naming the owning phase", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_busy", phase: "flash" });
+  const banner = document.getElementById("dtBusy");
+  assert.ok(!banner.classList.contains("hidden"));
+  assert.match(banner.textContent, /flash/);
+});
+
+test("device tools: Install (mip) posts device_tool_mip with the url + version", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  document.getElementById("dtMipUrl").value = "github:org/repo/pkg";
+  document.getElementById("dtMipVersion").value = "1.2.3";
+  document.getElementById("dtMipInstall").click();
+  const mip = posted.find((m) => m.type === "device_tool_mip");
+  assert.ok(mip); assert.equal(mip.url, "github:org/repo/pkg"); assert.equal(mip.version, "1.2.3");
+});
+
+test("device tools: Delete on a listed entry posts device_tool_delete with the joined path", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/lib", entries: ["x.py"] } });
+  const row = [...document.querySelectorAll("#dtEntries .dt-row")].find((r: any) => r.querySelector(".dt-name")?.textContent === "x.py");
+  (row as any).querySelector(".dt-del").click();
+  const del = posted.find((m) => m.type === "device_tool_delete");
+  assert.ok(del); assert.equal(del.path, "/lib/x.py");
+});
