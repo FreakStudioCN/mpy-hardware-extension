@@ -2058,6 +2058,15 @@ test("device tools: a list result renders device-file rows and hides the empty s
   assert.ok(document.getElementById("dtEmpty").classList.contains("hidden"));
 });
 
+test("device tools: a mutation's result stays visible; the auto-refresh does not clobber it", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // an mkdir success sets the status, then silently refreshes the listing
+  post(dom, { type: "device_tool_result", command: "mkdir", result: { path: "/x" } });
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  assert.match(document.getElementById("dtStatus").textContent, /mkdir done/i, "the done message survives the auto-refresh");
+});
+
 test("device tools: device_busy shows the busy banner naming the owning phase", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

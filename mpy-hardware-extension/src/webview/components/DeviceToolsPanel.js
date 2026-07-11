@@ -39,10 +39,10 @@
           const row = document.createElement("div"); row.className = "dt-row";
           const label = document.createElement("span"); label.className = "dt-name"; label.textContent = name;
           const full = dtJoin(path, name);
-          const dl = dtActionButton(tr("dt_download"), () => vscode.postMessage({ type: "device_tool_download", path: full }));
+          const dl = dtActionButton(tr("dt_download"), () => { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_download", path: full }); });
           // Destructive: arm on the first click, delete on the second (auto-disarms).
           const del = dtActionButton(tr("dt_delete"), () => {
-            if (del.dataset.armed) { vscode.postMessage({ type: "device_tool_delete", path: full }); return; }
+            if (del.dataset.armed) { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_delete", path: full }); return; }
             del.dataset.armed = "1"; del.textContent = tr("dt_confirm_del");
             setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = tr("dt_delete"); } }, DT_CONFIRM_MS);
           });
@@ -51,11 +51,21 @@
         }
       }
 
+      // A post-mutation refresh re-lists the files WITHOUT touching the status, so the
+      // "done"/"failed" message stays visible; a user-initiated List shows "Working…"
+      // and clears it on the result.
+      var dtSilentList = false;
+      function dtRefreshSilently() { dtSilentList = true; vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
+
       function onDeviceToolResult(command, result) {
         dtSetBusy(null);
-        if (command === "list") { dtRenderEntries((result && result.path) || "", result && result.entries); dtStatus(""); return; }
+        if (command === "list") {
+          dtRenderEntries((result && result.path) || "", result && result.entries);
+          if (dtSilentList) dtSilentList = false; else dtStatus("");
+          return;
+        }
         dtStatus(tr("dt_ok", { c: command }));
-        dtListCurrent(); // refresh the listing after any mutation
+        dtRefreshSilently(); // refresh the listing after any mutation, keeping the status
       }
       function onDeviceToolError(command, error) { dtSetBusy(null); dtStatus(tr("dt_err", { c: command, e: error })); }
       function onDeviceBusy(phase) { dtSetBusy(phase || tr("dt_busy_generic")); dtStatus(""); }
@@ -67,11 +77,13 @@
         $("dtMkdir").addEventListener("click", () => {
           const name = $("dtNewName").value.trim(); if (!name) return;
           $("dtNewName").value = "";
+          dtStatus(tr("dt_working"));
           vscode.postMessage({ type: "device_tool_mkdir", path: dtJoin(dtCurrentPath(), name) });
         });
-        $("dtUpload").addEventListener("click", () => vscode.postMessage({ type: "device_tool_upload", dir: dtCurrentPath() }));
+        $("dtUpload").addEventListener("click", () => { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_upload", dir: dtCurrentPath() }); });
         $("dtMipInstall").addEventListener("click", () => {
           const url = $("dtMipUrl").value.trim(); if (!url) return;
+          dtStatus(tr("dt_installing")); // mip fetches on the host then copies to the board — can take a while
           vscode.postMessage({ type: "device_tool_mip", url, version: $("dtMipVersion").value.trim() });
         });
       }
