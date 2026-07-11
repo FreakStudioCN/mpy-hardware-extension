@@ -144,7 +144,10 @@
         // board_id), so reading only board_id silently degraded to the "Target board"
         // placeholder and dropped the actual MCU from the diagram.
         const mcu = manifest && manifest.mcu;
-        const boardName = (mcu && (mcu.board || mcu.model)) || (manifest && manifest.board_id) || tr("target_board");
+        // select-hw+ manifests name the board under mcu.board_name (mcu.mcu is the chip
+        // fallback); older shapes use mcu.board/mcu.model or a top-level board_id. Reading
+        // only board/model degraded real manifests to the "Target board" placeholder.
+        const boardName = (mcu && (mcu.board || mcu.board_name || mcu.model || mcu.mcu)) || (manifest && manifest.board_id) || tr("target_board");
         let html = '<div class="wiring"><div class="wire-board">' +
           "<span><b>" + esc(boardName) + "</b> · " + componentCount(comps.length) + "</span></div>";
         for (const c of comps) {
