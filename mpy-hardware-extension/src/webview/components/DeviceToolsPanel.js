@@ -53,7 +53,7 @@
 
       function onDeviceToolResult(command, result) {
         dtSetBusy(null);
-        if (command === "list") { dtRenderEntries((result && result.path) || "", result && result.entries); return; }
+        if (command === "list") { dtRenderEntries((result && result.path) || "", result && result.entries); dtStatus(""); return; }
         dtStatus(tr("dt_ok", { c: command }));
         dtListCurrent(); // refresh the listing after any mutation
       }
