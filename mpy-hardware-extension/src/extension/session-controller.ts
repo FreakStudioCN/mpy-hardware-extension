@@ -693,12 +693,15 @@ export class SessionController {
 // cards. Whitelist (NOT mere presence) so a future plugin's non-renderable wiring —
 // e.g. a format->path map { json: "docs/wiring.json", md: ... } — is treated as absent
 // and the derived { buses, standalone } fills the tab instead of leaving it empty.
-// Legacy authored flat [{ role, pin }] arrays and derived { buses/standalone } objects
-// are the two renderable shapes; everything else derives.
+// buildComponents renders THREE shapes: a legacy flat [{ role, pin }] array, the
+// { buses[], standalone[] } device-identity object, and the legacy bus-keyed
+// { i2c: { sda, scl, devices } } object. The latter two are objects carrying a nested
+// value; the path map has only string values, so it stays non-renderable and is derived
+// over. Missing a shape here regresses the tab to empty the moment such a manifest lands.
 function hasRenderableWiring(wiring: any): boolean {
   if (Array.isArray(wiring)) return wiring.length > 0;
-  if (wiring && typeof wiring === "object") return Array.isArray(wiring.buses) || Array.isArray(wiring.standalone);
-  return false;
+  if (!wiring || typeof wiring !== "object") return false;
+  return Object.values(wiring).some((v) => v != null && typeof v === "object");
 }
 
 function createTraceId() {

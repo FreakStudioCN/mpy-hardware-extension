@@ -1102,6 +1102,20 @@ test("manifest_updated with authored renderable wiring is passed through verbati
   assert.strictEqual(manifest.manifest, authored, "a renderable manifest is posted by reference, not shallow-copied");
 });
 
+test("manifest_updated with legacy bus-keyed wiring is passed through, not derived over", async () => {
+  // { i2c: { sda, scl, devices } } is the THIRD shape buildComponents renders. With no
+  // devices[], deriving over it would yield an empty { buses:[], standalone:[] } and blank
+  // the tab — so the guard must recognise it as renderable and pass it through. The
+  // webview-dom test for this shape posts straight to the DOM, bypassing the controller,
+  // so only a host-side test pins the chokepoint guard.
+  const busKeyed = { board_id: "esp32-s3-devkitc-1", wiring: { i2c: { sda: "GPIO5", scl: "GPIO6", devices: [{ address: "0x38", label: "AHT20" }] } } };
+  const messages = await runEvents([{ type: "manifest_updated", manifest: busKeyed }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.deepEqual(manifest.manifest.wiring, busKeyed.wiring, "bus-keyed wiring is preserved, not replaced by an empty derived shape");
+  assert.strictEqual(manifest.manifest, busKeyed, "a renderable bus-keyed manifest is posted by reference");
+});
+
 test("manifest_updated with a format->path-map wiring still derives a renderable shape (regression lock)", async () => {
   // The real wiring plugin's manifest.wiring is a format->path map, NOT a renderable
   // shape. A naive presence-guard would pass it through and regress the tab to empty;
@@ -1148,9 +1162,10 @@ test("deriving never mutates the loop's manifest object", async () => {
   assert.notStrictEqual(posted.manifest, loopManifest, "the enriched manifest is a distinct object");
 });
 
-test("the authored-diagram guard resets per build: a second run derives again", async () => {
-  // Build 1 has an authored diagram (guard latches). Build 2 must derive again — a
-  // guard cleared only once (single-site) would stay latched and leave the tab empty.
+test("the authored-diagram guard resets per build across reset(): a second run derives again", async () => {
+  // Build 1 has an authored diagram (guard latches). After reset(), build 2 must derive
+  // again. reset() clears the guard directly; this pins the reset() path (the run() clear
+  // is pinned separately by the no-reset continuation test below).
   const messages: any[] = [];
   let run = 0;
   const controller = new SessionController({
@@ -1169,5 +1184,30 @@ test("the authored-diagram guard resets per build: a second run derives again", 
 
   const diagrams = messages.filter((m) => m.type === "diagram_updated");
   assert.equal(diagrams.length, 2, "build one posts the authored diagram; build two derives its own");
+  assert.ok(diagrams[1].diagram.architecture.layers.some((l: any) => l.id === "driver"), "build two's diagram is the manifest-derived one");
+});
+
+test("the authored-diagram guard clears on every run() start, even without a reset (continuation)", async () => {
+  // A second start() on the same controller and board with NO reset() still re-enters run(),
+  // which must clear the guard — otherwise an authored diagram from build one stays latched
+  // and build two's manifest never emits its derived diagram. Pins run()'s clear specifically
+  // (the reset-based test above passes even if only reset() clears).
+  const messages: any[] = [];
+  let run = 0;
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent }: any) => {
+      run += 1;
+      if (run === 1) onEvent({ type: "diagram_updated", diagram: { architecture: { layers: [{ id: "custom", modules: [] }] }, flow: [] } });
+      onEvent({ type: "manifest_updated", manifest: richManifest() });
+      return { terminal: "generated" };
+    },
+  });
+
+  await controller.start({ intent: "one", boardId: "esp32-s3-devkitc-1" });
+  await controller.start({ intent: "two", boardId: "esp32-s3-devkitc-1" }); // same board, NO reset
+
+  const diagrams = messages.filter((m) => m.type === "diagram_updated");
+  assert.equal(diagrams.length, 2, "build two derives its own diagram — run() cleared the guard without a reset");
   assert.ok(diagrams[1].diagram.architecture.layers.some((l: any) => l.id === "driver"), "build two's diagram is the manifest-derived one");
 });
