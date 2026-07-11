@@ -423,7 +423,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // no read-to-string on the shim, so copy+open is the "view" path.
   async function handleDeviceDownload(remotePath: string) {
     if (!workspaceFolder) { webview.postMessage({ type: "device_tool_error", command: "download", error: "no_workspace_folder" }); return; }
-    const localPath = `${workspaceFolder}/${remotePath.split("/").pop() || "device-file"}`;
+    // Device paths are POSIX (forward-slash); take the basename and join with the native
+    // separator so the host target is C:\ws\file.py on Windows, not a mixed C:\ws/file.py.
+    const localPath = join(workspaceFolder, remotePath.split("/").pop() || "device-file");
     await runDeviceTool("download", { remotePath, localPath }, async () => {
       await shim.copyFromDevice(remotePath, localPath);
       await vscode.window.showTextDocument?.(vscode.Uri.file(localPath));

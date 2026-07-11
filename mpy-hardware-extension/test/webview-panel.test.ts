@@ -534,6 +534,67 @@ const pipelineFetch = (async (url: string) => {
   throw new Error(`unexpected URL ${url}`);
 }) as unknown as typeof fetch;
 
+test("device tools reach the shim and post a result when idle", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    let listCalled = 0;
+    const shim = { listDir: async (_p: string) => { listCalled++; return ["boot.py", "lib"]; } };
+    const fetchImpl = (async () => { throw new Error("no api needed"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "device_tool_list", path: "/" });
+    assert.equal(listCalled, 1, "an idle device command reaches the shim");
+    const result = posted.find((m) => m.type === "device_tool_result");
+    assert.ok(result && result.command === "list", "and posts a device_tool_result");
+    assert.deepEqual(result.result.entries, ["boot.py", "lib"]);
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("device tools are refused with device_busy while a session run owns the port (spec §41)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    let listCalled = 0;
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {}, listDir: async () => { listCalled++; return ["boot.py"]; } };
+    // Protocol + toolchain checks resolve; the loop's first real call blocks on a gate so the
+    // run stays in-flight. `blocked` resolves exactly when we reach it (run() has set abort by
+    // then), so the busy check is deterministic. Releasing it (then erroring) unwinds the run.
+    let releaseFetch: () => void = () => {};
+    let reachedBlock: () => void = () => {};
+    const fetchGate = new Promise<void>((res) => { releaseFetch = res; });
+    const blocked = new Promise<void>((res) => { reachedBlock = res; });
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      reachedBlock();
+      await fetchGate;
+      throw new Error("stop");
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    const running = handler!({ type: "start_session", intent: "x", boardId: "esp32-s3-devkitc-1" });
+    await blocked; // the run is now in-flight, owning the device
+
+    await handler!({ type: "device_tool_list", path: "/" });
+    assert.ok(posted.some((m) => m.type === "device_busy"), "a device command during a run is refused with device_busy");
+    assert.equal(listCalled, 0, "the shim is not touched while a run owns the port");
+
+    releaseFetch(); // unblock the loop so the session errors out and the run finishes
+    await running.catch(() => {});
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
 function jsonResponse(body: unknown, status = 200) {
   return {
     ok: status >= 200 && status < 300,
