@@ -2010,6 +2010,17 @@ test("file_op_confirm_needed renders an in-panel card with the file path and pos
   assert.equal(reply2.answer, "ignore", "clicking Ignore posts the stable 'ignore' answer");
 });
 
+test("device tools: clicking the Device Tools button shows its surface and hides the workflow", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  document.getElementById("deviceToolsOpen").click();
+  // the bug: toolDeviceTools was missing from GLOBAL_TOOL_SURFACES, so open hid the
+  // whole workflow but never un-hid the surface -> a blank panel.
+  assert.ok(!document.getElementById("toolDeviceTools").classList.contains("hidden"), "the Device Tools surface must be shown on open");
+  assert.ok(document.getElementById("tabs").classList.contains("hidden"), "the workflow tabs hide behind a global tool");
+  assert.ok(document.getElementById("toolSupport").classList.contains("hidden"), "the other global-tool surfaces stay hidden");
+});
+
 test("device tools: a list result renders device-file rows and hides the empty state", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

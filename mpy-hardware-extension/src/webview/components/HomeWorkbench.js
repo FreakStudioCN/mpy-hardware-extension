@@ -32,7 +32,7 @@
       // hide), not inside the stage content area. Each global tool has its own surface;
       // opening one shows it and hides the others + the workflow.
       const GLOBAL_TOOL_HIDES = ["#globalTools", "#tabs", ".tabwrap", ".composer"];
-      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent"];
+      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent", "toolDeviceTools"];
       function openGlobalTool(id) {
         for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.add("hidden");
         for (const t of GLOBAL_TOOL_SURFACES) $(t).classList.toggle("hidden", t !== id);
