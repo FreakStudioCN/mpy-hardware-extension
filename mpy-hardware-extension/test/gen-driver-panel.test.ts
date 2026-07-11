@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import test from "node:test";
+import test, { after } from "node:test";
 
 import { JSDOM } from "jsdom";
 
@@ -16,6 +16,12 @@ const compDir = new URL("../src/webview/components/", import.meta.url);
 const compOrder: string[] = JSON.parse(readFileSync(new URL("manifest.json", compDir), "utf-8"));
 const webviewJs = compOrder.map((f) => readFileSync(new URL(f, compDir), "utf-8")).join("");
 const html = rawHtml.replace("/*__WEBVIEW_CSS__*/", () => webviewCss).replace("//__WEBVIEW_JS__", () => webviewJs);
+
+// DeviceToolsPanel installs a lifetime setInterval (presence poll). In a real webview the
+// page teardown kills it; here every loaded window leaks a live timer that keeps node's
+// event loop alive, so `node --test` never exits. Track and close each window at the end.
+const openDoms: JSDOM[] = [];
+after(() => { for (const d of openDoms) d.window.close(); });
 
 async function loadWebview(posted?: any[]): Promise<JSDOM> {
   const dom = new JSDOM(html, {
@@ -34,6 +40,7 @@ async function loadWebview(posted?: any[]): Promise<JSDOM> {
     if (dom.window.document.readyState === "complete") resolve();
     else dom.window.addEventListener("load", () => resolve());
   });
+  openDoms.push(dom);
   return dom;
 }
 
