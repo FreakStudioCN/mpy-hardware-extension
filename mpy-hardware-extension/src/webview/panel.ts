@@ -18,6 +18,7 @@ import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
 import { createDeviceShim, detectPython, venvReady, venvMpremoteVersion, installVenvAsync } from "../extension/device-shim.ts";
+import { DeviceCommandQueue } from "../extension/device-lock.ts";
 import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
@@ -199,6 +200,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
+  // Serializes user-initiated device-tool commands so two never overlap on the one
+  // serial port (#54, spec §41). The active-run gate is checked per command below.
+  const deviceQueue = new DeviceCommandQueue();
   const auth = createGithubAuth({ vscode, apiBaseUrl, fetchImpl, log: deps.log });
   const workspaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
   // Project output goes into a dedicated subfolder (see PROJECT_SUBDIR); session
@@ -382,6 +386,49 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return rest;
     });
     webview.postMessage({ type: "artifacts_index", artifacts: forWebview });
+  }
+
+  // Device Tools (#54): run a user-initiated device command. Refuse while a session
+  // run owns the port (device_busy — never silently compete with flash/deploy/
+  // gen-driver, spec §41); otherwise serialize on deviceQueue, log it, and post the
+  // result. `fn` returns the payload sent back with device_tool_result.
+  async function runDeviceTool(command: string, params: any, fn: () => Promise<any>) {
+    if (controller.isRunning()) {
+      webview.postMessage({ type: "device_busy", command, phase: controller.runningPhase() });
+      return;
+    }
+    try {
+      const result = await deviceQueue.runExclusive(fn);
+      await controller.recordDeviceTool(command, params, { ok: true });
+      webview.postMessage({ type: "device_tool_result", command, result });
+    } catch (error: any) {
+      const msg = error?.message ?? "device_tool_failed";
+      await controller.recordDeviceTool(command, params, { ok: false, error: msg });
+      webview.postMessage({ type: "device_tool_error", command, error: msg });
+    }
+  }
+
+  // Upload: pick a local file, write it to the current device dir under its basename.
+  async function handleDeviceUpload(dir: string) {
+    const picked = await vscode.window.showOpenDialog?.({ canSelectMany: false });
+    const uri = picked?.[0];
+    if (!uri) return;
+    const content = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+    const base = uri.fsPath.split(/[\\/]/).pop();
+    const remote = dir ? `${dir.replace(/\/$/, "")}/${base}` : base;
+    await runDeviceTool("upload", { remote }, async () => { await shim.writeDeviceFile(remote, content); return { path: remote }; });
+  }
+
+  // Download: copy a device file into the workspace and open it — device files have
+  // no read-to-string on the shim, so copy+open is the "view" path.
+  async function handleDeviceDownload(remotePath: string) {
+    if (!workspaceFolder) { webview.postMessage({ type: "device_tool_error", command: "download", error: "no_workspace_folder" }); return; }
+    const localPath = `${workspaceFolder}/${remotePath.split("/").pop() || "device-file"}`;
+    await runDeviceTool("download", { remotePath, localPath }, async () => {
+      await shim.copyFromDevice(remotePath, localPath);
+      await vscode.window.showTextDocument?.(vscode.Uri.file(localPath));
+      return { path: remotePath, localPath };
+    });
   }
 
   webview.onDidReceiveMessage(async (message: any) => {
@@ -615,6 +662,26 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         webview.postMessage({ type: "deploy_ports_updated", ports: [] });
       }
+    }
+    if (message.type === "device_tool_list") {
+      const path = typeof message.path === "string" ? message.path : "";
+      await runDeviceTool("list", { path }, async () => ({ path, entries: await shim.listDir(path) }));
+    }
+    if (message.type === "device_tool_mkdir" && typeof message.path === "string") {
+      await runDeviceTool("mkdir", { path: message.path }, async () => { await shim.makeDir(message.path); return { path: message.path }; });
+    }
+    if (message.type === "device_tool_delete" && typeof message.path === "string") {
+      await runDeviceTool("delete", { path: message.path }, async () => { await shim.removePath(message.path); return { path: message.path }; });
+    }
+    if (message.type === "device_tool_mip" && typeof message.url === "string") {
+      const version = typeof message.version === "string" && message.version ? message.version : undefined;
+      await runDeviceTool("mip_install", { url: message.url, version }, async () => { await shim.installPackage(message.url, version); return { url: message.url }; });
+    }
+    if (message.type === "device_tool_upload") {
+      await handleDeviceUpload(typeof message.dir === "string" ? message.dir : "");
+    }
+    if (message.type === "device_tool_download" && typeof message.path === "string") {
+      await handleDeviceDownload(message.path);
     }
     if (message.type === "run_doctor_check" || message.type === "doctor_action") {
       // Environment preflight for the Doctor tab. "install_deps" runs the async (non-
