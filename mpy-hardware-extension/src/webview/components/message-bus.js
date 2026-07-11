@@ -14,6 +14,7 @@
         if (msg.type === "device_tool_result") { onDeviceToolResult(msg.command, msg.result); }
         if (msg.type === "device_tool_error") { onDeviceToolError(msg.command, msg.error); }
         if (msg.type === "device_busy") { onDeviceBusy(msg.phase); }
+        if (msg.type === "device_present") { onDevicePresent(msg.present); }
         if (msg.type === "logs_status") { const n = $("scDiag"); if (n) n.textContent = msg.text; }
         if (msg.type === "partners_config") { renderPartners(msg.partners); }
         if (msg.type === "recent_sessions") { renderRecent(msg.sessions); }

@@ -722,6 +722,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "device_tool_download" && typeof message.path === "string") {
       await handleDeviceDownload(message.path);
     }
+    if (message.type === "device_presence") {
+      // Device Tools presence poll: a host-side port scan (lists ports, never opens one, so
+      // it's safe during a flash) lets the tab show "no device" and revert on unplug.
+      try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }
+      catch { webview.postMessage({ type: "device_present", present: false }); }
+    }
     if (message.type === "run_doctor_check" || message.type === "doctor_action") {
       // Environment preflight for the Doctor tab. "install_deps" runs the async (non-
       // blocking) venv installer first; every action then re-runs the same checks and

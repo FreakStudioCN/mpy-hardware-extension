@@ -462,3 +462,17 @@
       .dt-name { flex: 1; font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .dt-mip { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); flex-wrap: wrap; }
       .dt-status { margin-top: 8px; font-size: 12px; color: var(--fg-dim); }
+      /* Breadcrumb path navigation. */
+      .dt-crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-bottom: 8px; font-family: var(--mono); font-size: 12px; color: var(--fg-dim); }
+      .dt-crumb { font: inherit; color: var(--accent); background: transparent; border: 0; padding: 1px 3px; border-radius: 3px; cursor: pointer; }
+      .dt-crumb:hover { background: var(--vsc-hover); color: var(--fg-bright); }
+      /* Add / manage disclosure: collapsed by default; controls stacked one per row. */
+      .dt-actions { margin-bottom: 8px; }
+      .dt-sum { font-size: 12px; color: var(--fg-dim); cursor: pointer; padding: 4px 2px; user-select: none; }
+      .dt-sum:hover { color: var(--fg-bright); }
+      .dt-actions[open] .dt-sum { color: var(--fg-bright); }
+      .dt-actions-body { display: flex; flex-direction: column; gap: 6px; padding: 6px 2px 2px; }
+      /* Folder rows: the whole name is a click-to-descend button. */
+      .dt-navbtn { text-align: left; font: inherit; background: transparent; border: 0; color: var(--fg); cursor: pointer; padding: 0; }
+      .dt-navbtn:hover { color: var(--accent); }
+      .dt-dir .dt-name { font-weight: 600; }

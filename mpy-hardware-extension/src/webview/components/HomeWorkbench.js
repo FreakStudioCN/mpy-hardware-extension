@@ -58,8 +58,9 @@
       $("genDriverBack").addEventListener("click", closeGlobalTool);
       $("supportOpen").addEventListener("click", () => openGlobalTool("toolSupport"));
       $("supportBack").addEventListener("click", closeGlobalTool);
-      // Device Tools global tool (#54): open the surface and list the device root.
-      $("deviceToolsOpen").addEventListener("click", () => { openGlobalTool("toolDeviceTools"); dtListCurrent(); });
+      // Device Tools global tool (#54): open the surface and check for a device — it lists
+      // the root if one is connected, else shows the "plug in a device" state.
+      $("deviceToolsOpen").addEventListener("click", () => { openGlobalTool("toolDeviceTools"); dtCheckDevice(); });
       $("deviceToolsBack").addEventListener("click", closeGlobalTool);
       // Global-tools overflow: any number of circle tools fit — the row scrolls and the
       // chevrons show only when it clips (recomputed on scroll/resize).

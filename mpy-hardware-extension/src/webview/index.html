@@ -172,25 +172,31 @@
           <span class="tool-title" data-i18n="device_tools">Device Tools</span>
         </div>
         <div class="tool-body">
-          <div class="dt-busy hidden" id="dtBusy"></div>
-          <div class="dt-row dt-controls">
-            <input type="text" id="dtPath" class="dt-input" placeholder="/" data-i18n-ph="dt_path_ph" />
-            <button type="button" class="dt-act" id="dtList" data-i18n="dt_list">List</button>
-            <button type="button" class="dt-act" id="dtUp" data-i18n="dt_up">Up</button>
-            <button type="button" class="dt-act" id="dtUpload" data-i18n="dt_upload">Upload</button>
+          <!-- The whole control set only makes sense with a board attached; hidden until
+               a device is present (dtNoDev shows instead). -->
+          <div id="dtDeviceUi" class="hidden">
+            <div class="dt-busy hidden" id="dtBusy"></div>
+            <!-- Breadcrumb path is the primary navigation; click a crumb to jump up. -->
+            <div class="dt-crumbs" id="dtCrumbs"></div>
+            <!-- Add / manage controls, collapsed by default so the file list is the focus. -->
+            <details class="dt-actions">
+              <summary class="dt-sum" data-i18n="dt_actions">Add or manage</summary>
+              <div class="dt-actions-body">
+                <input type="text" id="dtPath" class="dt-input" placeholder="/" data-i18n-ph="dt_path_ph" title="Type a path and press Enter" />
+                <button type="button" class="dt-act" id="dtUpload" data-i18n="dt_upload">Upload</button>
+                <div class="dt-row"><input type="text" id="dtNewName" class="dt-input" placeholder="new-folder" data-i18n-ph="dt_newname_ph" /><button type="button" class="dt-act" id="dtMkdir" data-i18n="dt_mkdir">New folder</button></div>
+              </div>
+            </details>
+            <div id="dtEntries"></div>
+            <div class="empty hidden" id="dtEmpty"><h4 data-i18n="dt_empty_h">Empty folder</h4><p data-i18n="dt_empty_p">Nothing here on the connected board.</p></div>
+            <div class="dt-mip">
+              <input type="text" id="dtMipUrl" class="dt-input" placeholder="github:org/repo/pkg" data-i18n-ph="dt_mip_url_ph" />
+              <input type="text" id="dtMipVersion" class="dt-input dt-input-sm" placeholder="version" data-i18n-ph="dt_mip_version_ph" />
+              <button type="button" class="dt-act" id="dtMipInstall" data-i18n="dt_mip_install">Install (mip)</button>
+            </div>
+            <div class="dt-status" id="dtStatus"></div>
           </div>
-          <div class="dt-row dt-controls">
-            <input type="text" id="dtNewName" class="dt-input" placeholder="new-folder" data-i18n-ph="dt_newname_ph" />
-            <button type="button" class="dt-act" id="dtMkdir" data-i18n="dt_mkdir">New folder</button>
-          </div>
-          <div id="dtEntries"></div>
-          <div class="empty" id="dtEmpty"><h4 data-i18n="dt_empty_h">No files listed</h4><p data-i18n="dt_empty_p">List a path to browse files on the connected board.</p></div>
-          <div class="dt-mip">
-            <input type="text" id="dtMipUrl" class="dt-input" placeholder="github:org/repo/pkg" data-i18n-ph="dt_mip_url_ph" />
-            <input type="text" id="dtMipVersion" class="dt-input dt-input-sm" placeholder="version" data-i18n-ph="dt_mip_version_ph" />
-            <button type="button" class="dt-act" id="dtMipInstall" data-i18n="dt_mip_install">Install (mip)</button>
-          </div>
-          <div class="dt-status" id="dtStatus"></div>
+          <div class="empty" id="dtNoDev"><h4 data-i18n="dt_nodev_h">No device connected</h4><p data-i18n="dt_nodev_p">Plug in a MicroPython board to browse its files.</p></div>
         </div>
       </div>
 

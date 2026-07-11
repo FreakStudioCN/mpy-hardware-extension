@@ -5,12 +5,53 @@
       // reflects results — device-supplied names go in via textContent (no HTML).
       function dtCurrentPath() { const n = $("dtPath"); return n ? n.value.trim() : ""; }
       function dtJoin(dir, name) { return dir ? dir.replace(/\/+$/, "") + "/" + name : name; }
-      function dtParent(dir) { return dir.replace(/\/+$/, "").split("/").slice(0, -1).join("/"); }
+      // Navigate to an absolute device path and list it (auto-list — no List/Up buttons).
+      function dtNavigate(path) {
+        const abs = !path || path === "/" ? "/" : (path.charAt(0) === "/" ? path : "/" + path);
+        const p = $("dtPath"); if (p) p.value = abs;
+        dtListCurrent();
+      }
+      function dtCrumb(text, target) {
+        const b = document.createElement("button"); b.type = "button"; b.className = "dt-crumb"; b.textContent = text;
+        b.addEventListener("click", () => dtNavigate(target)); return b;
+      }
+      // Render the current path as clickable breadcrumbs: / › lib › drivers
+      function dtRenderCrumbs(path) {
+        const host = $("dtCrumbs"); if (!host) return;
+        host.innerHTML = "";
+        host.appendChild(dtCrumb("/", "/"));
+        let prefix = "";
+        for (const seg of (path || "").split("/").filter(Boolean)) {
+          prefix += "/" + seg;
+          host.appendChild(document.createTextNode(" › "));
+          host.appendChild(dtCrumb(seg, prefix));
+        }
+      }
       function dtStatus(text) { const n = $("dtStatus"); if (n) n.textContent = text || ""; }
       function dtListCurrent() { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
 
       // How long a Delete stays armed ("Confirm?") before disarming.
       var DT_CONFIRM_MS = 3000;
+      // How often to re-check the device is still plugged in while the tab is open.
+      var DT_POLL_MS = 2500;
+      // Start "no device" (unknown) until a scan confirms one; the tab shows "plug in a
+      // device" and reverts here when the board is unplugged.
+      var dtNoDevice = true;
+
+      function dtCheckDevice() { vscode.postMessage({ type: "device_presence" }); }
+      function dtShowNoDevice() {
+        dtNoDevice = true;
+        const entries = $("dtEntries"); if (entries) entries.innerHTML = "";
+        const crumbs = $("dtCrumbs"); if (crumbs) crumbs.innerHTML = "";
+        dtStatus("");
+        const ui = $("dtDeviceUi"); if (ui) ui.classList.add("hidden"); // hide all controls (crumbs/add/mip)
+        const nodev = $("dtNoDev"); if (nodev) nodev.classList.remove("hidden");
+      }
+      // Host reply to the presence poll: gone -> show the no-device state; came back -> list root.
+      function onDevicePresent(present) {
+        if (!present) { dtShowNoDevice(); return; }
+        if (dtNoDevice) { dtNoDevice = false; dtNavigate("/"); }
+      }
 
       // phase set => a session run owns the port; null hides the banner. While busy, disable
       // the controls too so a click can't queue a command that will just be refused.
@@ -30,24 +71,39 @@
 
       function dtRenderEntries(path, entries) {
         dtSetBusy(null);
+        dtNoDevice = false;
+        const ui = $("dtDeviceUi"); if (ui) ui.classList.remove("hidden"); // show controls again
+        const nodev = $("dtNoDev"); if (nodev) nodev.classList.add("hidden");
+        dtRenderCrumbs(path);
         const host = $("dtEntries"); if (!host) return;
         const pathInput = $("dtPath"); if (pathInput) pathInput.value = path;
         host.innerHTML = "";
         const list = Array.isArray(entries) ? entries : [];
         $("dtEmpty").classList.toggle("hidden", list.length > 0);
-        for (const name of list) {
-          const row = document.createElement("div"); row.className = "dt-row";
-          const label = document.createElement("span"); label.className = "dt-name"; label.textContent = name;
+        // mpremote fs ls marks a directory with a trailing "/" (serve.py). Folders are
+        // click-to-descend; files carry download/delete.
+        for (const raw of list) {
+          const isDir = raw.charAt(raw.length - 1) === "/";
+          const name = isDir ? raw.slice(0, -1) : raw;
           const full = dtJoin(path, name);
-          const dl = dtActionButton(tr("dt_download"), () => { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_download", path: full }); });
-          // Destructive: arm on the first click, delete on the second (auto-disarms).
-          const del = dtActionButton(tr("dt_delete"), () => {
-            if (del.dataset.armed) { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_delete", path: full }); return; }
-            del.dataset.armed = "1"; del.textContent = tr("dt_confirm_del");
-            setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = tr("dt_delete"); } }, DT_CONFIRM_MS);
-          });
-          del.classList.add("dt-del");
-          row.append(label, dl, del); host.appendChild(row);
+          const row = document.createElement("div"); row.className = "dt-row" + (isDir ? " dt-dir" : "");
+          if (isDir) {
+            const nav = document.createElement("button"); nav.type = "button"; nav.className = "dt-name dt-navbtn"; nav.textContent = name + "/";
+            nav.addEventListener("click", () => dtNavigate(full));
+            row.appendChild(nav);
+          } else {
+            const label = document.createElement("span"); label.className = "dt-name"; label.textContent = name;
+            const dl = dtActionButton(tr("dt_download"), () => { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_download", path: full }); });
+            // Destructive: arm on the first click, delete on the second (auto-disarms).
+            const del = dtActionButton(tr("dt_delete"), () => {
+              if (del.dataset.armed) { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_delete", path: full }); return; }
+              del.dataset.armed = "1"; del.textContent = tr("dt_confirm_del");
+              setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = tr("dt_delete"); } }, DT_CONFIRM_MS);
+            });
+            del.classList.add("dt-del");
+            row.append(label, dl, del);
+          }
+          host.appendChild(row);
         }
       }
 
@@ -67,13 +123,18 @@
         dtStatus(tr("dt_ok", { c: command }));
         dtRefreshSilently(); // refresh the listing after any mutation, keeping the status
       }
-      function onDeviceToolError(command, error) { dtSetBusy(null); dtStatus(tr("dt_err", { c: command, e: error })); }
+      function onDeviceToolError(command, error) {
+        dtSetBusy(null);
+        // A command that failed because the board is gone -> revert to the no-device state
+        // immediately (don't wait for the next poll), instead of a confusing error.
+        if (/device_unavailable|no device|could not open|failed to access/i.test(String(error))) { dtShowNoDevice(); return; }
+        dtStatus(tr("dt_err", { c: command, e: error }));
+      }
       function onDeviceBusy(phase) { dtSetBusy(phase || tr("dt_busy_generic")); dtStatus(""); }
 
       // Controls live in the DOM at load (the tool-view is hidden, not removed).
-      if ($("dtList")) {
-        $("dtList").addEventListener("click", dtListCurrent);
-        $("dtUp").addEventListener("click", () => { const p = $("dtPath"); if (p) p.value = dtParent(dtCurrentPath()); dtListCurrent(); });
+      if ($("dtPath")) {
+        $("dtPath").addEventListener("keydown", (e) => { if (e.key === "Enter") dtListCurrent(); }); // fallback path entry
         $("dtMkdir").addEventListener("click", () => {
           const name = $("dtNewName").value.trim(); if (!name) return;
           $("dtNewName").value = "";
@@ -86,4 +147,10 @@
           dtStatus(tr("dt_installing")); // mip fetches on the host then copies to the board — can take a while
           vscode.postMessage({ type: "device_tool_mip", url, version: $("dtMipVersion").value.trim() });
         });
+        // Poll device presence only while the tab is open, so the file list reflects an
+        // unplug within a couple of seconds (the scan is a host-side port list — no port open).
+        setInterval(() => {
+          const view = $("toolDeviceTools");
+          if (view && !view.classList.contains("hidden")) dtCheckDevice();
+        }, DT_POLL_MS);
       }

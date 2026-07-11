@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import test from "node:test";
+import test, { after } from "node:test";
 
 import { JSDOM } from "jsdom";
 
@@ -20,6 +20,12 @@ const compOrder: string[] = JSON.parse(readFileSync(new URL("manifest.json", com
 const webviewJs = compOrder.map((f) => readFileSync(new URL(f, compDir), "utf-8")).join("");
 const html = rawHtml.replace("/*__WEBVIEW_CSS__*/", () => webviewCss).replace("//__WEBVIEW_JS__", () => webviewJs);
 
+// DeviceToolsPanel installs a lifetime setInterval (presence poll). In a real webview the
+// page teardown kills it; here every loaded window leaks a live timer that keeps node's
+// event loop alive, so `node --test` never exits. Track and close each window at the end.
+const openDoms: JSDOM[] = [];
+after(() => { for (const d of openDoms) d.window.close(); });
+
 async function loadWebview(posted?: any[]): Promise<JSDOM> {
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
@@ -35,6 +41,7 @@ async function loadWebview(posted?: any[]): Promise<JSDOM> {
     if (dom.window.document.readyState === "complete") resolve();
     else dom.window.addEventListener("load", () => resolve());
   });
+  openDoms.push(dom);
   return dom;
 }
 
@@ -121,6 +128,7 @@ test("the last-used preference mode persists across panel reopens", async () => 
       if (dom.window.document.readyState === "complete") resolve();
       else dom.window.addEventListener("load", () => resolve());
     });
+    openDoms.push(dom);
     return dom;
   };
 
@@ -2056,6 +2064,41 @@ test("device tools: a list result renders device-file rows and hides the empty s
   assert.equal(rows.length, 2);
   assert.ok([...rows].some((r: any) => r.querySelector(".dt-name")?.textContent === "boot.py"));
   assert.ok(document.getElementById("dtEmpty").classList.contains("hidden"));
+});
+
+test("device tools: folders are click-to-descend, files carry actions, breadcrumbs jump up", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["lib/", "boot.py"] } });
+  const dirBtn = [...document.querySelectorAll("#dtEntries .dt-navbtn")].find((b: any) => b.textContent === "lib/");
+  assert.ok(dirBtn, "a folder (trailing /) renders as a click-to-descend button");
+  const fileRow = [...document.querySelectorAll("#dtEntries .dt-row")].find((r: any) => r.querySelector(".dt-name")?.textContent === "boot.py");
+  assert.ok((fileRow as any).querySelector(".dt-del"), "a file has a delete action; a folder does not");
+  (dirBtn as any).click();
+  assert.ok(posted.some((m) => m.type === "device_tool_list" && m.path === "/lib"), "clicking a folder lists it");
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/lib", entries: [] } });
+  const rootCrumb = [...document.querySelectorAll("#dtCrumbs .dt-crumb")].find((b: any) => b.textContent === "/");
+  (rootCrumb as any).click();
+  assert.ok(posted.some((m) => m.type === "device_tool_list" && m.path === "/"), "the root breadcrumb navigates to /");
+});
+
+test("device tools: shows a no-device state until a board is present, and reverts on unplug", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_present", present: false });
+  assert.ok(!document.getElementById("dtNoDev").classList.contains("hidden"), "the 'plug in a device' state shows with no board");
+  assert.ok(document.getElementById("dtDeviceUi").classList.contains("hidden"), "all controls (add/manage, mip) hide with no board");
+  post(dom, { type: "device_present", present: true });
+  assert.ok(posted.some((m) => m.type === "device_tool_list" && m.path === "/"), "a connected board lists its root");
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py"] } });
+  assert.ok(document.getElementById("dtNoDev").classList.contains("hidden"), "no-device hidden while a board is present");
+  assert.ok(!document.getElementById("dtDeviceUi").classList.contains("hidden"), "controls shown while a board is present");
+  post(dom, { type: "device_present", present: false });
+  assert.ok(!document.getElementById("dtNoDev").classList.contains("hidden"), "unplugging reverts to the no-device state");
+  assert.ok(document.getElementById("dtDeviceUi").classList.contains("hidden"), "controls hide again on unplug");
+  assert.equal(document.getElementById("dtEntries").children.length, 0, "the file list is cleared on unplug");
 });
 
 test("device tools: a mutation's result stays visible; the auto-refresh does not clobber it", async () => {
