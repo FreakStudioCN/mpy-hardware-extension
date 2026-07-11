@@ -255,9 +255,10 @@ export class SessionController {
   }
 
   // A session run owns the serial port from run()'s start until its finally clears
-  // `abort` (and reset() nulls it). Device tools gate on this so a user command
-  // never competes with an in-flight flash/deploy/gen-driver on the same port (spec
-  // §41). reset() nulls abort, so an idle controller reads as not running.
+  // `abort` (and reset() nulls it). Device tools gate on this so a user command never
+  // competes with an in-flight run's device ops (flash/deploy today; gen-driver's
+  // hardware phase once it runs through the session) on the same port (spec §41).
+  // reset() nulls abort, so an idle controller reads as not running.
   isRunning(): boolean {
     return this.abort !== null;
   }

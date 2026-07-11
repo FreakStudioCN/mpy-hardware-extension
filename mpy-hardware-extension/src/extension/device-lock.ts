@@ -2,7 +2,8 @@
 // device-tool commands (list files, mip install, ...) must run one at a time and
 // never overlap each other on the port. This queue serializes them; the separate
 // "a session run owns the device" gate (SessionController.isRunning) lives at the
-// call site and refuses tool commands during flash/deploy/gen-driver (spec §41).
+// call site and refuses tool commands during a run's device ops (flash/deploy today;
+// gen-driver's hardware phase once it runs through the session) — spec §41.
 export class DeviceCommandQueue {
   // The tail of the run chain. Never rejects (rejections are swallowed below), so a
   // failing command can't wedge the queue for the commands behind it.

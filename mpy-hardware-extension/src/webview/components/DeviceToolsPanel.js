@@ -9,10 +9,16 @@
       function dtStatus(text) { const n = $("dtStatus"); if (n) n.textContent = text || ""; }
       function dtListCurrent() { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
 
-      // phase set => a session run owns the port; null hides the banner.
+      // How long a Delete stays armed ("Confirm?") before disarming.
+      var DT_CONFIRM_MS = 3000;
+
+      // phase set => a session run owns the port; null hides the banner. While busy, disable
+      // the controls too so a click can't queue a command that will just be refused.
       function dtSetBusy(phase) {
         const banner = $("dtBusy"); if (!banner) return;
-        if (!phase) { banner.classList.add("hidden"); return; }
+        const busy = !!phase;
+        document.querySelectorAll("#toolDeviceTools .dt-act, #toolDeviceTools .dt-input").forEach((el) => { el.disabled = busy; });
+        if (!busy) { banner.classList.add("hidden"); return; }
         banner.textContent = tr("dt_busy", { p: phase });
         banner.classList.remove("hidden");
       }
@@ -34,7 +40,12 @@
           const label = document.createElement("span"); label.className = "dt-name"; label.textContent = name;
           const full = dtJoin(path, name);
           const dl = dtActionButton(tr("dt_download"), () => vscode.postMessage({ type: "device_tool_download", path: full }));
-          const del = dtActionButton(tr("dt_delete"), () => vscode.postMessage({ type: "device_tool_delete", path: full }));
+          // Destructive: arm on the first click, delete on the second (auto-disarms).
+          const del = dtActionButton(tr("dt_delete"), () => {
+            if (del.dataset.armed) { vscode.postMessage({ type: "device_tool_delete", path: full }); return; }
+            del.dataset.armed = "1"; del.textContent = tr("dt_confirm_del");
+            setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = tr("dt_delete"); } }, DT_CONFIRM_MS);
+          });
           del.classList.add("dt-del");
           row.append(label, dl, del); host.appendChild(row);
         }

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 
 import { ShimProcess } from "./shim-process.ts";
-import { normalizeGeneratedArtifactPath } from "./workspace-writer.ts";
+import { normalizeGeneratedArtifactPath, sanitizeDevicePath } from "./workspace-writer.ts";
 
 // Adapter the agent loop's `shim` expects (scan / installPackage / writeMainPy /
 // flashAndRun / serialReadUntil), implemented over a JSON-RPC `request` to the
@@ -82,6 +82,16 @@ export class DeviceShim {
     const port = await this.ensurePort();
     const safePath = normalizeGeneratedArtifactPath(path, { allowMain: false, allowManifest: false, allowLib: true, allowFirmware: true });
     if (!safePath) throw new Error("invalid_generated_path");
+    const r = await this.rpc("device.write_device_file", { path: safePath, code: content, port });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "write_failed");
+  }
+
+  // Device Tools upload: a user-chosen path (any name/ext/dir), validated by
+  // sanitizeDevicePath — NOT the codegen allowlist writeDeviceFile enforces.
+  async writeUserDeviceFile(path: string, content: string): Promise<void> {
+    const port = await this.ensurePort();
+    const safePath = sanitizeDevicePath(path);
+    if (!safePath) throw new Error("invalid_device_path");
     const r = await this.rpc("device.write_device_file", { path: safePath, code: content, port });
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "write_failed");
   }

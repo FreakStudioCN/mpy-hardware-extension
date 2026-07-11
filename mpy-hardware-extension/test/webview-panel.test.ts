@@ -556,6 +556,72 @@ test("device tools reach the shim and post a result when idle", async () => {
   }
 });
 
+test("device tools upload routes a user path to the shim (not the codegen allowlist) — N1", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const wrote: Array<{ path: string; content: string }> = [];
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }], fs: { readFile: async () => new TextEncoder().encode("print('hi')") } },
+      window: { createWebviewPanel: () => panel, showOpenDialog: async () => [{ fsPath: join(ws, "note.txt") }] },
+    };
+    const shim = { writeUserDeviceFile: async (path: string, content: string) => { wrote.push({ path, content }); } };
+    const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "device_tool_upload", dir: "" }); // root upload — the case that was broken
+    assert.equal(wrote.length, 1, "upload reached the shim's user-path write at the device root");
+    assert.equal(wrote[0].path, "note.txt", "a plain filename (no lib/firmware prefix) is accepted");
+    assert.ok(posted.some((m) => m.type === "device_tool_result" && m.command === "upload"));
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("device tools download rejects a traversal basename and never touches the port — N3", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const copied: any[] = [];
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const shim = { copyFromDevice: async (r: string, l: string) => { copied.push({ r, l }); } };
+    const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "device_tool_download", path: "/lib/.." });
+    assert.ok(posted.some((m) => m.type === "device_tool_error" && m.error === "invalid_device_path"), "traversal basename rejected");
+    assert.equal(copied.length, 0, "the shim/port is never touched for a rejected path");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("device tools download does not clobber an existing workspace file — N3", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    writeFileSync(join(ws, "boot.py"), "original");
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const copied: any[] = [];
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showTextDocument: async () => {} },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+    const shim = { copyFromDevice: async (r: string, l: string) => { copied.push({ r, l }); } };
+    const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "device_tool_download", path: "/boot.py" });
+    assert.equal(copied.length, 1);
+    assert.match(copied[0].l, /boot \(1\)\.py$/, "downloaded to a non-clobbering name");
+    assert.equal(readFileSync(join(ws, "boot.py"), "utf8"), "original", "the existing file is untouched");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 test("device tools are refused with device_busy while a session run owns the port (spec §41)", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
   try {

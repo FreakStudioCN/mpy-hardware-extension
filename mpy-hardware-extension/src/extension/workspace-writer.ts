@@ -109,6 +109,21 @@ export function normalizeGeneratedArtifactPath(name: string, options: { allowMai
   return null;
 }
 
+// A user-chosen device (MicroPython, POSIX) path for the Device Tools upload flow.
+// UNLIKE normalizeGeneratedArtifactPath (the narrow codegen allowlist: only lib/**
+// and firmware/** .py), the user picked the file and the target dir, so allow any
+// filename/extension and nested dirs; only reject what is unsafe or ambiguous: NUL,
+// backslash (not a device separator; would confuse the host-side basename split),
+// and empty / "." / ".." segments (traversal). Absolute (leading /) is fine on a
+// device. Collapses redundant slashes and preserves absolute-vs-relative.
+export function sanitizeDevicePath(path: string): string | null {
+  if (typeof path !== "string" || !path || path.includes("\0") || path.includes("\\")) return null;
+  const absolute = path.startsWith("/");
+  const segments = path.split("/").filter((segment) => segment !== "");
+  if (!segments.length || segments.some((segment) => segment === "." || segment === "..")) return null;
+  return (absolute ? "/" : "") + segments.join("/");
+}
+
 // Agent-driven single-file write (the write_project_file tool), versus the
 // post-loop batch in writeGeneratedFiles. The agent writes into the project tree
 // (project-manifest.json + firmware/ + test/) one file at a time as the build

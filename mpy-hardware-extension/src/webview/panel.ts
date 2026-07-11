@@ -60,6 +60,8 @@ async function ensureGitConfig(projectFolder: string, key: string, value: string
 // pointing it at the open workspace root would clobber those files (e.g. when the
 // dev repo itself is the open folder). A dedicated subfolder makes that impossible.
 const PROJECT_SUBDIR = "blockless-project";
+// Bound the "x (n).py" rename search when a device download would clobber a workspace file.
+const MAX_DOWNLOAD_DEDUP = 1000;
 
 // Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
 // timeout, never throws — a headless/missing tool yields "unknown".
@@ -398,10 +400,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return;
     }
     try {
-      const result = await deviceQueue.runExclusive(fn);
+      // Re-check ownership at DEQUEUE, not just enqueue: a command queued behind a slow
+      // one (e.g. a mip install) must not fire if a session run took the port meanwhile.
+      const result = await deviceQueue.runExclusive(() => {
+        if (controller.isRunning()) {
+          const busy: any = new Error("device_busy");
+          busy.deviceBusy = true; busy.phase = controller.runningPhase();
+          throw busy;
+        }
+        return fn();
+      });
       await controller.recordDeviceTool(command, params, { ok: true });
       webview.postMessage({ type: "device_tool_result", command, result });
     } catch (error: any) {
+      if (error?.deviceBusy) { webview.postMessage({ type: "device_busy", command, phase: error.phase }); return; }
       const msg = error?.message ?? "device_tool_failed";
       await controller.recordDeviceTool(command, params, { ok: false, error: msg });
       webview.postMessage({ type: "device_tool_error", command, error: msg });
@@ -409,23 +421,44 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   }
 
   // Upload: pick a local file, write it to the current device dir under its basename.
+  // The read + write run INSIDE runDeviceTool so a read failure surfaces as device_tool_error
+  // (not an unhandled rejection); the device path is validated by writeUserDeviceFile.
   async function handleDeviceUpload(dir: string) {
     const picked = await vscode.window.showOpenDialog?.({ canSelectMany: false });
     const uri = picked?.[0];
     if (!uri) return;
-    const content = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
     const base = uri.fsPath.split(/[\\/]/).pop();
     const remote = dir ? `${dir.replace(/\/$/, "")}/${base}` : base;
-    await runDeviceTool("upload", { remote }, async () => { await shim.writeDeviceFile(remote, content); return { path: remote }; });
+    await runDeviceTool("upload", { remote }, async () => {
+      const content = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+      await shim.writeUserDeviceFile(remote, content);
+      return { path: remote };
+    });
   }
 
-  // Download: copy a device file into the workspace and open it — device files have
-  // no read-to-string on the shim, so copy+open is the "view" path.
+  // A workspace path for `base` that does not clobber an existing file: x.py -> x (1).py.
+  function uniqueLocalPath(base: string): string {
+    const first = join(workspaceFolder!, base);
+    if (!existsSync(first)) return first;
+    const dot = base.lastIndexOf(".");
+    const stem = dot > 0 ? base.slice(0, dot) : base;
+    const ext = dot > 0 ? base.slice(dot) : "";
+    for (let n = 1; n <= MAX_DOWNLOAD_DEDUP; n++) {
+      const candidate = join(workspaceFolder!, `${stem} (${n})${ext}`);
+      if (!existsSync(candidate)) return candidate;
+    }
+    return first;
+  }
+
+  // Download: copy a device file into the workspace and open it — device files have no
+  // read-to-string on the shim, so copy+open is the "view" path. Basename only, split on
+  // BOTH separators (a device name with a backslash must not escape the workspace on
+  // Windows) and rejecting traversal; never silently clobber an existing workspace file.
   async function handleDeviceDownload(remotePath: string) {
     if (!workspaceFolder) { webview.postMessage({ type: "device_tool_error", command: "download", error: "no_workspace_folder" }); return; }
-    // Device paths are POSIX (forward-slash); take the basename and join with the native
-    // separator so the host target is C:\ws\file.py on Windows, not a mixed C:\ws/file.py.
-    const localPath = join(workspaceFolder, remotePath.split("/").pop() || "device-file");
+    const base = remotePath.split(/[\\/]/).pop() ?? "";
+    if (!base || base === "." || base === "..") { webview.postMessage({ type: "device_tool_error", command: "download", error: "invalid_device_path" }); return; }
+    const localPath = uniqueLocalPath(base);
     await runDeviceTool("download", { remotePath, localPath }, async () => {
       await shim.copyFromDevice(remotePath, localPath);
       await vscode.window.showTextDocument?.(vscode.Uri.file(localPath));
@@ -610,6 +643,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
       }
       await ensureProjectGitRepo(projectFolder, deps.log);
+      // Serial-port lock (spec §41), other direction: wait for any in-flight device-tool
+      // command (e.g. a slow mip install) to finish before the run takes the port, so a
+      // flash/deploy never competes with a user device command. Idempotent when idle.
+      await deviceQueue.runExclusive(async () => {});
       // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
       // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
       // build's own codegen output or scratch created during this run.
