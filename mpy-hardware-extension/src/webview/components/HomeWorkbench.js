@@ -45,6 +45,9 @@
       $("genDriverBack").addEventListener("click", closeGlobalTool);
       $("supportOpen").addEventListener("click", () => openGlobalTool("toolSupport"));
       $("supportBack").addEventListener("click", closeGlobalTool);
+      // Device Tools global tool (#54): open the surface and list the device root.
+      $("deviceToolsOpen").addEventListener("click", () => { openGlobalTool("toolDeviceTools"); dtListCurrent(); });
+      $("deviceToolsBack").addEventListener("click", closeGlobalTool);
       // Home hero action: begin a build. The composer is always mounted, so "start"
       // just reveals the board picker and focuses the prompt (no session yet).
       // ponytail: the rest of the launch-area inventory (Device Tools=Day-7, Git

@@ -430,3 +430,15 @@
       .art-meta { flex: none; color: var(--fg-dim); font-size: 11px; }
       .art-tag { flex: none; font-size: 10px; color: var(--fg-dim); border: 1px solid var(--vsc-border); border-radius: 4px; padding: 0 4px; }
     
+      /* Device Tools global tool (#54): file browser + mip install. */
+      .dt-busy { padding: 8px 10px; margin-bottom: 8px; border-radius: 6px; background: var(--vsc-card); border: 1px solid var(--yellow); color: var(--fg); font-size: 12px; }
+      .dt-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+      .dt-controls { flex-wrap: wrap; }
+      .dt-input { flex: 1; min-width: 80px; padding: 4px 6px; background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 4px; font-size: 12px; }
+      .dt-input-sm { flex: 0 0 90px; }
+      .dt-act { flex: none; padding: 4px 8px; background: var(--vsc-card); color: var(--fg); border: 1px solid var(--vsc-border); border-radius: 4px; font-size: 12px; cursor: pointer; }
+      .dt-act:hover { background: var(--vsc-hover); }
+      .dt-del { color: var(--red); }
+      .dt-name { flex: 1; font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .dt-mip { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); flex-wrap: wrap; }
+      .dt-status { margin-top: 8px; font-size: 12px; color: var(--fg-dim); }

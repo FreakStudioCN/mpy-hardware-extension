@@ -43,6 +43,10 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span>Support &amp; Feedback</span>
         </button>
+        <button class="gtool-btn" id="deviceToolsOpen" title="Browse device files and install packages (mip) on the connected board">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 4h16v12H4zM8 20h8M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="device_tools">Device Tools</span>
+        </button>
       </div>
 
       <div class="tabs" id="tabs">
@@ -147,6 +151,37 @@
         <div class="tool-body">
           <div id="recent"></div>
           <div class="empty" id="recentEmpty"><h4 data-i18n="recent_empty_h">No recent sessions</h4><p data-i18n="recent_empty_p">Past Blockless sessions in this project will appear here.</p></div>
+        </div>
+      </div>
+
+      <div class="tool-view hidden" id="toolDeviceTools">
+        <div class="tool-head">
+          <button class="tool-back" id="deviceToolsBack" title="Back to workflow">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Back</span>
+          </button>
+          <span class="tool-title" data-i18n="device_tools">Device Tools</span>
+        </div>
+        <div class="tool-body">
+          <div class="dt-busy hidden" id="dtBusy"></div>
+          <div class="dt-row dt-controls">
+            <input type="text" id="dtPath" class="dt-input" placeholder="/" data-i18n-ph="dt_path_ph" />
+            <button type="button" class="dt-act" id="dtList" data-i18n="dt_list">List</button>
+            <button type="button" class="dt-act" id="dtUp" data-i18n="dt_up">Up</button>
+            <button type="button" class="dt-act" id="dtUpload" data-i18n="dt_upload">Upload</button>
+          </div>
+          <div class="dt-row dt-controls">
+            <input type="text" id="dtNewName" class="dt-input" placeholder="new-folder" data-i18n-ph="dt_newname_ph" />
+            <button type="button" class="dt-act" id="dtMkdir" data-i18n="dt_mkdir">New folder</button>
+          </div>
+          <div id="dtEntries"></div>
+          <div class="empty" id="dtEmpty"><h4 data-i18n="dt_empty_h">No files listed</h4><p data-i18n="dt_empty_p">List a path to browse files on the connected board.</p></div>
+          <div class="dt-mip">
+            <input type="text" id="dtMipUrl" class="dt-input" placeholder="github:org/repo/pkg" data-i18n-ph="dt_mip_url_ph" />
+            <input type="text" id="dtMipVersion" class="dt-input dt-input-sm" placeholder="version" data-i18n-ph="dt_mip_version_ph" />
+            <button type="button" class="dt-act" id="dtMipInstall" data-i18n="dt_mip_install">Install (mip)</button>
+          </div>
+          <div class="dt-status" id="dtStatus"></div>
         </div>
       </div>
 
