@@ -420,6 +420,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
   }
 
+  // Acquire run ownership of the serial port before a session run takes it: drain any
+  // in-flight device-tool command on deviceQueue (spec §41, run<-device-tool direction).
+  // BOTH run entry points — start_session AND retry_session — must go through this; a lock
+  // enforced only in start() lets a retry flash over a tool (e.g. a slow mip install) that
+  // still holds the port. Idempotent when the queue is idle.
+  const acquireRunOwnership = () => deviceQueue.runExclusive(async () => {});
+
   // Upload: pick a local file, write it to the current device dir under its basename.
   // The read + write run INSIDE runDeviceTool so a read failure surfaces as device_tool_error
   // (not an unhandled rejection); the device path is validated by writeUserDeviceFile.
@@ -430,13 +437,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     const base = uri.fsPath.split(/[\\/]/).pop();
     const remote = dir ? `${dir.replace(/\/$/, "")}/${base}` : base;
     await runDeviceTool("upload", { remote }, async () => {
-      const content = new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
-      await shim.writeUserDeviceFile(remote, content);
+      // Raw bytes, not a decoded string: writeUserDeviceFile base64s them so binaries
+      // (.mpy, images) round-trip intact. TextDecoder would corrupt non-UTF-8 silently.
+      await shim.writeUserDeviceFile(remote, await vscode.workspace.fs.readFile(uri));
       return { path: remote };
     });
   }
 
   // A workspace path for `base` that does not clobber an existing file: x.py -> x (1).py.
+  // Throws once every dedup slot is taken rather than returning the clobbering path — the
+  // caller runs this inside runDeviceTool, so the throw surfaces as device_tool_error.
   function uniqueLocalPath(base: string): string {
     const first = join(workspaceFolder!, base);
     if (!existsSync(first)) return first;
@@ -447,7 +457,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const candidate = join(workspaceFolder!, `${stem} (${n})${ext}`);
       if (!existsSync(candidate)) return candidate;
     }
-    return first;
+    throw new Error("too_many_download_duplicates");
   }
 
   // Download: copy a device file into the workspace and open it — device files have no
@@ -458,8 +468,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (!workspaceFolder) { webview.postMessage({ type: "device_tool_error", command: "download", error: "no_workspace_folder" }); return; }
     const base = remotePath.split(/[\\/]/).pop() ?? "";
     if (!base || base === "." || base === "..") { webview.postMessage({ type: "device_tool_error", command: "download", error: "invalid_device_path" }); return; }
-    const localPath = uniqueLocalPath(base);
-    await runDeviceTool("download", { remotePath, localPath }, async () => {
+    // uniqueLocalPath runs INSIDE runDeviceTool so a dedup-exhaustion throw surfaces as
+    // device_tool_error (not an unhandled rejection).
+    await runDeviceTool("download", { remotePath }, async () => {
+      const localPath = uniqueLocalPath(base);
       await shim.copyFromDevice(remotePath, localPath);
       await vscode.window.showTextDocument?.(vscode.Uri.file(localPath));
       return { path: remotePath, localPath };
@@ -645,8 +657,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       await ensureProjectGitRepo(projectFolder, deps.log);
       // Serial-port lock (spec §41), other direction: wait for any in-flight device-tool
       // command (e.g. a slow mip install) to finish before the run takes the port, so a
-      // flash/deploy never competes with a user device command. Idempotent when idle.
-      await deviceQueue.runExclusive(async () => {});
+      // flash/deploy never competes with a user device command.
+      await acquireRunOwnership();
       // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
       // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
       // build's own codegen output or scratch created during this run.
@@ -672,6 +684,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           return;
         }
       }
+      // Same acquire step as start_session: retry() re-enters run() which takes the port,
+      // so it must also drain the device queue first (otherwise the lock is one-directional).
+      await acquireRunOwnership();
       await controller.retry();
     }
     if (message.type === "select_device") {

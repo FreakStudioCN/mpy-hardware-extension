@@ -556,25 +556,28 @@ test("device tools reach the shim and post a result when idle", async () => {
   }
 });
 
-test("device tools upload routes a user path to the shim (not the codegen allowlist) — N1", async () => {
+test("device tools upload sends the raw file bytes (binary-safe) to the user-path shim write — N1", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
   try {
     const posted: any[] = [];
     let handler: ((message: any) => Promise<void>) | undefined;
     const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
-    const wrote: Array<{ path: string; content: string }> = [];
+    const wrote: Array<{ path: string; bytes: Uint8Array }> = [];
+    // Non-UTF-8 bytes: a TextDecoder in the handler would replace these with U+FFFD and corrupt the upload.
+    const fileBytes = new Uint8Array([0xff, 0xfe, 0x00, 0x89]);
     const vscode = {
       ViewColumn: { One: 1 },
-      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }], fs: { readFile: async () => new TextEncoder().encode("print('hi')") } },
-      window: { createWebviewPanel: () => panel, showOpenDialog: async () => [{ fsPath: join(ws, "note.txt") }] },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }], fs: { readFile: async () => fileBytes } },
+      window: { createWebviewPanel: () => panel, showOpenDialog: async () => [{ fsPath: join(ws, "blob.mpy") }] },
     };
-    const shim = { writeUserDeviceFile: async (path: string, content: string) => { wrote.push({ path, content }); } };
+    const shim = { writeUserDeviceFile: async (path: string, bytes: Uint8Array) => { wrote.push({ path, bytes }); } };
     const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
     createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
 
-    await handler!({ type: "device_tool_upload", dir: "" }); // root upload — the case that was broken
+    await handler!({ type: "device_tool_upload", dir: "" }); // root upload — a plain path, no lib/firmware prefix
     assert.equal(wrote.length, 1, "upload reached the shim's user-path write at the device root");
-    assert.equal(wrote[0].path, "note.txt", "a plain filename (no lib/firmware prefix) is accepted");
+    assert.equal(wrote[0].path, "blob.mpy", "a plain filename (no allowlist prefix) is accepted");
+    assert.deepEqual(wrote[0].bytes, fileBytes, "raw bytes pass through, not a lossy-decoded string");
     assert.ok(posted.some((m) => m.type === "device_tool_result" && m.command === "upload"));
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
@@ -618,6 +621,36 @@ test("device tools download does not clobber an existing workspace file — N3",
     await handler!({ type: "device_tool_download", path: "/boot.py" });
     assert.equal(copied.length, 1);
     assert.match(copied[0].l, /boot \(1\)\.py$/, "downloaded to a non-clobbering name");
+    assert.equal(readFileSync(join(ws, "boot.py"), "utf8"), "original", "the existing file is untouched");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("device tools download fails (never clobbers) once every dedup slot is taken — N3", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    // Fill boot.py + boot (1..1000).py so uniqueLocalPath has no free slot left.
+    writeFileSync(join(ws, "boot.py"), "original");
+    for (let n = 1; n <= 1000; n++) writeFileSync(join(ws, `boot (${n}).py`), "");
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const copied: any[] = [];
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showTextDocument: async () => {} },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+    const shim = { copyFromDevice: async (r: string, l: string) => { copied.push({ r, l }); } };
+    const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "device_tool_download", path: "/boot.py" });
+    assert.ok(
+      posted.some((m) => m.type === "device_tool_error" && m.command === "download" && m.error === "too_many_download_duplicates"),
+      "dedup exhaustion is a surfaced error, not a silent clobber",
+    );
+    assert.equal(copied.length, 0, "no copy to the clobbering original path");
     assert.equal(readFileSync(join(ws, "boot.py"), "utf8"), "original", "the existing file is untouched");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
@@ -714,6 +747,43 @@ test("retry_session resumes the saved phase with the saved intent (not an empty 
   // message log), resuming the saved phase with the saved intent — never an empty turn.
   assert.equal(retried.phase, "analyze", "retry resumes the saved phase");
   assert.ok(retried.messages.at(-1).content, "retry re-sends the saved intent, not an empty user turn");
+});
+
+test("retry_session drains the device queue before re-taking the port (lock both directions) — §41", async () => {
+  const order: string[] = [];
+  let releaseTool: () => void = () => {};
+  const toolGate = new Promise<void>((res) => { releaseTool = res; });
+  // start_session may do several LLM fetches; mark the FIRST fetch after start finishes as
+  // the retry's loop pass (counting fetches is unreliable — analyze can take >1 turn).
+  let startDone = false;
+  let retryFetchMarked = false;
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  const fetchImpl = (async (url: string) => {
+    assert.match(url, /\/v1\/llm\/messages$/);
+    if (startDone && !retryFetchMarked) { retryFetchMarked = true; order.push("retry_fetch"); } // must come AFTER the tool releases
+    const sse = [
+      JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "ok" } }),
+      JSON.stringify({ type: "message_stop" }),
+    ].map((d) => `data: ${d}`).join("\n\n");
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+  // A slow device tool that holds the deviceQueue until the gate releases.
+  const shim = { listDir: async () => { await toolGate; order.push("listDir_done"); return ["boot.py"]; } };
+
+  createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl });
+  await handler?.({ type: "start_session", intent: "blink an led", boardId: "esp32-s3-devkitc-1" }); // seeds retry state
+  startDone = true; // every fetch from here on belongs to the retry
+
+  const toolP = handler?.({ type: "device_tool_list", path: "/" }); // acquires the queue, blocks on the gate
+  const retryP = handler?.({ type: "retry_session" });             // its acquireRunOwnership must queue behind the tool
+  releaseTool();
+  await Promise.all([toolP, retryP]);
+
+  // With the lock: the tool completes first, THEN the retry's loop fetch runs. Without it,
+  // retry_fetch would land before listDir_done.
+  assert.deepEqual(order, ["listDir_done", "retry_fetch"], "retry waited for the in-flight device tool to release the port");
 });
 
 test("artifact browser lists on-disk project artifacts without a build (reopened panel)", async () => {

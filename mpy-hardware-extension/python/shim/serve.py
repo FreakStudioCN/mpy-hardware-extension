@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import platform
@@ -473,12 +474,18 @@ def _health_check():
 
 
 def _write_code_to_device(code, run):
-    # Shared by device.write_main_py / device.write_device_file: stage the code in
-    # a temp file, hand it to `run(tmp_path)`, map the mpremote result to a status.
+    # Shared by device.write_main_py / device.write_device_file: stage the content in
+    # a temp file, hand it to `run(tmp_path)`, map the mpremote result to a status. bytes
+    # (Device Tools upload) stage in binary mode so a .mpy/image round-trips intact; str
+    # (codegen) stays UTF-8 text.
     fd, tmp = tempfile.mkstemp(suffix=".py")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(code or "")
+        if isinstance(code, (bytes, bytearray)):
+            with os.fdopen(fd, "wb") as f:
+                f.write(code)
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(code or "")
         r = run(tmp)
         if getattr(r, "returncode", 0) != 0:
             return {"status": "error", "error_kind": map_install_error(getattr(r, "stderr", "") or ""), "message": (getattr(r, "stderr", "") or "").strip()}
@@ -776,7 +783,11 @@ def _dispatch(shim, method, params):
     if method == "device.write_main_py":
         return _write_code_to_device(params.get("code", ""), lambda tmp: shim.write_main_py(params["port"], tmp))
     if method == "device.write_device_file":
-        return _write_code_to_device(params.get("code", ""), lambda tmp: shim.write_device_file(params["port"], params["path"], tmp))
+        # Device Tools upload sends content_b64 (raw bytes, staged binary); codegen sends
+        # `code` (str). Keep the str path byte-for-byte unchanged when content_b64 is absent.
+        raw_b64 = params.get("content_b64")
+        payload = base64.b64decode(raw_b64) if raw_b64 is not None else params.get("code", "")
+        return _write_code_to_device(payload, lambda tmp: shim.write_device_file(params["port"], params["path"], tmp))
     if method == "device.deploy_firmware_tree":
         return shim.deploy_firmware_tree(params["port"], os.path.join(params["project_dir"], "firmware"))
     if method == "device.flash_and_run":
