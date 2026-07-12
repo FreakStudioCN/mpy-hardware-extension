@@ -114,6 +114,27 @@ test("multiple buses keep first-seen order in init, while scan lists only the I2
   assert.equal(diagram.flow.find((s: any) => s.phase === "create").detail, "AHT20, ILI9341");
 });
 
+test("the board layer resolves from mcu.board_name (the real select-hw shape), with mcu.mcu as fallback", () => {
+  // The exact mcu shape a select-hw+ manifest carries: board_name is the display name,
+  // mcu is the chip token, board_id is a slug — no mcu.board / mcu.model. Reading only
+  // board/model dropped the whole Board/MCU layer for real projects.
+  const named = deriveDiagram({
+    schema_version: "1.0",
+    mcu: { board_id: "esp32-c6-devkitc-1", board_name: "ESP32-C6-DevKitC-1", mcu: "ESP32-C6" },
+    devices: [{ name: "Internal / On-board LED", type: "led", interface: "GPIO" }],
+  });
+  assert.deepEqual(named.architecture.layers.map((l: any) => l.id), ["entry", "driver", "board"]);
+  assert.deepEqual(layerById(named, "board").modules, [{ name: "ESP32-C6-DevKitC-1", role: "MCU" }]);
+
+  // No board_name -> fall back to the chip token so the layer is still present.
+  const chipOnly = deriveDiagram({
+    schema_version: "1.0",
+    mcu: { board_id: "esp32-c6-devkitc-1", mcu: "ESP32-C6" },
+    devices: [{ name: "Internal / On-board LED", type: "led", interface: "GPIO" }],
+  });
+  assert.equal(layerById(chipOnly, "board").modules[0].name, "ESP32-C6");
+});
+
 test("a device with no name falls back to the generic 'device' module label", () => {
   const diagram = deriveDiagram({
     schema_version: "1.0",

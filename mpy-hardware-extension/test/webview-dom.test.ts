@@ -687,6 +687,28 @@ test("manifest_updated shows the real board from a rich manifest's mcu (not the 
   assert.doesNotMatch(wiring.innerHTML, /Target board/, "no generic placeholder when the board is known");
 });
 
+test("manifest_updated names the board from mcu.board_name (the select-hw shape), not the placeholder", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  // A real select-hw manifest carries the display name under mcu.board_name (with
+  // mcu.mcu the chip token) — NOT mcu.board/mcu.model. Reading only board/model
+  // degraded the header to the "Target board" placeholder.
+  post(dom, {
+    type: "manifest_updated",
+    manifest: {
+      schema_version: "1.0",
+      mcu: { board_id: "esp32-c6-devkitc-1", board_name: "ESP32-C6-DevKitC-1", mcu: "ESP32-C6" },
+      devices: [{ name: "Internal / On-board LED", type: "led", interface: "GPIO" }],
+      wiring: { buses: [], standalone: [{ name: "Internal / On-board LED", pin: "8", type: "gpio_out" }] },
+    },
+  });
+
+  const wiring = document.getElementById("wiring")!;
+  assert.match(wiring.innerHTML, /ESP32-C6-DevKitC-1/, "the wiring header names the board from mcu.board_name");
+  assert.doesNotMatch(wiring.innerHTML, /Target board/, "no placeholder when mcu.board_name is present");
+});
+
 test("manifest_updated renders every pin of a multi-pin standalone part (no dropped pins)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

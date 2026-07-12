@@ -11,7 +11,7 @@ const flushMicrotasks = async () => { for (let i = 0; i < 10; i++) await Promise
 test("records protocol status_update and phase_start (not postMessage-only) so the cloud DB sees phase progress", async () => {
   const recorded: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
     loop: async ({ onEvent }) => {
       onEvent({ type: "phase_start", phase: "select-hw" });
@@ -38,7 +38,7 @@ test("carries start() preferences into the loop input so the server gets the use
   // it (and any mode/existing_hardware) into the loop input -> protocol context.
   let loopInput: any = null;
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input: any) => { loopInput = input; return { terminal: "complete" }; },
   });
 
@@ -53,7 +53,7 @@ test("carries the recommend board_selection_mode into the loop (not dropped at t
   // must forward it so the server knows the user asked it to pick, and must clear it on a fresh session.
   const inputs: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input: any) => { inputs.push(input); return { terminal: "complete" }; },
   });
 
@@ -69,7 +69,7 @@ test("a fresh session (board change / reset) does not inherit stale preferences"
   // ground an unrelated build with the previous session's context.
   const inputs: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input: any) => { inputs.push(input); return { terminal: "complete" }; },
   });
 
@@ -89,7 +89,7 @@ test("a reset does not leak the recommend board_selection_mode into the next bui
   // never asked for a recommendation (buildContext then forwards board_selection_mode).
   const inputs: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input: any) => { inputs.push(input); return { terminal: "complete" }; },
   });
 
@@ -109,7 +109,7 @@ test("a reset clears the artifact accumulators so a new session does not surface
   // Only session A produces artifacts; session B's loop is silent, so any artifact present
   // after B starts can only be A's leftovers.
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ intent, onEvent }: any) => {
       if (typeof intent === "string" && intent.includes("session A")) {
         onEvent({ type: "phase_complete", payload: { phase: "analyze", artifacts: [{ type: "manifest", path: "project-manifest.json" }] } });
@@ -175,7 +175,9 @@ test("session controller streams loop events and gates deploy via confirmDeploy"
   const started = controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
   const deploy = messages.find((m) => m.type === "deploy_needed");
   assert.ok(deploy, "expected a deploy_needed message before any device action");
-  assert.deepEqual(deploy.manifest, { board_id: "esp32-s3-devkitc-1" });
+  // The chokepoint now enriches a wiring-less manifest with a derived (here empty, no
+  // devices) wiring shape, so the deploy card carries it too.
+  assert.deepEqual(deploy.manifest, { board_id: "esp32-s3-devkitc-1", wiring: { buses: [], standalone: [] } });
   controller.resolvePrompt(deploy.promptId, "cancel");
   const result = await started;
 
@@ -183,6 +185,7 @@ test("session controller streams loop events and gates deploy via confirmDeploy"
   assert.deepEqual(messages.map((m) => m.type), [
     "trace_event",
     "manifest_updated",
+    "diagram_updated",
     "code_updated",
     "serial_output",
     "deploy_needed",
@@ -191,11 +194,11 @@ test("session controller streams loop events and gates deploy via confirmDeploy"
 });
 
 test("session controller rejects a concurrent start while a run is in flight", async () => {
-  let release: () => void = () => {};
+  let release: () => void = () => { };
   const gate = new Promise<void>((resolve) => { release = resolve; });
   let loopStarts = 0;
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async () => { loopStarts += 1; await gate; return { terminal: "success" }; },
   });
 
@@ -214,7 +217,7 @@ test("session controller rejects a concurrent start while a run is in flight", a
 
 test("reset() supersedes the in-flight run: late messages are dropped and a new start is accepted", async () => {
   const messages: any[] = [];
-  let release: () => void = () => {};
+  let release: () => void = () => { };
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const controller = new SessionController({
     postMessage: (m) => messages.push(m),
@@ -266,14 +269,16 @@ test("session controller writes generated files after code and manifest are avai
 
   await controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
 
-  assert.deepEqual(written, [{ "main.py": "print('MPYHW_READY')", "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1" }, null, 2) }]);
+  // latestManifest is the enriched copy (derived empty wiring), so the headless batch
+  // serializes that — harmless; the real extension writes from persistedPaths instead.
+  assert.deepEqual(written, [{ "main.py": "print('MPYHW_READY')", "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1", wiring: { buses: [], standalone: [] } }, null, 2) }]);
   assert.deepEqual(messages.find((message) => message.type === "files_written"), { type: "files_written", paths: ["C:/project/main.py", "C:/project/manifest.json"] });
 });
 
 test("session controller accumulates multi-file projects by path and writes them all", async () => {
   const written: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     writeFiles: async (files) => {
       written.push(files);
       return { ok: true, paths: Object.keys(files) };
@@ -291,7 +296,7 @@ test("session controller accumulates multi-file projects by path and writes them
   assert.deepEqual(written, [{
     "main.py": "from lib.aht20 import AHT20\nprint('MPYHW_READY')",
     "lib/aht20.py": "class AHT20:\n    pass",
-    "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1" }, null, 2),
+    "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1", wiring: { buses: [], standalone: [] } }, null, 2),
   }]);
 });
 
@@ -488,7 +493,7 @@ test("session controller confirmPlan resolves cancel on cancel answer and on ses
   // explicit "cancel" answer
   let a: any = "unset";
   const c1 = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ confirmPlan }) => { a = await confirmPlan({ estimate: 2 }); return { terminal: "generated" }; },
   });
   const s1 = c1.start({ intent: "x", boardId: "b" });
@@ -500,7 +505,7 @@ test("session controller confirmPlan resolves cancel on cancel answer and on ses
   // session cancel unblocks a pending plan as cancel
   let b: any = "unset";
   const c2 = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ confirmPlan, signal }) => { b = await confirmPlan({ estimate: 2 }); return { terminal: signal?.aborted ? "cancelled" : "generated" }; },
   });
   const s2 = c2.start({ intent: "x", boardId: "b" });
@@ -534,7 +539,7 @@ test("session controller routes confirmDeploy to the webview as deploy_needed an
 test("session controller confirmDeploy resolves false on session cancel", async () => {
   let approved: boolean | "unset" = "unset";
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ confirmDeploy, signal }) => { approved = await confirmDeploy(); return { terminal: signal?.aborted ? "cancelled" : "generated" }; },
   });
   const started = controller.start({ intent: "x", boardId: "b" });
@@ -546,7 +551,7 @@ test("session controller confirmDeploy resolves false on session cancel", async 
 test("session controller records UI prompts, the deploy gate, artifacts, and terminal state", async () => {
   const recorded: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     recorderFactory: (traceId: string) => ({
       record: async (event: any) => void recorded.push({ traceId, ...event }),
     }),
@@ -599,7 +604,7 @@ test("session controller carries agent state into the next user message", async 
     { traceId: "session", intent: "first", boardId: "esp32-s3-devkitc-1", messages: [{ role: "user", content: "first" }, { role: "user", content: "second" }] },
   ];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input) => {
       statesSeen.push(input.state);
       return { terminal: "awaiting_user", state: returnedStates[statesSeen.length - 1] };
@@ -618,8 +623,8 @@ test("session controller reset drops the conversation so the next start is a fre
   const traceIds: string[] = [];
   const carried = { traceId: "session", intent: "first", boardId: "esp32-s3-devkitc-1", messages: [{ role: "user", content: "first" }] };
   const controller = new SessionController({
-    postMessage: () => {},
-    recorderFactory: (traceId: string) => { traceIds.push(traceId); return { record: async () => {} }; },
+    postMessage: () => { },
+    recorderFactory: (traceId: string) => { traceIds.push(traceId); return { record: async () => { } }; },
     loop: async (input) => { statesSeen.push(input.state); return { terminal: "awaiting_user", state: carried }; },
   });
 
@@ -638,7 +643,7 @@ test("session controller reset drops the conversation so the next start is a fre
 test("session controller cancel unblocks a pending ask_user with a null answer", async () => {
   let captured: string | null = "unset";
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ askUser, signal }) => {
       captured = await askUser("?");
       return { terminal: signal?.aborted ? "cancelled" : "generated" };
@@ -743,7 +748,7 @@ test("a second resolvePrompt for the same promptId does not re-invoke the resolv
   const recorded: any[] = [];
   let loopAnswer: any = "unset";
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     recorderFactory: () => ({ record: async (event: any) => void recorded.push(event) }),
     loop: async ({ askUser }) => {
       loopAnswer = await askUser("Which output should it use?");
@@ -905,7 +910,7 @@ test("an absorb note queued on the FINAL phase is surfaced as deferred, not fals
 
 test("artifactSources stamps each file with the phase it was written in (not the final phase)", async () => {
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ onEvent }: any) => {
       onEvent({ type: "phase_start", phase: "upy-analyze-plugin" });
       onEvent({ type: "file_written", path: "/ws/blockless-project/project-manifest.json" });
@@ -926,19 +931,27 @@ test("artifactSources stamps each file with the phase it was written in (not the
 
 test("phase_complete artifacts are captured with their Skill role and producing phase", async () => {
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ onEvent }: any) => {
       onEvent({ type: "phase_start", phase: "upy-analyze-plugin" });
-      onEvent({ type: "phase_complete", payload: { phase: "upy-analyze-plugin", artifacts: [
-        { type: "project_manifest", path: "project-manifest.json" },
-        { type: "session_state", path: ".mpyhw/sessions/s/session_state.json" },
-        { type: "table", headers: ["a"] }, // no path -> skipped
-      ] } });
+      onEvent({
+        type: "phase_complete", payload: {
+          phase: "upy-analyze-plugin", artifacts: [
+            { type: "project_manifest", path: "project-manifest.json" },
+            { type: "session_state", path: ".mpyhw/sessions/s/session_state.json" },
+            { type: "table", headers: ["a"] }, // no path -> skipped
+          ]
+        }
+      });
       onEvent({ type: "phase_start", phase: "upy-select-hw-plugin" });
-      onEvent({ type: "phase_complete", payload: { phase: "upy-select-hw-plugin", artifacts: [
-        { type: "project_manifest", path: "project-manifest.json" }, // dup path -> first phase wins
-        { type: "generate_plan", path: "select_hw_validated.json" },
-      ] } });
+      onEvent({
+        type: "phase_complete", payload: {
+          phase: "upy-select-hw-plugin", artifacts: [
+            { type: "project_manifest", path: "project-manifest.json" }, // dup path -> first phase wins
+            { type: "generate_plan", path: "select_hw_validated.json" },
+          ]
+        }
+      });
       return { terminal: "complete" };
     },
   });
@@ -965,7 +978,7 @@ test("cancel() hard-interrupts the device (killDevice) and aborts the loop signa
   let killed = 0;
   const recorded: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     killDevice: () => { killed++; },
     recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
     loop: async ({ signal }: any) => {
@@ -992,16 +1005,16 @@ test("cancel() hard-interrupts the device (killDevice) and aborts the loop signa
 test("cancel() is a safe no-op when idle and when killDevice is not provided", async () => {
   // killDevice is optional (shim.kill is idempotent); a controller with no killDevice dep
   // and no run in flight must cancel without throwing.
-  const controller = new SessionController({ postMessage: () => {}, loop: async () => ({ terminal: "complete" }) });
+  const controller = new SessionController({ postMessage: () => { }, loop: async () => ({ terminal: "complete" }) });
   assert.doesNotThrow(() => controller.cancel(), "cancel with nothing in flight and no killDevice is a no-op");
 });
 
 test("reset() also hard-interrupts an in-flight device op (killDevice) so a new build leaves nothing running", async () => {
   let killed = 0;
-  let release: () => void = () => {};
+  let release: () => void = () => { };
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     killDevice: () => { killed++; },
     loop: async ({ signal }: any) => { await gate; return { terminal: signal?.aborted ? "cancelled" : "success" }; },
   });
@@ -1039,10 +1052,10 @@ test("confirmFileOp posts an in-panel confirm card carrying the path; proceed=tr
 });
 
 test("isRunning gates device tools: true while a run owns the port, false once it finishes", async () => {
-  let release: () => void = () => {};
+  let release: () => void = () => { };
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async () => { await gate; return { terminal: "success" }; },
   });
 
@@ -1056,14 +1069,14 @@ test("isRunning gates device tools: true while a run owns the port, false once i
 });
 
 test("reset() releases the device gate so device tools work after a Stop", async () => {
-  const gate = new Promise<void>(() => {}); // never resolves — a stuck run
+  const gate = new Promise<void>(() => { }); // never resolves — a stuck run
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async () => { await gate; return { terminal: "success" }; },
   });
 
   const run = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
-  run.catch(() => {}); // the superseded run is left to unwind; ignore its settle
+  run.catch(() => { }); // the superseded run is left to unwind; ignore its settle
   await Promise.resolve();
   assert.equal(controller.isRunning(), true);
   controller.reset();
@@ -1073,7 +1086,7 @@ test("reset() releases the device gate so device tools work after a Stop", async
 test("recordDeviceTool writes a device_tool log line for each command (spec 41 log artifacts)", async () => {
   const recorded: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
     loop: async () => ({ terminal: "complete" }),
   });
@@ -1086,4 +1099,173 @@ test("recordDeviceTool writes a device_tool log line for each command (spec 41 l
   assert.equal(tools.length, 2);
   assert.equal(tools[0].command, "list"); assert.equal(tools[0].ok, true);
   assert.equal(tools[1].command, "mip_install"); assert.equal(tools[1].ok, false); assert.equal(tools[1].error, "boom");
+});
+
+// A rich upstream project-manifest (one I2C sensor + one direct-GPIO LED) the
+// analyze/select-hw phases produce, with the pinout deriveWiring needs. Fresh object
+// per call so no test can leak mutation into another.
+function richManifest(): any {
+  return {
+    board_id: "esp32-s3-devkitc-1",
+    mcu: { board: "ESP32-S3" },
+    devices: [
+      { name: "aht20", type: "temp_humidity", interface: "I2C", i2c_addr: ["0x38"] },
+      { name: "status_led", type: "led", interface: "GPIO" },
+    ],
+    pinout: [
+      { device: "aht20", pin_name: "I2C0 SDA", gpio: "GPIO8", type: "i2c" },
+      { device: "aht20", pin_name: "I2C0 SCL", gpio: "GPIO9", type: "i2c" },
+      { device: "status_led", pin_name: "GP2", gpio: "GPIO2", type: "gpio_out" },
+    ],
+  };
+}
+
+// Run a scripted loop that emits `events` in order then finishes, collecting every
+// posted message. No writeFiles dep, so writeArtifactsIfReady is a no-op.
+async function runEvents(events: any[]): Promise<any[]> {
+  const messages: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent }: any) => { for (const e of events) onEvent(e); return { terminal: "generated" }; },
+  });
+  await controller.start({ intent: "wiring", boardId: "esp32-s3-devkitc-1" });
+  return messages;
+}
+
+test("manifest_updated without renderable wiring: posted manifest gets derived buses/standalone and a derived diagram is emitted", async () => {
+  const messages = await runEvents([{ type: "manifest_updated", manifest: richManifest() }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.ok(manifest.manifest.wiring, "wiring attached to the wiring-less manifest");
+  assert.equal(manifest.manifest.wiring.buses.length, 1, "the I2C bus is derived");
+  assert.equal(manifest.manifest.wiring.buses[0].id, "I2C0");
+  assert.equal(manifest.manifest.wiring.standalone.length, 1, "the GPIO LED is a standalone part");
+  assert.equal(manifest.manifest.wiring.standalone[0].pin, "GPIO2");
+
+  const diagram = messages.find((m) => m.type === "diagram_updated");
+  assert.ok(diagram, "the dead diagram_updated wire is now driven from the manifest");
+  assert.ok(diagram.diagram.architecture.layers.length > 0, "diagram carries architecture layers");
+  assert.ok(diagram.diagram.flow.length > 0, "diagram carries a run flow");
+});
+
+test("manifest_updated with authored renderable wiring is passed through verbatim (no derivation)", async () => {
+  // A renderable { buses/standalone } authored wiring whose bus id (I2C9) could never be
+  // derived from the devices — proves it was passed through, not re-derived. Flipping the
+  // guard to always-derive would replace this with a derived I2C0 bus and fail deepEqual.
+  const authored = { ...richManifest(), wiring: { buses: [{ type: "i2c", id: "I2C9", signals: [], devices: [] }], standalone: [] } };
+  const messages = await runEvents([{ type: "manifest_updated", manifest: authored }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.deepEqual(manifest.manifest.wiring, authored.wiring, "authored renderable wiring is untouched");
+  assert.strictEqual(manifest.manifest, authored, "a renderable manifest is posted by reference, not shallow-copied");
+});
+
+test("manifest_updated with legacy bus-keyed wiring is passed through, not derived over", async () => {
+  // { i2c: { sda, scl, devices } } is the THIRD shape buildComponents renders. With no
+  // devices[], deriving over it would yield an empty { buses:[], standalone:[] } and blank
+  // the tab — so the guard must recognise it as renderable and pass it through. The
+  // webview-dom test for this shape posts straight to the DOM, bypassing the controller,
+  // so only a host-side test pins the chokepoint guard.
+  const busKeyed = { board_id: "esp32-s3-devkitc-1", wiring: { i2c: { sda: "GPIO5", scl: "GPIO6", devices: [{ address: "0x38", label: "AHT20" }] } } };
+  const messages = await runEvents([{ type: "manifest_updated", manifest: busKeyed }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.deepEqual(manifest.manifest.wiring, busKeyed.wiring, "bus-keyed wiring is preserved, not replaced by an empty derived shape");
+  assert.strictEqual(manifest.manifest, busKeyed, "a renderable bus-keyed manifest is posted by reference");
+});
+
+test("manifest_updated with a format->path-map wiring still derives a renderable shape (regression lock)", async () => {
+  // The real wiring plugin's manifest.wiring is a format->path map, NOT a renderable
+  // shape. A naive presence-guard would pass it through and regress the tab to empty;
+  // the renderable-shape guard treats it as absent and derives instead.
+  const pathMap = { ...richManifest(), wiring: { json: "docs/wiring.json", md: "docs/wiring.md", svg: "docs/wiring.svg", png: "docs/wiring.png" } };
+  const messages = await runEvents([{ type: "manifest_updated", manifest: pathMap }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.ok(Array.isArray(manifest.manifest.wiring.buses), "the path map was replaced by a derived buses[]");
+  assert.equal(manifest.manifest.wiring.buses.length, 1, "the I2C bus is derived from devices[]");
+  assert.equal(manifest.manifest.wiring.json, undefined, "the non-renderable path map is gone");
+});
+
+test("an authored diagram_updated suppresses the manifest-derived diagram (authored wins)", async () => {
+  const authoredDiagram = { architecture: { layers: [{ id: "custom", modules: [{ name: "authored.py" }] }] }, flow: [{ phase: "boot" }] };
+  const messages = await runEvents([
+    { type: "diagram_updated", diagram: authoredDiagram },
+    { type: "manifest_updated", manifest: richManifest() },
+  ]);
+
+  const diagrams = messages.filter((m) => m.type === "diagram_updated");
+  assert.equal(diagrams.length, 1, "the manifest does not overwrite the authored diagram with a derived one");
+  assert.deepEqual(diagrams[0].diagram, authoredDiagram);
+});
+
+test("empty devices[] emits empty wiring and diagram shapes without throwing (empty-state contract)", async () => {
+  const messages = await runEvents([{ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1", devices: [] } }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.deepEqual(manifest.manifest.wiring, { buses: [], standalone: [] }, "empty wiring shape, not a throw");
+  const diagram = messages.find((m) => m.type === "diagram_updated");
+  assert.deepEqual(diagram.diagram, { architecture: { layers: [] }, flow: [] }, "empty diagram shape leaves the tab in its empty state");
+});
+
+test("deriving never mutates the loop's manifest object", async () => {
+  // protocol-loop holds this same reference for the next phase's prompt; enriching it
+  // in place would leak derived wiring upstream. The chokepoint must shallow-copy.
+  const loopManifest = richManifest();
+  const snapshot = JSON.parse(JSON.stringify(loopManifest));
+  const messages = await runEvents([{ type: "manifest_updated", manifest: loopManifest }]);
+
+  assert.deepEqual(loopManifest, snapshot, "the manifest the loop still holds is byte-for-byte unchanged");
+  const posted = messages.find((m) => m.type === "manifest_updated");
+  assert.notStrictEqual(posted.manifest, loopManifest, "the enriched manifest is a distinct object");
+});
+
+test("the authored-diagram guard resets per build across reset(): a second run derives again", async () => {
+  // Build 1 has an authored diagram (guard latches). After reset(), build 2 must derive
+  // again. reset() clears the guard directly; this pins the reset() path (the run() clear
+  // is pinned separately by the no-reset continuation test below).
+  const messages: any[] = [];
+  let run = 0;
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent }: any) => {
+      run += 1;
+      if (run === 1) onEvent({ type: "diagram_updated", diagram: { architecture: { layers: [{ id: "custom", modules: [] }] }, flow: [] } });
+      onEvent({ type: "manifest_updated", manifest: richManifest() });
+      return { terminal: "generated" };
+    },
+  });
+
+  await controller.start({ intent: "one", boardId: "esp32-s3-devkitc-1" });
+  controller.reset();
+  await controller.start({ intent: "two", boardId: "esp32-s3-devkitc-1" });
+
+  const diagrams = messages.filter((m) => m.type === "diagram_updated");
+  assert.equal(diagrams.length, 2, "build one posts the authored diagram; build two derives its own");
+  assert.ok(diagrams[1].diagram.architecture.layers.some((l: any) => l.id === "driver"), "build two's diagram is the manifest-derived one");
+});
+
+test("the authored-diagram guard clears on every run() start, even without a reset (continuation)", async () => {
+  // A second start() on the same controller and board with NO reset() still re-enters run(),
+  // which must clear the guard — otherwise an authored diagram from build one stays latched
+  // and build two's manifest never emits its derived diagram. Pins run()'s clear specifically
+  // (the reset-based test above passes even if only reset() clears).
+  const messages: any[] = [];
+  let run = 0;
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent }: any) => {
+      run += 1;
+      if (run === 1) onEvent({ type: "diagram_updated", diagram: { architecture: { layers: [{ id: "custom", modules: [] }] }, flow: [] } });
+      onEvent({ type: "manifest_updated", manifest: richManifest() });
+      return { terminal: "generated" };
+    },
+  });
+
+  await controller.start({ intent: "one", boardId: "esp32-s3-devkitc-1" });
+  await controller.start({ intent: "two", boardId: "esp32-s3-devkitc-1" }); // same board, NO reset
+
+  const diagrams = messages.filter((m) => m.type === "diagram_updated");
+  assert.equal(diagrams.length, 2, "build two derives its own diagram — run() cleared the guard without a reset");
+  assert.ok(diagrams[1].diagram.architecture.layers.some((l: any) => l.id === "driver"), "build two's diagram is the manifest-derived one");
 });

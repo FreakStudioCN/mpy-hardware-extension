@@ -61,7 +61,8 @@ test("webview start_session runs API-backed pipeline and renders generated outpu
       "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context",
       "http://api.test/v1/boards/esp32-s3-devkitc-1",
     ]);
-    assert.deepEqual(posted.map((message) => message.type), ["trace_event", "manifest_updated", "code_updated", "trace_event", "files_written", "session_done"]);
+    // manifest_updated now drives a derived diagram_updated (Wiring/Diagram tabs).
+    assert.deepEqual(posted.map((message) => message.type), ["trace_event", "manifest_updated", "diagram_updated", "code_updated", "trace_event", "files_written", "session_done"]);
     assert.equal(posted.at(-1).terminal, "generated");
     assert.match(posted.find((message) => message.type === "code_updated").code, /MPYHW_READY/);
     // Files land under the open workspace (not a fallback), so no "saved here" notice.

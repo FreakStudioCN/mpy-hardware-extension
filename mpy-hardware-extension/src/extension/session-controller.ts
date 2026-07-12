@@ -4,6 +4,8 @@ import { classifySupplement } from "../core/supplement-router.ts";
 import type { SupplementAttachment } from "../core/supplement-router.ts";
 import { classifyArtifactKind } from "./artifact-index.ts";
 import type { ArtifactSource } from "./artifact-index.ts";
+import { deriveWiring } from "../core/wiring-derive.ts";
+import { deriveDiagram } from "../core/diagram-derive.ts";
 
 export class SessionController {
   deps: {
@@ -44,6 +46,12 @@ export class SessionController {
   private recorder: SessionRecorder | undefined;
   private recordedStart = false;
   private latestManifest: any = undefined;
+  // True once an LLM/plugin-authored diagram has arrived via the diagram_updated
+  // branch this build. While set, the manifest_updated chokepoint stops emitting the
+  // manifest-derived diagram so the richer authored one is never overwritten. Cleared
+  // in BOTH run() and reset() — reset() nulls the fields start() keys on, so a single
+  // clear would leak an authored-diagram guard across builds.
+  private hasAuthoredDiagram = false;
   // Generated files accumulated by path across generate_code calls. A single-file
   // project leaves this as { "main.py": ... }; a multi-file project collects each
   // target_path the agent generates. Used only by the headless post-loop fallback.
@@ -145,6 +153,7 @@ export class SessionController {
 
   private async run(input: { intent: string; boardId: string; availableBoards?: any[] }) {
     this.latestManifest = undefined;
+    this.hasAuthoredDiagram = false;
     this.latestFiles = {};
     this.persistedPaths = [];
     this.abort = new AbortController();
@@ -240,6 +249,7 @@ export class SessionController {
     this.preSelectedBoard = undefined;
     this.boardSelectionMode = undefined;
     this.latestManifest = undefined;
+    this.hasAuthoredDiagram = false;
     this.latestFiles = {};
     this.persistedPaths = [];
     // Artifact accumulators (#28 F6): reset sets boardId=null, so the next start()'s
@@ -455,12 +465,35 @@ export class SessionController {
 
   postEvent(event: any) {
     if (event.type === "manifest_updated") {
-      this.latestManifest = event.manifest;
-      this.record({ type: "artifact", kind: "manifest", manifest: event.manifest });
-      this.deps.postMessage({ type: "manifest_updated", manifest: event.manifest });
+      // Fill the Wiring tab deterministically from the devices[] the analyze/select-hw
+      // phases already produce. Only when the manifest carries NO renderable wiring: a
+      // shallow copy with derived { buses, standalone } (never mutate event.manifest —
+      // protocol-loop holds the same reference for the next phase's prompt). Authored
+      // wiring the webview can render (flat [{role,pin}] or { buses/standalone }) is
+      // passed through verbatim; a non-renderable shape (e.g. a future plugin's
+      // format->path map { json: "docs/wiring.json", ... }) is treated as absent so the
+      // tab does not regress to empty. latestManifest carries the enriched copy so the
+      // deploy checkpoint card shows the same wiring.
+      const manifest = hasRenderableWiring(event.manifest?.wiring)
+        ? event.manifest
+        : { ...event.manifest, wiring: deriveWiring(event.manifest) };
+      this.latestManifest = manifest;
+      this.record({ type: "artifact", kind: "manifest", manifest });
+      this.deps.postMessage({ type: "manifest_updated", manifest });
+      // Populate the Diagram tab from the same manifest, connecting the otherwise dead
+      // diagram_updated wire (it has no other emitter). Emitted as a PLAIN postMessage,
+      // not via this postEvent branch: the derived diagram is a UI-only view, so it must
+      // not record() a kind:"diagram" artifact every phase boundary or trip the authored
+      // guard. An authored diagram, once seen, always wins.
+      if (!this.hasAuthoredDiagram) {
+        this.deps.postMessage({ type: "diagram_updated", diagram: deriveDiagram(event.manifest) });
+      }
       return;
     }
     if (event.type === "diagram_updated") {
+      // The only place an authored (LLM/plugin) diagram arrives. Latch the guard so the
+      // manifest chokepoint stops overwriting it with the derived view for this build.
+      this.hasAuthoredDiagram = true;
       this.record({ type: "artifact", kind: "diagram", diagram: event.diagram });
       this.deps.postMessage({ type: "diagram_updated", diagram: event.diagram });
       return;
@@ -676,6 +709,21 @@ export class SessionController {
     await this.record({ type: "files_written", paths });
     this.deps.postMessage({ type: "files_written", paths });
   }
+}
+
+// Whether a manifest.wiring is a shape the webview buildComponents can render into
+// cards. Whitelist (NOT mere presence) so a future plugin's non-renderable wiring —
+// e.g. a format->path map { json: "docs/wiring.json", md: ... } — is treated as absent
+// and the derived { buses, standalone } fills the tab instead of leaving it empty.
+// buildComponents renders THREE shapes: a legacy flat [{ role, pin }] array, the
+// { buses[], standalone[] } device-identity object, and the legacy bus-keyed
+// { i2c: { sda, scl, devices } } object. The latter two are objects carrying a nested
+// value; the path map has only string values, so it stays non-renderable and is derived
+// over. Missing a shape here regresses the tab to empty the moment such a manifest lands.
+function hasRenderableWiring(wiring: any): boolean {
+  if (Array.isArray(wiring)) return wiring.length > 0;
+  if (!wiring || typeof wiring !== "object") return false;
+  return Object.values(wiring).some((v) => v != null && typeof v === "object");
 }
 
 function createTraceId() {
