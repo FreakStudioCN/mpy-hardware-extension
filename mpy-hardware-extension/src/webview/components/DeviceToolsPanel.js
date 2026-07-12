@@ -32,6 +32,10 @@
 
       // How long a Delete stays armed ("Confirm?") before disarming.
       var DT_CONFIRM_MS = 3000;
+      // One-shot delete nonces the host issued (path -> nonce). The first Delete click asks
+      // the host to arm; the host replies with a nonce here; the confirm click echoes it so
+      // the host can prove the two-step happened (a stale message carries no valid nonce).
+      var dtDeleteNonces = {};
       // How often to re-check the device is still plugged in while the tab is open.
       var DT_POLL_MS = 2500;
       // Start "no device" (unknown) until a scan confirms one; the tab shows "plug in a
@@ -94,11 +98,19 @@
           } else {
             const label = document.createElement("span"); label.className = "dt-name"; label.textContent = name;
             const dl = dtActionButton(tr("dt_download"), () => { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_download", path: full }); });
-            // Destructive: arm on the first click, delete on the second (auto-disarms).
+            // Destructive: the first click asks the host to ARM (it issues a one-shot nonce;
+            // nothing is deleted yet); the confirm click echoes the nonce so the host can
+            // enforce the two-step. Auto-disarms and drops the nonce after DT_CONFIRM_MS.
             const del = dtActionButton(tr("dt_delete"), () => {
-              if (del.dataset.armed) { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_delete", path: full }); return; }
+              if (del.dataset.armed && dtDeleteNonces[full]) {
+                dtStatus(tr("dt_working"));
+                vscode.postMessage({ type: "device_tool_delete", path: full, nonce: dtDeleteNonces[full] });
+                delete dtDeleteNonces[full];
+                return;
+              }
               del.dataset.armed = "1"; del.textContent = tr("dt_confirm_del");
-              setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = tr("dt_delete"); } }, DT_CONFIRM_MS);
+              vscode.postMessage({ type: "device_tool_delete", path: full }); // bare = arm request
+              setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = tr("dt_delete"); } delete dtDeleteNonces[full]; }, DT_CONFIRM_MS);
             });
             del.classList.add("dt-del");
             row.append(label, dl, del);
@@ -131,6 +143,8 @@
         dtStatus(tr("dt_err", { c: command, e: error }));
       }
       function onDeviceBusy(phase) { dtSetBusy(phase || tr("dt_busy_generic")); dtStatus(""); }
+      // Host armed a delete: keep its one-shot nonce so the confirm click can echo it back.
+      function onDeviceDeleteArmed(path, nonce) { dtDeleteNonces[path] = nonce; }
 
       // Controls live in the DOM at load (the tool-view is hidden, not removed).
       if ($("dtPath")) {

@@ -2130,17 +2130,24 @@ test("device tools: Install (mip) posts device_tool_mip with the url + version",
   assert.ok(mip); assert.equal(mip.url, "github:org/repo/pkg"); assert.equal(mip.version, "1.2.3");
 });
 
-test("device tools: Delete is two-step — arm on first click, post device_tool_delete on the second", async () => {
+test("device tools: Delete is host-armed two-step — first click requests an arm (no nonce), second echoes the host nonce", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
   post(dom, { type: "device_tool_result", command: "list", result: { path: "/lib", entries: ["x.py"] } });
   const row = [...document.querySelectorAll("#dtEntries .dt-row")].find((r: any) => r.querySelector(".dt-name")?.textContent === "x.py");
   const del = (row as any).querySelector(".dt-del");
-  del.click(); // first click arms, does not delete
-  assert.equal(posted.find((m) => m.type === "device_tool_delete"), undefined, "first click does not delete a device file");
+
+  del.click(); // first click: an ARM request only (bare, no nonce) — the host won't delete on this
+  const arm = posted.find((m) => m.type === "device_tool_delete");
+  assert.ok(arm && arm.path === "/lib/x.py", "first click posts an arm request for the path");
+  assert.equal(arm.nonce, undefined, "the arm request carries no nonce, so nothing can delete yet");
   assert.match(del.textContent, /Confirm/i, "the button arms with a confirm label");
-  del.click(); // second click confirms
-  const msg = posted.find((m) => m.type === "device_tool_delete");
-  assert.ok(msg); assert.equal(msg.path, "/lib/x.py");
+
+  // Host replies with its one-shot nonce; the confirm click echoes it back.
+  post(dom, { type: "device_tool_delete_armed", path: "/lib/x.py", nonce: "n-123" });
+  del.click();
+  const confirm = posted.filter((m) => m.type === "device_tool_delete").at(-1);
+  assert.equal(confirm.nonce, "n-123", "the confirm click echoes the host nonce");
+  assert.equal(confirm.path, "/lib/x.py");
 });

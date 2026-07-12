@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -62,6 +62,10 @@ async function ensureGitConfig(projectFolder: string, key: string, value: string
 const PROJECT_SUBDIR = "blockless-project";
 // Bound the "x (n).py" rename search when a device download would clobber a workspace file.
 const MAX_DOWNLOAD_DEDUP = 1000;
+// How long a host-issued device-delete nonce stays valid for the webview to echo back
+// (spec §4). Longer than the webview's 3s UI arm so the confirm click is never rejected
+// by a host/webview clock race; short enough that a leaked nonce is not reusable later.
+const DELETE_ARM_TTL_MS = 10_000;
 
 // Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
 // timeout, never throws — a headless/missing tool yields "unknown".
@@ -205,6 +209,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Serializes user-initiated device-tool commands so two never overlap on the one
   // serial port (#54, spec §41). The active-run gate is checked per command below.
   const deviceQueue = new DeviceCommandQueue();
+  // Host-enforced two-step for the destructive device delete (spec §4). The webview's
+  // "Confirm?" arm is UI-only, so a stale/duplicated device_tool_delete would otherwise
+  // delete with no gate. The host issues a one-shot nonce on the first (bare) delete and
+  // only removes the file when the webview echoes that exact nonce back for the same path
+  // in time; the nonce is consumed on use, so a replay cannot delete again.
+  let pendingDelete: { path: string; nonce: string; expiresAt: number } | null = null;
   const auth = createGithubAuth({ vscode, apiBaseUrl, fetchImpl, log: deps.log });
   const workspaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
   // Project output goes into a dedicated subfolder (see PROJECT_SUBDIR); session
@@ -725,7 +735,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       await runDeviceTool("mkdir", { path: message.path }, async () => { await shim.makeDir(message.path); return { path: message.path }; });
     }
     if (message.type === "device_tool_delete" && typeof message.path === "string") {
-      await runDeviceTool("delete", { path: message.path }, async () => { await shim.removePath(message.path); return { path: message.path }; });
+      const now = Date.now();
+      const armed = pendingDelete;
+      if (armed && armed.path === message.path && armed.nonce === message.nonce && now < armed.expiresAt) {
+        pendingDelete = null; // one-shot: consume the nonce so a duplicate confirm can't re-delete
+        await runDeviceTool("delete", { path: message.path }, async () => { await shim.removePath(message.path); return { path: message.path }; });
+      } else {
+        // First click, or a stale/expired/mismatched nonce: arm and wait for the webview to
+        // echo the nonce. Nothing is deleted, so a duplicated bare message is harmless.
+        const nonce = randomUUID();
+        pendingDelete = { path: message.path, nonce, expiresAt: now + DELETE_ARM_TTL_MS };
+        webview.postMessage({ type: "device_tool_delete_armed", path: message.path, nonce });
+      }
     }
     if (message.type === "device_tool_mip" && typeof message.url === "string") {
       const version = typeof message.version === "string" && message.version ? message.version : undefined;

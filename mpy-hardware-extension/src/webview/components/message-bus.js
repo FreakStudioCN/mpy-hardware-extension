@@ -13,6 +13,7 @@
         if (msg.type === "support_config") { renderSupport(msg); }
         if (msg.type === "device_tool_result") { onDeviceToolResult(msg.command, msg.result); }
         if (msg.type === "device_tool_error") { onDeviceToolError(msg.command, msg.error); }
+        if (msg.type === "device_tool_delete_armed") { onDeviceDeleteArmed(msg.path, msg.nonce); }
         if (msg.type === "device_busy") { onDeviceBusy(msg.phase); }
         if (msg.type === "device_present") { onDevicePresent(msg.present); }
         if (msg.type === "logs_status") { const n = $("scDiag"); if (n) n.textContent = msg.text; }

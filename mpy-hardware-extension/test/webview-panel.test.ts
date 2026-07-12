@@ -625,6 +625,39 @@ test("device tools download does not clobber an existing workspace file — N3",
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
+test("device tools delete is host-armed: a bare message only arms; the echoed nonce deletes once; a replay can't re-delete — §4", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const removed: string[] = [];
+    const shim = { removePath: async (p: string) => { removed.push(p); } };
+    const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    // 1) Bare delete = arm only (the stale/duplicate case): nothing removed; host issues a nonce.
+    await handler!({ type: "device_tool_delete", path: "/boot.py" });
+    assert.equal(removed.length, 0, "a bare delete does not remove — it only arms");
+    const armed = posted.find((m) => m.type === "device_tool_delete_armed" && m.path === "/boot.py");
+    assert.ok(armed && armed.nonce, "host posts an arm carrying a one-shot nonce");
+
+    // 2) A stale message with the WRONG nonce still only re-arms, never deletes.
+    await handler!({ type: "device_tool_delete", path: "/boot.py", nonce: "not-the-nonce" });
+    assert.equal(removed.length, 0, "a mismatched nonce cannot delete");
+
+    // 3) Echo the current nonce -> the delete happens exactly once. (Step 2 re-armed, so use the latest.)
+    const latest = posted.filter((m) => m.type === "device_tool_delete_armed").at(-1);
+    await handler!({ type: "device_tool_delete", path: "/boot.py", nonce: latest.nonce });
+    assert.deepEqual(removed, ["/boot.py"], "the confirm with the host nonce deletes exactly once");
+
+    // 4) Replay the consumed nonce -> no second delete (re-arms instead).
+    await handler!({ type: "device_tool_delete", path: "/boot.py", nonce: latest.nonce });
+    assert.deepEqual(removed, ["/boot.py"], "a replayed nonce cannot delete again");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 test("device tools download fails (never clobbers) once every dedup slot is taken — N3", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
   try {
