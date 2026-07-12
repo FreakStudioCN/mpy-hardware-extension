@@ -139,12 +139,12 @@
         try { comps = buildComponents(manifest); }
         catch (e) { console.error("wiringMarkup: unrecognized manifest.wiring shape", e); comps = []; }
         if (!comps.length) return "";
-        // Resolve the board name the same way buildPlan does (agent-backed-loop.ts):
-        // rich upstream manifests carry the board under mcu.board/mcu.model (no
-        // board_id), so reading only board_id silently degraded to the "Target board"
-        // placeholder and dropped the actual MCU from the diagram.
         const mcu = manifest && manifest.mcu;
-        const boardName = (mcu && (mcu.board || mcu.model)) || (manifest && manifest.board_id) || tr("target_board");
+        // Resolve the board display name across manifest shapes: select-hw+ manifests carry
+        // it under mcu.board_name (mcu.mcu is the chip-token fallback); older/simple shapes
+        // use mcu.board/mcu.model or a top-level board_id. Reading only board/model degraded
+        // real manifests to the "Target board" placeholder and dropped the MCU from the view.
+        const boardName = (mcu && (mcu.board || mcu.board_name || mcu.model || mcu.mcu)) || (manifest && manifest.board_id) || tr("target_board");
         let html = '<div class="wiring"><div class="wire-board">' +
           "<span><b>" + esc(boardName) + "</b> · " + componentCount(comps.length) + "</span></div>";
         for (const c of comps) {

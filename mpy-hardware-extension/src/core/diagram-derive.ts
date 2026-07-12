@@ -18,11 +18,14 @@ function isI2c(iface: string): boolean {
   return iface === "I2C";
 }
 
-// Board/MCU display name: rich manifests carry it under mcu.board/mcu.model (no
-// board_id); fall back to board_id for the legacy shape. Mirrors wiringMarkup.
+// Board/MCU display name. select-hw+ manifests carry it under mcu.board_name (with
+// mcu.mcu as the chip-token fallback); older/simple shapes use mcu.board/mcu.model or
+// a top-level board_id. Check them all — reading only mcu.board/model dropped the
+// Board/MCU layer for real manifests (board layer is pushed only when this is truthy).
+// Mirrors wiringMarkup.
 function boardName(manifest: any): string {
   const mcu = manifest?.mcu;
-  return String((mcu && (mcu.board || mcu.model)) || manifest?.board_id || "").trim();
+  return String((mcu && (mcu.board || mcu.board_name || mcu.model || mcu.mcu)) || manifest?.board_id || "").trim();
 }
 
 export function deriveDiagram(manifest: any): { architecture: { layers: any[] }; flow: any[] } {

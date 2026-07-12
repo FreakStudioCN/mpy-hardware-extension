@@ -175,7 +175,9 @@ test("session controller streams loop events and gates deploy via confirmDeploy"
   const started = controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
   const deploy = messages.find((m) => m.type === "deploy_needed");
   assert.ok(deploy, "expected a deploy_needed message before any device action");
-  assert.deepEqual(deploy.manifest, { board_id: "esp32-s3-devkitc-1" });
+  // The chokepoint now enriches a wiring-less manifest with a derived (here empty, no
+  // devices) wiring shape, so the deploy card carries it too.
+  assert.deepEqual(deploy.manifest, { board_id: "esp32-s3-devkitc-1", wiring: { buses: [], standalone: [] } });
   controller.resolvePrompt(deploy.promptId, "cancel");
   const result = await started;
 
@@ -183,6 +185,7 @@ test("session controller streams loop events and gates deploy via confirmDeploy"
   assert.deepEqual(messages.map((m) => m.type), [
     "trace_event",
     "manifest_updated",
+    "diagram_updated",
     "code_updated",
     "serial_output",
     "deploy_needed",
@@ -266,7 +269,9 @@ test("session controller writes generated files after code and manifest are avai
 
   await controller.start({ intent: "temp", boardId: "esp32-s3-devkitc-1" });
 
-  assert.deepEqual(written, [{ "main.py": "print('MPYHW_READY')", "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1" }, null, 2) }]);
+  // latestManifest is the enriched copy (derived empty wiring), so the headless batch
+  // serializes that — harmless; the real extension writes from persistedPaths instead.
+  assert.deepEqual(written, [{ "main.py": "print('MPYHW_READY')", "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1", wiring: { buses: [], standalone: [] } }, null, 2) }]);
   assert.deepEqual(messages.find((message) => message.type === "files_written"), { type: "files_written", paths: ["C:/project/main.py", "C:/project/manifest.json"] });
 });
 
@@ -291,7 +296,7 @@ test("session controller accumulates multi-file projects by path and writes them
   assert.deepEqual(written, [{
     "main.py": "from lib.aht20 import AHT20\nprint('MPYHW_READY')",
     "lib/aht20.py": "class AHT20:\n    pass",
-    "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1" }, null, 2),
+    "manifest.json": JSON.stringify({ board_id: "esp32-s3-devkitc-1", wiring: { buses: [], standalone: [] } }, null, 2),
   }]);
 });
 
@@ -1036,4 +1041,173 @@ test("confirmFileOp posts an in-panel confirm card carrying the path; proceed=tr
   const c3 = messages.find((m) => m.type === "file_op_confirm_needed" && m.path === "firmware/x.py");
   controller.resolvePrompt(c3.promptId, null); // session cancel/finish
   assert.equal(await cancelled, false, "a cancelled prompt keeps the file (safe default for a destructive op)");
+});
+
+// A rich upstream project-manifest (one I2C sensor + one direct-GPIO LED) the
+// analyze/select-hw phases produce, with the pinout deriveWiring needs. Fresh object
+// per call so no test can leak mutation into another.
+function richManifest(): any {
+  return {
+    board_id: "esp32-s3-devkitc-1",
+    mcu: { board: "ESP32-S3" },
+    devices: [
+      { name: "aht20", type: "temp_humidity", interface: "I2C", i2c_addr: ["0x38"] },
+      { name: "status_led", type: "led", interface: "GPIO" },
+    ],
+    pinout: [
+      { device: "aht20", pin_name: "I2C0 SDA", gpio: "GPIO8", type: "i2c" },
+      { device: "aht20", pin_name: "I2C0 SCL", gpio: "GPIO9", type: "i2c" },
+      { device: "status_led", pin_name: "GP2", gpio: "GPIO2", type: "gpio_out" },
+    ],
+  };
+}
+
+// Run a scripted loop that emits `events` in order then finishes, collecting every
+// posted message. No writeFiles dep, so writeArtifactsIfReady is a no-op.
+async function runEvents(events: any[]): Promise<any[]> {
+  const messages: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent }: any) => { for (const e of events) onEvent(e); return { terminal: "generated" }; },
+  });
+  await controller.start({ intent: "wiring", boardId: "esp32-s3-devkitc-1" });
+  return messages;
+}
+
+test("manifest_updated without renderable wiring: posted manifest gets derived buses/standalone and a derived diagram is emitted", async () => {
+  const messages = await runEvents([{ type: "manifest_updated", manifest: richManifest() }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.ok(manifest.manifest.wiring, "wiring attached to the wiring-less manifest");
+  assert.equal(manifest.manifest.wiring.buses.length, 1, "the I2C bus is derived");
+  assert.equal(manifest.manifest.wiring.buses[0].id, "I2C0");
+  assert.equal(manifest.manifest.wiring.standalone.length, 1, "the GPIO LED is a standalone part");
+  assert.equal(manifest.manifest.wiring.standalone[0].pin, "GPIO2");
+
+  const diagram = messages.find((m) => m.type === "diagram_updated");
+  assert.ok(diagram, "the dead diagram_updated wire is now driven from the manifest");
+  assert.ok(diagram.diagram.architecture.layers.length > 0, "diagram carries architecture layers");
+  assert.ok(diagram.diagram.flow.length > 0, "diagram carries a run flow");
+});
+
+test("manifest_updated with authored renderable wiring is passed through verbatim (no derivation)", async () => {
+  // A renderable { buses/standalone } authored wiring whose bus id (I2C9) could never be
+  // derived from the devices — proves it was passed through, not re-derived. Flipping the
+  // guard to always-derive would replace this with a derived I2C0 bus and fail deepEqual.
+  const authored = { ...richManifest(), wiring: { buses: [{ type: "i2c", id: "I2C9", signals: [], devices: [] }], standalone: [] } };
+  const messages = await runEvents([{ type: "manifest_updated", manifest: authored }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.deepEqual(manifest.manifest.wiring, authored.wiring, "authored renderable wiring is untouched");
+  assert.strictEqual(manifest.manifest, authored, "a renderable manifest is posted by reference, not shallow-copied");
+});
+
+test("manifest_updated with legacy bus-keyed wiring is passed through, not derived over", async () => {
+  // { i2c: { sda, scl, devices } } is the THIRD shape buildComponents renders. With no
+  // devices[], deriving over it would yield an empty { buses:[], standalone:[] } and blank
+  // the tab — so the guard must recognise it as renderable and pass it through. The
+  // webview-dom test for this shape posts straight to the DOM, bypassing the controller,
+  // so only a host-side test pins the chokepoint guard.
+  const busKeyed = { board_id: "esp32-s3-devkitc-1", wiring: { i2c: { sda: "GPIO5", scl: "GPIO6", devices: [{ address: "0x38", label: "AHT20" }] } } };
+  const messages = await runEvents([{ type: "manifest_updated", manifest: busKeyed }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.deepEqual(manifest.manifest.wiring, busKeyed.wiring, "bus-keyed wiring is preserved, not replaced by an empty derived shape");
+  assert.strictEqual(manifest.manifest, busKeyed, "a renderable bus-keyed manifest is posted by reference");
+});
+
+test("manifest_updated with a format->path-map wiring still derives a renderable shape (regression lock)", async () => {
+  // The real wiring plugin's manifest.wiring is a format->path map, NOT a renderable
+  // shape. A naive presence-guard would pass it through and regress the tab to empty;
+  // the renderable-shape guard treats it as absent and derives instead.
+  const pathMap = { ...richManifest(), wiring: { json: "docs/wiring.json", md: "docs/wiring.md", svg: "docs/wiring.svg", png: "docs/wiring.png" } };
+  const messages = await runEvents([{ type: "manifest_updated", manifest: pathMap }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.ok(Array.isArray(manifest.manifest.wiring.buses), "the path map was replaced by a derived buses[]");
+  assert.equal(manifest.manifest.wiring.buses.length, 1, "the I2C bus is derived from devices[]");
+  assert.equal(manifest.manifest.wiring.json, undefined, "the non-renderable path map is gone");
+});
+
+test("an authored diagram_updated suppresses the manifest-derived diagram (authored wins)", async () => {
+  const authoredDiagram = { architecture: { layers: [{ id: "custom", modules: [{ name: "authored.py" }] }] }, flow: [{ phase: "boot" }] };
+  const messages = await runEvents([
+    { type: "diagram_updated", diagram: authoredDiagram },
+    { type: "manifest_updated", manifest: richManifest() },
+  ]);
+
+  const diagrams = messages.filter((m) => m.type === "diagram_updated");
+  assert.equal(diagrams.length, 1, "the manifest does not overwrite the authored diagram with a derived one");
+  assert.deepEqual(diagrams[0].diagram, authoredDiagram);
+});
+
+test("empty devices[] emits empty wiring and diagram shapes without throwing (empty-state contract)", async () => {
+  const messages = await runEvents([{ type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1", devices: [] } }]);
+
+  const manifest = messages.find((m) => m.type === "manifest_updated");
+  assert.deepEqual(manifest.manifest.wiring, { buses: [], standalone: [] }, "empty wiring shape, not a throw");
+  const diagram = messages.find((m) => m.type === "diagram_updated");
+  assert.deepEqual(diagram.diagram, { architecture: { layers: [] }, flow: [] }, "empty diagram shape leaves the tab in its empty state");
+});
+
+test("deriving never mutates the loop's manifest object", async () => {
+  // protocol-loop holds this same reference for the next phase's prompt; enriching it
+  // in place would leak derived wiring upstream. The chokepoint must shallow-copy.
+  const loopManifest = richManifest();
+  const snapshot = JSON.parse(JSON.stringify(loopManifest));
+  const messages = await runEvents([{ type: "manifest_updated", manifest: loopManifest }]);
+
+  assert.deepEqual(loopManifest, snapshot, "the manifest the loop still holds is byte-for-byte unchanged");
+  const posted = messages.find((m) => m.type === "manifest_updated");
+  assert.notStrictEqual(posted.manifest, loopManifest, "the enriched manifest is a distinct object");
+});
+
+test("the authored-diagram guard resets per build across reset(): a second run derives again", async () => {
+  // Build 1 has an authored diagram (guard latches). After reset(), build 2 must derive
+  // again. reset() clears the guard directly; this pins the reset() path (the run() clear
+  // is pinned separately by the no-reset continuation test below).
+  const messages: any[] = [];
+  let run = 0;
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent }: any) => {
+      run += 1;
+      if (run === 1) onEvent({ type: "diagram_updated", diagram: { architecture: { layers: [{ id: "custom", modules: [] }] }, flow: [] } });
+      onEvent({ type: "manifest_updated", manifest: richManifest() });
+      return { terminal: "generated" };
+    },
+  });
+
+  await controller.start({ intent: "one", boardId: "esp32-s3-devkitc-1" });
+  controller.reset();
+  await controller.start({ intent: "two", boardId: "esp32-s3-devkitc-1" });
+
+  const diagrams = messages.filter((m) => m.type === "diagram_updated");
+  assert.equal(diagrams.length, 2, "build one posts the authored diagram; build two derives its own");
+  assert.ok(diagrams[1].diagram.architecture.layers.some((l: any) => l.id === "driver"), "build two's diagram is the manifest-derived one");
+});
+
+test("the authored-diagram guard clears on every run() start, even without a reset (continuation)", async () => {
+  // A second start() on the same controller and board with NO reset() still re-enters run(),
+  // which must clear the guard — otherwise an authored diagram from build one stays latched
+  // and build two's manifest never emits its derived diagram. Pins run()'s clear specifically
+  // (the reset-based test above passes even if only reset() clears).
+  const messages: any[] = [];
+  let run = 0;
+  const controller = new SessionController({
+    postMessage: (m) => messages.push(m),
+    loop: async ({ onEvent }: any) => {
+      run += 1;
+      if (run === 1) onEvent({ type: "diagram_updated", diagram: { architecture: { layers: [{ id: "custom", modules: [] }] }, flow: [] } });
+      onEvent({ type: "manifest_updated", manifest: richManifest() });
+      return { terminal: "generated" };
+    },
+  });
+
+  await controller.start({ intent: "one", boardId: "esp32-s3-devkitc-1" });
+  await controller.start({ intent: "two", boardId: "esp32-s3-devkitc-1" }); // same board, NO reset
+
+  const diagrams = messages.filter((m) => m.type === "diagram_updated");
+  assert.equal(diagrams.length, 2, "build two derives its own diagram — run() cleared the guard without a reset");
+  assert.ok(diagrams[1].diagram.architecture.layers.some((l: any) => l.id === "driver"), "build two's diagram is the manifest-derived one");
 });
