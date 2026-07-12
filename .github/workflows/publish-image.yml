@@ -28,6 +28,8 @@ jobs:
     name: build + push mpyhw-api image
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      digest: ${{ steps.build.outputs.digest }} 
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,6 +58,7 @@ jobs:
             type=sha,prefix=sha-
             type=semver,pattern={{version}}
       - name: Build + push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -70,9 +73,16 @@ jobs:
     runs-on: upypi
     needs: image
     steps:
-      - run: docker login -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }} ghcr.io
-      - run: docker pull ghcr.io/freakstudiocn/mpyhw-api:latest
-      - run: |
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Pull image by digest
+        run: docker pull ghcr.io/freakstudiocn/mpyhw-api@${{ needs.image.outputs.digest }}
+
+      - name: Tag as latest for compose
+        run: docker tag ghcr.io/freakstudiocn/mpyhw-api@${{ needs.image.outputs.digest }} ghcr.io/freakstudiocn/mpyhw-api:latest
+
+      - name: Deploy with compose
+        run: |
           cd /srv/upypi
-          docker compose down
           docker compose up -d
