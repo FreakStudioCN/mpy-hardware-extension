@@ -1,3 +1,4 @@
+import base64
 import os
 import subprocess
 import sys
@@ -93,6 +94,30 @@ def test_write_device_file_top_level_file_skips_mkdir():
     shim.write_device_file("COM3", "boot.py", "/tmp/boot.py")
 
     assert shim.commands == [["mpremote", "connect", "COM3", "resume", "fs", "cp", "/tmp/boot.py", ":boot.py"]]
+
+
+def test_dispatch_write_device_file_stages_content_b64_as_bytes():
+    # Device Tools upload sends content_b64 (raw bytes). It must stage byte-for-byte in
+    # binary mode — a UTF-8 text path would replace invalid bytes with U+FFFD. The codegen
+    # `code` (str) path must stay unchanged.
+    staged = {}
+
+    def runner(cmd, **_k):
+        if "cp" in cmd:  # cp <staged-tmp> :<device-path>
+            with open(cmd[-2], "rb") as f:
+                staged["bytes"] = f.read()
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    shim = Shim(runner=runner)
+
+    raw = bytes([0xFF, 0xFE, 0x00, 0x89])  # not valid UTF-8
+    res = _dispatch(shim, "device.write_device_file", {"port": "COM3", "path": "boot.mpy", "content_b64": base64.b64encode(raw).decode()})
+    assert res["status"] == "ok"
+    assert staged["bytes"] == raw, "binary upload round-trips byte-for-byte"
+
+    res2 = _dispatch(shim, "device.write_device_file", {"port": "COM3", "path": "boot.py", "code": "print('hi')"})
+    assert res2["status"] == "ok"
+    assert staged["bytes"] == b"print('hi')", "the codegen str path is unchanged"
 
 
 def test_deploy_firmware_tree_strips_prefix_and_mkdirs_parents(tmp_path):

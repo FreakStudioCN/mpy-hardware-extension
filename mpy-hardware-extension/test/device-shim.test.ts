@@ -198,6 +198,39 @@ test("DeviceShim allows lib python extra device files", async () => {
   assert.equal(write.params.path, "lib/aht20.py");
 });
 
+test("DeviceShim.writeUserDeviceFile sends raw bytes as content_b64 (binary-safe, no lossy string)", async () => {
+  const calls: any[] = [];
+  const shim = new DeviceShim(async (method: string, params: any) => {
+    calls.push({ method, params });
+    return method === "device.scan" ? { status: "ok", devices: [{ port: "COM3" }] } : { status: "ok" };
+  });
+
+  // Non-UTF-8 bytes: a string transport (TextDecoder + "w") would replace these with U+FFFD.
+  const bytes = new Uint8Array([0xff, 0xfe, 0x00, 0x89]);
+  await shim.writeUserDeviceFile("/boot.mpy", bytes);
+
+  const write = calls.find((c) => c.method === "device.write_device_file");
+  assert.equal(write.params.path, "/boot.mpy");
+  assert.equal(write.params.code, undefined, "no lossy string `code` field for a user upload");
+  assert.deepEqual(new Uint8Array(Buffer.from(write.params.content_b64, "base64")), bytes, "exact byte round-trip");
+});
+
+test("DeviceShim.removePath and makeDir sanitize the device path before the RPC (traversal/backslash rejected)", async () => {
+  const calls: any[] = [];
+  const shim = new DeviceShim(async (method: string, params: any) => {
+    calls.push({ method, params });
+    return method === "device.scan" ? { status: "ok", devices: [{ port: "COM3" }] } : { status: "ok" };
+  });
+
+  await assert.rejects(() => shim.removePath("/lib/../boot.py"), /invalid_device_path/);
+  await assert.rejects(() => shim.makeDir("a\\b"), /invalid_device_path/);
+  assert.ok(!calls.some((c) => c.method === "device.fs_remove" || c.method === "device.fs_mkdir"), "no fs op reached the port");
+
+  // A legit absolute device path passes through sanitized.
+  await shim.makeDir("/lib");
+  assert.ok(calls.find((c) => c.method === "device.fs_mkdir" && c.params.path === "/lib"), "a valid path still reaches the RPC");
+});
+
 test("DeviceShim deploys firmware/ code but rejects manifests, docs, and PC tests", async () => {
   const shim = new DeviceShim(async (method: string, params: any) =>
     method === "device.scan" ? { status: "ok", devices: [{ port: "COM3" }] } : { status: "ok", _path: params.path });

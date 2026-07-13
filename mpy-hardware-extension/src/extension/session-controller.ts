@@ -264,6 +264,28 @@ export class SessionController {
     this.pendingSupplements = [];
   }
 
+  // A session run owns the serial port from run()'s start until its finally clears
+  // `abort` (and reset() nulls it). Device tools gate on this so a user command never
+  // competes with an in-flight run's device ops (flash/deploy today; gen-driver's
+  // hardware phase once it runs through the session) on the same port (spec §41).
+  // reset() nulls abort, so an idle controller reads as not running.
+  isRunning(): boolean {
+    return this.abort !== null;
+  }
+
+  // The phase that currently owns the device, for the device_busy message (null when
+  // not running, or running before the first phase_complete sets it).
+  runningPhase(): string | null {
+    return this.currentPhase;
+  }
+
+  // Log a device-tool command to the session log (spec §41 "log artifacts").
+  // Best-effort: record() no-ops when no session recorder exists, so a device tool
+  // used before any session started still runs, just without a log line.
+  recordDeviceTool(command: string, params: any, outcome: { ok: boolean; error?: string }) {
+    return this.record({ type: "device_tool", command, params, ok: outcome.ok, error: outcome.error });
+  }
+
   // Send a question to the webview and resolve when the user answers. Optional
   // options render as clickable choices; optionsRequiringText marks the ones that
   // need a typed value (a URL/number/path), so the webview holds that choice and

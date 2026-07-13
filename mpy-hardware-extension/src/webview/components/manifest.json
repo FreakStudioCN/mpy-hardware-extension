@@ -11,6 +11,7 @@
   "EnvDoctorPanel.js",
   "GenDriverPanel.js",
   "SupportContactPanel.js",
+  "DeviceToolsPanel.js",
   "HomeWorkbench.js",
   "bootstrap.js"
 ]

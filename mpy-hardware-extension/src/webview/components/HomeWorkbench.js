@@ -31,24 +31,62 @@
       // A global tool opens as a full-body surface over the workflow (stages + composer
       // hide), not inside the stage content area. Each global tool has its own surface;
       // opening one shows it and hides the others + the workflow.
-      const GLOBAL_TOOL_HIDES = ["#globalTools", "#tabs", ".tabwrap", ".composer"];
-      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent"];
+      // The global-tools bar stays visible when a tool opens (switch tools without
+      // going Back); only the workflow surfaces below it hide.
+      const GLOBAL_TOOL_HIDES = ["#tabs", ".tabwrap", ".composer"];
+      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent", "toolDeviceTools"];
+      // Mark the bar circle whose data-tool matches the open surface as selected (a
+      // tool opened from the home area, e.g. toolRecent, matches no circle — none active).
+      function setActiveGtool(id) {
+        document.querySelectorAll(".gtool-btn").forEach((b) => {
+          const on = b.dataset.tool === id;
+          b.classList.toggle("active", on);
+          if (on) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
+        });
+      }
       function openGlobalTool(id) {
         for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.add("hidden");
         for (const t of GLOBAL_TOOL_SURFACES) $(t).classList.toggle("hidden", t !== id);
+        setActiveGtool(id);
       }
       function closeGlobalTool() {
         for (const t of GLOBAL_TOOL_SURFACES) $(t).classList.add("hidden");
         for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.remove("hidden");
+        setActiveGtool(null);
       }
       $("genDriverOpen").addEventListener("click", () => openGlobalTool("toolGenDriver"));
       $("genDriverBack").addEventListener("click", closeGlobalTool);
       $("supportOpen").addEventListener("click", () => openGlobalTool("toolSupport"));
       $("supportBack").addEventListener("click", closeGlobalTool);
+      // Device Tools global tool (#54): open the surface and check for a device — it lists
+      // the root if one is connected, else shows the "plug in a device" state.
+      $("deviceToolsOpen").addEventListener("click", () => { openGlobalTool("toolDeviceTools"); dtCheckDevice(); });
+      $("deviceToolsBack").addEventListener("click", closeGlobalTool);
+      // Global-tools overflow: any number of circle tools fit — the row scrolls and the
+      // chevrons show only when it clips (recomputed on scroll/resize).
+      const gtoolsTrack = $("globalTools");
+      const gtoolLeft = $("gtoolsLeft"), gtoolRight = $("gtoolsRight");
+      const GTOOL_SCROLL_FRACTION = 0.7; // fraction of the visible width one arrow click moves
+      function updateGtoolArrows() {
+        const clip = gtoolsTrack.scrollWidth - gtoolsTrack.clientWidth;
+        const overflow = clip > 1;
+        gtoolLeft.classList.toggle("hidden", !overflow || gtoolsTrack.scrollLeft <= 0);
+        gtoolRight.classList.toggle("hidden", !overflow || gtoolsTrack.scrollLeft >= clip - 1);
+      }
+      const reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      const scrollGtools = (dir) => gtoolsTrack.scrollBy({ left: dir * gtoolsTrack.clientWidth * GTOOL_SCROLL_FRACTION, behavior: reduceMotion ? "auto" : "smooth" });
+      gtoolLeft.addEventListener("click", () => scrollGtools(-1));
+      gtoolRight.addEventListener("click", () => scrollGtools(1));
+      gtoolsTrack.addEventListener("scroll", updateGtoolArrows);
+      // A pill expanding (hover or the selected tool) widens the row without a scroll/
+      // resize event, so re-check when its expand/collapse transition settles.
+      gtoolsTrack.addEventListener("transitionend", updateGtoolArrows);
+      window.addEventListener("resize", updateGtoolArrows);
+      updateGtoolArrows();
       // Home hero action: begin a build. The composer is always mounted, so "start"
       // just reveals the board picker and focuses the prompt (no session yet).
-      // ponytail: the rest of the launch-area inventory (Device Tools=Day-7, Git
-      // history / Save Version per spec 3.8) is still stubbed pending its own cards.
+      // ponytail: Git history / Save Version (spec 3.8) are still stubbed global tools
+      // pending their own cards.
       $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); setBoardBodyExpanded(true); $("intent").focus(); });
       // Import Existing Project: host opens a folder picker then reloads on that
       // folder (no webview surface). Recent Sessions: read-only list of past session

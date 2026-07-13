@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -18,6 +18,7 @@ import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
 import { createDeviceShim, detectPython, venvReady, venvMpremoteVersion, installVenvAsync } from "../extension/device-shim.ts";
+import { DeviceCommandQueue } from "../extension/device-lock.ts";
 import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
@@ -59,6 +60,12 @@ async function ensureGitConfig(projectFolder: string, key: string, value: string
 // pointing it at the open workspace root would clobber those files (e.g. when the
 // dev repo itself is the open folder). A dedicated subfolder makes that impossible.
 const PROJECT_SUBDIR = "blockless-project";
+// Bound the "x (n).py" rename search when a device download would clobber a workspace file.
+const MAX_DOWNLOAD_DEDUP = 1000;
+// How long a host-issued device-delete nonce stays valid for the webview to echo back
+// (spec §4). Longer than the webview's 3s UI arm so the confirm click is never rejected
+// by a host/webview clock race; short enough that a leaked nonce is not reusable later.
+const DELETE_ARM_TTL_MS = 10_000;
 
 // Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
 // timeout, never throws — a headless/missing tool yields "unknown".
@@ -199,6 +206,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
+  // Serializes user-initiated device-tool commands so two never overlap on the one
+  // serial port (#54, spec §41). The active-run gate is checked per command below.
+  const deviceQueue = new DeviceCommandQueue();
+  // Host-enforced two-step for the destructive device delete (spec §4). The webview's
+  // "Confirm?" arm is UI-only, so a stale/duplicated device_tool_delete would otherwise
+  // delete with no gate. The host issues a one-shot nonce on the first (bare) delete and
+  // only removes the file when the webview echoes that exact nonce back for the same path
+  // in time; the nonce is consumed on use, so a replay cannot delete again.
+  let pendingDelete: { path: string; nonce: string; expiresAt: number } | null = null;
   const auth = createGithubAuth({ vscode, apiBaseUrl, fetchImpl, log: deps.log });
   const workspaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
   // Project output goes into a dedicated subfolder (see PROJECT_SUBDIR); session
@@ -384,6 +400,94 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     webview.postMessage({ type: "artifacts_index", artifacts: forWebview });
   }
 
+  // Device Tools (#54): run a user-initiated device command. Refuse while a session
+  // run owns the port (device_busy — never silently compete with flash/deploy/
+  // gen-driver, spec §41); otherwise serialize on deviceQueue, log it, and post the
+  // result. `fn` returns the payload sent back with device_tool_result.
+  async function runDeviceTool(command: string, params: any, fn: () => Promise<any>) {
+    if (controller.isRunning()) {
+      webview.postMessage({ type: "device_busy", command, phase: controller.runningPhase() });
+      return;
+    }
+    try {
+      // Re-check ownership at DEQUEUE, not just enqueue: a command queued behind a slow
+      // one (e.g. a mip install) must not fire if a session run took the port meanwhile.
+      const result = await deviceQueue.runExclusive(() => {
+        if (controller.isRunning()) {
+          const busy: any = new Error("device_busy");
+          busy.deviceBusy = true; busy.phase = controller.runningPhase();
+          throw busy;
+        }
+        return fn();
+      });
+      await controller.recordDeviceTool(command, params, { ok: true });
+      webview.postMessage({ type: "device_tool_result", command, result });
+    } catch (error: any) {
+      if (error?.deviceBusy) { webview.postMessage({ type: "device_busy", command, phase: error.phase }); return; }
+      const msg = error?.message ?? "device_tool_failed";
+      await controller.recordDeviceTool(command, params, { ok: false, error: msg });
+      webview.postMessage({ type: "device_tool_error", command, error: msg });
+    }
+  }
+
+  // Acquire run ownership of the serial port before a session run takes it: drain any
+  // in-flight device-tool command on deviceQueue (spec §41, run<-device-tool direction).
+  // BOTH run entry points — start_session AND retry_session — must go through this; a lock
+  // enforced only in start() lets a retry flash over a tool (e.g. a slow mip install) that
+  // still holds the port. Idempotent when the queue is idle.
+  const acquireRunOwnership = () => deviceQueue.runExclusive(async () => {});
+
+  // Upload: pick a local file, write it to the current device dir under its basename.
+  // The read + write run INSIDE runDeviceTool so a read failure surfaces as device_tool_error
+  // (not an unhandled rejection); the device path is validated by writeUserDeviceFile.
+  async function handleDeviceUpload(dir: string) {
+    const picked = await vscode.window.showOpenDialog?.({ canSelectMany: false });
+    const uri = picked?.[0];
+    if (!uri) return;
+    const base = uri.fsPath.split(/[\\/]/).pop();
+    const remote = dir ? `${dir.replace(/\/$/, "")}/${base}` : base;
+    await runDeviceTool("upload", { remote }, async () => {
+      // Raw bytes, not a decoded string: writeUserDeviceFile base64s them so binaries
+      // (.mpy, images) round-trip intact. TextDecoder would corrupt non-UTF-8 silently.
+      await shim.writeUserDeviceFile(remote, await vscode.workspace.fs.readFile(uri));
+      return { path: remote };
+    });
+  }
+
+  // A workspace path for `base` that does not clobber an existing file: x.py -> x (1).py.
+  // Throws once every dedup slot is taken rather than returning the clobbering path — the
+  // caller runs this inside runDeviceTool, so the throw surfaces as device_tool_error.
+  function uniqueLocalPath(base: string): string {
+    const first = join(workspaceFolder!, base);
+    if (!existsSync(first)) return first;
+    const dot = base.lastIndexOf(".");
+    const stem = dot > 0 ? base.slice(0, dot) : base;
+    const ext = dot > 0 ? base.slice(dot) : "";
+    for (let n = 1; n <= MAX_DOWNLOAD_DEDUP; n++) {
+      const candidate = join(workspaceFolder!, `${stem} (${n})${ext}`);
+      if (!existsSync(candidate)) return candidate;
+    }
+    throw new Error("too_many_download_duplicates");
+  }
+
+  // Download: copy a device file into the workspace and open it — device files have no
+  // read-to-string on the shim, so copy+open is the "view" path. Basename only, split on
+  // BOTH separators (a device name with a backslash must not escape the workspace on
+  // Windows) and rejecting traversal; never silently clobber an existing workspace file.
+  async function handleDeviceDownload(remotePath: string) {
+    if (!workspaceFolder) { webview.postMessage({ type: "device_tool_error", command: "download", error: "no_workspace_folder" }); return; }
+    const base = remotePath.split(/[\\/]/).pop() ?? "";
+    if (!base || base === "." || base === "..") { webview.postMessage({ type: "device_tool_error", command: "download", error: "invalid_device_path" }); return; }
+    // uniqueLocalPath runs INSIDE runDeviceTool so a dedup-exhaustion throw surfaces as
+    // device_tool_error (not an unhandled rejection).
+    await runDeviceTool("download", { remotePath }, async () => {
+      const localPath = uniqueLocalPath(base);
+      await shim.copyFromDevice(remotePath, localPath);
+      await vscode.window.showTextDocument?.(vscode.Uri.file(localPath));
+      return { path: remotePath, localPath };
+    });
+  }
+
   webview.onDidReceiveMessage(async (message: any) => {
     if (message.type === "request_gen_driver_config") {
       // The panel renders its input tabs from the schema module (single source of truth).
@@ -561,6 +665,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
       }
       await ensureProjectGitRepo(projectFolder, deps.log);
+      // Serial-port lock (spec §41), other direction: wait for any in-flight device-tool
+      // command (e.g. a slow mip install) to finish before the run takes the port, so a
+      // flash/deploy never competes with a user device command.
+      await acquireRunOwnership();
       // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
       // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
       // build's own codegen output or scratch created during this run.
@@ -586,6 +694,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           return;
         }
       }
+      // Same acquire step as start_session: retry() re-enters run() which takes the port,
+      // so it must also drain the device queue first (otherwise the lock is one-directional).
+      await acquireRunOwnership();
       await controller.retry();
     }
     if (message.type === "select_device") {
@@ -615,6 +726,43 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         webview.postMessage({ type: "deploy_ports_updated", ports: [] });
       }
+    }
+    if (message.type === "device_tool_list") {
+      const path = typeof message.path === "string" ? message.path : "";
+      await runDeviceTool("list", { path }, async () => ({ path, entries: await shim.listDir(path) }));
+    }
+    if (message.type === "device_tool_mkdir" && typeof message.path === "string") {
+      await runDeviceTool("mkdir", { path: message.path }, async () => { await shim.makeDir(message.path); return { path: message.path }; });
+    }
+    if (message.type === "device_tool_delete" && typeof message.path === "string") {
+      const now = Date.now();
+      const armed = pendingDelete;
+      if (armed && armed.path === message.path && armed.nonce === message.nonce && now < armed.expiresAt) {
+        pendingDelete = null; // one-shot: consume the nonce so a duplicate confirm can't re-delete
+        await runDeviceTool("delete", { path: message.path }, async () => { await shim.removePath(message.path); return { path: message.path }; });
+      } else {
+        // First click, or a stale/expired/mismatched nonce: arm and wait for the webview to
+        // echo the nonce. Nothing is deleted, so a duplicated bare message is harmless.
+        const nonce = randomUUID();
+        pendingDelete = { path: message.path, nonce, expiresAt: now + DELETE_ARM_TTL_MS };
+        webview.postMessage({ type: "device_tool_delete_armed", path: message.path, nonce });
+      }
+    }
+    if (message.type === "device_tool_mip" && typeof message.url === "string") {
+      const version = typeof message.version === "string" && message.version ? message.version : undefined;
+      await runDeviceTool("mip_install", { url: message.url, version }, async () => { await shim.installPackage(message.url, version); return { url: message.url }; });
+    }
+    if (message.type === "device_tool_upload") {
+      await handleDeviceUpload(typeof message.dir === "string" ? message.dir : "");
+    }
+    if (message.type === "device_tool_download" && typeof message.path === "string") {
+      await handleDeviceDownload(message.path);
+    }
+    if (message.type === "device_presence") {
+      // Device Tools presence poll: a host-side port scan (lists ports, never opens one, so
+      // it's safe during a flash) lets the tab show "no device" and revert on unplug.
+      try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }
+      catch { webview.postMessage({ type: "device_present", present: false }); }
     }
     if (message.type === "run_doctor_check" || message.type === "doctor_action") {
       // Environment preflight for the Doctor tab. "install_deps" runs the async (non-

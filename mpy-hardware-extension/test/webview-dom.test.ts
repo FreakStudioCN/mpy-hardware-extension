@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import test from "node:test";
+import test, { after } from "node:test";
 
 import { JSDOM } from "jsdom";
 
@@ -20,6 +20,12 @@ const compOrder: string[] = JSON.parse(readFileSync(new URL("manifest.json", com
 const webviewJs = compOrder.map((f) => readFileSync(new URL(f, compDir), "utf-8")).join("");
 const html = rawHtml.replace("/*__WEBVIEW_CSS__*/", () => webviewCss).replace("//__WEBVIEW_JS__", () => webviewJs);
 
+// DeviceToolsPanel installs a lifetime setInterval (presence poll). In a real webview the
+// page teardown kills it; here every loaded window leaks a live timer that keeps node's
+// event loop alive, so `node --test` never exits. Track and close each window at the end.
+const openDoms: JSDOM[] = [];
+after(() => { for (const d of openDoms) d.window.close(); });
+
 async function loadWebview(posted?: any[]): Promise<JSDOM> {
   const dom = new JSDOM(html, {
     runScripts: "dangerously",
@@ -35,6 +41,7 @@ async function loadWebview(posted?: any[]): Promise<JSDOM> {
     if (dom.window.document.readyState === "complete") resolve();
     else dom.window.addEventListener("load", () => resolve());
   });
+  openDoms.push(dom);
   return dom;
 }
 
@@ -121,6 +128,7 @@ test("the last-used preference mode persists across panel reopens", async () => 
       if (dom.window.document.readyState === "complete") resolve();
       else dom.window.addEventListener("load", () => resolve());
     });
+    openDoms.push(dom);
     return dom;
   };
 
@@ -2030,4 +2038,138 @@ test("file_op_confirm_needed renders an in-panel card with the file path and pos
   (del.querySelector(".fileop-ignore") as HTMLElement).click();
   const reply2 = posted.find((m) => m.type === "ui_prompt_response" && m.promptId === "file-delete-1");
   assert.equal(reply2.answer, "ignore", "clicking Ignore posts the stable 'ignore' answer");
+});
+
+test("global tools: the scroll chevrons exist and stay hidden when the row fits", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // Guards the load path: a missing chevron id would throw in the arrow wiring and
+  // blank the panel. JSDOM has no layout, so no overflow -> both chevrons hidden.
+  assert.ok(document.getElementById("gtoolsLeft") && document.getElementById("gtoolsRight"), "both chevrons exist");
+  assert.ok(document.getElementById("gtoolsLeft").classList.contains("hidden"), "no overflow -> left chevron hidden");
+  assert.ok(document.getElementById("gtoolsRight").classList.contains("hidden"), "no overflow -> right chevron hidden");
+});
+
+test("device tools: clicking the Device Tools button shows its surface and hides the workflow", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  document.getElementById("deviceToolsOpen").click();
+  // the bug: toolDeviceTools was missing from GLOBAL_TOOL_SURFACES, so open hid the
+  // whole workflow but never un-hid the surface -> a blank panel.
+  assert.ok(!document.getElementById("toolDeviceTools").classList.contains("hidden"), "the Device Tools surface must be shown on open");
+  assert.ok(document.getElementById("tabs").classList.contains("hidden"), "the workflow tabs hide behind a global tool");
+  assert.ok(document.getElementById("toolSupport").classList.contains("hidden"), "the other global-tool surfaces stay hidden");
+});
+
+test("global tools: the open tool's circle is selected, switches without Back, and clears on Back", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  document.getElementById("deviceToolsOpen").click();
+  assert.ok(document.getElementById("deviceToolsOpen").classList.contains("active"), "the open tool is selected");
+  assert.equal(document.getElementById("deviceToolsOpen").getAttribute("aria-current"), "true", "selection is exposed to screen readers");
+  assert.ok(!document.getElementById("supportOpen").classList.contains("active"), "other tools are not selected");
+  // the bar persists, so clicking another tool switches the surface + the selection
+  document.getElementById("supportOpen").click();
+  assert.ok(document.getElementById("supportOpen").classList.contains("active"), "switching moves the selection");
+  assert.ok(!document.getElementById("deviceToolsOpen").classList.contains("active"), "the previous tool deselects");
+  assert.equal(document.getElementById("deviceToolsOpen").getAttribute("aria-current"), null, "the previous tool drops aria-current");
+  document.getElementById("supportBack").click();
+  assert.ok(!document.getElementById("supportOpen").classList.contains("active"), "Back clears the selection");
+  assert.equal(document.getElementById("supportOpen").getAttribute("aria-current"), null, "Back clears aria-current");
+});
+
+test("device tools: a list result renders device-file rows and hides the empty state", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py", "lib"] } });
+  const rows = document.querySelectorAll("#dtEntries .dt-row");
+  assert.equal(rows.length, 2);
+  assert.ok([...rows].some((r: any) => r.querySelector(".dt-name")?.textContent === "boot.py"));
+  assert.ok(document.getElementById("dtEmpty").classList.contains("hidden"));
+});
+
+test("device tools: folders are click-to-descend, files carry actions, breadcrumbs jump up", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["lib/", "boot.py"] } });
+  const dirBtn = [...document.querySelectorAll("#dtEntries .dt-navbtn")].find((b: any) => b.textContent === "lib/");
+  assert.ok(dirBtn, "a folder (trailing /) renders as a click-to-descend button");
+  const fileRow = [...document.querySelectorAll("#dtEntries .dt-row")].find((r: any) => r.querySelector(".dt-name")?.textContent === "boot.py");
+  assert.ok((fileRow as any).querySelector(".dt-del"), "a file has a delete action; a folder does not");
+  (dirBtn as any).click();
+  assert.ok(posted.some((m) => m.type === "device_tool_list" && m.path === "/lib"), "clicking a folder lists it");
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/lib", entries: [] } });
+  const rootCrumb = [...document.querySelectorAll("#dtCrumbs .dt-crumb")].find((b: any) => b.textContent === "/");
+  (rootCrumb as any).click();
+  assert.ok(posted.some((m) => m.type === "device_tool_list" && m.path === "/"), "the root breadcrumb navigates to /");
+});
+
+test("device tools: shows a no-device state until a board is present, and reverts on unplug", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_present", present: false });
+  assert.ok(!document.getElementById("dtNoDev").classList.contains("hidden"), "the 'plug in a device' state shows with no board");
+  assert.ok(document.getElementById("dtDeviceUi").classList.contains("hidden"), "all controls (add/manage, mip) hide with no board");
+  post(dom, { type: "device_present", present: true });
+  assert.ok(posted.some((m) => m.type === "device_tool_list" && m.path === "/"), "a connected board lists its root");
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py"] } });
+  assert.ok(document.getElementById("dtNoDev").classList.contains("hidden"), "no-device hidden while a board is present");
+  assert.ok(!document.getElementById("dtDeviceUi").classList.contains("hidden"), "controls shown while a board is present");
+  post(dom, { type: "device_present", present: false });
+  assert.ok(!document.getElementById("dtNoDev").classList.contains("hidden"), "unplugging reverts to the no-device state");
+  assert.ok(document.getElementById("dtDeviceUi").classList.contains("hidden"), "controls hide again on unplug");
+  assert.equal(document.getElementById("dtEntries").children.length, 0, "the file list is cleared on unplug");
+});
+
+test("device tools: a mutation's result stays visible; the auto-refresh does not clobber it", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // an mkdir success sets the status, then silently refreshes the listing
+  post(dom, { type: "device_tool_result", command: "mkdir", result: { path: "/x" } });
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  assert.match(document.getElementById("dtStatus").textContent, /mkdir done/i, "the done message survives the auto-refresh");
+});
+
+test("device tools: device_busy shows the busy banner naming the owning phase", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_busy", phase: "flash" });
+  const banner = document.getElementById("dtBusy");
+  assert.ok(!banner.classList.contains("hidden"));
+  assert.match(banner.textContent, /flash/);
+});
+
+test("device tools: Install (mip) posts device_tool_mip with the url + version", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  document.getElementById("dtMipUrl").value = "github:org/repo/pkg";
+  document.getElementById("dtMipVersion").value = "1.2.3";
+  document.getElementById("dtMipInstall").click();
+  const mip = posted.find((m) => m.type === "device_tool_mip");
+  assert.ok(mip); assert.equal(mip.url, "github:org/repo/pkg"); assert.equal(mip.version, "1.2.3");
+});
+
+test("device tools: Delete is host-armed two-step — first click requests an arm (no nonce), second echoes the host nonce", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/lib", entries: ["x.py"] } });
+  const row = [...document.querySelectorAll("#dtEntries .dt-row")].find((r: any) => r.querySelector(".dt-name")?.textContent === "x.py");
+  const del = (row as any).querySelector(".dt-del");
+
+  del.click(); // first click: an ARM request only (bare, no nonce) — the host won't delete on this
+  const arm = posted.find((m) => m.type === "device_tool_delete");
+  assert.ok(arm && arm.path === "/lib/x.py", "first click posts an arm request for the path");
+  assert.equal(arm.nonce, undefined, "the arm request carries no nonce, so nothing can delete yet");
+  assert.match(del.textContent, /Confirm/i, "the button arms with a confirm label");
+
+  // Host replies with its one-shot nonce; the confirm click echoes it back.
+  post(dom, { type: "device_tool_delete_armed", path: "/lib/x.py", nonce: "n-123" });
+  del.click();
+  const confirm = posted.filter((m) => m.type === "device_tool_delete").at(-1);
+  assert.equal(confirm.nonce, "n-123", "the confirm click echoes the host nonce");
+  assert.equal(confirm.path, "/lib/x.py");
 });

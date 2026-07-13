@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 
 import { ShimProcess } from "./shim-process.ts";
-import { normalizeGeneratedArtifactPath } from "./workspace-writer.ts";
+import { normalizeGeneratedArtifactPath, sanitizeDevicePath } from "./workspace-writer.ts";
 
 // Adapter the agent loop's `shim` expects (scan / installPackage / writeMainPy /
 // flashAndRun / serialReadUntil), implemented over a JSON-RPC `request` to the
@@ -86,6 +86,19 @@ export class DeviceShim {
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "write_failed");
   }
 
+  // Device Tools upload: a user-chosen path (any name/ext/dir), validated by
+  // sanitizeDevicePath — NOT the codegen allowlist writeDeviceFile enforces. Content is
+  // the raw file bytes, sent as base64 and staged in binary mode on the shim, so a .mpy
+  // or any binary round-trips intact (a UTF-8 decode here would replace invalid bytes
+  // with U+FFFD). writeDeviceFile (codegen) keeps its string `code` path unchanged.
+  async writeUserDeviceFile(path: string, bytes: Uint8Array): Promise<void> {
+    const port = await this.ensurePort();
+    const safePath = sanitizeDevicePath(path);
+    if (!safePath) throw new Error("invalid_device_path");
+    const r = await this.rpc("device.write_device_file", { path: safePath, content_b64: Buffer.from(bytes).toString("base64"), port });
+    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "write_failed");
+  }
+
   async flashAndRun(_path?: string): Promise<void> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.flash_and_run", { port });
@@ -122,13 +135,19 @@ export class DeviceShim {
 
   async removePath(path: string): Promise<void> {
     const port = await this.ensurePort();
-    const r = await this.rpc("device.fs_remove", { port, path });
+    // Sanitize at this choke point so both the Device Tools handler and the protocol
+    // callers (protocol-build) reject traversal/backslash consistently, matching upload.
+    const safePath = sanitizeDevicePath(path);
+    if (!safePath) throw new Error("invalid_device_path");
+    const r = await this.rpc("device.fs_remove", { port, path: safePath });
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "rm_failed");
   }
 
   async makeDir(path: string): Promise<void> {
     const port = await this.ensurePort();
-    const r = await this.rpc("device.fs_mkdir", { port, path });
+    const safePath = sanitizeDevicePath(path);
+    if (!safePath) throw new Error("invalid_device_path");
+    const r = await this.rpc("device.fs_mkdir", { port, path: safePath });
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "mkdir_failed");
   }
 

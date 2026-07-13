@@ -11,7 +11,7 @@ const flushMicrotasks = async () => { for (let i = 0; i < 10; i++) await Promise
 test("records protocol status_update and phase_start (not postMessage-only) so the cloud DB sees phase progress", async () => {
   const recorded: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
     loop: async ({ onEvent }) => {
       onEvent({ type: "phase_start", phase: "select-hw" });
@@ -38,7 +38,7 @@ test("carries start() preferences into the loop input so the server gets the use
   // it (and any mode/existing_hardware) into the loop input -> protocol context.
   let loopInput: any = null;
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input: any) => { loopInput = input; return { terminal: "complete" }; },
   });
 
@@ -53,7 +53,7 @@ test("carries the recommend board_selection_mode into the loop (not dropped at t
   // must forward it so the server knows the user asked it to pick, and must clear it on a fresh session.
   const inputs: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input: any) => { inputs.push(input); return { terminal: "complete" }; },
   });
 
@@ -69,7 +69,7 @@ test("a fresh session (board change / reset) does not inherit stale preferences"
   // ground an unrelated build with the previous session's context.
   const inputs: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input: any) => { inputs.push(input); return { terminal: "complete" }; },
   });
 
@@ -89,7 +89,7 @@ test("a reset does not leak the recommend board_selection_mode into the next bui
   // never asked for a recommendation (buildContext then forwards board_selection_mode).
   const inputs: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input: any) => { inputs.push(input); return { terminal: "complete" }; },
   });
 
@@ -109,7 +109,7 @@ test("a reset clears the artifact accumulators so a new session does not surface
   // Only session A produces artifacts; session B's loop is silent, so any artifact present
   // after B starts can only be A's leftovers.
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ intent, onEvent }: any) => {
       if (typeof intent === "string" && intent.includes("session A")) {
         onEvent({ type: "phase_complete", payload: { phase: "analyze", artifacts: [{ type: "manifest", path: "project-manifest.json" }] } });
@@ -194,11 +194,11 @@ test("session controller streams loop events and gates deploy via confirmDeploy"
 });
 
 test("session controller rejects a concurrent start while a run is in flight", async () => {
-  let release: () => void = () => {};
+  let release: () => void = () => { };
   const gate = new Promise<void>((resolve) => { release = resolve; });
   let loopStarts = 0;
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async () => { loopStarts += 1; await gate; return { terminal: "success" }; },
   });
 
@@ -217,7 +217,7 @@ test("session controller rejects a concurrent start while a run is in flight", a
 
 test("reset() supersedes the in-flight run: late messages are dropped and a new start is accepted", async () => {
   const messages: any[] = [];
-  let release: () => void = () => {};
+  let release: () => void = () => { };
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const controller = new SessionController({
     postMessage: (m) => messages.push(m),
@@ -278,7 +278,7 @@ test("session controller writes generated files after code and manifest are avai
 test("session controller accumulates multi-file projects by path and writes them all", async () => {
   const written: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     writeFiles: async (files) => {
       written.push(files);
       return { ok: true, paths: Object.keys(files) };
@@ -493,7 +493,7 @@ test("session controller confirmPlan resolves cancel on cancel answer and on ses
   // explicit "cancel" answer
   let a: any = "unset";
   const c1 = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ confirmPlan }) => { a = await confirmPlan({ estimate: 2 }); return { terminal: "generated" }; },
   });
   const s1 = c1.start({ intent: "x", boardId: "b" });
@@ -505,7 +505,7 @@ test("session controller confirmPlan resolves cancel on cancel answer and on ses
   // session cancel unblocks a pending plan as cancel
   let b: any = "unset";
   const c2 = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ confirmPlan, signal }) => { b = await confirmPlan({ estimate: 2 }); return { terminal: signal?.aborted ? "cancelled" : "generated" }; },
   });
   const s2 = c2.start({ intent: "x", boardId: "b" });
@@ -539,7 +539,7 @@ test("session controller routes confirmDeploy to the webview as deploy_needed an
 test("session controller confirmDeploy resolves false on session cancel", async () => {
   let approved: boolean | "unset" = "unset";
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ confirmDeploy, signal }) => { approved = await confirmDeploy(); return { terminal: signal?.aborted ? "cancelled" : "generated" }; },
   });
   const started = controller.start({ intent: "x", boardId: "b" });
@@ -551,7 +551,7 @@ test("session controller confirmDeploy resolves false on session cancel", async 
 test("session controller records UI prompts, the deploy gate, artifacts, and terminal state", async () => {
   const recorded: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     recorderFactory: (traceId: string) => ({
       record: async (event: any) => void recorded.push({ traceId, ...event }),
     }),
@@ -604,7 +604,7 @@ test("session controller carries agent state into the next user message", async 
     { traceId: "session", intent: "first", boardId: "esp32-s3-devkitc-1", messages: [{ role: "user", content: "first" }, { role: "user", content: "second" }] },
   ];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async (input) => {
       statesSeen.push(input.state);
       return { terminal: "awaiting_user", state: returnedStates[statesSeen.length - 1] };
@@ -623,8 +623,8 @@ test("session controller reset drops the conversation so the next start is a fre
   const traceIds: string[] = [];
   const carried = { traceId: "session", intent: "first", boardId: "esp32-s3-devkitc-1", messages: [{ role: "user", content: "first" }] };
   const controller = new SessionController({
-    postMessage: () => {},
-    recorderFactory: (traceId: string) => { traceIds.push(traceId); return { record: async () => {} }; },
+    postMessage: () => { },
+    recorderFactory: (traceId: string) => { traceIds.push(traceId); return { record: async () => { } }; },
     loop: async (input) => { statesSeen.push(input.state); return { terminal: "awaiting_user", state: carried }; },
   });
 
@@ -643,7 +643,7 @@ test("session controller reset drops the conversation so the next start is a fre
 test("session controller cancel unblocks a pending ask_user with a null answer", async () => {
   let captured: string | null = "unset";
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ askUser, signal }) => {
       captured = await askUser("?");
       return { terminal: signal?.aborted ? "cancelled" : "generated" };
@@ -748,7 +748,7 @@ test("a second resolvePrompt for the same promptId does not re-invoke the resolv
   const recorded: any[] = [];
   let loopAnswer: any = "unset";
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     recorderFactory: () => ({ record: async (event: any) => void recorded.push(event) }),
     loop: async ({ askUser }) => {
       loopAnswer = await askUser("Which output should it use?");
@@ -910,7 +910,7 @@ test("an absorb note queued on the FINAL phase is surfaced as deferred, not fals
 
 test("artifactSources stamps each file with the phase it was written in (not the final phase)", async () => {
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ onEvent }: any) => {
       onEvent({ type: "phase_start", phase: "upy-analyze-plugin" });
       onEvent({ type: "file_written", path: "/ws/blockless-project/project-manifest.json" });
@@ -931,19 +931,27 @@ test("artifactSources stamps each file with the phase it was written in (not the
 
 test("phase_complete artifacts are captured with their Skill role and producing phase", async () => {
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     loop: async ({ onEvent }: any) => {
       onEvent({ type: "phase_start", phase: "upy-analyze-plugin" });
-      onEvent({ type: "phase_complete", payload: { phase: "upy-analyze-plugin", artifacts: [
-        { type: "project_manifest", path: "project-manifest.json" },
-        { type: "session_state", path: ".mpyhw/sessions/s/session_state.json" },
-        { type: "table", headers: ["a"] }, // no path -> skipped
-      ] } });
+      onEvent({
+        type: "phase_complete", payload: {
+          phase: "upy-analyze-plugin", artifacts: [
+            { type: "project_manifest", path: "project-manifest.json" },
+            { type: "session_state", path: ".mpyhw/sessions/s/session_state.json" },
+            { type: "table", headers: ["a"] }, // no path -> skipped
+          ]
+        }
+      });
       onEvent({ type: "phase_start", phase: "upy-select-hw-plugin" });
-      onEvent({ type: "phase_complete", payload: { phase: "upy-select-hw-plugin", artifacts: [
-        { type: "project_manifest", path: "project-manifest.json" }, // dup path -> first phase wins
-        { type: "generate_plan", path: "select_hw_validated.json" },
-      ] } });
+      onEvent({
+        type: "phase_complete", payload: {
+          phase: "upy-select-hw-plugin", artifacts: [
+            { type: "project_manifest", path: "project-manifest.json" }, // dup path -> first phase wins
+            { type: "generate_plan", path: "select_hw_validated.json" },
+          ]
+        }
+      });
       return { terminal: "complete" };
     },
   });
@@ -970,7 +978,7 @@ test("cancel() hard-interrupts the device (killDevice) and aborts the loop signa
   let killed = 0;
   const recorded: any[] = [];
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     killDevice: () => { killed++; },
     recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
     loop: async ({ signal }: any) => {
@@ -997,16 +1005,16 @@ test("cancel() hard-interrupts the device (killDevice) and aborts the loop signa
 test("cancel() is a safe no-op when idle and when killDevice is not provided", async () => {
   // killDevice is optional (shim.kill is idempotent); a controller with no killDevice dep
   // and no run in flight must cancel without throwing.
-  const controller = new SessionController({ postMessage: () => {}, loop: async () => ({ terminal: "complete" }) });
+  const controller = new SessionController({ postMessage: () => { }, loop: async () => ({ terminal: "complete" }) });
   assert.doesNotThrow(() => controller.cancel(), "cancel with nothing in flight and no killDevice is a no-op");
 });
 
 test("reset() also hard-interrupts an in-flight device op (killDevice) so a new build leaves nothing running", async () => {
   let killed = 0;
-  let release: () => void = () => {};
+  let release: () => void = () => { };
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const controller = new SessionController({
-    postMessage: () => {},
+    postMessage: () => { },
     killDevice: () => { killed++; },
     loop: async ({ signal }: any) => { await gate; return { terminal: signal?.aborted ? "cancelled" : "success" }; },
   });
@@ -1041,6 +1049,56 @@ test("confirmFileOp posts an in-panel confirm card carrying the path; proceed=tr
   const c3 = messages.find((m) => m.type === "file_op_confirm_needed" && m.path === "firmware/x.py");
   controller.resolvePrompt(c3.promptId, null); // session cancel/finish
   assert.equal(await cancelled, false, "a cancelled prompt keeps the file (safe default for a destructive op)");
+});
+
+test("isRunning gates device tools: true while a run owns the port, false once it finishes", async () => {
+  let release: () => void = () => { };
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async () => { await gate; return { terminal: "success" }; },
+  });
+
+  assert.equal(controller.isRunning(), false, "an idle controller is not running");
+  const run = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  await Promise.resolve();
+  assert.equal(controller.isRunning(), true, "a run in flight owns the device");
+  release();
+  await run;
+  assert.equal(controller.isRunning(), false, "the device is free once the run finishes");
+});
+
+test("reset() releases the device gate so device tools work after a Stop", async () => {
+  const gate = new Promise<void>(() => { }); // never resolves — a stuck run
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async () => { await gate; return { terminal: "success" }; },
+  });
+
+  const run = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  run.catch(() => { }); // the superseded run is left to unwind; ignore its settle
+  await Promise.resolve();
+  assert.equal(controller.isRunning(), true);
+  controller.reset();
+  assert.equal(controller.isRunning(), false, "reset() nulls abort so the device is free");
+});
+
+test("recordDeviceTool writes a device_tool log line for each command (spec 41 log artifacts)", async () => {
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async () => ({ terminal: "complete" }),
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" }); // creates the session recorder
+  await controller.recordDeviceTool("list", { path: "/" }, { ok: true });
+  await controller.recordDeviceTool("mip_install", { url: "github:x" }, { ok: false, error: "boom" });
+
+  const tools = recorded.filter((e) => e.type === "device_tool");
+  assert.equal(tools.length, 2);
+  assert.equal(tools[0].command, "list"); assert.equal(tools[0].ok, true);
+  assert.equal(tools[1].command, "mip_install"); assert.equal(tools[1].ok, false); assert.equal(tools[1].error, "boom");
 });
 
 // A rich upstream project-manifest (one I2C sensor + one direct-GPIO LED) the
