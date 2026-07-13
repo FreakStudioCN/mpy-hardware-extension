@@ -1198,8 +1198,77 @@ test("a model-issued device rm is routed through the host confirm gate (wired in
   createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
   await handler?.({ type: "start_session", intent: "delete a device file", boardId: "esp32-s3-devkitc-1" });
 
-  assert.ok(posted.some((m) => m.type === "file_op_confirm_needed" && /device:main\.py/.test(String(m.path))), "the panel wires the device-delete confirm into the loop");
+  const confirms = posted.filter((m) => m.type === "file_op_confirm_needed" && /device:main\.py/.test(String(m.path)));
+  assert.equal(confirms[0]?.op, "delete", "the panel wires the first (plain delete) confirm into the loop");
+  assert.ok(!confirms.some((m) => m.op === "device_delete"), "declining the first card short-circuits before the second confirmation");
   assert.equal(removed.length, 0, "a declined confirm means removePath never runs");
+});
+
+// deliverables 07 §4 row 60: a device delete is irreversible, so it needs a SECOND confirmation
+// beyond the host-file single card. Proceeding on the first card must still ask the stronger
+// "device_delete" card, and the rm runs only if that second card is also proceeded.
+test("a model-issued device rm asks a second confirmation; declining it leaves the file", async () => {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  // Proceed on the plain-delete card, decline the stronger erase card. If the second gate is
+  // dropped, removePath fires on the first proceed and this fails.
+  const panel = {
+    webview: {
+      cspSource: "", html: "",
+      postMessage: (m: any) => { posted.push(m); if (m.type === "file_op_confirm_needed") void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer: m.op === "device_delete" ? "ignore" : "proceed" }); },
+      onDidReceiveMessage: (n: any) => { handler = n; },
+    },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  const removed: string[] = [];
+  const shim = { removePath: async (p: string) => { removed.push(p); } };
+  let calls = 0;
+  const fetchImpl = (async (url: string) => {
+    assert.match(url, /\/v1\/llm\/messages$/);
+    calls++;
+    const sse = calls === 1
+      ? sseToolCall("rm1", "device_command", { action: "rm", dst: "main.py" })
+      : sseToolCall("done", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} });
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await handler?.({ type: "start_session", intent: "delete a device file", boardId: "esp32-s3-devkitc-1" });
+
+  const ops = posted.filter((m) => m.type === "file_op_confirm_needed" && /device:main\.py/.test(String(m.path))).map((m) => m.op);
+  assert.deepEqual(ops, ["delete", "device_delete"], "both the plain and the stronger confirmation are asked, in order");
+  assert.equal(removed.length, 0, "declining the second confirmation leaves the device file intact");
+});
+
+test("a model-issued device rm deletes only after both confirmations proceed", async () => {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "", html: "",
+      postMessage: (m: any) => { posted.push(m); if (m.type === "file_op_confirm_needed") void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer: "proceed" }); },
+      onDidReceiveMessage: (n: any) => { handler = n; },
+    },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  const removed: string[] = [];
+  const shim = { removePath: async (p: string) => { removed.push(p); } };
+  let calls = 0;
+  const fetchImpl = (async (url: string) => {
+    assert.match(url, /\/v1\/llm\/messages$/);
+    calls++;
+    const sse = calls === 1
+      ? sseToolCall("rm1", "device_command", { action: "rm", dst: "main.py" })
+      : sseToolCall("done", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} });
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await handler?.({ type: "start_session", intent: "delete a device file", boardId: "esp32-s3-devkitc-1" });
+
+  const ops = posted.filter((m) => m.type === "file_op_confirm_needed" && /device:main\.py/.test(String(m.path))).map((m) => m.op);
+  assert.deepEqual(ops, ["delete", "device_delete"], "both confirmations are asked before the delete");
+  assert.deepEqual(removed, ["main.py"], "removePath runs once after both confirmations proceed");
 });
 
 test("a model-issued cp_from confirms on a pre-existing dest, skips the copy on decline, and does not prompt for a new dest (wired into the loop)", async () => {

@@ -236,9 +236,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // 07 §4). Late-bound: the writer/deleter capture these stable closures now, but the real
   // controller.confirmFileOp is wired in after the controller exists (below). Until then (and
   // in any host with no controller) they resolve false — keep the file — the safe default.
-  let confirmFileOp: (op: "overwrite" | "delete", target: string) => Promise<boolean> = async () => false;
+  let confirmFileOp: (op: "overwrite" | "delete" | "device_delete", target: string) => Promise<boolean> = async () => false;
   const confirmOverwrite = (target: string) => confirmFileOp("overwrite", target);
   const confirmDelete = (target: string) => confirmFileOp("delete", target);
+  // A device file delete is irreversible (no git, no trash), so deliverables 07 §4 row 60 asks
+  // for a *second* confirmation beyond the host-file single card. Ask the plain delete card first,
+  // then this stronger "permanently erases" card; the device rm runs only if BOTH proceed.
+  const confirmDeviceErase = (target: string) => confirmFileOp("device_delete", target);
   // Let the webview load artifact images (svg/png) it references via asWebviewUri (task-03).
   // Roots cover the workspace (project + .mpyhw logs), the globalStorage fallback, and the
   // extension assets. Guarded: a headless/test host may not have vscode.Uri or settable options.
@@ -274,7 +278,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       webview.postMessage(message);
     },
-    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete), confirmDeviceDelete: (p: string) => confirmDelete("device:" + p), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, projectRoot: projectFolder }),
+    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete), confirmDeviceDelete: async (p: string) => (await confirmDelete("device:" + p)) && (await confirmDeviceErase("device:" + p)), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, projectRoot: projectFolder }),
     // Stop must hard-interrupt an in-flight device op, not just abort the loop signal
     // (deliverables 07 §4). shim.kill() dies the blocked mpremote/script now and frees
     // the serial lock; idempotent, so a Stop with nothing in flight is a no-op.
