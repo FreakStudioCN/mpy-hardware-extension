@@ -399,7 +399,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     if (message.type === "request_partners") {
       // Serve the home partner logos as data URIs (config-driven; logos read from disk).
-      const partners = PARTNERS.map((p) => ({ id: p.id, name: p.name, url: p.url, logo: readPartnerLogo(p.file) })).filter((p) => p.logo);
+      // A partner whose logo fails to resolve is still sent (logo: null) so the webview
+      // renders its name as a text fallback instead of dropping the whole partner area.
+      const partners = PARTNERS.map((p) => ({ id: p.id, name: p.name, url: p.url, logo: readPartnerLogo(p.file) }));
       webview.postMessage({ type: "partners_config", partners });
       return;
     }
