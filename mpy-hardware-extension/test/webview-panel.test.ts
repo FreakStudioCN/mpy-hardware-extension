@@ -728,6 +728,58 @@ test("device tools are refused with device_busy while a session run owns the por
   }
 });
 
+test("device tools download reports success even when the editor refuses to open a binary — PR #31 finding 4", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const revealed: any[] = [];
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showTextDocument: async () => { throw new Error("File seems to be binary and cannot be opened as text"); } },
+      commands: { executeCommand: async (cmd: string, uri: any) => { revealed.push({ cmd, uri }); } },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+    const shim = { copyFromDevice: async () => {} };
+    const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "device_tool_download", path: "/blob.mpy" });
+    assert.ok(posted.some((m) => m.type === "device_tool_result" && m.command === "download"), "a good download reports success");
+    assert.ok(!posted.some((m) => m.type === "device_tool_error"), "a binary that won't open in the editor is NOT reported as an error");
+    assert.ok(revealed.some((r) => r.cmd === "revealFileInOS"), "falls back to revealing the saved file in the OS");
+    // Mutation: drop the try/catch around showTextDocument -> the reject surfaces as device_tool_error.
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("device tools run again after a session releases the queue — PR #31 finding 5", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    let listCalled = 0;
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {}, listDir: async () => { listCalled++; return ["boot.py"]; } };
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      throw new Error("stop"); // the run errors out and reaches its terminal, releasing the held queue
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "start_session", intent: "x", boardId: "esp32-s3-devkitc-1" }); // holds the queue, releases at the terminal
+    assert.ok(posted.some((m) => m.type === "session_done"), "the run reached its terminal");
+
+    await handler!({ type: "device_tool_list", path: "/" }); // would wedge forever if the run still held the queue
+    assert.ok(posted.some((m) => m.type === "device_tool_result" && m.command === "list"), "device tools work again once the run released the queue");
+    assert.equal(listCalled, 1, "the list reached the shim");
+    // Mutation: drop `finally { releaseRun() }` -> the queue stays held and this device_tool_list never resolves.
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 function jsonResponse(body: unknown, status = 200) {
   return {
     ok: status >= 200 && status < 300,

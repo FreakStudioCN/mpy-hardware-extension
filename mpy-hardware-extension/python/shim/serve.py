@@ -413,12 +413,15 @@ def _list_files(port, path=None):
         return {"status": "error", "error_kind": map_install_error(r.stderr), "message": (r.stderr or "").strip()}
     files = []
     for line in r.stdout.splitlines():
-        parts = line.strip().split()
-        # mpremote echoes an "ls :" header line; skip it (and any bare ":") so it can't leak
-        # into the list. Entries are "<size> <name>" (a dir shows "0 name/").
-        if not parts or parts[0] == "ls" or parts[-1] in (":", "ls"):
-            continue
-        files.append(parts[-1])
+        # Entries are "<size> <name>" (a dir shows "0 name/"); mpremote also echoes an "ls :"
+        # header line. Split on the FIRST whitespace only so a name containing spaces (e.g.
+        # "my data.bin") is preserved verbatim; before, split() + parts[-1] returned "data.bin",
+        # and download/delete then targeted the wrong path (PR #31 review, finding 1).
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue  # drops the "ls :" header and any blank line
+        # ponytail: a filename with TRAILING whitespace is still trimmed by line.strip().
+        files.append(parts[1])
     return {"status": "ok", "files": files}
 
 

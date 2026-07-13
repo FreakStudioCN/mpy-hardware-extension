@@ -8,6 +8,7 @@ import pytest
 from serve import (
     Shim,
     _dispatch,
+    _list_files,
     map_install_error,
     parse_scan_output,
     resolve_schema,
@@ -325,6 +326,21 @@ def test_runner_captures_mpremote_output():
     assert calls[0][1]["capture_output"] is True
     assert calls[0][1]["text"] is True
     assert calls[0][1]["timeout"] == 30
+
+
+def test_list_files_preserves_names_with_spaces(monkeypatch):
+    # mpremote fs ls prints "<size> <name>" and an "ls :" header. A name can contain spaces
+    # (upload permits them), so splitting on the FIRST whitespace only must keep the whole name;
+    # the old split()+parts[-1] returned just the last token ("data.bin"), so download/delete then
+    # hit the wrong path (PR #31 review, finding 1).
+    out = "ls :\n         132 my data.bin\n           0 my lib/\n"
+    monkeypatch.setattr(
+        "serve._run_mpremote",
+        lambda args, timeout=30: subprocess.CompletedProcess(args, 0, out, ""),
+    )
+    result = _list_files("COM3")
+    assert result["status"] == "ok"
+    assert result["files"] == ["my data.bin", "my lib/"]  # header dropped, spaces + dir "/" kept
 
 
 def test_install_uses_longer_timeout_for_mip_install():

@@ -2200,10 +2200,18 @@ test("device tools: session_done refreshes the current path when the tool is ope
   ([...document.querySelectorAll("#dtEntries .dt-navbtn")].find((b: any) => b.textContent === "lib/") as any).click();
   post(dom, { type: "device_tool_result", command: "list", result: { path: "/lib", entries: [] } });
 
-  // Run ends -> dtRefreshAfterRun re-checks presence; the host's reply then re-lists the current path.
-  // Mutation: remove the dtRefreshAfterRun() call in session_done and this stays flat.
+  // A device tool clicked mid-run got refused with device_busy -> controls disabled, banner shown.
+  post(dom, { type: "device_busy", phase: "flash" });
+  assert.ok(!document.getElementById("dtBusy").classList.contains("hidden"), "busy banner shown mid-run");
+  assert.equal((document.getElementById("dtUpload") as any).disabled, true, "controls disabled mid-run");
+
+  // Run ends -> dtRefreshAfterRun re-enables the controls (finding 2) AND re-checks presence; the
+  // host's reply then re-lists the current path (finding 3). Mutation: remove the dtRefreshAfterRun()
+  // call in session_done and both the re-enable and the re-list stop happening.
   const libBefore = posted.filter((m) => m.type === "device_tool_list" && m.path === "/lib").length;
   post(dom, { type: "session_done", terminal: "complete" });
+  assert.ok(document.getElementById("dtBusy").classList.contains("hidden"), "busy banner cleared on session_done");
+  assert.equal((document.getElementById("dtUpload") as any).disabled, false, "controls re-enabled on session_done");
   post(dom, { type: "device_present", present: true });
   assert.equal(posted.filter((m) => m.type === "device_tool_list" && m.path === "/lib").length, libBefore + 1, "session_done re-lists the current path");
 });

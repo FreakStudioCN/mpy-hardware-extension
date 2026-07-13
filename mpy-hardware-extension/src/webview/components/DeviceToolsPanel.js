@@ -57,6 +57,8 @@
       // that re-enumerated to a new port across the flash is healed, not left stale) and re-lists
       // the current path, so the browser recovers without an unplug/replug.
       function dtRefreshAfterRun() {
+        dtSetBusy(null); // run released the port: re-enable controls + drop the busy banner now,
+                         // not only when a later list result lands (PR #31 review, finding 2).
         const view = $("toolDeviceTools");
         if (!view || view.classList.contains("hidden")) return;
         dtRelistOnNextPresence = true;

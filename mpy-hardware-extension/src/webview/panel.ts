@@ -434,12 +434,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
   }
 
-  // Acquire run ownership of the serial port before a session run takes it: drain any
-  // in-flight device-tool command on deviceQueue (spec §41, run<-device-tool direction).
+  // Acquire run ownership of the serial port before a session run takes it: wait for any
+  // in-flight device-tool command on deviceQueue (spec §41, run<-device-tool direction), then
+  // HOLD the queue for the run's whole duration and return a release() the caller invokes in a
+  // finally. Holding (not just draining) makes the "no tool interleaves onto the port mid-run"
+  // guarantee structural, not dependent on the isRunning() check winning a microtask race.
   // BOTH run entry points — start_session AND retry_session — must go through this; a lock
   // enforced only in start() lets a retry flash over a tool (e.g. a slow mip install) that
-  // still holds the port. Idempotent when the queue is idle.
-  const acquireRunOwnership = () => deviceQueue.runExclusive(async () => {});
+  // still holds the port.
+  const acquireRunOwnership = () => deviceQueue.acquire();
 
   // Upload: pick a local file, write it to the current device dir under its basename.
   // The read + write run INSIDE runDeviceTool so a read failure surfaces as device_tool_error
@@ -487,7 +490,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     await runDeviceTool("download", { remotePath }, async () => {
       const localPath = uniqueLocalPath(base);
       await shim.copyFromDevice(remotePath, localPath);
-      await vscode.window.showTextDocument?.(vscode.Uri.file(localPath));
+      // The copy IS the success signal. Opening the saved file is a best-effort nicety, and VS Code
+      // rejects showTextDocument on binary content — that must NOT turn a good download into a
+      // device_tool_error. Fall back to revealing it in the OS file manager (PR #31 review,
+      // finding 4). This swallow is a post-save UI open, not an fs read, so register #8 (swallow
+      // only ENOENT) does not apply.
+      try { await vscode.window.showTextDocument?.(vscode.Uri.file(localPath)); }
+      catch { try { await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(localPath)); } catch { /* open is optional */ } }
       return { path: remotePath, localPath };
     });
   }
@@ -674,19 +683,21 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Serial-port lock (spec §41), other direction: wait for any in-flight device-tool
       // command (e.g. a slow mip install) to finish before the run takes the port, so a
       // flash/deploy never competes with a user device command.
-      await acquireRunOwnership();
-      // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
-      // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
-      // build's own codegen output or scratch created during this run.
-      snapshotExistingPaths(projectFolder, preExistingPaths);
-      await controller.start({
-        intent: message.intent,
-        boardId: message.boardId,
-        availableBoards,
-        preSelectedBoard: message.pre_selected_board ?? undefined,
-        preferences: { ...(message.preferences ?? {}), locale: vscode.env?.language },
-        boardSelectionMode: message.board_selection_mode,
-      });
+      const releaseRun = await acquireRunOwnership();
+      try {
+        // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
+        // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
+        // build's own codegen output or scratch created during this run.
+        snapshotExistingPaths(projectFolder, preExistingPaths);
+        await controller.start({
+          intent: message.intent,
+          boardId: message.boardId,
+          availableBoards,
+          preSelectedBoard: message.pre_selected_board ?? undefined,
+          preferences: { ...(message.preferences ?? {}), locale: vscode.env?.language },
+          boardSelectionMode: message.board_selection_mode,
+        });
+      } finally { releaseRun(); } // free the port for device tools once the run reaches its terminal
     }
     if (message.type === "retry_session") {
       // Manual retry after a transport failure (the webview's Retry button).
@@ -702,8 +713,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Same acquire step as start_session: retry() re-enters run() which takes the port,
       // so it must also drain the device queue first (otherwise the lock is one-directional).
-      await acquireRunOwnership();
-      await controller.retry();
+      const releaseRun = await acquireRunOwnership();
+      try { await controller.retry(); }
+      finally { releaseRun(); } // hold the port for the retried run, release at its terminal
     }
     if (message.type === "select_device") {
       try {

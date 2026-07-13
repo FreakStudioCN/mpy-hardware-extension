@@ -17,4 +17,17 @@ export class DeviceCommandQueue {
     this.tail = run.catch(() => undefined);
     return run;
   }
+
+  // Take the queue for an extended span (a whole session run), not a single fn. Resolves with a
+  // release() once every earlier-queued command has settled; anything enqueued afterward waits on
+  // the queue until release() is called. Used so a run holds the serial port for its full duration
+  // and a tool command can never interleave onto the port mid-run — a structural guarantee, not one
+  // that depends on microtask timing (spec §41). Caller MUST release() (use try/finally).
+  acquire(): Promise<() => void> {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const turn = this.tail;
+    this.tail = turn.then(() => held).catch(() => undefined); // stays pending until release()
+    return turn.then(() => release);
+  }
 }
