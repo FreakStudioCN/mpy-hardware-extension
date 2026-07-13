@@ -53,8 +53,9 @@
       // and refreshed by dtRefreshAfterRun on session_done.
       function dtOnOpen() { if (running) return; dtRelistOnNextPresence = true; dtCheckDevice(); }
       // A run just released the port. Only refresh if the tool is actually open (else the next
-      // dtOnOpen handles it). Re-checking presence re-caches a port that changed across a flash
-      // re-enumeration; the one-shot flag then re-lists the current path.
+      // dtOnOpen handles it). Re-checks presence (shim.scan reconciles the cached port, so a board
+      // that re-enumerated to a new port across the flash is healed, not left stale) and re-lists
+      // the current path, so the browser recovers without an unplug/replug.
       function dtRefreshAfterRun() {
         const view = $("toolDeviceTools");
         if (!view || view.classList.contains("hidden")) return;

@@ -94,6 +94,22 @@ test("DeviceShim resolves+caches the port from device.scan and maps loop methods
   assert.equal(calls.find((c) => c.method === "device.write_main_py").params.code, "print('hi')");
 });
 
+test("DeviceShim.scan drops a cached port that vanished from the scan so ops re-resolve (PR #31 finding 3)", async () => {
+  const calls: any[] = [];
+  const rpc = async (method: string, params: any) => {
+    calls.push({ method, params });
+    return method === "device.scan" ? { status: "ok", devices: [{ port: "COM4" }] } : { status: "ok" };
+  };
+  const shim = new DeviceShim(rpc);
+  shim.setPort("COM3"); // a stale board (e.g. it re-enumerated to COM4 across a flash)
+
+  await shim.scan(); // reconciles: COM3 is not in the scan, so the cache is dropped
+  await shim.installPackage("u"); // ensurePort re-resolves to the only present port
+
+  const install = calls.find((c) => c.method === "device.install_package");
+  assert.equal(install.params.port, "COM4"); // NOT the stale COM3
+});
+
 test("DeviceShim.runV0Script forwards a V0 script_run to script.run_v0 and returns the result", async () => {
   const calls: any[] = [];
   const shim = new DeviceShim(async (method: string, params: any) => {

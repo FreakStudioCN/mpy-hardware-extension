@@ -30,7 +30,12 @@ export class DeviceShim {
   async scan(): Promise<string[]> {
     await this.ensure();
     const r = await this.rpc("device.scan", {});
-    return (r?.devices ?? []).map((d: any) => d.port).filter(Boolean);
+    const ports = (r?.devices ?? []).map((d: any) => d.port).filter(Boolean);
+    // Reconcile the cached port: if the board we cached is no longer in the scan (unplugged, or
+    // an esp32-c6 re-enumerated to a new port), drop it so the next ensurePort() re-resolves
+    // instead of targeting a vanished port forever (PR #31 review, device-tools finding 3).
+    if (this.port && !ports.includes(this.port)) this.port = null;
+    return ports;
   }
 
   // True only if the given port answers a live MicroPython REPL. `scan` lists serial
