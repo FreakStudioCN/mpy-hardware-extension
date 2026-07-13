@@ -900,8 +900,15 @@ function readPartnerLogo(file: string): string | null {
     try {
       const buf = readFileSync(new URL(base + file, import.meta.url));
       return `data:image/png;base64,${buf.toString("base64")}`;
-    } catch {
-      // try next candidate
+    } catch (error) {
+      // ENOENT is expected — one of the two candidate bases never exists (dev tree
+      // vs packaged VSIX), so a miss on it is normal. Surface anything else
+      // (EACCES/EPERM etc.) instead of silently degrading to the text fallback with
+      // no diagnostics (recurring finding #8). Log, don't throw: killing the handler
+      // for one unreadable logo is worse than falling back to the partner name.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.error(`readPartnerLogo: "${base}${file}" failed`, error);
+      }
     }
   }
   return null;
