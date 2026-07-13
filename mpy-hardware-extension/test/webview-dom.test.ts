@@ -2053,8 +2053,10 @@ test("support panel exposes log reveal/export buttons that post the right messag
   post(dom, { type: "support_config", contacts: [], diagnosticsFields: ["os", "node"] });
   const btns = [...document.querySelectorAll("#support button")] as HTMLButtonElement[];
   const reveal = btns.find((b) => b.textContent === "Reveal logs folder");
-  const exp = btns.find((b) => b.textContent === "Export session log");
+  const exp = btns.find((b) => /full session log/i.test(b.textContent ?? ""));
   assert.ok(reveal && exp, "reveal + export buttons render in the support panel");
+  // The export copy discloses it ships the whole transcript (privacy framing, #80).
+  assert.match(document.getElementById("support")!.textContent!, /transcript/i, "export note says it's the full transcript");
 
   reveal!.click();
   exp!.click();

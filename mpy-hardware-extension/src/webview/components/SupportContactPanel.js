@@ -51,7 +51,10 @@
         report.appendChild(scButton("Copy diagnostics", () => vscode.postMessage({ type: "request_diagnostics" })));
         // Local session logs (raw .jsonl transcript per run) for Skill debugging.
         report.appendChild(scButton("Reveal logs folder", () => vscode.postMessage({ type: "reveal_logs_folder" })));
-        report.appendChild(scButton("Export session log", () => vscode.postMessage({ type: "export_session_log" })));
+        report.appendChild(scButton("Export full session log", () => vscode.postMessage({ type: "export_session_log" })));
+        const logNote = document.createElement("p"); logNote.className = "gd-note";
+        logNote.textContent = "Export includes the complete session transcript. Review before sharing.";
+        report.appendChild(logNote);
         const diag = document.createElement("div"); diag.className = "gd-note"; diag.id = "scDiag";
         report.appendChild(diag);
         root.appendChild(report);
