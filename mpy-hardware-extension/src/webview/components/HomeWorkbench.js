@@ -215,9 +215,13 @@
         const row = document.createElement("div"); row.className = "partners-row";
         for (const p of partners) {
           const a = document.createElement("button"); a.className = "partner"; a.type = "button"; a.title = "Open " + p.name + " website";
-          const img = document.createElement("img"); img.className = "partner-logo"; img.src = p.logo; img.alt = p.name;
-          img.addEventListener("error", () => { a.textContent = p.name; });
-          a.appendChild(img);
+          if (p.logo) {
+            const img = document.createElement("img"); img.className = "partner-logo"; img.src = p.logo; img.alt = p.name;
+            img.addEventListener("error", () => { a.textContent = p.name; });
+            a.appendChild(img);
+          } else {
+            a.textContent = p.name;
+          }
           a.addEventListener("click", () => vscode.postMessage({ type: "open_external", url: p.url }));
           row.appendChild(a);
         }

@@ -299,6 +299,30 @@ test("home partner logos render from config and open the site externally on clic
   assert.match(ext.url, /wiznet\.io/);
 });
 
+test("partner with no resolved logo renders its name and still opens the site", async () => {
+  // The host sends logo: null when readPartnerLogo can't resolve the asset (rather
+  // than dropping the partner). The button must fall back to the partner name text —
+  // not an empty/broken image — and still open the URL on click.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "partners_config",
+    partners: [{ id: "wiznet", name: "WIZnet", url: "https://wiznet.io/", logo: null }],
+  });
+  const partners = document.getElementById("partners")!;
+  const button = partners.querySelector("button.partner") as HTMLButtonElement;
+  assert.ok(button, "the partner still renders when its logo is null");
+  assert.equal(partners.querySelectorAll("img.partner-logo").length, 0, "no image element when logo is null");
+  assert.equal(button.textContent, "WIZnet", "falls back to the partner name text");
+
+  posted.length = 0;
+  button.click();
+  const ext = posted.find((m) => m.type === "open_external");
+  assert.ok(ext && /wiznet\.io/.test(ext.url), "clicking the text fallback still opens the site");
+});
+
 test("Import Existing Project posts import_project to the host", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

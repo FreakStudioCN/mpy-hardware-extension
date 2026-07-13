@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import Module from "node:module";
 import { resolve } from "node:path";
 import test from "node:test";
 
+import { PARTNERS } from "../src/core/partner-config.ts";
 import { activate, parseRecipeImportUri } from "../src/extension/activate.ts";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
@@ -16,6 +18,23 @@ test("packaged runtime uses API-backed pipeline instead of preview literals", ()
   assert.doesNotMatch(runtime, /postPreviewSession/);
   assert.doesNotMatch(runtime, /preview_complete/);
   assert.doesNotMatch(runtime, /TEMP_C=30\.1 LED=ON/);
+});
+
+test("packaged VSIX ships every partner logo asset", () => {
+  // The home partner area renders empty in a shipped VSIX if the PNGs are excluded
+  // (.vscodeignore's `src/**` without a `!src/webview/assets/**` negation). Assert
+  // against the real file set vsce would package — NOT the .vscodeignore text — so
+  // this fails if either the ignore rule OR the runtime asset location regresses.
+  // vsce is a pinned devDependency; spawn its JS entry via node for Windows parity.
+  const vsceBin = resolve("node_modules/@vscode/vsce/vsce");
+  const listed = spawnSync(process.execPath, [vsceBin, "ls"], { encoding: "utf-8" });
+  assert.equal(listed.status, 0, `vsce ls failed: ${listed.stderr || listed.stdout}`);
+
+  const packaged = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()));
+  for (const partner of PARTNERS) {
+    const path = `src/webview/assets/partners/${partner.file}`;
+    assert.ok(packaged.has(path), `partner asset missing from the packaged VSIX: ${path}`);
+  }
 });
 
 test("extension entry loads in a CommonJS host and exports activate", () => {

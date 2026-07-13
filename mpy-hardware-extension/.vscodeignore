@@ -2,12 +2,14 @@
 # vscode:prepublish), plus media/, docs/, python/shim/, and the vendored
 # third_party/ toolchain subset.
 
-# TypeScript sources — bundled into dist/, EXCEPT the webview HTML, which is read
-# from disk at runtime (readWebviewHtml resolves ../../src/webview/index.html).
+# TypeScript sources — bundled into dist/, EXCEPT the webview HTML/CSS/components and
+# the partner logo assets, which are read from disk at runtime (readWebviewHtml and
+# readPartnerLogo resolve ../../src/webview/... from the bundled dist/extension/ entry).
 src/**
 !src/webview/index.html
 !src/webview/webview.css
 !src/webview/components/**
+!src/webview/assets/**
 
 # tests, build scripts, tooling
 test/**
@@ -25,6 +27,9 @@ python/shim/shim_fake_driver.py
 
 # dev/build cruft
 node_modules/**
+# local dev virtualenv: machine-specific (absolute paths in pyvenv.cfg), ~22MB, and
+# never read at runtime — Python is resolved/created on the user's machine, not shipped.
+.venv/**
 build/**
 package-lock.json
 **/*.map

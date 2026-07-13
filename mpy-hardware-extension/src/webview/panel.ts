@@ -503,7 +503,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     if (message.type === "request_partners") {
       // Serve the home partner logos as data URIs (config-driven; logos read from disk).
-      const partners = PARTNERS.map((p) => ({ id: p.id, name: p.name, url: p.url, logo: readPartnerLogo(p.file) })).filter((p) => p.logo);
+      // A partner whose logo fails to resolve is still sent (logo: null) so the webview
+      // renders its name as a text fallback instead of dropping the whole partner area.
+      const partners = PARTNERS.map((p) => ({ id: p.id, name: p.name, url: p.url, logo: readPartnerLogo(p.file) }));
       webview.postMessage({ type: "partners_config", partners });
       return;
     }
@@ -1046,8 +1048,15 @@ function readPartnerLogo(file: string): string | null {
     try {
       const buf = readFileSync(new URL(base + file, import.meta.url));
       return `data:image/png;base64,${buf.toString("base64")}`;
-    } catch {
-      // try next candidate
+    } catch (error) {
+      // ENOENT is expected — one of the two candidate bases never exists (dev tree
+      // vs packaged VSIX), so a miss on it is normal. Surface anything else
+      // (EACCES/EPERM etc.) instead of silently degrading to the text fallback with
+      // no diagnostics (recurring finding #8). Log, don't throw: killing the handler
+      // for one unreadable logo is worse than falling back to the partner name.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.error(`readPartnerLogo: "${base}${file}" failed`, error);
+      }
     }
   }
   return null;
