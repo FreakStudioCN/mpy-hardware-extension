@@ -27,6 +27,9 @@ python/shim/shim_fake_driver.py
 
 # dev/build cruft
 node_modules/**
+# local dev virtualenv: machine-specific (absolute paths in pyvenv.cfg), ~22MB, and
+# never read at runtime — Python is resolved/created on the user's machine, not shipped.
+.venv/**
 build/**
 package-lock.json
 **/*.map
