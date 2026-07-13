@@ -649,6 +649,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
     }
     if (message.type === "start_session") {
+      // Reject a re-entrant run at the entry point (register #1: the webview is not the trust
+      // boundary). acquireRunOwnership() now HOLDS the queue for the whole run, so without this a
+      // second start_session would block on the queue and then run a duplicate once the first run's
+      // finally clears controller.abort — the reject-while-busy guard in controller.start() would be
+      // dead by then. The queue lock only orders legitimate owners.
+      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
@@ -700,6 +706,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } finally { releaseRun(); } // free the port for device tools once the run reaches its terminal
     }
     if (message.type === "retry_session") {
+      // Same re-entrancy guard as start_session: a stale retry must not queue behind the held run
+      // and then re-issue the last turn after it finishes (register #1). retry() re-enters run().
+      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
       // Manual retry after a transport failure (the webview's Retry button).
       // Re-run the auth gate with a forced refresh first: an expired token is
       // itself one of the failure modes a long session can die on.

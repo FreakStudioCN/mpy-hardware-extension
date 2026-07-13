@@ -2062,6 +2062,16 @@ test("file_op_confirm_needed renders an in-panel card with the file path and pos
   (del.querySelector(".fileop-ignore") as HTMLElement).click();
   const reply2 = posted.find((m) => m.type === "ui_prompt_response" && m.promptId === "file-delete-1");
   assert.equal(reply2.answer, "ignore", "clicking Ignore posts the stable 'ignore' answer");
+
+  // Device delete is a DISTINCT, stronger card (safe-point §4 row 60 second confirmation): its copy
+  // names the device path and the irreversibility, and the proceed label is "Erase", not "Delete".
+  post(dom, { type: "file_op_confirm_needed", promptId: "file-device_delete-1", op: "device_delete", path: "device:blob.mpy" });
+  const dev = document.querySelector('[data-prompt-id="file-device_delete-1"]') as HTMLElement;
+  assert.match(dev.textContent ?? "", /permanently erases/i, "the device-delete card shows the stronger irreversible copy");
+  assert.match(dev.textContent ?? "", /device:blob\.mpy/, "and names the device path");
+  assert.match((dev.querySelector(".fileop-proceed") as HTMLElement).textContent ?? "", /Erase/i, "the proceed label is Erase");
+  // Mutation: drop the device_delete entry from the op->key map in ApprovalCardHost -> it falls back
+  // to the Overwrite card (label "Overwrite", generic copy) and these three assertions fail.
 });
 
 test("global tools: the scroll chevrons exist and stay hidden when the row fits", async () => {

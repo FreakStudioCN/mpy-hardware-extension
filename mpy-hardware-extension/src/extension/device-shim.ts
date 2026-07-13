@@ -34,6 +34,8 @@ export class DeviceShim {
     // Reconcile the cached port: if the board we cached is no longer in the scan (unplugged, or
     // an esp32-c6 re-enumerated to a new port), drop it so the next ensurePort() re-resolves
     // instead of targeting a vanished port forever (PR #31 review, device-tools finding 3).
+    // ponytail: ceiling — with 2+ boards a transient scan miss turns a user's explicit setPort()
+    // pick into device_selection_required on the next op; a single board self-heals via ensurePort.
     if (this.port && !ports.includes(this.port)) this.port = null;
     return ports;
   }

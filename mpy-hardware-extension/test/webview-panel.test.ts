@@ -728,6 +728,44 @@ test("device tools are refused with device_busy while a session run owns the por
   }
 });
 
+test("a re-entrant start_session while a run is in-flight is rejected session_busy, not queued as a duplicate — register #1", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {} };
+    let releaseFetch: () => void = () => {};
+    let reachedBlock: () => void = () => {};
+    const fetchGate = new Promise<void>((res) => { releaseFetch = res; });
+    const blocked = new Promise<void>((res) => { reachedBlock = res; });
+    let llmCalls = 0;
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      llmCalls++;
+      reachedBlock();
+      await fetchGate;
+      throw new Error("stop");
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    const running = handler!({ type: "start_session", intent: "x", boardId: "esp32-s3-devkitc-1" });
+    await blocked; // the first run is in-flight, holding the device queue
+
+    posted.length = 0; // isolate the re-entrant response
+    await handler!({ type: "start_session", intent: "y", boardId: "esp32-s3-devkitc-1" });
+    assert.ok(posted.some((m) => m.type === "session_busy"), "a second start while running is rejected session_busy");
+    assert.equal(llmCalls, 1, "the second start does not reach the loop (no duplicate run queued behind the held port)");
+    // Mutation: drop the isRunning() pre-check -> the second start blocks on the held queue, posts no
+    // session_busy here, and runs a duplicate after release (llmCalls would reach 2).
+
+    releaseFetch();
+    await running.catch(() => {});
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 test("device tools download reports success even when the editor refuses to open a binary — PR #31 finding 4", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
   try {
