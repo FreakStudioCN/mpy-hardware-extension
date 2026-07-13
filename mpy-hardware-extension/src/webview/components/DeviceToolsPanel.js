@@ -48,7 +48,19 @@
       // that self-refreshes, so the listing goes stale. Re-listing on open picks the change up
       // without an unplug/replug — and, being one-shot, does NOT make the poll re-list every tick.
       var dtRelistOnNextPresence = false;
-      function dtOnOpen() { dtRelistOnNextPresence = true; dtCheckDevice(); }
+      // While a run owns the port, opening the tool must not poll presence or re-list: the list
+      // would be refused (device_busy) and a mid-run scan is unreliable. The listing is preserved
+      // and refreshed by dtRefreshAfterRun on session_done.
+      function dtOnOpen() { if (running) return; dtRelistOnNextPresence = true; dtCheckDevice(); }
+      // A run just released the port. Only refresh if the tool is actually open (else the next
+      // dtOnOpen handles it). Re-checking presence re-caches a port that changed across a flash
+      // re-enumeration; the one-shot flag then re-lists the current path.
+      function dtRefreshAfterRun() {
+        const view = $("toolDeviceTools");
+        if (!view || view.classList.contains("hidden")) return;
+        dtRelistOnNextPresence = true;
+        dtCheckDevice();
+      }
       function dtShowNoDevice() {
         dtNoDevice = true;
         const entries = $("dtEntries"); if (entries) entries.innerHTML = "";
@@ -59,6 +71,10 @@
       }
       // Host reply to the presence poll: gone -> show the no-device state; came back -> list root.
       function onDevicePresent(present) {
+        // Ignore presence entirely while a run owns the port: the board may reset/re-enumerate
+        // mid-flash, so a transient absent must NOT wipe the listing to "no device". session_done
+        // (dtRefreshAfterRun) is the safe point to re-check.
+        if (running) return;
         if (!present) { dtShowNoDevice(); return; }
         const relist = dtRelistOnNextPresence; dtRelistOnNextPresence = false;
         if (dtNoDevice) { dtNoDevice = false; dtNavigate("/"); return; } // first detection lists root
@@ -173,6 +189,9 @@
         // unplug within a couple of seconds (the scan is a host-side port list — no port open).
         setInterval(() => {
           const view = $("toolDeviceTools");
-          if (view && !view.classList.contains("hidden")) dtCheckDevice();
+          // Skip while a run owns the port: scan is `mpremote connect list`, which would compete
+          // with the run's own mpremote use, and an esp32-c6 re-enumerates on flash, so a transient
+          // empty result would wrongly wipe the listing to "no device". Refresh on session_done.
+          if (view && !view.classList.contains("hidden") && !running) dtCheckDevice();
         }, DT_POLL_MS);
       }

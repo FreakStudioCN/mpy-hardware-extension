@@ -2170,6 +2170,44 @@ test("device tools: re-opening with the board already present refreshes the curr
   assert.equal(posted.filter((m) => m.type === "device_tool_list" && m.path === "/lib").length, libBefore + 1, "re-open re-lists the current path");
 });
 
+test("device tools: a run in progress does not wipe the listing on a transient 'no device'", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_present", present: true });
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py"] } });
+  assert.equal(document.querySelectorAll("#dtEntries .dt-row").length, 1, "listed before the run");
+  assert.ok(document.getElementById("dtNoDev").classList.contains("hidden"), "device present before the run");
+
+  // Start a run -> running = true (the port is owned).
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // A mid-run transient absence (an esp32-c6 re-enumerates on flash) must NOT wipe the listing.
+  // Mutation: drop `if (running) return` from onDevicePresent and this shows the no-device state.
+  post(dom, { type: "device_present", present: false });
+  assert.ok(document.getElementById("dtNoDev").classList.contains("hidden"), "no-device state is NOT shown mid-run");
+  assert.equal(document.querySelectorAll("#dtEntries .dt-row").length, 1, "the listing is preserved during the run");
+});
+
+test("device tools: session_done refreshes the current path when the tool is open", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  document.getElementById("deviceToolsOpen").click(); // open the tool so the post-run refresh acts
+  post(dom, { type: "device_present", present: true });
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["lib/"] } });
+  ([...document.querySelectorAll("#dtEntries .dt-navbtn")].find((b: any) => b.textContent === "lib/") as any).click();
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/lib", entries: [] } });
+
+  // Run ends -> dtRefreshAfterRun re-checks presence; the host's reply then re-lists the current path.
+  // Mutation: remove the dtRefreshAfterRun() call in session_done and this stays flat.
+  const libBefore = posted.filter((m) => m.type === "device_tool_list" && m.path === "/lib").length;
+  post(dom, { type: "session_done", terminal: "complete" });
+  post(dom, { type: "device_present", present: true });
+  assert.equal(posted.filter((m) => m.type === "device_tool_list" && m.path === "/lib").length, libBefore + 1, "session_done re-lists the current path");
+});
+
 test("device tools: a mutation's result stays visible; the auto-refresh does not clobber it", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

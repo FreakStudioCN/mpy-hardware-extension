@@ -125,6 +125,10 @@
           // run on both.
           if (terminalShown) return;
           terminalShown = true;
+          // The run released the port. If Device Tools is open, re-check presence and re-list the
+          // current path so a model-issued device op (rm/cp/mkdir) shows up without an unplug/replug.
+          // Runs after setRunning(false) above, so the presence result is honored (not suppressed).
+          dtRefreshAfterRun();
           // A stalled build gave up mid-way without reaching a phase boundary — unlike
           // awaiting_user (a clean hand-back), the user must SEE it stalled and get a
           // one-click way to try again, so it has its own lane before the generic line.
