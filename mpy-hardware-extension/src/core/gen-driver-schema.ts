@@ -200,7 +200,7 @@ export const GEN_DRIVER_ERROR_CODES = [
 ] as const;
 export type GenDriverErrorCode = (typeof GEN_DRIVER_ERROR_CODES)[number];
 
-// UI-level driver status. The updated plugin (MicroPython_Skills 42e9314) emits an
+// UI-level driver status. The updated plugin (MicroPython_Skills cf749f9) emits an
 // authoritative `driver_status` in phase_complete, so we trust it when present. The
 // legacy heuristic over `result` + `hardware_verified` + `verification_mode` stays as a
 // fallback for payloads that omit it — necessary because no_device / cancelled / timeout
