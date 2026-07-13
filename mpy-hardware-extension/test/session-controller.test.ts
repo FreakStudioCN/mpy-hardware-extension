@@ -1310,3 +1310,26 @@ test("stdout_stderr_summary tails serial output, stays bounded, and clears on re
   controller.reset();
   assert.equal(controller.getDiagnostics().stdout_stderr_summary, "", "reset clears the tail");
 });
+
+test("stdout_stderr_summary is truncated to the char cap", async () => {
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ onEvent }: any) => { onEvent({ type: "serial_output", lines: ["y".repeat(5000)] }); return { terminal: "complete" }; },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  // Reverting the `.slice(0, STDOUT_SUMMARY_MAX)` in getDiagnostics fails this.
+  assert.ok(controller.getDiagnostics().stdout_stderr_summary.length <= 2000, "summary truncated to the 2000-char cap");
+});
+
+test("the stdout tail clears on a board switch, not only on reset", async () => {
+  let runs = 0;
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ onEvent }: any) => { runs++; if (runs === 1) onEvent({ type: "serial_output", lines: ["fromA"] }); return { terminal: "complete" }; },
+  });
+  await controller.start({ intent: "x", boardId: "boardA" });
+  assert.match(controller.getDiagnostics().stdout_stderr_summary, /fromA/);
+  // A different board is a fresh session; reverting the start()-board-switch clear leaks board A's tail.
+  await controller.start({ intent: "y", boardId: "boardB" });
+  assert.equal(controller.getDiagnostics().stdout_stderr_summary, "", "board switch clears the stdout tail");
+});

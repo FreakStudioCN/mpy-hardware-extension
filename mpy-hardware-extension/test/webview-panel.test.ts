@@ -1529,3 +1529,56 @@ test("request_diagnostics reports the shim's selected serial port", async () => 
   // Reverting the `serial_port: shim.getPort()` merge in collectDiagnostics fails this.
   assert.equal(diag.fields.serial_port, "COM7", "serial_port reflects the shim's selected port");
 });
+
+test("open_support_panel records support_feedback_opened", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: { cspSource: "vscode-resource:", html: "", postMessage: (message: any) => posted.push(message), onDidReceiveMessage: (next: any) => { handler = next; } },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler?.({ type: "open_support_panel" });
+  assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "panel"), "records the panel open");
+});
+
+test("open_external records only a support-contact url, never a partner/board link", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: { cspSource: "vscode-resource:", html: "", postMessage: (message: any) => posted.push(message), onDidReceiveMessage: (next: any) => { handler = next; } },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async () => true },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler?.({ type: "open_external", url: "https://discord.gg/EPRn28fJ2" }); // a support contact url
+  assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "discord"), "a support contact url records");
+
+  posted.length = 0;
+  await handler?.({ type: "open_external", url: "https://wiznet.io/" }); // a partner url, not a contact
+  assert.ok(!posted.some((m) => m.type === "support_feedback_opened"), "a non-contact link records nothing");
+});
+
+test("submit_issue_report records support_feedback_opened entry report_issue", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: { cspSource: "vscode-resource:", html: "", postMessage: (message: any) => posted.push(message), onDidReceiveMessage: (next: any) => { handler = next; } },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async () => true },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler?.({ type: "submit_issue_report", issueType: "bug", description: "it broke", attachDiagnostics: false });
+  assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "report_issue"), "records the issue submit");
+});

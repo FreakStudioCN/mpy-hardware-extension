@@ -62,3 +62,10 @@ test("buildIssueReportUrl truncates attached diagnostics under the url cap", () 
   assert.ok(diagChars > 0 && diagChars <= 3500, `diagnostics truncated to the cap (${diagChars})`);
   assert.match(body, /Diagnostics:/, "diagnostics block present");
 });
+
+test("buildIssueReportUrl bounds the total body under the url limit", () => {
+  const url = buildIssueReportUrl({ issueType: "bug", description: "d".repeat(9000), diagnosticsText: "x".repeat(9000) });
+  const body = decodeURIComponent(url.slice(url.indexOf("body=") + "body=".length));
+  // Reverting the `.slice(0, ISSUE_BODY_MAX)` in buildIssueReportUrl fails this.
+  assert.ok(body.length <= 6000, `body bounded to the cap (${body.length})`);
+});

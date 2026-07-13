@@ -2305,3 +2305,20 @@ test("device tools: Delete is host-armed two-step — first click requests an ar
   assert.equal(confirm.nonce, "n-123", "the confirm click echoes the host nonce");
   assert.equal(confirm.path, "/lib/x.py");
 });
+
+test("a mid-run support action shows in the feed and keeps the working spinner", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click(); // running -> spinner armed
+  assert.ok(document.querySelector(".feed-pending"), "the working spinner is present while running");
+
+  post(dom, { type: "support_diagnostics_exported", scope: "session" });
+
+  const activity = document.getElementById("activity")!;
+  assert.match(activity.textContent!, /Diagnostics exported/, "the support action shows in the feed");
+  // Reverting the `if (running && pendingLabel) setPending(...)` re-arm blanks the spinner here.
+  assert.ok(document.querySelector(".feed-pending"), "the spinner survives the mid-run support action (re-armed)");
+});
