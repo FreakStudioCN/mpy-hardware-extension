@@ -25,6 +25,27 @@
         const note = document.createElement("p"); note.className = "gd-note";
         note.textContent = "Please include diagnostics: " + (msg.diagnosticsFields || []).join(", ") + ".";
         report.appendChild(h); report.appendChild(note);
+        // Issue form (section 08 §6.3): pick a type, describe it, optionally leave contact.
+        // Submit hands the fields to the host, which validates and opens a prefilled issue URL.
+        const form = document.createElement("div"); form.className = "sc-form";
+        const typeSel = document.createElement("select"); typeSel.className = "sc-type"; typeSel.id = "scIssueType";
+        for (const t of msg.issueTypes || []) {
+          const o = document.createElement("option"); o.value = t; o.textContent = t; typeSel.appendChild(o);
+        }
+        const desc = document.createElement("textarea"); desc.className = "sc-desc"; desc.id = "scIssueDesc"; desc.placeholder = "Describe the issue";
+        const contact = document.createElement("input"); contact.className = "sc-contact"; contact.id = "scIssueContact"; contact.type = "text"; contact.placeholder = "Contact (optional)";
+        const attachWrap = document.createElement("label"); attachWrap.className = "sc-attach";
+        const attach = document.createElement("input"); attach.type = "checkbox"; attach.id = "scIssueAttach"; attach.checked = true;
+        attachWrap.appendChild(attach); attachWrap.appendChild(document.createTextNode(" Attach diagnostics"));
+        const submit = scButton("Submit issue report", () => vscode.postMessage({
+          type: "submit_issue_report",
+          issueType: typeSel.value,
+          description: desc.value,
+          contact: contact.value,
+          attachDiagnostics: attach.checked,
+        }));
+        form.appendChild(typeSel); form.appendChild(desc); form.appendChild(attachWrap); form.appendChild(contact); form.appendChild(submit);
+        report.appendChild(form);
         const issues = (msg.contacts || []).find((c) => c.id === "github_issues");
         if (issues && issues.url) report.appendChild(scButton("Open GitHub Issues", () => vscode.postMessage({ type: "open_external", url: issues.url })));
         report.appendChild(scButton("Copy diagnostics", () => vscode.postMessage({ type: "request_diagnostics" })));

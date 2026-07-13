@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, orderContactsByLocale } from "../src/core/support-config.ts";
+import { ISSUE_FORM_URL, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildIssueReportUrl, orderContactsByLocale } from "../src/core/support-config.ts";
 
 test("every support contact has an id, a label, and a value or url", () => {
   for (const c of SUPPORT_CONTACTS) {
@@ -39,4 +39,26 @@ test("diagnostics fields cover the section-08 essentials", () => {
   for (const key of ["session_id", "current_phase", "submodule_commit", "mpremote", "stdout_stderr_summary"]) {
     assert.ok(SUPPORT_DIAGNOSTICS_FIELDS.includes(key as any), `${key} in diagnostics fields`);
   }
+});
+
+test("buildIssueReportUrl url-encodes the report and includes/omits contact", () => {
+  const url = buildIssueReportUrl({ issueType: "bug", description: "logs & panel #broke\nsecond line", contact: "me@x.com" });
+  assert.ok(url.startsWith(ISSUE_FORM_URL + "?"), "targets the configured issue form");
+  const query = url.slice(url.indexOf("?") + 1);
+  // special chars from the description must be percent-encoded, not raw in the query
+  assert.doesNotMatch(query, /[ #]/, "spaces and # are encoded, not raw");
+  const decoded = decodeURIComponent(query);
+  assert.match(decoded, /\[bug\] logs & panel #broke/, "title is [type] + first line");
+  assert.match(decoded, /Contact: me@x\.com/, "contact included when given");
+
+  const noContact = decodeURIComponent(buildIssueReportUrl({ issueType: "question", description: "hi" }));
+  assert.doesNotMatch(noContact, /Contact:/, "no contact section when omitted");
+});
+
+test("buildIssueReportUrl truncates attached diagnostics under the url cap", () => {
+  const url = buildIssueReportUrl({ issueType: "bug", description: "x", diagnosticsText: "d".repeat(9000) });
+  const body = decodeURIComponent(url.slice(url.indexOf("body=") + "body=".length));
+  const diagChars = (body.match(/d/g) || []).length;
+  assert.ok(diagChars > 0 && diagChars <= 3500, `diagnostics truncated to the cap (${diagChars})`);
+  assert.match(body, /Diagnostics:/, "diagnostics block present");
 });

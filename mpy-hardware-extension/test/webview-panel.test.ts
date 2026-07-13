@@ -1404,3 +1404,37 @@ test("a model-issued cp_from confirms on a pre-existing dest, skips the copy on 
     rmSync(ws, { recursive: true, force: true });
   }
 });
+
+test("submit_issue_report validates host-side and opens a prefilled issue url", async () => {
+  const posted: any[] = [];
+  const opened: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async (u: any) => { opened.push(u.toString()); return true; } },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  // an unknown issue type is collapsed to "other" host-side — never trusted into the URL
+  await handler?.({ type: "submit_issue_report", issueType: "malicious", description: "it broke", attachDiagnostics: false });
+  assert.equal(opened.length, 1, "opens the prefilled issue url");
+  assert.match(opened[0], /\/issues\/new\?/, "targets the github new-issue page");
+  const decoded = decodeURIComponent(opened[0]);
+  assert.doesNotMatch(decoded, /malicious/, "unknown type collapsed to other, never trusted into the URL");
+  assert.match(decoded, /\[other\] it broke/, "type tag is the allowlisted value");
+
+  // an empty (whitespace-only) description is rejected host-side, opens nothing
+  opened.length = 0;
+  await handler?.({ type: "submit_issue_report", issueType: "bug", description: "   ", attachDiagnostics: false });
+  assert.equal(opened.length, 0, "empty description opens nothing");
+});

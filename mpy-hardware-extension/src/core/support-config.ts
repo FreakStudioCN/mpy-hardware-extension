@@ -67,3 +67,40 @@ export function buildDiagnosticsFields(merged: Record<string, string>): { text: 
   const text = SUPPORT_DIAGNOSTICS_FIELDS.map((key) => `${key}: ${fields[key]}`).join("\n");
   return { text, fields };
 }
+
+// Issue-report form (section 08 §6.3: let the user pick an issue type, describe it, and
+// optionally leave contact info). The type list and target are config here, never hardcoded
+// in the render.
+export const ISSUE_TYPES = ["bug", "feature_request", "question", "other"] as const;
+export type IssueType = (typeof ISSUE_TYPES)[number];
+
+// The report target is the github_issues contact's /new page, derived from the same config
+// entry so a single URL change moves both the "Open GitHub Issues" button and the form.
+const GITHUB_ISSUES_URL =
+  SUPPORT_CONTACTS.find((c) => c.id === "github_issues")?.url ??
+  "https://github.com/FreakStudioCN/mpy-hardware-extension/issues";
+export const ISSUE_FORM_URL = `${GITHUB_ISSUES_URL}/new`;
+
+// GitHub caps a GET issue URL around 8k; keep the attached diagnostics well under that so the
+// title + description always survive.
+const ISSUE_BODY_DIAG_MAX = 3500;
+const ISSUE_TITLE_MAX = 80;
+
+// Build a prefilled GitHub "new issue" URL from the form fields. Pure (the host validates the
+// inputs first), so it is unit-testable. Everything is URL-encoded; diagnostics are truncated.
+export function buildIssueReportUrl(input: {
+  issueType: string;
+  description: string;
+  contact?: string;
+  diagnosticsText?: string;
+}): string {
+  const firstLine = input.description.trim().split("\n")[0] ?? "";
+  const title = `[${input.issueType}] ${firstLine}`.slice(0, ISSUE_TITLE_MAX);
+  const parts = [input.description.trim()];
+  const contact = input.contact?.trim();
+  if (contact) parts.push(`\nContact: ${contact}`);
+  const diag = input.diagnosticsText?.trim();
+  if (diag) parts.push("\n\nDiagnostics:\n```\n" + diag.slice(0, ISSUE_BODY_DIAG_MAX) + "\n```");
+  const body = parts.join("\n");
+  return `${ISSUE_FORM_URL}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+}

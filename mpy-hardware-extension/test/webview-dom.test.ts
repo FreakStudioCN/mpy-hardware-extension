@@ -253,6 +253,33 @@ test("the support panel opens from global tools and drives config-driven contact
   assert.equal(document.getElementById("toolSupport")!.classList.contains("hidden"), true, "Back closes the support surface");
 });
 
+test("the support issue form submits the typed report to the host", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.querySelector("#globalTools #supportOpen") as HTMLButtonElement).click();
+  post(dom, {
+    type: "support_config",
+    contacts: [{ id: "github_issues", label: "GitHub Issues", url: "https://github.com/x/y/issues" }],
+    diagnosticsFields: ["session_id"],
+    issueTypes: ["bug", "feature_request", "question", "other"],
+  });
+  const support = document.getElementById("support")!;
+  (support.querySelector("#scIssueType") as HTMLSelectElement).value = "feature_request";
+  (support.querySelector("#scIssueDesc") as HTMLTextAreaElement).value = "add a dark theme";
+  (support.querySelector("#scIssueContact") as HTMLInputElement).value = "me@x.com";
+
+  posted.length = 0;
+  const submit = [...support.querySelectorAll(".sc-btn")].find((b) => b.textContent === "Submit issue report") as HTMLButtonElement;
+  submit.click();
+  const sent = posted.find((m) => m.type === "submit_issue_report");
+  assert.ok(sent, "clicking Submit posts submit_issue_report");
+  assert.equal(sent.issueType, "feature_request");
+  assert.equal(sent.description, "add a dark theme");
+  assert.equal(sent.contact, "me@x.com");
+  assert.equal(sent.attachDiagnostics, true, "attach diagnostics defaults on");
+});
+
 test("Copy diagnostics requests a snapshot from the host and copies it", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

@@ -12,7 +12,7 @@ import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
-import { SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, orderContactsByLocale } from "../core/support-config.ts";
+import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
@@ -128,6 +128,11 @@ function collectDiagnostics(vscode: any, session: Record<string, string>): { tex
 
 // How many past sessions the "View Recent Sessions" launch entry lists (newest first).
 const RECENT_SESSIONS_LIMIT = 20;
+
+// Caps for the host-validated issue-report form (webview input is untrusted). Generous, just
+// bounds against a pathological paste before the URL builder truncates the attached diagnostics.
+const ISSUE_DESC_MAX = 5000;
+const ISSUE_CONTACT_MAX = 200;
 
 // Maps a gen-driver file field's `accept` group to a vscode open-dialog filter.
 const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
@@ -513,7 +518,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Contacts/diagnostics come from the config module (single source of truth), never
       // hardcoded in the webview render.
       const contacts = orderContactsByLocale(SUPPORT_CONTACTS, vscode.env?.language ?? "en");
-      webview.postMessage({ type: "support_config", contacts, diagnosticsFields: SUPPORT_DIAGNOSTICS_FIELDS });
+      webview.postMessage({ type: "support_config", contacts, diagnosticsFields: SUPPORT_DIAGNOSTICS_FIELDS, issueTypes: ISSUE_TYPES });
       return;
     }
     if (message.type === "request_partners") {
@@ -527,6 +532,25 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "request_diagnostics") {
       // Gather env diagnostics on demand so a bug report carries an actionable snapshot.
       webview.postMessage({ type: "diagnostics", ...collectDiagnostics(vscode, controller.getDiagnostics()) });
+      return;
+    }
+    if (message.type === "submit_issue_report") {
+      // Host-validate the untrusted form: require a description, allowlist the type (else
+      // "other"), cap lengths. Attach the diagnostics snapshot when asked, then open a
+      // prefilled GitHub issue URL through the same scheme-guarded path as open_external.
+      const description = String(message.description ?? "").trim().slice(0, ISSUE_DESC_MAX);
+      if (!description) return;
+      const issueType = (ISSUE_TYPES as readonly string[]).includes(message.issueType) ? message.issueType : "other";
+      const contact = String(message.contact ?? "").trim().slice(0, ISSUE_CONTACT_MAX);
+      const diagnosticsText = message.attachDiagnostics ? collectDiagnostics(vscode, controller.getDiagnostics()).text : undefined;
+      const url = buildIssueReportUrl({ issueType, description, contact, diagnosticsText });
+      try {
+        const uri = vscode.Uri.parse(url, true);
+        if (/^https?$/.test(uri.scheme)) await vscode.env?.openExternal?.(uri);
+      } catch {
+        // malformed URL or headless host without openExternal — ignore
+      }
+      // Change 2 records support_feedback_opened { entry: "report_issue" } here.
       return;
     }
     if (message.type === "request_artifacts") {
