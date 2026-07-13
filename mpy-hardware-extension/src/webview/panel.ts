@@ -11,7 +11,7 @@ import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
-import { GEN_DRIVER_TABS, canStartGeneration } from "../core/gen-driver-schema.ts";
+import { GEN_DRIVER_TABS, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, orderContactsByLocale } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
@@ -132,7 +132,7 @@ const RECENT_SESSIONS_LIMIT = 20;
 // Maps a gen-driver file field's `accept` group to a vscode open-dialog filter.
 const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
   pdf: { "PDF datasheet": ["pdf"] },
-  arduino: { "Arduino / C / C++": ["ino", "c", "cpp", "cc", "h", "hpp"] },
+  arduino: { "Arduino / C / C++ / zip": ["ino", "c", "cpp", "cc", "h", "hpp", "zip"] },
   image: { Images: ["png", "jpg", "jpeg", "webp", "bmp"] },
 };
 
@@ -490,8 +490,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
 
   webview.onDidReceiveMessage(async (message: any) => {
     if (message.type === "request_gen_driver_config") {
-      // The panel renders its input tabs from the schema module (single source of truth).
-      webview.postMessage({ type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+      // The panel renders its input tabs from the schema module (single source of truth). The
+      // current-missing-driver tab is materialized from this session's manifest so its cold-driver
+      // picker reflects the live project (or shows an empty state when there is none).
+      webview.postMessage({ type: "gen_driver_config", tabs: materializeGenDriverTabs(GEN_DRIVER_TABS, controller.getLatestManifest()) });
       return;
     }
     if (message.type === "request_support_config") {
@@ -586,9 +588,17 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const picked = await vscode.window.showOpenDialog?.({ canSelectMany: false, ...(filters ? { filters } : {}) });
       const path = picked?.[0]?.fsPath;
       if (!path) return;
-      const bytes = readFileSync(path);
+      let bytes: Buffer;
+      try {
+        bytes = readFileSync(path);
+      } catch (error) {
+        // Surface a read failure instead of an unhandled rejection (a picked file can vanish
+        // or be unreadable between the dialog and the read).
+        webview.postMessage({ type: "gen_driver_status", status: "failed", detail: `Could not read the picked file: ${(error as NodeJS.ErrnoException).message}` });
+        return;
+      }
       const sha256 = createHash("sha256").update(bytes).digest("hex");
-      webview.postMessage({ type: "gen_driver_file_picked", tabId: message.tabId, key: message.key, name: basename(path), path, size: bytes.length, sha256 });
+      webview.postMessage({ type: "gen_driver_file_picked", tabId: message.tabId, key: message.key, name: basename(path), path, size: bytes.length, sha256, uploaded_at: new Date().toISOString() });
       return;
     }
     if (message.type === "request_boards") {

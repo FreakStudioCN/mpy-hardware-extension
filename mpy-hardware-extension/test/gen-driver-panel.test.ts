@@ -4,7 +4,14 @@ import test, { after } from "node:test";
 
 import { JSDOM } from "jsdom";
 
-import { GEN_DRIVER_TABS } from "../src/core/gen-driver-schema.ts";
+import { GEN_DRIVER_TABS, materializeGenDriverTabs } from "../src/core/gen-driver-schema.ts";
+
+// A session manifest carrying one cold-driver item — what the host materializes the
+// current tab from.
+const COLD_MANIFEST = {
+  board_id: "esp32-devkit-v1", mcu: "ESP32", phase: "select-hw",
+  devices: [{ device_id: "sht30_th", name: "SHT30", interface: "i2c", i2c_addresses: ["0x44"], driver: { source: "cold-driver", status: "cold_driver_required" } }],
+};
 
 // Loads the real shipped webview (assembled like readWebviewHtml) into jsdom and drives
 // the gen-driver panel through window 'message' events, same as the host posts them. The
@@ -89,9 +96,11 @@ test("adding sources builds the list, then Generate + Confirm posts sources[]", 
   assert.ok(start, "Confirm posts start_gen_driver");
   assert.equal(start.sources.length, 1);
   assert.equal(start.sources[0].type, "chip_model");
-  assert.equal(start.sources[0].chip_model, "SHT30");
+  // field values live under metadata (sample wire shape); the first source is primary
+  assert.equal(start.sources[0].metadata.chip_model, "SHT30");
   // the interface select defaults to its first option (i2c), so it rides along
-  assert.equal(start.sources[0].interface, "i2c");
+  assert.equal(start.sources[0].metadata.interface, "i2c");
+  assert.equal(start.sources[0].primary, true);
   assert.equal(start.verification.policy, "hardware_required");
 });
 
@@ -164,8 +173,8 @@ test("a file-source tab picks a file through the host and carries its metadata t
   const start = posted.find((m) => m.type === "start_gen_driver");
   assert.ok(start, "launch carries the picked file in sources[]");
   assert.equal(start.sources[0].type, "pdf");
-  assert.equal(start.sources[0].pdf_file.sha256, "abc123");
-  assert.equal(start.sources[0].pdf_file.path, "/tmp/sht30.pdf");
+  assert.equal(start.sources[0].sha256, "abc123", "the file's sha256 is hoisted to the source top level");
+  assert.equal(start.sources[0].metadata.pdf_file.path, "/tmp/sht30.pdf");
 });
 
 test("gen_driver_status detail renders in the panel status line", async () => {
@@ -229,4 +238,84 @@ test("the skip-verification toggle sets policy=skipped in the payload", async ()
   assert.ok(start, "posts start_gen_driver");
   assert.equal(start.verification.policy, "skipped");
   assert.equal(start.verification.required, false);
+});
+
+test("the current tab renders a cold-driver picker; its source carries device_id + driver_status", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "gen_driver_config", tabs: materializeGenDriverTabs(GEN_DRIVER_TABS, COLD_MANIFEST) });
+  // the current tab is first, so it renders active
+  const sel = document.querySelector("#gendriver select.gd-input[data-gdkey='device_id']") as HTMLSelectElement;
+  assert.ok(sel, "the current tab renders a device picker built from the manifest");
+  assert.equal(sel.options.length, 1);
+  assert.equal(sel.options[0].value, "sht30_th");
+  assert.match(sel.options[0].textContent!, /SHT30/);
+  assert.match(document.getElementById("gendriver")!.textContent!, /1 cold-driver item/, "shows the manifest context");
+
+  (document.querySelector("#gendriver .gd-add") as HTMLButtonElement).click();
+  assert.equal(document.querySelectorAll("#gendriver .gd-source-row").length, 1);
+  posted.length = 0;
+  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
+  (document.querySelector("#gendriver .gd-confirm .gd-gen") as HTMLButtonElement).click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.equal(start.sources[0].type, "current_cold_driver_item");
+  assert.equal(start.sources[0].metadata.device_id, "sht30_th");
+  assert.equal(start.sources[0].metadata.driver_status, "cold_driver_required");
+});
+
+test("the current tab shows an empty state and no Add when there is no cold-driver item", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "gen_driver_config", tabs: materializeGenDriverTabs(GEN_DRIVER_TABS, { devices: [] }) });
+  assert.match(document.getElementById("gendriver")!.textContent!, /No missing driver in the current session/);
+  assert.equal(document.querySelector("#gendriver .gd-add"), null, "no + Add source in the empty state");
+});
+
+test("the confirm card shows source sha256, preprocess script, expected paths, and the skip warning", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+  (document.querySelector('.gd-tab[data-gdtab="pdf"]') as HTMLButtonElement).click();
+  (document.querySelector("#gendriver .gd-file-btn") as HTMLButtonElement).click();
+  post(dom, { type: "gen_driver_file_picked", key: "pdf_file", name: "sht30.pdf", path: "/tmp/sht30.pdf", size: 2048, sha256: "deadbeefcafe1234" });
+  (document.querySelector("#gendriver .gd-add") as HTMLButtonElement).click();
+
+  (document.querySelector('.gd-tab[data-gdtab="driver"]') as HTMLButtonElement).click();
+  const did = document.querySelector("#gendriver [data-gdkey='driver_id']") as HTMLInputElement;
+  did.value = "sht30"; did.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  (document.querySelector('.gd-tab[data-gdtab="verification"]') as HTMLButtonElement).click();
+  const skip = document.querySelector("#gendriver [data-gdkey='skip_verification']") as HTMLInputElement;
+  skip.checked = true; skip.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+
+  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
+  const card = document.querySelector("#gendriver .gd-confirm")!.textContent!;
+  assert.match(card, /sha256 deadbeefcafe/, "shows the source sha256");
+  assert.match(card, /extract_pdf\.py/, "shows the pdf preprocess script");
+  assert.match(card, /firmware\/drivers\/sht30_driver\/sht30\.py/, "derives expected artifact paths from the driver id");
+  assert.match(card, /Warning: hardware verification skipped/, "warns when verification is skipped");
+});
+
+test("a chip + test scenario yields a suggested marker that rides into verification", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+  (document.querySelector('.gd-tab[data-gdtab="chip"]') as HTMLButtonElement).click();
+  (document.querySelector("#gendriver [data-gdkey='chip_model']") as HTMLInputElement).value = "SHT30";
+  (document.querySelector("#gendriver .gd-add") as HTMLButtonElement).click();
+
+  (document.querySelector('.gd-tab[data-gdtab="verification"]') as HTMLButtonElement).click();
+  const ts = document.querySelector("#gendriver [data-gdkey='test_scenario']") as HTMLInputElement;
+  ts.value = "temp_humidity_read_ok"; ts.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+
+  posted.length = 0;
+  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
+  (document.querySelector("#gendriver .gd-confirm .gd-gen") as HTMLButtonElement).click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.equal(start.verification.marker, "SELF_TEST_PASS:SHT30:TEMP_HUMIDITY_READ_OK");
 });

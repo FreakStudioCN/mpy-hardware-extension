@@ -40,24 +40,36 @@ export const GEN_DRIVER_SOURCE_TYPES: readonly GenDriverSourceType[] = [
 // renders from this list, so adding/renaming a tab is a one-line change here.
 // A single input on a tab. The panel renders by `kind`; the schema stays the
 // source of truth for what each tab collects, so field changes are one edit here.
+// A select option is a bare string (value === label) or a { value, label } pair —
+// the materialized current-driver picker uses the pair: value is the device_id, the
+// label carries name/interface/address so the user can tell the devices apart.
+export type GenDriverSelectOption = string | { value: string; label: string };
 export type GenDriverField = {
   key: string;
   label: string;
-  kind: "text" | "textarea" | "select" | "checkbox" | "file";
+  kind: "text" | "textarea" | "select" | "checkbox" | "file" | "info";
   required?: boolean;
   placeholder?: string;
-  options?: string[];
+  options?: GenDriverSelectOption[];
+  // "info" kind only: read-only display lines (selected-context detail / empty-state note).
+  lines?: string[];
   // file fields only: which extension group the host open-dialog filters to.
   accept?: "pdf" | "arduino" | "image";
 };
 // value carried for a picked "file" field: recorded in the source payload so the
 // plugin gets the path plus integrity metadata (source-tab is source.type).
-export type GenDriverFile = { name: string; path: string; size: number; sha256: string };
+export type GenDriverFile = { name: string; path: string; size: number; sha256: string; uploaded_at?: string };
+export function isPickedFile(value: unknown): value is GenDriverFile {
+  return typeof value === "object" && value !== null && typeof (value as GenDriverFile).sha256 === "string";
+}
 export type GenDriverTab = {
   id: string;
   label: string;
   sourceType: GenDriverSourceType | null;
   fields: GenDriverField[];
+  // set by materializeGenDriverTabs on the current tab when the session has no
+  // cold-driver item: the panel shows the empty-state note and omits "+ Add source".
+  noItems?: boolean;
 };
 export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
   { id: "current", label: "Current project missing driver", sourceType: "current_cold_driver_item", fields: [] },
@@ -66,22 +78,27 @@ export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
       { key: "pdf_file", label: "Datasheet PDF", kind: "file", required: true, accept: "pdf" },
       { key: "chip_model", label: "Chip / module", kind: "text", placeholder: "e.g. SHT30" },
       { key: "vendor", label: "Vendor", kind: "text" },
+      { key: "interface", label: "Interface", kind: "text", placeholder: "e.g. i2c / spi / uart" },
       { key: "page_range", label: "Page range", kind: "text", placeholder: "e.g. 12-18" },
       { key: "i2c_address", label: "I2C address", kind: "text", placeholder: "0x44" },
+      { key: "register_keywords", label: "Register keywords", kind: "text", placeholder: "e.g. CTRL, STATUS, DATA" },
     ],
   },
   {
     id: "arduino", label: "Arduino/C/C++ source", sourceType: "arduino_source", fields: [
-      { key: "source_file", label: "Arduino / C / C++ file", kind: "file", required: true, accept: "arduino" },
-      { key: "entry_example", label: "Main class / example", kind: "text" },
+      { key: "source_file", label: "Arduino / C / C++ file (or .zip)", kind: "file", required: true, accept: "arduino" },
+      { key: "entry_class", label: "Main class", kind: "text" },
+      { key: "example_path", label: "Example path", kind: "text", placeholder: "e.g. examples/basic/basic.ino" },
       { key: "library_version", label: "Library version", kind: "text" },
+      { key: "license", label: "License", kind: "text", placeholder: "e.g. MIT" },
     ],
   },
   {
     id: "github", label: "GitHub repository", sourceType: "github_url", fields: [
       { key: "url", label: "Repo URL", kind: "text", required: true, placeholder: "https://github.com/owner/repo" },
-      { key: "ref", label: "Branch / tag / commit", kind: "text" },
+      { key: "ref", label: "Branch / tag / commit", kind: "text", required: true, placeholder: "pin a ref, e.g. v1.2.0 or a commit sha" },
       { key: "subdir", label: "Subdirectory", kind: "text" },
+      { key: "example_path", label: "Example path", kind: "text", placeholder: "e.g. examples/basic" },
     ],
   },
   {
@@ -91,6 +108,8 @@ export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
       { key: "vendor", label: "Vendor", kind: "text" },
       { key: "interface", label: "Interface", kind: "select", options: ["i2c", "spi", "uart", "onewire", "adc", "gpio"] },
       { key: "default_address", label: "Default address", kind: "text", placeholder: "0x44" },
+      { key: "datasheet_url", label: "Datasheet URL", kind: "text", placeholder: "https://…" },
+      { key: "search_keywords", label: "Search keywords", kind: "text", placeholder: "e.g. temperature humidity sensor" },
     ],
   },
   {
@@ -119,7 +138,10 @@ export const GEN_DRIVER_TABS: readonly GenDriverTab[] = [
     id: "verification", label: "Verification settings", sourceType: null, fields: [
       { key: "port", label: "Serial port", kind: "text" },
       { key: "board", label: "Target board", kind: "text" },
+      { key: "test_scenario", label: "Test scenario", kind: "text", placeholder: "e.g. TEMP_HUMIDITY_READ_OK" },
+      { key: "marker", label: "Expected marker", kind: "text", placeholder: "SELF_TEST_PASS:<CHIP>:<SCENARIO>" },
       { key: "max_rounds", label: "Max verification rounds", kind: "text", placeholder: "3" },
+      { key: "wiring_confirmed", label: "Wiring confirmed on hardware", kind: "checkbox" },
       { key: "skip_verification", label: "Skip hardware verification (not recommended)", kind: "checkbox" },
     ],
   },
@@ -132,16 +154,33 @@ export function validateFields(tab: GenDriverTab, values: Record<string, unknown
     .map((f) => f.label);
 }
 
-// Assemble the source object from a tab's collected values, per source.type.
-// The verification tab is config, not a source, so it returns null.
-export function buildSourceFromFields(tab: GenDriverTab, values: Record<string, unknown>): GenDriverSource | null {
+// Assemble a source object (sample wire shape) from a tab's collected values. Field values
+// go into `metadata`; a picked file hoists its sha256 to the top and records
+// name/path/size/uploaded_at under metadata; `artifact_path` stays null until dispatch stages
+// the file. The verification tab is config, not a source, so it returns null. `primary` is
+// assigned by the caller (the first assembled source is primary).
+export function buildSourceFromFields(
+  tab: GenDriverTab,
+  values: Record<string, unknown>,
+  primary = false,
+): GenDriverSource | null {
   if (tab.sourceType === null) return null;
-  const source: GenDriverSource = { type: tab.sourceType };
+  const metadata: Record<string, unknown> = {};
+  let sha256: string | null = null;
   for (const field of tab.fields) {
+    if (field.kind === "info") continue;
     const value = values[field.key];
-    if (value !== undefined && value !== "" && value !== false) source[field.key] = value;
+    if (value === undefined || value === "" || value === false) continue;
+    if (field.kind === "file" && isPickedFile(value)) {
+      sha256 = value.sha256;
+      metadata[field.key] = { name: value.name, path: value.path, size: value.size, uploaded_at: value.uploaded_at ?? null };
+    } else {
+      metadata[field.key] = value;
+    }
   }
-  return source;
+  // The current tab only ever holds cold-driver items; record the status the plugin keys on.
+  if (tab.sourceType === "current_cold_driver_item") metadata.driver_status = "cold_driver_required";
+  return { type: tab.sourceType, artifact_path: null, sha256, primary, metadata };
 }
 
 // approval_request ids the plugin actually emits (SKILL.md). These are NOT the
@@ -229,13 +268,61 @@ export function deriveDriverStatus(complete: {
   return "failed";
 }
 
+// The cold-driver devices in an (untyped, upstream) manifest — the items the current tab
+// picks from and the signal inferMode keys on. Single place the predicate lives.
+export function coldDriverDevices(manifestContent: any): any[] {
+  const devices = manifestContent?.devices;
+  if (!Array.isArray(devices)) return [];
+  return devices.filter((device: any) => device?.driver?.status === "cold_driver_required");
+}
+
 // Mode inference (SKILL.md): pipeline only when the current manifest has a
 // cold-driver item, otherwise standalone. `manifestContent` is untyped upstream data.
 export function inferMode(manifestContent: any): GenDriverMode {
-  const devices = manifestContent?.devices;
-  const hasColdDriver =
-    Array.isArray(devices) && devices.some((device: any) => device?.driver?.status === "cold_driver_required");
-  return hasColdDriver ? "pipeline" : "standalone";
+  return coldDriverDevices(manifestContent).length > 0 ? "pipeline" : "standalone";
+}
+
+// A device -> select option: value is the device_id the source records; the label carries
+// name/interface/address so the user can tell the cold-driver items apart.
+function coldDriverOption(device: any): { value: string; label: string } {
+  const id = String(device?.device_id ?? "");
+  const addrs = Array.isArray(device?.i2c_addresses) ? device.i2c_addresses.join("/") : "";
+  const detail = [device?.interface, addrs].filter(Boolean).join(" ");
+  const label = [device?.name ?? id, detail ? `(${detail})` : ""].filter(Boolean).join(" ");
+  return { value: id, label: label || id };
+}
+
+// Read-only context lines for the current tab: where the cold-driver items came from.
+function manifestContextLines(manifestContent: any, count: number): string[] {
+  const lines: string[] = [];
+  if (manifestContent?.board_id) lines.push(`Board: ${manifestContent.board_id}`);
+  if (manifestContent?.mcu) lines.push(`MCU: ${manifestContent.mcu}`);
+  if (manifestContent?.phase) lines.push(`Upstream phase: ${manifestContent.phase}`);
+  lines.push(`${count} cold-driver item(s) in the current session.`);
+  return lines;
+}
+
+// Fill the "current project missing driver" tab from the session manifest: a required device
+// picker over the cold-driver items + a read-only context line. Pure — returns a new tabs
+// array, other tabs unchanged. Absent/empty manifest -> the tab's no-items empty state.
+export function materializeGenDriverTabs(tabs: readonly GenDriverTab[], manifestContent: unknown): GenDriverTab[] {
+  const devices = coldDriverDevices(manifestContent);
+  return tabs.map((tab) => {
+    if (tab.sourceType !== "current_cold_driver_item") return tab;
+    if (devices.length === 0) {
+      return {
+        ...tab, noItems: true,
+        fields: [{ key: "no_items", label: "", kind: "info", lines: ["No missing driver in the current session.", "Run analyze / select-hw first, or use another source tab."] }],
+      };
+    }
+    return {
+      ...tab, noItems: false,
+      fields: [
+        { key: "device_id", label: "Missing driver", kind: "select", required: true, options: devices.map(coldDriverOption) },
+        { key: "current_context", label: "", kind: "info", lines: manifestContextLines(manifestContent, devices.length) },
+      ],
+    };
+  });
 }
 
 // The capability set the host declares in start_phase (from the sample payloads).
@@ -280,14 +367,16 @@ export type GenDriverRuntimeContext = {
   artifact_root_mode?: string;
 };
 
-// A source entry. `type` + optional file metadata (artifact_path/sha256) + `primary`
-// + per-type fields. Normalized contract: sources is an ARRAY of these.
+// A source entry, wire shape per sample/*.json: `type` + `artifact_path` (null until the
+// picked file is staged into artifact_root at dispatch) + `sha256` (the file's, null for
+// non-file sources) + `primary` + `metadata` (the per-tab field values). Normalized
+// contract: sources is an ARRAY of these.
 export type GenDriverSource = {
   type: GenDriverSourceType;
-  artifact_path?: string;
-  sha256?: string;
+  artifact_path?: string | null;
+  sha256?: string | null;
   primary?: boolean;
-  [key: string]: unknown;
+  metadata?: Record<string, unknown>;
 };
 
 // Canonical target-driver description (Jul-6 doc §2.1). Pipeline prefills from the

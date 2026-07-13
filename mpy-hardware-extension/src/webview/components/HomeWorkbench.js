@@ -54,7 +54,9 @@
         for (const sel of GLOBAL_TOOL_HIDES) document.querySelector(sel).classList.remove("hidden");
         setActiveGtool(null);
       }
-      $("genDriverOpen").addEventListener("click", () => openGlobalTool("toolGenDriver"));
+      // Re-request the config on open (not just once at load): a manifest produced later in
+      // the session must refresh the current-missing-driver tab's cold-driver picker.
+      $("genDriverOpen").addEventListener("click", () => { openGlobalTool("toolGenDriver"); vscode.postMessage({ type: "request_gen_driver_config" }); });
       $("genDriverBack").addEventListener("click", closeGlobalTool);
       $("supportOpen").addEventListener("click", () => openGlobalTool("toolSupport"));
       $("supportBack").addEventListener("click", closeGlobalTool);
