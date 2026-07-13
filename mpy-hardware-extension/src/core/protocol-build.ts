@@ -34,6 +34,12 @@ type BuildDeps = {
   // mutate the fs — never a no-op that fakes success.
   makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>;
   deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>;
+  // Host-enforced confirms for model-issued destructive device ops (spec 07 safe-point).
+  // Absent = legacy behavior (headless/e2e run without prompts), mirroring guardOverwrite/
+  // guardDelete. confirmDeviceDelete gates every device rm; confirmDeviceCopyOverwrite gates a
+  // cp_from only when its host destination pre-exists (the wiring supplies that check).
+  confirmDeviceDelete?: (devicePath: string) => Promise<boolean>;
+  confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>;
   projectRoot?: string;
 };
 
@@ -60,6 +66,8 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
   const connectRetryDelaysMs = deps.connectRetryDelaysMs ?? [500, 1000, 2000];
   const shim = deps.shim;
   const projectDir = deps.projectRoot;
+  const confirmDeviceDelete = deps.confirmDeviceDelete;
+  const confirmDeviceCopyOverwrite = deps.confirmDeviceCopyOverwrite;
 
   // device_command(action) -> mpremote shim. Best-effort mapping; the device path is
   // exercised against real hardware (the e2e harness mocks it).
@@ -103,6 +111,12 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
       }
       if (action === "rm") {
         if (!shim.removePath) return { ok: false, error_kind: "device_method_absent", stderr: "rm" };
+        // A device delete is always destructive: confirm before the shim call (spec 07 safe-point).
+        // Confirms the whole rm target; mpremote fs rm is not recursive (serve.py), so if a future
+        // -r lands, revisit for a subtree guard (recurring #5).
+        if (confirmDeviceDelete && !(await confirmDeviceDelete(String(payload?.dst ?? "")))) {
+          return { ok: false, error_kind: "delete_declined", stderr: String(payload?.dst ?? "") };
+        }
         await shim.removePath(payload?.dst ?? ""); return { ok: true };
       }
       if (action === "mkdir") {
@@ -115,6 +129,12 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
         const deviceSrc = String(payload?.src ?? payload?.dst ?? "");
         const localAbs = containLocalPath(projectDir, payload?.dst ?? "", deviceSrc);
         if (!localAbs) return { ok: false, error_kind: "path_outside_workspace", stderr: String(payload?.dst ?? "") };
+        // cp_from writes to a HOST path: confirm an overwrite when the destination pre-exists,
+        // the same guard write_project_file uses (the wiring supplies isPreExisting + exists, so
+        // build output / new files are not prompted).
+        if (confirmDeviceCopyOverwrite && !(await confirmDeviceCopyOverwrite(localAbs))) {
+          return { ok: false, error_kind: "overwrite_declined", stderr: localAbs };
+        }
         await shim.copyFromDevice(deviceSrc, localAbs);
         return { ok: true };
       }

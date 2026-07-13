@@ -274,7 +274,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       webview.postMessage(message);
     },
-    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete), projectRoot: projectFolder }),
+    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete), confirmDeviceDelete: (p: string) => confirmDelete("device:" + p), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, projectRoot: projectFolder }),
     // Stop must hard-interrupt an in-flight device op, not just abort the loop signal
     // (deliverables 07 §4). shim.kill() dies the blocked mpremote/script now and frees
     // the serial lock; idempotent, so a Stop with nothing in flight is a no-op.
@@ -916,7 +916,7 @@ async function fetchToolchainVersion(apiBaseUrl: string, fetchImpl: typeof fetch
 
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; projectRoot?: string }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; confirmDeviceDelete?: (devicePath: string) => Promise<boolean>; confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>; projectRoot?: string }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);

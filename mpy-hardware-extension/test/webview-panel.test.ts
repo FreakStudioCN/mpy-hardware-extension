@@ -1158,3 +1158,46 @@ test("export_session_log falls back to globalStorage logs when no workspace is o
     rmSync(gs, { recursive: true, force: true });
   }
 });
+
+// SSE tool-call frame (mirrors protocol-build.test.ts sseTool) for driving the agent loop.
+function sseToolCall(id: string, name: string, input: any): string {
+  return [
+    JSON.stringify({ type: "content_block_start", content_block: { type: "tool_use", id, name } }),
+    JSON.stringify({ type: "content_block_delta", delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } }),
+    JSON.stringify({ type: "content_block_stop" }),
+    JSON.stringify({ type: "message_stop" }),
+  ].map((d) => `data: ${d}`).join("\n\n");
+}
+
+test("a model-issued device rm is routed through the host confirm gate (wired into the loop)", async () => {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  // Auto-decline the confirm the moment the host asks — proves the gate is armed, and a
+  // decline means the destructive call must not run. If the panel wiring is removed the gate
+  // is skipped, no confirm is posted, and removePath fires: both assertions then fail.
+  const panel = {
+    webview: {
+      cspSource: "", html: "",
+      postMessage: (m: any) => { posted.push(m); if (m.type === "file_op_confirm_needed") void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer: "ignore" }); },
+      onDidReceiveMessage: (n: any) => { handler = n; },
+    },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  const removed: string[] = [];
+  const shim = { removePath: async (p: string) => { removed.push(p); } };
+  let calls = 0;
+  const fetchImpl = (async (url: string) => {
+    assert.match(url, /\/v1\/llm\/messages$/);
+    calls++;
+    const sse = calls === 1
+      ? sseToolCall("rm1", "device_command", { action: "rm", dst: "main.py" })
+      : sseToolCall("done", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} });
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await handler?.({ type: "start_session", intent: "delete a device file", boardId: "esp32-s3-devkitc-1" });
+
+  assert.ok(posted.some((m) => m.type === "file_op_confirm_needed" && /device:main\.py/.test(String(m.path))), "the panel wires the device-delete confirm into the loop");
+  assert.equal(removed.length, 0, "a declined confirm means removePath never runs");
+});
