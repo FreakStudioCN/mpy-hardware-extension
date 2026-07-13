@@ -43,6 +43,12 @@
       var dtNoDevice = true;
 
       function dtCheckDevice() { vscode.postMessage({ type: "device_presence" }); }
+      // Set only by an explicit open of the Device Tools view (not the 2.5s poll): a model-issued
+      // device op during a run mutates the device FS without going through the device_tool_* path
+      // that self-refreshes, so the listing goes stale. Re-listing on open picks the change up
+      // without an unplug/replug — and, being one-shot, does NOT make the poll re-list every tick.
+      var dtRelistOnNextPresence = false;
+      function dtOnOpen() { dtRelistOnNextPresence = true; dtCheckDevice(); }
       function dtShowNoDevice() {
         dtNoDevice = true;
         const entries = $("dtEntries"); if (entries) entries.innerHTML = "";
@@ -54,7 +60,9 @@
       // Host reply to the presence poll: gone -> show the no-device state; came back -> list root.
       function onDevicePresent(present) {
         if (!present) { dtShowNoDevice(); return; }
-        if (dtNoDevice) { dtNoDevice = false; dtNavigate("/"); }
+        const relist = dtRelistOnNextPresence; dtRelistOnNextPresence = false;
+        if (dtNoDevice) { dtNoDevice = false; dtNavigate("/"); return; } // first detection lists root
+        if (relist) dtListCurrent(); // re-opened with the board already present -> refresh current path
       }
 
       // phase set => a session run owns the port; null hides the banner. While busy, disable

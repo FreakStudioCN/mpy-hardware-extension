@@ -2147,6 +2147,29 @@ test("device tools: shows a no-device state until a board is present, and revert
   assert.equal(document.getElementById("dtEntries").children.length, 0, "the file list is cleared on unplug");
 });
 
+test("device tools: re-opening with the board already present refreshes the current path; a poll tick does not", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // Board present -> first detection lists root, then descend into /lib so the current path is not root.
+  post(dom, { type: "device_present", present: true });
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["lib/"] } });
+  ([...document.querySelectorAll("#dtEntries .dt-navbtn")].find((b: any) => b.textContent === "lib/") as any).click();
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/lib", entries: [] } });
+
+  // A bare poll tick (presence still true, no explicit open) must NOT re-list, else the 2.5s poll spams fs ls.
+  const listsBeforeTick = posted.filter((m) => m.type === "device_tool_list").length;
+  post(dom, { type: "device_present", present: true });
+  assert.equal(posted.filter((m) => m.type === "device_tool_list").length, listsBeforeTick, "a poll tick with the board still present does not re-list");
+
+  // Re-opening the tool refreshes the CURRENT path, so a model-issued device op done mid-run shows up
+  // without an unplug/replug. Mutation: revert dtOnOpen->dtCheckDevice and this count stays flat.
+  const libBefore = posted.filter((m) => m.type === "device_tool_list" && m.path === "/lib").length;
+  document.getElementById("deviceToolsOpen").click(); // dtOnOpen: arms the one-shot relist + polls presence
+  post(dom, { type: "device_present", present: true }); // host replies present
+  assert.equal(posted.filter((m) => m.type === "device_tool_list" && m.path === "/lib").length, libBefore + 1, "re-open re-lists the current path");
+});
+
 test("device tools: a mutation's result stays visible; the auto-refresh does not clobber it", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;
