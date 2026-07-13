@@ -231,7 +231,6 @@ test("the support panel opens from global tools and drives config-driven contact
   assert.match(support.textContent!, /WeChat Contact/);
   assert.match(support.textContent!, /Discord Community/);
   assert.match(support.textContent!, /Report an issue/);
-  assert.match(support.textContent!, /session_id/, "diagnostics fields are listed");
 
   // copy the WeChat id via the host clipboard
   posted.length = 0;
@@ -241,13 +240,14 @@ test("the support panel opens from global tools and drives config-driven contact
   assert.ok(copy, "copy posts copy_support_contact (host looks up the value by id)");
   assert.equal(copy.contactId, "wechat");
 
-  // report an issue opens GitHub Issues externally
+  // the GitHub Issues contact row opens externally (its own Open — no redundant report-section button)
   posted.length = 0;
-  const reportBtn = [...support.querySelectorAll(".sc-btn")].find((b) => b.textContent === "Open GitHub Issues") as HTMLButtonElement;
-  reportBtn.click();
+  const issuesRow = [...support.querySelectorAll(".sc-row")].find((r) => r.textContent!.includes("GitHub Issues"))!;
+  (issuesRow.querySelector(".sc-btn") as HTMLButtonElement).click();
   const ext = posted.find((m) => m.type === "open_external");
-  assert.ok(ext, "posts open_external");
+  assert.ok(ext, "the GitHub Issues row posts open_external");
   assert.match(ext.url, /github\.com/);
+  assert.ok(![...support.querySelectorAll("button")].some((b) => b.textContent === "Open GitHub Issues"), "no redundant Open GitHub Issues button in the report section");
 
   (document.getElementById("supportBack") as HTMLButtonElement).click();
   assert.equal(document.getElementById("toolSupport")!.classList.contains("hidden"), true, "Back closes the support surface");
@@ -265,6 +265,9 @@ test("the support issue form submits the typed report to the host", async () => 
     issueTypes: ["bug", "feature_request", "question", "other"],
   });
   const support = document.getElementById("support")!;
+  assert.ok(support.querySelector(".sc-form")!.classList.contains("hidden"), "the form is collapsed by default");
+  ([...support.querySelectorAll("button")].find((b) => b.textContent === "Report an issue") as HTMLButtonElement).click();
+  assert.ok(!support.querySelector(".sc-form")!.classList.contains("hidden"), "clicking Report an issue reveals the form");
   (support.querySelector("#scIssueType") as HTMLSelectElement).value = "feature_request";
   (support.querySelector("#scIssueDesc") as HTMLTextAreaElement).value = "add a dark theme";
   (support.querySelector("#scIssueContact") as HTMLInputElement).value = "me@x.com";

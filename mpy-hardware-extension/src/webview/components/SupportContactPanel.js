@@ -21,16 +21,19 @@
         }
         root.appendChild(list);
         const report = document.createElement("div"); report.className = "sc-report";
-        const h = document.createElement("div"); h.className = "sc-report-h"; h.textContent = "Report an issue";
-        const note = document.createElement("p"); note.className = "gd-note";
-        note.textContent = "Please include diagnostics: " + (msg.diagnosticsFields || []).join(", ") + ".";
-        report.appendChild(h); report.appendChild(note);
-        // Issue form (section 08 §6.3): pick a type, describe it, optionally leave contact.
+        // "Report an issue" toggles the form; collapsed by default to keep the panel tidy.
+        const toggle = document.createElement("button"); toggle.className = "sc-report-toggle"; toggle.type = "button";
+        toggle.textContent = "Report an issue"; toggle.setAttribute("aria-expanded", "false");
+        report.appendChild(toggle);
+        // Issue form (section 08 §6.3): pick a type, describe it, optionally leave contact. The
+        // "Attach diagnostics" checkbox bundles the snapshot, so no manual field list is needed.
         // Submit hands the fields to the host, which validates and opens a prefilled issue URL.
-        const form = document.createElement("div"); form.className = "sc-form";
+        const form = document.createElement("div"); form.className = "sc-form hidden";
         const typeSel = document.createElement("select"); typeSel.className = "sc-type"; typeSel.id = "scIssueType";
         for (const t of msg.issueTypes || []) {
-          const o = document.createElement("option"); o.value = t; o.textContent = t; typeSel.appendChild(o);
+          const o = document.createElement("option"); o.value = t;
+          o.textContent = t.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()); // "feature_request" -> "Feature request"
+          typeSel.appendChild(o);
         }
         const desc = document.createElement("textarea"); desc.className = "sc-desc"; desc.id = "scIssueDesc"; desc.placeholder = "Describe the issue";
         const contact = document.createElement("input"); contact.className = "sc-contact"; contact.id = "scIssueContact"; contact.type = "text"; contact.placeholder = "Contact (optional)";
@@ -44,10 +47,14 @@
           contact: contact.value,
           attachDiagnostics: attach.checked,
         }));
-        form.appendChild(typeSel); form.appendChild(desc); form.appendChild(attachWrap); form.appendChild(contact); form.appendChild(submit);
+        form.appendChild(typeSel); form.appendChild(desc); form.appendChild(contact); form.appendChild(attachWrap); form.appendChild(submit);
+        toggle.addEventListener("click", () => {
+          const open = !form.classList.toggle("hidden");
+          toggle.setAttribute("aria-expanded", String(open));
+          if (open) desc.focus();
+        });
         report.appendChild(form);
-        const issues = (msg.contacts || []).find((c) => c.id === "github_issues");
-        if (issues && issues.url) report.appendChild(scButton("Open GitHub Issues", () => vscode.postMessage({ type: "open_external", url: issues.url })));
+        // GitHub Issues already has its own Open in the contact list above, so no button here.
         report.appendChild(scButton("Copy diagnostics", () => vscode.postMessage({ type: "request_diagnostics" })));
         // Local session logs (raw .jsonl transcript per run) for Skill debugging.
         report.appendChild(scButton("Reveal logs folder", () => vscode.postMessage({ type: "reveal_logs_folder" })));

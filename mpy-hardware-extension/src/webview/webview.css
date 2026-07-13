@@ -131,6 +131,22 @@
       .sc-btn:hover { border-color: var(--accent); color: var(--fg-bright); }
       .sc-report { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--vsc-border); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
       .sc-report-h { font-size: 12px; font-weight: 650; color: var(--fg-bright); }
+      /* "Report an issue" toggle: a heading-styled button with a caret that rotates when open. */
+      .sc-report-toggle { display: flex; align-items: center; gap: 6px; background: transparent; border: 0;
+        color: var(--fg-bright); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; padding: 2px 0; text-align: left; }
+      .sc-report-toggle::before { content: "\25B8"; font-size: 10px; color: var(--fg-dim); transition: transform .12s; }
+      .sc-report-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+      .sc-report-toggle:hover { color: var(--fg-bright); }
+      /* Issue-report form: stack the fields, full-width inputs themed like the rest of the panel. */
+      .sc-form { display: flex; flex-direction: column; gap: 8px; width: 100%; margin: 2px 0; align-self: stretch; }
+      .sc-type, .sc-desc, .sc-contact { width: 100%; box-sizing: border-box; background: var(--vsc-input);
+        border: 1px solid var(--vsc-input-border); color: var(--fg); border-radius: 6px; padding: 6px 8px;
+        font-family: var(--ui); font-size: 12px; outline: none; }
+      .sc-desc { min-height: 64px; resize: vertical; }
+      .sc-type:focus, .sc-desc:focus, .sc-contact:focus { border-color: var(--accent); }
+      .sc-attach { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-dim); cursor: pointer; }
+      .sc-attach input { margin: 0; flex: 0 0 auto; }
+      .sc-form .sc-btn { align-self: flex-start; }
       .home-zone { display: flex; flex-direction: column; align-items: center; width: 100%; }
       .partners { margin-top: 22px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
       /* divider only when the Partners zone is populated — keeps the empty state clean */
