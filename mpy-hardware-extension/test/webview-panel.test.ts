@@ -1201,3 +1201,47 @@ test("a model-issued device rm is routed through the host confirm gate (wired in
   assert.ok(posted.some((m) => m.type === "file_op_confirm_needed" && /device:main\.py/.test(String(m.path))), "the panel wires the device-delete confirm into the loop");
   assert.equal(removed.length, 0, "a declined confirm means removePath never runs");
 });
+
+test("a model-issued cp_from confirms on a pre-existing dest, skips the copy on decline, and does not prompt for a new dest (wired into the loop)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    // Generation is contained under <workspace>/blockless-project, which is the loop's
+    // projectRoot and what the pre-build snapshot walks — the pre-existing file must live there.
+    const proj = join(ws, "blockless-project");
+    mkdirSync(proj, { recursive: true });
+    writeFileSync(join(proj, "boot.py"), "user file"); // pre-existing host file -> snapshot records it at start
+    const posted: any[] = [];
+    let handler: ((m: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "", html: "",
+        postMessage: (m: any) => { posted.push(m); if (m.type === "file_op_confirm_needed") void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer: "ignore" }); },
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+    const copied: Array<[string, string]> = [];
+    const shim = { copyFromDevice: async (src: string, dst: string) => { copied.push([src, dst]); } };
+    let turn = 0;
+    const fetchImpl = (async (url: string) => {
+      // toolchain handshake (a workspace-backed session does this before the first turn)
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      assert.match(url, /\/v1\/llm\/messages$/);
+      turn++;
+      const sse = turn === 1 ? sseToolCall("cp1", "device_command", { action: "cp_from", src: "/boot.py", dst: "boot.py" })
+        : turn === 2 ? sseToolCall("cp2", "device_command", { action: "cp_from", src: "/new.py", dst: "new.py" })
+          : sseToolCall("done", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} });
+      return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
+    await handler?.({ type: "start_session", intent: "pull device files", boardId: "esp32-s3-devkitc-1" });
+
+    assert.ok(posted.some((m) => m.type === "file_op_confirm_needed" && m.op === "overwrite" && /boot\.py/.test(String(m.path))), "the panel wires the cp_from overwrite confirm into the loop");
+    // the pre-existing dest was declined (not copied); the new dest copied with no prompt
+    assert.deepEqual(copied, [["/new.py", join(proj, "new.py")]]);
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
