@@ -58,7 +58,7 @@
       // the session must refresh the current-missing-driver tab's cold-driver picker.
       $("genDriverOpen").addEventListener("click", () => { openGlobalTool("toolGenDriver"); vscode.postMessage({ type: "request_gen_driver_config" }); });
       $("genDriverBack").addEventListener("click", closeGlobalTool);
-      $("supportOpen").addEventListener("click", () => openGlobalTool("toolSupport"));
+      $("supportOpen").addEventListener("click", () => { openGlobalTool("toolSupport"); vscode.postMessage({ type: "open_support_panel" }); });
       $("supportBack").addEventListener("click", closeGlobalTool);
       // Device Tools global tool (#54): open the surface and check for a device — it lists
       // the root if one is connected, else shows the "plug in a device" state.

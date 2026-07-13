@@ -1269,3 +1269,22 @@ test("the authored-diagram guard clears on every run() start, even without a res
   assert.equal(diagrams.length, 2, "build two derives its own diagram — run() cleared the guard without a reset");
   assert.ok(diagrams[1].diagram.architecture.layers.some((l: any) => l.id === "driver"), "build two's diagram is the manifest-derived one");
 });
+
+test("recordSupportAction writes to the log, feeds recent_activity, and posts to the webview", async () => {
+  const recorded: any[] = [];
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async () => ({ terminal: "complete" }),
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  recorded.length = 0; posted.length = 0;
+  controller.recordSupportAction({ type: "support_diagnostics_exported", scope: "session" });
+
+  // Reverting `this.record(event)` in recordSupportAction fails this assertion.
+  assert.ok(recorded.some((e) => e.type === "support_diagnostics_exported"), "written to the session log");
+  assert.ok(posted.some((m) => m.type === "support_diagnostics_exported"), "forwarded to the Activity feed");
+  assert.match(controller.getDiagnostics().recent_activity, /support_diagnostics_exported/, "surfaced in recent_activity");
+});

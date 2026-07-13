@@ -15,7 +15,7 @@
           const label = document.createElement("span"); label.className = "sc-label"; label.textContent = c.label;
           const val = document.createElement("span"); val.className = "sc-val"; val.textContent = c.value || c.url || "";
           row.appendChild(label); row.appendChild(val);
-          if (c.copyable && c.value) row.appendChild(scButton("Copy", () => vscode.postMessage({ type: "copy_code", text: c.value })));
+          if (c.copyable && c.value) row.appendChild(scButton("Copy", () => vscode.postMessage({ type: "copy_support_contact", contactId: c.id })));
           if (c.url) row.appendChild(scButton("Open", () => vscode.postMessage({ type: "open_external", url: c.url })));
           list.appendChild(row);
         }

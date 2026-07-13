@@ -237,9 +237,9 @@ test("the support panel opens from global tools and drives config-driven contact
   posted.length = 0;
   const wechatRow = [...support.querySelectorAll(".sc-row")].find((r) => r.textContent!.includes("WeChat"))!;
   (wechatRow.querySelector(".sc-btn") as HTMLButtonElement).click();
-  const copy = posted.find((m) => m.type === "copy_code");
-  assert.ok(copy, "copy posts copy_code");
-  assert.equal(copy.text, "wxinliliszdyyr");
+  const copy = posted.find((m) => m.type === "copy_support_contact");
+  assert.ok(copy, "copy posts copy_support_contact (host looks up the value by id)");
+  assert.equal(copy.contactId, "wechat");
 
   // report an issue opens GitHub Issues externally
   posted.length = 0;

@@ -521,6 +521,25 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       webview.postMessage({ type: "support_config", contacts, diagnosticsFields: SUPPORT_DIAGNOSTICS_FIELDS, issueTypes: ISSUE_TYPES });
       return;
     }
+    if (message.type === "open_support_panel") {
+      // §6.3: opening the support entry is recorded in Activity (§8.1 support_feedback_opened).
+      controller.recordSupportAction({ type: "support_feedback_opened", entry: "panel" });
+      return;
+    }
+    if (message.type === "copy_support_contact" && typeof message.contactId === "string") {
+      // Copy a support contact's value. Look it up in the config BY ID (never copy the
+      // webview-echoed text — untrusted), then record the §8.1 event.
+      const contact = SUPPORT_CONTACTS.find((c) => c.id === message.contactId);
+      if (contact?.value) {
+        try {
+          await vscode.env?.clipboard?.writeText?.(contact.value);
+        } catch {
+          // clipboard unavailable (e.g. headless host) — ignore
+        }
+        controller.recordSupportAction({ type: "support_feedback_opened", entry: contact.id, action: "copy" });
+      }
+      return;
+    }
     if (message.type === "request_partners") {
       // Serve the home partner logos as data URIs (config-driven; logos read from disk).
       // A partner whose logo fails to resolve is still sent (logo: null) so the webview
@@ -531,7 +550,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     if (message.type === "request_diagnostics") {
       // Gather env diagnostics on demand so a bug report carries an actionable snapshot.
-      webview.postMessage({ type: "diagnostics", ...collectDiagnostics(vscode, controller.getDiagnostics()) });
+      const diag = collectDiagnostics(vscode, controller.getDiagnostics());
+      webview.postMessage({ type: "diagnostics", ...diag });
+      // §6.3: exporting diagnostics must be recorded in Activity (§8.1 support_diagnostics_exported).
+      controller.recordSupportAction({ type: "support_diagnostics_exported", scope: diag.fields.session_id ? "session" : "plugin" });
       return;
     }
     if (message.type === "submit_issue_report") {
@@ -550,7 +572,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         // malformed URL or headless host without openExternal — ignore
       }
-      // Change 2 records support_feedback_opened { entry: "report_issue" } here.
+      controller.recordSupportAction({ type: "support_feedback_opened", entry: "report_issue" });
       return;
     }
     if (message.type === "request_artifacts") {
@@ -596,6 +618,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         const uri = vscode.Uri.parse(message.url, true);
         if (/^(https?|mailto)$/.test(uri.scheme)) {
           await vscode.env?.openExternal?.(uri);
+          // Record only when the opened URL is a known support contact (host-side match, so
+          // partner/board links never record and the webview can't spoof the entry). §8.1.
+          const contact = SUPPORT_CONTACTS.find((c) => c.url === message.url);
+          if (contact) controller.recordSupportAction({ type: "support_feedback_opened", entry: contact.id });
         }
       } catch {
         // malformed URL or headless host without openExternal — ignore
@@ -917,6 +943,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           try {
             await writeFile(target.fsPath, readFileSync(src, "utf-8"), "utf-8");
             webview.postMessage({ type: "logs_status", text: "Session log exported." });
+            // §8.1: a session-log export is a diagnostics export (closest-fit event name).
+            controller.recordSupportAction({ type: "support_diagnostics_exported", scope: "session", kind: "session_log" });
           } catch (error: any) {
             webview.postMessage({ type: "logs_status", text: `Export failed: ${error?.message ?? error}` });
           }

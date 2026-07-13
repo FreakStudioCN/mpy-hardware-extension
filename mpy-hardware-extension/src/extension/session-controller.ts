@@ -613,6 +613,18 @@ export class SessionController {
     }
   }
 
+  // Support/diagnostics actions must be traceable (section 08 §6.3; §8.1 events
+  // support_feedback_opened / support_diagnostics_exported). Record the event to the session
+  // log, surface it in the recent-activity ring, and forward it to the Activity feed. Before a
+  // session starts the recorder is undefined so the JSONL write is a no-op; the feed line still
+  // satisfies §6.3 ("recorded in Activity OR plugin logs").
+  recordSupportAction(event: { type: "support_feedback_opened" | "support_diagnostics_exported" } & Record<string, any>) {
+    const detail = event.entry ?? event.scope ?? "";
+    this.pushActivity(detail ? `${event.type}: ${detail}` : event.type);
+    this.record(event);
+    this.deps.postMessage(event);
+  }
+
   // Artifact paths produced this session: the loop's own writes plus any accumulated
   // generated files, deduped. Empty before the first generate.
   private artifactIndex(): string[] {
