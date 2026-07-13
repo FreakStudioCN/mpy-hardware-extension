@@ -105,7 +105,7 @@ function skillsSubmoduleCommit(): string {
 // The section-08 diagnostics snapshot: session-scoped fields (from the controller) merged
 // with always-available host fields (versions, os/node/npm, python, mpremote). Emits every
 // declared SUPPORT_DIAGNOSTICS_FIELDS key, in order, so a bug report is complete.
-function collectDiagnostics(vscode: any, session: Record<string, string>): { text: string; fields: Record<string, string> } {
+function collectDiagnostics(vscode: any, session: Record<string, string>, serialPort: string): { text: string; fields: Record<string, string> } {
   let python = "unknown";
   try {
     const p = detectPython(vscode);
@@ -122,6 +122,9 @@ function collectDiagnostics(vscode: any, session: Record<string, string>): { tex
     npm: tryExecVersion("npm", ["--version"]),
     python,
     mpremote: venvMpremoteVersion() ?? tryExecVersion("mpremote", ["--version"]),
+    // The selected device port lives in the shim, not the session — merge it here (host
+    // keys win). Reflects the last-selected device; may be stale after unplug (display-only).
+    serial_port: serialPort,
   };
   return buildDiagnosticsFields({ ...session, ...host });
 }
@@ -550,7 +553,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     if (message.type === "request_diagnostics") {
       // Gather env diagnostics on demand so a bug report carries an actionable snapshot.
-      const diag = collectDiagnostics(vscode, controller.getDiagnostics());
+      const diag = collectDiagnostics(vscode, controller.getDiagnostics(), shim.getPort?.() ?? "");
       webview.postMessage({ type: "diagnostics", ...diag });
       // §6.3: exporting diagnostics must be recorded in Activity (§8.1 support_diagnostics_exported).
       controller.recordSupportAction({ type: "support_diagnostics_exported", scope: diag.fields.session_id ? "session" : "plugin" });
@@ -564,7 +567,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       if (!description) return;
       const issueType = (ISSUE_TYPES as readonly string[]).includes(message.issueType) ? message.issueType : "other";
       const contact = String(message.contact ?? "").trim().slice(0, ISSUE_CONTACT_MAX);
-      const diagnosticsText = message.attachDiagnostics ? collectDiagnostics(vscode, controller.getDiagnostics()).text : undefined;
+      const diagnosticsText = message.attachDiagnostics ? collectDiagnostics(vscode, controller.getDiagnostics(), shim.getPort?.() ?? "").text : undefined;
       const url = buildIssueReportUrl({ issueType, description, contact, diagnosticsText });
       try {
         const uri = vscode.Uri.parse(url, true);

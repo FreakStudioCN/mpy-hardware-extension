@@ -1504,3 +1504,28 @@ test("copy_support_contact copies the config value by id, ignoring webview-suppl
   assert.equal(copied.length, 0, "unknown contact id copies nothing");
   assert.ok(!posted.some((m) => m.type === "support_feedback_opened"), "and records nothing");
 });
+
+test("request_diagnostics reports the shim's selected serial port", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const shim = { getPort: () => "COM7", setPort() {}, scan: async () => ["COM7"] };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template", shim });
+
+  await handler?.({ type: "request_diagnostics" });
+  const diag = posted.find((m) => m.type === "diagnostics");
+  assert.ok(diag, "diagnostics posted");
+  // Reverting the `serial_port: shim.getPort()` merge in collectDiagnostics fails this.
+  assert.equal(diag.fields.serial_port, "COM7", "serial_port reflects the shim's selected port");
+});

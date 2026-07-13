@@ -1288,3 +1288,25 @@ test("recordSupportAction writes to the log, feeds recent_activity, and posts to
   assert.ok(posted.some((m) => m.type === "support_diagnostics_exported"), "forwarded to the Activity feed");
   assert.match(controller.getDiagnostics().recent_activity, /support_diagnostics_exported/, "surfaced in recent_activity");
 });
+
+test("stdout_stderr_summary tails serial output, stays bounded, and clears on reset", async () => {
+  const controller = new SessionController({
+    postMessage: () => {},
+    // Feed 25 serial_output lines; the tail cap is 20, so L0..L4 must be dropped.
+    loop: async ({ onEvent }: any) => {
+      for (let i = 0; i < 25; i++) onEvent({ type: "serial_output", lines: [`L${i}`] });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const summary = controller.getDiagnostics().stdout_stderr_summary;
+  assert.match(summary, /\bL24\b/, "keeps the newest line");
+  assert.match(summary, /\bL5\b/, "L5 is the oldest kept (cap 20)");
+  assert.doesNotMatch(summary, /\bL4\b/, "L0..L4 dropped beyond the cap");
+  assert.doesNotMatch(summary, /\bL0\b/, "oldest is dropped");
+
+  // Reverting the `this.stdoutTail = []` in reset() fails this.
+  controller.reset();
+  assert.equal(controller.getDiagnostics().stdout_stderr_summary, "", "reset clears the tail");
+});

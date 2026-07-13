@@ -84,6 +84,11 @@ export class SessionController {
   private recentActivity: string[] = [];
   private keyErrors: string[] = [];
   private static readonly RECENT_ACTIVITY_CAP = 10;
+  // A bounded tail of the device's serial output for the section-08 stdout_stderr_summary
+  // diagnostics field. Newest N lines only; cleared with the other run state (start + reset).
+  private stdoutTail: string[] = [];
+  private static readonly STDOUT_TAIL_CAP = 20;
+  private static readonly STDOUT_SUMMARY_MAX = 2000;
   // User supplements queued during a running build (deliverables 07 §3), consumed FIFO at
   // the after-phase_complete safe point. A queue (not a single slot) so a second note
   // added before the next safe point is not lost (§9 acceptance).
@@ -111,6 +116,7 @@ export class SessionController {
       this.boardSelectionMode = undefined;
       this.currentPhase = null;
       this.recentActivity = [];
+      this.stdoutTail = [];
       this.keyErrors = [];
       this.pendingSupplements = [];
       this.producedPaths = [];
@@ -260,6 +266,7 @@ export class SessionController {
     this.phaseArtifacts = [];
     this.currentPhase = null;
     this.recentActivity = [];
+    this.stdoutTail = [];
     this.keyErrors = [];
     this.pendingSupplements = [];
   }
@@ -522,6 +529,7 @@ export class SessionController {
     if (event.type === "serial_output") {
       this.record({ type: "serial_output", lines: event.lines });
       this.deps.postMessage({ type: "serial_output", lines: event.lines });
+      this.pushStdout(event.lines);
       return;
     }
     // Protocol events: a status_update timeline entry, a phase boundary, or a
@@ -613,6 +621,14 @@ export class SessionController {
     }
   }
 
+  // Append the device's serial-output lines to the bounded stdout tail (newest N kept).
+  private pushStdout(lines: unknown) {
+    for (const line of Array.isArray(lines) ? lines : [lines]) {
+      this.stdoutTail.push(String(line));
+    }
+    while (this.stdoutTail.length > SessionController.STDOUT_TAIL_CAP) this.stdoutTail.shift();
+  }
+
   // Support/diagnostics actions must be traceable (section 08 §6.3; §8.1 events
   // support_feedback_opened / support_diagnostics_exported). Record the event to the session
   // log, surface it in the recent-activity ring, and forward it to the Activity feed. Before a
@@ -694,8 +710,8 @@ export class SessionController {
       artifact_index: this.artifactIndex().join(", "),
       selected_board: selectedBoard,
       last_command: this.recentActivity.at(-1) ?? "",
-      serial_port: "", // best-effort: no serial-port signal is tracked in the host yet
-      stdout_stderr_summary: "", // best-effort: not accumulated at the session layer
+      // serial_port is filled by the panel's host bag (shim.getPort) — see collectDiagnostics.
+      stdout_stderr_summary: this.stdoutTail.join(" | ").slice(0, SessionController.STDOUT_SUMMARY_MAX),
     };
   }
 
