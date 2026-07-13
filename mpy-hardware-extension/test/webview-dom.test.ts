@@ -2309,19 +2309,22 @@ test("device tools: Delete is host-armed two-step — first click requests an ar
   assert.equal(confirm.path, "/lib/x.py");
 });
 
-test("a mid-run support action shows in the feed and keeps the working spinner", async () => {
+test("support actions are recorded host-side, never rendered into the build feed", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
   (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
   (document.getElementById("generate") as HTMLButtonElement).click(); // running -> spinner armed
-  assert.ok(document.querySelector(".feed-pending"), "the working spinner is present while running");
+  const activity = document.getElementById("activity")!;
+  const before = activity.childElementCount;
 
+  post(dom, { type: "support_feedback_opened", entry: "panel" });
   post(dom, { type: "support_diagnostics_exported", scope: "session" });
 
-  const activity = document.getElementById("activity")!;
-  assert.match(activity.textContent!, /Diagnostics exported/, "the support action shows in the feed");
-  // Reverting the `if (running && pendingLabel) setPending(...)` re-arm blanks the spinner here.
-  assert.ok(document.querySelector(".feed-pending"), "the spinner survives the mid-run support action (re-armed)");
+  // Support navigation is diagnostics/traceability, not build progress: it must add no feed card
+  // and must not disturb the running spinner. Re-adding an addActivity handler for these fails this.
+  assert.equal(activity.childElementCount, before, "support actions add no card to the build feed");
+  assert.doesNotMatch(activity.textContent!, /Diagnostics exported|Support:/, "no support text leaks into the feed");
+  assert.ok(document.querySelector(".feed-pending"), "the working spinner is untouched");
 });
