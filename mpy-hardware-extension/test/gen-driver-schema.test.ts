@@ -16,6 +16,7 @@ import {
   inferMode,
   validateFields,
   buildSourceFromFields,
+  materializeGenDriverTabs,
   normalizeSources,
   canStartGeneration,
 } from "../src/core/gen-driver-schema.ts";
@@ -174,26 +175,78 @@ test("every source tab maps to a known source type; verification tab is config",
 });
 
 test("validateFields flags missing required inputs per tab", () => {
-  assert.deepEqual(validateFields(tab("github"), {}), ["Repo URL"]);
-  assert.deepEqual(validateFields(tab("github"), { url: "https://github.com/x/y" }), []);
+  assert.deepEqual(validateFields(tab("github"), {}), ["Repo URL", "Branch / tag / commit"]);
+  assert.deepEqual(validateFields(tab("github"), { url: "https://github.com/x/y", ref: "v1" }), []);
   assert.deepEqual(validateFields(tab("chip"), {}), ["Chip model"]);
   assert.deepEqual(validateFields(tab("chip"), { chip_model: "SHT30" }), []);
   assert.deepEqual(validateFields(tab("current"), {}), []);
 });
 
-test("buildSourceFromFields assembles source.type + non-empty fields, verification is null", () => {
-  const src = buildSourceFromFields(tab("chip"), { chip_model: "SHT30", vendor: "", interface: "i2c" });
-  assert.deepEqual(src, { type: "chip_model", chip_model: "SHT30", interface: "i2c" });
+test("buildSourceFromFields assembles the sample source shape (metadata + primary), verification is null", () => {
+  const src = buildSourceFromFields(tab("chip"), { chip_model: "SHT30", vendor: "", interface: "i2c" }, true);
+  assert.deepEqual(src, {
+    type: "chip_model", artifact_path: null, sha256: null, primary: true,
+    metadata: { chip_model: "SHT30", interface: "i2c" },
+  });
   assert.equal(buildSourceFromFields(tab("verification"), { port: "COM3" }), null);
-  assert.deepEqual(buildSourceFromFields(tab("current"), {}), { type: "current_cold_driver_item" });
+  // the current tab always records the cold-driver status the plugin keys on
+  assert.deepEqual(buildSourceFromFields(tab("current"), {}), {
+    type: "current_cold_driver_item", artifact_path: null, sha256: null, primary: false,
+    metadata: { driver_status: "cold_driver_required" },
+  });
 });
 
-test("file-source tabs require an uploaded file and carry its integrity metadata", () => {
+test("file-source tabs require an uploaded file; the source hoists sha256 and records file metadata", () => {
   assert.deepEqual(validateFields(tab("pdf"), {}), ["Datasheet PDF"]);
-  const file = { name: "sht30.pdf", path: "/tmp/sht30.pdf", size: 2048, sha256: "abc123" };
+  const file = { name: "sht30.pdf", path: "/tmp/sht30.pdf", size: 2048, sha256: "abc123", uploaded_at: "2026-07-13T00:00:00Z" };
   assert.deepEqual(validateFields(tab("pdf"), { pdf_file: file }), []);
-  const src = buildSourceFromFields(tab("pdf"), { pdf_file: file, chip_model: "SHT30" });
-  assert.deepEqual(src, { type: "pdf", pdf_file: file, chip_model: "SHT30" });
+  const src = buildSourceFromFields(tab("pdf"), { pdf_file: file, chip_model: "SHT30" }, true);
+  assert.deepEqual(src, {
+    type: "pdf", artifact_path: null, sha256: "abc123", primary: true,
+    metadata: { pdf_file: { name: "sht30.pdf", path: "/tmp/sht30.pdf", size: 2048, uploaded_at: "2026-07-13T00:00:00Z" }, chip_model: "SHT30" },
+  });
+});
+
+test("each tab collects its full field set (locks the per-tab spec keys)", () => {
+  const keys = (id: string) => tab(id).fields.map((f) => f.key);
+  assert.deepEqual(keys("pdf"), ["pdf_file", "chip_model", "vendor", "interface", "page_range", "i2c_address", "register_keywords"]);
+  assert.deepEqual(keys("arduino"), ["source_file", "entry_class", "example_path", "library_version", "license"]);
+  assert.deepEqual(keys("github"), ["url", "ref", "subdir", "example_path"]);
+  assert.deepEqual(keys("chip"), ["chip_model", "module_model", "vendor", "interface", "default_address", "datasheet_url", "search_keywords"]);
+  assert.deepEqual(keys("verification"), ["port", "board", "test_scenario", "marker", "max_rounds", "wiring_confirmed", "skip_verification"]);
+});
+
+test("github ref is required now (a pinned ref is mandatory)", () => {
+  assert.deepEqual(validateFields(tab("github"), { url: "https://github.com/x/y" }), ["Branch / tag / commit"]);
+  assert.deepEqual(validateFields(tab("github"), { url: "https://github.com/x/y", ref: "v1.0" }), []);
+});
+
+test("materializeGenDriverTabs builds a device picker over cold-driver items, else an empty state", () => {
+  const manifest = { board_id: "esp32", mcu: "ESP32", devices: [
+    { device_id: "sht30_th", name: "SHT30", interface: "i2c", i2c_addresses: ["0x44"], driver: { status: "cold_driver_required" } },
+    { device_id: "bmp390_p", name: "BMP390", interface: "i2c", driver: { status: "cold_driver_required" } },
+    { device_id: "led", name: "LED", driver: { status: "ready" } },
+  ] };
+  const filled = materializeGenDriverTabs(GEN_DRIVER_TABS, manifest);
+  const current = filled.find((t) => t.sourceType === "current_cold_driver_item")!;
+  assert.equal(current.noItems, false);
+  const pick = current.fields.find((f) => f.key === "device_id")!;
+  assert.equal(pick.kind, "select");
+  assert.equal(pick.required, true);
+  assert.deepEqual((pick.options as { value: string }[]).map((o) => o.value), ["sht30_th", "bmp390_p"], "cold-driver devices only; the ready device is excluded");
+  assert.match((pick.options as { label: string }[])[0].label, /SHT30/);
+  assert.deepEqual(validateFields(current, {}), ["Missing driver"], "the materialized device_id is required");
+  assert.deepEqual(validateFields(current, { device_id: "sht30_th" }), []);
+  assert.equal(filled.find((t) => t.id === "pdf"), GEN_DRIVER_TABS.find((t) => t.id === "pdf"), "other tabs pass through unchanged (pure)");
+});
+
+test("materializeGenDriverTabs yields a no-items empty state for an empty/absent manifest", () => {
+  for (const m of [{ devices: [] }, {}, null]) {
+    const current = materializeGenDriverTabs(GEN_DRIVER_TABS, m).find((t) => t.sourceType === "current_cold_driver_item")!;
+    assert.equal(current.noItems, true);
+    assert.equal(current.fields.find((f) => f.key === "device_id"), undefined, "no picker when there are no items");
+    assert.ok(current.fields.some((f) => f.kind === "info"), "shows an info empty-state line");
+  }
 });
 
 test("normalizeSources: legacy single source -> [source], array passes through, null -> []", () => {

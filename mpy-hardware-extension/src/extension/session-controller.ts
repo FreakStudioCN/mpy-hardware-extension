@@ -661,6 +661,13 @@ export class SessionController {
     return this.phaseArtifacts;
   }
 
+  // The latest phase manifest this session (analyze/select-hw/scaffold), or undefined. The
+  // gen-driver panel materializes its current-missing-driver picker from this; cleared in
+  // reset() so a Restart never shows a prior session's cold-driver items.
+  getLatestManifest(): unknown {
+    return this.latestManifest;
+  }
+
   // The session-scoped half of the section-08 diagnostics snapshot. The panel merges
   // this with the always-available host fields (versions, os/node/npm, python) and
   // fills every declared key so a bug report carries an actionable, complete picture.

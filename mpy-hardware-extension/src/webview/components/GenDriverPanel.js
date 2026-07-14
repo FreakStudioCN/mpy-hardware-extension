@@ -43,8 +43,16 @@
         wrap.appendChild(lbl); wrap.appendChild(row); wrap.appendChild(hidden);
         return wrap;
       }
+      // "info" kind: read-only display lines (device context / empty-state note). No input,
+      // so gdCollect skips it (no data-gdkey).
+      function gdInfoField(field) {
+        const box = document.createElement("div"); box.className = "gd-note gd-info";
+        for (const line of field.lines || []) { const p = document.createElement("div"); p.textContent = line; box.appendChild(p); }
+        return box;
+      }
       function gdField(field, tabId) {
         if (field.kind === "file") return gdFileField(field, tabId);
+        if (field.kind === "info") return gdInfoField(field);
         const wrap = document.createElement("label"); wrap.className = "gd-field";
         const lbl = document.createElement("span"); lbl.className = "gd-flabel";
         lbl.textContent = field.label + (field.required ? " *" : "");
@@ -56,7 +64,10 @@
         } else if (field.kind === "select") {
           control = document.createElement("select");
           for (const opt of field.options || []) {
-            const o = document.createElement("option"); o.value = opt; o.textContent = opt; control.appendChild(o);
+            const o = document.createElement("option");
+            o.value = typeof opt === "string" ? opt : opt.value;
+            o.textContent = typeof opt === "string" ? opt : opt.label;
+            control.appendChild(o);
           }
         } else {
           control = document.createElement("input"); control.type = "text";
@@ -80,23 +91,31 @@
         return active.fields.filter((f) => f.required && !values[f.key]).map((f) => f.label);
       }
       // Build a source object from the active tab's values (client mirror of
-      // buildSourceFromFields): { type, ...non-empty fields }.
-      function gdBuildSource(active, values) {
-        const src = { type: active.sourceType };
+      // buildSourceFromFields): { type, artifact_path, sha256, primary, metadata }. Field
+      // values go in metadata; a picked file hoists its sha256 and records name/path/size/
+      // uploaded_at. artifact_path is null until dispatch stages the file (#52).
+      function gdBuildSource(active, values, primary) {
+        const metadata = {};
+        let sha256 = null;
         for (const f of active.fields) {
+          if (f.kind === "info") continue;
           const v = values[f.key];
-          if (v !== undefined && v !== "" && v !== false) src[f.key] = v;
+          if (v === undefined || v === "" || v === false) continue;
+          if (f.kind === "file" && v && v.sha256) { sha256 = v.sha256; metadata[f.key] = { name: v.name, path: v.path, size: v.size, uploaded_at: v.uploaded_at || null }; }
+          else metadata[f.key] = v;
         }
-        return src;
+        if (active.sourceType === "current_cold_driver_item") metadata.driver_status = "cold_driver_required";
+        return { type: active.sourceType, artifact_path: null, sha256, primary: Boolean(primary), metadata };
       }
       function gdSourceLabel(src) {
+        const meta = src.metadata || {};
         const bits = [];
-        for (const k in src) {
-          if (k === "type") continue;
-          const v = src[k]; if (!v) continue;
+        for (const k in meta) {
+          if (k === "driver_status") continue;
+          const v = meta[k]; if (!v) continue;
           bits.push(v && v.name ? v.name : v);
         }
-        return src.type + (bits.length ? " — " + bits.slice(0, 2).join(", ") : "");
+        return src.type + (bits.length ? " — " + bits.slice(0, 2).join(", ") : "") + (src.primary ? " (primary)" : "");
       }
       // Add the active source tab's input to the sources[] list (validated), then
       // re-render so the tab clears and the footer list updates.
@@ -108,7 +127,7 @@
           if (err) { err.className = "gd-add-status gd-failed"; err.textContent = "Fill required: " + missing.join(", "); }
           return;
         }
-        gdSources.push(gdBuildSource(active, values));
+        gdSources.push(gdBuildSource(active, values, gdSources.length === 0));
         renderGenDriver(tabs);
       }
       function gdPrefill(body, values) {
@@ -126,14 +145,30 @@
         if (v.board_id || v.mcu) dr.target_board = Object.assign({}, v.board_id ? { board_id: v.board_id } : {}, v.mcu ? { mcu: v.mcu } : {});
         return dr;
       }
-      // P0 default: hardware_required; the skip toggle flips it to skipped.
+      // P0 default: hardware_required; the skip toggle flips it to skipped. Only the sample's
+      // verification fields ride the wire (required/policy/port/marker/max_rounds); test_scenario
+      // and wiring_confirmed are UI-only (marker suggestion + confirm-card display).
       function gdBuildVerification(v) {
         const skip = v.skip_verification === true;
         const out = { required: !skip, policy: skip ? "skipped" : "hardware_required" };
         if (v.port) out.port = v.port;
         if (v.board) out.board = v.board;
+        if (v.marker) out.marker = v.marker;
         if (v.max_rounds) { const n = Number(v.max_rounds); if (n) out.max_rounds = n; }
         return out;
+      }
+      // Suggested marker when the user gave a chip + scenario but no explicit marker
+      // (contract: SELF_TEST_PASS:<CHIP>:<SCENARIO>).
+      function gdSuggestMarker(chip, scenario) {
+        if (!chip || !scenario) return "";
+        return "SELF_TEST_PASS:" + String(chip).toUpperCase() + ":" + String(scenario).toUpperCase();
+      }
+      // Preprocess script the plugin runs per source type (SKILL.md), shown on the confirm card.
+      function gdPreprocessScript(type) {
+        if (type === "pdf") return "extract_pdf.py";
+        if (type === "arduino_source") return "convert_arduino.py";
+        if (type === "github_url") return "fetch_github.py";
+        return null;
       }
       // Gate (Ruili): >=1 source OR a driver_request with a chip/id.
       function gdGateOpen() {
@@ -146,19 +181,17 @@
       }
       function gdBody(active, tabs) {
         const body = document.createElement("div"); body.className = "gd-body";
-        if (!active.fields || active.fields.length === 0) {
-          const note = document.createElement("p"); note.className = "gd-note";
-          note.textContent = "Uses the current project's missing driver.";
-          body.appendChild(note);
-        } else {
-          for (const field of active.fields) body.appendChild(gdField(field, active.id));
-        }
+        // The current tab is materialized host-side (device picker + context, or an
+        // empty-state info line); every other tab renders its static fields.
+        for (const field of active.fields || []) body.appendChild(gdField(field, active.id));
         if (active.sourceType !== null) {
-          // source tab: add its input to sources[]
-          const add = document.createElement("button"); add.className = "gd-add"; add.type = "button"; add.textContent = "+ Add source";
-          add.addEventListener("click", () => gdAddSource(active, body, tabs));
-          body.appendChild(add);
-          const err = document.createElement("div"); err.className = "gd-add-status"; body.appendChild(err);
+          // source tab: add its input to sources[] — but not the current tab's empty state
+          if (!active.noItems) {
+            const add = document.createElement("button"); add.className = "gd-add"; add.type = "button"; add.textContent = "+ Add source";
+            add.addEventListener("click", () => gdAddSource(active, body, tabs));
+            body.appendChild(add);
+            const err = document.createElement("div"); err.className = "gd-add-status"; body.appendChild(err);
+          }
         } else if (gdConfig[active.id]) {
           // config tab (driver_request / verification): persist across tab switches, refresh the gate
           gdPrefill(body, gdConfig[active.id]);
@@ -190,20 +223,52 @@
         foot.appendChild(gen); foot.appendChild(status);
         return foot;
       }
-      // driver_source_confirm: summarize the assembled sources[] and require an explicit
+      // Expected artifact paths derived from the driver id (naming convention, sample
+      // expected_output). The plugin produces the real files at run time (#52).
+      function gdExpectedPaths(driverId) {
+        if (!driverId) return null;
+        const dir = "firmware/drivers/" + driverId + "_driver";
+        return dir + "/" + driverId + ".py, " + dir + "/test_" + driverId + ".py";
+      }
+      // The §9.3 confirm lines — all input-derivable. The target is labelled "requested"
+      // (never claimed as the generated driver_spec, which is a run artifact / #52).
+      function gdConfirmLines(driverRequest, verification) {
+        const firstMeta = (gdSources[0] && gdSources[0].metadata) || {};
+        const chip = driverRequest.chip_model || driverRequest.driver_id || firstMeta.chip_model || "";
+        const iface = driverRequest.interface || firstMeta.interface || "";
+        const lines = [];
+        if (chip) lines.push("Requested driver: " + chip + (iface ? " (" + iface + ")" : ""));
+        gdSources.forEach((s) => {
+          const script = gdPreprocessScript(s.type);
+          const tail = [s.primary ? "primary" : "auxiliary", s.sha256 ? "sha256 " + String(s.sha256).slice(0, 12) : null, script ? "runs " + script : null].filter(Boolean).join(", ");
+          lines.push("Source " + gdSourceLabel(s) + (tail ? " — " + tail : ""));
+        });
+        const paths = gdExpectedPaths(driverRequest.driver_id);
+        lines.push("Expected artifacts: " + (paths || "TBD (set a driver id)"));
+        lines.push("Verify: " + verification.policy + (verification.port ? " on " + verification.port : "") + (verification.max_rounds ? ", up to " + verification.max_rounds + " round(s)" : "") + (verification.marker ? ", marker " + verification.marker : ""));
+        if (verification.policy === "skipped") lines.push("Warning: hardware verification skipped — the driver will be unverified.");
+        return lines;
+      }
+      // driver_source_confirm: a UI-local pre-start confirm (NOT a plugin approval_request,
+      // which happens after start_phase). Summarizes the §9.3 content and requires an explicit
       // confirm before launching.
       function gdReview(statusEl) {
         if (!gdGateOpen()) return;
         statusEl.className = "gd-status"; statusEl.innerHTML = "";
         const driverRequest = gdBuildDriverRequest(gdConfig.driver || {});
         const verification = gdBuildVerification(gdConfig.verification || {});
+        // A marker the user got only from the chip + scenario suggestion still rides the wire.
+        if (!verification.marker) {
+          const chip = driverRequest.chip_model || driverRequest.driver_id || ((gdSources[0] || {}).metadata || {}).chip_model;
+          const suggested = gdSuggestMarker(chip, (gdConfig.verification || {}).test_scenario);
+          if (suggested) verification.marker = suggested;
+        }
         const card = document.createElement("div"); card.className = "gd-confirm";
         const h = document.createElement("div"); h.className = "gd-confirm-h"; h.textContent = "Confirm driver sources";
-        const parts = [];
-        if (gdSources.length) parts.push("sources: " + gdSources.map(gdSourceLabel).join(", "));
-        if (driverRequest.driver_id || driverRequest.chip_model) parts.push("target: " + (driverRequest.driver_id || driverRequest.chip_model));
-        parts.push("verify: " + verification.policy);
-        const summary = document.createElement("div"); summary.className = "gd-confirm-body"; summary.textContent = parts.join("  |  ");
+        card.appendChild(h);
+        const bodyEl = document.createElement("div"); bodyEl.className = "gd-confirm-body";
+        for (const line of gdConfirmLines(driverRequest, verification)) { const row = document.createElement("div"); row.textContent = line; bodyEl.appendChild(row); }
+        card.appendChild(bodyEl);
         const confirm = document.createElement("button"); confirm.className = "gd-gen"; confirm.textContent = "Confirm & generate";
         confirm.addEventListener("click", () => vscode.postMessage({
           type: "start_gen_driver",
@@ -211,7 +276,7 @@
           driverRequest,
           verification,
         }));
-        card.appendChild(h); card.appendChild(summary); card.appendChild(confirm);
+        card.appendChild(confirm);
         statusEl.appendChild(card);
       }
       function setGenDriverStatus(status, detail) {
@@ -223,7 +288,7 @@
         const root = $("gendriver"); if (!root) return;
         const hidden = root.querySelector("[data-gdkey='" + file.key + "'][data-gdkind='file']");
         if (!hidden) return;
-        hidden.value = JSON.stringify({ name: file.name, path: file.path, size: file.size, sha256: file.sha256 });
+        hidden.value = JSON.stringify({ name: file.name, path: file.path, size: file.size, sha256: file.sha256, uploaded_at: file.uploaded_at || null });
         const label = hidden.parentElement.querySelector(".gd-filename");
         if (label) label.textContent = file.name;
       }
