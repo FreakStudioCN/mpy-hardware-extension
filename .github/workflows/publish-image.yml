@@ -70,7 +70,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    runs-on: upypi
+    runs-on: [self-hosted, Linux, X64, upypi]
     needs: image
     steps:
       - name: Log in to GHCR
