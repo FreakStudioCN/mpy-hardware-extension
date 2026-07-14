@@ -55,6 +55,11 @@ const PLUGIN_DIRS = [
   "upy-scaffold-plugin",
   "upy-generate-plugin",
   "upy-deploy-plugin",
+  // Optional flows, now served: their script_run scripts must ship or the packaged VSIX
+  // fails script_not_found on every gen-driver/wiring/diagram run (the #39 dev-vs-packaged trap).
+  "upy-gen-driver-plugin",
+  "upy-wiring-plugin",
+  "upy-diagram-plugin",
   "shared-plugin-scripts",
   "upy-project-gen-toolchain-spec",
 ];

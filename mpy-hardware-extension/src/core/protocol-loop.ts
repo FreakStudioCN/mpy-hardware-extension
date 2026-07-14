@@ -34,6 +34,18 @@ export const PHASE_ALIASES: Record<string, string> = {
   "deploy": "upy-deploy-plugin",
   "upy-deploy": "upy-deploy-plugin",
   "upy-deploy-plugin": "upy-deploy-plugin",
+  // Optional flows (on-demand start_phase, NOT in PHASE_ORDER): resolve their tokens so a
+  // next_phase referencing them (e.g. a pre-generate gate emitting upy-gen-driver-plugin)
+  // advances instead of hitting unknown_next_phase. Lockstep with contracts/phase_aliases.json.
+  "gen-driver": "upy-gen-driver-plugin",
+  "upy-gen-driver": "upy-gen-driver-plugin",
+  "upy-gen-driver-plugin": "upy-gen-driver-plugin",
+  "wiring": "upy-wiring-plugin",
+  "upy-wiring": "upy-wiring-plugin",
+  "upy-wiring-plugin": "upy-wiring-plugin",
+  "diagram": "upy-diagram-plugin",
+  "upy-diagram": "upy-diagram-plugin",
+  "upy-diagram-plugin": "upy-diagram-plugin",
 };
 
 function phaseToken(value: any): string | null {
@@ -74,7 +86,10 @@ export type ProtocolDeps = {
   // script is a hard failure (ok:false), never a faked success. `structured_errors`
   // (when the host has parsed the script's JSON, e.g. run_quality_gates' generate_plan
   // gate) lets the loop react deterministically instead of the model parsing raw JSON.
-  runScript?: (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string; candidates?: string[]; structured_errors?: Array<{ code?: string; path?: string; message?: string }> }>;
+  // `extra.phase` is the active phase token: the host resolver uses it to disambiguate a
+  // script basename shipped by >1 served plugin (e.g. update_session_state.py in generate +
+  // gen-driver) to the running phase's own copy, so the model never has to qualify.
+  runScript?: (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number; phase?: string }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string; candidates?: string[]; structured_errors?: Array<{ code?: string; path?: string; message?: string }> }>;
 };
 
 export type ProtocolInput = {
@@ -385,7 +400,7 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
       String(p.interpreter ?? "python"),
       String(p.script ?? ""),
       Array.isArray(p.args) ? p.args.map(String) : [],
-      { stdin_content: p.stdin_content, stdin_json: p.stdin_json, timeout_ms: p.timeout_ms },
+      { stdin_content: p.stdin_content, stdin_json: p.stdin_json, timeout_ms: p.timeout_ms, phase: phaseCtx.phase },
     );
     // ok:false = the call itself failed (host_runner_absent / script_not_found /
     // ambiguous_script_name) 鈥?surface it, forwarding any candidate qualified names so the

@@ -157,30 +157,34 @@ def test_resolver_excludes_pre_v0_skills():
     assert len(serve._v0_script_candidates("init_scaffold.py")) == 1
 
 
-def test_resolver_excludes_unserved_plugin_stages():
-    # A CLEAN dev checkout has no <ext>/third_party copy, so scripts_root() falls back
-    # to the FULL repo-root submodule, which also carries `-plugin` stages we don't
-    # serve/bundle (upy-gen-driver-plugin, upy-wiring-plugin, upy-diagram-plugin).
-    # Indexing them would turn served bare names the SKILL.md prose uses into ambiguous
-    # errors in dev (update_session_state.py / run_on_device.py also ship in
-    # upy-gen-driver-plugin) and make dev diverge from the packaged VSIX. Force the
-    # dev-fallback root here: this working copy may hold a stale packaged-subset copy
-    # under <ext>/third_party that would mask the divergence.
+def test_resolver_disambiguates_shared_basenames_by_active_phase():
+    # gen-driver/wiring/diagram are now served, so their scripts ARE indexed. A few basenames
+    # collide with the core plugins (update_session_state.py in generate + gen-driver;
+    # run_on_device.py in scaffold + gen-driver). Without a phase these must be AMBIGUOUS
+    # (fail-loud, never a silent os.walk-order pick); the ACTIVE PHASE resolves each to that
+    # phase's own copy, so the model never has to qualify. Force the dev-fallback root (the full
+    # submodule) so this is deterministic regardless of any stale packaged-subset <ext>/third_party.
     here = os.path.dirname(os.path.abspath(__file__))
     dev_root = os.path.abspath(os.path.join(here, "..", "..", "..", "third_party", "MicroPython_Skills"))
     assert os.path.isdir(os.path.join(dev_root, "upy-gen-driver-plugin")), dev_root
     orig_root, orig_index = serve.scripts_root, serve._V0_SCRIPT_INDEX
     serve.scripts_root, serve._V0_SCRIPT_INDEX = (lambda: dev_root), None
     try:
-        for name, served_dir in (
-            ("update_session_state.py", "upy-generate-plugin"),
-            ("run_on_device.py", "upy-scaffold-plugin"),
+        # No phase -> ambiguous (the two colliding copies), so _run_v0_script fails loud.
+        assert len(serve._v0_script_candidates("update_session_state.py")) == 2
+        assert len(serve._v0_script_candidates("run_on_device.py")) == 2
+        # The active phase disambiguates to that phase's own copy (mutation: drop the phase branch
+        # in _v0_script_candidates -> these return 2 and the assert fails).
+        for name, phase, served_dir in (
+            ("update_session_state.py", "upy-generate-plugin", "upy-generate-plugin"),
+            ("update_session_state.py", "upy-gen-driver-plugin", "upy-gen-driver-plugin"),
+            ("run_on_device.py", "upy-scaffold-plugin", "upy-scaffold-plugin"),
+            ("run_on_device.py", "upy-gen-driver-plugin", "upy-gen-driver-plugin"),
         ):
-            candidates = serve._v0_script_candidates(name)
-            assert len(candidates) == 1, f"{name} must stay unambiguous, got {candidates}"
-            assert served_dir in candidates[0].replace("\\", "/"), candidates
-        for path in serve._v0_script_candidates("common.py"):
-            assert "upy-gen-driver-plugin" not in path.replace("\\", "/"), path
+            cands = serve._v0_script_candidates(name, phase)
+            assert len(cands) == 1 and served_dir + "/" in cands[0].replace("\\", "/") + "/", (name, phase, cands)
+        # A gen-driver-only script now resolves (single copy, no phase needed).
+        assert len(serve._v0_script_candidates("finalize_phase_complete.py")) == 1
     finally:
         serve.scripts_root, serve._V0_SCRIPT_INDEX = orig_root, orig_index
 

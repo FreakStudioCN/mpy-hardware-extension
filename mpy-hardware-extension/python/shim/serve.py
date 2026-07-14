@@ -114,10 +114,12 @@ def resolve_schema(name: str):
 _V0_SCRIPT_INDEX: dict | None = None
 
 # The served/bundled V0 plugin dirs — mirrors PLUGIN_DIRS in scripts/prepare-vsce.mjs.
-# The dev-fallback root is the FULL submodule, which also carries upstream `-plugin`
-# stages we don't serve (upy-gen-driver-plugin, upy-wiring-plugin, upy-diagram-plugin);
-# indexing those would turn served bare names ambiguous in dev only
-# (update_session_state.py / run_on_device.py also ship in upy-gen-driver-plugin).
+# The optional flows (gen-driver/wiring/diagram) are now served, so their scripts must be
+# indexed + packaged too. A few basenames overlap the core plugins (update_session_state.py in
+# upy-generate + upy-gen-driver; run_on_device.py in upy-scaffold + upy-gen-driver; common.py
+# 3-way), so those bare names become AMBIGUOUS: the resolver fails loud and the SKILLs use
+# plugin-qualified names (e.g. upy-gen-driver-plugin/update_session_state.py) — this is intended,
+# not a regression.
 _V0_PLUGIN_DIRS = (
     "upy-analyze-plugin",
     "upy-select-hw-plugin",
@@ -125,6 +127,9 @@ _V0_PLUGIN_DIRS = (
     "upy-scaffold-plugin",
     "upy-generate-plugin",
     "upy-deploy-plugin",
+    "upy-gen-driver-plugin",
+    "upy-wiring-plugin",
+    "upy-diagram-plugin",
     "shared-plugin-scripts",
 )
 
@@ -156,7 +161,7 @@ def _build_v0_script_index() -> dict:
     return index
 
 
-def _v0_script_candidates(name: str) -> list:
+def _v0_script_candidates(name: str, phase: str | None = None) -> list:
     global _V0_SCRIPT_INDEX
     if _V0_SCRIPT_INDEX is None:
         _V0_SCRIPT_INDEX = _build_v0_script_index()
@@ -164,10 +169,21 @@ def _v0_script_candidates(name: str) -> list:
     candidates = list(_V0_SCRIPT_INDEX.get(os.path.basename(raw), []))
     # A plugin-qualified name (e.g. "upy-deploy-plugin/list_serial_ports.py") narrows a
     # duplicate basename to the copy whose path contains that prefix segment, so the model
-    # can target one of several same-named scripts without a silent first-match pick.
+    # can target one of several same-named scripts without a silent first-match pick. An
+    # explicit qualifier from the model always wins.
     qualifier = raw.rsplit("/", 1)[0] if "/" in raw else ""
     if qualifier:
         narrowed = [p for p in candidates if qualifier in p.replace("\\", "/")]
+        if narrowed:
+            return narrowed
+    # Otherwise the ACTIVE PHASE disambiguates a duplicate basename: e.g. update_session_state.py
+    # ships in both upy-generate-plugin and upy-gen-driver-plugin, so the generate phase must get
+    # the generate copy (and gen-driver its own) without the model having to qualify. For the
+    # phases that collide, the phase token IS the plugin dir name; short tokens (analyze/select-hw)
+    # never collide, so a non-matching phase safely leaves the candidate list untouched.
+    if phase and len(candidates) > 1:
+        segment = "/" + str(phase) + "/"
+        narrowed = [p for p in candidates if segment in p.replace("\\", "/")]
         if narrowed:
             return narrowed
     return candidates
@@ -589,7 +605,9 @@ def _run_v0_script(shim, params):
         return {"status": "error", "error_kind": "node_interpreter_unavailable",
                 "message": "node script_run is not supported by the host shim"}
     base = os.path.basename(str(script))
-    candidates = _v0_script_candidates(script)
+    # The active phase disambiguates a basename shared by >1 served plugin (e.g.
+    # update_session_state.py in generate + gen-driver) without the model qualifying.
+    candidates = _v0_script_candidates(script, params.get("phase"))
     if len(candidates) > 1:
         # Same basename in >1 plugin: never silently pick one (see _build_v0_script_index).
         # List the plugin-qualified names so the model can retry with one of them instead

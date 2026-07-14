@@ -347,7 +347,10 @@ export type GenDriverCapabilities = {
 export const DEFAULT_GEN_DRIVER_CAPABILITIES: GenDriverCapabilities = {
   protocol_versions: [GEN_DRIVER_PROTOCOL_VERSION],
   approval_request: true,
-  permission_request: true,
+  // The 6-tool protocol has no permission_request message, so we cannot honor it. Declare false
+  // and rely on the approval-card fallback the SKILL sanctions (references/protocol_fields.md:46).
+  // Declaring true would invite the plugin to depend on a round-trip the host can never make.
+  permission_request: false,
   file_operation: true,
   script_run: true,
   device_command: true,

@@ -150,10 +150,10 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
   // init_scaffold.py, the check_*.py gates, run_quality_gates.py, ...) + shell (git
   // commit), so we run the model's named script for real. A missing runner or an
   // unresolvable script is a HARD failure (ok:false) — never a faked ok:true.
-  const runScript = async (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number }) => {
+  const runScript = async (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number; phase?: string }) => {
     if (!shim || !projectDir) return { ok: false, error_kind: "host_runner_absent" as string };
     try {
-      const res = await shim.runV0Script({ interpreter, script, args, project_dir: projectDir, stdin_content: extra?.stdin_content, stdin_json: extra?.stdin_json, timeout_ms: extra?.timeout_ms });
+      const res = await shim.runV0Script({ interpreter, script, args, project_dir: projectDir, stdin_content: extra?.stdin_content, stdin_json: extra?.stdin_json, timeout_ms: extra?.timeout_ms, phase: extra?.phase });
       if (!res || res.status !== "ok") return { ok: false, error_kind: res?.error_kind ?? "script_error", stderr: res?.message ?? "", candidates: res?.candidates };
       // serve.py returns parsed JSON in result_json (with stdout blanked); re-serialize
       // it so the model still sees the script's output.
