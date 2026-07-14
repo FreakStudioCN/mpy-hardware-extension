@@ -62,7 +62,7 @@
       $("supportBack").addEventListener("click", closeGlobalTool);
       // Device Tools global tool (#54): open the surface and check for a device — it lists
       // the root if one is connected, else shows the "plug in a device" state.
-      $("deviceToolsOpen").addEventListener("click", () => { openGlobalTool("toolDeviceTools"); dtCheckDevice(); });
+      $("deviceToolsOpen").addEventListener("click", () => { openGlobalTool("toolDeviceTools"); dtOnOpen(); });
       $("deviceToolsBack").addEventListener("click", closeGlobalTool);
       // Global-tools overflow: any number of circle tools fit — the row scrolls and the
       // chevrons show only when it clips (recomputed on scroll/resize).

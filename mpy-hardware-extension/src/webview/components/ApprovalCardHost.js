@@ -106,8 +106,10 @@
         clearPending();
         $("activityEmpty").classList.add("hidden");
         setTab("activity");
-        const proceedLabel = op === "delete" ? tr("fileop_delete") : tr("fileop_overwrite");
-        const question = tr(op === "delete" ? "fileop_delete_q" : "fileop_overwrite_q", { p: path });
+        const proceedKey = { overwrite: "fileop_overwrite", delete: "fileop_delete", device_delete: "fileop_device_delete" }[op] || "fileop_overwrite";
+        const questionKey = { overwrite: "fileop_overwrite_q", delete: "fileop_delete_q", device_delete: "fileop_device_delete_q" }[op] || "fileop_overwrite_q";
+        const proceedLabel = tr(proceedKey);
+        const question = tr(questionKey, { p: path });
         const card = document.createElement("div");
         card.className = "ev fade-in";
         card.setAttribute("data-prompt-id", promptId);

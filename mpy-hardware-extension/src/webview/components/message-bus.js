@@ -113,6 +113,13 @@
           document.querySelectorAll("[data-prompt-id] button, [data-prompt-id] input").forEach((b) => { b.disabled = true; });
           $("serialHead").classList.remove("live");
           document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
+          // Re-enable Device Tools + re-list the current path now the run freed the port, so a
+          // model-issued rm/cp/mkdir shows up without an unplug/replug. In the IDEMPOTENT section
+          // (before the terminalShown guard) on purpose: a cancel posts session_done twice, and the
+          // optimistic first post fires while the loop is still unwinding (the port not yet free),
+          // so its re-list can be refused device_busy and re-strand the banner; the later unwind
+          // post then heals it. Runs after setRunning(false) so the presence result is honored.
+          dtRefreshAfterRun();
           const t = String(msg.terminal);
           // "complete" is the protocol's successful terminal (the whole pipeline ran);
           // "awaiting_user" is a clean hand-back, not an error.

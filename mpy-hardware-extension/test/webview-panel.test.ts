@@ -728,6 +728,96 @@ test("device tools are refused with device_busy while a session run owns the por
   }
 });
 
+test("a re-entrant start_session while a run is in-flight is rejected session_busy, not queued as a duplicate — register #1", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {} };
+    let releaseFetch: () => void = () => {};
+    let reachedBlock: () => void = () => {};
+    const fetchGate = new Promise<void>((res) => { releaseFetch = res; });
+    const blocked = new Promise<void>((res) => { reachedBlock = res; });
+    let llmCalls = 0;
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      llmCalls++;
+      reachedBlock();
+      await fetchGate;
+      throw new Error("stop");
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    const running = handler!({ type: "start_session", intent: "x", boardId: "esp32-s3-devkitc-1" });
+    await blocked; // the first run is in-flight, holding the device queue
+
+    posted.length = 0; // isolate the re-entrant response
+    await handler!({ type: "start_session", intent: "y", boardId: "esp32-s3-devkitc-1" });
+    assert.ok(posted.some((m) => m.type === "session_busy"), "a second start while running is rejected session_busy");
+    assert.equal(llmCalls, 1, "the second start does not reach the loop (no duplicate run queued behind the held port)");
+    // Mutation: drop the isRunning() pre-check -> the second start blocks on the held queue, posts no
+    // session_busy here, and runs a duplicate after release (llmCalls would reach 2).
+
+    releaseFetch();
+    await running.catch(() => {});
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("device tools download reports success even when the editor refuses to open a binary — PR #31 finding 4", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const revealed: any[] = [];
+    const vscode = {
+      ViewColumn: { One: 1 },
+      workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showTextDocument: async () => { throw new Error("File seems to be binary and cannot be opened as text"); } },
+      commands: { executeCommand: async (cmd: string, uri: any) => { revealed.push({ cmd, uri }); } },
+      Uri: { file: (p: string) => ({ fsPath: p }) },
+    };
+    const shim = { copyFromDevice: async () => {} };
+    const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "device_tool_download", path: "/blob.mpy" });
+    assert.ok(posted.some((m) => m.type === "device_tool_result" && m.command === "download"), "a good download reports success");
+    assert.ok(!posted.some((m) => m.type === "device_tool_error"), "a binary that won't open in the editor is NOT reported as an error");
+    assert.ok(revealed.some((r) => r.cmd === "revealFileInOS"), "falls back to revealing the saved file in the OS");
+    // Mutation: drop the try/catch around showTextDocument -> the reject surfaces as device_tool_error.
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("device tools run again after a session releases the queue — PR #31 finding 5", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    let listCalled = 0;
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {}, listDir: async () => { listCalled++; return ["boot.py"]; } };
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      throw new Error("stop"); // the run errors out and reaches its terminal, releasing the held queue
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "start_session", intent: "x", boardId: "esp32-s3-devkitc-1" }); // holds the queue, releases at the terminal
+    assert.ok(posted.some((m) => m.type === "session_done"), "the run reached its terminal");
+
+    await handler!({ type: "device_tool_list", path: "/" }); // would wedge forever if the run still held the queue
+    assert.ok(posted.some((m) => m.type === "device_tool_result" && m.command === "list"), "device tools work again once the run released the queue");
+    assert.equal(listCalled, 1, "the list reached the shim");
+    // Mutation: drop `finally { releaseRun() }` -> the queue stays held and this device_tool_list never resolves.
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 function jsonResponse(body: unknown, status = 200) {
   return {
     ok: status >= 200 && status < 300,
@@ -1156,5 +1246,161 @@ test("export_session_log falls back to globalStorage logs when no workspace is o
     assert.ok(posted.some((m) => m.type === "logs_status" && /exported/i.test(m.text)));
   } finally {
     rmSync(gs, { recursive: true, force: true });
+  }
+});
+
+// SSE tool-call frame (mirrors protocol-build.test.ts sseTool) for driving the agent loop.
+function sseToolCall(id: string, name: string, input: any): string {
+  return [
+    JSON.stringify({ type: "content_block_start", content_block: { type: "tool_use", id, name } }),
+    JSON.stringify({ type: "content_block_delta", delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } }),
+    JSON.stringify({ type: "content_block_stop" }),
+    JSON.stringify({ type: "message_stop" }),
+  ].map((d) => `data: ${d}`).join("\n\n");
+}
+
+test("a model-issued device rm is routed through the host confirm gate (wired into the loop)", async () => {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  // Auto-decline the confirm the moment the host asks — proves the gate is armed, and a
+  // decline means the destructive call must not run. If the panel wiring is removed the gate
+  // is skipped, no confirm is posted, and removePath fires: both assertions then fail.
+  const panel = {
+    webview: {
+      cspSource: "", html: "",
+      postMessage: (m: any) => { posted.push(m); if (m.type === "file_op_confirm_needed") void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer: "ignore" }); },
+      onDidReceiveMessage: (n: any) => { handler = n; },
+    },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  const removed: string[] = [];
+  const shim = { removePath: async (p: string) => { removed.push(p); } };
+  let calls = 0;
+  const fetchImpl = (async (url: string) => {
+    assert.match(url, /\/v1\/llm\/messages$/);
+    calls++;
+    const sse = calls === 1
+      ? sseToolCall("rm1", "device_command", { action: "rm", dst: "main.py" })
+      : sseToolCall("done", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} });
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await handler?.({ type: "start_session", intent: "delete a device file", boardId: "esp32-s3-devkitc-1" });
+
+  const confirms = posted.filter((m) => m.type === "file_op_confirm_needed" && /device:main\.py/.test(String(m.path)));
+  assert.equal(confirms[0]?.op, "delete", "the panel wires the first (plain delete) confirm into the loop");
+  assert.ok(!confirms.some((m) => m.op === "device_delete"), "declining the first card short-circuits before the second confirmation");
+  assert.equal(removed.length, 0, "a declined confirm means removePath never runs");
+});
+
+// deliverables 07 §4 row 60: a device delete is irreversible, so it needs a SECOND confirmation
+// beyond the host-file single card. Proceeding on the first card must still ask the stronger
+// "device_delete" card, and the rm runs only if that second card is also proceeded.
+test("a model-issued device rm asks a second confirmation; declining it leaves the file", async () => {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  // Proceed on the plain-delete card, decline the stronger erase card. If the second gate is
+  // dropped, removePath fires on the first proceed and this fails.
+  const panel = {
+    webview: {
+      cspSource: "", html: "",
+      postMessage: (m: any) => { posted.push(m); if (m.type === "file_op_confirm_needed") void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer: m.op === "device_delete" ? "ignore" : "proceed" }); },
+      onDidReceiveMessage: (n: any) => { handler = n; },
+    },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  const removed: string[] = [];
+  const shim = { removePath: async (p: string) => { removed.push(p); } };
+  let calls = 0;
+  const fetchImpl = (async (url: string) => {
+    assert.match(url, /\/v1\/llm\/messages$/);
+    calls++;
+    const sse = calls === 1
+      ? sseToolCall("rm1", "device_command", { action: "rm", dst: "main.py" })
+      : sseToolCall("done", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} });
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await handler?.({ type: "start_session", intent: "delete a device file", boardId: "esp32-s3-devkitc-1" });
+
+  const ops = posted.filter((m) => m.type === "file_op_confirm_needed" && /device:main\.py/.test(String(m.path))).map((m) => m.op);
+  assert.deepEqual(ops, ["delete", "device_delete"], "both the plain and the stronger confirmation are asked, in order");
+  assert.equal(removed.length, 0, "declining the second confirmation leaves the device file intact");
+});
+
+test("a model-issued device rm deletes only after both confirmations proceed", async () => {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "", html: "",
+      postMessage: (m: any) => { posted.push(m); if (m.type === "file_op_confirm_needed") void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer: "proceed" }); },
+      onDidReceiveMessage: (n: any) => { handler = n; },
+    },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  const removed: string[] = [];
+  const shim = { removePath: async (p: string) => { removed.push(p); } };
+  let calls = 0;
+  const fetchImpl = (async (url: string) => {
+    assert.match(url, /\/v1\/llm\/messages$/);
+    calls++;
+    const sse = calls === 1
+      ? sseToolCall("rm1", "device_command", { action: "rm", dst: "main.py" })
+      : sseToolCall("done", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} });
+    return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
+  await handler?.({ type: "start_session", intent: "delete a device file", boardId: "esp32-s3-devkitc-1" });
+
+  const ops = posted.filter((m) => m.type === "file_op_confirm_needed" && /device:main\.py/.test(String(m.path))).map((m) => m.op);
+  assert.deepEqual(ops, ["delete", "device_delete"], "both confirmations are asked before the delete");
+  assert.deepEqual(removed, ["main.py"], "removePath runs once after both confirmations proceed");
+});
+
+test("a model-issued cp_from confirms on a pre-existing dest, skips the copy on decline, and does not prompt for a new dest (wired into the loop)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    // Generation is contained under <workspace>/blockless-project, which is the loop's
+    // projectRoot and what the pre-build snapshot walks — the pre-existing file must live there.
+    const proj = join(ws, "blockless-project");
+    mkdirSync(proj, { recursive: true });
+    writeFileSync(join(proj, "boot.py"), "user file"); // pre-existing host file -> snapshot records it at start
+    const posted: any[] = [];
+    let handler: ((m: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "", html: "",
+        postMessage: (m: any) => { posted.push(m); if (m.type === "file_op_confirm_needed") void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer: "ignore" }); },
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+    const copied: Array<[string, string]> = [];
+    const shim = { copyFromDevice: async (src: string, dst: string) => { copied.push([src, dst]); } };
+    let turn = 0;
+    const fetchImpl = (async (url: string) => {
+      // toolchain handshake (a workspace-backed session does this before the first turn)
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      assert.match(url, /\/v1\/llm\/messages$/);
+      turn++;
+      const sse = turn === 1 ? sseToolCall("cp1", "device_command", { action: "cp_from", src: "/boot.py", dst: "boot.py" })
+        : turn === 2 ? sseToolCall("cp2", "device_command", { action: "cp_from", src: "/new.py", dst: "new.py" })
+          : sseToolCall("done", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} });
+      return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
+    await handler?.({ type: "start_session", intent: "pull device files", boardId: "esp32-s3-devkitc-1" });
+
+    assert.ok(posted.some((m) => m.type === "file_op_confirm_needed" && m.op === "overwrite" && /boot\.py/.test(String(m.path))), "the panel wires the cp_from overwrite confirm into the loop");
+    // the pre-existing dest was declined (not copied); the new dest copied with no prompt
+    assert.deepEqual(copied, [["/new.py", join(proj, "new.py")]]);
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
   }
 });

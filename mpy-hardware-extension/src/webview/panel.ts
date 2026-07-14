@@ -236,9 +236,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // 07 §4). Late-bound: the writer/deleter capture these stable closures now, but the real
   // controller.confirmFileOp is wired in after the controller exists (below). Until then (and
   // in any host with no controller) they resolve false — keep the file — the safe default.
-  let confirmFileOp: (op: "overwrite" | "delete", target: string) => Promise<boolean> = async () => false;
+  let confirmFileOp: (op: "overwrite" | "delete" | "device_delete", target: string) => Promise<boolean> = async () => false;
   const confirmOverwrite = (target: string) => confirmFileOp("overwrite", target);
   const confirmDelete = (target: string) => confirmFileOp("delete", target);
+  // A device file delete is irreversible (no git, no trash), so deliverables 07 §4 row 60 asks
+  // for a *second* confirmation beyond the host-file single card. Ask the plain delete card first,
+  // then this stronger "permanently erases" card; the device rm runs only if BOTH proceed.
+  const confirmDeviceErase = (target: string) => confirmFileOp("device_delete", target);
   // Let the webview load artifact images (svg/png) it references via asWebviewUri (task-03).
   // Roots cover the workspace (project + .mpyhw logs), the globalStorage fallback, and the
   // extension assets. Guarded: a headless/test host may not have vscode.Uri or settable options.
@@ -274,7 +278,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       webview.postMessage(message);
     },
-    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete), projectRoot: projectFolder }),
+    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete), confirmDeviceDelete: async (p: string) => (await confirmDelete("device:" + p)) && (await confirmDeviceErase("device:" + p)), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, projectRoot: projectFolder }),
     // Stop must hard-interrupt an in-flight device op, not just abort the loop signal
     // (deliverables 07 §4). shim.kill() dies the blocked mpremote/script now and frees
     // the serial lock; idempotent, so a Stop with nothing in flight is a no-op.
@@ -430,12 +434,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
   }
 
-  // Acquire run ownership of the serial port before a session run takes it: drain any
-  // in-flight device-tool command on deviceQueue (spec §41, run<-device-tool direction).
+  // Acquire run ownership of the serial port before a session run takes it: wait for any
+  // in-flight device-tool command on deviceQueue (spec §41, run<-device-tool direction), then
+  // HOLD the queue for the run's whole duration and return a release() the caller invokes in a
+  // finally. Holding (not just draining) makes the "no tool interleaves onto the port mid-run"
+  // guarantee structural, not dependent on the isRunning() check winning a microtask race.
   // BOTH run entry points — start_session AND retry_session — must go through this; a lock
   // enforced only in start() lets a retry flash over a tool (e.g. a slow mip install) that
-  // still holds the port. Idempotent when the queue is idle.
-  const acquireRunOwnership = () => deviceQueue.runExclusive(async () => {});
+  // still holds the port.
+  const acquireRunOwnership = () => deviceQueue.acquire();
 
   // Upload: pick a local file, write it to the current device dir under its basename.
   // The read + write run INSIDE runDeviceTool so a read failure surfaces as device_tool_error
@@ -483,7 +490,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     await runDeviceTool("download", { remotePath }, async () => {
       const localPath = uniqueLocalPath(base);
       await shim.copyFromDevice(remotePath, localPath);
-      await vscode.window.showTextDocument?.(vscode.Uri.file(localPath));
+      // The copy IS the success signal. Opening the saved file is a best-effort nicety, and VS Code
+      // rejects showTextDocument on binary content — that must NOT turn a good download into a
+      // device_tool_error. Fall back to revealing it in the OS file manager (PR #31 review,
+      // finding 4). This swallow is a post-save UI open, not an fs read, so register #8 (swallow
+      // only ENOENT) does not apply.
+      try { await vscode.window.showTextDocument?.(vscode.Uri.file(localPath)); }
+      catch { try { await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(localPath)); } catch { /* open is optional */ } }
       return { path: remotePath, localPath };
     });
   }
@@ -646,6 +659,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
     }
     if (message.type === "start_session") {
+      // Reject a re-entrant run at the entry point (register #1: the webview is not the trust
+      // boundary). acquireRunOwnership() now HOLDS the queue for the whole run, so without this a
+      // second start_session would block on the queue and then run a duplicate once the first run's
+      // finally clears controller.abort — the reject-while-busy guard in controller.start() would be
+      // dead by then. The queue lock only orders legitimate owners.
+      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
@@ -680,21 +699,26 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Serial-port lock (spec §41), other direction: wait for any in-flight device-tool
       // command (e.g. a slow mip install) to finish before the run takes the port, so a
       // flash/deploy never competes with a user device command.
-      await acquireRunOwnership();
-      // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
-      // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
-      // build's own codegen output or scratch created during this run.
-      snapshotExistingPaths(projectFolder, preExistingPaths);
-      await controller.start({
-        intent: message.intent,
-        boardId: message.boardId,
-        availableBoards,
-        preSelectedBoard: message.pre_selected_board ?? undefined,
-        preferences: { ...(message.preferences ?? {}), locale: vscode.env?.language },
-        boardSelectionMode: message.board_selection_mode,
-      });
+      const releaseRun = await acquireRunOwnership();
+      try {
+        // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
+        // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
+        // build's own codegen output or scratch created during this run.
+        snapshotExistingPaths(projectFolder, preExistingPaths);
+        await controller.start({
+          intent: message.intent,
+          boardId: message.boardId,
+          availableBoards,
+          preSelectedBoard: message.pre_selected_board ?? undefined,
+          preferences: { ...(message.preferences ?? {}), locale: vscode.env?.language },
+          boardSelectionMode: message.board_selection_mode,
+        });
+      } finally { releaseRun(); } // free the port for device tools once the run reaches its terminal
     }
     if (message.type === "retry_session") {
+      // Same re-entrancy guard as start_session: a stale retry must not queue behind the held run
+      // and then re-issue the last turn after it finishes (register #1). retry() re-enters run().
+      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
       // Manual retry after a transport failure (the webview's Retry button).
       // Re-run the auth gate with a forced refresh first: an expired token is
       // itself one of the failure modes a long session can die on.
@@ -708,8 +732,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Same acquire step as start_session: retry() re-enters run() which takes the port,
       // so it must also drain the device queue first (otherwise the lock is one-directional).
-      await acquireRunOwnership();
-      await controller.retry();
+      const releaseRun = await acquireRunOwnership();
+      try { await controller.retry(); }
+      finally { releaseRun(); } // hold the port for the retried run, release at its terminal
     }
     if (message.type === "select_device") {
       try {
@@ -926,7 +951,7 @@ async function fetchToolchainVersion(apiBaseUrl: string, fetchImpl: typeof fetch
 
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; projectRoot?: string }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; confirmDeviceDelete?: (devicePath: string) => Promise<boolean>; confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>; projectRoot?: string }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);

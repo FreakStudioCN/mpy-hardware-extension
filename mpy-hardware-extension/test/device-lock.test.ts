@@ -30,3 +30,17 @@ test("each caller sees its own result/rejection", async () => {
   q.runExclusive(() => Promise.reject(new Error("first"))).catch(() => {});
   assert.equal(await q.runExclusive(() => Promise.resolve("second")), "second");
 });
+
+test("acquire holds the queue until release, then queued commands run", async () => {
+  const q = new DeviceCommandQueue();
+  let ran = false;
+  const release = await q.acquire();               // a run takes the port for its whole duration
+  const p = q.runExclusive(async () => { ran = true; }); // a tool command lands on the queue mid-run
+  await Promise.resolve(); await Promise.resolve(); // flush microtasks
+  assert.equal(ran, false, "the queued command must NOT run while the run holds the queue");
+  release();                                        // run reaches its terminal
+  await p;
+  assert.equal(ran, true, "it runs once the run releases the queue");
+  // Mutation: make acquire() drain-and-return (like the old runExclusive noop) -> ran is true
+  // before release() and this fails.
+});

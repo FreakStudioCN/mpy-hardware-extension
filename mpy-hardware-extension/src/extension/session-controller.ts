@@ -369,7 +369,7 @@ export class SessionController {
   // (ui_prompt_answer) are both recorded in the session log — durable proof without catching
   // a toast. Resolves false (keep the file) on cancel/finish via cancelPrompts — the safe
   // default for a destructive action. Answer "proceed" = do it; anything else = keep the file.
-  confirmFileOp(op: "overwrite" | "delete", path: string): Promise<boolean> {
+  confirmFileOp(op: "overwrite" | "delete" | "device_delete", path: string): Promise<boolean> {
     const promptId = `file-${op}-${++this.promptSeq}`;
     return new Promise<boolean>((resolve) => {
       this.pendingPrompts.set(promptId, (answer) => resolve(answer === "proceed"));

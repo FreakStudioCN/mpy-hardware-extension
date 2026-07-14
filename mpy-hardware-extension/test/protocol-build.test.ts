@@ -261,3 +261,56 @@ test("createProtocolLoop forwards onSafePoint so supplements are consumed at pha
   await loop({ intent: "x", traceId: "t", onSafePoint: (phase: string) => { safePointPhases.push(phase); return null; } });
   assert.deepEqual(safePointPhases, ["analyze", "select-hw"], "onSafePoint must fire after each phase_complete via the production glue");
 });
+
+// Run a single model-issued device_command through the loop and return the tool_result the
+// model receives (turn 1 = the device op, turn 2 = phase_complete -> terminal).
+async function runDeviceCommand(input: any, extraDeps: any): Promise<any> {
+  const bodies: any[] = [];
+  let calls = 0;
+  const fetchImpl = async (_url: any, init: any) => {
+    bodies.push(JSON.parse(String(init.body)));
+    calls++;
+    if (calls === 1) return new Response(sseTool("dc", "device_command", input), { status: 200, headers: { "content-type": "text/event-stream" } }) as any;
+    return new Response(sseTool("done", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} }), { status: 200, headers: { "content-type": "text/event-stream" } }) as any;
+  };
+  const loop = createProtocolLoop({ apiBaseUrl: "http://api.test", fetchImpl: fetchImpl as any, getAuthToken: async () => "token", ...extraDeps } as any);
+  await loop({ intent: "do a device op", maxTurnsPerPhase: 2 });
+  return JSON.parse(bodies[1].messages.at(-1).content[0].content);
+}
+
+test("device rm is declined at the host: removePath never runs, model gets delete_declined", async () => {
+  const removed: string[] = [];
+  const shim = { removePath: async (p: string) => { removed.push(p); } };
+  const payload = await runDeviceCommand({ action: "rm", dst: "main.py" }, { shim, confirmDeviceDelete: async () => false });
+  assert.equal(removed.length, 0, "the destructive shim call never runs on decline");
+  assert.equal(payload.ok, false);
+  assert.equal(payload.error_kind, "delete_declined");
+});
+
+test("device rm proceeds after confirm, and the gate runs strictly before removePath", async () => {
+  const removed: string[] = [];
+  const shim = { removePath: async (p: string) => { removed.push(p); } };
+  // asserting count 0 inside the confirm proves the gate is before the destructive call
+  // (the Stop guarantee: a Stop during the confirm can still prevent the delete).
+  const confirmDeviceDelete = async () => { assert.equal(removed.length, 0, "confirm asked before the delete"); return true; };
+  const payload = await runDeviceCommand({ action: "rm", dst: "main.py" }, { shim, confirmDeviceDelete });
+  assert.deepEqual(removed, ["main.py"], "removePath runs once with the target after confirm");
+  assert.equal(payload.ok, true);
+});
+
+test("device cp_from confirms an overwrite; a decline skips copyFromDevice", async () => {
+  const copied: any[] = [];
+  const shim = { copyFromDevice: async (src: string, dst: string) => { copied.push([src, dst]); } };
+  const payload = await runDeviceCommand({ action: "cp_from", src: "/main.py", dst: "main.py" }, { shim, projectRoot: ROOT, confirmDeviceCopyOverwrite: async () => false });
+  assert.equal(copied.length, 0, "no host write on a declined overwrite");
+  assert.equal(payload.ok, false);
+  assert.equal(payload.error_kind, "overwrite_declined");
+});
+
+test("device cp_from proceeds after an overwrite confirm and writes to the contained host path", async () => {
+  const copied: any[] = [];
+  const shim = { copyFromDevice: async (src: string, dst: string) => { copied.push([src, dst]); } };
+  const payload = await runDeviceCommand({ action: "cp_from", src: "/main.py", dst: "main.py" }, { shim, projectRoot: ROOT, confirmDeviceCopyOverwrite: async () => true });
+  assert.deepEqual(copied, [["/main.py", resolve(ROOT, "main.py")]]);
+  assert.equal(payload.ok, true);
+});
