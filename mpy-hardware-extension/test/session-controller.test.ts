@@ -1311,14 +1311,22 @@ test("stdout_stderr_summary tails serial output, stays bounded, and clears on re
   assert.equal(controller.getDiagnostics().stdout_stderr_summary, "", "reset clears the tail");
 });
 
-test("stdout_stderr_summary is truncated to the char cap", async () => {
+test("stdout_stderr_summary keeps the NEWEST lines under the cap, dropping the oldest (#35 review)", async () => {
+  // 20 lines of ~207 chars -> joined tail well over the 2000-char cap. For a crash diagnostic the
+  // traceback is the newest line, so the cap must keep the END, not the start.
+  const lines = Array.from({ length: 20 }, (_, i) => `L${i}_${"z".repeat(200)}`);
+  lines[0] = "OLDEST_" + "z".repeat(200);
+  lines[19] = "NEWEST_TRACEBACK_" + "z".repeat(200);
   const controller = new SessionController({
     postMessage: () => {},
-    loop: async ({ onEvent }: any) => { onEvent({ type: "serial_output", lines: ["y".repeat(5000)] }); return { terminal: "complete" }; },
+    loop: async ({ onEvent }: any) => { onEvent({ type: "serial_output", lines }); return { terminal: "complete" }; },
   });
   await controller.start({ intent: "x", boardId: "auto" });
-  // Reverting the `.slice(0, STDOUT_SUMMARY_MAX)` in getDiagnostics fails this.
-  assert.ok(controller.getDiagnostics().stdout_stderr_summary.length <= 2000, "summary truncated to the 2000-char cap");
+  const summary = controller.getDiagnostics().stdout_stderr_summary;
+  assert.ok(summary.length <= 2000, `summary truncated to the 2000-char cap (${summary.length})`);
+  assert.match(summary, /NEWEST_TRACEBACK/, "the newest line (the traceback) is kept");
+  assert.doesNotMatch(summary, /OLDEST/, "the oldest line is dropped");
+  // Mutation: revert getDiagnostics to `.slice(0, N)` -> keeps OLDEST, drops NEWEST_TRACEBACK.
 });
 
 test("the stdout tail clears on a board switch, not only on reset", async () => {

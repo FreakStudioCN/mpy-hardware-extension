@@ -712,7 +712,9 @@ export class SessionController {
       selected_board: selectedBoard,
       last_command: this.recentActivity.at(-1) ?? "",
       // serial_port is filled by the panel's host bag (shim.getPort) — see collectDiagnostics.
-      stdout_stderr_summary: this.stdoutTail.join(" | ").slice(0, SessionController.STDOUT_SUMMARY_MAX),
+      // Keep the NEWEST STDOUT_SUMMARY_MAX chars (slice(-n)), not the oldest: for a crash
+      // diagnostic the traceback/error is at the end, and slice(0, n) would drop exactly that.
+      stdout_stderr_summary: this.stdoutTail.join(" | ").slice(-SessionController.STDOUT_SUMMARY_MAX),
     };
   }
 

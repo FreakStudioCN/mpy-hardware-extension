@@ -63,9 +63,23 @@ test("buildIssueReportUrl truncates attached diagnostics under the url cap", () 
   assert.match(body, /Diagnostics:/, "diagnostics block present");
 });
 
-test("buildIssueReportUrl bounds the total body under the url limit", () => {
+test("buildIssueReportUrl bounds the total ENCODED url under GitHub's limit", () => {
+  // url is already percent-encoded, so url.length IS the encoded length GitHub sees for the 414.
   const url = buildIssueReportUrl({ issueType: "bug", description: "d".repeat(9000), diagnosticsText: "x".repeat(9000) });
-  const body = decodeURIComponent(url.slice(url.indexOf("body=") + "body=".length));
-  // Reverting the `.slice(0, ISSUE_BODY_MAX)` in buildIssueReportUrl fails this.
-  assert.ok(body.length <= 6000, `body bounded to the cap (${body.length})`);
+  assert.ok(url.length <= 8192, `encoded url under GitHub's ~8k limit (${url.length})`);
+});
+
+test("buildIssueReportUrl keeps a CJK report under the url limit and never splits a surrogate (#35 review)", () => {
+  // A CJK char is 3 UTF-8 bytes = 9 encoded chars, so bounding the RAW length let the encoded URL
+  // overrun ~8k and 414 — the common CN-first path. Bounding the ENCODED length fixes it.
+  const cjk = buildIssueReportUrl({ issueType: "bug", description: "中".repeat(5000), diagnosticsText: "错误".repeat(3000) });
+  assert.ok(cjk.length <= 8192, `encoded CJK url under the limit (${cjk.length})`);
+  assert.match(decodeURIComponent(cjk), /\[bug\] 中+/, "still a valid prefilled issue, not truncated to nothing");
+  // Mutation: revert to a raw `.slice(0, N)` bound -> the encoded CJK url blows past 8192 here.
+
+  // An emoji straddling the title/body truncation boundary must not throw a lone-surrogate URIError.
+  const emoji = { issueType: "bug", description: "X".repeat(73) + "😀 crashy", diagnosticsText: "e".repeat(9000) };
+  assert.doesNotThrow(() => buildIssueReportUrl(emoji), "code-point slicing avoids the encodeURIComponent throw");
+  assert.match(decodeURIComponent(buildIssueReportUrl(emoji)), /\[bug\]/, "still a decodable url");
+  // Mutation: revert title/body to plain `.slice()` -> the emoji at the boundary throws URIError.
 });
