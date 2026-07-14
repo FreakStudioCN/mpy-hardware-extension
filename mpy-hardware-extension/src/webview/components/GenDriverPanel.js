@@ -211,7 +211,13 @@
             const row = document.createElement("div"); row.className = "gd-source-row";
             const label = document.createElement("span"); label.className = "gd-source-label"; label.textContent = gdSourceLabel(src);
             const rm = document.createElement("button"); rm.className = "gd-source-rm"; rm.type = "button"; rm.textContent = "✕"; rm.title = "Remove source";
-            rm.addEventListener("click", () => { gdSources.splice(i, 1); renderGenDriver(tabs); });
+            rm.addEventListener("click", () => {
+              gdSources.splice(i, 1);
+              // Removing the primary must promote the new first source; otherwise the list is left
+              // with every source primary:false and the launched payload has no primary at all.
+              gdSources.forEach((s, idx) => { s.primary = idx === 0; });
+              renderGenDriver(tabs);
+            });
             row.appendChild(label); row.appendChild(rm); list.appendChild(row);
           });
         }
