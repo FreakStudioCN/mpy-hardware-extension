@@ -15,8 +15,12 @@ CONTRACT = json.loads(
 )
 
 
-def test_phase_by_skill_values_are_exactly_the_canonical_phases():
-    assert sorted(skill_catalog.PHASE_BY_SKILL.values()) == sorted(CONTRACT["canonical_phases"])
+def test_phase_by_skill_values_are_exactly_the_served_phases():
+    # The 6 sequential canonical phases plus the on-demand optional flows (gen-driver/wiring/
+    # diagram). Optional phases stay OUT of canonical_phases (not in the next_phase chain) but ARE
+    # served, so PHASE_BY_SKILL's values must be canonical + optional.
+    expected = CONTRACT["canonical_phases"] + CONTRACT["optional_phases"]
+    assert sorted(skill_catalog.PHASE_BY_SKILL.values()) == sorted(expected)
 
 
 def test_every_served_skill_dir_is_a_known_alias_of_its_phase():
