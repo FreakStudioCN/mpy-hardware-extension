@@ -9,6 +9,7 @@ import {
   GEN_DRIVER_PROTOCOL_VERSION,
   GEN_DRIVER_MODES,
   GEN_DRIVER_SOURCE_TYPES,
+  GEN_DRIVER_ERROR_CODES,
   GEN_DRIVER_TABS,
   buildStartPhase,
   deriveDriverStatus,
@@ -148,6 +149,13 @@ test("ready phase_complete samples carry a real SELF_TEST_PASS marker", () => {
     assert.match(payload.hardware_marker ?? "", /^SELF_TEST_PASS:/, `${name} hardware_marker`);
     assert.equal(payload.verification.observed_marker, payload.verification.marker, `${name} observed == required marker`);
   }
+});
+
+test("the standardized protocol error codes are recognized (PROTOCOL_VERSION_UNSUPPORTED, IDEMPOTENCY_CONFLICT)", () => {
+  // Agreed with the skill side: a plugin emitting these must surface as a first-class code,
+  // not a generic failure. If either is missing from the set, the extension drops it.
+  assert.ok(GEN_DRIVER_ERROR_CODES.includes("PROTOCOL_VERSION_UNSUPPORTED"), "protocol-version negotiation error is standardized");
+  assert.ok(GEN_DRIVER_ERROR_CODES.includes("IDEMPOTENCY_CONFLICT"), "idempotency-key conflict error is standardized");
 });
 
 test("inferMode picks pipeline only for a cold-driver manifest", () => {

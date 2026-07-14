@@ -184,6 +184,7 @@ export const GEN_DRIVER_ERROR_CODES = [
   "I2C_ADDRESS_AMBIGUOUS",
   "I2C_ADDRESS_NORMALIZATION_REQUIRED",
   "HOST_CAPABILITY_MISSING",
+  "PROTOCOL_VERSION_UNSUPPORTED",
   "PERMISSION_DENIED",
   "APPROVAL_TIMEOUT",
   "DEVICE_NOT_FOUND",
@@ -193,12 +194,13 @@ export const GEN_DRIVER_ERROR_CODES = [
   "STANDALONE_TEST_FAILED",
   "MANIFEST_UPDATE_CONFLICT",
   "ARTIFACT_STALE",
+  "IDEMPOTENCY_CONFLICT",
   "CANCELLED_BY_USER",
   "PHASE_COMPLETE_INVALID",
 ] as const;
 export type GenDriverErrorCode = (typeof GEN_DRIVER_ERROR_CODES)[number];
 
-// UI-level driver status. The updated plugin (MicroPython_Skills 42e9314) emits an
+// UI-level driver status. The updated plugin (MicroPython_Skills cf749f9) emits an
 // authoritative `driver_status` in phase_complete, so we trust it when present. The
 // legacy heuristic over `result` + `hardware_verified` + `verification_mode` stays as a
 // fallback for payloads that omit it — necessary because no_device / cancelled / timeout
