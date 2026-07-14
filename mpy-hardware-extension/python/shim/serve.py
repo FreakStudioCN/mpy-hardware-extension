@@ -176,12 +176,14 @@ def _v0_script_candidates(name: str, phase: str | None = None) -> list:
         narrowed = [p for p in candidates if qualifier in p.replace("\\", "/")]
         if narrowed:
             return narrowed
-    # Otherwise the ACTIVE PHASE disambiguates a duplicate basename: e.g. update_session_state.py
-    # ships in both upy-generate-plugin and upy-gen-driver-plugin, so the generate phase must get
-    # the generate copy (and gen-driver its own) without the model having to qualify. For the
-    # phases that collide, the phase token IS the plugin dir name; short tokens (analyze/select-hw)
-    # never collide, so a non-matching phase safely leaves the candidate list untouched.
-    if phase and len(candidates) > 1:
+    # Otherwise, for a BARE name (no explicit qualifier), the ACTIVE PHASE disambiguates a duplicate
+    # basename: e.g. update_session_state.py ships in both upy-generate-plugin and upy-gen-driver-plugin,
+    # so the generate phase gets the generate copy (and gen-driver its own) without the model having
+    # to qualify. For the phases that collide, the phase token IS the plugin dir name; short tokens
+    # (analyze/select-hw) never collide, so a non-matching phase leaves the list untouched (fail-loud).
+    # An explicit-but-wrong qualifier is NOT overridden by phase — it stays ambiguous so the model sees
+    # the mistake rather than silently getting the running phase's copy.
+    if not qualifier and phase and len(candidates) > 1:
         segment = "/" + str(phase) + "/"
         narrowed = [p for p in candidates if segment in p.replace("\\", "/")]
         if narrowed:

@@ -185,6 +185,10 @@ def test_resolver_disambiguates_shared_basenames_by_active_phase():
             assert len(cands) == 1 and served_dir + "/" in cands[0].replace("\\", "/") + "/", (name, phase, cands)
         # A gen-driver-only script now resolves (single copy, no phase needed).
         assert len(serve._v0_script_candidates("finalize_phase_complete.py")) == 1
+        # An explicit-but-wrong qualifier is NOT silently overridden by the phase: it stays
+        # ambiguous so the model sees its mistake. Mutation: drop the `not qualifier` guard ->
+        # the phase resolves it to 1 and this fails.
+        assert len(serve._v0_script_candidates("upy-nope-plugin/update_session_state.py", "upy-generate-plugin")) == 2
     finally:
         serve.scripts_root, serve._V0_SCRIPT_INDEX = orig_root, orig_index
 

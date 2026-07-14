@@ -1,9 +1,10 @@
 """skill_catalog's phase mapping must agree with contracts/phase_aliases.json.
 
 The contract file is the single source of truth shared with the extension
-(test/phase-aliases-contract.test.ts). The Python side serves each canonical
-phase from exactly one skill; every canonical phase must be an alias key that
-maps to itself, and PHASE_BY_SKILL's values must be exactly the canonical set.
+(test/phase-aliases-contract.test.ts). The Python side serves each phase from
+exactly one skill; every canonical phase must be an alias key that maps to
+itself, and PHASE_BY_SKILL's values must be exactly the canonical phases plus
+the on-demand optional_phases (gen-driver/wiring/diagram).
 """
 import json
 from pathlib import Path

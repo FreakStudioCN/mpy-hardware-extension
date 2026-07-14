@@ -240,6 +240,11 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
     assert.match(await readFile(join(projectDir, "firmware", "main.py"), "utf-8"), /MPYHW_READY/);
     assert.equal(scriptCalls.length, 1);
     assert.equal(scriptCalls[0].script, "init_scaffold.py");
+    // The active phase must ride on script_run so the host resolver picks the running phase's
+    // own copy of a basename shared by >1 served plugin. Mutation: drop `phase: extra?.phase` in
+    // protocol-build.ts (or `phase: phaseCtx.phase` in protocol-loop.ts) and this fails — otherwise
+    // the generate flow silently regresses to ambiguous_script_name with no failing test.
+    assert.equal(scriptCalls[0].phase, "upy-scaffold-plugin");
     assert.ok(events.some((event) => event.type === "serial_output" && event.lines.includes("MPYHW_READY")));
   } finally {
     await rm(projectDir, { recursive: true, force: true });
