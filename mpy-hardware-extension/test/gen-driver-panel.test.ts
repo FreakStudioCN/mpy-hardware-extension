@@ -104,6 +104,38 @@ test("adding sources builds the list, then Generate + Confirm posts sources[]", 
   assert.equal(start.verification.policy, "hardware_required");
 });
 
+test("removing the primary source promotes the new first to primary (no orphaned payload)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "gen_driver_config", tabs: GEN_DRIVER_TABS });
+  // Source A (added first -> primary), then source B (auxiliary).
+  const addChip = (chip: string) => {
+    (document.querySelector('.gd-tab[data-gdtab="chip"]') as HTMLButtonElement).click();
+    (document.querySelector("#gendriver [data-gdkey='chip_model']") as HTMLInputElement).value = chip;
+    (document.querySelector("#gendriver .gd-add") as HTMLButtonElement).click();
+  };
+  addChip("AAA");
+  addChip("BBB");
+  assert.equal(document.querySelectorAll("#gendriver .gd-source-row").length, 2, "both sources added");
+
+  // Remove the FIRST row — the one that was primary. Without renormalizing on removal the
+  // list is left with every source primary:false, so the launched payload has NO primary.
+  (document.querySelectorAll("#gendriver .gd-source-row .gd-source-rm")[0] as HTMLButtonElement).click();
+  assert.equal(document.querySelectorAll("#gendriver .gd-source-row").length, 1, "one source remains");
+
+  posted.length = 0;
+  (document.querySelector("#gendriver .gd-gen") as HTMLButtonElement).click();
+  (document.querySelector("#gendriver .gd-confirm .gd-gen") as HTMLButtonElement).click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.ok(start, "Confirm posts start_gen_driver");
+  assert.equal(start.sources.length, 1);
+  assert.equal(start.sources.filter((s: any) => s.primary).length, 1, "exactly one primary source survives the removal");
+  assert.equal(start.sources[0].primary, true, "the surviving source is promoted to primary");
+  assert.equal(start.sources[0].metadata.chip_model, "BBB", "the survivor is source B");
+});
+
 test("Add source blocks on a missing required field and does not add to the list", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
