@@ -1429,3 +1429,22 @@ test("a gen-driver phase_complete surfaces gen_driver_status; other phases do no
   assert.equal(statuses[0].status, "ready");
   assert.equal(statuses[0].detail, "SHT30 driver ready");
 });
+
+test("a generate driver-ready block posts gen_driver_required; a clean generate does not (#53)", async () => {
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      // generate blocks pre-application-generation on a cold driver (partial + structured_errors)
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "partial", structured_errors: [{ code: "COLD_DRIVER_REQUIRED", device: "SHT30", next_action: "run_upy_gen_driver_plugin_or_simulate_only" }] } });
+      // a clean generate must NOT offer
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const offers = posted.filter((m) => m.type === "gen_driver_required");
+  // Mutation: drop the detect+post -> 0; broaden to non-partial -> the clean generate also offers (2).
+  assert.equal(offers.length, 1, "only the blocked generate offers the gen-driver run");
+  assert.equal(offers[0].blocks[0].device, "SHT30");
+});

@@ -6,7 +6,7 @@ import { classifyArtifactKind } from "./artifact-index.ts";
 import type { ArtifactSource } from "./artifact-index.ts";
 import { deriveWiring } from "../core/wiring-derive.ts";
 import { deriveDiagram } from "../core/diagram-derive.ts";
-import { deriveDriverStatus, GEN_DRIVER_DOMAIN_PHASE } from "../core/gen-driver-schema.ts";
+import { deriveDriverStatus, detectDriverReadyBlock, GEN_DRIVER_DOMAIN_PHASE } from "../core/gen-driver-schema.ts";
 
 export class SessionController {
   deps: {
@@ -591,6 +591,12 @@ export class SessionController {
       // authoritative driver_status when present and falls back to the result/verification heuristic.
       if (event.payload?.phase === GEN_DRIVER_DOMAIN_PHASE) {
         this.deps.postMessage({ type: "gen_driver_status", status: deriveDriverStatus(event.payload ?? {}), detail: event.payload?.summary });
+      }
+      // #53: a generate partial can carry a driver-ready block asking the user to build the driver
+      // first. Surface the affected devices so the panel can OFFER the gen-driver run (never auto-start).
+      const driverBlocks = detectDriverReadyBlock(event.payload);
+      if (driverBlocks.length > 0) {
+        this.deps.postMessage({ type: "gen_driver_required", blocks: driverBlocks });
       }
       return;
     }

@@ -22,6 +22,7 @@ import {
   DEFAULT_GEN_DRIVER_CAPABILITIES,
   genDriverRuntimeContext,
   buildGenDriverDispatch,
+  detectDriverReadyBlock,
 } from "../src/core/gen-driver-schema.ts";
 import type { DriverStatus } from "../src/core/gen-driver-schema.ts";
 
@@ -283,6 +284,21 @@ test("buildStartPhase emits the normalized business payload (sources[]/driver_re
   // envelope + runtime_context + capabilities kept from the sample shape
   assert.equal(built.phase, GEN_DRIVER_ENVELOPE_PHASE);
   assert.ok(payload.runtime_context && payload.capabilities);
+});
+
+test("detectDriverReadyBlock matches both the next_phase and the legacy code/next_action shapes", () => {
+  // (a) the explicit next_phase shape (gate contract)
+  const explicit = { result: "partial", structured_errors: [{ code: "DRIVER_NOT_READY", device: "SHT30", driver_id: "sht30", next_phase: "upy-gen-driver-plugin", output_path: "firmware/drivers/sht30_driver/" }] };
+  assert.equal(detectDriverReadyBlock(explicit).length, 1);
+  assert.equal(detectDriverReadyBlock(explicit)[0].driver_id, "sht30");
+  // (b) the SHIPPED sample shape: a code + next_action prefix, NO entry-level next_phase.
+  // Mutation: match only entry.next_phase -> this legacy sample is missed.
+  const legacy = { result: "partial", structured_errors: [{ code: "COLD_DRIVER_REQUIRED", device: "SHT30", next_action: "run_upy_gen_driver_plugin_or_simulate_only" }] };
+  assert.equal(detectDriverReadyBlock(legacy).length, 1);
+  // negatives: a successful generate, and a partial whose errors are unrelated
+  assert.equal(detectDriverReadyBlock({ result: "success", structured_errors: [{ code: "COLD_DRIVER_REQUIRED" }] }).length, 0, "only a partial carries a real block");
+  assert.equal(detectDriverReadyBlock({ result: "partial", structured_errors: [{ code: "FLAKE8_FAILED" }] }).length, 0, "unrelated errors are not a driver block");
+  assert.equal(detectDriverReadyBlock({ result: "partial" }).length, 0, "no structured_errors -> no block");
 });
 
 test("buildGenDriverDispatch assembles a standalone envelope (body.phase != domain phase)", () => {

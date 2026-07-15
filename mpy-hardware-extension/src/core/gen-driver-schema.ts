@@ -250,6 +250,41 @@ const DRIVER_STATUSES: readonly DriverStatus[] = [
   "ready", "pending_validation", "partial", "unverified", "failed",
 ];
 
+// The #53 pre-generate driver-ready gate codes (driver_ready_gate.py). A generate partial carrying any
+// of these in structured_errors is asking the user to run gen-driver first.
+const GEN_DRIVER_GATE_CODES: ReadonlySet<string> = new Set([
+  "COLD_DRIVER_REQUIRED", "DRIVER_NOT_READY", "DRIVER_STATUS_UNSUPPORTED",
+  "DRIVER_READY_PATH_MISSING", "DRIVER_READY_MARKER_MISSING", "DRIVER_READY_MARKER_INVALID",
+  "DRIVER_READY_MARKER_DRIVER_ID_MISMATCH",
+]);
+
+export type DriverReadyBlockEntry = {
+  code?: string;
+  device?: string;
+  device_index?: number;
+  driver_id?: string | null;
+  driver_status?: string | null;
+  next_phase?: string;
+  next_action?: string;
+  output_path?: string;
+  message?: string;
+};
+
+// Detect the #53 driver-ready block in a generate phase_complete. Match on ANY of three signals, because
+// the model copies the gate entries loosely: the entry's next_phase == the gen-driver envelope token,
+// or a next_action beginning "run_upy_gen_driver_plugin" (the shipped sample uses
+// "run_upy_gen_driver_plugin_or_simulate_only", with NO entry-level next_phase), or a known gate code.
+// Only a `partial` result carries a real block. Returns the blocking entries (empty = no block).
+export function detectDriverReadyBlock(payload: any): DriverReadyBlockEntry[] {
+  if (!payload || payload.result !== "partial") return [];
+  const errors = Array.isArray(payload.structured_errors) ? payload.structured_errors : [];
+  return errors.filter((e: any) => e && typeof e === "object" && (
+    e.next_phase === GEN_DRIVER_ENVELOPE_PHASE
+    || (typeof e.next_action === "string" && e.next_action.startsWith("run_upy_gen_driver_plugin"))
+    || (typeof e.code === "string" && GEN_DRIVER_GATE_CODES.has(e.code))
+  ));
+}
+
 export function deriveDriverStatus(complete: {
   driver_status?: string;
   result?: string;
