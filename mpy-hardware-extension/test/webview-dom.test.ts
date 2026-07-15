@@ -2328,3 +2328,32 @@ test("support actions are recorded host-side, never rendered into the build feed
   assert.doesNotMatch(activity.textContent!, /Diagnostics exported|Support:/, "no support text leaks into the feed");
   assert.ok(document.querySelector(".feed-pending"), "the working spinner is untouched");
 });
+
+test("an approval card whose actions carry only `id` answers with the id, so Cancel cancels (not confirm)", async () => {
+  // The wiring network-render card's actions carry `id`, not `value`. With the old value-only answer,
+  // EVERY button (incl. Cancel) posted "confirm" -> the loop's cancel detection never fired (a Cancel
+  // click silently approved). Mutation: revert ApprovalCardHost to `a.value` only -> answer is "confirm".
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "approval_request",
+    promptId: "p1",
+    card: {
+      question: "SVG/PNG rendering uses mermaid.ink over the network. Render?",
+      summary: "Local-only still produces JSON/Markdown/HTML and the pin table.",
+      actions: [
+        { id: "render_all", label: "Render all", primary: true },
+        { id: "local_only", label: "Local only" },
+        { id: "cancel", label: "Cancel" },
+      ],
+    },
+  });
+  const card = document.querySelector('.ev-card.ask[data-prompt-id="p1"]')!;
+  assert.ok(card, "the approval card rendered");
+  const cancelBtn = [...card.querySelectorAll(".ask-opt")].find((b) => b.textContent === "Cancel") as HTMLButtonElement;
+  cancelBtn.click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response" && m.promptId === "p1");
+  assert.ok(resp, "clicking an action posts ui_prompt_response");
+  assert.equal(resp.answer, "cancel", "Cancel answers its id, not the confirm fallback");
+});

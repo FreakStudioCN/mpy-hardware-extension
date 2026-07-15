@@ -330,6 +330,14 @@ test("approval: headless auto-confirms, but a callback returning null cancels (n
   assert.equal(auto.result.ok, true);
   assert.equal(auto.result.action, "go");
   assert.deepEqual(auto.result.selected_ids, ["d1"]);
+  // Actions carrying only `id` (e.g. the wiring network-render card) must still resolve to a real
+  // action id, not the "confirm" fallback. Mutation: map `a.value` only -> values=[] and the primary's
+  // value is undefined -> action "confirm" -> this fails.
+  const idOnly = await executeProtocolTool(
+    tu("u3", "approval_request", { approval_id: "x", items: [{ id: "d1" }], actions: [{ id: "render_all", primary: true }, { id: "cancel" }] }) as any,
+    { intent: "x" }, { llmClient: scriptedLlm({}) },
+  );
+  assert.equal(idOnly.result.action, "render_all");
   // callback returns null (user dismissed) -> user_cancelled, NOT silent approval
   const cancelled = await executeProtocolTool(
     tu("u", "approval_request", { approval_id: "x", actions: [{ value: "confirm" }] }) as any,

@@ -64,9 +64,14 @@
           setPending(tr("working"));
         };
         actions.forEach((a) => {
+          // Action key is `value`, but some cards (e.g. wiring network-render) carry only `id`.
+          // Falling back id->"confirm" here keeps Cancel answering "cancel" instead of "confirm"
+          // (which would invert the choice — a Cancel click silently approving). See protocol-loop's
+          // headless branch for the matching fallback.
+          const answer = (a && a.value != null) ? String(a.value) : (a && a.id != null) ? String(a.id) : "confirm";
           const b = document.createElement("button"); b.className = "ask-opt" + (a && a.primary ? " primary" : "");
-          b.textContent = (a && a.label != null) ? String(a.label) : String(a && a.value);
-          b.addEventListener("click", () => respond((a && a.value != null) ? String(a.value) : "confirm"));
+          b.textContent = (a && a.label != null) ? String(a.label) : answer;
+          b.addEventListener("click", () => respond(answer));
           btnRow.appendChild(b);
         });
         main.appendChild(btnRow); head.appendChild(main); wrap.appendChild(head); el.appendChild(wrap);
