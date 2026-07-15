@@ -47,9 +47,32 @@ const DIAGRAM_CAPABILITIES = {
 const WIRING_RENDER_POLICY = { formats: ["json", "md", "html", "pins", "svg", "png"], network_rendering: "ask", timeout_ms: WIRING_TIMEOUT_MS };
 const DIAGRAM_RENDER_POLICY = { formats: ["json", "md", "html", "svg", "png"], network_rendering: "ask", timeout_ms: DIAGRAM_TIMEOUT_MS };
 
-// Build the start_phase envelope for a wiring/diagram run. source_phase_complete_path is effectively
-// required for a success run (a missing upstream is UPSTREAM_PHASE_MISSING -> partial); the extension
-// persists no per-phase phase_complete yet, so it defaults to null (omit-and-degrade until ruili Q3).
+// Wrap the captured generate phase_complete PAYLOAD back into the full message envelope the wiring/diagram
+// plugins require at source_phase_complete_path. Their validate_upstream hard-checks data.type ==
+// "phase_complete", the message-level phase == "upy-generate-plugin", and payload.result/manifest_content —
+// the bare payload (which the controller stores) fails all of those. optional_next_phases is normalized to
+// the object shape (validate_upstream counts only dict items). session_id/msg_id/timestamp are cosmetic
+// (not validated) but match the sample shape.
+export function wrapGeneratePhaseComplete(
+  payload: unknown,
+  optionalNextPhases: Array<{ phase?: string; reason?: string }>,
+  ids: { sessionId: string; msgId: string; timestamp: string },
+): Record<string, unknown> {
+  const base = (payload && typeof payload === "object") ? (payload as Record<string, unknown>) : {};
+  return {
+    protocol_version: OPTIONAL_FLOW_PROTOCOL_VERSION,
+    type: "phase_complete",
+    phase: "upy-generate-plugin",
+    session_id: ids.sessionId,
+    msg_id: ids.msgId,
+    timestamp: ids.timestamp,
+    payload: { ...base, optional_next_phases: optionalNextPhases },
+  };
+}
+
+// Build the start_phase envelope for a wiring/diagram run. source_phase_complete_path points at the
+// persisted upstream generate phase_complete (see wrapGeneratePhaseComplete); a missing/invalid upstream
+// is UPSTREAM_PHASE_MISSING/INVALID -> partial.
 export function buildOptionalFlowDispatch(flow: OptionalFlow, input: {
   sessionId: string;
   msgId: string;

@@ -13,7 +13,7 @@ import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
-import { buildOptionalFlowDispatch, OPTIONAL_FLOW_PHASE_BY_FLOW } from "../core/optional-flow-schema.ts";
+import { buildOptionalFlowDispatch, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
 import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
@@ -665,8 +665,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
       }
       await ensureProjectGitRepo(projectFolder, deps.log);
-      // Snapshot the manifest BEFORE the run (run() clears latestManifest) so mode inference + the
-      // pipeline envelope see the cold-driver devices even if the run streams a thin manifest_content.
+      // Snapshot the manifest to build the dispatch envelope so mode inference + the pipeline envelope
+      // see the cold-driver devices even if the run streams a thin manifest_content (preserveManifest
+      // keeps latestManifest from being clobbered by that thin manifest during the excursion).
       const manifestSnapshot = controller.getLatestManifest();
       const releaseRun = await acquireRunOwnership();
       try {
@@ -735,14 +736,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         snapshotExistingPaths(projectFolder, preExistingPaths);
         const sessionId = randomUUID();
         // Persist the upstream generate result under projectFolder so the run can read it via
-        // source_phase_complete_path (a formal wiring/diagram success requires the upstream generate
-        // phase_complete). Relative POSIX path (register #10), reachable by the run's cwd containment.
+        // source_phase_complete_path. The plugins' validate_upstream requires the FULL phase_complete
+        // MESSAGE (type + message-level phase + payload), not the bare payload the controller stores, so
+        // wrap it. Relative POSIX path (register #10), reachable by the run's cwd containment.
         let sourcePhaseCompletePath: string | undefined;
         const generatePc = controller.getLatestGeneratePhaseComplete();
         if (generatePc) {
           sourcePhaseCompletePath = ".mpyhw/phase_complete.upy_generate_plugin.json";
+          const upstream = wrapGeneratePhaseComplete(generatePc, controller.getOptionalNextPhases(), { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString() });
           await mkdir(join(projectFolder, ".mpyhw"), { recursive: true });
-          await writeFile(join(projectFolder, ".mpyhw", "phase_complete.upy_generate_plugin.json"), JSON.stringify(generatePc), "utf8");
+          await writeFile(join(projectFolder, ".mpyhw", "phase_complete.upy_generate_plugin.json"), JSON.stringify(upstream), "utf8");
         }
         const envelope = buildOptionalFlowDispatch(flow, { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), sourcePhaseCompletePath });
         await controller.startPhase({ phase: token, envelope: JSON.stringify(envelope), boardId: message.boardId, label: `${flow} run` });

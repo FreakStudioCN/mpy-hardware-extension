@@ -1,9 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildOptionalFlowDispatch, WIRING_PHASE, DIAGRAM_PHASE } from "../src/core/optional-flow-schema.ts";
+import { buildOptionalFlowDispatch, wrapGeneratePhaseComplete, WIRING_PHASE, DIAGRAM_PHASE } from "../src/core/optional-flow-schema.ts";
 
 const ids = { sessionId: "s1", msgId: "m1", timestamp: "2026-07-15T00:00:00Z" };
+
+test("wrapGeneratePhaseComplete produces the full message shape validate_upstream requires", () => {
+  // The controller stores the bare PAYLOAD; the plugins' validate_upstream hard-checks the message
+  // envelope (type + message-level phase + payload.result + manifest_content). Mutation: persist the bare
+  // payload (drop the wrap) -> data.type is undefined and data.phase is the domain token -> upstream invalid.
+  const payload = { phase: "generate", result: "success", manifest_content: { phase: "generate", devices: [{ name: "SHT30" }] }, optional_next_phases: ["upy-wiring-plugin", "upy-diagram-plugin"] };
+  const msg = wrapGeneratePhaseComplete(payload, [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }], { sessionId: "s1", msgId: "m1", timestamp: "2026-07-16T00:00:00Z" });
+  assert.equal(msg.type, "phase_complete", "message type is phase_complete");
+  assert.equal(msg.phase, "upy-generate-plugin", "message-level phase is the envelope token, not the domain 'generate'");
+  const p = msg.payload as any;
+  assert.equal(p.result, "success");
+  assert.equal(p.manifest_content.phase, "generate", "the real payload (incl manifest_content) is preserved");
+  // optional_next_phases is normalized to dict items (validate_upstream counts only dicts, not strings)
+  assert.ok(p.optional_next_phases.every((o: any) => typeof o === "object" && typeof o.phase === "string"), "offers are object-shaped");
+});
 
 test("wiring dispatch: own runtime_context (no artifact_root), pins render, honest capabilities", () => {
   const env = buildOptionalFlowDispatch("wiring", ids);

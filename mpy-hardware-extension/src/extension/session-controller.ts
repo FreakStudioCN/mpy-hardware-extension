@@ -168,8 +168,8 @@ export class SessionController {
 
   // Dispatch an on-demand phase run (gen-driver / wiring / diagram optional flows) through the SAME
   // loop as start(), so Stop / safe-point / recorder / artifacts all work. The caller builds the
-  // start_phase `envelope` (it becomes the first user message) and reads getLatestManifest() BEFORE
-  // calling this — run() clears latestManifest. A standalone optional run ends on its own phase and must
+  // start_phase `envelope` (it becomes the first user message). run() is called with preserveManifest
+  // so a thin optional-run manifest can't clobber latestManifest. A standalone optional run ends on its own phase and must
   // NOT leave that phase in this.state, or the next normal start() (same board) would resume it. So this
   // is a transparent excursion: snapshot the prior main-flow state, run, and restore it UNLESS the run
   // chained into a canonical phase (pipeline continuation), detected by the run ending on a DIFFERENT
