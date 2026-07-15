@@ -48,6 +48,21 @@ test("stageGenDriverSources rejects a source whose file no longer matches the pi
   } finally { await cleanup(); }
 });
 
+test("stageGenDriverSources rejects a traversal file name (register #11)", async () => {
+  const { project, picked, cleanup } = await scratch();
+  try {
+    const bytes = Buffer.from("PWNED");
+    const src = join(picked, "evil");
+    await writeFile(src, bytes);
+    // The webview-echoed name escapes gen-driver/input; without a containment check copyFile would
+    // overwrite an arbitrary host path. Mutation: drop the name check -> this stages/writes outside.
+    const evil = fileSource("../../evil.txt", src, sha256(bytes));
+    await assert.rejects(() => stageGenDriverSources([evil], project), /not a plain file name/);
+    const backslash = fileSource("..\\evil.txt", src, sha256(bytes));
+    await assert.rejects(() => stageGenDriverSources([backslash], project), /not a plain file name/);
+  } finally { await cleanup(); }
+});
+
 test("stageGenDriverSources passes non-file sources through unchanged", async () => {
   const { project, cleanup } = await scratch();
   try {

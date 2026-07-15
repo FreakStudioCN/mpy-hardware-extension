@@ -47,6 +47,11 @@ export async function stageGenDriverSources(
       staged.push(source);
       continue;
     }
+    // file.name is echoed by the untrusted webview: it must be a plain basename, or "../.." would let
+    // copyFile write outside gen-driver/input (register #11 — contain external paths, don't just hash).
+    if (/[\\/\0]/.test(file.name) || file.name === "." || file.name === "..") {
+      throw new Error(`gen-driver source name "${file.name}" is not a plain file name`);
+    }
     if (!ensuredDir) {
       await mkdir(destDir, { recursive: true });
       ensuredDir = true;
