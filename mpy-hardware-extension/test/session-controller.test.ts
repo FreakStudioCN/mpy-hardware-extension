@@ -1430,21 +1430,28 @@ test("a gen-driver phase_complete surfaces gen_driver_status; other phases do no
   assert.equal(statuses[0].detail, "SHT30 driver ready");
 });
 
-test("a diagram run's thin manifest_content does not blank a devices-bearing manifest (#17)", async () => {
+test("a diagram run's thin manifest_content does not blank a devices-bearing manifest across runs (#17)", async () => {
+  // The real flow is TWO run()s: a generate build sets the devices manifest, then a SEPARATE diagram
+  // excursion (startPhase) streams a thin one. run() clears latestManifest at entry, so the guard only
+  // works if the excursion preserves it — a one-run test (both events in one loop) can't catch this.
   const posted: any[] = [];
+  let onEventFor: (onEvent: (e: any) => void) => void = () => { };
   const controller = new SessionController({
     postMessage: (m: any) => posted.push(m),
-    loop: async ({ onEvent }: any) => {
-      onEvent({ type: "manifest_updated", manifest: { devices: [{ name: "SHT30" }], wiring: { buses: [], standalone: [] } } });
-      // a diagram run streams a thin manifest_content (no devices/pinout)
-      onEvent({ type: "manifest_updated", manifest: { phase: "diagram" } });
-      return { terminal: "complete" };
-    },
+    loop: async ({ onEvent }: any) => { onEventFor(onEvent); return { terminal: "complete", state: { phase: "upy-diagram-plugin" } }; },
   });
+  // run 1: a normal build streams a devices-bearing manifest
+  onEventFor = (onEvent) => onEvent({ type: "manifest_updated", manifest: { devices: [{ name: "SHT30" }], wiring: { buses: [], standalone: [] } } });
   await controller.start({ intent: "x", boardId: "auto" });
+  assert.equal((controller.getLatestManifest() as any).devices.length, 1, "run 1 set the devices manifest");
+  // run 2: a SEPARATE diagram excursion streams a thin manifest_content
+  posted.length = 0;
+  onEventFor = (onEvent) => onEvent({ type: "manifest_updated", manifest: { phase: "diagram" } });
+  await controller.startPhase({ phase: "upy-diagram-plugin", envelope: "ENV" });
   const m = controller.getLatestManifest() as any;
-  // Mutation: drop the devices guard -> the thin manifest clobbers latestManifest and devices vanish.
-  assert.ok(Array.isArray(m?.devices) && m.devices.length === 1, "the devices-bearing manifest survives the thin diagram-run update");
+  // Mutation: drop preserveManifest (or the devices guard) -> the excursion clears/clobbers latestManifest
+  // and devices vanish.
+  assert.ok(Array.isArray(m?.devices) && m.devices.length === 1, "the devices manifest survives the separate diagram run");
   const lastPosted = posted.filter((p) => p.type === "manifest_updated").at(-1);
   assert.equal(lastPosted.manifest.devices?.length, 1, "the re-posted manifest keeps the devices so the Wiring tab stays populated");
 });
@@ -1506,4 +1513,21 @@ test("captures generate's optional_next_phases and clears them on reset (#8, reg
   // Mutation: drop the optionalNextPhases clear in reset() -> stays 2 and this fails.
   controller.reset();
   assert.equal(controller.getOptionalNextPhases().length, 0, "reset clears the captured flows");
+});
+
+test("optional_next_phases accepts the plain-string shape too (normalized to {phase})", async () => {
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      // some generate emitters (the diagram plugin's fixture) use plain strings, not {phase} objects
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", optional_next_phases: ["upy-wiring-plugin", "upy-diagram-plugin"] } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  // Mutation: drop the string normalization -> phase is undefined and the entries/host-gate never fire.
+  assert.deepEqual(controller.getOptionalNextPhases().map((o) => o.phase), ["upy-wiring-plugin", "upy-diagram-plugin"]);
+  const flows = posted.find((m) => m.type === "optional_flows");
+  assert.ok(flows.phases.every((p: any) => typeof p.phase === "string"), "posted phases key on .phase for the panel");
 });

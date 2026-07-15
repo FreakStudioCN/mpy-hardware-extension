@@ -185,18 +185,23 @@ export class SessionController {
     }
     this.record({ type: "user_message", intent: label, boardId });
     const priorState = this.state;
+    const myGen = this.generation;
     this.state = { phase: input.phase, manifest: input.manifest };
-    const result = await this.run({ intent: input.envelope, boardId, availableBoards: input.availableBoards });
-    // Ended on the dispatched phase (no pipeline continuation) -> restore the main-flow state.
-    // If reset() superseded the run, this.state is already cleared (phase !== input.phase) -> no restore.
-    if (this.state?.phase === input.phase) {
+    const result = await this.run({ intent: input.envelope, boardId, availableBoards: input.availableBoards, preserveManifest: true });
+    // Ended on the dispatched phase (no pipeline continuation) -> restore the main-flow state. Guard on the
+    // generation like every other post-run write: if a reset()/new run superseded this one mid-flight, don't
+    // clobber the new run's state with our stale priorState (matches run()'s current() checks).
+    if (this.generation === myGen && this.state?.phase === input.phase) {
       this.state = priorState;
     }
     return result;
   }
 
-  private async run(input: { intent: string; boardId: string; availableBoards?: any[] }) {
-    this.latestManifest = undefined;
+  private async run(input: { intent: string; boardId: string; availableBoards?: any[]; preserveManifest?: boolean }) {
+    // A startPhase excursion (gen-driver/wiring/diagram) keeps the main-flow manifest, so the diagram
+    // run's thin manifest_content can't clobber the devices-bearing one (the manifest_updated guard reads
+    // latestManifest, which this clear would otherwise blank for the whole excursion run).
+    if (!input.preserveManifest) this.latestManifest = undefined;
     this.hasAuthoredDiagram = false;
     this.latestFiles = {};
     this.persistedPaths = [];
@@ -618,7 +623,10 @@ export class SessionController {
       // generate offers optional follow-on flows (wiring/diagram) in optional_next_phases. Capture them
       // so the webview entries enable only after a generate that offered them (register #9: cleared on reset).
       if (Array.isArray(event.payload?.optional_next_phases)) {
-        this.optionalNextPhases = event.payload.optional_next_phases;
+        // Upstream sanctions BOTH shapes: objects [{phase, reason}] and plain strings ["upy-wiring-plugin"]
+        // (the diagram plugin's generate fixture uses strings; the consistency gate accepts both).
+        // Normalize to the object shape so the host gate + webview entries key on `.phase` either way.
+        this.optionalNextPhases = event.payload.optional_next_phases.map((p: any) => (typeof p === "string" ? { phase: p } : p));
         this.deps.postMessage({ type: "optional_flows", phases: this.optionalNextPhases });
       }
       return;
