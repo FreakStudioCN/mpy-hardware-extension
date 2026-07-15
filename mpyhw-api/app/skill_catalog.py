@@ -27,6 +27,13 @@ SERVED_SKILLS = (
     "upy-scaffold-plugin",
     "upy-generate-plugin",
     "upy-deploy-plugin",
+    # Optional flows: driven on-demand (a start_phase envelope), not part of the sequential
+    # next_phase chain. gen-driver runs pipeline/standalone/fix; wiring and diagram run after
+    # generate as artifact flows. Their tokens are the full plugin dir names (the envelope
+    # phase the extension sends), never the domain token "gen-driver".
+    "upy-gen-driver-plugin",
+    "upy-wiring-plugin",
+    "upy-diagram-plugin",
 )
 
 PHASE_BY_SKILL = {
@@ -36,6 +43,10 @@ PHASE_BY_SKILL = {
     "upy-scaffold-plugin": "upy-scaffold-plugin",
     "upy-generate-plugin": "upy-generate-plugin",
     "upy-deploy-plugin": "upy-deploy-plugin",
+    # Optional flows: identity token = the envelope phase the extension sends as body.phase.
+    "upy-gen-driver-plugin": "upy-gen-driver-plugin",
+    "upy-wiring-plugin": "upy-wiring-plugin",
+    "upy-diagram-plugin": "upy-diagram-plugin",
 }
 
 SKILL_BY_PHASE = {phase: skill for skill, phase in PHASE_BY_SKILL.items()}
