@@ -1515,6 +1515,23 @@ test("captures generate's optional_next_phases and clears them on reset (#8, reg
   assert.equal(controller.getOptionalNextPhases().length, 0, "reset clears the captured flows");
 });
 
+test("captures the generate phase_complete for the wiring/diagram source (Q3) and clears it on reset", async () => {
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", summary: "app generated" } });
+      // a non-generate phase_complete must NOT overwrite it
+      onEvent({ type: "phase_complete", payload: { phase: "gen-driver", result: "success" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  // Mutation: drop the generate capture -> undefined and the run gets no source_phase_complete_path.
+  assert.equal((controller.getLatestGeneratePhaseComplete() as any)?.summary, "app generated", "keeps the generate result, not gen-driver's");
+  controller.reset();
+  assert.equal(controller.getLatestGeneratePhaseComplete(), undefined, "reset clears it (register #9)");
+});
+
 test("optional_next_phases accepts the plain-string shape too (normalized to {phase})", async () => {
   const posted: any[] = [];
   const controller = new SessionController({

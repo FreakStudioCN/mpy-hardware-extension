@@ -734,7 +734,17 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       try {
         snapshotExistingPaths(projectFolder, preExistingPaths);
         const sessionId = randomUUID();
-        const envelope = buildOptionalFlowDispatch(flow, { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString() });
+        // Persist the upstream generate result under projectFolder so the run can read it via
+        // source_phase_complete_path (a formal wiring/diagram success requires the upstream generate
+        // phase_complete). Relative POSIX path (register #10), reachable by the run's cwd containment.
+        let sourcePhaseCompletePath: string | undefined;
+        const generatePc = controller.getLatestGeneratePhaseComplete();
+        if (generatePc) {
+          sourcePhaseCompletePath = ".mpyhw/phase_complete.upy_generate_plugin.json";
+          await mkdir(join(projectFolder, ".mpyhw"), { recursive: true });
+          await writeFile(join(projectFolder, ".mpyhw", "phase_complete.upy_generate_plugin.json"), JSON.stringify(generatePc), "utf8");
+        }
+        const envelope = buildOptionalFlowDispatch(flow, { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), sourcePhaseCompletePath });
         await controller.startPhase({ phase: token, envelope: JSON.stringify(envelope), boardId: message.boardId, label: `${flow} run` });
       } catch (error: any) {
         webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: error?.message ?? "optional flow dispatch failed" });

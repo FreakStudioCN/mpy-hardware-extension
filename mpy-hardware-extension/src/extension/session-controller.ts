@@ -79,6 +79,9 @@ export class SessionController {
   // The optional follow-on flows generate offered in its phase_complete (optional_next_phases:
   // [{phase, reason}]). The webview wiring/diagram entries enable only after generate offers them.
   private optionalNextPhases: Array<{ phase?: string; reason?: string }> = [];
+  // The last generate phase_complete, so a wiring/diagram run can persist it as the upstream result
+  // (source_phase_complete_path) the plugin reads to reach a formal success. Cleared with the session.
+  private latestGeneratePhaseComplete: unknown = undefined;
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -127,6 +130,7 @@ export class SessionController {
       this.producedPhase.clear();
       this.phaseArtifacts = [];
       this.optionalNextPhases = [];
+      this.latestGeneratePhaseComplete = undefined;
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -308,6 +312,7 @@ export class SessionController {
     this.producedPhase.clear();
     this.phaseArtifacts = [];
     this.optionalNextPhases = [];
+    this.latestGeneratePhaseComplete = undefined;
     this.currentPhase = null;
     this.recentActivity = [];
     this.stdoutTail = [];
@@ -319,6 +324,12 @@ export class SessionController {
   // the wiring/diagram entries on this.
   getOptionalNextPhases(): Array<{ phase?: string; reason?: string }> {
     return this.optionalNextPhases;
+  }
+
+  // The last generate phase_complete (or undefined). A wiring/diagram dispatch persists this to disk and
+  // points source_phase_complete_path at it so the run can read the upstream generate result.
+  getLatestGeneratePhaseComplete(): unknown {
+    return this.latestGeneratePhaseComplete;
   }
 
   // A session run owns the serial port from run()'s start until its finally clears
@@ -619,6 +630,12 @@ export class SessionController {
       const driverBlocks = detectDriverReadyBlock(event.payload);
       if (driverBlocks.length > 0) {
         this.deps.postMessage({ type: "gen_driver_required", blocks: driverBlocks });
+      }
+      // Persist generate's phase_complete in memory so a wiring/diagram run can pass it as
+      // source_phase_complete_path (a formal success requires reading the upstream generate result;
+      // wiring/diagram SKILL.md). payload.phase is the domain token "generate". Cleared on reset (#9).
+      if (event.payload?.phase === "generate") {
+        this.latestGeneratePhaseComplete = event.payload;
       }
       // generate offers optional follow-on flows (wiring/diagram) in optional_next_phases. Capture them
       // so the webview entries enable only after a generate that offered them (register #9: cleared on reset).
