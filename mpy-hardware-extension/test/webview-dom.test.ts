@@ -2414,3 +2414,30 @@ test("an approval card whose actions carry only `id` answers with the id, so Can
   assert.ok(resp, "clicking an action posts ui_prompt_response");
   assert.equal(resp.answer, "cancel", "Cancel answers its id, not the confirm fallback");
 });
+
+test("gen-driver tab strip splits source-input tabs from config tabs", async () => {
+  // The strip must group source tabs (sourceType !== null) apart from the config tabs
+  // (Target driver / Verification, sourceType === null); one flat pill row made the config
+  // tabs read as more sources. Mutation: render every tab in one strip -> only one group and
+  // the config tabs land in the source group, failing the deepEqual assertions below.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "gen_driver_config",
+    tabs: [
+      { id: "pdf", label: "PDF datasheet", sourceType: "pdf", fields: [] },
+      { id: "chip", label: "Chip/module model", sourceType: "chip_model", fields: [] },
+      { id: "driver", label: "Target driver", sourceType: null, fields: [] },
+      { id: "verification", label: "Verification settings", sourceType: null, fields: [] },
+    ],
+  });
+  const groups = [...document.querySelectorAll("#gendriver .gd-tabgroup")];
+  assert.equal(groups.length, 2, "one group for sources, one for config");
+  assert.deepEqual(
+    groups.map((g) => g.querySelector(".gd-tabgroup-label")!.textContent),
+    ["Add a source", "Settings"],
+  );
+  const tabIds = (g: Element) => [...g.querySelectorAll(".gd-tab")].map((b) => (b as HTMLElement).dataset.gdtab);
+  assert.deepEqual(tabIds(groups[0]), ["pdf", "chip"], "source tabs in the Add a source group");
+  assert.deepEqual(tabIds(groups[1]), ["driver", "verification"], "config tabs in the Settings group");
+});

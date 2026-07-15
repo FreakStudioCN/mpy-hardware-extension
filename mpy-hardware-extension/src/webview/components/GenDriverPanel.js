@@ -15,17 +15,30 @@
         $("gendriverEmpty").classList.add("hidden");
         if (!gdTab || !tabs.some((t) => t.id === gdTab)) gdTab = tabs[0].id;
         root.innerHTML = "";
-        const strip = document.createElement("div"); strip.className = "gd-tabs";
-        for (const t of tabs) {
-          const b = document.createElement("button");
-          b.className = "gd-tab" + (t.id === gdTab ? " active" : "");
-          b.textContent = t.label; b.dataset.gdtab = t.id;
-          b.addEventListener("click", () => { gdTab = t.id; renderGenDriver(tabs); });
-          strip.appendChild(b);
-        }
-        root.appendChild(strip);
+        // Split the tab strip into a source-input group (sourceType !== null) and a config group
+        // (Target driver / Verification settings, sourceType === null). One flat pill row made the
+        // config tabs read as just more sources; grouping under labels separates the two intents.
+        const sourceTabs = tabs.filter((t) => t.sourceType !== null);
+        const configTabs = tabs.filter((t) => t.sourceType === null);
+        if (sourceTabs.length) root.appendChild(gdTabGroup("Add a source", sourceTabs, tabs));
+        if (configTabs.length) root.appendChild(gdTabGroup("Settings", configTabs, tabs));
         root.appendChild(gdBody(tabs.find((t) => t.id === gdTab), tabs));
         root.appendChild(gdFooter(tabs));
+      }
+      function gdTabButton(t, tabs) {
+        const b = document.createElement("button");
+        b.className = "gd-tab" + (t.id === gdTab ? " active" : "");
+        b.textContent = t.label; b.dataset.gdtab = t.id;
+        b.addEventListener("click", () => { gdTab = t.id; renderGenDriver(tabs); });
+        return b;
+      }
+      function gdTabGroup(label, groupTabs, tabs) {
+        const group = document.createElement("div"); group.className = "gd-tabgroup";
+        const lbl = document.createElement("div"); lbl.className = "gd-tabgroup-label"; lbl.textContent = label;
+        const strip = document.createElement("div"); strip.className = "gd-tabs";
+        for (const t of groupTabs) strip.appendChild(gdTabButton(t, tabs));
+        group.appendChild(lbl); group.appendChild(strip);
+        return group;
       }
       function gdFileField(field, tabId) {
         // The host owns the file dialog; the picked value (name/path/size/sha256) comes
