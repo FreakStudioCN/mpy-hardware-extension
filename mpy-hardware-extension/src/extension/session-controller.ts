@@ -157,6 +157,39 @@ export class SessionController {
     return this.run({ intent: "", boardId: this.boardId ?? "auto", availableBoards: this.availableBoards });
   }
 
+  // Dispatch an on-demand phase run (gen-driver / wiring / diagram optional flows) through the SAME
+  // loop as start(), so Stop / safe-point / recorder / artifacts all work. The caller builds the
+  // start_phase `envelope` (it becomes the first user message) and reads getLatestManifest() BEFORE
+  // calling this — run() clears latestManifest. A standalone optional run ends on its own phase and must
+  // NOT leave that phase in this.state, or the next normal start() (same board) would resume it. So this
+  // is a transparent excursion: snapshot the prior main-flow state, run, and restore it UNLESS the run
+  // chained into a canonical phase (pipeline continuation), detected by the run ending on a DIFFERENT
+  // phase than the one dispatched.
+  async startPhase(input: { phase: string; envelope: string; manifest?: any; boardId?: string; label?: string; availableBoards?: any[] }) {
+    if (this.abort) {
+      this.deps.postMessage({ type: "session_busy" });
+      return { terminal: "session_busy" };
+    }
+    const boardId = input.boardId ?? this.boardId ?? "auto";
+    const label = input.label ?? input.phase;
+    if (!this.traceId) this.traceId = createTraceId();
+    if (!this.recorder && this.deps.recorderFactory) this.recorder = this.deps.recorderFactory(this.traceId);
+    if (!this.recordedStart) {
+      this.recordedStart = true;
+      this.record({ type: "session_started", intent: label, boardId, availableBoards: input.availableBoards ?? [] });
+    }
+    this.record({ type: "user_message", intent: label, boardId });
+    const priorState = this.state;
+    this.state = { phase: input.phase, manifest: input.manifest };
+    const result = await this.run({ intent: input.envelope, boardId, availableBoards: input.availableBoards });
+    // Ended on the dispatched phase (no pipeline continuation) -> restore the main-flow state.
+    // If reset() superseded the run, this.state is already cleared (phase !== input.phase) -> no restore.
+    if (this.state?.phase === input.phase) {
+      this.state = priorState;
+    }
+    return result;
+  }
+
   private async run(input: { intent: string; boardId: string; availableBoards?: any[] }) {
     this.latestManifest = undefined;
     this.hasAuthoredDiagram = false;

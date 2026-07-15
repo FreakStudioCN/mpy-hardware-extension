@@ -1341,3 +1341,71 @@ test("the stdout tail clears on a board switch, not only on reset", async () => 
   await controller.start({ intent: "y", boardId: "boardB" });
   assert.equal(controller.getDiagnostics().stdout_stderr_summary, "", "board switch clears the stdout tail");
 });
+
+test("startPhase dispatches the optional run at its phase with the envelope as the first message", async () => {
+  const inputs: any[] = [];
+  let finalPhase: string | null = "upy-analyze-plugin";
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async (input: any) => { inputs.push(input); return { terminal: "complete", state: { phase: finalPhase, manifest: input.state?.manifest, intent: input.intent } }; },
+  });
+
+  finalPhase = "upy-gen-driver-plugin"; // standalone: the run ends on the phase it was dispatched at
+  const res = await controller.startPhase({ phase: "upy-gen-driver-plugin", envelope: "START_PHASE_ENVELOPE", manifest: { drv: 1 } });
+  assert.equal(res.terminal, "complete");
+  const disp = inputs.at(-1);
+  assert.equal(disp.state.phase, "upy-gen-driver-plugin", "loop starts at the dispatched phase (body.phase)");
+  assert.deepEqual(disp.state.manifest, { drv: 1 }, "startManifest threads through");
+  assert.equal(disp.intent, "START_PHASE_ENVELOPE", "the envelope is the first user message");
+});
+
+test("startPhase is a transparent excursion: a standalone run restores the prior main-flow state", async () => {
+  const inputs: any[] = [];
+  let finalPhase: string | null = null;
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async (input: any) => { inputs.push(input); return { terminal: "complete", state: { phase: finalPhase, manifest: input.state?.manifest ?? { m: 1 }, intent: input.intent } }; },
+  });
+
+  finalPhase = "upy-analyze-plugin";                       // seed a prior main-flow state
+  await controller.start({ intent: "build a thing", boardId: "auto" });
+  finalPhase = "upy-gen-driver-plugin";                    // standalone dispatch ends on its own phase
+  await controller.startPhase({ phase: "upy-gen-driver-plugin", envelope: "ENV", manifest: { drv: 1 } });
+  // Mutation: drop the `this.state = priorState` restore -> retry resumes gen-driver and this fails.
+  finalPhase = "x";
+  await controller.retry();
+  assert.equal(inputs.at(-1).state.phase, "upy-analyze-plugin", "a standalone excursion did NOT leave gen-driver in the resume state");
+});
+
+test("startPhase keeps the chained state when the optional run continues into a canonical phase (pipeline)", async () => {
+  const inputs: any[] = [];
+  let finalPhase: string | null = null;
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async (input: any) => { inputs.push(input); return { terminal: "complete", state: { phase: finalPhase, manifest: input.state?.manifest ?? {}, intent: input.intent } }; },
+  });
+
+  finalPhase = "upy-analyze-plugin";
+  await controller.start({ intent: "build", boardId: "auto" });
+  finalPhase = "upy-generate-plugin";                      // pipeline: gen-driver chained into generate
+  await controller.startPhase({ phase: "upy-gen-driver-plugin", envelope: "ENV" });
+  finalPhase = "x";
+  await controller.retry();
+  assert.equal(inputs.at(-1).state.phase, "upy-generate-plugin", "a pipeline continuation kept the chained (canonical) state");
+});
+
+test("startPhase rejects while a run is in flight (register #16)", async () => {
+  const posted: any[] = [];
+  let release: (() => void) | null = null;
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: () => new Promise<any>((r) => { release = () => r({ terminal: "complete" }); }),
+  });
+  const running = controller.start({ intent: "x", boardId: "auto" });
+  await flushMicrotasks();
+  const busy = await controller.startPhase({ phase: "upy-gen-driver-plugin", envelope: "E" });
+  assert.equal(busy.terminal, "session_busy", "no second run over an in-flight one");
+  assert.ok(posted.some((m) => m.type === "session_busy"));
+  release!();
+  await running;
+});
