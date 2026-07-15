@@ -131,6 +131,8 @@ _V0_PLUGIN_DIRS = (
     "upy-wiring-plugin",
     "upy-diagram-plugin",
     "shared-plugin-scripts",
+    # Toolchain-spec scripts (validate_json.py) — wiring/diagram SKILLs invoke the schema check by name.
+    "upy-project-gen-toolchain-spec",
 )
 
 
@@ -152,8 +154,11 @@ def _build_v0_script_index() -> dict:
             norm = dirpath.replace("\\", "/")
             if "__pycache__" in norm:
                 continue
-            # A V0 plugin's own scripts/ dir, or the shared V0 script pool.
-            if "-plugin/scripts" not in norm and "shared-plugin-scripts" not in norm:
+            # A V0 plugin's own scripts/ dir, the shared V0 script pool, or the toolchain-spec scripts
+            # (validate_json.py, invoked by name from the wiring/diagram SKILLs).
+            if ("-plugin/scripts" not in norm
+                    and "shared-plugin-scripts" not in norm
+                    and "upy-project-gen-toolchain-spec/scripts" not in norm):
                 continue
             for fname in files:
                 if fname.endswith(".py"):
