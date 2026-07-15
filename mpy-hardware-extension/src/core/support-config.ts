@@ -125,16 +125,18 @@ export function buildIssueReportUrl(input: {
   contact?: string;
   diagnosticsText?: string;
 }): string {
-  // Strip unpaired surrogates from every untrusted input before any encoding (issueType is
-  // host-allowlisted, so it is already safe). Prevents a lone surrogate from an upstream code-UNIT
-  // slice reaching encodeURIComponent and throwing URIError (PR #35 review).
+  // Strip unpaired surrogates from EVERY input before any encoding — including issueType. The sole
+  // caller host-allowlists issueType to ASCII, but the export types it as a broad string, so a future
+  // caller could hand a lone surrogate straight into the title's encodeURIComponent. Prevents that and
+  // the same URIError from any upstream code-UNIT slice on description/contact/diagnostics (PR #35 review).
+  const issueType = stripLoneSurrogates(input.issueType);
   const description = stripLoneSurrogates(input.description);
   const contact = input.contact === undefined ? undefined : stripLoneSurrogates(input.contact);
   const diagnosticsText =
     input.diagnosticsText === undefined ? undefined : stripLoneSurrogates(input.diagnosticsText);
   // Split on CRLF too, so a Windows description doesn't leave a trailing \r in the title.
   const firstLine = description.trim().split(/\r?\n/)[0] ?? "";
-  const title = sliceCodePoints(`[${input.issueType}] ${firstLine}`, ISSUE_TITLE_MAX);
+  const title = sliceCodePoints(`[${issueType}] ${firstLine}`, ISSUE_TITLE_MAX);
   const parts = [description.trim()];
   const trimmedContact = contact?.trim();
   if (trimmedContact) parts.push(`\nContact: ${trimmedContact}`);

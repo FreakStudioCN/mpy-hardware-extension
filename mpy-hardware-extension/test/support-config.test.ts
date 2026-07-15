@@ -93,6 +93,7 @@ test("buildIssueReportUrl tolerates a lone surrogate already split by an upstrea
     { issueType: "bug", description: "X".repeat(4999) + hi },        // description path (panel.ts:566)
     { issueType: "bug", description: "ok", contact: "a@b.com" + hi }, // contact path (panel.ts:569)
     { issueType: "bug", description: "ok", diagnosticsText: lo + "traceback" }, // diagnostics tail (session-controller:717)
+    { issueType: "bug" + hi, description: "ok" },                     // title/issueType path (broad string export)
   ];
   for (const c of cases) {
     assert.doesNotThrow(() => buildIssueReportUrl(c), `lone surrogate must not throw URIError: ${JSON.stringify(Object.keys(c))}`);
