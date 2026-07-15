@@ -1448,3 +1448,21 @@ test("a generate driver-ready block posts gen_driver_required; a clean generate 
   assert.equal(offers.length, 1, "only the blocked generate offers the gen-driver run");
   assert.equal(offers[0].blocks[0].device, "SHT30");
 });
+
+test("captures generate's optional_next_phases and clears them on reset (#8, register #9)", async () => {
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", optional_next_phases: [{ phase: "upy-diagram-plugin", reason: "arch diagram" }, { phase: "upy-wiring-plugin" }] } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.equal(controller.getOptionalNextPhases().length, 2, "captured the offered flows");
+  assert.ok(posted.some((m) => m.type === "optional_flows" && m.phases.length === 2), "posts optional_flows so the panel can gate the entries");
+  // register #9: reset() must clear it, or a Restart leaves the prior session's offers live.
+  // Mutation: drop the optionalNextPhases clear in reset() -> stays 2 and this fails.
+  controller.reset();
+  assert.equal(controller.getOptionalNextPhases().length, 0, "reset clears the captured flows");
+});

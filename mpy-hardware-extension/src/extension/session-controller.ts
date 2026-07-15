@@ -76,6 +76,9 @@ export class SessionController {
   // event — so this is the only way the Artifact Browser learns about pre-generate outputs,
   // with their real role (the Skill's `type`) and producing phase.
   private phaseArtifacts: Array<{ path: string; role: string; phase: string }> = [];
+  // The optional follow-on flows generate offered in its phase_complete (optional_next_phases:
+  // [{phase, reason}]). The webview wiring/diagram entries enable only after generate offers them.
+  private optionalNextPhases: Array<{ phase?: string; reason?: string }> = [];
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -123,6 +126,7 @@ export class SessionController {
       this.producedPaths = [];
       this.producedPhase.clear();
       this.phaseArtifacts = [];
+      this.optionalNextPhases = [];
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -298,11 +302,18 @@ export class SessionController {
     this.producedPaths = [];
     this.producedPhase.clear();
     this.phaseArtifacts = [];
+    this.optionalNextPhases = [];
     this.currentPhase = null;
     this.recentActivity = [];
     this.stdoutTail = [];
     this.keyErrors = [];
     this.pendingSupplements = [];
+  }
+
+  // The optional follow-on flows generate offered (empty until a generate offers them). The panel gates
+  // the wiring/diagram entries on this.
+  getOptionalNextPhases(): Array<{ phase?: string; reason?: string }> {
+    return this.optionalNextPhases;
   }
 
   // A session run owns the serial port from run()'s start until its finally clears
@@ -597,6 +608,12 @@ export class SessionController {
       const driverBlocks = detectDriverReadyBlock(event.payload);
       if (driverBlocks.length > 0) {
         this.deps.postMessage({ type: "gen_driver_required", blocks: driverBlocks });
+      }
+      // generate offers optional follow-on flows (wiring/diagram) in optional_next_phases. Capture them
+      // so the webview entries enable only after a generate that offered them (register #9: cleared on reset).
+      if (Array.isArray(event.payload?.optional_next_phases)) {
+        this.optionalNextPhases = event.payload.optional_next_phases;
+        this.deps.postMessage({ type: "optional_flows", phases: this.optionalNextPhases });
       }
       return;
     }
