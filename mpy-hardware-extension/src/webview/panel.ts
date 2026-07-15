@@ -13,6 +13,7 @@ import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
+import { buildOptionalFlowDispatch, OPTIONAL_FLOW_PHASE_BY_FLOW } from "../core/optional-flow-schema.ts";
 import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
@@ -692,6 +693,51 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch (error: any) {
         // Staging integrity/copy failure (register #8: surface, never proceed as if staged).
         webview.postMessage({ type: "gen_driver_status", status: "failed", detail: error?.message ?? "gen-driver dispatch failed" });
+      } finally { releaseRun(); }
+      return;
+    }
+    if (message.type === "start_optional_flow") {
+      // Wiring (#60) / diagram (#61) run. Allowlist-map the webview's {flow} to a plugin token (register
+      // #1: never let the untrusted string reach body.phase unmapped), and HOST-side re-check that generate
+      // actually offered this flow (the webview button gate is not the trust boundary).
+      const flow = message.flow;
+      const token = flow === "wiring" ? OPTIONAL_FLOW_PHASE_BY_FLOW.wiring : flow === "diagram" ? OPTIONAL_FLOW_PHASE_BY_FLOW.diagram : null;
+      if (!token) {
+        webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: "Unknown optional flow." });
+        return;
+      }
+      if (!controller.getOptionalNextPhases().some((o) => o?.phase === token)) {
+        webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: "Run generate first — this flow is offered after a successful generate." });
+        return;
+      }
+      if (!projectFolder) {
+        webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: "Open a workspace folder to run this flow." });
+        return;
+      }
+      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
+      if (registry.warning === "protocol_version_mismatch") {
+        webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
+        webview.postMessage({ type: "session_done", terminal: "session_error" });
+        return;
+      }
+      if (vscode.authentication) {
+        const jwt = await auth.getToken(true, { forceRefresh: true });
+        if (!jwt) {
+          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
+          webview.postMessage({ type: "session_done", terminal: "session_error" });
+          return;
+        }
+      }
+      await ensureProjectGitRepo(projectFolder, deps.log);
+      const releaseRun = await acquireRunOwnership();
+      try {
+        snapshotExistingPaths(projectFolder, preExistingPaths);
+        const sessionId = randomUUID();
+        const envelope = buildOptionalFlowDispatch(flow, { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString() });
+        await controller.startPhase({ phase: token, envelope: JSON.stringify(envelope), boardId: message.boardId, label: `${flow} run` });
+      } catch (error: any) {
+        webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: error?.message ?? "optional flow dispatch failed" });
       } finally { releaseRun(); }
       return;
     }
