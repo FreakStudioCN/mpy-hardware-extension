@@ -526,9 +526,15 @@ export class SessionController {
       // format->path map { json: "docs/wiring.json", ... }) is treated as absent so the
       // tab does not regress to empty. latestManifest carries the enriched copy so the
       // deploy checkpoint card shows the same wiring.
-      const manifest = hasRenderableWiring(event.manifest?.wiring)
+      const enriched = hasRenderableWiring(event.manifest?.wiring)
         ? event.manifest
         : { ...event.manifest, wiring: deriveWiring(event.manifest) };
+      // A diagram run streams a thin manifest_content (no devices/pinout) that would blank the Wiring tab
+      // and empty the gen-driver cold-driver picker. Don't regress a devices-bearing manifest to a
+      // device-less one — keep the richer one (a wiring run's manifest carries devices, so it is unaffected).
+      const incomingHasDevices = Array.isArray(event.manifest?.devices) && event.manifest.devices.length > 0;
+      const currentHasDevices = Array.isArray((this.latestManifest as any)?.devices) && (this.latestManifest as any).devices.length > 0;
+      const manifest = (!incomingHasDevices && currentHasDevices) ? this.latestManifest : enriched;
       this.latestManifest = manifest;
       this.record({ type: "artifact", kind: "manifest", manifest });
       this.deps.postMessage({ type: "manifest_updated", manifest });
@@ -538,7 +544,7 @@ export class SessionController {
       // not record() a kind:"diagram" artifact every phase boundary or trip the authored
       // guard. An authored diagram, once seen, always wins.
       if (!this.hasAuthoredDiagram) {
-        this.deps.postMessage({ type: "diagram_updated", diagram: deriveDiagram(event.manifest) });
+        this.deps.postMessage({ type: "diagram_updated", diagram: deriveDiagram(manifest) });
       }
       return;
     }

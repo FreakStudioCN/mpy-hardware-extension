@@ -1430,6 +1430,25 @@ test("a gen-driver phase_complete surfaces gen_driver_status; other phases do no
   assert.equal(statuses[0].detail, "SHT30 driver ready");
 });
 
+test("a diagram run's thin manifest_content does not blank a devices-bearing manifest (#17)", async () => {
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "manifest_updated", manifest: { devices: [{ name: "SHT30" }], wiring: { buses: [], standalone: [] } } });
+      // a diagram run streams a thin manifest_content (no devices/pinout)
+      onEvent({ type: "manifest_updated", manifest: { phase: "diagram" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const m = controller.getLatestManifest() as any;
+  // Mutation: drop the devices guard -> the thin manifest clobbers latestManifest and devices vanish.
+  assert.ok(Array.isArray(m?.devices) && m.devices.length === 1, "the devices-bearing manifest survives the thin diagram-run update");
+  const lastPosted = posted.filter((p) => p.type === "manifest_updated").at(-1);
+  assert.equal(lastPosted.manifest.devices?.length, 1, "the re-posted manifest keeps the devices so the Wiring tab stays populated");
+});
+
 test("capturePhaseArtifacts folds a gen-driver file_list and keeps skipping path-less entries", async () => {
   const controller = new SessionController({
     postMessage: () => { },
