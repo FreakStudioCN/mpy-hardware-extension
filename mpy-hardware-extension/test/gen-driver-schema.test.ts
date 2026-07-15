@@ -19,6 +19,7 @@ import {
   materializeGenDriverTabs,
   normalizeSources,
   canStartGeneration,
+  DEFAULT_GEN_DRIVER_CAPABILITIES,
 } from "../src/core/gen-driver-schema.ts";
 import type { DriverStatus } from "../src/core/gen-driver-schema.ts";
 
@@ -280,4 +281,15 @@ test("buildStartPhase emits the normalized business payload (sources[]/driver_re
   // envelope + runtime_context + capabilities kept from the sample shape
   assert.equal(built.phase, GEN_DRIVER_ENVELOPE_PHASE);
   assert.ok(payload.runtime_context && payload.capabilities);
+});
+
+test("capabilities are honest: only what the host actually implements is declared true", () => {
+  // Declaring a capability true invites the plugin to depend on a round-trip the host can't make.
+  // permission_request (no protocol message), checkpoint_resume (no resume flow), and
+  // idempotency_cache (no cache) are all unimplemented -> must be false. Mutation: flip any to true
+  // and this fails. cancellation stays true (Stop is real).
+  assert.equal(DEFAULT_GEN_DRIVER_CAPABILITIES.permission_request, false);
+  assert.equal(DEFAULT_GEN_DRIVER_CAPABILITIES.checkpoint_resume, false);
+  assert.equal(DEFAULT_GEN_DRIVER_CAPABILITIES.idempotency_cache, false);
+  assert.equal(DEFAULT_GEN_DRIVER_CAPABILITIES.cancellation, true);
 });

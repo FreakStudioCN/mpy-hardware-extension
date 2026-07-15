@@ -357,9 +357,12 @@ export const DEFAULT_GEN_DRIVER_CAPABILITIES: GenDriverCapabilities = {
   serial_port_scan: true,
   mpremote_run: true,
   file_upload: true,
-  checkpoint_resume: true,
+  // The host implements neither a checkpoint/resume round-trip nor an idempotency cache. Declaring
+  // these true would invite the plugin to "save a checkpoint and resume later" or dedupe on a cache
+  // the host can never honor (protocol_fields.md:47-49). cancellation stays true — Stop IS supported.
+  checkpoint_resume: false,
   cancellation: true,
-  idempotency_cache: true,
+  idempotency_cache: false,
   artifact_root: true,
 };
 
