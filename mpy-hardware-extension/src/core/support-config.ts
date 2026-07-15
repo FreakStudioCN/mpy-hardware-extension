@@ -67,3 +67,83 @@ export function buildDiagnosticsFields(merged: Record<string, string>): { text: 
   const text = SUPPORT_DIAGNOSTICS_FIELDS.map((key) => `${key}: ${fields[key]}`).join("\n");
   return { text, fields };
 }
+
+// Issue-report form (section 08 §6.3: let the user pick an issue type, describe it, and
+// optionally leave contact info). The type list and target are config here, never hardcoded
+// in the render.
+export const ISSUE_TYPES = ["bug", "feature_request", "question", "other"] as const;
+export type IssueType = (typeof ISSUE_TYPES)[number];
+
+// The report target is the github_issues contact's /new page, derived from the same config
+// entry so a single URL change moves both the "Open GitHub Issues" button and the form.
+const GITHUB_ISSUES_URL =
+  SUPPORT_CONTACTS.find((c) => c.id === "github_issues")?.url ??
+  "https://github.com/FreakStudioCN/mpy-hardware-extension/issues";
+export const ISSUE_FORM_URL = `${GITHUB_ISSUES_URL}/new`;
+
+// GitHub rejects an over-long issue URL with a 414. The limit is on the PERCENT-ENCODED URL
+// (~8k), not the raw length — a CJK char is 3 UTF-8 bytes = 9 encoded chars — so we truncate the
+// diagnostics first (the description survives that cut), then budget the whole encoded URL.
+const ISSUE_BODY_DIAG_MAX = 3500;
+const ISSUE_TITLE_MAX = 80;
+const ISSUE_URL_ENCODED_MAX = 7800; // headroom under GitHub's ~8k encoded-URL ceiling
+
+// Remove unpaired UTF-16 surrogates. The code-point helpers below never CREATE a split pair, but an
+// input can arrive already split by an upstream code-UNIT slice (panel.ts description/contact,
+// session-controller diagnostics tail); a lone surrogate makes encodeURIComponent throw URIError.
+// Sanitizing inputs here closes every encode path — title, body, and diagnostics (PR #35 review).
+function stripLoneSurrogates(s: string): string {
+  return s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+}
+
+// Slice by whole code points, so a UTF-16 surrogate pair (e.g. an emoji) at the boundary is never
+// split into a lone surrogate — which would make encodeURIComponent throw URIError (PR #35 review).
+function sliceCodePoints(s: string, maxCodePoints: number): string {
+  return [...s].slice(0, maxCodePoints).join("");
+}
+
+// Trim s (on whole code points) until its percent-encoded length is within maxEncoded. Bounding the
+// RAW length instead let a Chinese report (9 encoded chars per char) overrun the URL limit and 414
+// the "Open issue" link — the common path for a CN-first product (PR #35 review).
+function truncateToEncodedLength(s: string, maxEncoded: number): string {
+  let total = 0;
+  let out = "";
+  for (const ch of s) { // the string iterator yields whole code points, never a lone surrogate
+    const enc = encodeURIComponent(ch).length;
+    if (total + enc > maxEncoded) break;
+    total += enc;
+    out += ch;
+  }
+  return out;
+}
+
+// Build a prefilled GitHub "new issue" URL from the form fields. Pure (the host validates the
+// inputs first), so it is unit-testable. Code-point-safe and bounded on the ENCODED URL length.
+export function buildIssueReportUrl(input: {
+  issueType: string;
+  description: string;
+  contact?: string;
+  diagnosticsText?: string;
+}): string {
+  // Strip unpaired surrogates from EVERY input before any encoding — including issueType. The sole
+  // caller host-allowlists issueType to ASCII, but the export types it as a broad string, so a future
+  // caller could hand a lone surrogate straight into the title's encodeURIComponent. Prevents that and
+  // the same URIError from any upstream code-UNIT slice on description/contact/diagnostics (PR #35 review).
+  const issueType = stripLoneSurrogates(input.issueType);
+  const description = stripLoneSurrogates(input.description);
+  const contact = input.contact === undefined ? undefined : stripLoneSurrogates(input.contact);
+  const diagnosticsText =
+    input.diagnosticsText === undefined ? undefined : stripLoneSurrogates(input.diagnosticsText);
+  // Split on CRLF too, so a Windows description doesn't leave a trailing \r in the title.
+  const firstLine = description.trim().split(/\r?\n/)[0] ?? "";
+  const title = sliceCodePoints(`[${issueType}] ${firstLine}`, ISSUE_TITLE_MAX);
+  const parts = [description.trim()];
+  const trimmedContact = contact?.trim();
+  if (trimmedContact) parts.push(`\nContact: ${trimmedContact}`);
+  const diag = diagnosticsText?.trim();
+  if (diag) parts.push("\n\nDiagnostics:\n```\n" + sliceCodePoints(diag, ISSUE_BODY_DIAG_MAX) + "\n```");
+  // Budget the encoded body against what is left of the URL ceiling after the (encoded) title.
+  const prefix = `${ISSUE_FORM_URL}?title=${encodeURIComponent(title)}&body=`;
+  const body = truncateToEncodedLength(parts.join("\n"), ISSUE_URL_ENCODED_MAX - prefix.length);
+  return `${prefix}${encodeURIComponent(body)}`;
+}

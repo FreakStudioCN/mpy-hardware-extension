@@ -129,8 +129,30 @@
       .sc-btn { flex: 0 0 auto; font: inherit; font-size: 12px; padding: 3px 10px; cursor: pointer;
         color: var(--fg); background: transparent; border: 1px solid var(--vsc-border); border-radius: 4px; }
       .sc-btn:hover { border-color: var(--accent); color: var(--fg-bright); }
-      .sc-report { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--vsc-border); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+      .sc-report { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--vsc-border); display: flex; flex-direction: column; gap: 7px; align-items: stretch; }
       .sc-report-h { font-size: 12px; font-weight: 650; color: var(--fg-bright); }
+      /* Section actions (Copy diagnostics / Reveal logs / Export log): full-width rows that line up
+         with the expander, outline style so they read as secondary next to the filled expander. */
+      .sc-report > .sc-btn { width: 100%; box-sizing: border-box; text-align: left; padding: 7px 10px; border-radius: 6px; border-color: var(--vsc-input-border); }
+      /* "Report an issue" expander: a full-width control bar with a chevron that flips when open,
+         so it reads as a dropdown, not a heading. */
+      .sc-report-toggle { display: flex; align-items: center; width: 100%; box-sizing: border-box;
+        background: var(--vsc-input); border: 1px solid var(--vsc-input-border); border-radius: 6px;
+        color: var(--fg); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+        padding: 7px 10px; text-align: left; transition: border-color .12s, background .12s; }
+      .sc-report-toggle::after { content: "\25BE"; margin-left: auto; font-size: 11px; color: var(--fg-dim); transition: transform .15s; }
+      .sc-report-toggle[aria-expanded="true"]::after { transform: rotate(180deg); }
+      .sc-report-toggle:hover, .sc-report-toggle[aria-expanded="true"] { border-color: var(--accent); color: var(--fg-bright); }
+      /* Issue-report form: stack the fields, full-width inputs themed like the rest of the panel. */
+      .sc-form { display: flex; flex-direction: column; gap: 8px; width: 100%; margin: 2px 0; align-self: stretch; }
+      .sc-type, .sc-desc, .sc-contact { width: 100%; box-sizing: border-box; background: var(--vsc-input);
+        border: 1px solid var(--vsc-input-border); color: var(--fg); border-radius: 6px; padding: 6px 8px;
+        font-family: var(--ui); font-size: 12px; outline: none; }
+      .sc-desc { min-height: 64px; resize: vertical; }
+      .sc-type:focus, .sc-desc:focus, .sc-contact:focus { border-color: var(--accent); }
+      .sc-attach { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-dim); cursor: pointer; }
+      .sc-attach input { margin: 0; flex: 0 0 auto; }
+      .sc-form .sc-btn { align-self: flex-start; }
       .home-zone { display: flex; flex-direction: column; align-items: center; width: 100%; }
       .partners { margin-top: 22px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
       /* divider only when the Partners zone is populated — keeps the empty state clean */

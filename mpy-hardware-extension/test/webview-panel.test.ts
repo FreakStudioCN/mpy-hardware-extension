@@ -1177,6 +1177,7 @@ test("export_session_log with a cancelled save dialog writes nothing and posts n
     const { posted, run } = exportPanel(ws, { windowExtra: { showSaveDialog: async () => undefined } });
     await run({ type: "export_session_log" });
     assert.ok(!posted.some((m) => m.type === "logs_status"), "a cancelled dialog is a no-op: no status, no error");
+    assert.ok(!posted.some((m) => m.type === "support_diagnostics_exported"), "a cancelled export records no Activity event");
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }
@@ -1244,6 +1245,9 @@ test("export_session_log falls back to globalStorage logs when no workspace is o
     assert.ok(existsSync(target), "export works with no workspace open, using the globalStorage logs root");
     assert.equal(readFileSync(target, "utf-8"), srcContent, "exported content matches the globalStorage session log");
     assert.ok(posted.some((m) => m.type === "logs_status" && /exported/i.test(m.text)));
+    // A successful export records the §8.1 event once (reverting the recordSupportAction call
+    // in the export success branch fails this).
+    assert.equal(posted.filter((m) => m.type === "support_diagnostics_exported").length, 1, "success records support_diagnostics_exported once");
   } finally {
     rmSync(gs, { recursive: true, force: true });
   }
@@ -1403,4 +1407,178 @@ test("a model-issued cp_from confirms on a pre-existing dest, skips the copy on 
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }
+});
+
+test("submit_issue_report validates host-side and opens a prefilled issue url", async () => {
+  const posted: any[] = [];
+  const opened: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async (u: any) => { opened.push(u.toString()); return true; } },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  // an unknown issue type is collapsed to "other" host-side — never trusted into the URL
+  await handler?.({ type: "submit_issue_report", issueType: "malicious", description: "it broke", attachDiagnostics: false });
+  assert.equal(opened.length, 1, "opens the prefilled issue url");
+  assert.match(opened[0], /\/issues\/new\?/, "targets the github new-issue page");
+  const decoded = decodeURIComponent(opened[0]);
+  assert.doesNotMatch(decoded, /malicious/, "unknown type collapsed to other, never trusted into the URL");
+  assert.match(decoded, /\[other\] it broke/, "type tag is the allowlisted value");
+
+  // an empty (whitespace-only) description is rejected host-side, opens nothing
+  opened.length = 0;
+  await handler?.({ type: "submit_issue_report", issueType: "bug", description: "   ", attachDiagnostics: false });
+  assert.equal(opened.length, 0, "empty description opens nothing");
+});
+
+test("request_diagnostics records support_diagnostics_exported with plugin vs session scope", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: pipelineFetch, loopMode: "template" });
+
+  // no session yet -> plugin scope
+  await handler?.({ type: "request_diagnostics" });
+  const plugin = posted.filter((m) => m.type === "support_diagnostics_exported");
+  assert.equal(plugin.length, 1, "records the export event");
+  assert.equal(plugin[0].scope, "plugin", "no session -> plugin scope");
+
+  // after a session runs, session_id is set -> session scope
+  await handler?.({ type: "start_session", intent: "build an env monitor", boardId: "esp32-s3-devkitc-1" });
+  posted.length = 0;
+  await handler?.({ type: "request_diagnostics" });
+  const session = posted.filter((m) => m.type === "support_diagnostics_exported");
+  assert.equal(session.length, 1);
+  assert.equal(session[0].scope, "session", "after a session -> session scope");
+});
+
+test("copy_support_contact copies the config value by id, ignoring webview-supplied text", async () => {
+  const posted: any[] = [];
+  const copied: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    env: { clipboard: { writeText: async (t: string) => { copied.push(t); } } },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  // the webview supplies a spoofed `text`; the host must ignore it and copy the config value.
+  await handler?.({ type: "copy_support_contact", contactId: "wechat", text: "attacker-controlled" });
+  assert.deepEqual(copied, ["wxinliliszdyyr"], "copies the config value for the id, not the webview text");
+  assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "wechat" && m.action === "copy"), "records the copy");
+
+  copied.length = 0; posted.length = 0;
+  await handler?.({ type: "copy_support_contact", contactId: "does-not-exist" });
+  assert.equal(copied.length, 0, "unknown contact id copies nothing");
+  assert.ok(!posted.some((m) => m.type === "support_feedback_opened"), "and records nothing");
+});
+
+test("request_diagnostics reports the shim's selected serial port", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const shim = { getPort: () => "COM7", setPort() {}, scan: async () => ["COM7"] };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template", shim });
+
+  await handler?.({ type: "request_diagnostics" });
+  const diag = posted.find((m) => m.type === "diagnostics");
+  assert.ok(diag, "diagnostics posted");
+  // Reverting the `serial_port: shim.getPort()` merge in collectDiagnostics fails this.
+  assert.equal(diag.fields.serial_port, "COM7", "serial_port reflects the shim's selected port");
+});
+
+test("open_support_panel records support_feedback_opened", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: { cspSource: "vscode-resource:", html: "", postMessage: (message: any) => posted.push(message), onDidReceiveMessage: (next: any) => { handler = next; } },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler?.({ type: "open_support_panel" });
+  assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "panel"), "records the panel open");
+});
+
+test("open_external records only a support-contact url, never a partner/board link", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: { cspSource: "vscode-resource:", html: "", postMessage: (message: any) => posted.push(message), onDidReceiveMessage: (next: any) => { handler = next; } },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async () => true },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler?.({ type: "open_external", url: "https://discord.gg/EPRn28fJ2" }); // a support contact url
+  assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "discord"), "a support contact url records");
+
+  posted.length = 0;
+  await handler?.({ type: "open_external", url: "https://wiznet.io/" }); // a partner url, not a contact
+  assert.ok(!posted.some((m) => m.type === "support_feedback_opened"), "a non-contact link records nothing");
+});
+
+test("submit_issue_report records support_feedback_opened entry report_issue", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: { cspSource: "vscode-resource:", html: "", postMessage: (message: any) => posted.push(message), onDidReceiveMessage: (next: any) => { handler = next; } },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async () => true },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler?.({ type: "submit_issue_report", issueType: "bug", description: "it broke", attachDiagnostics: false });
+  assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "report_issue"), "records the issue submit");
 });

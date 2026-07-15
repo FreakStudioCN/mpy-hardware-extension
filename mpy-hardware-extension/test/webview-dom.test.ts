@@ -231,26 +231,56 @@ test("the support panel opens from global tools and drives config-driven contact
   assert.match(support.textContent!, /WeChat Contact/);
   assert.match(support.textContent!, /Discord Community/);
   assert.match(support.textContent!, /Report an issue/);
-  assert.match(support.textContent!, /session_id/, "diagnostics fields are listed");
 
   // copy the WeChat id via the host clipboard
   posted.length = 0;
   const wechatRow = [...support.querySelectorAll(".sc-row")].find((r) => r.textContent!.includes("WeChat"))!;
   (wechatRow.querySelector(".sc-btn") as HTMLButtonElement).click();
-  const copy = posted.find((m) => m.type === "copy_code");
-  assert.ok(copy, "copy posts copy_code");
-  assert.equal(copy.text, "wxinliliszdyyr");
+  const copy = posted.find((m) => m.type === "copy_support_contact");
+  assert.ok(copy, "copy posts copy_support_contact (host looks up the value by id)");
+  assert.equal(copy.contactId, "wechat");
 
-  // report an issue opens GitHub Issues externally
+  // the GitHub Issues contact row opens externally (its own Open — no redundant report-section button)
   posted.length = 0;
-  const reportBtn = [...support.querySelectorAll(".sc-btn")].find((b) => b.textContent === "Open GitHub Issues") as HTMLButtonElement;
-  reportBtn.click();
+  const issuesRow = [...support.querySelectorAll(".sc-row")].find((r) => r.textContent!.includes("GitHub Issues"))!;
+  (issuesRow.querySelector(".sc-btn") as HTMLButtonElement).click();
   const ext = posted.find((m) => m.type === "open_external");
-  assert.ok(ext, "posts open_external");
+  assert.ok(ext, "the GitHub Issues row posts open_external");
   assert.match(ext.url, /github\.com/);
+  assert.ok(![...support.querySelectorAll("button")].some((b) => b.textContent === "Open GitHub Issues"), "no redundant Open GitHub Issues button in the report section");
 
   (document.getElementById("supportBack") as HTMLButtonElement).click();
   assert.equal(document.getElementById("toolSupport")!.classList.contains("hidden"), true, "Back closes the support surface");
+});
+
+test("the support issue form submits the typed report to the host", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.querySelector("#globalTools #supportOpen") as HTMLButtonElement).click();
+  post(dom, {
+    type: "support_config",
+    contacts: [{ id: "github_issues", label: "GitHub Issues", url: "https://github.com/x/y/issues" }],
+    diagnosticsFields: ["session_id"],
+    issueTypes: ["bug", "feature_request", "question", "other"],
+  });
+  const support = document.getElementById("support")!;
+  assert.ok(support.querySelector(".sc-form")!.classList.contains("hidden"), "the form is collapsed by default");
+  ([...support.querySelectorAll("button")].find((b) => b.textContent === "Report an issue") as HTMLButtonElement).click();
+  assert.ok(!support.querySelector(".sc-form")!.classList.contains("hidden"), "clicking Report an issue reveals the form");
+  (support.querySelector("#scIssueType") as HTMLSelectElement).value = "feature_request";
+  (support.querySelector("#scIssueDesc") as HTMLTextAreaElement).value = "add a dark theme";
+  (support.querySelector("#scIssueContact") as HTMLInputElement).value = "me@x.com";
+
+  posted.length = 0;
+  const submit = [...support.querySelectorAll(".sc-btn")].find((b) => b.textContent === "Submit issue report") as HTMLButtonElement;
+  submit.click();
+  const sent = posted.find((m) => m.type === "submit_issue_report");
+  assert.ok(sent, "clicking Submit posts submit_issue_report");
+  assert.equal(sent.issueType, "feature_request");
+  assert.equal(sent.description, "add a dark theme");
+  assert.equal(sent.contact, "me@x.com");
+  assert.equal(sent.attachDiagnostics, true, "attach diagnostics defaults on");
 });
 
 test("Copy diagnostics requests a snapshot from the host and copies it", async () => {
@@ -2026,8 +2056,10 @@ test("support panel exposes log reveal/export buttons that post the right messag
   post(dom, { type: "support_config", contacts: [], diagnosticsFields: ["os", "node"] });
   const btns = [...document.querySelectorAll("#support button")] as HTMLButtonElement[];
   const reveal = btns.find((b) => b.textContent === "Reveal logs folder");
-  const exp = btns.find((b) => b.textContent === "Export session log");
+  const exp = btns.find((b) => /full session log/i.test(b.textContent ?? ""));
   assert.ok(reveal && exp, "reveal + export buttons render in the support panel");
+  // The export copy discloses it ships the whole transcript (privacy framing, #80).
+  assert.match(document.getElementById("support")!.textContent!, /transcript/i, "export note says it's the full transcript");
 
   reveal!.click();
   exp!.click();
@@ -2275,4 +2307,24 @@ test("device tools: Delete is host-armed two-step — first click requests an ar
   const confirm = posted.filter((m) => m.type === "device_tool_delete").at(-1);
   assert.equal(confirm.nonce, "n-123", "the confirm click echoes the host nonce");
   assert.equal(confirm.path, "/lib/x.py");
+});
+
+test("support actions are recorded host-side, never rendered into the build feed", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click(); // running -> spinner armed
+  const activity = document.getElementById("activity")!;
+  const before = activity.childElementCount;
+
+  post(dom, { type: "support_feedback_opened", entry: "panel" });
+  post(dom, { type: "support_diagnostics_exported", scope: "session" });
+
+  // Support navigation is diagnostics/traceability, not build progress: it must add no feed card
+  // and must not disturb the running spinner. Re-adding an addActivity handler for these fails this.
+  assert.equal(activity.childElementCount, before, "support actions add no card to the build feed");
+  assert.doesNotMatch(activity.textContent!, /Diagnostics exported|Support:/, "no support text leaks into the feed");
+  assert.ok(document.querySelector(".feed-pending"), "the working spinner is untouched");
 });

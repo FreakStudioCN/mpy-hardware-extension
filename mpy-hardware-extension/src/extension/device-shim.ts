@@ -27,6 +27,12 @@ export class DeviceShim {
     this.port = port;
   }
 
+  // The currently-selected device port (set by select_device, a deploy-card confirm, or the
+  // single-device auto-pick). Read by the diagnostics snapshot (section 08 serial_port field).
+  getPort(): string | null {
+    return this.port;
+  }
+
   async scan(): Promise<string[]> {
     await this.ensure();
     const r = await this.rpc("device.scan", {});

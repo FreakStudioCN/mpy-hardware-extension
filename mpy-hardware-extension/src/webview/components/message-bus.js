@@ -79,6 +79,10 @@
         if (msg.type === "artifacts_index") { renderArtifacts(msg.artifacts); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
         if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
+        // support_feedback_opened / support_diagnostics_exported are recorded host-side (session log +
+        // recent_activity, surfaced in the diagnostics snapshot) for section 08 §6.3 / §8.1 traceability.
+        // They are deliberately NOT rendered into the build feed: opening the support panel or copying a
+        // contact is navigation, not build progress, and would just clutter the conversation.
         // A supplement line is an annotation, not a step: addActivity() clears the working
         // spinner, so re-arm it (with the same label) while the build is still running.
         if (msg.type === "user_supplement_received") { addActivity({ type: "trace", text: tr("supplement_received", { s: msg.summary }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }

@@ -1269,3 +1269,75 @@ test("the authored-diagram guard clears on every run() start, even without a res
   assert.equal(diagrams.length, 2, "build two derives its own diagram — run() cleared the guard without a reset");
   assert.ok(diagrams[1].diagram.architecture.layers.some((l: any) => l.id === "driver"), "build two's diagram is the manifest-derived one");
 });
+
+test("recordSupportAction writes to the log, feeds recent_activity, and posts to the webview", async () => {
+  const recorded: any[] = [];
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async () => ({ terminal: "complete" }),
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  recorded.length = 0; posted.length = 0;
+  controller.recordSupportAction({ type: "support_diagnostics_exported", scope: "session" });
+
+  // Reverting `this.record(event)` in recordSupportAction fails this assertion.
+  assert.ok(recorded.some((e) => e.type === "support_diagnostics_exported"), "written to the session log");
+  assert.ok(posted.some((m) => m.type === "support_diagnostics_exported"), "forwarded to the Activity feed");
+  assert.match(controller.getDiagnostics().recent_activity, /support_diagnostics_exported/, "surfaced in recent_activity");
+});
+
+test("stdout_stderr_summary tails serial output, stays bounded, and clears on reset", async () => {
+  const controller = new SessionController({
+    postMessage: () => {},
+    // Feed 25 serial_output lines; the tail cap is 20, so L0..L4 must be dropped.
+    loop: async ({ onEvent }: any) => {
+      for (let i = 0; i < 25; i++) onEvent({ type: "serial_output", lines: [`L${i}`] });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const summary = controller.getDiagnostics().stdout_stderr_summary;
+  assert.match(summary, /\bL24\b/, "keeps the newest line");
+  assert.match(summary, /\bL5\b/, "L5 is the oldest kept (cap 20)");
+  assert.doesNotMatch(summary, /\bL4\b/, "L0..L4 dropped beyond the cap");
+  assert.doesNotMatch(summary, /\bL0\b/, "oldest is dropped");
+
+  // Reverting the `this.stdoutTail = []` in reset() fails this.
+  controller.reset();
+  assert.equal(controller.getDiagnostics().stdout_stderr_summary, "", "reset clears the tail");
+});
+
+test("stdout_stderr_summary keeps the NEWEST lines under the cap, dropping the oldest (#35 review)", async () => {
+  // 20 lines of ~207 chars -> joined tail well over the 2000-char cap. For a crash diagnostic the
+  // traceback is the newest line, so the cap must keep the END, not the start.
+  const lines = Array.from({ length: 20 }, (_, i) => `L${i}_${"z".repeat(200)}`);
+  lines[0] = "OLDEST_" + "z".repeat(200);
+  lines[19] = "NEWEST_TRACEBACK_" + "z".repeat(200);
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ onEvent }: any) => { onEvent({ type: "serial_output", lines }); return { terminal: "complete" }; },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const summary = controller.getDiagnostics().stdout_stderr_summary;
+  assert.ok(summary.length <= 2000, `summary truncated to the 2000-char cap (${summary.length})`);
+  assert.match(summary, /NEWEST_TRACEBACK/, "the newest line (the traceback) is kept");
+  assert.doesNotMatch(summary, /OLDEST/, "the oldest line is dropped");
+  // Mutation: revert getDiagnostics to `.slice(0, N)` -> keeps OLDEST, drops NEWEST_TRACEBACK.
+});
+
+test("the stdout tail clears on a board switch, not only on reset", async () => {
+  let runs = 0;
+  const controller = new SessionController({
+    postMessage: () => {},
+    loop: async ({ onEvent }: any) => { runs++; if (runs === 1) onEvent({ type: "serial_output", lines: ["fromA"] }); return { terminal: "complete" }; },
+  });
+  await controller.start({ intent: "x", boardId: "boardA" });
+  assert.match(controller.getDiagnostics().stdout_stderr_summary, /fromA/);
+  // A different board is a fresh session; reverting the start()-board-switch clear leaks board A's tail.
+  await controller.start({ intent: "y", boardId: "boardB" });
+  assert.equal(controller.getDiagnostics().stdout_stderr_summary, "", "board switch clears the stdout tail");
+});

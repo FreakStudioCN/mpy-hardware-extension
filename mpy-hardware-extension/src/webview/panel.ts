@@ -12,7 +12,7 @@ import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
-import { SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, orderContactsByLocale } from "../core/support-config.ts";
+import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
@@ -105,7 +105,7 @@ function skillsSubmoduleCommit(): string {
 // The section-08 diagnostics snapshot: session-scoped fields (from the controller) merged
 // with always-available host fields (versions, os/node/npm, python, mpremote). Emits every
 // declared SUPPORT_DIAGNOSTICS_FIELDS key, in order, so a bug report is complete.
-function collectDiagnostics(vscode: any, session: Record<string, string>): { text: string; fields: Record<string, string> } {
+function collectDiagnostics(vscode: any, session: Record<string, string>, serialPort: string): { text: string; fields: Record<string, string> } {
   let python = "unknown";
   try {
     const p = detectPython(vscode);
@@ -122,12 +122,20 @@ function collectDiagnostics(vscode: any, session: Record<string, string>): { tex
     npm: tryExecVersion("npm", ["--version"]),
     python,
     mpremote: venvMpremoteVersion() ?? tryExecVersion("mpremote", ["--version"]),
+    // The selected device port lives in the shim, not the session — merge it here (host
+    // keys win). Reflects the last-selected device; may be stale after unplug (display-only).
+    serial_port: serialPort,
   };
   return buildDiagnosticsFields({ ...session, ...host });
 }
 
 // How many past sessions the "View Recent Sessions" launch entry lists (newest first).
 const RECENT_SESSIONS_LIMIT = 20;
+
+// Caps for the host-validated issue-report form (webview input is untrusted). Generous, just
+// bounds against a pathological paste before the URL builder truncates the attached diagnostics.
+const ISSUE_DESC_MAX = 5000;
+const ISSUE_CONTACT_MAX = 200;
 
 // Maps a gen-driver file field's `accept` group to a vscode open-dialog filter.
 const GEN_DRIVER_FILE_FILTERS: Record<string, Record<string, string[]>> = {
@@ -513,7 +521,26 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Contacts/diagnostics come from the config module (single source of truth), never
       // hardcoded in the webview render.
       const contacts = orderContactsByLocale(SUPPORT_CONTACTS, vscode.env?.language ?? "en");
-      webview.postMessage({ type: "support_config", contacts, diagnosticsFields: SUPPORT_DIAGNOSTICS_FIELDS });
+      webview.postMessage({ type: "support_config", contacts, diagnosticsFields: SUPPORT_DIAGNOSTICS_FIELDS, issueTypes: ISSUE_TYPES });
+      return;
+    }
+    if (message.type === "open_support_panel") {
+      // §6.3: opening the support entry is recorded in Activity (§8.1 support_feedback_opened).
+      controller.recordSupportAction({ type: "support_feedback_opened", entry: "panel" });
+      return;
+    }
+    if (message.type === "copy_support_contact" && typeof message.contactId === "string") {
+      // Copy a support contact's value. Look it up in the config BY ID (never copy the
+      // webview-echoed text — untrusted), then record the §8.1 event.
+      const contact = SUPPORT_CONTACTS.find((c) => c.id === message.contactId);
+      if (contact?.value) {
+        try {
+          await vscode.env?.clipboard?.writeText?.(contact.value);
+        } catch {
+          // clipboard unavailable (e.g. headless host) — ignore
+        }
+        controller.recordSupportAction({ type: "support_feedback_opened", entry: contact.id, action: "copy" });
+      }
       return;
     }
     if (message.type === "request_partners") {
@@ -526,7 +553,31 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     if (message.type === "request_diagnostics") {
       // Gather env diagnostics on demand so a bug report carries an actionable snapshot.
-      webview.postMessage({ type: "diagnostics", ...collectDiagnostics(vscode, controller.getDiagnostics()) });
+      const diag = collectDiagnostics(vscode, controller.getDiagnostics(), shim.getPort?.() ?? "");
+      webview.postMessage({ type: "diagnostics", ...diag });
+      // §6.3: exporting diagnostics must be recorded in Activity (§8.1 support_diagnostics_exported).
+      controller.recordSupportAction({ type: "support_diagnostics_exported", scope: diag.fields.session_id ? "session" : "plugin" });
+      return;
+    }
+    if (message.type === "submit_issue_report") {
+      // Host-validate the untrusted form: require a description, allowlist the type (else
+      // "other"), cap lengths. Attach the diagnostics snapshot when asked, then open a
+      // prefilled GitHub issue URL through the same scheme-guarded path as open_external.
+      const description = String(message.description ?? "").trim().slice(0, ISSUE_DESC_MAX);
+      if (!description) return;
+      const issueType = (ISSUE_TYPES as readonly string[]).includes(message.issueType) ? message.issueType : "other";
+      const contact = String(message.contact ?? "").trim().slice(0, ISSUE_CONTACT_MAX);
+      const diagnosticsText = message.attachDiagnostics ? collectDiagnostics(vscode, controller.getDiagnostics(), shim.getPort?.() ?? "").text : undefined;
+      try {
+        // Build inside the try: buildIssueReportUrl is code-point-safe, but a malformed input must
+        // degrade gracefully rather than throw an unhandled rejection that also skips the §8.1 event.
+        const url = buildIssueReportUrl({ issueType, description, contact, diagnosticsText });
+        const uri = vscode.Uri.parse(url, true);
+        if (/^https?$/.test(uri.scheme)) await vscode.env?.openExternal?.(uri);
+      } catch {
+        // malformed URL or headless host without openExternal — ignore
+      }
+      controller.recordSupportAction({ type: "support_feedback_opened", entry: "report_issue" });
       return;
     }
     if (message.type === "request_artifacts") {
@@ -572,6 +623,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         const uri = vscode.Uri.parse(message.url, true);
         if (/^(https?|mailto)$/.test(uri.scheme)) {
           await vscode.env?.openExternal?.(uri);
+          // Record only when the opened URL is a known support contact (host-side match, so
+          // partner/board links never record and the webview can't spoof the entry). §8.1.
+          const contact = SUPPORT_CONTACTS.find((c) => c.url === message.url);
+          if (contact) controller.recordSupportAction({ type: "support_feedback_opened", entry: contact.id });
         }
       } catch {
         // malformed URL or headless host without openExternal — ignore
@@ -893,6 +948,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           try {
             await writeFile(target.fsPath, readFileSync(src, "utf-8"), "utf-8");
             webview.postMessage({ type: "logs_status", text: "Session log exported." });
+            // §8.1: a session-log export is a diagnostics export (closest-fit event name).
+            controller.recordSupportAction({ type: "support_diagnostics_exported", scope: "session", kind: "session_log" });
           } catch (error: any) {
             webview.postMessage({ type: "logs_status", text: `Export failed: ${error?.message ?? error}` });
           }

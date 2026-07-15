@@ -485,3 +485,10 @@ test("kill() rejects the in-flight RPC immediately instead of leaving it hanging
   (shim as any).kill();
   await assert.rejects(inflight, /shim exited/, "Stop must fail the blocked RPC now — the loop is waiting on it");
 });
+
+test("getPort returns the port set via setPort", () => {
+  const shim = new DeviceShim(async () => ({ status: "ok" }));
+  assert.equal(shim.getPort(), null, "no port until one is selected");
+  shim.setPort("COM8");
+  assert.equal(shim.getPort(), "COM8", "reflects the selected port");
+});
