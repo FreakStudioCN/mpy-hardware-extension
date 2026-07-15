@@ -1409,3 +1409,23 @@ test("startPhase rejects while a run is in flight (register #16)", async () => {
   release!();
   await running;
 });
+
+test("a gen-driver phase_complete surfaces gen_driver_status; other phases do not", async () => {
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      // gen-driver phase_complete uses the DOMAIN token "gen-driver" and carries driver_status
+      onEvent({ type: "phase_complete", payload: { phase: "gen-driver", result: "success", driver_status: "ready", summary: "SHT30 driver ready" } });
+      // a non-gen-driver phase_complete must NOT post gen_driver_status
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const statuses = posted.filter((m) => m.type === "gen_driver_status");
+  // Mutation: drop the gen_driver_status post -> 0; drop the phase check -> 2 (generate leaks in).
+  assert.equal(statuses.length, 1, "only the gen-driver phase_complete posts gen_driver_status");
+  assert.equal(statuses[0].status, "ready");
+  assert.equal(statuses[0].detail, "SHT30 driver ready");
+});

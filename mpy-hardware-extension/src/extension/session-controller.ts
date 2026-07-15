@@ -6,6 +6,7 @@ import { classifyArtifactKind } from "./artifact-index.ts";
 import type { ArtifactSource } from "./artifact-index.ts";
 import { deriveWiring } from "../core/wiring-derive.ts";
 import { deriveDiagram } from "../core/diagram-derive.ts";
+import { deriveDriverStatus, GEN_DRIVER_DOMAIN_PHASE } from "../core/gen-driver-schema.ts";
 
 export class SessionController {
   deps: {
@@ -585,6 +586,12 @@ export class SessionController {
       this.capturePhaseArtifacts(event.payload);
       this.record({ type: "phase_complete", payload: event.payload });
       this.deps.postMessage({ type: "phase_complete", payload: event.payload });
+      // A gen-driver run's phase_complete carries the UI driver status (payload.phase is the DOMAIN
+      // token "gen-driver"). Surface it to the GenDriverPanel; deriveDriverStatus trusts the
+      // authoritative driver_status when present and falls back to the result/verification heuristic.
+      if (event.payload?.phase === GEN_DRIVER_DOMAIN_PHASE) {
+        this.deps.postMessage({ type: "gen_driver_status", status: deriveDriverStatus(event.payload ?? {}), detail: event.payload?.summary });
+      }
       return;
     }
     if (event.type === "credits") {
