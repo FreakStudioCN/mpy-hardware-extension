@@ -11,7 +11,8 @@ import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
-import { GEN_DRIVER_TABS, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
+import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
+import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
 import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
@@ -634,19 +635,64 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return;
     }
     if (message.type === "start_gen_driver") {
-      // Normalized contract (Ruili 2026-07-06): canonical input is sources[]. Gate on
-      // >=1 source or a driver_request; mode is pipeline when a cold-driver source is present.
-      // ponytail: start_phase dispatch/run is Day 6/8.
+      // Normalized contract (Ruili 2026-07-06): canonical input is sources[]. Gate on >=1 source or a
+      // driver_request, then dispatch the run with the SAME safety as start_session.
       const sources = Array.isArray(message.sources) ? message.sources : [];
       if (!canStartGeneration(sources, message.driverRequest)) {
         webview.postMessage({ type: "gen_driver_status", status: "failed", detail: "Add at least one source (or a target driver) before generating." });
         return;
       }
-      const mode = sources.some((s: any) => s?.type === "current_cold_driver_item") ? "pipeline" : "standalone";
-      webview.postMessage({
-        type: "gen_driver_status",
-        detail: `Received ${sources.length} source(s) (mode=${mode}). Driver generation run is wired in a later step.`,
-      });
+      if (!projectFolder) {
+        webview.postMessage({ type: "gen_driver_status", status: "failed", detail: "Open a workspace folder to generate a driver." });
+        return;
+      }
+      // Reject a re-entrant run at the entry point (register #1/#16), then gate protocol + auth exactly
+      // like start_session before taking the port.
+      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
+      if (registry.warning === "protocol_version_mismatch") {
+        webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
+        webview.postMessage({ type: "session_done", terminal: "session_error" });
+        return;
+      }
+      if (vscode.authentication) {
+        const jwt = await auth.getToken(true, { forceRefresh: true });
+        if (!jwt) {
+          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
+          webview.postMessage({ type: "session_done", terminal: "session_error" });
+          return;
+        }
+      }
+      await ensureProjectGitRepo(projectFolder, deps.log);
+      // Snapshot the manifest BEFORE the run (run() clears latestManifest) so mode inference + the
+      // pipeline envelope see the cold-driver devices even if the run streams a thin manifest_content.
+      const manifestSnapshot = controller.getLatestManifest();
+      const releaseRun = await acquireRunOwnership();
+      try {
+        snapshotExistingPaths(projectFolder, preExistingPaths);
+        // Stage picked files under projectFolder (containment-reachable), sha256-verified.
+        const staged = await stageGenDriverSources(sources, projectFolder);
+        const sessionId = randomUUID();
+        const envelope = buildGenDriverDispatch({
+          sessionId,
+          msgId: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sources: staged,
+          manifestContent: manifestSnapshot,
+          driverRequest: message.driverRequest,
+          verification: message.verification,
+        });
+        await controller.startPhase({
+          phase: GEN_DRIVER_ENVELOPE_PHASE,
+          envelope: JSON.stringify(envelope),
+          manifest: manifestSnapshot,
+          boardId: message.boardId,
+          label: "gen-driver run",
+        });
+      } catch (error: any) {
+        // Staging integrity/copy failure (register #8: surface, never proceed as if staged).
+        webview.postMessage({ type: "gen_driver_status", status: "failed", detail: error?.message ?? "gen-driver dispatch failed" });
+      } finally { releaseRun(); }
       return;
     }
     if (message.type === "pick_gen_driver_file") {
