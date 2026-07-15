@@ -498,3 +498,8 @@
       .dt-navbtn { text-align: left; font: inherit; background: transparent; border: 0; color: var(--fg); cursor: pointer; padding: 0; }
       .dt-navbtn:hover { color: var(--accent); }
       .dt-dir .dt-name { font-weight: 600; }
+
+/* Optional-flow run output: the mermaid-rendered wiring/diagram image, shown in its tab. */
+.of-run-image { margin: 8px 0; }
+.of-run-cap { font-size: 12px; opacity: .7; margin-bottom: 4px; }
+.of-run-img { max-width: 100%; height: auto; border-radius: 4px; }

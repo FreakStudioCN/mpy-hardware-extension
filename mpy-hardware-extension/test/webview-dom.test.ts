@@ -2329,6 +2329,29 @@ test("support actions are recorded host-side, never rendered into the build feed
   assert.ok(document.querySelector(".feed-pending"), "the working spinner is untouched");
 });
 
+test("a wiring/diagram run's rendered image shows in its tab (svg preferred), else the tab stays derived", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // artifacts_index rows carry kind + webview_uri for images (the host resolves them)
+  post(dom, { type: "artifacts_index", artifacts: [
+    { relative_path: "blockless-project/docs/wiring.png", kind: "wiring", webview_uri: "vscode-resource://wiring.png" },
+    { relative_path: "blockless-project/docs/wiring.svg", kind: "wiring", webview_uri: "vscode-resource://wiring.svg" },
+    { relative_path: "blockless-project/docs/architecture.svg", kind: "diagram", webview_uri: "vscode-resource://arch.svg" },
+    { relative_path: "blockless-project/main.py", kind: "code" },
+  ] });
+  const wImg = document.querySelector("#wiringRunImage img") as HTMLImageElement;
+  assert.ok(wImg, "the wiring run image renders in the Wiring tab");
+  assert.equal(wImg.src, "vscode-resource://wiring.svg", "svg is preferred over png");
+  const dImg = document.querySelector("#diagramRunImage img") as HTMLImageElement;
+  assert.equal(dImg.src, "vscode-resource://arch.svg", "the diagram run image renders in the Diagram tab");
+
+  // A later index with no images (e.g. a local-only/partial run) hides the run image -> derived view stays.
+  // Mutation: drop the message-bus route -> the first index never renders and this whole test fails.
+  post(dom, { type: "artifacts_index", artifacts: [{ relative_path: "blockless-project/docs/wiring.md", kind: "wiring" }] });
+  assert.ok(document.getElementById("wiringRunImage")!.classList.contains("hidden"), "no image -> the run-image slot hides");
+});
+
 test("optional-flow entries appear only for offered flows and dispatch start_optional_flow", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

@@ -79,7 +79,7 @@
         if (msg.type === "code_updated") { finalizeCode(msg.code, msg.path); }
         if (msg.type === "manifest_updated") { renderWiring(msg.manifest); }
         if (msg.type === "diagram_updated") { renderDiagram(msg.diagram); }
-        if (msg.type === "artifacts_index") { renderArtifacts(msg.artifacts); }
+        if (msg.type === "artifacts_index") { renderArtifacts(msg.artifacts); renderOptionalFlowImages(msg.artifacts); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
         if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
         // support_feedback_opened / support_diagnostics_exported are recorded host-side (session log +

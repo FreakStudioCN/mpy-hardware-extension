@@ -263,6 +263,31 @@
           el.appendChild(btn);
         });
       }
+      // Render a wiring/diagram RUN's authored image (the mermaid-rendered svg/png) in its tab, above the
+      // derived preview. The host already attaches a webview-safe `webview_uri` to image artifacts and tags
+      // their kind (wiring/diagram) in the artifacts_index — so pick the best image and show it. Falls back
+      // to nothing (the derived view stays) when the run produced no image (local-only/partial run).
+      function optionalFlowRunImage(artifacts, kind) {
+        var imgs = (Array.isArray(artifacts) ? artifacts : []).filter(function (a) { return a && a.kind === kind && a.webview_uri; });
+        var svg = imgs.filter(function (a) { return /\.svg$/i.test(a.relative_path || ""); });
+        var png = imgs.filter(function (a) { return /\.png$/i.test(a.relative_path || ""); });
+        return svg[0] || png[0] || imgs[0] || null;
+      }
+      function renderOptionalFlowRunImage(containerId, artifacts, kind, label) {
+        var el = $(containerId); if (!el) return;
+        var art = optionalFlowRunImage(artifacts, kind);
+        el.innerHTML = "";
+        if (!art) { el.classList.add("hidden"); return; }
+        el.classList.remove("hidden");
+        var cap = document.createElement("div"); cap.className = "of-run-cap"; cap.textContent = label;
+        var img = document.createElement("img"); img.className = "of-run-img"; img.src = art.webview_uri; img.alt = label; // .src, not innerHTML -> no injection
+        el.appendChild(cap); el.appendChild(img);
+      }
+      function renderOptionalFlowImages(artifacts) {
+        // labels computed at call-time so the locale is current (LOCALE is "en" at script load).
+        renderOptionalFlowRunImage("wiringRunImage", artifacts, "wiring", LOCALE === "zh" ? "生成的接线图" : "Generated wiring");
+        renderOptionalFlowRunImage("diagramRunImage", artifacts, "diagram", LOCALE === "zh" ? "生成的架构图" : "Generated diagram");
+      }
       function setOptionalFlowStatus(flow, status, detail) {
         var entry = flow === "wiring" ? $("wiringEntry") : flow === "diagram" ? $("diagramEntry") : null;
         if (!entry) return;
