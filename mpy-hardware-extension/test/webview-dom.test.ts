@@ -2329,6 +2329,22 @@ test("support actions are recorded host-side, never rendered into the build feed
   assert.ok(document.querySelector(".feed-pending"), "the working spinner is untouched");
 });
 
+test("a #53 gen_driver_required message offers to build the driver; clicking dispatches the run", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "gen_driver_required", blocks: [{ device: "SHT30", driver_id: "sht30", next_phase: "upy-gen-driver-plugin" }] });
+  const card = document.querySelector("[data-gen-driver-offer]");
+  assert.ok(card, "the offer card renders");
+  assert.match(card!.textContent!, /SHT30/, "names the affected device");
+  const btn = card!.querySelector("button") as HTMLButtonElement;
+  btn.click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.ok(start, "clicking Build driver dispatches start_gen_driver (approval-first, never auto-start)");
+  assert.ok(Array.isArray(start.sources) && start.sources.some((s: any) => s.type === "current_cold_driver_item"), "runs pipeline mode off the cold-driver source");
+  assert.equal(btn.disabled, true, "the button disables after the click so it can't double-dispatch");
+});
+
 test("an approval card whose actions carry only `id` answers with the id, so Cancel cancels (not confirm)", async () => {
   // The wiring network-render card's actions carry `id`, not `value`. With the old value-only answer,
   // EVERY button (incl. Cancel) posted "confirm" -> the loop's cancel detection never fired (a Cancel

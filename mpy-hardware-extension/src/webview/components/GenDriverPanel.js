@@ -298,4 +298,21 @@
         const label = hidden.parentElement.querySelector(".gd-filename");
         if (label) label.textContent = file.name;
       }
+      // #53: generate blocked because a device has no ready driver. OFFER to build it first (never
+      // auto-start) — clicking dispatches a pipeline gen-driver run off the cold-driver source.
+      function showDriverRequiredOffer(blocks) {
+        const host = $("activity"); if (!host || !Array.isArray(blocks) || !blocks.length) return;
+        const devices = blocks.map((b) => (b && (b.device || b.driver_id)) || "").filter(Boolean).join(", ");
+        const card = document.createElement("div"); card.className = "ev-card gd-required"; card.dataset.genDriverOffer = "1";
+        const head = document.createElement("div"); head.className = "gd-required-head";
+        head.textContent = "A driver must be built before generating" + (devices ? ": " + devices : "");
+        const btn = document.createElement("button"); btn.className = "gd-required-run"; btn.textContent = "Build driver";
+        btn.addEventListener("click", () => {
+          vscode.postMessage({ type: "start_gen_driver", sources: [{ type: "current_cold_driver_item", metadata: { driver_status: "cold_driver_required" } }] });
+          btn.disabled = true; head.textContent = "Building driver…";
+        });
+        card.appendChild(head); card.appendChild(btn);
+        host.appendChild(card);
+        host.parentElement.scrollTop = host.parentElement.scrollHeight;
+      }
 
