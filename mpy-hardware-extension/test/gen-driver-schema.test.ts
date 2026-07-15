@@ -20,6 +20,7 @@ import {
   normalizeSources,
   canStartGeneration,
   DEFAULT_GEN_DRIVER_CAPABILITIES,
+  genDriverRuntimeContext,
 } from "../src/core/gen-driver-schema.ts";
 import type { DriverStatus } from "../src/core/gen-driver-schema.ts";
 
@@ -281,6 +282,22 @@ test("buildStartPhase emits the normalized business payload (sources[]/driver_re
   // envelope + runtime_context + capabilities kept from the sample shape
   assert.equal(built.phase, GEN_DRIVER_ENVELOPE_PHASE);
   assert.ok(payload.runtime_context && payload.capabilities);
+});
+
+test("genDriverRuntimeContext roots are cwd-relative and containment-valid", () => {
+  const rc = genDriverRuntimeContext("sess-1");
+  // Every root must be reachable by the host's file_operation/script_run containment (rooted at
+  // projectFolder = cwd): no absolute path, no "../" escape. Mutation: point session_root at an
+  // absolute or "../" path and this fails.
+  for (const [key, value] of Object.entries(rc)) {
+    assert.equal(typeof value, "string", `${key} is a string`);
+    assert.ok(!(value as string).startsWith("/") && !/^[A-Za-z]:/.test(value as string), `${key} is not absolute: ${value}`);
+    assert.ok(!(value as string).split("/").includes(".."), `${key} does not escape with ..: ${value}`);
+  }
+  assert.equal(rc.project_root, ".", "the project is the run cwd");
+  assert.equal(rc.file_operation_root, ".", "file ops are contained to the project (cwd)");
+  assert.equal(rc.session_root, "sessions/sess-1", "state/logs land under a sessions/<id> subdir of the project");
+  assert.equal(rc.resource_root, GEN_DRIVER_ENVELOPE_PHASE);
 });
 
 test("capabilities are honest: only what the host actually implements is declared true", () => {

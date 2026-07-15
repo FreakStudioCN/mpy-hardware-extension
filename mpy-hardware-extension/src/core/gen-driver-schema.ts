@@ -444,6 +444,24 @@ export type BuildStartPhaseInput = {
   sourcePhaseCompletePath?: string;
 };
 
+// The runtime_context roots for a real gen-driver dispatch. The host runs plugin script_run with
+// cwd = the project dir (= projectFolder) and contains file_operation to projectFolder, so every root
+// is cwd-RELATIVE and stays inside that containment boundary: artifact_root/project_root/
+// file_operation_root are the project (cwd) itself, and session_root (where the SKILL writes state/logs
+// + the final phase_complete) is a sessions/<id> subdir UNDER it. An absolute or "../" root would be
+// refused by containment (protocol_fields.md:35). resource_root is the plugin dir name (sample shape).
+// (Live-run verification point: confirm the plugin resolves these against its cwd as expected.)
+export function genDriverRuntimeContext(sessionId: string): GenDriverRuntimeContext {
+  return {
+    artifact_root: ".",
+    artifact_root_mode: "cwd",
+    session_root: `sessions/${sessionId}`,
+    project_root: ".",
+    file_operation_root: ".",
+    resource_root: GEN_DRIVER_ENVELOPE_PHASE,
+  };
+}
+
 // Build the start_phase envelope+payload for the plugin host to send. Normalized
 // contract (Ruili 2026-07-06): sample envelope + runtime_context + capabilities, with
 // the Jul-6 doc business payload (sources[] + driver_request + verification).
