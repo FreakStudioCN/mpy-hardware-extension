@@ -493,3 +493,37 @@ export function buildStartPhase(input: BuildStartPhaseInput): Record<string, unk
     payload,
   };
 }
+
+// Assemble a ready-to-dispatch gen-driver start_phase from the staged sources + the manifest snapshot.
+// Infers the mode from the manifest (pipeline iff a cold-driver device is present), attaches the
+// cwd-relative runtime_context, and — in pipeline mode only — carries the upstream manifest_content +
+// source_phase (default upy-generate-plugin, the #53 path). The returned envelope's `phase` is the
+// ENVELOPE token (body.phase) while payload.phase is the DOMAIN token; the caller serializes it as the
+// first user message and dispatches via controller.startPhase at the envelope token.
+export function buildGenDriverDispatch(input: {
+  sessionId: string;
+  msgId: string;
+  timestamp: string;
+  sources: GenDriverSource[];
+  manifestContent?: unknown;
+  sourcePhase?: string;
+  driverRequest?: GenDriverDriverRequest;
+  verification?: GenDriverVerification;
+}): Record<string, unknown> {
+  const mode = inferMode(input.manifestContent);
+  const base: BuildStartPhaseInput = {
+    sessionId: input.sessionId,
+    msgId: input.msgId,
+    timestamp: input.timestamp,
+    mode,
+    runtimeContext: genDriverRuntimeContext(input.sessionId),
+    sources: input.sources,
+    driverRequest: input.driverRequest,
+    verification: input.verification,
+  };
+  if (mode === "pipeline") {
+    base.manifestContent = input.manifestContent;
+    base.sourcePhase = input.sourcePhase ?? "upy-generate-plugin";
+  }
+  return buildStartPhase(base);
+}

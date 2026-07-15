@@ -21,6 +21,7 @@ import {
   canStartGeneration,
   DEFAULT_GEN_DRIVER_CAPABILITIES,
   genDriverRuntimeContext,
+  buildGenDriverDispatch,
 } from "../src/core/gen-driver-schema.ts";
 import type { DriverStatus } from "../src/core/gen-driver-schema.ts";
 
@@ -282,6 +283,29 @@ test("buildStartPhase emits the normalized business payload (sources[]/driver_re
   // envelope + runtime_context + capabilities kept from the sample shape
   assert.equal(built.phase, GEN_DRIVER_ENVELOPE_PHASE);
   assert.ok(payload.runtime_context && payload.capabilities);
+});
+
+test("buildGenDriverDispatch assembles a standalone envelope (body.phase != domain phase)", () => {
+  const sources = [{ type: "chip_model" as const, artifact_path: null, sha256: null, primary: true, metadata: { chip_model: "SHT30" } }];
+  const env = buildGenDriverDispatch({ sessionId: "s1", msgId: "m1", timestamp: "2026-07-15T00:00:00Z", sources });
+  const payload = env.payload as any;
+  assert.equal(env.phase, GEN_DRIVER_ENVELOPE_PHASE, "body.phase is the envelope token (what the loop dispatches at)");
+  assert.equal(payload.phase, GEN_DRIVER_DOMAIN_PHASE, "payload.phase is the domain token, never body.phase");
+  assert.equal(payload.mode, "standalone", "no cold-driver device -> standalone");
+  assert.equal(payload.source_phase, undefined, "standalone carries no upstream source_phase");
+  assert.equal(payload.manifest_content, undefined, "standalone carries no manifest_content");
+  assert.deepEqual(payload.sources, sources, "the staged sources ride the payload");
+  assert.ok(payload.runtime_context && payload.capabilities, "runtime_context + capabilities present");
+});
+
+test("buildGenDriverDispatch assembles a pipeline envelope from a cold-driver manifest", () => {
+  const manifest = { devices: [{ name: "SHT30", driver: { status: "cold_driver_required" } }] };
+  const sources = [{ type: "current_cold_driver_item" as const, artifact_path: null, sha256: null, primary: true, metadata: { driver_status: "cold_driver_required" } }];
+  const env = buildGenDriverDispatch({ sessionId: "s2", msgId: "m2", timestamp: "2026-07-15T00:00:00Z", sources, manifestContent: manifest });
+  const payload = env.payload as any;
+  assert.equal(payload.mode, "pipeline", "a cold-driver manifest -> pipeline");
+  assert.equal(payload.source_phase, "upy-generate-plugin", "pipeline defaults the #53 upstream phase");
+  assert.deepEqual(payload.manifest_content, manifest, "pipeline carries the upstream manifest snapshot");
 });
 
 test("genDriverRuntimeContext roots are cwd-relative and containment-valid", () => {
