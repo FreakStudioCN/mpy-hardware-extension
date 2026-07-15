@@ -568,8 +568,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const issueType = (ISSUE_TYPES as readonly string[]).includes(message.issueType) ? message.issueType : "other";
       const contact = String(message.contact ?? "").trim().slice(0, ISSUE_CONTACT_MAX);
       const diagnosticsText = message.attachDiagnostics ? collectDiagnostics(vscode, controller.getDiagnostics(), shim.getPort?.() ?? "").text : undefined;
-      const url = buildIssueReportUrl({ issueType, description, contact, diagnosticsText });
       try {
+        // Build inside the try: buildIssueReportUrl is code-point-safe, but a malformed input must
+        // degrade gracefully rather than throw an unhandled rejection that also skips the §8.1 event.
+        const url = buildIssueReportUrl({ issueType, description, contact, diagnosticsText });
         const uri = vscode.Uri.parse(url, true);
         if (/^https?$/.test(uri.scheme)) await vscode.env?.openExternal?.(uri);
       } catch {

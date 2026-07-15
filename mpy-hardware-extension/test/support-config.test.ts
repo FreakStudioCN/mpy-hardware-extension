@@ -83,3 +83,21 @@ test("buildIssueReportUrl keeps a CJK report under the url limit and never split
   assert.match(decodeURIComponent(buildIssueReportUrl(emoji)), /\[bug\]/, "still a decodable url");
   // Mutation: revert title/body to plain `.slice()` -> the emoji at the boundary throws URIError.
 });
+
+test("buildIssueReportUrl tolerates a lone surrogate already split by an upstream slice (#35 re-review)", () => {
+  // The code-point helpers never CREATE a split, but panel.ts/session-controller slice on code UNITS,
+  // so an input can arrive with a lone surrogate. Each field must be sanitized, not just kept intact.
+  const hi = "\uD83D"; // lone high surrogate (emoji split by a slice(0,n))
+  const lo = "\uDE00"; // lone low surrogate (tail split by a slice(-n))
+  const cases = [
+    { issueType: "bug", description: "X".repeat(4999) + hi },        // description path (panel.ts:566)
+    { issueType: "bug", description: "ok", contact: "a@b.com" + hi }, // contact path (panel.ts:569)
+    { issueType: "bug", description: "ok", diagnosticsText: lo + "traceback" }, // diagnostics tail (session-controller:717)
+  ];
+  for (const c of cases) {
+    assert.doesNotThrow(() => buildIssueReportUrl(c), `lone surrogate must not throw URIError: ${JSON.stringify(Object.keys(c))}`);
+    const decoded = decodeURIComponent(buildIssueReportUrl(c));
+    assert.ok(!decoded.includes(hi) && !decoded.includes(lo), "the injected lone surrogate is stripped, not carried into the url");
+  }
+  // Mutation: drop stripLoneSurrogates from buildIssueReportUrl -> encodeURIComponent throws URIError here.
+});

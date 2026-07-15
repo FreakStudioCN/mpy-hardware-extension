@@ -88,6 +88,14 @@ const ISSUE_BODY_DIAG_MAX = 3500;
 const ISSUE_TITLE_MAX = 80;
 const ISSUE_URL_ENCODED_MAX = 7800; // headroom under GitHub's ~8k encoded-URL ceiling
 
+// Remove unpaired UTF-16 surrogates. The code-point helpers below never CREATE a split pair, but an
+// input can arrive already split by an upstream code-UNIT slice (panel.ts description/contact,
+// session-controller diagnostics tail); a lone surrogate makes encodeURIComponent throw URIError.
+// Sanitizing inputs here closes every encode path — title, body, and diagnostics (PR #35 review).
+function stripLoneSurrogates(s: string): string {
+  return s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+}
+
 // Slice by whole code points, so a UTF-16 surrogate pair (e.g. an emoji) at the boundary is never
 // split into a lone surrogate — which would make encodeURIComponent throw URIError (PR #35 review).
 function sliceCodePoints(s: string, maxCodePoints: number): string {
@@ -117,13 +125,20 @@ export function buildIssueReportUrl(input: {
   contact?: string;
   diagnosticsText?: string;
 }): string {
+  // Strip unpaired surrogates from every untrusted input before any encoding (issueType is
+  // host-allowlisted, so it is already safe). Prevents a lone surrogate from an upstream code-UNIT
+  // slice reaching encodeURIComponent and throwing URIError (PR #35 review).
+  const description = stripLoneSurrogates(input.description);
+  const contact = input.contact === undefined ? undefined : stripLoneSurrogates(input.contact);
+  const diagnosticsText =
+    input.diagnosticsText === undefined ? undefined : stripLoneSurrogates(input.diagnosticsText);
   // Split on CRLF too, so a Windows description doesn't leave a trailing \r in the title.
-  const firstLine = input.description.trim().split(/\r?\n/)[0] ?? "";
+  const firstLine = description.trim().split(/\r?\n/)[0] ?? "";
   const title = sliceCodePoints(`[${input.issueType}] ${firstLine}`, ISSUE_TITLE_MAX);
-  const parts = [input.description.trim()];
-  const contact = input.contact?.trim();
-  if (contact) parts.push(`\nContact: ${contact}`);
-  const diag = input.diagnosticsText?.trim();
+  const parts = [description.trim()];
+  const trimmedContact = contact?.trim();
+  if (trimmedContact) parts.push(`\nContact: ${trimmedContact}`);
+  const diag = diagnosticsText?.trim();
   if (diag) parts.push("\n\nDiagnostics:\n```\n" + sliceCodePoints(diag, ISSUE_BODY_DIAG_MAX) + "\n```");
   // Budget the encoded body against what is left of the URL ceiling after the (encoded) title.
   const prefix = `${ISSUE_FORM_URL}?title=${encodeURIComponent(title)}&body=`;
