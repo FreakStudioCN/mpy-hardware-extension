@@ -193,6 +193,40 @@ def test_resolver_disambiguates_shared_basenames_by_active_phase():
         serve.scripts_root, serve._V0_SCRIPT_INDEX = orig_root, orig_index
 
 
+def test_resolver_treats_scripts_prefix_as_bare_and_qualifier_as_segment():
+    # The served SKILL.md prose invokes scripts by their `scripts/<name>.py` spelling
+    # (upy-generate-plugin/SKILL.md:154,233 -> scripts/update_session_state.py). The
+    # plugin-internal `scripts/` dir must NOT be read as a plugin qualifier: every copy
+    # lives under .../scripts/, so a substring/`scripts`-qualifier match keeps BOTH copies
+    # and skips the phase branch -> ambiguous_script_name, regressing the LIVE generate flow.
+    # A real qualifier must match a whole plugin-dir SEGMENT, not any substring (else
+    # "driver/..." matches "gen-driver" and silently picks the wrong copy).
+    here = os.path.dirname(os.path.abspath(__file__))
+    dev_root = os.path.abspath(os.path.join(here, "..", "..", "..", "third_party", "MicroPython_Skills"))
+    assert os.path.isdir(os.path.join(dev_root, "upy-gen-driver-plugin")), dev_root
+    orig_root, orig_index = serve.scripts_root, serve._V0_SCRIPT_INDEX
+    serve.scripts_root, serve._V0_SCRIPT_INDEX = (lambda: dev_root), None
+    try:
+        # SKILL spelling: `scripts/<name>` is the phase's own copy, same as the bare name.
+        for name, phase, served_dir in (
+            ("scripts/update_session_state.py", "upy-generate-plugin", "upy-generate-plugin"),
+            ("scripts/run_on_device.py", "upy-scaffold-plugin", "upy-scaffold-plugin"),
+            ("scripts/run_on_device.py", "upy-gen-driver-plugin", "upy-gen-driver-plugin"),
+        ):
+            cands = serve._v0_script_candidates(name, phase)
+            assert len(cands) == 1 and served_dir + "/" in cands[0].replace("\\", "/") + "/", (name, phase, cands)
+        # A plugin-internal `scripts/` prefix with NO phase stays ambiguous (fail-loud), like the bare name.
+        assert len(serve._v0_script_candidates("scripts/update_session_state.py")) == 2
+        # An explicit real plugin qualifier still wins.
+        cands = serve._v0_script_candidates("upy-gen-driver-plugin/update_session_state.py", "upy-generate-plugin")
+        assert len(cands) == 1 and "upy-gen-driver-plugin/" in cands[0].replace("\\", "/"), cands
+        # A partial-substring qualifier must NOT silently pick a copy: "driver" is a substring of
+        # "gen-driver" but not a whole segment -> stays ambiguous, not a wrong single pick.
+        assert len(serve._v0_script_candidates("driver/update_session_state.py", "upy-generate-plugin")) == 2
+    finally:
+        serve.scripts_root, serve._V0_SCRIPT_INDEX = orig_root, orig_index
+
+
 def test_run_v0_failed_script_reports_nonzero_not_fake_success():
     record = []
     record_stdout[0] = ""

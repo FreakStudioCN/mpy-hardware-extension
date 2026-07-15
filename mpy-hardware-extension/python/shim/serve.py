@@ -167,23 +167,30 @@ def _v0_script_candidates(name: str, phase: str | None = None) -> list:
         _V0_SCRIPT_INDEX = _build_v0_script_index()
     raw = str(name).replace("\\", "/")
     candidates = list(_V0_SCRIPT_INDEX.get(os.path.basename(raw), []))
-    # A plugin-qualified name (e.g. "upy-deploy-plugin/list_serial_ports.py") narrows a
-    # duplicate basename to the copy whose path contains that prefix segment, so the model
-    # can target one of several same-named scripts without a silent first-match pick. An
-    # explicit qualifier from the model always wins.
-    qualifier = raw.rsplit("/", 1)[0] if "/" in raw else ""
+    # A plugin-qualified name (e.g. "upy-deploy-plugin/list_serial_ports.py") narrows a duplicate
+    # basename to the copy in that plugin dir, so the model can target one of several same-named
+    # scripts without a silent first-match pick. Derive the qualifier from the path segments the
+    # model sent, IGNORING the plugin-internal "scripts/" dir: the SKILL.md prose invokes scripts by
+    # their dir-relative "scripts/<name>.py" spelling (e.g. upy-generate-plugin/SKILL.md), which is
+    # NOT a plugin qualifier — and since every copy lives under .../scripts/, treating "scripts" as
+    # one would match ALL copies and defeat the phase disambiguation below (an ambiguous_script_name
+    # regression of the live generate flow). Only a real plugin dir the model names qualifies.
+    segments = [seg for seg in raw.split("/")[:-1] if seg and seg != "scripts"]
+    qualifier = segments[-1] if segments else ""
     if qualifier:
-        narrowed = [p for p in candidates if qualifier in p.replace("\\", "/")]
-        if narrowed:
-            return narrowed
-    # Otherwise, for a BARE name (no explicit qualifier), the ACTIVE PHASE disambiguates a duplicate
-    # basename: e.g. update_session_state.py ships in both upy-generate-plugin and upy-gen-driver-plugin,
-    # so the generate phase gets the generate copy (and gen-driver its own) without the model having
-    # to qualify. For the phases that collide, the phase token IS the plugin dir name; short tokens
-    # (analyze/select-hw) never collide, so a non-matching phase leaves the list untouched (fail-loud).
-    # An explicit-but-wrong qualifier is NOT overridden by phase — it stays ambiguous so the model sees
-    # the mistake rather than silently getting the running phase's copy.
-    if not qualifier and phase and len(candidates) > 1:
+        # Match the qualifier as a whole path SEGMENT, not a bare substring — else "driver" would
+        # match "gen-driver" and silently pick the wrong copy. An explicit qualifier always wins;
+        # one that names no candidate stays AMBIGUOUS (fail-loud) so the model sees its mistake,
+        # never a wrong-phase copy — so we never fall through to the phase branch after a qualifier.
+        narrowed = [p for p in candidates if ("/" + qualifier + "/") in p.replace("\\", "/")]
+        return narrowed if narrowed else candidates
+    # Otherwise, for a BARE name (incl. the "scripts/<name>" SKILL spelling), the ACTIVE PHASE
+    # disambiguates a duplicate basename: e.g. update_session_state.py ships in both
+    # upy-generate-plugin and upy-gen-driver-plugin, so the generate phase gets the generate copy
+    # (and gen-driver its own) without the model having to qualify. For the phases that collide, the
+    # phase token IS the plugin dir name; short tokens (analyze/select-hw) never collide, so a
+    # non-matching phase leaves the list untouched (fail-loud).
+    if phase and len(candidates) > 1:
         segment = "/" + str(phase) + "/"
         narrowed = [p for p in candidates if segment in p.replace("\\", "/")]
         if narrowed:
