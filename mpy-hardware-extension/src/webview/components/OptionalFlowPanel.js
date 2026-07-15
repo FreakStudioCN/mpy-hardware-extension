@@ -242,3 +242,33 @@
         host.innerHTML = html;
         markNew("diagram");
       }
+
+      // The optional wiring/diagram RUN entries. Shown only for the flows generate offered
+      // (optional_next_phases); the host re-checks the offer too, so this is convenience, not the gate.
+      var OPTIONAL_FLOW_BY_TOKEN = {
+        "upy-wiring-plugin": { flow: "wiring", entry: "wiringEntry", label: LOCALE === "zh" ? "生成接线图" : "Generate wiring diagram" },
+        "upy-diagram-plugin": { flow: "diagram", entry: "diagramEntry", label: LOCALE === "zh" ? "生成架构图" : "Generate architecture diagram" },
+      };
+      function setOptionalFlows(phases) {
+        var offered = {};
+        (Array.isArray(phases) ? phases : []).forEach(function (p) { if (p && p.phase) offered[p.phase] = true; });
+        Object.keys(OPTIONAL_FLOW_BY_TOKEN).forEach(function (token) {
+          var cfg = OPTIONAL_FLOW_BY_TOKEN[token];
+          var el = $(cfg.entry); if (!el) return;
+          el.innerHTML = "";
+          if (!offered[token]) { el.classList.add("hidden"); return; }
+          el.classList.remove("hidden");
+          var btn = document.createElement("button"); btn.className = "of-run"; btn.textContent = cfg.label; btn.dataset.flow = cfg.flow;
+          btn.addEventListener("click", function () { vscode.postMessage({ type: "start_optional_flow", flow: cfg.flow }); btn.disabled = true; });
+          el.appendChild(btn);
+        });
+      }
+      function setOptionalFlowStatus(flow, status, detail) {
+        var entry = flow === "wiring" ? $("wiringEntry") : flow === "diagram" ? $("diagramEntry") : null;
+        if (!entry) return;
+        var note = entry.querySelector(".of-note");
+        if (!note) { note = document.createElement("div"); note.className = "of-note"; entry.appendChild(note); }
+        note.textContent = detail || (status ? "Status: " + status : "");
+        var btn = entry.querySelector("button.of-run");
+        if (btn && status === "failed") btn.disabled = false; // let the user retry after a failure
+      }

@@ -2329,6 +2329,24 @@ test("support actions are recorded host-side, never rendered into the build feed
   assert.ok(document.querySelector(".feed-pending"), "the working spinner is untouched");
 });
 
+test("optional-flow entries appear only for offered flows and dispatch start_optional_flow", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // generate offered only the diagram flow
+  post(dom, { type: "optional_flows", phases: [{ phase: "upy-diagram-plugin", reason: "arch" }] });
+  assert.ok(document.getElementById("wiringEntry")!.classList.contains("hidden"), "wiring entry stays hidden (not offered)");
+  const diagramEntry = document.getElementById("diagramEntry")!;
+  assert.ok(!diagramEntry.classList.contains("hidden"), "diagram entry is shown (offered)");
+  const btn = diagramEntry.querySelector("button.of-run") as HTMLButtonElement;
+  assert.ok(btn, "the diagram run entry renders");
+  btn.click();
+  const start = posted.find((m) => m.type === "start_optional_flow");
+  // Mutation: gate on nothing (always show) -> the wiring entry would also render.
+  assert.ok(start && start.flow === "diagram", "clicking dispatches start_optional_flow for the offered flow");
+  assert.equal(btn.disabled, true, "the button disables after dispatch");
+});
+
 test("a #53 gen_driver_required message offers to build the driver; clicking dispatches the run", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

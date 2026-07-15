@@ -10,6 +10,8 @@
         if (msg.type === "gen_driver_config") { renderGenDriver(msg.tabs); }
         if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
         if (msg.type === "gen_driver_required") { showDriverRequiredOffer(msg.blocks); }
+        if (msg.type === "optional_flows") { setOptionalFlows(msg.phases); }
+        if (msg.type === "optional_flow_status") { setOptionalFlowStatus(msg.flow, msg.status, msg.detail); }
         if (msg.type === "gen_driver_file_picked") { setGenDriverFile(msg); }
         if (msg.type === "support_config") { renderSupport(msg); }
         if (msg.type === "device_tool_result") { onDeviceToolResult(msg.command, msg.result); }
