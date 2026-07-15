@@ -110,6 +110,13 @@ test("classifyArtifactKind maps produced paths to kinds", () => {
   assert.equal(classifyArtifactKind("/ws/blockless-project/project-manifest.json"), "manifest");
   assert.equal(classifyArtifactKind("/ws/blockless-project/docs/wiring.json"), "wiring");
   assert.equal(classifyArtifactKind("/ws/blockless-project/docs/diagram.json"), "diagram");
+  // the wiring/diagram FAMILIES tag too, not just the .json (mutation: revert to base===wiring.json -> these fail)
+  assert.equal(classifyArtifactKind("/ws/blockless-project/docs/wiring.svg"), "wiring");
+  assert.equal(classifyArtifactKind("/ws/blockless-project/docs/wiring_pins.md"), "wiring");
+  assert.equal(classifyArtifactKind("/ws/blockless-project/docs/flowchart.png"), "diagram");
+  assert.equal(classifyArtifactKind("/ws/blockless-project/docs/data_flow.html"), "diagram");
+  // a non-artifact file that merely starts with wiring stays code
+  assert.equal(classifyArtifactKind("/ws/blockless-project/wiring_helper.py"), "code");
   assert.equal(classifyArtifactKind("/ws/blockless-project/firmware/drivers/aht20/__init__.py"), "driver");
   assert.equal(classifyArtifactKind("/ws/.mpyhw/sessions/s-1/session.jsonl"), "log");
   assert.equal(classifyArtifactKind("/ws/blockless-project/main.py"), "code");

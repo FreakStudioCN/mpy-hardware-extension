@@ -1430,6 +1430,28 @@ test("a gen-driver phase_complete surfaces gen_driver_status; other phases do no
   assert.equal(statuses[0].detail, "SHT30 driver ready");
 });
 
+test("capturePhaseArtifacts folds a gen-driver file_list and keeps skipping path-less entries", async () => {
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "gen-driver", result: "success", artifacts: [
+        // gen-driver leads with a file_list whose paths nest at files[].path
+        { type: "file_list", files: [{ path: "firmware/drivers/sht30_driver/__init__.py" }, { path: "firmware/drivers/sht30_driver/mock.py" }] },
+        // a flat {type, path} entry is captured as-is
+        { type: "markdown", path: "docs/wiring.md" },
+        // a path-less, file_list-less entry (diagram's type:"table") has nothing to open -> skipped
+        { type: "table", rows: [["a", "b"]] },
+      ] } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const paths = controller.phaseArtifactRecords().map((r) => r.path).sort();
+  // Mutation: revert to the top-level-path-only capture -> the two file_list paths vanish.
+  assert.deepEqual(paths, ["docs/wiring.md", "firmware/drivers/sht30_driver/__init__.py", "firmware/drivers/sht30_driver/mock.py"]);
+  assert.ok(!controller.phaseArtifactRecords().some((r) => r.role === "table"), "the path-less table entry is not captured");
+});
+
 test("a generate driver-ready block posts gen_driver_required; a clean generate does not (#53)", async () => {
   const posted: any[] = [];
   const controller = new SessionController({

@@ -741,10 +741,26 @@ export class SessionController {
     if (!Array.isArray(artifacts)) return;
     const phase = payload?.phase ?? this.currentPhase ?? "";
     for (const a of artifacts) {
-      if (!a || typeof a.path !== "string" || !a.path) continue;
-      if (this.phaseArtifacts.some((p) => p.path === a.path)) continue;
-      this.phaseArtifacts.push({ path: a.path, role: typeof a.type === "string" ? a.type : "", phase });
+      if (!a || typeof a !== "object") continue;
+      // Flat {type, path} entry (wiring/diagram and most phases).
+      if (typeof a.path === "string" && a.path) {
+        this.pushPhaseArtifact(a.path, a.type, phase);
+        continue;
+      }
+      // gen-driver leads with a file_list whose paths nest at files[].path — fold those in.
+      if (Array.isArray(a.files)) {
+        for (const f of a.files) {
+          if (f && typeof f.path === "string" && f.path) this.pushPhaseArtifact(f.path, f.type ?? a.type, phase);
+        }
+        continue;
+      }
+      // A path-less, file_list-less entry (e.g. diagram's type:"table") has nothing to open — skip it.
     }
+  }
+
+  private pushPhaseArtifact(path: string, type: unknown, phase: string) {
+    if (this.phaseArtifacts.some((p) => p.path === path)) return;
+    this.phaseArtifacts.push({ path, role: typeof type === "string" ? type : "", phase });
   }
 
   // Raw phase-declared artifact records ({relative path, role, phase}); the panel resolves
