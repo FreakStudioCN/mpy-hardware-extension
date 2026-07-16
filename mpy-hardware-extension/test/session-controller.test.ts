@@ -1548,3 +1548,37 @@ test("optional_next_phases accepts the plain-string shape too (normalized to {ph
   const flows = posted.find((m) => m.type === "optional_flows");
   assert.ok(flows.phases.every((p: any) => typeof p.phase === "string"), "posted phases key on .phase for the panel");
 });
+
+test("a successful generate with NO optional_next_phases still offers wiring+diagram (spec 04)", async () => {
+  // The generate SKILL requires optional_next_phases on success but the model sometimes drops it,
+  // which used to leave the flows unreachable. A successful generate must make them triggerable.
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", summary: "app generated" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  // Mutation: drop the generate-success default -> both stay unreachable and this fails.
+  assert.deepEqual(controller.getOptionalNextPhases().map((o) => o.phase), ["upy-wiring-plugin", "upy-diagram-plugin"], "synthesizes the default offer after a successful generate");
+  const flows = posted.find((m) => m.type === "optional_flows");
+  assert.ok(flows && flows.phases.length === 2, "posts optional_flows so the entries appear without the model's offer");
+});
+
+test("a non-success generate does NOT offer the optional flows", async () => {
+  // A partial/failed generate has not produced valid firmware for wiring/diagram to read.
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "partial", summary: "incomplete" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  // Mutation: drop the result==="success" guard -> a partial generate offers flows and this fails.
+  assert.equal(controller.getOptionalNextPhases().length, 0, "no offer after a non-success generate");
+  assert.ok(!posted.some((m) => m.type === "optional_flows"), "does not post optional_flows for a partial generate");
+});

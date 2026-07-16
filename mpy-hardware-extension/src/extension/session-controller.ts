@@ -7,6 +7,7 @@ import type { ArtifactSource } from "./artifact-index.ts";
 import { deriveWiring } from "../core/wiring-derive.ts";
 import { deriveDiagram } from "../core/diagram-derive.ts";
 import { deriveDriverStatus, detectDriverReadyBlock, GEN_DRIVER_DOMAIN_PHASE } from "../core/gen-driver-schema.ts";
+import { WIRING_PHASE, DIAGRAM_PHASE } from "../core/optional-flow-schema.ts";
 
 export class SessionController {
   deps: {
@@ -638,12 +639,21 @@ export class SessionController {
         this.latestGeneratePhaseComplete = event.payload;
       }
       // generate offers optional follow-on flows (wiring/diagram) in optional_next_phases. Capture them
-      // so the webview entries enable only after a generate that offered them (register #9: cleared on reset).
-      if (Array.isArray(event.payload?.optional_next_phases)) {
+      // so the webview entries + host gate key on the offer (register #9: cleared on reset).
+      const offered = event.payload?.optional_next_phases;
+      if (Array.isArray(offered) && offered.length) {
         // Upstream sanctions BOTH shapes: objects [{phase, reason}] and plain strings ["upy-wiring-plugin"]
         // (the diagram plugin's generate fixture uses strings; the consistency gate accepts both).
         // Normalize to the object shape so the host gate + webview entries key on `.phase` either way.
-        this.optionalNextPhases = event.payload.optional_next_phases.map((p: any) => (typeof p === "string" ? { phase: p } : p));
+        this.optionalNextPhases = offered.map((p: any) => (typeof p === "string" ? { phase: p } : p));
+        this.deps.postMessage({ type: "optional_flows", phases: this.optionalNextPhases });
+      } else if (event.payload?.phase === "generate" && event.payload?.result === "success") {
+        // Spec (deliverables 04): wiring/diagram are optional artifact flows triggerable after ANY
+        // successful generate, not only when the model advertised them. The generate SKILL requires
+        // emitting optional_next_phases on success, but the model sometimes drops it, which left the
+        // flows unreachable (no offer -> hidden entries + the panel.ts host gate rejects). Default to
+        // offering both so a successful generate always makes them host-triggerable, regardless.
+        this.optionalNextPhases = [{ phase: WIRING_PHASE }, { phase: DIAGRAM_PHASE }];
         this.deps.postMessage({ type: "optional_flows", phases: this.optionalNextPhases });
       }
       return;
