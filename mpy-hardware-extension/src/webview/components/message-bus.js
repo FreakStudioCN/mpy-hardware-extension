@@ -159,7 +159,11 @@
           const text = msg.error_kind === "unknown_next_phase"
             ? tr("phase_unknown_next", { p: String(msg.next_phase) })
             : tr("phase_broke", { k: String(msg.error_kind) });
-          addActivity({ text: text });
+          // Forced "error", never text-classified: classifyActivity() keys off the words
+          // fail/error/crash/exhaust, which this wording (and its zh translation) lacks, so it
+          // would classify as thinking and be CONCATENATED into the open thinking card. A
+          // discrete fault must be its own card and must not depend on how the string is worded.
+          addActivity({ text: text }, "error");
         }
         if (msg.type === "connect_retry") {
           // The host is auto-retrying a dropped connection; keep the spinner honest

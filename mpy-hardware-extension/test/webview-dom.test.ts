@@ -1918,6 +1918,17 @@ test("every terminal the core can emit has a user-facing string", async () => {
   const termination = readFileSync(new URL("../src/core/termination.ts", import.meta.url), "utf-8");
   for (const m of termination.matchAll(/reason:\s*"([a-z_]+)"/g)) coreTerminals.add(m[1]);
 
+  // The hosts also end a session directly, bypassing the loop (preflight failure, cancel).
+  // Only the LITERAL spellings are extractable here; `terminal: result.terminal` forwards the
+  // core terminals already covered above. Not covered, and not coverable: template mode sends
+  // an ARBITRARY backend error code (panel.ts `terminal: result.error ?? "pipeline_failed"`),
+  // which is why message-bus keeps a raw-token fallback at all — it is the one path that can
+  // still surface an unlocalized string, and no list can fix that.
+  for (const file of ["../src/webview/panel.ts", "../src/extension/session-controller.ts"]) {
+    const src = readFileSync(new URL(file, import.meta.url), "utf-8");
+    for (const m of src.matchAll(/type:\s*"session_done",\s*terminal:\s*"([a-z_]+)"/g)) coreTerminals.add(m[1]);
+  }
+
   // Guard the extraction itself: a broken regex would yield an empty set and pass vacuously.
   assert.ok(coreTerminals.size >= 10, `extraction found only ${coreTerminals.size} terminals — the regex broke`);
 
@@ -1944,6 +1955,28 @@ test("an unknown next_phase renders its reason in the feed, not just a bare term
   const feed = (document.getElementById("activity") as HTMLElement).textContent ?? "";
   assert.match(feed, /upy-verify-plugin/, "the feed names the phase the build asked for");
   assert.doesNotMatch(feed, /Session ended: failed/, "the terminal line reads as English, not the raw token");
+});
+
+test("a phase_error lands as its own card, never glued onto the open thinking stream", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // An open thinking card is the NORMAL state when a phase fault lands. classifyActivity()
+  // keys off the words fail/error/crash/exhaust, and the phase_error wording carries none of
+  // them (nor does its zh translation) — so without a forced kind the reason is appended to
+  // the open card's text node, producing "Analyzing requirementsThe build asked...". Classifying
+  // by wording is exactly the trap: a reworded string must not be able to break this.
+  post(dom, { type: "status_update", payload: { message: "Analyzing requirements" } });
+  post(dom, { type: "phase_error", error_kind: "unknown_next_phase", next_phase: "upy-verify-plugin" });
+
+  const think = document.querySelector(".ev-think") as HTMLElement | null;
+  assert.doesNotMatch(think?.textContent ?? "", /upy-verify-plugin/, "the reason is not concatenated onto the thinking card");
+  const errorCards = [...document.querySelectorAll(".ev-sum.is-error")].map((n) => n.textContent ?? "");
+  assert.ok(errorCards.some((t) => t.includes("upy-verify-plugin")), "the reason renders as its own error card");
 });
 
 test("a duplicate session_done renders exactly one terminal line", async () => {
