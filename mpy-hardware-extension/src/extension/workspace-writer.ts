@@ -105,6 +105,17 @@ export function normalizeGeneratedArtifactPath(name: string, options: { allowMai
     if (name === "project-manifest.json" || name === "generate_plan.json" || name === "wiring.json" || name === "diagram.json") return name;
     if (segments[0] === "docs" && segments.length >= 2 && name.endsWith(".json")) return name;
     if ((segments[0] === "firmware" || segments[0] === "test") && segments.length >= 2 && name.endsWith(".py")) return name;
+    // Scaffold skeleton infrastructure (upy-scaffold-plugin output): standard project config/docs at
+    // the root, the tools/ deploy+log scripts, .upy toolchain resources, README markdown, and .gitkeep
+    // dir placeholders. Without these the scaffold write fails and the phase reports partial, which can
+    // stall the pipeline before generate. Fixed in-tree scaffolding files; traversal/absolute/backslash
+    // are already rejected above, and existing files still hit the overwrite guard.
+    const base = segments[segments.length - 1];
+    if (segments.length === 1 && (name === ".flake8" || name === ".gitignore" || name === ".gitattributes" || name === "README.md" || name === "LICENSE")) return name;
+    if (base === ".gitkeep") return name;
+    if (segments[0] === "tools" && segments.length >= 2 && name.endsWith(".py")) return name;
+    if (segments[0] === ".upy" && segments.length >= 2 && (name.endsWith(".py") || name.endsWith(".json"))) return name;
+    if ((segments[0] === "firmware" || segments[0] === "test") && segments.length >= 2 && name.endsWith(".md")) return name;
   }
   return null;
 }
