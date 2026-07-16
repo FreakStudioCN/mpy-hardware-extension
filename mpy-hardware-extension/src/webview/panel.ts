@@ -762,14 +762,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         } else {
           // Post-run render: the plugin authors docs/<kind>.json but can't render the image in its
           // sandbox, so the host runs render_<kind>_local.py (-> mermaid.ink) to produce the png, then
-          // re-indexes so the tab shows it and drops a jump card into Activity.
-          try {
-            if (flow === "wiring") await shim.renderWiring(projectFolder, "png");
-            else await shim.renderDiagram(projectFolder, "png");
+          // re-indexes so the tab shows it and drops a jump card into Activity. render_mermaid_image has
+          // no per-call retry, so one transient mermaid.ink blip fails the whole render — retry once
+          // (idempotent, overwrites the same pngs) with a short backoff before surfacing a failure.
+          const renderOnce = () => (flow === "wiring" ? shim.renderWiring(projectFolder, "png") : shim.renderDiagram(projectFolder, "png"));
+          let rendered = false;
+          for (let attempt = 0; attempt < 2 && !rendered; attempt++) {
+            if (attempt > 0) await new Promise((r) => setTimeout(r, 750));
+            try { await renderOnce(); rendered = true; }
+            catch (renderErr: any) { deps.log?.(`optional-flow ${flow} render attempt ${attempt + 1} failed: ${renderErr?.message ?? renderErr}`); }
+          }
+          if (rendered) {
             refreshArtifacts();
             webview.postMessage({ type: "optional_flow_done", flow });
-          } catch (renderErr: any) {
-            deps.log?.(`optional-flow ${flow} render failed: ${renderErr?.message ?? renderErr}`);
+          } else {
             webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `${flow} data generated, but the image render (mermaid.ink) failed — retry to render it.` });
           }
         }
