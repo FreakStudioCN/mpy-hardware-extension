@@ -446,6 +446,12 @@
       .gd-flabel { color: var(--fg-dim); }
       select.gd-input, textarea.gd-input { font: inherit; }
       .gd-status.gd-failed { color: #e5534b; }
+      /* #53 driver-required gate card (rendered into the Activity feed as an .ev-card). */
+      .gd-required { border-color: #d9822b55; padding: 11px 12px; margin-bottom: 7px; display: flex; flex-direction: column; gap: 9px; }
+      .gd-required-head { font-size: 12.5px; color: var(--fg-bright); font-weight: 600; line-height: 1.45; }
+      .gd-required-run { align-self: flex-start; background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--ui); }
+      .gd-required-run:hover:not(:disabled) { background: var(--accent-hover); }
+      .gd-required-run:disabled { background: #3a3a3c; color: #8a8a8a; cursor: default; }
       .gd-confirm { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-top: 4px; border: 1px solid #ffffff22; border-radius: 4px; }
       .gd-confirm-h { font-weight: 650; font-size: 12px; }
       .gd-confirm-body { font-size: 12px; color: var(--fg-dim); }
