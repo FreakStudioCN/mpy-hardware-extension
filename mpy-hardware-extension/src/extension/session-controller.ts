@@ -83,6 +83,10 @@ export class SessionController {
   // The last generate phase_complete, so a wiring/diagram run can persist it as the upstream result
   // (source_phase_complete_path) the plugin reads to reach a formal success. Cleared with the session.
   private latestGeneratePhaseComplete: unknown = undefined;
+  // The last phase_complete THIS run emitted ({phase, result}). A startPhase excursion (wiring/diagram)
+  // reads it to gate its post-run render: only a result==="success" run rendered real output, so a
+  // partial (e.g. network-render denied) or cancelled run must not render or claim success. Per-run.
+  private lastPhaseComplete: { phase?: string; result?: string } | undefined = undefined;
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -208,6 +212,7 @@ export class SessionController {
     // latestManifest, which this clear would otherwise blank for the whole excursion run).
     if (!input.preserveManifest) this.latestManifest = undefined;
     this.hasAuthoredDiagram = false;
+    this.lastPhaseComplete = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
     this.abort = new AbortController();
@@ -325,6 +330,12 @@ export class SessionController {
   // the wiring/diagram entries on this.
   getOptionalNextPhases(): Array<{ phase?: string; reason?: string }> {
     return this.optionalNextPhases;
+  }
+
+  // The last phase_complete this run emitted ({phase, result}), or undefined. A wiring/diagram
+  // excursion gates its post-run render on result === "success".
+  getLastPhaseComplete(): { phase?: string; result?: string } | undefined {
+    return this.lastPhaseComplete;
   }
 
   // The last generate phase_complete (or undefined). A wiring/diagram dispatch persists this to disk and
@@ -624,6 +635,9 @@ export class SessionController {
       // drop the top-level phase and only set manifest_content.phase/domain_phase. Resolve from
       // either so the generate-keyed logic below fires on that degraded (but successful) shape too.
       const domainPhase = event.payload?.phase ?? event.payload?.manifest_content?.phase ?? event.payload?.manifest_content?.domain_phase;
+      // Remember this run's terminal outcome so a startPhase excursion can gate its post-run render
+      // on a real success (not a partial/denied run that still emitted a phase_complete).
+      this.lastPhaseComplete = { phase: domainPhase, result: event.payload?.result };
       // A gen-driver run's phase_complete carries the UI driver status (payload.phase is the DOMAIN
       // token "gen-driver"). Surface it to the GenDriverPanel; deriveDriverStatus trusts the
       // authoritative driver_status when present and falls back to the result/verification heuristic.

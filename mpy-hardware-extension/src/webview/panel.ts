@@ -749,11 +749,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
         const envelope = buildOptionalFlowDispatch(flow, { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), sourcePhaseCompletePath });
         await controller.startPhase({ phase: token, envelope: JSON.stringify(envelope), boardId: message.boardId, label: `${flow} run` });
-        // Post-run render: the plugin authors docs/<kind>.json but can't render the image in its
-        // sandbox, so the host runs render_<kind>_local.py (-> mermaid.ink) to produce the png, then
-        // re-indexes so the Diagram/Wiring tab shows it and drops a jump card into Activity.
+        // Only a run that reached a formal success rendered real output. A partial (e.g. the user
+        // denied the mermaid.ink network render) or cancelled run must NOT render or claim success —
+        // gating only on docs/<kind>.json existing would false-succeed on a prior run's file and would
+        // bypass the network-render denial. Always post a status so the trigger button restores either way.
+        const succeeded = controller.getLastPhaseComplete()?.result === "success";
         const docJson = join(projectFolder, "docs", flow === "wiring" ? "wiring.json" : "diagram.json");
-        if (existsSync(docJson)) {
+        if (!succeeded) {
+          webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `The ${flow} run did not complete — retry to generate it.` });
+        } else if (!existsSync(docJson)) {
+          webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `The ${flow} run succeeded but wrote no ${flow}.json to render — retry.` });
+        } else {
+          // Post-run render: the plugin authors docs/<kind>.json but can't render the image in its
+          // sandbox, so the host runs render_<kind>_local.py (-> mermaid.ink) to produce the png, then
+          // re-indexes so the tab shows it and drops a jump card into Activity.
           try {
             if (flow === "wiring") await shim.renderWiring(projectFolder, "png");
             else await shim.renderDiagram(projectFolder, "png");

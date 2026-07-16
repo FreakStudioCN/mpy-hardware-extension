@@ -1601,3 +1601,28 @@ test("generate degraded shape (phase only in manifest_content) still offers + ca
   assert.ok(posted.some((m) => m.type === "optional_flows" && m.phases.length === 2), "posts optional_flows for the degraded shape");
   assert.equal((controller.getLatestGeneratePhaseComplete() as any)?.summary, "app generated", "Q3 captures the generate result off manifest_content.phase");
 });
+
+test("getLastPhaseComplete records the run's terminal result so a render can gate on success", async () => {
+  // A wiring/diagram excursion gates its post-run render on result === "success"; a partial run
+  // (e.g. mermaid.ink network render denied) must be distinguishable. Mutation: drop the
+  // lastPhaseComplete capture -> undefined and the render would false-succeed on a partial run.
+  const partial = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { manifest_content: { phase: "wiring" }, result: "partial" } });
+      return { terminal: "complete" };
+    },
+  });
+  await partial.start({ intent: "x", boardId: "auto" });
+  assert.equal(partial.getLastPhaseComplete()?.result, "partial", "captures a partial run's result");
+
+  const ok = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "upy-diagram-plugin", manifest_content: { phase: "diagram" }, result: "success" } });
+      return { terminal: "complete" };
+    },
+  });
+  await ok.start({ intent: "x", boardId: "auto" });
+  assert.equal(ok.getLastPhaseComplete()?.result, "success", "captures a successful run's result");
+});
