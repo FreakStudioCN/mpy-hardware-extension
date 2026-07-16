@@ -54,6 +54,42 @@ test("a structured 5xx app error (llm_upstream_not_configured) is NOT retryable"
   });
 });
 
+test("a structured llm_upstream_error is retryable when its upstream status is transient", async () => {
+  for (const upstreamStatus of [0, 408, 429, 500, 503]) {
+    const client = createLlmClient({
+      apiBaseUrl: "https://api.example",
+      fetchImpl: (async () => ({
+        ok: false,
+        status: 502,
+        json: async () => ({ detail: { error: "llm_upstream_error", status: upstreamStatus } }),
+      })) as any,
+    });
+
+    await assert.rejects(client.streamMessages({ messages: [] }), (error: any) => {
+      assert.equal(error.retryable, true, `upstream status ${upstreamStatus}`);
+      assert.equal(error.message, "llm_upstream_error");
+      return true;
+    });
+  }
+});
+
+test("a structured llm_upstream_error is not retryable when its upstream status is 401", async () => {
+  const client = createLlmClient({
+    apiBaseUrl: "https://api.example",
+    fetchImpl: (async () => ({
+      ok: false,
+      status: 502,
+      json: async () => ({ detail: { error: "llm_upstream_error", status: 401 } }),
+    })) as any,
+  });
+
+  await assert.rejects(client.streamMessages({ messages: [] }), (error: any) => {
+    assert.notEqual(error.retryable, true);
+    assert.equal(error.message, "llm_upstream_error");
+    return true;
+  });
+});
+
 test("a 429 from the LLM endpoint is retryable", async () => {
   const client = createLlmClient({
     apiBaseUrl: "https://api.example",

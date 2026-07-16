@@ -38,9 +38,11 @@ export function createLlmClient(deps: LlmClientDeps) {
     if (!response.ok) {
       let detail = "llm_upstream_error";
       let structured = false;
+      let upstreamStatus: unknown;
       try {
         const body = await response.json();
         const appError = body?.detail?.error ?? body?.error;
+        upstreamStatus = body?.detail?.status;
         if (appError) {
           detail = appError;
           structured = true;
@@ -51,10 +53,14 @@ export function createLlmClient(deps: LlmClientDeps) {
       const error: any = new Error(detail);
       // Transient failures are worth re-issuing: rate limits / timeouts (429, 408)
       // and infrastructure 5xx (Render restart/cold start — a proxy error page, not
-      // JSON). A STRUCTURED 5xx is the app deliberately reporting what's wrong
-      // (llm_upstream_not_configured); retrying can't fix it and would bury the
-      // detail. Application 4xx (auth, credits) keep their dedicated UX.
-      if (response.status === 429 || response.status === 408 || (response.status >= 500 && !structured)) {
+      // JSON). Most structured 5xx errors deliberately report a non-transient app
+      // problem, but llm_upstream_error wraps the provider status in a 502; retry
+      // only when that nested status is itself transient. Application 4xx (auth,
+      // credits) keep their dedicated UX.
+      const transientUpstreamError = detail === "llm_upstream_error"
+        && typeof upstreamStatus === "number"
+        && (upstreamStatus === 0 || upstreamStatus === 408 || upstreamStatus === 429 || upstreamStatus >= 500);
+      if (response.status === 429 || response.status === 408 || (response.status >= 500 && !structured) || transientUpstreamError) {
         error.retryable = true;
       }
       throw error;
