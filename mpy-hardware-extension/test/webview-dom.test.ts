@@ -2363,11 +2363,16 @@ test("optional-flow entries appear only for offered flows and dispatch start_opt
   assert.ok(!diagramEntry.classList.contains("hidden"), "diagram entry is shown (offered)");
   const btn = diagramEntry.querySelector("button.of-run") as HTMLButtonElement;
   assert.ok(btn, "the diagram run entry renders");
+  // switch to the Diagram tab first, so the click's switch-back to Activity is actually verified
+  (document.querySelector('.tab[data-tab="diagram"]') as HTMLButtonElement).click();
   btn.click();
   const start = posted.find((m) => m.type === "start_optional_flow");
   // Mutation: gate on nothing (always show) -> the wiring entry would also render.
   assert.ok(start && start.flow === "diagram", "clicking dispatches start_optional_flow for the offered flow");
   assert.equal(btn.disabled, true, "the button disables after dispatch");
+  assert.match(btn.textContent!, /Generating/, "shows a working label after click");
+  // Mutation: drop the setTab('activity') in the click handler -> Diagram stays active and this fails.
+  assert.ok(document.querySelector('.tab[data-tab="activity"]')!.classList.contains("active"), "clicking switches to the Activity tab so the run streams into view");
 });
 
 test("a #53 gen_driver_required message offers to build the driver; clicking dispatches the run", async () => {

@@ -258,8 +258,13 @@
           el.innerHTML = "";
           if (!offered[token]) { el.classList.add("hidden"); return; }
           el.classList.remove("hidden");
-          var btn = document.createElement("button"); btn.className = "of-run"; btn.textContent = cfg.label; btn.dataset.flow = cfg.flow;
-          btn.addEventListener("click", function () { vscode.postMessage({ type: "start_optional_flow", flow: cfg.flow }); btn.disabled = true; });
+          var btn = document.createElement("button"); btn.className = "of-run"; btn.textContent = cfg.label; btn.dataset.flow = cfg.flow; btn.dataset.label = cfg.label;
+          btn.addEventListener("click", function () {
+            vscode.postMessage({ type: "start_optional_flow", flow: cfg.flow });
+            btn.disabled = true;
+            btn.textContent = LOCALE === "zh" ? "生成中…" : "Generating…";
+            setTab("activity"); // the run streams its approvals + progress into the Activity timeline
+          });
           el.appendChild(btn);
         });
       }
@@ -295,5 +300,5 @@
         if (!note) { note = document.createElement("div"); note.className = "of-note"; entry.appendChild(note); }
         note.textContent = detail || (status ? "Status: " + status : "");
         var btn = entry.querySelector("button.of-run");
-        if (btn && status === "failed") btn.disabled = false; // let the user retry after a failure
+        if (btn && status === "failed") { btn.disabled = false; btn.textContent = btn.dataset.label || btn.textContent; } // restore the label so the user can retry
       }
