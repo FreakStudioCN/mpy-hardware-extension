@@ -2416,6 +2416,30 @@ test("a #53 gen_driver_required message offers to build the driver; clicking dis
   assert.equal(btn.disabled, true, "the button disables after the click so it can't double-dispatch");
 });
 
+test("gen-driver Confirm & generate dispatches once and reveals the Activity run", async () => {
+  // Repro of the reported blank: the confirm button gave no feedback and was multi-clickable on the
+  // tool overlay while the run streamed to Activity behind it. It must dispatch, disable, and show Activity.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "gen_driver_config", tabs: [
+    { id: "chip", label: "Chip", sourceType: "chip_model", fields: [{ key: "chip_model", label: "Chip model", kind: "text", required: true }] },
+  ] });
+  const gd = document.getElementById("gendriver")!;
+  (gd.querySelector("[data-gdkey='chip_model']") as HTMLInputElement).value = "SHT30";
+  (gd.querySelector("button.gd-add") as HTMLButtonElement).click();            // + Add source
+  (gd.querySelector(".gd-foot button.gd-gen") as HTMLButtonElement).click();   // Generate driver -> confirm card
+  const confirm = document.querySelector("#gdStatus .gd-confirm button.gd-gen") as HTMLButtonElement;
+  assert.ok(confirm, "the confirm card renders with a Confirm & generate button");
+  (document.querySelector('.tab[data-tab="diagram"]') as HTMLButtonElement).click(); // move off Activity so the switch-back is verified
+  confirm.click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.ok(start && Array.isArray(start.sources) && start.sources.length, "dispatches start_gen_driver with the assembled source");
+  assert.equal(confirm.disabled, true, "confirm disables so a second click can't re-dispatch (the reported blank)");
+  // Mutation: drop the setTab('activity') in the confirm handler -> Activity is not active and this fails.
+  assert.ok(document.querySelector('.tab[data-tab="activity"]')!.classList.contains("active"), "switches to Activity so the run streams into view");
+});
+
 test("an approval card whose actions carry only `id` answers with the id, so Cancel cancels (not confirm)", async () => {
   // The wiring network-render card's actions carry `id`, not `value`. With the old value-only answer,
   // EVERY button (incl. Cancel) posted "confirm" -> the loop's cancel detection never fired (a Cancel

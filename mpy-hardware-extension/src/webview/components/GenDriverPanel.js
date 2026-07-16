@@ -289,12 +289,14 @@
         for (const line of gdConfirmLines(driverRequest, verification)) { const row = document.createElement("div"); row.textContent = line; bodyEl.appendChild(row); }
         card.appendChild(bodyEl);
         const confirm = document.createElement("button"); confirm.className = "gd-gen"; confirm.textContent = "Confirm & generate";
-        confirm.addEventListener("click", () => vscode.postMessage({
-          type: "start_gen_driver",
-          sources: gdSources,
-          driverRequest,
-          verification,
-        }));
+        confirm.addEventListener("click", () => {
+          vscode.postMessage({ type: "start_gen_driver", sources: gdSources, driverRequest, verification });
+          confirm.disabled = true; confirm.textContent = "Generating…";
+          // Leave the gen-driver tool surface and show Activity, or the run streams behind the overlay
+          // and the click looks like it did nothing.
+          closeGlobalTool();
+          setTab("activity");
+        });
         card.appendChild(confirm);
         statusEl.appendChild(card);
       }
