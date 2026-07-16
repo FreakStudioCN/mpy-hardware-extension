@@ -151,6 +151,20 @@
           // interrupted turn can be re-issued verbatim — offer a one-click retry.
           if (t === "llm_unreachable" || t === "sse_stream_interrupted") addRetryCard();
         }
+        if (msg.type === "phase_error") {
+          // WHY the run is about to end "failed" — the terminal line alone can't say, because
+          // "failed" is also what the model reports when it gives up on its own. Rendered as a
+          // durable feed line before session_done arrives. An unrecognized error_kind still
+          // gets named (phase_broke) rather than silently dropped.
+          const text = msg.error_kind === "unknown_next_phase"
+            ? tr("phase_unknown_next", { p: String(msg.next_phase) })
+            : tr("phase_broke", { k: String(msg.error_kind) });
+          // Forced "error", never text-classified: classifyActivity() keys off the words
+          // fail/error/crash/exhaust, which this wording (and its zh translation) lacks, so it
+          // would classify as thinking and be CONCATENATED into the open thinking card. A
+          // discrete fault must be its own card and must not depend on how the string is worded.
+          addActivity({ text: text }, "error");
+        }
         if (msg.type === "connect_retry") {
           // The host is auto-retrying a dropped connection; keep the spinner honest
           // ("retrying 1/3") instead of leaving the user staring at silence.

@@ -158,6 +158,35 @@ test("records and posts a phase_stalled event so a stuck build surfaces (not swa
   );
 });
 
+test("records and posts a phase_error so an unknown next_phase surfaces (not swallowed as a generic trace)", async () => {
+  const recorded: any[] = [];
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m) => posted.push(m),
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "phase_error", error_kind: "unknown_next_phase", next_phase: "upy-verify-plugin" });
+      return { terminal: "failed" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  assert.ok(
+    recorded.some((e) => e.type === "phase_error" && e.error_kind === "unknown_next_phase" && e.next_phase === "upy-verify-plugin"),
+    "phase_error must be recorded as itself so session.jsonl shows WHY the build ended failed",
+  );
+  assert.ok(
+    posted.some((m) => m.type === "phase_error" && m.next_phase === "upy-verify-plugin"),
+    "phase_error must be posted to the webview so the user sees the reason, not a bare 'failed'",
+  );
+  assert.match(
+    controller.getDiagnostics().key_errors,
+    /unknown_next_phase: upy-verify-plugin/,
+    "phase_error must reach key_errors so a support bug report carries the reason",
+  );
+});
+
 test("session controller streams loop events and gates deploy via confirmDeploy", async () => {
   const messages: any[] = [];
   const controller = new SessionController({

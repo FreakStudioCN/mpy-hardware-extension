@@ -85,9 +85,18 @@
           session_ended: "Session ended: {t}", tool_failed: "Step failed: {e}",
           target_board: "Target board", led_note: "⚠ LED needs a current-limiting resistor (≈220–330Ω).",
           wiring_provisional: "Preview — pins not assigned yet",
-          term_generated: "Done", term_success: "Done", term_cancelled: "Stopped",
+          term_generated: "Done", term_success: "Done", term_cancelled: "Stopped", term_complete: "Done",
           term_awaiting_user: "Waiting for your reply", term_max_turns: "Stopped (max turns)",
           term_stalled: "Build got stuck",
+          // A terminal with no string here renders as its raw internal token ("Session ended:
+          // failed") — tr() returns the key it can't find. webview-dom.test.ts extracts every
+          // terminal from the core sources and fails if any lacks a string; keep them in step.
+          term_failed: "The build failed", term_incomplete: "Stopped (too many phases)",
+          // Why a build failed. phase_unknown_next means the model asked to advance to a phase
+          // that isn't in PHASE_ALIASES; phase_broke names any other phase_error kind rather
+          // than letting a new one vanish silently, the way phase_error used to.
+          phase_unknown_next: "The build asked for a step that doesn't exist: {p}",
+          phase_broke: "A step broke: {k}",
           session_stuck: "The build got stuck mid-way — this is usually transient. Click retry.",
           term_manifest_unresolved: "Couldn't finish the build",
           term_repair_exhausted: "Couldn't get it working", term_session_error: "Error",
@@ -179,9 +188,12 @@
           session_ended: "会话结束：{t}", tool_failed: "步骤失败：{e}",
           target_board: "目标开发板", led_note: "⚠ LED 需要串联一个限流电阻（约 220–330Ω）。",
           wiring_provisional: "预览 — 引脚尚未分配",
-          term_generated: "完成", term_success: "完成", term_cancelled: "已停止",
+          term_generated: "完成", term_success: "完成", term_cancelled: "已停止", term_complete: "完成",
           term_awaiting_user: "等待你的回复", term_max_turns: "已停止（达到回合上限）",
           term_stalled: "构建卡住了",
+          term_failed: "构建失败", term_incomplete: "已停止（阶段过多）",
+          phase_unknown_next: "构建请求了一个不存在的步骤：{p}",
+          phase_broke: "某个步骤出错：{k}",
           session_stuck: "构建中途卡住了——通常是暂时性的，点击重试。",
           term_manifest_unresolved: "未能完成本次生成",
           term_repair_exhausted: "未能让它正常运行", term_session_error: "出错",
