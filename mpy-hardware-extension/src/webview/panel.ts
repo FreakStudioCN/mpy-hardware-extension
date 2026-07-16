@@ -748,17 +748,22 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           await writeFile(join(projectFolder, ".mpyhw", "phase_complete.upy_generate_plugin.json"), JSON.stringify(upstream), "utf8");
         }
         const envelope = buildOptionalFlowDispatch(flow, { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), sourcePhaseCompletePath });
+        const runStartMs = Date.now();
         await controller.startPhase({ phase: token, envelope: JSON.stringify(envelope), boardId: message.boardId, label: `${flow} run` });
-        // Only a run that reached a formal success rendered real output. A partial (e.g. the user
-        // denied the mermaid.ink network render) or cancelled run must NOT render or claim success —
-        // gating only on docs/<kind>.json existing would false-succeed on a prior run's file and would
-        // bypass the network-render denial. Always post a status so the trigger button restores either way.
-        const succeeded = controller.getLastPhaseComplete()?.result === "success";
+        // The plugin can't render in its sandbox, so it reports the run "partial" even when the diagram
+        // JSON is complete — that partial is EXACTLY why the host renders, so accept success OR partial.
+        // But require THIS run to have freshly written docs/<kind>.json (mtime at/after run start), so a
+        // cancel/error that wrote nothing, or a stale prior-run doc, still skips (reviewer high-a). Always
+        // post a status so the trigger button restores either way.
+        const runResult = controller.getLastPhaseComplete()?.result;
+        const producedOutput = runResult === "success" || runResult === "partial";
         const docJson = join(projectFolder, "docs", flow === "wiring" ? "wiring.json" : "diagram.json");
-        if (!succeeded) {
+        let freshDoc = false;
+        try { freshDoc = existsSync(docJson) && statSync(docJson).mtimeMs >= runStartMs; } catch { freshDoc = false; }
+        if (!producedOutput) {
           webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `The ${flow} run did not complete — retry to generate it.` });
-        } else if (!existsSync(docJson)) {
-          webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `The ${flow} run succeeded but wrote no ${flow}.json to render — retry.` });
+        } else if (!freshDoc) {
+          webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `The ${flow} run wrote no fresh ${flow}.json to render — retry.` });
         } else {
           // Post-run render: the plugin authors docs/<kind>.json but can't render the image in its
           // sandbox, so the host runs render_<kind>_local.py (-> mermaid.ink) to produce the png, then
