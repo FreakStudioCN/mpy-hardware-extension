@@ -1626,3 +1626,37 @@ test("getLastPhaseComplete records the run's terminal result so a render can gat
   await ok.start({ intent: "x", boardId: "auto" });
   assert.equal(ok.getLastPhaseComplete()?.result, "success", "captures a successful run's result");
 });
+
+test("getLastPhaseComplete captures the run's errors (so a network-render denial can be honored)", async () => {
+  // A deny yields partial + *_IMAGE_RENDER_PERMISSION_DENIED; the panel skips the host render on it.
+  // Mutation: drop errors from the capture -> the deny is invisible and the host renders anyway.
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { manifest_content: { phase: "diagram" }, result: "partial", errors: ["DIAGRAM_IMAGE_RENDER_PERMISSION_DENIED"] } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.match(JSON.stringify(controller.getLastPhaseComplete()?.errors), /RENDER_PERMISSION_DENIED/, "captures the deny error");
+  controller.reset();
+  assert.equal(controller.getLastPhaseComplete(), undefined, "reset clears it (register #9)");
+});
+
+test("a later run that emits no phase_complete does not leak the prior run's result (run() entry clears)", async () => {
+  // register #19: without the clear at run() entry, an excursion that emits nothing would inherit a
+  // prior run's success and the render would fire. Mutation: drop the run()-entry clear -> stays success.
+  let call = 0;
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      call += 1;
+      if (call === 1) onEvent({ type: "phase_complete", payload: { manifest_content: { phase: "diagram" }, result: "success" } });
+      return { terminal: "complete" }; // 2nd run emits nothing
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.equal(controller.getLastPhaseComplete()?.result, "success");
+  await controller.start({ intent: "y", boardId: "auto" });
+  assert.equal(controller.getLastPhaseComplete(), undefined, "the second run's entry cleared the prior result");
+});

@@ -83,10 +83,12 @@ export class SessionController {
   // The last generate phase_complete, so a wiring/diagram run can persist it as the upstream result
   // (source_phase_complete_path) the plugin reads to reach a formal success. Cleared with the session.
   private latestGeneratePhaseComplete: unknown = undefined;
-  // The last phase_complete THIS run emitted ({phase, result}). A startPhase excursion (wiring/diagram)
-  // reads it to gate its post-run render: only a result==="success" run rendered real output, so a
-  // partial (e.g. network-render denied) or cancelled run must not render or claim success. Per-run.
-  private lastPhaseComplete: { phase?: string; result?: string } | undefined = undefined;
+  // The last phase_complete THIS run emitted ({phase, result, errors}). A startPhase excursion
+  // (wiring/diagram) reads it to gate its post-run render: it renders a success OR partial run that
+  // freshly wrote its doc (the plugin reports partial when it couldn't render in-sandbox — that's why
+  // the host renders), but skips it when the errors carry a *_RENDER_PERMISSION_DENIED (the user denied
+  // the mermaid.ink network render, which the host must honor). Per-run; cleared in reset() (#9).
+  private lastPhaseComplete: { phase?: string; result?: string; errors?: unknown } | undefined = undefined;
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -319,6 +321,7 @@ export class SessionController {
     this.phaseArtifacts = [];
     this.optionalNextPhases = [];
     this.latestGeneratePhaseComplete = undefined;
+    this.lastPhaseComplete = undefined;
     this.currentPhase = null;
     this.recentActivity = [];
     this.stdoutTail = [];
@@ -332,9 +335,10 @@ export class SessionController {
     return this.optionalNextPhases;
   }
 
-  // The last phase_complete this run emitted ({phase, result}), or undefined. A wiring/diagram
-  // excursion gates its post-run render on result === "success".
-  getLastPhaseComplete(): { phase?: string; result?: string } | undefined {
+  // The last phase_complete this run emitted ({phase, result, errors}), or undefined. A wiring/diagram
+  // excursion gates its post-run render on it (renders success/partial with a fresh doc; skips on a
+  // *_RENDER_PERMISSION_DENIED error).
+  getLastPhaseComplete(): { phase?: string; result?: string; errors?: unknown } | undefined {
     return this.lastPhaseComplete;
   }
 
@@ -637,7 +641,7 @@ export class SessionController {
       const domainPhase = event.payload?.phase ?? event.payload?.manifest_content?.phase ?? event.payload?.manifest_content?.domain_phase;
       // Remember this run's terminal outcome so a startPhase excursion can gate its post-run render
       // on a real success (not a partial/denied run that still emitted a phase_complete).
-      this.lastPhaseComplete = { phase: domainPhase, result: event.payload?.result };
+      this.lastPhaseComplete = { phase: domainPhase, result: event.payload?.result, errors: event.payload?.errors ?? event.payload?.structured_errors };
       // A gen-driver run's phase_complete carries the UI driver status (payload.phase is the DOMAIN
       // token "gen-driver"). Surface it to the GenDriverPanel; deriveDriverStatus trusts the
       // authoritative driver_status when present and falls back to the result/verification heuristic.

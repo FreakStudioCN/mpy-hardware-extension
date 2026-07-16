@@ -245,9 +245,11 @@
 
       // The optional wiring/diagram RUN entries. Shown only for the flows generate offered
       // (optional_next_phases); the host re-checks the offer too, so this is convenience, not the gate.
+      // labelKey (not a resolved label): tr() runs at button-creation time, since LOCALE is "en" at module
+      // load and setLocale arrives later — resolving here would bake English for zh users.
       var OPTIONAL_FLOW_BY_TOKEN = {
-        "upy-wiring-plugin": { flow: "wiring", entry: "wiringEntry", label: tr("of_gen_wiring") },
-        "upy-diagram-plugin": { flow: "diagram", entry: "diagramEntry", label: tr("of_gen_diagram") },
+        "upy-wiring-plugin": { flow: "wiring", entry: "wiringEntry", labelKey: "of_gen_wiring" },
+        "upy-diagram-plugin": { flow: "diagram", entry: "diagramEntry", labelKey: "of_gen_diagram" },
       };
       function setOptionalFlows(phases) {
         var offered = {};
@@ -258,7 +260,8 @@
           el.innerHTML = "";
           if (!offered[token]) { el.classList.add("hidden"); return; }
           el.classList.remove("hidden");
-          var btn = document.createElement("button"); btn.className = "of-run"; btn.textContent = cfg.label; btn.dataset.flow = cfg.flow; btn.dataset.label = cfg.label;
+          var label = tr(cfg.labelKey);
+          var btn = document.createElement("button"); btn.className = "of-run"; btn.textContent = label; btn.dataset.flow = cfg.flow; btn.dataset.label = label;
           btn.addEventListener("click", function () {
             vscode.postMessage({ type: "start_optional_flow", flow: cfg.flow });
             btn.disabled = true;
@@ -296,7 +299,7 @@
         var head = document.createElement("div"); head.className = "of-run-cap"; head.textContent = label;
         el.appendChild(head);
         imgs.forEach(function (art) {
-          var fig = document.createElement("figure"); fig.className = "of-fig"; fig.title = "Open full size in the editor";
+          var fig = document.createElement("figure"); fig.className = "of-fig"; fig.title = tr("of_open_full");
           fig.addEventListener("click", function () { vscode.postMessage({ type: "open_artifact", relative_path: art.relative_path }); });
           var img = document.createElement("img"); img.className = "of-run-img"; img.src = art.webview_uri; img.alt = art.relative_path; // .src, not innerHTML -> no injection
           var cap = document.createElement("figcaption"); cap.className = "of-fig-cap"; cap.textContent = optionalFlowImageName(art.relative_path);

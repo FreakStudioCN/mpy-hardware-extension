@@ -755,13 +755,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // But require THIS run to have freshly written docs/<kind>.json (mtime at/after run start), so a
         // cancel/error that wrote nothing, or a stale prior-run doc, still skips (reviewer high-a). Always
         // post a status so the trigger button restores either way.
-        const runResult = controller.getLastPhaseComplete()?.result;
-        const producedOutput = runResult === "success" || runResult === "partial";
+        const runInfo = controller.getLastPhaseComplete();
+        const producedOutput = runInfo?.result === "success" || runInfo?.result === "partial";
+        // Honor an explicit network-render denial: the plugin asks (network_rendering "ask") and a deny
+        // yields partial + *_RENDER_PERMISSION_DENIED. The host must NOT then send the diagram to
+        // mermaid.ink anyway. (A transient *_NETWORK_FAILED is not a denial, so it still renders/retries.)
+        const deniedNetwork = /RENDER_PERMISSION_DENIED/.test(JSON.stringify(runInfo?.errors ?? ""));
         const docJson = join(projectFolder, "docs", flow === "wiring" ? "wiring.json" : "diagram.json");
         let freshDoc = false;
-        try { freshDoc = existsSync(docJson) && statSync(docJson).mtimeMs >= runStartMs; } catch { freshDoc = false; }
+        try { freshDoc = existsSync(docJson) && statSync(docJson).mtimeMs >= runStartMs; }
+        catch (statErr: any) { freshDoc = false; deps.log?.(`optional-flow ${flow} stat failed: ${statErr?.message ?? statErr}`); }
         if (!producedOutput) {
           webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `The ${flow} run did not complete — retry to generate it.` });
+        } else if (deniedNetwork) {
+          webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `Network render declined — ${flow} data saved, no image. Retry and allow the network render to generate it.` });
         } else if (!freshDoc) {
           webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `The ${flow} run wrote no fresh ${flow}.json to render — retry.` });
         } else {
