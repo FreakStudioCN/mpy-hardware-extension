@@ -251,12 +251,24 @@ const DRIVER_STATUSES: readonly DriverStatus[] = [
 ];
 
 // The #53 pre-generate driver-ready gate codes (driver_ready_gate.py). A generate partial carrying any
-// of these in structured_errors is asking the user to run gen-driver first.
+// of these (in structured_errors OR errors) is asking the user to run gen-driver first. COLD_DRIVER_GATE
+// is what the live model emits (observed 2026-07-16), distinct from the contract's COLD_DRIVER_REQUIRED.
 const GEN_DRIVER_GATE_CODES: ReadonlySet<string> = new Set([
-  "COLD_DRIVER_REQUIRED", "DRIVER_NOT_READY", "DRIVER_STATUS_UNSUPPORTED",
+  "COLD_DRIVER_REQUIRED", "COLD_DRIVER_GATE", "DRIVER_NOT_READY", "DRIVER_STATUS_UNSUPPORTED",
   "DRIVER_READY_PATH_MISSING", "DRIVER_READY_MARKER_MISSING", "DRIVER_READY_MARKER_INVALID",
   "DRIVER_READY_MARKER_DRIVER_ID_MISMATCH",
 ]);
+
+// device.driver.status values that must run gen-driver before generate can write business code
+// (upy-generate-plugin SKILL.md gate). A device with an explicit status here in a partial generate is
+// the authoritative block signal — more reliable than the error formatting, and it names the device.
+const COLD_DRIVER_STATUSES: ReadonlySet<string> = new Set([
+  "cold_driver_required", "pending_validation", "unverified", "failed",
+]);
+
+function driverStatusOf(device: any): string {
+  return String(device?.driver?.status ?? device?.driver?.driver_status ?? device?.driver_status ?? "");
+}
 
 export type DriverReadyBlockEntry = {
   code?: string;
@@ -277,8 +289,27 @@ export type DriverReadyBlockEntry = {
 // Only a `partial` result carries a real block. Returns the blocking entries (empty = no block).
 export function detectDriverReadyBlock(payload: any): DriverReadyBlockEntry[] {
   if (!payload || payload.result !== "partial") return [];
-  const errors = Array.isArray(payload.structured_errors) ? payload.structured_errors : [];
-  return errors.filter((e: any) => e && typeof e === "object" && (
+  // Primary signal: a manifest device with an explicit cold/unresolved driver.status. Authoritative
+  // (the gate's actual condition) and names the device for the offer. Source-only deps without a status
+  // are NOT cold, so a normal partial generate won't false-fire.
+  const devices = Array.isArray(payload?.manifest_content?.devices) ? payload.manifest_content.devices : [];
+  const fromDevices: DriverReadyBlockEntry[] = devices
+    .filter((d: any) => d && typeof d === "object" && COLD_DRIVER_STATUSES.has(driverStatusOf(d)))
+    .map((d: any) => ({
+      device: d.name,
+      driver_id: d.driver?.driver_id ?? d.driver?.package_name ?? null,
+      driver_status: driverStatusOf(d),
+      next_phase: GEN_DRIVER_ENVELOPE_PHASE,
+      message: `${d.name}: build its driver (status ${driverStatusOf(d)}) before generating.`,
+    }));
+  if (fromDevices.length) return fromDevices;
+  // Fallback: the gate as an error entry. The contract puts it in structured_errors; some model outputs
+  // use `errors` instead (observed), so read both. Match on next_phase / next_action prefix / gate code.
+  const rawErrors = [
+    ...(Array.isArray(payload.structured_errors) ? payload.structured_errors : []),
+    ...(Array.isArray(payload.errors) ? payload.errors : []),
+  ];
+  return rawErrors.filter((e: any) => e && typeof e === "object" && (
     e.next_phase === GEN_DRIVER_ENVELOPE_PHASE
     || (typeof e.next_action === "string" && e.next_action.startsWith("run_upy_gen_driver_plugin"))
     || (typeof e.code === "string" && GEN_DRIVER_GATE_CODES.has(e.code))

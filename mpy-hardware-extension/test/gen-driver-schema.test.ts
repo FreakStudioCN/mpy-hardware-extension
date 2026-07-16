@@ -301,6 +301,29 @@ test("detectDriverReadyBlock matches both the next_phase and the legacy code/nex
   assert.equal(detectDriverReadyBlock({ result: "partial" }).length, 0, "no structured_errors -> no block");
 });
 
+test("detectDriverReadyBlock catches the REAL 2026-07-16 shape: errors[] + COLD_DRIVER_GATE + device status", () => {
+  // The live generate put the gate in `errors` (not structured_errors) with code COLD_DRIVER_GATE, and the
+  // manifest device carried driver.status=cold_driver_required. The old code (structured_errors + a code set
+  // without COLD_DRIVER_GATE) missed it, so the #53 offer never fired. Detect off the device status first
+  // (names the device), and read `errors` as an error-shape fallback.
+  const real = {
+    result: "partial", next_phase: null,
+    errors: [{ code: "COLD_DRIVER_GATE", severity: "error", phase_step: "driver_status_gate", message: "MAX30102 driver status is 'cold_driver_required'. Run upy-gen-driver-plugin first." }],
+    manifest_content: { devices: [
+      { name: "MAX30102", type: "heart_rate_sensor", driver: { source: "github", status: "cold_driver_required", package_name: "max30102" } },
+      { name: "I2C Bus", type: "bus", driver: { source: "builtin_runtime", module: "machine.I2C" } },
+    ] },
+  };
+  const blocks = detectDriverReadyBlock(real);
+  // Mutation: revert to structured_errors-only / drop the device-status path -> 0 and this fails.
+  assert.equal(blocks.length, 1, "the cold MAX30102 device is the block; the builtin I2C bus is not");
+  assert.equal(blocks[0].device, "MAX30102", "names the device off manifest_content.devices");
+  assert.equal(blocks[0].driver_status, "cold_driver_required");
+  // and the error-shape fallback: gate only in errors[] with COLD_DRIVER_GATE, no cold device status
+  const errOnly = { result: "partial", errors: [{ code: "COLD_DRIVER_GATE", device: "MAX30102" }] };
+  assert.equal(detectDriverReadyBlock(errOnly).length, 1, "reads the gate from errors[] with COLD_DRIVER_GATE too");
+});
+
 test("buildGenDriverDispatch assembles a standalone envelope (body.phase != domain phase)", () => {
   const sources = [{ type: "chip_model" as const, artifact_path: null, sha256: null, primary: true, metadata: { chip_model: "SHT30" } }];
   const env = buildGenDriverDispatch({ sessionId: "s1", msgId: "m1", timestamp: "2026-07-15T00:00:00Z", sources });
