@@ -2441,3 +2441,20 @@ test("gen-driver tab strip splits source-input tabs from config tabs", async () 
   assert.deepEqual(tabIds(groups[0]), ["pdf", "chip"], "source tabs in the Add a source group");
   assert.deepEqual(tabIds(groups[1]), ["driver", "verification"], "config tabs in the Settings group");
 });
+
+test("Activity tab auto-scrolls to the latest when content is appended", async () => {
+  // jsdom has no layout so scrollHeight is 0; fake a scroll extent and assert the observer pins
+  // scrollTop to it on any append. Mutation: drop the MutationObserver -> scrollTop stays 0.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const list = document.getElementById("activity")!;
+  // The scroll container is the .tabwrap ancestor (overflow-y:auto), NOT #activity's .view parent.
+  const scroller = list.closest(".tabwrap") as HTMLElement;
+  assert.ok(scroller, "activity lives inside the .tabwrap scroll container");
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 500 });
+  scroller.scrollTop = 0;
+  const card = document.createElement("div"); card.className = "ev-card"; card.textContent = "new activity";
+  list.appendChild(card);
+  await new Promise((r) => setTimeout(r, 0)); // MutationObserver callbacks fire on a microtask
+  assert.equal(scroller.scrollTop, 500, "appending to the activity list scrolls .tabwrap to the bottom");
+});

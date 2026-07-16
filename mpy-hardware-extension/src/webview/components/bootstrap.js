@@ -14,3 +14,16 @@
       vscode.postMessage({ type: "request_partners" });
       // Pull the artifact index so the Artifacts tab is populated for a resumed session.
       vscode.postMessage({ type: "request_artifacts" });
+
+      // Auto-follow the Activity tab: any new card or streamed content scrolls to the latest.
+      // One observer on the container covers every append site (including ones with no explicit
+      // scroll, e.g. the artifact browser) and any future one, so call sites don't each re-scroll.
+      (function autoFollowActivity() {
+        const list = $("activity");
+        // The scroll container is .tabwrap (overflow-y:auto), not #activity or its .view parent
+        // (both have no overflow), so scroll the closest .tabwrap ancestor.
+        const scroller = list && list.closest(".tabwrap");
+        if (!scroller || typeof MutationObserver !== "function") return;
+        new MutationObserver(() => { scroller.scrollTop = scroller.scrollHeight; })
+          .observe(list, { childList: true, subtree: true, characterData: true });
+      })();

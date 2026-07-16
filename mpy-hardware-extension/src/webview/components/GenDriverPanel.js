@@ -326,6 +326,5 @@
         });
         card.appendChild(head); card.appendChild(btn);
         host.appendChild(card);
-        host.parentElement.scrollTop = host.parentElement.scrollHeight;
       }
 
