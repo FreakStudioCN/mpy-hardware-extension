@@ -75,11 +75,15 @@ SCHEMA_FILES = {
     "diagram": "upy-project-gen-toolchain-spec/diagram.schema.json",
 }
 SCRIPT_FILES = {
+    # Dir names carry the -plugin suffix (as bundled by prepare-vsce's PLUGIN_DIRS and named in the
+    # submodule). The old non-plugin names (upy-scaffold/upy-generate/upy-wiring/upy-diagram) resolve
+    # to a non-existent path, which broke render_wiring/render_diagram (script_not_found -> the run's
+    # image never renders). validate already matched.
     "validate": "upy-project-gen-toolchain-spec/scripts/validate_json.py",
-    "scaffold": "upy-scaffold/scripts/init_scaffold.py",
-    "download_drivers": "upy-generate/scripts/download_drivers.py",
-    "render_wiring": "upy-wiring/scripts/render_wiring_local.py",
-    "render_diagram": "upy-diagram/scripts/render_diagram_local.py",
+    "scaffold": "upy-scaffold-plugin/scripts/init_scaffold.py",
+    "download_drivers": "upy-generate-plugin/scripts/download_drivers.py",
+    "render_wiring": "upy-wiring-plugin/scripts/render_wiring_local.py",
+    "render_diagram": "upy-diagram-plugin/scripts/render_diagram_local.py",
 }
 
 

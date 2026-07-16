@@ -6,6 +6,7 @@ import sys
 import pytest
 
 from serve import (
+    SCRIPT_FILES,
     Shim,
     _dispatch,
     _list_files,
@@ -22,6 +23,17 @@ from serve import (
     _run_static_check,
     _run_validate,
 )
+
+
+def test_every_script_files_entry_resolves_to_a_real_file():
+    # SCRIPT_FILES dir names must carry the -plugin suffix (as prepare-vsce bundles them and the
+    # submodule names them). The old non-plugin names (upy-scaffold/upy-generate/upy-wiring/
+    # upy-diagram) resolved to a missing path, silently breaking render_wiring/render_diagram
+    # (script_not_found -> the run's image never rendered). Mutation: revert any entry to the
+    # non-plugin name and this fails.
+    for key in SCRIPT_FILES:
+        path = resolve_script(key)
+        assert os.path.exists(path), f"{key} -> {path} does not exist (dir-name/bundle mismatch)"
 
 
 def test_ensure_utf8_io_forces_utf8_and_tolerates_missing_reconfigure():
@@ -443,8 +455,8 @@ def test_run_script_builds_a_python_command_with_args():
 
 def test_resolve_script_and_schema_paths():
     assert resolve_script("validate").replace("\\", "/").endswith("upy-project-gen-toolchain-spec/scripts/validate_json.py")
-    assert resolve_script("scaffold").replace("\\", "/").endswith("upy-scaffold/scripts/init_scaffold.py")
-    assert resolve_script("download_drivers").replace("\\", "/").endswith("upy-generate/scripts/download_drivers.py")
+    assert resolve_script("scaffold").replace("\\", "/").endswith("upy-scaffold-plugin/scripts/init_scaffold.py")
+    assert resolve_script("download_drivers").replace("\\", "/").endswith("upy-generate-plugin/scripts/download_drivers.py")
     assert resolve_schema("wiring").replace("\\", "/").endswith("upy-project-gen-toolchain-spec/wiring.schema.json")
     assert resolve_schema("nope") is None
     assert os.path.isabs(scripts_root())
@@ -534,7 +546,7 @@ def test_run_render_builds_input_output_format_args():
     res = _run_render(Shim(runner=runner), "diagram", {"project_dir": "/proj"})
     assert res == {"status": "ok", "exit_code": 0, "output": "rendered"}
     cmd = captured["cmd"]
-    assert cmd[1].replace("\\", "/").endswith("upy-diagram/scripts/render_diagram_local.py")
+    assert cmd[1].replace("\\", "/").endswith("upy-diagram-plugin/scripts/render_diagram_local.py")
     # default format is md (offline), reading docs/diagram.json into docs/.
     assert cmd[cmd.index("--format") + 1] == "md"
     assert cmd[cmd.index("--input") + 1] == os.path.join("/proj", "docs", "diagram.json")
