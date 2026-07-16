@@ -2458,3 +2458,16 @@ test("Activity tab auto-scrolls to the latest when content is appended", async (
   await new Promise((r) => setTimeout(r, 0)); // MutationObserver callbacks fire on a microtask
   assert.equal(scroller.scrollTop, 500, "appending to the activity list scrolls .tabwrap to the bottom");
 });
+
+test("returning to the Activity tab re-follows to the latest (no snap to top)", async () => {
+  // Tabs share one .tabwrap scroller; showing a shorter view clamps scrollTop, so switching away
+  // and back must re-scroll Activity to the bottom. Mutation: drop the setTab re-follow -> stays 0.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const tabwrap = document.querySelector(".tabwrap") as HTMLElement;
+  Object.defineProperty(tabwrap, "scrollHeight", { configurable: true, value: 500 });
+  (document.querySelector('.tab[data-tab="serial"]') as HTMLButtonElement).click();
+  tabwrap.scrollTop = 0; // the clamp a shorter sibling view causes
+  (document.querySelector('.tab[data-tab="activity"]') as HTMLButtonElement).click();
+  assert.equal(tabwrap.scrollTop, 500, "returning to Activity scrolls .tabwrap to the bottom");
+});

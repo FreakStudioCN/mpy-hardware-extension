@@ -23,7 +23,12 @@
         // The scroll container is .tabwrap (overflow-y:auto), not #activity or its .view parent
         // (both have no overflow), so scroll the closest .tabwrap ancestor.
         const scroller = list && list.closest(".tabwrap");
+        const view = list && list.closest(".view");
         if (!scroller || typeof MutationObserver !== "function") return;
-        new MutationObserver(() => { scroller.scrollTop = scroller.scrollHeight; })
-          .observe(list, { childList: true, subtree: true, characterData: true });
+        new MutationObserver(() => {
+          // The tabs share one .tabwrap; only follow when Activity is the visible view, or a
+          // background stream would clamp scrollTop against a shorter tab the user is reading.
+          if (view && view.classList.contains("hidden")) return;
+          scroller.scrollTop = scroller.scrollHeight;
+        }).observe(list, { childList: true, subtree: true, characterData: true });
       })();
