@@ -513,7 +513,12 @@
 .of-run:disabled { background: #3a3a3c; color: #8a8a8a; cursor: default; }
 .of-done { margin-top: 6px; }
 
-/* Optional-flow run output: the mermaid-rendered wiring/diagram image, shown in its tab. */
+/* Optional-flow run output: the mermaid-rendered wiring/diagram images, shown in its tab. Each is a
+   clickable card that opens the full-size file in the editor (the sidebar is too narrow to read inline). */
 .of-run-image { margin: 8px 0; }
-.of-run-cap { font-size: 12px; opacity: .7; margin-bottom: 4px; }
-.of-run-img { max-width: 100%; height: auto; border-radius: 4px; }
+.of-run-cap { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-dim); margin-bottom: 6px; }
+.of-fig { margin: 0 0 10px; cursor: zoom-in; border: 1px solid var(--vsc-card-border); border-radius: 6px; overflow: hidden; background: var(--vsc-card); transition: border-color .15s; }
+.of-fig:hover { border-color: var(--accent); }
+.of-run-img { display: block; max-width: 100%; height: auto; background: #fff; }
+.of-fig-cap { font-size: 11.5px; color: var(--fg); padding: 5px 9px; border-top: 1px solid var(--vsc-card-border); display: flex; justify-content: space-between; align-items: center; }
+.of-fig-cap::after { content: "Open ↗"; color: var(--fg-dim); font-size: 10.5px; }

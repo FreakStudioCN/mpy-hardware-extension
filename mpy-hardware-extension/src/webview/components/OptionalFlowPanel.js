@@ -268,25 +268,40 @@
           el.appendChild(btn);
         });
       }
-      // Render a wiring/diagram RUN's authored image (the mermaid-rendered svg/png) in its tab, above the
-      // derived preview. The host already attaches a webview-safe `webview_uri` to image artifacts and tags
-      // their kind (wiring/diagram) in the artifacts_index — so pick the best image and show it. Falls back
-      // to nothing (the derived view stays) when the run produced no image (local-only/partial run).
-      function optionalFlowRunImage(artifacts, kind) {
-        var imgs = (Array.isArray(artifacts) ? artifacts : []).filter(function (a) { return a && a.kind === kind && a.webview_uri; });
-        var svg = imgs.filter(function (a) { return /\.svg$/i.test(a.relative_path || ""); });
-        var png = imgs.filter(function (a) { return /\.png$/i.test(a.relative_path || ""); });
-        return svg[0] || png[0] || imgs[0] || null;
+      // Turn "docs/architecture.png" -> "Architecture" for a per-image caption.
+      function optionalFlowImageName(relativePath) {
+        var base = (relativePath || "").split("/").pop().replace(/\.(svg|png)$/i, "").replace(/[_-]+/g, " ").trim();
+        return base ? base.charAt(0).toUpperCase() + base.slice(1) : "";
       }
+      // Render a wiring/diagram RUN's authored images (the mermaid-rendered svg/png) in its tab. The host
+      // attaches a webview-safe `webview_uri` and tags kind (wiring/diagram) in the artifacts_index. A
+      // diagram run emits several (architecture/flowchart/data_flow) — show all, each a clickable card that
+      // opens the full-size file in the editor (the sidebar is too narrow to read a detailed graph inline).
+      // Falls back to nothing (the derived view stays) when the run produced no image (local-only/partial).
       function renderOptionalFlowRunImage(containerId, artifacts, kind, label) {
         var el = $(containerId); if (!el) return;
-        var art = optionalFlowRunImage(artifacts, kind);
+        // Dedup by base name (architecture/flowchart/data_flow/wiring) so the same diagram in two
+        // formats shows once, preferring svg (crisper) over png. Then show every distinct diagram.
+        var byName = {};
+        (Array.isArray(artifacts) ? artifacts : []).forEach(function (a) {
+          if (!a || a.kind !== kind || !a.webview_uri) return;
+          var rp = a.relative_path || ""; if (!/\.(svg|png)$/i.test(rp)) return;
+          var base = rp.replace(/\.(svg|png)$/i, "");
+          if (!byName[base] || /\.svg$/i.test(rp)) byName[base] = a;
+        });
+        var imgs = Object.keys(byName).sort().map(function (k) { return byName[k]; });
         el.innerHTML = "";
-        if (!art) { el.classList.add("hidden"); return; }
+        if (!imgs.length) { el.classList.add("hidden"); return; }
         el.classList.remove("hidden");
-        var cap = document.createElement("div"); cap.className = "of-run-cap"; cap.textContent = label;
-        var img = document.createElement("img"); img.className = "of-run-img"; img.src = art.webview_uri; img.alt = label; // .src, not innerHTML -> no injection
-        el.appendChild(cap); el.appendChild(img);
+        var head = document.createElement("div"); head.className = "of-run-cap"; head.textContent = label;
+        el.appendChild(head);
+        imgs.forEach(function (art) {
+          var fig = document.createElement("figure"); fig.className = "of-fig"; fig.title = "Open full size in the editor";
+          fig.addEventListener("click", function () { vscode.postMessage({ type: "open_artifact", relative_path: art.relative_path }); });
+          var img = document.createElement("img"); img.className = "of-run-img"; img.src = art.webview_uri; img.alt = art.relative_path; // .src, not innerHTML -> no injection
+          var cap = document.createElement("figcaption"); cap.className = "of-fig-cap"; cap.textContent = optionalFlowImageName(art.relative_path);
+          fig.appendChild(img); fig.appendChild(cap); el.appendChild(fig);
+        });
       }
       function renderOptionalFlowImages(artifacts) {
         // labels computed at call-time so the locale is current (LOCALE is "en" at script load).

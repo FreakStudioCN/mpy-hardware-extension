@@ -2338,13 +2338,21 @@ test("a wiring/diagram run's rendered image shows in its tab (svg preferred), el
     { relative_path: "blockless-project/docs/wiring.png", kind: "wiring", webview_uri: "vscode-resource://wiring.png" },
     { relative_path: "blockless-project/docs/wiring.svg", kind: "wiring", webview_uri: "vscode-resource://wiring.svg" },
     { relative_path: "blockless-project/docs/architecture.svg", kind: "diagram", webview_uri: "vscode-resource://arch.svg" },
+    { relative_path: "blockless-project/docs/flowchart.png", kind: "diagram", webview_uri: "vscode-resource://flow.png" },
+    { relative_path: "blockless-project/docs/data_flow.png", kind: "diagram", webview_uri: "vscode-resource://data.png" },
     { relative_path: "blockless-project/main.py", kind: "code" },
   ] });
-  const wImg = document.querySelector("#wiringRunImage img") as HTMLImageElement;
-  assert.ok(wImg, "the wiring run image renders in the Wiring tab");
-  assert.equal(wImg.src, "vscode-resource://wiring.svg", "svg is preferred over png");
-  const dImg = document.querySelector("#diagramRunImage img") as HTMLImageElement;
-  assert.equal(dImg.src, "vscode-resource://arch.svg", "the diagram run image renders in the Diagram tab");
+  const wImgs = [...document.querySelectorAll("#wiringRunImage img")] as HTMLImageElement[];
+  assert.equal(wImgs.length, 1, "wiring's two formats dedup to one image");
+  assert.equal(wImgs[0].src, "vscode-resource://wiring.svg", "svg is preferred over png");
+  // a diagram run emits several distinct diagrams — all show, each in its own card
+  const dImgs = [...document.querySelectorAll("#diagramRunImage img")] as HTMLImageElement[];
+  assert.deepEqual(dImgs.map((i) => i.src).sort(), ["vscode-resource://arch.svg", "vscode-resource://data.png", "vscode-resource://flow.png"], "all three diagrams render");
+  // each image is a clickable card that opens the full-size file. Mutation: drop the click handler -> no post.
+  posted.length = 0;
+  (document.querySelector("#diagramRunImage figure.of-fig") as HTMLElement).click();
+  const open = posted.find((m) => m.type === "open_artifact");
+  assert.ok(open && /docs\/(architecture|flowchart|data_flow)/.test(open.relative_path), "clicking a diagram card opens the full-size file");
 
   // A later index with no images (e.g. a local-only/partial run) hides the run image -> derived view stays.
   // Mutation: drop the message-bus route -> the first index never renders and this whole test fails.
