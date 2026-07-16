@@ -749,6 +749,21 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
         const envelope = buildOptionalFlowDispatch(flow, { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), sourcePhaseCompletePath });
         await controller.startPhase({ phase: token, envelope: JSON.stringify(envelope), boardId: message.boardId, label: `${flow} run` });
+        // Post-run render: the plugin authors docs/<kind>.json but can't render the image in its
+        // sandbox, so the host runs render_<kind>_local.py (-> mermaid.ink) to produce the png, then
+        // re-indexes so the Diagram/Wiring tab shows it and drops a jump card into Activity.
+        const docJson = join(projectFolder, "docs", flow === "wiring" ? "wiring.json" : "diagram.json");
+        if (existsSync(docJson)) {
+          try {
+            if (flow === "wiring") await shim.renderWiring(projectFolder, "png");
+            else await shim.renderDiagram(projectFolder, "png");
+            refreshArtifacts();
+            webview.postMessage({ type: "optional_flow_done", flow });
+          } catch (renderErr: any) {
+            deps.log?.(`optional-flow ${flow} render failed: ${renderErr?.message ?? renderErr}`);
+            webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `${flow} data generated, but the image render (mermaid.ink) failed — retry to render it.` });
+          }
+        }
       } catch (error: any) {
         webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: error?.message ?? "optional flow dispatch failed" });
       } finally { releaseRun(); }

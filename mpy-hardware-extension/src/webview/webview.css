@@ -511,6 +511,7 @@
   transition: background .15s; }
 .of-run:hover:not(:disabled) { background: var(--accent-hover); }
 .of-run:disabled { background: #3a3a3c; color: #8a8a8a; cursor: default; }
+.of-done { margin-top: 6px; }
 
 /* Optional-flow run output: the mermaid-rendered wiring/diagram image, shown in its tab. */
 .of-run-image { margin: 8px 0; }

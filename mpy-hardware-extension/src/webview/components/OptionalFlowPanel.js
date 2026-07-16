@@ -302,3 +302,21 @@
         var btn = entry.querySelector("button.of-run");
         if (btn && status === "failed") { btn.disabled = false; btn.textContent = btn.dataset.label || btn.textContent; } // restore the label so the user can retry
       }
+      // A wiring/diagram run finished and its rendered image is indexed. Reset the trigger button and
+      // drop a card into Activity with a button that jumps to the tab showing the render.
+      function addOptionalFlowDoneCard(flow) {
+        var ready = flow === "wiring" ? (LOCALE === "zh" ? "接线图已生成" : "Wiring diagram ready") : (LOCALE === "zh" ? "架构图已生成" : "Architecture diagram ready");
+        var viewLabel = flow === "wiring" ? (LOCALE === "zh" ? "查看接线图" : "View wiring") : (LOCALE === "zh" ? "查看架构图" : "View diagram");
+        var entry = flow === "wiring" ? $("wiringEntry") : flow === "diagram" ? $("diagramEntry") : null;
+        var trigger = entry && entry.querySelector("button.of-run");
+        if (trigger) { trigger.disabled = false; trigger.textContent = trigger.dataset.label || trigger.textContent; }
+        var host = $("activity"); if (!host) return;
+        $("activityEmpty").classList.add("hidden");
+        var card = document.createElement("div"); card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind"></span></div><div class="of-done"></div></div></div></div>';
+        card.querySelector(".kind").textContent = ready;
+        var view = document.createElement("button"); view.className = "of-run"; view.dataset.flow = flow; view.textContent = viewLabel;
+        view.addEventListener("click", function () { setTab(flow); });
+        card.querySelector(".of-done").appendChild(view);
+        host.appendChild(card);
+      }

@@ -2375,6 +2375,23 @@ test("optional-flow entries appear only for offered flows and dispatch start_opt
   assert.ok(document.querySelector('.tab[data-tab="activity"]')!.classList.contains("active"), "clicking switches to the Activity tab so the run streams into view");
 });
 
+test("a finished optional-flow run drops a jump card that switches to the tab", async () => {
+  // When the host renders the run's image and posts optional_flow_done, Activity gets a card with a
+  // View button that jumps to the Diagram/Wiring tab. Mutation: drop the setTab(flow) -> tab inactive.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "optional_flows", phases: [{ phase: "upy-diagram-plugin" }] });
+  const trigger = document.getElementById("diagramEntry")!.querySelector("button.of-run") as HTMLButtonElement;
+  trigger.click(); // sets it to the disabled "Generating…" state
+  post(dom, { type: "optional_flow_done", flow: "diagram" });
+  assert.equal(trigger.disabled, false, "the run's completion resets the trigger button");
+  assert.equal(trigger.textContent, "Generate architecture diagram", "restores the trigger label");
+  const view = [...document.getElementById("activity")!.querySelectorAll(".of-done button.of-run")].pop() as HTMLButtonElement;
+  assert.ok(view && /View diagram/.test(view.textContent!), "a View diagram card renders in Activity");
+  view.click();
+  assert.ok(document.querySelector('.tab[data-tab="diagram"]')!.classList.contains("active"), "clicking the card jumps to the Diagram tab");
+});
+
 test("a #53 gen_driver_required message offers to build the driver; clicking dispatches the run", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
