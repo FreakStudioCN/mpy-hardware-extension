@@ -1902,6 +1902,50 @@ test("stopping the session leaves no spinning thinking card", async () => {
   assert.equal(document.querySelector(".feed-pending"), null, "the working spinner is gone after stop");
 });
 
+// Every terminal the core can end a session on must have a user-facing string. The list is
+// EXTRACTED from the core sources, never hardcoded here — a hardcoded copy would drift, and
+// tr() falls back to returning the KEY when a string is missing, so a terminal that ships
+// without one reaches the user as a raw internal token ("Session ended: failed"). That is
+// exactly how term_failed shipped missing. zh is not checked: tr() falls back zh -> en, so
+// en is the authority.
+test("every terminal the core can emit has a user-facing string", async () => {
+  const coreTerminals = new Set<string>();
+  for (const file of ["protocol-loop.ts", "protocol-build.ts", "agent-loop.ts"]) {
+    const src = readFileSync(new URL(`../src/core/${file}`, import.meta.url), "utf-8");
+    for (const m of src.matchAll(/terminal:\s*"([a-z_]+)"/g)) coreTerminals.add(m[1]);
+  }
+  // shouldTerminate's reasons become a terminal verbatim (agent-loop: `terminal: terminal.reason`).
+  const termination = readFileSync(new URL("../src/core/termination.ts", import.meta.url), "utf-8");
+  for (const m of termination.matchAll(/reason:\s*"([a-z_]+)"/g)) coreTerminals.add(m[1]);
+
+  // Guard the extraction itself: a broken regex would yield an empty set and pass vacuously.
+  assert.ok(coreTerminals.size >= 10, `extraction found only ${coreTerminals.size} terminals — the regex broke`);
+
+  const dom = await loadWebview([]);
+  const tr = (dom.window as any).tr;
+  const missing = [...coreTerminals].filter((t) => tr("term_" + t) === "term_" + t).sort();
+  assert.deepEqual(missing, [], `terminals with no term_* string — they render as a raw token: ${missing.join(", ")}`);
+});
+
+test("an unknown next_phase renders its reason in the feed, not just a bare terminal", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // The model asked to advance to a phase that isn't in PHASE_ALIASES: protocol-loop emits
+  // phase_error and ends the run "failed". Both halves must reach the user — the reason line
+  // AND a readable terminal — or the build looks like it died for no reason.
+  post(dom, { type: "phase_error", error_kind: "unknown_next_phase", next_phase: "upy-verify-plugin" });
+  post(dom, { type: "session_done", terminal: "failed" });
+
+  const feed = (document.getElementById("activity") as HTMLElement).textContent ?? "";
+  assert.match(feed, /upy-verify-plugin/, "the feed names the phase the build asked for");
+  assert.doesNotMatch(feed, /Session ended: failed/, "the terminal line reads as English, not the raw token");
+});
+
 test("a duplicate session_done renders exactly one terminal line", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

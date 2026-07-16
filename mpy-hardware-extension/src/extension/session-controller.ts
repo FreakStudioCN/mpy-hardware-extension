@@ -605,6 +605,18 @@ export class SessionController {
       this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason });
       return;
     }
+    if (event.type === "phase_error") {
+      // The protocol hit an unrecoverable phase fault (today: the model asked to advance to a
+      // phase outside PHASE_ALIASES) and ends the run "failed". Same treatment as phase_stalled:
+      // without its own branch this falls to the generic trace_event below, which the webview
+      // only renders when the event carries isError+text — phase_error carries neither, so the
+      // reason vanished and the user saw a bare "Session ended: failed" with no cause.
+      const detail = event.next_phase ? `${event.error_kind}: ${event.next_phase}` : String(event.error_kind);
+      this.keyErrors.push(detail);
+      this.record({ type: "phase_error", error_kind: event.error_kind, next_phase: event.next_phase });
+      this.deps.postMessage({ type: "phase_error", error_kind: event.error_kind, next_phase: event.next_phase });
+      return;
+    }
     this.record({ type: "trace_event", event });
     this.deps.postMessage({ type: "trace_event", event });
   }
