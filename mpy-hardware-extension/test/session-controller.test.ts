@@ -1582,3 +1582,22 @@ test("a non-success generate does NOT offer the optional flows", async () => {
   assert.equal(controller.getOptionalNextPhases().length, 0, "no offer after a non-success generate");
   assert.ok(!posted.some((m) => m.type === "optional_flows"), "does not post optional_flows for a partial generate");
 });
+
+test("generate degraded shape (phase only in manifest_content) still offers + captures for Q3", async () => {
+  // REAL runtime shape (2026-07-16 trace): the model dropped the top-level payload.phase AND
+  // optional_next_phases, putting phase only in manifest_content. The offer + Q3 capture key off
+  // the DOMAIN phase, so they must resolve it from manifest_content, not payload.phase.
+  // Mutation: check event.payload.phase only -> both are undefined here and this fails.
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { result: "success", summary: "app generated", next_phase: "upy-deploy-plugin", manifest_content: { phase: "generate", domain_phase: "generate" } } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.deepEqual(controller.getOptionalNextPhases().map((o) => o.phase), ["upy-wiring-plugin", "upy-diagram-plugin"], "offers both flows off manifest_content.phase");
+  assert.ok(posted.some((m) => m.type === "optional_flows" && m.phases.length === 2), "posts optional_flows for the degraded shape");
+  assert.equal((controller.getLatestGeneratePhaseComplete() as any)?.summary, "app generated", "Q3 captures the generate result off manifest_content.phase");
+});

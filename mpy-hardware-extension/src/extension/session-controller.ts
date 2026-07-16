@@ -620,6 +620,10 @@ export class SessionController {
       this.capturePhaseArtifacts(event.payload);
       this.record({ type: "phase_complete", payload: event.payload });
       this.deps.postMessage({ type: "phase_complete", payload: event.payload });
+      // The domain phase is at payload.phase per the sample contract, but the generate model can
+      // drop the top-level phase and only set manifest_content.phase/domain_phase. Resolve from
+      // either so the generate-keyed logic below fires on that degraded (but successful) shape too.
+      const domainPhase = event.payload?.phase ?? event.payload?.manifest_content?.phase ?? event.payload?.manifest_content?.domain_phase;
       // A gen-driver run's phase_complete carries the UI driver status (payload.phase is the DOMAIN
       // token "gen-driver"). Surface it to the GenDriverPanel; deriveDriverStatus trusts the
       // authoritative driver_status when present and falls back to the result/verification heuristic.
@@ -634,8 +638,8 @@ export class SessionController {
       }
       // Persist generate's phase_complete in memory so a wiring/diagram run can pass it as
       // source_phase_complete_path (a formal success requires reading the upstream generate result;
-      // wiring/diagram SKILL.md). payload.phase is the domain token "generate". Cleared on reset (#9).
-      if (event.payload?.phase === "generate") {
+      // wiring/diagram SKILL.md). The domain token is "generate" (resolved above). Cleared on reset (#9).
+      if (domainPhase === "generate") {
         this.latestGeneratePhaseComplete = event.payload;
       }
       // generate offers optional follow-on flows (wiring/diagram) in optional_next_phases. Capture them
@@ -647,7 +651,7 @@ export class SessionController {
         // Normalize to the object shape so the host gate + webview entries key on `.phase` either way.
         this.optionalNextPhases = offered.map((p: any) => (typeof p === "string" ? { phase: p } : p));
         this.deps.postMessage({ type: "optional_flows", phases: this.optionalNextPhases });
-      } else if (event.payload?.phase === "generate" && event.payload?.result === "success") {
+      } else if (domainPhase === "generate" && event.payload?.result === "success") {
         // Spec (deliverables 04): wiring/diagram are optional artifact flows triggerable after ANY
         // successful generate, not only when the model advertised them. The generate SKILL requires
         // emitting optional_next_phases on success, but the model sometimes drops it, which left the
