@@ -25,10 +25,18 @@
         const scroller = list && list.closest(".tabwrap");
         const view = list && list.closest(".view");
         if (!scroller || typeof MutationObserver !== "function") return;
+        // Stick-to-bottom (industry-standard chat auto-scroll): only follow new content when the user is
+        // already near the bottom. If they scrolled up to read history, leave them there. A scroll listener
+        // tracks the intent BEFORE the mutation grows scrollHeight; the observer's own scroll re-arms it.
+        const NEAR_BOTTOM_PX = 150;
+        const atBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= NEAR_BOTTOM_PX;
+        let stick = true;
+        scroller.addEventListener("scroll", () => { stick = atBottom(); });
         new MutationObserver(() => {
           // The tabs share one .tabwrap; only follow when Activity is the visible view, or a
           // background stream would clamp scrollTop against a shorter tab the user is reading.
           if (view && view.classList.contains("hidden")) return;
+          if (!stick) return; // user scrolled up — don't yank them back to the latest
           scroller.scrollTop = scroller.scrollHeight;
         }).observe(list, { childList: true, subtree: true, characterData: true });
       })();

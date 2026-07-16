@@ -2481,6 +2481,29 @@ test("Activity tab auto-scrolls to the latest when content is appended", async (
   assert.equal(scroller.scrollTop, 500, "appending to the activity list scrolls .tabwrap to the bottom");
 });
 
+test("Activity auto-scroll sticks only when near the bottom (no yank if scrolled up)", async () => {
+  // Industry-standard stick-to-bottom: a reader who scrolled up must not be yanked down by a stream.
+  // Mutation: drop the `if (!stick) return` guard -> the scrolled-up case jumps to 500 and this fails.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const list = document.getElementById("activity")!;
+  const scroller = list.closest(".tabwrap") as HTMLElement;
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 500 }); // clientHeight is 0 in jsdom, threshold 150 -> "at bottom" needs scrollTop >= 350
+  const append = (t: string) => list.appendChild(Object.assign(document.createElement("div"), { className: "ev-card", textContent: t }));
+  // scrolled up to read history -> a scroll event marks the reader "not at bottom"
+  scroller.scrollTop = 0;
+  scroller.dispatchEvent(new dom.window.Event("scroll"));
+  append("streamed");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(scroller.scrollTop, 0, "a scrolled-up reader is not yanked to the bottom");
+  // scroll back near the bottom -> following resumes
+  scroller.scrollTop = 400;
+  scroller.dispatchEvent(new dom.window.Event("scroll"));
+  append("more");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(scroller.scrollTop, 500, "returning near the bottom re-enables follow");
+});
+
 test("returning to the Activity tab re-follows to the latest (no snap to top)", async () => {
   // Tabs share one .tabwrap scroller; showing a shorter view clamps scrollTop, so switching away
   // and back must re-scroll Activity to the bottom. Mutation: drop the setTab re-follow -> stays 0.

@@ -246,8 +246,8 @@
       // The optional wiring/diagram RUN entries. Shown only for the flows generate offered
       // (optional_next_phases); the host re-checks the offer too, so this is convenience, not the gate.
       var OPTIONAL_FLOW_BY_TOKEN = {
-        "upy-wiring-plugin": { flow: "wiring", entry: "wiringEntry", label: LOCALE === "zh" ? "生成接线图" : "Generate wiring diagram" },
-        "upy-diagram-plugin": { flow: "diagram", entry: "diagramEntry", label: LOCALE === "zh" ? "生成架构图" : "Generate architecture diagram" },
+        "upy-wiring-plugin": { flow: "wiring", entry: "wiringEntry", label: tr("of_gen_wiring") },
+        "upy-diagram-plugin": { flow: "diagram", entry: "diagramEntry", label: tr("of_gen_diagram") },
       };
       function setOptionalFlows(phases) {
         var offered = {};
@@ -262,7 +262,7 @@
           btn.addEventListener("click", function () {
             vscode.postMessage({ type: "start_optional_flow", flow: cfg.flow });
             btn.disabled = true;
-            btn.textContent = LOCALE === "zh" ? "生成中…" : "Generating…";
+            btn.textContent = tr("of_generating");
             setTab("activity"); // the run streams its approvals + progress into the Activity timeline
           });
           el.appendChild(btn);
@@ -290,8 +290,8 @@
       }
       function renderOptionalFlowImages(artifacts) {
         // labels computed at call-time so the locale is current (LOCALE is "en" at script load).
-        renderOptionalFlowRunImage("wiringRunImage", artifacts, "wiring", LOCALE === "zh" ? "生成的接线图" : "Generated wiring");
-        renderOptionalFlowRunImage("diagramRunImage", artifacts, "diagram", LOCALE === "zh" ? "生成的架构图" : "Generated diagram");
+        renderOptionalFlowRunImage("wiringRunImage", artifacts, "wiring", tr("of_img_wiring"));
+        renderOptionalFlowRunImage("diagramRunImage", artifacts, "diagram", tr("of_img_diagram"));
       }
       function setOptionalFlowStatus(flow, status, detail) {
         var entry = flow === "wiring" ? $("wiringEntry") : flow === "diagram" ? $("diagramEntry") : null;
@@ -305,8 +305,8 @@
       // A wiring/diagram run finished and its rendered image is indexed. Reset the trigger button and
       // drop a card into Activity with a button that jumps to the tab showing the render.
       function addOptionalFlowDoneCard(flow) {
-        var ready = flow === "wiring" ? (LOCALE === "zh" ? "接线图已生成" : "Wiring diagram ready") : (LOCALE === "zh" ? "架构图已生成" : "Architecture diagram ready");
-        var viewLabel = flow === "wiring" ? (LOCALE === "zh" ? "查看接线图" : "View wiring") : (LOCALE === "zh" ? "查看架构图" : "View diagram");
+        var ready = flow === "wiring" ? tr("of_ready_wiring") : tr("of_ready_diagram");
+        var viewLabel = flow === "wiring" ? tr("of_view_wiring") : tr("of_view_diagram");
         var entry = flow === "wiring" ? $("wiringEntry") : flow === "diagram" ? $("diagramEntry") : null;
         var trigger = entry && entry.querySelector("button.of-run");
         if (trigger) { trigger.disabled = false; trigger.textContent = trigger.dataset.label || trigger.textContent; }
