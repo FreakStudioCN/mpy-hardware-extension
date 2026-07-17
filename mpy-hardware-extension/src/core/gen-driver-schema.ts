@@ -336,12 +336,17 @@ export function deriveDriverStatus(complete: {
   return "failed";
 }
 
-// The cold-driver devices in an (untyped, upstream) manifest — the items the current tab
-// picks from and the signal inferMode keys on. Single place the predicate lives.
+// The blocked-driver devices in an (untyped, upstream) manifest — the items the current tab picks
+// from and the signal inferMode keys on. Uses the SAME predicate as detectDriverReadyBlock
+// (COLD_DRIVER_STATUSES + driverStatusOf), so detection and dispatch can't disagree: every status
+// that blocks generate (cold_driver_required / pending_validation / unverified / failed), under any
+// of the driver-status field spellings, routes to pipeline mode with the manifest, not standalone.
+// Previously this filtered only `driver.status === "cold_driver_required"`, so the other three
+// blocked states inferred `standalone` and dropped manifest_content/source_phase. Single predicate.
 export function coldDriverDevices(manifestContent: any): any[] {
   const devices = manifestContent?.devices;
   if (!Array.isArray(devices)) return [];
-  return devices.filter((device: any) => device?.driver?.status === "cold_driver_required");
+  return devices.filter((device: any) => COLD_DRIVER_STATUSES.has(driverStatusOf(device)));
 }
 
 // Mode inference (SKILL.md): pipeline only when the current manifest has a

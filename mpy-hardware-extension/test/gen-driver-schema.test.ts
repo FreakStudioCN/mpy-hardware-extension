@@ -347,6 +347,32 @@ test("buildGenDriverDispatch assembles a pipeline envelope from a cold-driver ma
   assert.deepEqual(payload.manifest_content, manifest, "pipeline carries the upstream manifest snapshot");
 });
 
+test("every blocked driver status (not just cold) infers pipeline and carries the manifest (#4)", () => {
+  // detectDriverReadyBlock blocks FOUR statuses (COLD_DRIVER_STATUSES); coldDriverDevices/inferMode
+  // must agree, or the other three dispatch as `standalone` and drop manifest_content/source_phase,
+  // so the pipeline can't update the manifest + resume generate. Mutation: revert coldDriverDevices
+  // to `=== "cold_driver_required"` and the three non-cold statuses fail here.
+  const sources = [{ type: "current_cold_driver_item" as const, artifact_path: null, sha256: null, primary: true, metadata: { driver_status: "pending_validation" } }];
+  for (const status of ["cold_driver_required", "pending_validation", "unverified", "failed"]) {
+    const manifest = { devices: [{ name: "MAX30102", driver: { status } }] };
+    assert.equal(inferMode(manifest), "pipeline", `${status} -> pipeline`);
+    const payload = buildGenDriverDispatch({ sessionId: "s", msgId: "m", timestamp: "2026-07-15T00:00:00Z", sources, manifestContent: manifest }).payload as any;
+    assert.equal(payload.mode, "pipeline", `${status} dispatch mode`);
+    assert.equal(payload.source_phase, "upy-generate-plugin", `${status} carries source_phase`);
+    assert.deepEqual(payload.manifest_content, manifest, `${status} carries manifest_content`);
+  }
+});
+
+test("blocked driver status is read under every driver-status field spelling (#4)", () => {
+  // coldDriverDevices must use the same driverStatusOf accessor as detection
+  // (driver.status ?? driver.driver_status ?? device.driver_status), not just driver.status.
+  assert.equal(inferMode({ devices: [{ name: "Y", driver_status: "failed" }] }), "pipeline", "top-level driver_status blocks");
+  assert.equal(inferMode({ devices: [{ name: "Y", driver: { driver_status: "unverified" } }] }), "pipeline", "driver.driver_status blocks");
+  // A ready or status-less driver is NOT blocked -> standalone.
+  assert.equal(inferMode({ devices: [{ name: "Z", driver: { status: "ready" } }] }), "standalone", "ready -> standalone");
+  assert.equal(inferMode({ devices: [{ name: "Z", driver: { source: "github" } }] }), "standalone", "no status -> standalone");
+});
+
 test("genDriverRuntimeContext roots are cwd-relative and containment-valid", () => {
   const rc = genDriverRuntimeContext("sess-1");
   // Every root must be reachable by the host's file_operation/script_run containment (rooted at
