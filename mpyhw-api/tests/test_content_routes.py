@@ -140,6 +140,8 @@ def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monke
     assert pybd["download_slug"] == "PYBD_SF2"
     # Every served id is a valid kebab (lowercase, digits, hyphens) so it can name a Skill board file.
     assert all(re.fullmatch(r"[a-z0-9-]+", b["id"]) for b in body["boards"]), "all served ids are kebab-case"
+
+
 def test_board_route_rejects_encoded_backslash_path_traversal():
     response = client.get("/v1/boards/..%5Cpackages%5Cpackage_index")
 

@@ -393,8 +393,8 @@
          composer — and the body — wider than a narrow VS Code side panel. */
       .start-controls { border-bottom: 1px solid var(--vsc-card-border); padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .mode-row, .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-      .mode-chip, .board-chip, .board-page-btn, .board-auto, .board-refresh { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
-      .mode-chip.active, .board-chip.chosen, .board-auto.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
+      .mode-chip, .board-chip, .board-page-btn, .board-refresh { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
+      .mode-chip.active, .board-chip.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
       /* Experience-level segmented toggle: Beginner/Custom are ONE connected control (the mode axis),
          visually distinct from the separate board-choice buttons (Recommend board / Browse boards). */
       .mode-toggle { display: inline-flex; }
@@ -420,11 +420,9 @@
       .board-selected-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .board-selected-clear { border: 0; background: transparent; color: var(--fg-muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
       .board-selected-clear:hover { color: var(--fg-bright); background: #ffffff14; }
-      /* disclosure for the collapsed board picker; caret flips when open */
-      .board-more { margin-left: auto; border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
-      .board-more::after { content: "\25be"; font-size: 9px; transition: transform .15s; }
-      .board-more.open { border-color: var(--accent); color: var(--fg); }
-      .board-more.open::after { transform: rotate(180deg); }
+      /* The Browse segment is a disclosure for the collapsed board picker; its caret flips when open. */
+      .board-toggle #boardMore::after { content: "\25be"; font-size: 9px; margin-left: 4px; transition: transform .15s; }
+      .board-toggle #boardMore[aria-expanded="true"]::after { transform: rotate(180deg); }
       .board-picker-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
       /* explicit display defeats the [hidden] attribute; restore it so collapse works */
       .board-picker-body[hidden] { display: none; }

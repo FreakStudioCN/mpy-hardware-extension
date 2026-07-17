@@ -125,13 +125,16 @@ test("clearing the selected-board chip returns to the recommend choice", async (
     source_url: "https://micropython.org/download/",
     boards: [{ id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: [], firmware: { url: "u", board_name: "ESP32_GENERIC_S3" }, download_slug: "ESP32_GENERIC_S3", support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" }],
   });
+  (document.getElementById("boardMore") as HTMLButtonElement).click(); // open the browse panel
+  assert.equal((document.getElementById("boardPickerBody") as HTMLElement).hidden, false, "browse panel open");
   (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
   assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), false, "chip shown after picking");
-  // The chip's ✕ (clear) returns to the recommend choice: chip hidden, Recommend active, and the start
-  // payload carries board_selection_mode recommend with no pre_selected_board.
+  // The chip's ✕ (clear) returns to the recommend choice: chip hidden, Recommend active, browse panel
+  // collapsed, and the start payload carries board_selection_mode recommend with no pre_selected_board.
   (document.getElementById("boardSelectedClear") as HTMLButtonElement).click();
   assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), true, "chip hidden after clear");
   assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), true, "Recommend segment active after clear");
+  assert.equal((document.getElementById("boardPickerBody") as HTMLElement).hidden, true, "browse panel collapsed after clear");
   (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
   (document.getElementById("generate") as HTMLButtonElement).click();
   const start = posted.find((m) => m.type === "start_session");

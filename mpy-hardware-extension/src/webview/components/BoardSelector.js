@@ -14,7 +14,6 @@
         $("boardPickerBody").hidden = !expanded;
         const more = $("boardMore");
         more.setAttribute("aria-expanded", expanded ? "true" : "false");
-        more.classList.toggle("open", expanded);
         syncBoardChoice();
       }
       // The board choice is one axis (Recommend vs Browse). Reflect it in the segmented toggle + the

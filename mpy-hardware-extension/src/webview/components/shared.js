@@ -228,6 +228,7 @@
         document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = tr(el.getAttribute("data-i18n")); });
         document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.setAttribute("placeholder", tr(el.getAttribute("data-i18n-ph"))); });
         document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.setAttribute("title", tr(el.getAttribute("data-i18n-title"))); });
+        document.querySelectorAll("[data-i18n-aria]").forEach((el) => { el.setAttribute("aria-label", tr(el.getAttribute("data-i18n-aria"))); });
       }
       // Lock the UI language for the session (first intent). Re-skins the static
       // chrome and the idle status/button when the session isn't already running.
