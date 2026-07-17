@@ -99,6 +99,12 @@ test("start screen selects an official MicroPython board and sends full pre_sele
 
   (document.getElementById("modeCustom") as HTMLButtonElement).click();
   (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+  // Picking a board shows the selected chip (naming the choice) and flips the segmented toggle to Browse,
+  // so the current choice is always visible instead of hidden in the collapsed list.
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), false, "selected chip shown after picking");
+  assert.match(document.getElementById("boardSelectedName")!.textContent!, /ESP32-S3/, "chip names the picked board");
+  assert.equal(document.getElementById("boardMore")!.classList.contains("active"), true, "Browse segment active when a board is picked");
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), false, "Recommend not active when a board is picked");
   (document.getElementById("intent") as HTMLTextAreaElement).value = "做一个温度报警器";
   (document.getElementById("generate") as HTMLButtonElement).click();
 
@@ -108,6 +114,29 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   assert.equal(start.pre_selected_board.id, "esp32-s3-devkitc");
   assert.equal(start.pre_selected_board.official_id, "ESP32_GENERIC_S3");
   assert.equal(start.pre_selected_board.firmware.board_name, "ESP32_GENERIC_S3");
+});
+
+test("clearing the selected-board chip returns to the recommend choice", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    source_url: "https://micropython.org/download/",
+    boards: [{ id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: [], firmware: { url: "u", board_name: "ESP32_GENERIC_S3" }, download_slug: "ESP32_GENERIC_S3", support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" }],
+  });
+  (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), false, "chip shown after picking");
+  // The chip's ✕ (clear) returns to the recommend choice: chip hidden, Recommend active, and the start
+  // payload carries board_selection_mode recommend with no pre_selected_board.
+  (document.getElementById("boardSelectedClear") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), true, "chip hidden after clear");
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), true, "Recommend segment active after clear");
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  const start = posted.find((m) => m.type === "start_session");
+  assert.equal(start.pre_selected_board, null, "no board after clear");
+  assert.equal(start.board_selection_mode, "recommend", "recommend after clear");
 });
 
 test("the last-used preference mode persists across panel reopens", async () => {
@@ -184,7 +213,10 @@ test("board cards show a firmware format and a details link that opens the downl
   const ext = posted.find((m) => m.type === "open_external");
   assert.ok(ext, "clicking details opens the page externally");
   assert.match(ext.url, /micropython\.org\/download\/ESP32_GENERIC_S3/);
-  assert.equal(document.getElementById("boardAuto")!.classList.contains("chosen"), true, "details click does not select the board (stopPropagation)");
+  // details click must NOT select the board (stopPropagation): stays on the recommend choice, so the
+  // Recommend segment is active and the selected-board chip is hidden.
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), true, "Recommend segment stays active");
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), true, "no selected-board chip after a details click");
 });
 
 test("the recommend path sends board_selection_mode=recommend; selecting a board omits it", async () => {

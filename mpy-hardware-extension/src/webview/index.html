@@ -207,10 +207,19 @@
                Start Workflow expands it; the disclosure toggles it. -->
           <div class="start-controls" id="boardPicker">
             <div class="mode-row">
-              <button class="mode-chip active" id="modeBeginner" type="button" data-mode="beginner" data-i18n="mode_beginner">Beginner</button>
-              <button class="mode-chip" id="modeCustom" type="button" data-mode="custom" data-i18n="mode_custom">Custom</button>
-              <button class="board-auto chosen" id="boardAuto" type="button" data-i18n="board_auto">Recommend board</button>
-              <button class="board-more" id="boardMore" type="button" aria-expanded="false" aria-controls="boardPickerBody" data-i18n="board_browse" data-i18n-title="board_browse_tip" title="Browse and pick a specific board">Browse boards</button>
+              <div class="mode-toggle" role="group" aria-label="Experience level">
+                <button class="mode-chip active" id="modeBeginner" type="button" data-mode="beginner" data-i18n="mode_beginner">Beginner</button>
+                <button class="mode-chip" id="modeCustom" type="button" data-mode="custom" data-i18n="mode_custom">Custom</button>
+              </div>
+              <div class="board-toggle" role="group" aria-label="Board selection">
+                <button class="board-seg active" id="boardAuto" type="button" data-i18n="board_auto">Recommend board</button>
+                <button class="board-seg" id="boardMore" type="button" aria-expanded="false" aria-controls="boardPickerBody" data-i18n="board_browse" data-i18n-title="board_browse_tip" title="Browse and pick a specific board">Browse boards</button>
+              </div>
+              <span class="board-selected hidden" id="boardSelected">
+                <span class="board-selected-ic">✓</span>
+                <span class="board-selected-name" id="boardSelectedName"></span>
+                <button class="board-selected-clear" id="boardSelectedClear" type="button" data-i18n-title="board_use_recommend" title="Use recommend instead" aria-label="Use recommend instead">✕</button>
+              </span>
             </div>
             <div class="board-picker-body" id="boardPickerBody" hidden>
               <input class="board-search" id="boardSearch" data-i18n-ph="board_search_ph" placeholder="Search official MicroPython boards" />
