@@ -29,6 +29,17 @@ async function sha256File(path: string): Promise<string> {
   return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
+// Rewrite the picked-file descriptor in metadata so it no longer carries the absolute HOST path (which
+// would ride the dispatch envelope up to the cloud). The file entry keeps its shape but points at the
+// relative staged path. `file` is the exact object pickedFileEntry returned, so match it by reference.
+function withStagedFilePath(metadata: unknown, file: PickedFile, stagedRelPath: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata as Record<string, unknown>)) {
+    out[key] = value === file ? { ...file, path: stagedRelPath } : value;
+  }
+  return out;
+}
+
 // Stage each file-bearing source's picked file under <projectFolder>/gen-driver/input and set
 // artifact_path to the relative POSIX path the plugin receives. The source path is echoed back by the
 // untrusted webview, so re-hash the staged copy and require it match the sha256 captured at pick time
@@ -52,17 +63,29 @@ export async function stageGenDriverSources(
     if (/[\\/\0]/.test(file.name) || file.name === "." || file.name === "..") {
       throw new Error(`gen-driver source name "${file.name}" is not a plain file name`);
     }
+    // source.sha256 is ALSO webview-echoed and is interpolated into the staged path below; a non-digest
+    // value like "../../.." would escape gen-driver/input via copyFile BEFORE the integrity check throws
+    // (register #11). Require a real 64-hex digest before it ever touches a path.
+    if (!/^[0-9a-f]{64}$/.test(source.sha256)) {
+      throw new Error(`gen-driver source "${file.name}" has a malformed sha256`);
+    }
     if (!ensuredDir) {
       await mkdir(destDir, { recursive: true });
       ensuredDir = true;
     }
-    const dest = join(destDir, file.name);
+    // Stage under a collision-resistant name: two picked files sharing a basename (vendor-a/datasheet.pdf
+    // and vendor-b/datasheet.pdf) must NOT overwrite one staged target — the second copy would land after
+    // the first's hash check, leaving the first source pointing at the wrong bytes. Prefix with the picked
+    // sha256 so distinct content gets distinct names; identical content collapses to one file (idempotent).
+    const stagedName = `${source.sha256.slice(0, 12)}-${file.name}`;
+    const dest = join(destDir, stagedName);
     await copyFile(file.path, dest);
     const actual = await sha256File(dest);
     if (actual !== source.sha256) {
       throw new Error(`gen-driver source "${file.name}" failed integrity check: picked sha256 ${source.sha256}, staged ${actual}`);
     }
-    staged.push({ ...source, artifact_path: `${STAGE_DIR}/${file.name}` });
+    const artifactPath = `${STAGE_DIR}/${stagedName}`;
+    staged.push({ ...source, artifact_path: artifactPath, metadata: withStagedFilePath(source.metadata, file, artifactPath) });
   }
   return staged;
 }
