@@ -111,19 +111,30 @@ def _mcu_from_board(board: dict, port: str) -> str:
     return port
 
 
+def _slug_to_skill_board_id(slug: str) -> str:
+    # Every official MicroPython board's Skill board id is a pure transform of its download slug
+    # (verified: id == slug.lower().replace("_","-") for all 222 boards at Skill bc1769e). The only
+    # exceptions are the curated builtin dev-boards, handled via _OFFICIAL_BOARD_MAPPINGS below.
+    return slug.lower().replace("_", "-")
+
+
 def _official_board_entry(board: dict, *, local_ids: set[str], source_url: str) -> dict:
     slug = str(board.get("slug") or "").strip()
     port = _port_from_board(board)
     mapping = _OFFICIAL_BOARD_MAPPINGS.get(slug, {})
     local_board_id = mapping.get("local_board_id")
     has_local_layout = bool(local_board_id and local_board_id in local_ids)
-    skill_board_id = mapping.get("skill_board_id") if has_local_layout else None
+    # Serve the kebab Skill board id as the UI `id` for EVERY board (not just the 6 builtin), so a
+    # selected board resolves to upy-analyze-plugin/boards/<id>.json. The 6 builtin dev-boards carry a
+    # curated id (e.g. ESP32_GENERIC_C3 -> esp32-c3-devkitm, distinct from the slug transform); every
+    # other board's id is the slug transform. official_id/download_slug keep the raw slug for the API.
+    skill_board_id = mapping.get("skill_board_id") or _slug_to_skill_board_id(slug)
     detail_url = str(board.get("detail_url") or f"https://micropython.org/download/{slug}/")
     features = board.get("features") if isinstance(board.get("features"), list) else []
     latest = (board.get("firmware") or {}).get("latest_release") or (board.get("firmware") or {}).get("latest_preview") or {}
     mcu = _mcu_from_board(board, port)
     return {
-        "id": skill_board_id or slug,
+        "id": skill_board_id,
         "official_id": slug,
         "display_name": board.get("name") or slug,
         "vendor": board.get("vendor") or "",

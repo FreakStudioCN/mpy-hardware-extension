@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -129,6 +130,16 @@ def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monke
     assert first["local_board_id"] == "esp32-s3-devkitc-1"
     assert first["skill_board_id"] == "esp32-s3-devkitc"
     assert body["boards"][1]["support_status"] == "official_firmware_only"
+    # A non-builtin board now serves the kebab Skill board id (Option 1) so a selected board resolves to
+    # the Skill's boards/<id>.json, while official_id/download_slug keep the raw slug. Under the old
+    # `skill_board_id or slug` the id was the uppercase slug (PYBD_SF2), which never matched pybd-sf2.json.
+    pybd = body["boards"][1]
+    assert pybd["id"] == "pybd-sf2", "non-builtin id is the kebab Skill board id, not the uppercase slug"
+    assert pybd["skill_board_id"] == "pybd-sf2"
+    assert pybd["official_id"] == "PYBD_SF2"
+    assert pybd["download_slug"] == "PYBD_SF2"
+    # Every served id is a valid kebab (lowercase, digits, hyphens) so it can name a Skill board file.
+    assert all(re.fullmatch(r"[a-z0-9-]+", b["id"]) for b in body["boards"]), "all served ids are kebab-case"
 def test_board_route_rejects_encoded_backslash_path_traversal():
     response = client.get("/v1/boards/..%5Cpackages%5Cpackage_index")
 
