@@ -516,7 +516,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // The panel renders its input tabs from the schema module (single source of truth). The
       // current-missing-driver tab is materialized from this session's manifest so its cold-driver
       // picker reflects the live project (or shows an empty state when there is none).
-      webview.postMessage({ type: "gen_driver_config", tabs: materializeGenDriverTabs(GEN_DRIVER_TABS, controller.getLatestManifest()) });
+      webview.postMessage({ type: "gen_driver_config", tabs: materializeGenDriverTabs(GEN_DRIVER_TABS, controller.getLatestManifest(), controller.getDriverReadyBlocks()) });
       return;
     }
     if (message.type === "request_support_config") {
@@ -681,6 +681,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           timestamp: new Date().toISOString(),
           sources: staged,
           manifestContent: manifestSnapshot,
+          // Thread the stored gate result: an error-code-only block (e.g. DRIVER_STATUS_UNSUPPORTED) isn't
+          // re-derivable from the snapshot manifest alone, so force pipeline when the gate flagged a block.
+          blocked: controller.getDriverReadyBlocks().length > 0,
           driverRequest: message.driverRequest,
           verification: message.verification,
         });

@@ -6,7 +6,7 @@ import { classifyArtifactKind } from "./artifact-index.ts";
 import type { ArtifactSource } from "./artifact-index.ts";
 import { deriveWiring } from "../core/wiring-derive.ts";
 import { deriveDiagram } from "../core/diagram-derive.ts";
-import { deriveDriverStatus, detectDriverReadyBlock, GEN_DRIVER_DOMAIN_PHASE } from "../core/gen-driver-schema.ts";
+import { deriveDriverStatus, detectDriverReadyBlock, GEN_DRIVER_DOMAIN_PHASE, type DriverReadyBlockEntry } from "../core/gen-driver-schema.ts";
 import { WIRING_PHASE, DIAGRAM_PHASE } from "../core/optional-flow-schema.ts";
 
 export class SessionController {
@@ -80,6 +80,11 @@ export class SessionController {
   // The optional follow-on flows generate offered in its phase_complete (optional_next_phases:
   // [{phase, reason}]). The webview wiring/diagram entries enable only after generate offers them.
   private optionalNextPhases: Array<{ phase?: string; reason?: string }> = [];
+  // The #53 driver-ready gate result from the latest generate (detectDriverReadyBlock). Stored because a
+  // gen-driver dispatch runs LATER than detection with only the manifest (no errors), so an error-code-only
+  // block (e.g. DRIVER_STATUS_UNSUPPORTED) isn't re-derivable at dispatch time; the panel threads this into
+  // buildGenDriverDispatch as `blocked` to force pipeline mode. Same per-run lifecycle as optionalNextPhases.
+  private driverReadyBlocks: DriverReadyBlockEntry[] = [];
   // The last generate phase_complete, so a wiring/diagram run can persist it as the upstream result
   // (source_phase_complete_path) the plugin reads to reach a formal success. Cleared with the session.
   private latestGeneratePhaseComplete: unknown = undefined;
@@ -138,6 +143,7 @@ export class SessionController {
       this.producedPhase.clear();
       this.phaseArtifacts = [];
       this.optionalNextPhases = [];
+      this.driverReadyBlocks = [];
       this.latestGeneratePhaseComplete = undefined;
     }
     this.boardId = input.boardId;
@@ -321,6 +327,7 @@ export class SessionController {
     this.producedPhase.clear();
     this.phaseArtifacts = [];
     this.optionalNextPhases = [];
+    this.driverReadyBlocks = [];
     this.latestGeneratePhaseComplete = undefined;
     this.lastPhaseComplete = undefined;
     this.currentPhase = null;
@@ -334,6 +341,12 @@ export class SessionController {
   // the wiring/diagram entries on this.
   getOptionalNextPhases(): Array<{ phase?: string; reason?: string }> {
     return this.optionalNextPhases;
+  }
+
+  // The #53 driver-ready gate result from the latest generate (empty when clear). The panel threads it into
+  // buildGenDriverDispatch as `blocked` and into materializeGenDriverTabs so detection/selection/dispatch agree.
+  getDriverReadyBlocks(): DriverReadyBlockEntry[] {
+    return this.driverReadyBlocks;
   }
 
   // The last phase_complete this run emitted ({phase, result, errors, network_permission}), or undefined.
@@ -648,12 +661,20 @@ export class SessionController {
       // authoritative driver_status when present and falls back to the result/verification heuristic.
       if (event.payload?.phase === GEN_DRIVER_DOMAIN_PHASE) {
         this.deps.postMessage({ type: "gen_driver_status", status: deriveDriverStatus(event.payload ?? {}), detail: event.payload?.summary });
+        // A successful driver build resolves the gate; drop the stored block so a later unrelated standalone
+        // gen-driver run isn't forced to pipeline by a stale result.
+        if (event.payload?.result === "success") this.driverReadyBlocks = [];
       }
       // #53: a generate partial can carry a driver-ready block asking the user to build the driver
       // first. Surface the affected devices so the panel can OFFER the gen-driver run (never auto-start).
+      // Store the block so the LATER gen-driver dispatch can force pipeline (an error-code-only block is not
+      // re-derivable from the manifest alone). A clean generate completion clears it (register #9/#19).
       const driverBlocks = detectDriverReadyBlock(event.payload);
       if (driverBlocks.length > 0) {
+        this.driverReadyBlocks = driverBlocks;
         this.deps.postMessage({ type: "gen_driver_required", blocks: driverBlocks });
+      } else if (domainPhase === "generate") {
+        this.driverReadyBlocks = [];
       }
       // A generate completion is the ONLY thing that sets the optional-flow offers and the stored generate
       // payload, and BOTH must gate on result === "success". Otherwise a later partial generate leaves an

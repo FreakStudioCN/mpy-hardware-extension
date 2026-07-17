@@ -229,7 +229,9 @@ test("materializeGenDriverTabs builds a device picker over cold-driver items, el
   const manifest = { board_id: "esp32", mcu: "ESP32", devices: [
     { device_id: "sht30_th", name: "SHT30", interface: "i2c", i2c_addresses: ["0x44"], driver: { status: "cold_driver_required" } },
     { device_id: "bmp390_p", name: "BMP390", interface: "i2c", driver: { status: "cold_driver_required" } },
-    { device_id: "led", name: "LED", driver: { status: "ready" } },
+    // A fully-evidenced ready driver (path + a marker matching its driver_id) is NOT blocked, so it stays
+    // out of the picker. The gate requires this evidence; a bare status:"ready" would now block (path missing).
+    { device_id: "led", name: "LED", driver: { status: "ready", driver_id: "led", path: "firmware/drivers/led/led.py", hardware_marker: "SELF_TEST_PASS:led:BLINK_OK" } },
   ] };
   const filled = materializeGenDriverTabs(GEN_DRIVER_TABS, manifest);
   const current = filled.find((t) => t.sourceType === "current_cold_driver_item")!;
@@ -368,9 +370,46 @@ test("blocked driver status is read under every driver-status field spelling (#4
   // (driver.status ?? driver.driver_status ?? device.driver_status), not just driver.status.
   assert.equal(inferMode({ devices: [{ name: "Y", driver_status: "failed" }] }), "pipeline", "top-level driver_status blocks");
   assert.equal(inferMode({ devices: [{ name: "Y", driver: { driver_status: "unverified" } }] }), "pipeline", "driver.driver_status blocks");
-  // A ready or status-less driver is NOT blocked -> standalone.
-  assert.equal(inferMode({ devices: [{ name: "Z", driver: { status: "ready" } }] }), "standalone", "ready -> standalone");
+  // A fully-evidenced ready driver (path + matching marker) or a status-less driver is NOT blocked -> standalone.
+  assert.equal(inferMode({ devices: [{ name: "Z", driver: { status: "ready", driver_id: "z", path: "p.py", hardware_marker: "SELF_TEST_PASS:z:OK" } }] }), "standalone", "fully-evidenced ready -> standalone");
   assert.equal(inferMode({ devices: [{ name: "Z", driver: { source: "github" } }] }), "standalone", "no status -> standalone");
+});
+
+const GATE_SOURCES = [{ type: "current_cold_driver_item" as const, artifact_path: null, sha256: null, primary: true, metadata: { driver_status: "cold_driver_required" } }];
+function gateDispatchPayload(manifestContent: any): any {
+  return buildGenDriverDispatch({ sessionId: "s", msgId: "m", timestamp: "2026-07-17T00:00:00Z", sources: GATE_SOURCES, manifestContent }).payload;
+}
+
+test("an unsupported driver status blocks and dispatches pipeline with the manifest (#4 gate)", () => {
+  // driver_ready_gate.py: a status outside the known set is DRIVER_STATUS_UNSUPPORTED and blocks. The device
+  // path alone (no error entries) must drive pipeline + carry the manifest. Mutation: revert the predicate to
+  // the 4-status set -> "installed" is unmatched -> detection 0 / standalone / no manifest_content, all fail.
+  const M = { devices: [{ name: "SHT30", driver: { status: "installed", driver_id: "sht30" } }] };
+  assert.equal(detectDriverReadyBlock({ result: "partial", manifest_content: M }).length, 1, "unsupported status detected");
+  assert.equal(inferMode(M), "pipeline", "unsupported -> pipeline");
+  const payload = gateDispatchPayload(M);
+  assert.equal(payload.mode, "pipeline");
+  assert.equal(payload.source_phase, "upy-generate-plugin");
+  assert.deepEqual(payload.manifest_content, M);
+});
+
+test("a ready driver missing self-test evidence blocks; a fully-evidenced one does not (#4 gate)", () => {
+  // Gate: status:"ready" still blocks without a path, without a marker, with an invalid marker, or with a
+  // marker whose driver_id doesn't match. Mutation: treat "ready" as always-clear -> the broken cases go
+  // standalone and these fail; drop the id-match check -> the mismatch case asserts pipeline and fails.
+  const noPath = { devices: [{ name: "SHT30", driver: { status: "ready", driver_id: "sht30", hardware_marker: "SELF_TEST_PASS:sht30:TH_READ_OK" } }] };
+  const noMarker = { devices: [{ name: "SHT30", driver: { status: "ready", driver_id: "sht30", path: "firmware/drivers/sht30_driver/sht30.py" } }] };
+  for (const M of [noPath, noMarker]) {
+    assert.equal(detectDriverReadyBlock({ result: "partial", manifest_content: M }).length, 1, "ready-but-broken blocks");
+    assert.equal(inferMode(M), "pipeline");
+    const payload = gateDispatchPayload(M);
+    assert.equal(payload.mode, "pipeline");
+    assert.deepEqual(payload.manifest_content, M);
+  }
+  const ready = { devices: [{ name: "SHT30", driver: { status: "ready", driver_id: "sht30", path: "p.py", hardware_marker: "SELF_TEST_PASS:sht30:OK" } }] };
+  assert.equal(inferMode(ready), "standalone", "fully-evidenced ready is clear");
+  const mismatch = { devices: [{ name: "SHT30", driver: { status: "ready", driver_id: "sht30", path: "p.py", hardware_marker: "SELF_TEST_PASS:other:OK" } }] };
+  assert.equal(inferMode(mismatch), "pipeline", "marker driver_id mismatch blocks");
 });
 
 test("genDriverRuntimeContext roots are cwd-relative and containment-valid", () => {

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { SessionController } from "../src/extension/session-controller.ts";
 import { isNetworkRenderDenied } from "../src/core/optional-flow-schema.ts";
+import { buildGenDriverDispatch } from "../src/core/gen-driver-schema.ts";
 
 // Let a loop that awaits one gate advance to the next: after resolving the first
 // prompt, the loop's continuation (and the next gate's message/record) runs on a
@@ -1625,6 +1626,49 @@ test("a later partial generate clears the offers and keeps the last success payl
   assert.equal((controller.getLatestGeneratePhaseComplete() as any)?.summary, "app generated", "the success payload survives the later partial");
   const flows = posted.filter((m) => m.type === "optional_flows");
   assert.deepEqual(flows.at(-1)?.phases, [], "the last optional_flows post is empty so the webview hides the entries");
+});
+
+test("stores the driver-ready gate and threads it to a pipeline dispatch across two runs (#4)", async () => {
+  // Detection runs at generate-time (has errors); dispatch runs later with the manifest only. An
+  // error-code-only block (the manifest device has NO status) isn't re-derivable at dispatch, so the stored
+  // gate result must force pipeline. Register #19: a later clean generate clears it. Mutations that fail this:
+  // don't store at :654 -> getter 0; drop the `blocked` handling in buildGenDriverDispatch -> standalone;
+  // drop the clean-generate clear -> run 2 stays blocked.
+  const posted: any[] = [];
+  let call = 0;
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      call += 1;
+      if (call === 1) {
+        // manifest_updated populates getLatestManifest() (what panel.ts snapshots for the dispatch); the
+        // device is statusless here, so ONLY the stored error-code gate can force pipeline.
+        onEvent({ type: "manifest_updated", manifest: { phase: "generate", devices: [{ name: "MAX30102", driver: { source: "github" } }] } });
+        onEvent({ type: "phase_complete", payload: { phase: "generate", result: "partial",
+          errors: [{ code: "DRIVER_STATUS_UNSUPPORTED", device: "MAX30102", driver_status: "installed" }],
+          manifest_content: { phase: "generate", devices: [{ name: "MAX30102", driver: { source: "github" } }] } } });
+      } else {
+        onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", summary: "ok",
+          manifest_content: { phase: "generate", devices: [{ name: "MAX30102", driver: { status: "ready", driver_id: "max30102", path: "p.py", hardware_marker: "SELF_TEST_PASS:max30102:HR" } }] } } });
+      }
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.ok(posted.some((m) => m.type === "gen_driver_required"), "offered gen-driver");
+  assert.equal(controller.getDriverReadyBlocks().length, 1, "the gate result is stored");
+  // The exact expression panel.ts uses to dispatch, over the (statusless) manifest:
+  const payload = buildGenDriverDispatch({
+    sessionId: "s", msgId: "m", timestamp: "t",
+    sources: [{ type: "current_cold_driver_item", artifact_path: null, sha256: null, primary: true, metadata: {} }],
+    manifestContent: controller.getLatestManifest(),
+    blocked: controller.getDriverReadyBlocks().length > 0,
+  }).payload as any;
+  assert.equal(payload.mode, "pipeline", "error-code-only block still forces pipeline");
+  assert.ok(payload.manifest_content && payload.source_phase, "pipeline carries manifest_content + source_phase");
+
+  await controller.start({ intent: "y", boardId: "auto" });
+  assert.equal(controller.getDriverReadyBlocks().length, 0, "a later clean generate success clears the stored gate");
 });
 
 test("getLastPhaseComplete records the run's terminal result so a render can gate on success", async () => {

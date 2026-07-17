@@ -270,6 +270,44 @@ function driverStatusOf(device: any): string {
   return String(device?.driver?.status ?? device?.driver?.driver_status ?? device?.driver_status ?? "");
 }
 
+// Mirror the authoritative gate at upy-generate-plugin/scripts/driver_ready_gate.py so the extension's
+// detection/selection/dispatch agree with what actually blocks generate. The plugin blocks on the full
+// gate, NOT just COLD_DRIVER_STATUSES: any present non-ready status blocks, and a "ready" driver still
+// blocks unless it carries full self-test evidence (path + a marker SELF_TEST_PASS:<driver_id>:<scenario>).
+const READY_DRIVER_STATUS = "ready";
+const KNOWN_DRIVER_STATUSES: ReadonlySet<string> = new Set([...COLD_DRIVER_STATUSES, READY_DRIVER_STATUS]);
+const SELF_TEST_MARKER_RE = /^SELF_TEST_PASS:([^:]+):([^:]+)$/;
+
+function driverPathOf(driver: any): string { return String(driver?.path ?? driver?.driver_path ?? ""); }
+function driverMarkerOf(driver: any): string { return String(driver?.hardware_marker ?? driver?.marker ?? ""); }
+function gateDriverIdOf(device: any, driver: any): string {
+  return String(driver?.driver_id ?? driver?.id ?? driver?.name ?? device?.driver_id ?? "");
+}
+
+// Does this device's driver BLOCK generate, and with which gate code? null = clear (does not block).
+// Mirrors driver_ready_gate.py lines 129-201: a status-less (source-only) driver never blocks; any present
+// non-ready status blocks (cold_driver_required -> COLD_DRIVER_REQUIRED, other known blocking statuses ->
+// DRIVER_NOT_READY, unknown -> DRIVER_STATUS_UNSUPPORTED); a "ready" driver blocks unless it has a path,
+// a marker matching SELF_TEST_PASS:<driver_id>:<scenario>, and (when a driver_id is present) a matching id.
+export function deviceDriverGateCode(device: any): string | null {
+  if (!device || typeof device !== "object") return null;
+  const driver = (device.driver && typeof device.driver === "object") ? device.driver : {};
+  const status = driverStatusOf(device);
+  if (!status) return null;
+  if (status !== READY_DRIVER_STATUS) {
+    if (status === "cold_driver_required") return "COLD_DRIVER_REQUIRED";
+    return KNOWN_DRIVER_STATUSES.has(status) ? "DRIVER_NOT_READY" : "DRIVER_STATUS_UNSUPPORTED";
+  }
+  if (!driverPathOf(driver)) return "DRIVER_READY_PATH_MISSING";
+  const marker = driverMarkerOf(driver);
+  if (!marker) return "DRIVER_READY_MARKER_MISSING";
+  const markerMatch = SELF_TEST_MARKER_RE.exec(marker);
+  if (!markerMatch) return "DRIVER_READY_MARKER_INVALID";
+  const driverId = gateDriverIdOf(device, driver);
+  if (driverId && markerMatch[1] !== driverId) return "DRIVER_READY_MARKER_DRIVER_ID_MISMATCH";
+  return null;
+}
+
 export type DriverReadyBlockEntry = {
   code?: string;
   device?: string;
@@ -294,13 +332,15 @@ export function detectDriverReadyBlock(payload: any): DriverReadyBlockEntry[] {
   // are NOT cold, so a normal partial generate won't false-fire.
   const devices = Array.isArray(payload?.manifest_content?.devices) ? payload.manifest_content.devices : [];
   const fromDevices: DriverReadyBlockEntry[] = devices
-    .filter((d: any) => d && typeof d === "object" && COLD_DRIVER_STATUSES.has(driverStatusOf(d)))
-    .map((d: any) => ({
+    .map((d: any) => ({ d, code: deviceDriverGateCode(d) }))
+    .filter((x: { code: string | null }) => x.code !== null)
+    .map(({ d, code }: { d: any; code: string | null }) => ({
+      code: code as string,
       device: d.name,
       driver_id: d.driver?.driver_id ?? d.driver?.package_name ?? null,
       driver_status: driverStatusOf(d),
       next_phase: GEN_DRIVER_ENVELOPE_PHASE,
-      message: `${d.name}: build its driver (status ${driverStatusOf(d)}) before generating.`,
+      message: `${d.name}: build its driver (${code}) before generating.`,
     }));
   if (fromDevices.length) return fromDevices;
   // Fallback: the gate as an error entry. The contract puts it in structured_errors; some model outputs
@@ -336,17 +376,16 @@ export function deriveDriverStatus(complete: {
   return "failed";
 }
 
-// The blocked-driver devices in an (untyped, upstream) manifest — the items the current tab picks
-// from and the signal inferMode keys on. Uses the SAME predicate as detectDriverReadyBlock
-// (COLD_DRIVER_STATUSES + driverStatusOf), so detection and dispatch can't disagree: every status
-// that blocks generate (cold_driver_required / pending_validation / unverified / failed), under any
-// of the driver-status field spellings, routes to pipeline mode with the manifest, not standalone.
-// Previously this filtered only `driver.status === "cold_driver_required"`, so the other three
-// blocked states inferred `standalone` and dropped manifest_content/source_phase. Single predicate.
+// The blocked-driver devices in an (untyped, upstream) manifest — the items the current tab picks from
+// and the signal inferMode keys on. Uses the SAME full-gate predicate as detectDriverReadyBlock
+// (deviceDriverGateCode, mirroring driver_ready_gate.py), so detection, device selection, and dispatch
+// can't disagree: any non-ready status (incl. unsupported) AND a "ready" driver missing its self-test
+// evidence route to pipeline mode with the manifest, not standalone. Was previously the COLD_DRIVER_STATUSES
+// set only, which missed DRIVER_STATUS_UNSUPPORTED and broken-ready and dropped manifest_content/source_phase.
 export function coldDriverDevices(manifestContent: any): any[] {
   const devices = manifestContent?.devices;
   if (!Array.isArray(devices)) return [];
-  return devices.filter((device: any) => COLD_DRIVER_STATUSES.has(driverStatusOf(device)));
+  return devices.filter((device: any) => deviceDriverGateCode(device) !== null);
 }
 
 // Mode inference (SKILL.md): pipeline only when the current manifest has a
@@ -378,11 +417,18 @@ function manifestContextLines(manifestContent: any, count: number): string[] {
 // Fill the "current project missing driver" tab from the session manifest: a required device
 // picker over the cold-driver items + a read-only context line. Pure — returns a new tabs
 // array, other tabs unchanged. Absent/empty manifest -> the tab's no-items empty state.
-export function materializeGenDriverTabs(tabs: readonly GenDriverTab[], manifestContent: unknown): GenDriverTab[] {
-  const devices = coldDriverDevices(manifestContent);
+export function materializeGenDriverTabs(tabs: readonly GenDriverTab[], manifestContent: unknown, blocks: DriverReadyBlockEntry[] = []): GenDriverTab[] {
+  const deviceOptions = coldDriverDevices(manifestContent).map(coldDriverOption);
+  // An error-code-only block names a device/driver_id the manifest may not carry as a cold device; without a
+  // synthesized option the offer would land on the dead "No missing driver" tab. Add those, deduped by value.
+  const covered = new Set(deviceOptions.map((option) => option.value));
+  const blockOptions = blocks
+    .map((block) => ({ value: String(block.device ?? block.driver_id ?? ""), label: `${block.device ?? block.driver_id ?? "driver"} (${block.driver_status ?? block.code ?? "not ready"})` }))
+    .filter((option) => option.value && !covered.has(option.value));
+  const options = [...deviceOptions, ...blockOptions];
   return tabs.map((tab) => {
     if (tab.sourceType !== "current_cold_driver_item") return tab;
-    if (devices.length === 0) {
+    if (options.length === 0) {
       return {
         ...tab, noItems: true,
         fields: [{ key: "no_items", label: "", kind: "info", lines: ["No missing driver in the current session.", "Run analyze / select-hw first, or use another source tab."] }],
@@ -391,8 +437,8 @@ export function materializeGenDriverTabs(tabs: readonly GenDriverTab[], manifest
     return {
       ...tab, noItems: false,
       fields: [
-        { key: "device_id", label: "Missing driver", kind: "select", required: true, options: devices.map(coldDriverOption) },
-        { key: "current_context", label: "", kind: "info", lines: manifestContextLines(manifestContent, devices.length) },
+        { key: "device_id", label: "Missing driver", kind: "select", required: true, options },
+        { key: "current_context", label: "", kind: "info", lines: manifestContextLines(manifestContent, options.length) },
       ],
     };
   });
@@ -580,8 +626,12 @@ export function buildGenDriverDispatch(input: {
   sourcePhase?: string;
   driverRequest?: GenDriverDriverRequest;
   verification?: GenDriverVerification;
+  blocked?: boolean;
 }): Record<string, unknown> {
-  const mode = inferMode(input.manifestContent);
+  // `blocked` is the stored detection-time gate result (detectDriverReadyBlock), threaded in because an
+  // error-code-only block (no cold device in the manifest) isn't re-derivable from manifestContent alone
+  // at dispatch time. When set, force pipeline so manifest_content + source_phase ride and generate can resume.
+  const mode: GenDriverMode = input.blocked ? "pipeline" : inferMode(input.manifestContent);
   const base: BuildStartPhaseInput = {
     sessionId: input.sessionId,
     msgId: input.msgId,
