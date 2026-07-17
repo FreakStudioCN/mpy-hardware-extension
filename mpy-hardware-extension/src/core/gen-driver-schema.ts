@@ -418,10 +418,17 @@ function manifestContextLines(manifestContent: any, count: number): string[] {
 // picker over the cold-driver items + a read-only context line. Pure — returns a new tabs
 // array, other tabs unchanged. Absent/empty manifest -> the tab's no-items empty state.
 export function materializeGenDriverTabs(tabs: readonly GenDriverTab[], manifestContent: unknown, blocks: DriverReadyBlockEntry[] = []): GenDriverTab[] {
-  const deviceOptions = coldDriverDevices(manifestContent).map(coldDriverOption);
+  const coldDevices = coldDriverDevices(manifestContent);
+  const deviceOptions = coldDevices.map(coldDriverOption);
   // An error-code-only block names a device/driver_id the manifest may not carry as a cold device; without a
-  // synthesized option the offer would land on the dead "No missing driver" tab. Add those, deduped by value.
-  const covered = new Set(deviceOptions.map((option) => option.value));
+  // synthesized option the offer would land on the dead "No missing driver" tab. Dedup a block against the cold
+  // devices by BOTH keys: a device option's value is the device_id, but a device-path block names the device by
+  // NAME (DriverReadyBlockEntry.device = d.name), so covering only device_id would double-list the same device.
+  const covered = new Set<string>();
+  for (const device of coldDevices) {
+    if (device?.device_id) covered.add(String(device.device_id));
+    if (device?.name) covered.add(String(device.name));
+  }
   const blockOptions = blocks
     .map((block) => ({ value: String(block.device ?? block.driver_id ?? ""), label: `${block.device ?? block.driver_id ?? "driver"} (${block.driver_status ?? block.code ?? "not ready"})` }))
     .filter((option) => option.value && !covered.has(option.value));

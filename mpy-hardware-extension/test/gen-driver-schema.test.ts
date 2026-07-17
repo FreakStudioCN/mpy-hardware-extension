@@ -23,6 +23,7 @@ import {
   genDriverRuntimeContext,
   buildGenDriverDispatch,
   detectDriverReadyBlock,
+  deviceDriverGateCode,
 } from "../src/core/gen-driver-schema.ts";
 import type { DriverStatus } from "../src/core/gen-driver-schema.ts";
 
@@ -410,6 +411,38 @@ test("a ready driver missing self-test evidence blocks; a fully-evidenced one do
   assert.equal(inferMode(ready), "standalone", "fully-evidenced ready is clear");
   const mismatch = { devices: [{ name: "SHT30", driver: { status: "ready", driver_id: "sht30", path: "p.py", hardware_marker: "SELF_TEST_PASS:other:OK" } }] };
   assert.equal(inferMode(mismatch), "pipeline", "marker driver_id mismatch blocks");
+});
+
+test("deviceDriverGateCode returns the gate's exact code for each branch (#4)", () => {
+  // Pins the code per branch so a code swap (COLD_DRIVER_REQUIRED<->DRIVER_NOT_READY) or a dropped
+  // MARKER_INVALID branch is caught — mirrors driver_ready_gate.py:134-201.
+  const g = (driver: any) => deviceDriverGateCode({ name: "D", device_id: "d", driver });
+  assert.equal(g({ source: "github" }), null, "status-less -> clear");
+  assert.equal(g({ status: "cold_driver_required" }), "COLD_DRIVER_REQUIRED");
+  assert.equal(g({ status: "failed" }), "DRIVER_NOT_READY", "known blocking (not cold) -> DRIVER_NOT_READY");
+  assert.equal(g({ status: "installed" }), "DRIVER_STATUS_UNSUPPORTED", "unknown status -> unsupported");
+  assert.equal(g({ status: "ready", driver_id: "d" }), "DRIVER_READY_PATH_MISSING");
+  assert.equal(g({ status: "ready", driver_id: "d", path: "p.py" }), "DRIVER_READY_MARKER_MISSING");
+  assert.equal(g({ status: "ready", driver_id: "d", path: "p.py", hardware_marker: "NOT_A_MARKER" }), "DRIVER_READY_MARKER_INVALID", "regex-invalid marker");
+  assert.equal(g({ status: "ready", driver_id: "d", path: "p.py", hardware_marker: "SELF_TEST_PASS:other:s" }), "DRIVER_READY_MARKER_DRIVER_ID_MISMATCH");
+  assert.equal(g({ status: "ready", driver_id: "d", path: "p.py", hardware_marker: "SELF_TEST_PASS:d:s" }), null, "fully-evidenced -> clear");
+});
+
+test("materializeGenDriverTabs dedups a device-path block against its cold device, but synthesizes error-code-only blocks", () => {
+  // A device-path block names the SAME cold device by NAME while the device option is keyed on device_id, so
+  // dedup must cover BOTH keys. Mutation: dedup on device_id only -> the name isn't covered -> the device
+  // double-lists ("SHT30" + "sht30_th") and this length-1 assert fails.
+  const manifest = { devices: [{ device_id: "sht30_th", name: "SHT30", driver: { status: "cold_driver_required" } }] };
+  const deduped = materializeGenDriverTabs(GEN_DRIVER_TABS, manifest, [{ device: "SHT30", driver_status: "cold_driver_required", code: "COLD_DRIVER_REQUIRED" }]);
+  const dedupTab = deduped.find((t) => t.sourceType === "current_cold_driver_item")!;
+  assert.deepEqual((dedupTab.fields.find((f) => f.key === "device_id")!.options as { value: string }[]).map((o) => o.value), ["sht30_th"], "one row, keyed on device_id");
+
+  // An error-code-only block (the device is NOT a cold device in the manifest) is synthesized as a pickable
+  // option instead of the dead "No missing driver" empty state. Mutation: drop blockOptions -> noItems true.
+  const errOnly = materializeGenDriverTabs(GEN_DRIVER_TABS, { devices: [] }, [{ device: "MAX30102", driver_status: "installed", code: "DRIVER_STATUS_UNSUPPORTED" }]);
+  const errTab = errOnly.find((t) => t.sourceType === "current_cold_driver_item")!;
+  assert.equal(errTab.noItems, false, "an error-code-only block is not the empty state");
+  assert.deepEqual((errTab.fields.find((f) => f.key === "device_id")!.options as { value: string }[]).map((o) => o.value), ["MAX30102"], "synthesized from the block");
 });
 
 test("genDriverRuntimeContext roots are cwd-relative and containment-valid", () => {
