@@ -70,6 +70,19 @@ export function wrapGeneratePhaseComplete(
   };
 }
 
+// A wiring/diagram post-run render must NOT upload to mermaid.ink when the user denied the network render.
+// The denial arrives two ways and either suffices: a structured `network_permission.decision === "deny"`
+// (the diagram deny fixture carries it; the controller now retains it), or a *_PERMISSION_DENIED error code
+// — DIAGRAM_PERMISSION_DENIED / WIRING_IMAGE_RENDER_PERMISSION_DENIED. Match those code shapes anchored on
+// the DIAGRAM/WIRING prefix, NOT a bare `_PERMISSION_DENIED` substring, so a plugin-internal
+// FILE_/SCRIPT_PERMISSION_DENIED (a file/script access denial, not a network one) is not misread as a
+// network decline. The old code matched only `/RENDER_PERMISSION_DENIED/`, which misses DIAGRAM_PERMISSION_DENIED.
+export function isNetworkRenderDenied(runInfo?: { errors?: unknown; network_permission?: unknown }): boolean {
+  const decision = (runInfo?.network_permission as { decision?: unknown } | undefined)?.decision;
+  if (decision === "deny") return true;
+  return /(?:DIAGRAM|WIRING)(?:_IMAGE_RENDER)?_PERMISSION_DENIED/.test(JSON.stringify(runInfo?.errors ?? ""));
+}
+
 // Build the start_phase envelope for a wiring/diagram run. source_phase_complete_path points at the
 // persisted upstream generate phase_complete (see wrapGeneratePhaseComplete); a missing/invalid upstream
 // is UPSTREAM_PHASE_MISSING/INVALID -> partial.

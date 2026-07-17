@@ -83,12 +83,13 @@ export class SessionController {
   // The last generate phase_complete, so a wiring/diagram run can persist it as the upstream result
   // (source_phase_complete_path) the plugin reads to reach a formal success. Cleared with the session.
   private latestGeneratePhaseComplete: unknown = undefined;
-  // The last phase_complete THIS run emitted ({phase, result, errors}). A startPhase excursion
-  // (wiring/diagram) reads it to gate its post-run render: it renders a success OR partial run that
-  // freshly wrote its doc (the plugin reports partial when it couldn't render in-sandbox — that's why
-  // the host renders), but skips it when the errors carry a *_RENDER_PERMISSION_DENIED (the user denied
-  // the mermaid.ink network render, which the host must honor). Per-run; cleared in reset() (#9).
-  private lastPhaseComplete: { phase?: string; result?: string; errors?: unknown } | undefined = undefined;
+  // The last phase_complete THIS run emitted ({phase, result, errors, network_permission}). A startPhase
+  // excursion (wiring/diagram) reads it to gate its post-run render: it renders a success OR partial run
+  // that freshly wrote its doc (the plugin reports partial when it couldn't render in-sandbox — that's why
+  // the host renders), but skips it when the user denied the mermaid.ink network render. The denial arrives
+  // TWO ways and both must be retained: a structured `network_permission.decision === "deny"`, and/or a
+  // *_PERMISSION_DENIED error code (DIAGRAM_/WIRING_IMAGE_RENDER_). Per-run; cleared in reset() (#9).
+  private lastPhaseComplete: { phase?: string; result?: string; errors?: unknown; network_permission?: unknown } | undefined = undefined;
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -335,10 +336,10 @@ export class SessionController {
     return this.optionalNextPhases;
   }
 
-  // The last phase_complete this run emitted ({phase, result, errors}), or undefined. A wiring/diagram
-  // excursion gates its post-run render on it (renders success/partial with a fresh doc; skips on a
-  // *_RENDER_PERMISSION_DENIED error).
-  getLastPhaseComplete(): { phase?: string; result?: string; errors?: unknown } | undefined {
+  // The last phase_complete this run emitted ({phase, result, errors, network_permission}), or undefined.
+  // A wiring/diagram excursion gates its post-run render on it (renders success/partial with a fresh doc;
+  // skips a network-render denial — structured decision "deny" and/or a *_PERMISSION_DENIED error).
+  getLastPhaseComplete(): { phase?: string; result?: string; errors?: unknown; network_permission?: unknown } | undefined {
     return this.lastPhaseComplete;
   }
 
@@ -641,7 +642,7 @@ export class SessionController {
       const domainPhase = event.payload?.phase ?? event.payload?.manifest_content?.phase ?? event.payload?.manifest_content?.domain_phase;
       // Remember this run's terminal outcome so a startPhase excursion can gate its post-run render
       // on a real success (not a partial/denied run that still emitted a phase_complete).
-      this.lastPhaseComplete = { phase: domainPhase, result: event.payload?.result, errors: event.payload?.errors ?? event.payload?.structured_errors };
+      this.lastPhaseComplete = { phase: domainPhase, result: event.payload?.result, errors: event.payload?.errors ?? event.payload?.structured_errors, network_permission: event.payload?.network_permission };
       // A gen-driver run's phase_complete carries the UI driver status (payload.phase is the DOMAIN
       // token "gen-driver"). Surface it to the GenDriverPanel; deriveDriverStatus trusts the
       // authoritative driver_status when present and falls back to the result/verification heuristic.
@@ -654,28 +655,26 @@ export class SessionController {
       if (driverBlocks.length > 0) {
         this.deps.postMessage({ type: "gen_driver_required", blocks: driverBlocks });
       }
-      // Persist generate's phase_complete in memory so a wiring/diagram run can pass it as
-      // source_phase_complete_path (a formal success requires reading the upstream generate result;
-      // wiring/diagram SKILL.md). The domain token is "generate" (resolved above). Cleared on reset (#9).
+      // A generate completion is the ONLY thing that sets the optional-flow offers and the stored generate
+      // payload, and BOTH must gate on result === "success". Otherwise a later partial generate leaves an
+      // earlier success's offers installed AND clobbers latestGeneratePhaseComplete with the partial, so the
+      // host would permit wiring/diagram against an upstream the plugin must reject. So: clear offers on EVERY
+      // generate completion, and only persist the payload + install offers on success (register #19/#9).
       if (domainPhase === "generate") {
-        this.latestGeneratePhaseComplete = event.payload;
-      }
-      // generate offers optional follow-on flows (wiring/diagram) in optional_next_phases. Capture them
-      // so the webview entries + host gate key on the offer (register #9: cleared on reset).
-      const offered = event.payload?.optional_next_phases;
-      if (Array.isArray(offered) && offered.length) {
-        // Upstream sanctions BOTH shapes: objects [{phase, reason}] and plain strings ["upy-wiring-plugin"]
-        // (the diagram plugin's generate fixture uses strings; the consistency gate accepts both).
-        // Normalize to the object shape so the host gate + webview entries key on `.phase` either way.
-        this.optionalNextPhases = offered.map((p: any) => (typeof p === "string" ? { phase: p } : p));
-        this.deps.postMessage({ type: "optional_flows", phases: this.optionalNextPhases });
-      } else if (domainPhase === "generate" && event.payload?.result === "success") {
-        // Spec (deliverables 04): wiring/diagram are optional artifact flows triggerable after ANY
-        // successful generate, not only when the model advertised them. The generate SKILL requires
-        // emitting optional_next_phases on success, but the model sometimes drops it, which left the
-        // flows unreachable (no offer -> hidden entries + the panel.ts host gate rejects). Default to
-        // offering both so a successful generate always makes them host-triggerable, regardless.
-        this.optionalNextPhases = [{ phase: WIRING_PHASE }, { phase: DIAGRAM_PHASE }];
+        this.optionalNextPhases = [];
+        if (event.payload?.result === "success") {
+          // A formal wiring/diagram success reads the upstream generate result (source_phase_complete_path);
+          // only a successful generate is a valid upstream. Keep the prior success on a partial (don't clobber).
+          this.latestGeneratePhaseComplete = event.payload;
+          // Upstream sanctions BOTH offer shapes: objects [{phase, reason}] and plain strings
+          // ["upy-wiring-plugin"]. The generate SKILL requires emitting offers on success, but the model
+          // sometimes drops them (which left the flows unreachable), so default to offering both. Normalize
+          // to the object shape so the host gate + webview entries key on `.phase` either way (deliverables 04).
+          const offered = event.payload?.optional_next_phases;
+          this.optionalNextPhases = Array.isArray(offered) && offered.length
+            ? offered.map((p: any) => (typeof p === "string" ? { phase: p } : p))
+            : [{ phase: WIRING_PHASE }, { phase: DIAGRAM_PHASE }];
+        }
         this.deps.postMessage({ type: "optional_flows", phases: this.optionalNextPhases });
       }
       return;

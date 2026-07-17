@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { SessionController } from "../src/extension/session-controller.ts";
+import { isNetworkRenderDenied } from "../src/core/optional-flow-schema.ts";
 
 // Let a loop that awaits one gate advance to the next: after resolving the first
 // prompt, the loop's continuation (and the next gate's message/record) runs on a
@@ -1580,7 +1581,10 @@ test("a non-success generate does NOT offer the optional flows", async () => {
   await controller.start({ intent: "x", boardId: "auto" });
   // Mutation: drop the result==="success" guard -> a partial generate offers flows and this fails.
   assert.equal(controller.getOptionalNextPhases().length, 0, "no offer after a non-success generate");
-  assert.ok(!posted.some((m) => m.type === "optional_flows"), "does not post optional_flows for a partial generate");
+  // A partial DOES post optional_flows, but EMPTY: that is the clear signal that hides the webview entries
+  // (register #3, so a prior success's offers can't linger), not an offer. What matters: zero phases offered.
+  const flows = posted.filter((m) => m.type === "optional_flows");
+  assert.ok(flows.every((m) => m.phases.length === 0), "any optional_flows posted for a partial is empty (a clear, not an offer)");
 });
 
 test("generate degraded shape (phase only in manifest_content) still offers + captures for Q3", async () => {
@@ -1600,6 +1604,27 @@ test("generate degraded shape (phase only in manifest_content) still offers + ca
   assert.deepEqual(controller.getOptionalNextPhases().map((o) => o.phase), ["upy-wiring-plugin", "upy-diagram-plugin"], "offers both flows off manifest_content.phase");
   assert.ok(posted.some((m) => m.type === "optional_flows" && m.phases.length === 2), "posts optional_flows for the degraded shape");
   assert.equal((controller.getLatestGeneratePhaseComplete() as any)?.summary, "app generated", "Q3 captures the generate result off manifest_content.phase");
+});
+
+test("a later partial generate clears the offers and keeps the last success payload (#3)", async () => {
+  // Offers + latestGeneratePhaseComplete must gate on result === "success". A success installs offers and
+  // stores its payload; a LATER partial generate (even one carrying optional_next_phases) must CLEAR the
+  // offers and NOT clobber the stored success — else the host permits wiring/diagram against a partial the
+  // plugin rejects. Mutation: install offers without the success gate, or set latest on any result -> fails.
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { result: "success", summary: "app generated", manifest_content: { phase: "generate" } } });
+      onEvent({ type: "phase_complete", payload: { result: "partial", summary: "blocked", optional_next_phases: ["upy-wiring-plugin"], manifest_content: { phase: "generate" } } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.deepEqual(controller.getOptionalNextPhases(), [], "the later partial cleared the offers");
+  assert.equal((controller.getLatestGeneratePhaseComplete() as any)?.summary, "app generated", "the success payload survives the later partial");
+  const flows = posted.filter((m) => m.type === "optional_flows");
+  assert.deepEqual(flows.at(-1)?.phases, [], "the last optional_flows post is empty so the webview hides the entries");
 });
 
 test("getLastPhaseComplete records the run's terminal result so a render can gate on success", async () => {
@@ -1641,6 +1666,24 @@ test("getLastPhaseComplete captures the run's errors (so a network-render denial
   assert.match(JSON.stringify(controller.getLastPhaseComplete()?.errors), /RENDER_PERMISSION_DENIED/, "captures the deny error");
   controller.reset();
   assert.equal(controller.getLastPhaseComplete(), undefined, "reset clears it (register #9)");
+});
+
+test("getLastPhaseComplete retains structured network_permission so a decision-only deny is honored (#1)", async () => {
+  // The diagram deny fixture carries network_permission.decision "deny". The controller must RETAIN it,
+  // not just phase/result/errors — otherwise a deny whose error code the panel regex doesn't match (here a
+  // non-*_PERMISSION_DENIED code) would slip through and the host would upload to mermaid.ink. Mutation:
+  // drop network_permission from the lastPhaseComplete capture -> isNetworkRenderDenied is false and this fails.
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { manifest_content: { phase: "diagram" }, result: "partial", errors: [{ code: "SOME_OTHER_PARTIAL_REASON" }], network_permission: { domain: "mermaid.ink", decision: "deny" } } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const runInfo = controller.getLastPhaseComplete();
+  assert.deepEqual((runInfo?.network_permission as any), { domain: "mermaid.ink", decision: "deny" }, "the structured decision is retained");
+  assert.equal(isNetworkRenderDenied(runInfo), true, "a decision-only deny is honored (no matching error code)");
 });
 
 test("a later run that emits no phase_complete does not leak the prior run's result (run() entry clears)", async () => {

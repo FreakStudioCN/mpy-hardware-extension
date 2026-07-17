@@ -1,9 +1,41 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 
-import { buildOptionalFlowDispatch, wrapGeneratePhaseComplete, WIRING_PHASE, DIAGRAM_PHASE } from "../src/core/optional-flow-schema.ts";
+import { buildOptionalFlowDispatch, isNetworkRenderDenied, wrapGeneratePhaseComplete, WIRING_PHASE, DIAGRAM_PHASE } from "../src/core/optional-flow-schema.ts";
 
 const ids = { sessionId: "s1", msgId: "m1", timestamp: "2026-07-15T00:00:00Z" };
+
+// Source of truth: the submodule at the REPO ROOT (two up from test/), which keeps the sample/ fixtures.
+// The vendored EXT/third_party copy (one up) excludes sample/ via prepare-vsce, so it must not be used here.
+const SKILLS_ROOT = resolve(import.meta.dirname, "..", "..", "third_party", "MicroPython_Skills");
+function denialFixturePayload(rel: string): any {
+  return JSON.parse(readFileSync(resolve(SKILLS_ROOT, rel), "utf-8")).payload;
+}
+
+test("isNetworkRenderDenied honors the REAL bundled denial fixtures (both plugins)", () => {
+  // The diagram deny fixture carries BOTH a structured network_permission.decision "deny" AND a
+  // DIAGRAM_PERMISSION_DENIED code; the wiring one carries only WIRING_IMAGE_RENDER_PERMISSION_DENIED.
+  // The old panel check matched only /RENDER_PERMISSION_DENIED/, which MISSES DIAGRAM_PERMISSION_DENIED, so
+  // an explicit deny still uploaded to mermaid.ink. Mutation: revert isNetworkRenderDenied to
+  // /RENDER_PERMISSION_DENIED/ + drop the decision check -> the diagram fixture returns false and this fails.
+  const diagram = denialFixturePayload("upy-diagram-plugin/sample/phase_complete.upy_diagram_plugin.permission_denied.json");
+  const wiring = denialFixturePayload("upy-wiring-plugin/sample/phase_complete.upy_wiring_plugin.permission_denied.json");
+  assert.equal(isNetworkRenderDenied(diagram), true, "diagram deny fixture is a network denial");
+  assert.equal(isNetworkRenderDenied(wiring), true, "wiring deny fixture is a network denial");
+});
+
+test("isNetworkRenderDenied: structured decision alone denies; non-network denials do not", () => {
+  // (a) decision "deny" with NO error code still denies (kills 'drop the structured network_permission check').
+  assert.equal(isNetworkRenderDenied({ errors: [], network_permission: { domain: "mermaid.ink", decision: "deny" } }), true);
+  // (b) a plugin-internal FILE_/SCRIPT_ access denial is NOT a network decline (kills a bare /_PERMISSION_DENIED/).
+  assert.equal(isNetworkRenderDenied({ errors: [{ code: "FILE_PERMISSION_DENIED" }] }), false);
+  assert.equal(isNetworkRenderDenied({ errors: [{ code: "SCRIPT_PERMISSION_DENIED" }] }), false);
+  // (c) allow/absent decision + no denial code -> render.
+  assert.equal(isNetworkRenderDenied({ errors: [], network_permission: { decision: "allow" } }), false);
+  assert.equal(isNetworkRenderDenied(undefined), false);
+});
 
 test("wrapGeneratePhaseComplete produces the full message shape validate_upstream requires", () => {
   // The controller stores the bare PAYLOAD; the plugins' validate_upstream hard-checks the message

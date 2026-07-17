@@ -13,7 +13,7 @@ import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
-import { buildOptionalFlowDispatch, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
+import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
 import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
@@ -758,9 +758,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         const runInfo = controller.getLastPhaseComplete();
         const producedOutput = runInfo?.result === "success" || runInfo?.result === "partial";
         // Honor an explicit network-render denial: the plugin asks (network_rendering "ask") and a deny
-        // yields partial + *_RENDER_PERMISSION_DENIED. The host must NOT then send the diagram to
-        // mermaid.ink anyway. (A transient *_NETWORK_FAILED is not a denial, so it still renders/retries.)
-        const deniedNetwork = /RENDER_PERMISSION_DENIED/.test(JSON.stringify(runInfo?.errors ?? ""));
+        // yields partial + a structured network_permission.decision "deny" and/or a *_PERMISSION_DENIED
+        // code (DIAGRAM_/WIRING_IMAGE_RENDER_). The host must NOT then send the diagram to mermaid.ink
+        // anyway. (A transient *_NETWORK_FAILED is not a denial, so it still renders/retries.)
+        const deniedNetwork = isNetworkRenderDenied(runInfo);
         const docJson = join(projectFolder, "docs", flow === "wiring" ? "wiring.json" : "diagram.json");
         let freshDoc = false;
         try { freshDoc = existsSync(docJson) && statSync(docJson).mtimeMs >= runStartMs; }
