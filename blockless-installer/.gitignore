@@ -1,0 +1,5 @@
+# bundled extension fallback (not tracked; supplied at run time via --vsix)
+assets/*.vsix
+
+# logs / local scratch
+*.log
