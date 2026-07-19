@@ -250,6 +250,112 @@ const DRIVER_STATUSES: readonly DriverStatus[] = [
   "ready", "pending_validation", "partial", "unverified", "failed",
 ];
 
+// The #53 pre-generate driver-ready gate codes (driver_ready_gate.py). A generate partial carrying any
+// of these (in structured_errors OR errors) is asking the user to run gen-driver first. COLD_DRIVER_GATE
+// is what the live model emits (observed 2026-07-16), distinct from the contract's COLD_DRIVER_REQUIRED.
+const GEN_DRIVER_GATE_CODES: ReadonlySet<string> = new Set([
+  "COLD_DRIVER_REQUIRED", "COLD_DRIVER_GATE", "DRIVER_NOT_READY", "DRIVER_STATUS_UNSUPPORTED",
+  "DRIVER_READY_PATH_MISSING", "DRIVER_READY_MARKER_MISSING", "DRIVER_READY_MARKER_INVALID",
+  "DRIVER_READY_MARKER_DRIVER_ID_MISMATCH",
+]);
+
+// device.driver.status values that must run gen-driver before generate can write business code
+// (upy-generate-plugin SKILL.md gate). A device with an explicit status here in a partial generate is
+// the authoritative block signal — more reliable than the error formatting, and it names the device.
+const COLD_DRIVER_STATUSES: ReadonlySet<string> = new Set([
+  "cold_driver_required", "pending_validation", "unverified", "failed",
+]);
+
+function driverStatusOf(device: any): string {
+  return String(device?.driver?.status ?? device?.driver?.driver_status ?? device?.driver_status ?? "");
+}
+
+// Mirror the authoritative gate at upy-generate-plugin/scripts/driver_ready_gate.py so the extension's
+// detection/selection/dispatch agree with what actually blocks generate. The plugin blocks on the full
+// gate, NOT just COLD_DRIVER_STATUSES: any present non-ready status blocks, and a "ready" driver still
+// blocks unless it carries full self-test evidence (path + a marker SELF_TEST_PASS:<driver_id>:<scenario>).
+const READY_DRIVER_STATUS = "ready";
+const KNOWN_DRIVER_STATUSES: ReadonlySet<string> = new Set([...COLD_DRIVER_STATUSES, READY_DRIVER_STATUS]);
+const SELF_TEST_MARKER_RE = /^SELF_TEST_PASS:([^:]+):([^:]+)$/;
+
+function driverPathOf(driver: any): string { return String(driver?.path ?? driver?.driver_path ?? ""); }
+function driverMarkerOf(driver: any): string { return String(driver?.hardware_marker ?? driver?.marker ?? ""); }
+function gateDriverIdOf(device: any, driver: any): string {
+  return String(driver?.driver_id ?? driver?.id ?? driver?.name ?? device?.driver_id ?? "");
+}
+
+// Does this device's driver BLOCK generate, and with which gate code? null = clear (does not block).
+// Mirrors driver_ready_gate.py lines 129-201: a status-less (source-only) driver never blocks; any present
+// non-ready status blocks (cold_driver_required -> COLD_DRIVER_REQUIRED, other known blocking statuses ->
+// DRIVER_NOT_READY, unknown -> DRIVER_STATUS_UNSUPPORTED); a "ready" driver blocks unless it has a path,
+// a marker matching SELF_TEST_PASS:<driver_id>:<scenario>, and (when a driver_id is present) a matching id.
+export function deviceDriverGateCode(device: any): string | null {
+  if (!device || typeof device !== "object") return null;
+  const driver = (device.driver && typeof device.driver === "object") ? device.driver : {};
+  const status = driverStatusOf(device);
+  if (!status) return null;
+  if (status !== READY_DRIVER_STATUS) {
+    if (status === "cold_driver_required") return "COLD_DRIVER_REQUIRED";
+    return KNOWN_DRIVER_STATUSES.has(status) ? "DRIVER_NOT_READY" : "DRIVER_STATUS_UNSUPPORTED";
+  }
+  if (!driverPathOf(driver)) return "DRIVER_READY_PATH_MISSING";
+  const marker = driverMarkerOf(driver);
+  if (!marker) return "DRIVER_READY_MARKER_MISSING";
+  const markerMatch = SELF_TEST_MARKER_RE.exec(marker);
+  if (!markerMatch) return "DRIVER_READY_MARKER_INVALID";
+  const driverId = gateDriverIdOf(device, driver);
+  if (driverId && markerMatch[1] !== driverId) return "DRIVER_READY_MARKER_DRIVER_ID_MISMATCH";
+  return null;
+}
+
+export type DriverReadyBlockEntry = {
+  code?: string;
+  device?: string;
+  device_index?: number;
+  driver_id?: string | null;
+  driver_status?: string | null;
+  next_phase?: string;
+  next_action?: string;
+  output_path?: string;
+  message?: string;
+};
+
+// Detect the #53 driver-ready block in a generate phase_complete. Match on ANY of three signals, because
+// the model copies the gate entries loosely: the entry's next_phase == the gen-driver envelope token,
+// or a next_action beginning "run_upy_gen_driver_plugin" (the shipped sample uses
+// "run_upy_gen_driver_plugin_or_simulate_only", with NO entry-level next_phase), or a known gate code.
+// Only a `partial` result carries a real block. Returns the blocking entries (empty = no block).
+export function detectDriverReadyBlock(payload: any): DriverReadyBlockEntry[] {
+  if (!payload || payload.result !== "partial") return [];
+  // Primary signal: a manifest device with an explicit cold/unresolved driver.status. Authoritative
+  // (the gate's actual condition) and names the device for the offer. Source-only deps without a status
+  // are NOT cold, so a normal partial generate won't false-fire.
+  const devices = Array.isArray(payload?.manifest_content?.devices) ? payload.manifest_content.devices : [];
+  const fromDevices: DriverReadyBlockEntry[] = devices
+    .map((d: any) => ({ d, code: deviceDriverGateCode(d) }))
+    .filter((x: { code: string | null }) => x.code !== null)
+    .map(({ d, code }: { d: any; code: string | null }) => ({
+      code: code as string,
+      device: d.name,
+      driver_id: d.driver?.driver_id ?? d.driver?.package_name ?? null,
+      driver_status: driverStatusOf(d),
+      next_phase: GEN_DRIVER_ENVELOPE_PHASE,
+      message: `${d.name}: build its driver (${code}) before generating.`,
+    }));
+  if (fromDevices.length) return fromDevices;
+  // Fallback: the gate as an error entry. The contract puts it in structured_errors; some model outputs
+  // use `errors` instead (observed), so read both. Match on next_phase / next_action prefix / gate code.
+  const rawErrors = [
+    ...(Array.isArray(payload.structured_errors) ? payload.structured_errors : []),
+    ...(Array.isArray(payload.errors) ? payload.errors : []),
+  ];
+  return rawErrors.filter((e: any) => e && typeof e === "object" && (
+    e.next_phase === GEN_DRIVER_ENVELOPE_PHASE
+    || (typeof e.next_action === "string" && e.next_action.startsWith("run_upy_gen_driver_plugin"))
+    || (typeof e.code === "string" && GEN_DRIVER_GATE_CODES.has(e.code))
+  ));
+}
+
 export function deriveDriverStatus(complete: {
   driver_status?: string;
   result?: string;
@@ -270,12 +376,16 @@ export function deriveDriverStatus(complete: {
   return "failed";
 }
 
-// The cold-driver devices in an (untyped, upstream) manifest — the items the current tab
-// picks from and the signal inferMode keys on. Single place the predicate lives.
+// The blocked-driver devices in an (untyped, upstream) manifest — the items the current tab picks from
+// and the signal inferMode keys on. Uses the SAME full-gate predicate as detectDriverReadyBlock
+// (deviceDriverGateCode, mirroring driver_ready_gate.py), so detection, device selection, and dispatch
+// can't disagree: any non-ready status (incl. unsupported) AND a "ready" driver missing its self-test
+// evidence route to pipeline mode with the manifest, not standalone. Was previously the COLD_DRIVER_STATUSES
+// set only, which missed DRIVER_STATUS_UNSUPPORTED and broken-ready and dropped manifest_content/source_phase.
 export function coldDriverDevices(manifestContent: any): any[] {
   const devices = manifestContent?.devices;
   if (!Array.isArray(devices)) return [];
-  return devices.filter((device: any) => device?.driver?.status === "cold_driver_required");
+  return devices.filter((device: any) => deviceDriverGateCode(device) !== null);
 }
 
 // Mode inference (SKILL.md): pipeline only when the current manifest has a
@@ -284,10 +394,10 @@ export function inferMode(manifestContent: any): GenDriverMode {
   return coldDriverDevices(manifestContent).length > 0 ? "pipeline" : "standalone";
 }
 
-// A device -> select option: value is the device_id the source records; the label carries
+// A device -> select option: prefer device_id, then another stable manifest identifier; the label carries
 // name/interface/address so the user can tell the cold-driver items apart.
 function coldDriverOption(device: any): { value: string; label: string } {
-  const id = String(device?.device_id ?? "");
+  const id = String(device?.device_id || device?.name || device?.driver?.driver_id || device?.driver?.package_name || "");
   const addrs = Array.isArray(device?.i2c_addresses) ? device.i2c_addresses.join("/") : "";
   const detail = [device?.interface, addrs].filter(Boolean).join(" ");
   const label = [device?.name ?? id, detail ? `(${detail})` : ""].filter(Boolean).join(" ");
@@ -307,11 +417,25 @@ function manifestContextLines(manifestContent: any, count: number): string[] {
 // Fill the "current project missing driver" tab from the session manifest: a required device
 // picker over the cold-driver items + a read-only context line. Pure — returns a new tabs
 // array, other tabs unchanged. Absent/empty manifest -> the tab's no-items empty state.
-export function materializeGenDriverTabs(tabs: readonly GenDriverTab[], manifestContent: unknown): GenDriverTab[] {
-  const devices = coldDriverDevices(manifestContent);
+export function materializeGenDriverTabs(tabs: readonly GenDriverTab[], manifestContent: unknown, blocks: DriverReadyBlockEntry[] = []): GenDriverTab[] {
+  const coldDevices = coldDriverDevices(manifestContent);
+  const deviceOptions = coldDevices.map(coldDriverOption);
+  // An error-code-only block names a device/driver_id the manifest may not carry as a cold device; without a
+  // synthesized option the offer would land on the dead "No missing driver" tab. Dedup a block against the cold
+  // devices by BOTH keys: a device option's value is the device_id, but a device-path block names the device by
+  // NAME (DriverReadyBlockEntry.device = d.name), so covering only device_id would double-list the same device.
+  const covered = new Set<string>();
+  for (const device of coldDevices) {
+    if (device?.device_id) covered.add(String(device.device_id));
+    if (device?.name) covered.add(String(device.name));
+  }
+  const blockOptions = blocks
+    .map((block) => ({ value: String(block.device ?? block.driver_id ?? ""), label: `${block.device ?? block.driver_id ?? "driver"} (${block.driver_status ?? block.code ?? "not ready"})` }))
+    .filter((option) => option.value && !covered.has(option.value));
+  const options = [...deviceOptions, ...blockOptions];
   return tabs.map((tab) => {
     if (tab.sourceType !== "current_cold_driver_item") return tab;
-    if (devices.length === 0) {
+    if (options.length === 0) {
       return {
         ...tab, noItems: true,
         fields: [{ key: "no_items", label: "", kind: "info", lines: ["No missing driver in the current session.", "Run analyze / select-hw first, or use another source tab."] }],
@@ -320,8 +444,8 @@ export function materializeGenDriverTabs(tabs: readonly GenDriverTab[], manifest
     return {
       ...tab, noItems: false,
       fields: [
-        { key: "device_id", label: "Missing driver", kind: "select", required: true, options: devices.map(coldDriverOption) },
-        { key: "current_context", label: "", kind: "info", lines: manifestContextLines(manifestContent, devices.length) },
+        { key: "device_id", label: "Missing driver", kind: "select", required: true, options },
+        { key: "current_context", label: "", kind: "info", lines: manifestContextLines(manifestContent, options.length) },
       ],
     };
   });
@@ -357,9 +481,12 @@ export const DEFAULT_GEN_DRIVER_CAPABILITIES: GenDriverCapabilities = {
   serial_port_scan: true,
   mpremote_run: true,
   file_upload: true,
-  checkpoint_resume: true,
+  // The host implements neither a checkpoint/resume round-trip nor an idempotency cache. Declaring
+  // these true would invite the plugin to "save a checkpoint and resume later" or dedupe on a cache
+  // the host can never honor (protocol_fields.md:47-49). cancellation stays true — Stop IS supported.
+  checkpoint_resume: false,
   cancellation: true,
-  idempotency_cache: true,
+  idempotency_cache: false,
   artifact_root: true,
 };
 
@@ -441,6 +568,24 @@ export type BuildStartPhaseInput = {
   sourcePhaseCompletePath?: string;
 };
 
+// The runtime_context roots for a real gen-driver dispatch. The host runs plugin script_run with
+// cwd = the project dir (= projectFolder) and contains file_operation to projectFolder, so every root
+// is cwd-RELATIVE and stays inside that containment boundary: artifact_root/project_root/
+// file_operation_root are the project (cwd) itself, and session_root (where the SKILL writes state/logs
+// + the final phase_complete) is a sessions/<id> subdir UNDER it. An absolute or "../" root would be
+// refused by containment (protocol_fields.md:35). resource_root is the plugin dir name (sample shape).
+// (Live-run verification point: confirm the plugin resolves these against its cwd as expected.)
+export function genDriverRuntimeContext(sessionId: string): GenDriverRuntimeContext {
+  return {
+    artifact_root: ".",
+    artifact_root_mode: "cwd",
+    session_root: `sessions/${sessionId}`,
+    project_root: ".",
+    file_operation_root: ".",
+    resource_root: GEN_DRIVER_ENVELOPE_PHASE,
+  };
+}
+
 // Build the start_phase envelope+payload for the plugin host to send. Normalized
 // contract (Ruili 2026-07-06): sample envelope + runtime_context + capabilities, with
 // the Jul-6 doc business payload (sources[] + driver_request + verification).
@@ -471,4 +616,42 @@ export function buildStartPhase(input: BuildStartPhaseInput): Record<string, unk
     retry_of: null,
     payload,
   };
+}
+
+// Assemble a ready-to-dispatch gen-driver start_phase from the staged sources + the manifest snapshot.
+// Infers the mode from the manifest (pipeline iff a cold-driver device is present), attaches the
+// cwd-relative runtime_context, and — in pipeline mode only — carries the upstream manifest_content +
+// source_phase (default upy-generate-plugin, the #53 path). The returned envelope's `phase` is the
+// ENVELOPE token (body.phase) while payload.phase is the DOMAIN token; the caller serializes it as the
+// first user message and dispatches via controller.startPhase at the envelope token.
+export function buildGenDriverDispatch(input: {
+  sessionId: string;
+  msgId: string;
+  timestamp: string;
+  sources: GenDriverSource[];
+  manifestContent?: unknown;
+  sourcePhase?: string;
+  driverRequest?: GenDriverDriverRequest;
+  verification?: GenDriverVerification;
+  blocked?: boolean;
+}): Record<string, unknown> {
+  // `blocked` is the stored detection-time gate result (detectDriverReadyBlock), threaded in because an
+  // error-code-only block (no cold device in the manifest) isn't re-derivable from manifestContent alone
+  // at dispatch time. When set, force pipeline so manifest_content + source_phase ride and generate can resume.
+  const mode: GenDriverMode = input.blocked ? "pipeline" : inferMode(input.manifestContent);
+  const base: BuildStartPhaseInput = {
+    sessionId: input.sessionId,
+    msgId: input.msgId,
+    timestamp: input.timestamp,
+    mode,
+    runtimeContext: genDriverRuntimeContext(input.sessionId),
+    sources: input.sources,
+    driverRequest: input.driverRequest,
+    verification: input.verification,
+  };
+  if (mode === "pipeline") {
+    base.manifestContent = input.manifestContent;
+    base.sourcePhase = input.sourcePhase ?? "upy-generate-plugin";
+  }
+  return buildStartPhase(base);
 }

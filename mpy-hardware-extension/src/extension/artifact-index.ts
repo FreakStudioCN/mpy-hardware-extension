@@ -108,8 +108,10 @@ export function classifyArtifactKind(absolutePath: string): ArtifactKind {
   const p = toPosix(absolutePath);
   const base = p.slice(p.lastIndexOf("/") + 1);
   if (base === "project-manifest.json" || base === "manifest.json") return "manifest";
-  if (base === "wiring.json") return "wiring";
-  if (base === "diagram.json") return "diagram";
+  // wiring/diagram emit a family of files, not just the .json (wiring.{md,html,svg,png}, wiring_pins.md;
+  // diagram.* plus architecture/flowchart/data_flow.{md,svg,png,html}). Tag them all so the browser groups them.
+  if (/^wiring(_pins)?\.(json|md|html|svg|png)$/.test(base)) return "wiring";
+  if (/^diagram\.(json|md|html|svg|png)$/.test(base) || /^(architecture|flowchart|data_flow)\.(md|svg|png|html)$/.test(base)) return "diagram";
   if (p.includes("/checkpoints/")) return "checkpoint";
   if (base === "session.jsonl" || p.includes("/sessions/")) return "log";
   if (p.includes("/firmware/")) return "driver";

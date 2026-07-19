@@ -17,7 +17,6 @@
       function streamCodeDelta(text, path) {
         clearPending();
         const file = path || "main.py";
-        const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
         if (currentCode && currentCode.path === file) { currentCode.raw += text; currentCode.tw.feed(text); currentCode.card.__code = currentCode.raw; return; }
         finalizeThinking(); // a code stream closes any open thinking card
         $("activityEmpty").classList.add("hidden");
@@ -35,7 +34,7 @@
         // smooth cadence instead of jumping in whatever chunks the upstream sends.
         // Faster than prose (code is dense + skimmed), and a burst cap so a whole
         // file landing at once doesn't drag. Settles as plain text — never markdown.
-        const tw = makeTypewriter(pre, scroll, { cpms: 2, maxBacklog: 500, settle: (node, t) => { node.textContent = t; } });
+        const tw = makeTypewriter(pre, { cpms: 2, maxBacklog: 500, settle: (node, t) => { node.textContent = t; } });
         tw.feed(text);
         card.__code = text; // full source for the Copy button (survives finalize)
         const copyBtn = card.querySelector(".code-copy");
@@ -46,7 +45,6 @@
         });
         $("activity").appendChild(card);
         currentCode = { card, pre, tw, raw: text, path: file };
-        scroll();
       }
       // Finalize the open code card: swap the raw stream for syntax-highlighted,
       // line-numbered rows. Handles a code_updated with no preceding deltas.

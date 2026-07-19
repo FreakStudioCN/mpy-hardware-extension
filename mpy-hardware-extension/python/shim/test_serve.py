@@ -193,6 +193,25 @@ def test_resolver_disambiguates_shared_basenames_by_active_phase():
         serve.scripts_root, serve._V0_SCRIPT_INDEX = orig_root, orig_index
 
 
+def test_toolchain_spec_scripts_are_indexed():
+    # The wiring/diagram SKILLs invoke upy-project-gen-toolchain-spec/scripts/validate_json.py by name
+    # (the SKILL command carries an absolute G:/ prefix). Without indexing that dir it is script_not_found
+    # on every live wiring/diagram run. Force the dev-root submodule for determinism. Mutation: drop the dir
+    # from _V0_PLUGIN_DIRS or the filter clause -> 0 candidates and these fail.
+    here = os.path.dirname(os.path.abspath(__file__))
+    dev_root = os.path.abspath(os.path.join(here, "..", "..", "..", "third_party", "MicroPython_Skills"))
+    assert os.path.isdir(os.path.join(dev_root, "upy-project-gen-toolchain-spec", "scripts")), dev_root
+    orig_root, orig_index = serve.scripts_root, serve._V0_SCRIPT_INDEX
+    serve.scripts_root, serve._V0_SCRIPT_INDEX = (lambda: dev_root), None
+    try:
+        assert len(serve._v0_script_candidates("validate_json.py")) == 1
+        # basename resolution tolerates the SKILL's absolute G:/ spelling and the scripts/ spelling
+        assert len(serve._v0_script_candidates("G:/skills/upy-project-gen-toolchain-spec/scripts/validate_json.py")) == 1
+        assert len(serve._v0_script_candidates("scripts/validate_json.py", "upy-wiring-plugin")) == 1
+    finally:
+        serve.scripts_root, serve._V0_SCRIPT_INDEX = orig_root, orig_index
+
+
 def test_resolver_treats_scripts_prefix_as_bare_and_qualifier_as_segment():
     # The served SKILL.md prose invokes scripts by their `scripts/<name>.py` spelling
     # (upy-generate-plugin/SKILL.md:154,233 -> scripts/update_session_state.py). The

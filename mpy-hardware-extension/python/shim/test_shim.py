@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import subprocess
 import sys
@@ -6,6 +7,7 @@ import sys
 import pytest
 
 from serve import (
+    SCRIPT_FILES,
     Shim,
     _dispatch,
     _list_files,
@@ -22,6 +24,17 @@ from serve import (
     _run_static_check,
     _run_validate,
 )
+
+
+def test_every_script_files_entry_resolves_to_a_real_file():
+    # Every SCRIPT_FILES entry must resolve to a bundled file. render_wiring/render_diagram/
+    # validate use the -plugin dirs; scaffold/download_drivers use the LEGACY (non-plugin) dirs
+    # because the host dispatch passes --project-dir and expects files written to disk (only the
+    # legacy scripts do that). prepare-vsce's PLUGIN_DIRS must bundle both families. Mutation:
+    # drop upy-scaffold/upy-generate from PLUGIN_DIRS (or repoint to a missing dir) and this fails.
+    for key in SCRIPT_FILES:
+        path = resolve_script(key)
+        assert os.path.exists(path), f"{key} -> {path} does not exist (dir-name/bundle mismatch)"
 
 
 def test_ensure_utf8_io_forces_utf8_and_tolerates_missing_reconfigure():
@@ -443,6 +456,8 @@ def test_run_script_builds_a_python_command_with_args():
 
 def test_resolve_script_and_schema_paths():
     assert resolve_script("validate").replace("\\", "/").endswith("upy-project-gen-toolchain-spec/scripts/validate_json.py")
+    # scaffold/download_drivers use the LEGACY (non-plugin) scripts on purpose (they write files
+    # from --project-dir; the -plugin equivalents are stdout-only and reject the arg).
     assert resolve_script("scaffold").replace("\\", "/").endswith("upy-scaffold/scripts/init_scaffold.py")
     assert resolve_script("download_drivers").replace("\\", "/").endswith("upy-generate/scripts/download_drivers.py")
     assert resolve_schema("wiring").replace("\\", "/").endswith("upy-project-gen-toolchain-spec/wiring.schema.json")
@@ -484,6 +499,40 @@ def test_run_project_script_maps_nonzero_exit_to_error():
     ok = _run_project_script(Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "[OK] done", "")),
                              "download_drivers", ["--project-dir", "/p"])
     assert ok == {"status": "ok", "exit_code": 0, "output": "[OK] done"}
+
+
+def _write_manifest(project_dir, extra=None):
+    manifest = {"mcu": {"model": "ESP32-C6"}, "requirements": {"sample_rate": "normal_1hz"}, "pinout": [], "devices": []}
+    if extra:
+        manifest.update(extra)
+    (project_dir / "project-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def test_run_scaffold_dispatch_runs_the_real_legacy_cli(tmp_path):
+    # Adapter-level: run the REAL scaffold script through _dispatch with NO mock runner. The
+    # -plugin init_scaffold.py ignores --project-dir (argparse.SUPPRESS) and only writes JSON to
+    # stdout, so it produces no files; the host dispatch passes --project-dir and expects files on
+    # disk. This is why SCRIPT_FILES["scaffold"] must point at the LEGACY upy-scaffold script.
+    # Mutation: repoint scaffold to upy-scaffold-plugin -> no firmware/board.py written -> fails.
+    _write_manifest(tmp_path)
+    result = _dispatch(Shim(), "script.run_scaffold", {"project_dir": str(tmp_path), "mode": "timer"})
+    assert result["status"] == "ok", result
+    assert result["exit_code"] == 0
+    assert (tmp_path / "firmware" / "board.py").exists()
+
+
+def test_run_download_drivers_dispatch_runs_the_real_legacy_cli(tmp_path):
+    # Adapter-level: the REAL download script through _dispatch, no mock. The -plugin
+    # download_drivers.py rejects --project-dir (argparse exit 2, "unrecognized arguments"); only
+    # the LEGACY upy-generate script accepts it, loads the manifest, and stamps
+    # generate.driver_downloaded_at. Empty devices -> no network access (offline-safe).
+    # Mutation: repoint download_drivers to upy-generate-plugin -> exit 2 -> fails.
+    _write_manifest(tmp_path)
+    result = _dispatch(Shim(), "script.run_download_drivers", {"project_dir": str(tmp_path)})
+    assert result["status"] == "ok", result
+    assert result["exit_code"] == 0
+    manifest = json.loads((tmp_path / "project-manifest.json").read_text(encoding="utf-8"))
+    assert "driver_downloaded_at" in manifest.get("generate", {})
 
 
 def test_run_module_builds_python_dash_m_command_with_cwd():
@@ -534,7 +583,7 @@ def test_run_render_builds_input_output_format_args():
     res = _run_render(Shim(runner=runner), "diagram", {"project_dir": "/proj"})
     assert res == {"status": "ok", "exit_code": 0, "output": "rendered"}
     cmd = captured["cmd"]
-    assert cmd[1].replace("\\", "/").endswith("upy-diagram/scripts/render_diagram_local.py")
+    assert cmd[1].replace("\\", "/").endswith("upy-diagram-plugin/scripts/render_diagram_local.py")
     # default format is md (offline), reading docs/diagram.json into docs/.
     assert cmd[cmd.index("--format") + 1] == "md"
     assert cmd[cmd.index("--input") + 1] == os.path.join("/proj", "docs", "diagram.json")

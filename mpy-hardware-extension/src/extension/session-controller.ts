@@ -6,6 +6,8 @@ import { classifyArtifactKind } from "./artifact-index.ts";
 import type { ArtifactSource } from "./artifact-index.ts";
 import { deriveWiring } from "../core/wiring-derive.ts";
 import { deriveDiagram } from "../core/diagram-derive.ts";
+import { deriveDriverStatus, detectDriverReadyBlock, GEN_DRIVER_DOMAIN_PHASE, type DriverReadyBlockEntry } from "../core/gen-driver-schema.ts";
+import { WIRING_PHASE, DIAGRAM_PHASE } from "../core/optional-flow-schema.ts";
 
 export class SessionController {
   deps: {
@@ -75,6 +77,24 @@ export class SessionController {
   // event — so this is the only way the Artifact Browser learns about pre-generate outputs,
   // with their real role (the Skill's `type`) and producing phase.
   private phaseArtifacts: Array<{ path: string; role: string; phase: string }> = [];
+  // The optional follow-on flows generate offered in its phase_complete (optional_next_phases:
+  // [{phase, reason}]). The webview wiring/diagram entries enable only after generate offers them.
+  private optionalNextPhases: Array<{ phase?: string; reason?: string }> = [];
+  // The #53 driver-ready gate result from the latest generate (detectDriverReadyBlock). Stored because a
+  // gen-driver dispatch runs LATER than detection with only the manifest (no errors), so an error-code-only
+  // block (e.g. DRIVER_STATUS_UNSUPPORTED) isn't re-derivable at dispatch time; the panel threads this into
+  // buildGenDriverDispatch as `blocked` to force pipeline mode. Same per-run lifecycle as optionalNextPhases.
+  private driverReadyBlocks: DriverReadyBlockEntry[] = [];
+  // The last generate phase_complete, so a wiring/diagram run can persist it as the upstream result
+  // (source_phase_complete_path) the plugin reads to reach a formal success. Cleared with the session.
+  private latestGeneratePhaseComplete: unknown = undefined;
+  // The last phase_complete THIS run emitted ({phase, result, errors, network_permission}). A startPhase
+  // excursion (wiring/diagram) reads it to gate its post-run render: it renders a success OR partial run
+  // that freshly wrote its doc (the plugin reports partial when it couldn't render in-sandbox — that's why
+  // the host renders), but skips it when the user denied the mermaid.ink network render. The denial arrives
+  // TWO ways and both must be retained: a structured `network_permission.decision === "deny"`, and/or a
+  // *_PERMISSION_DENIED error code (DIAGRAM_/WIRING_IMAGE_RENDER_). Per-run; cleared in reset() (#9).
+  private lastPhaseComplete: { phase?: string; result?: string; errors?: unknown; network_permission?: unknown } | undefined = undefined;
   // The phase the loop is currently in, tracked off phase_start. Stamps a queued
   // supplement's receivedPhase (deliverables 07 §3) and feeds the diagnostics snapshot
   // (section 08). Cleared on a fresh session (board switch) alongside the other run state.
@@ -122,6 +142,9 @@ export class SessionController {
       this.producedPaths = [];
       this.producedPhase.clear();
       this.phaseArtifacts = [];
+      this.optionalNextPhases = [];
+      this.driverReadyBlocks = [];
+      this.latestGeneratePhaseComplete = undefined;
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -157,9 +180,48 @@ export class SessionController {
     return this.run({ intent: "", boardId: this.boardId ?? "auto", availableBoards: this.availableBoards });
   }
 
-  private async run(input: { intent: string; boardId: string; availableBoards?: any[] }) {
-    this.latestManifest = undefined;
+  // Dispatch an on-demand phase run (gen-driver / wiring / diagram optional flows) through the SAME
+  // loop as start(), so Stop / safe-point / recorder / artifacts all work. The caller builds the
+  // start_phase `envelope` (it becomes the first user message). run() is called with preserveManifest
+  // so a thin optional-run manifest can't clobber latestManifest. A standalone optional run ends on its own phase and must
+  // NOT leave that phase in this.state, or the next normal start() (same board) would resume it. So this
+  // is a transparent excursion: snapshot the prior main-flow state, run, and restore it UNLESS the run
+  // chained into a canonical phase (pipeline continuation), detected by the run ending on a DIFFERENT
+  // phase than the one dispatched.
+  async startPhase(input: { phase: string; envelope: string; manifest?: any; boardId?: string; label?: string; availableBoards?: any[] }) {
+    if (this.abort) {
+      this.deps.postMessage({ type: "session_busy" });
+      return { terminal: "session_busy" };
+    }
+    const boardId = input.boardId ?? this.boardId ?? "auto";
+    const label = input.label ?? input.phase;
+    if (!this.traceId) this.traceId = createTraceId();
+    if (!this.recorder && this.deps.recorderFactory) this.recorder = this.deps.recorderFactory(this.traceId);
+    if (!this.recordedStart) {
+      this.recordedStart = true;
+      this.record({ type: "session_started", intent: label, boardId, availableBoards: input.availableBoards ?? [] });
+    }
+    this.record({ type: "user_message", intent: label, boardId });
+    const priorState = this.state;
+    const myGen = this.generation;
+    this.state = { phase: input.phase, manifest: input.manifest };
+    const result = await this.run({ intent: input.envelope, boardId, availableBoards: input.availableBoards, preserveManifest: true });
+    // Ended on the dispatched phase (no pipeline continuation) -> restore the main-flow state. Guard on the
+    // generation like every other post-run write: if a reset()/new run superseded this one mid-flight, don't
+    // clobber the new run's state with our stale priorState (matches run()'s current() checks).
+    if (this.generation === myGen && this.state?.phase === input.phase) {
+      this.state = priorState;
+    }
+    return result;
+  }
+
+  private async run(input: { intent: string; boardId: string; availableBoards?: any[]; preserveManifest?: boolean }) {
+    // A startPhase excursion (gen-driver/wiring/diagram) keeps the main-flow manifest, so the diagram
+    // run's thin manifest_content can't clobber the devices-bearing one (the manifest_updated guard reads
+    // latestManifest, which this clear would otherwise blank for the whole excursion run).
+    if (!input.preserveManifest) this.latestManifest = undefined;
     this.hasAuthoredDiagram = false;
+    this.lastPhaseComplete = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
     this.abort = new AbortController();
@@ -264,11 +326,40 @@ export class SessionController {
     this.producedPaths = [];
     this.producedPhase.clear();
     this.phaseArtifacts = [];
+    this.optionalNextPhases = [];
+    this.driverReadyBlocks = [];
+    this.latestGeneratePhaseComplete = undefined;
+    this.lastPhaseComplete = undefined;
     this.currentPhase = null;
     this.recentActivity = [];
     this.stdoutTail = [];
     this.keyErrors = [];
     this.pendingSupplements = [];
+  }
+
+  // The optional follow-on flows generate offered (empty until a generate offers them). The panel gates
+  // the wiring/diagram entries on this.
+  getOptionalNextPhases(): Array<{ phase?: string; reason?: string }> {
+    return this.optionalNextPhases;
+  }
+
+  // The #53 driver-ready gate result from the latest generate (empty when clear). The panel threads it into
+  // buildGenDriverDispatch as `blocked` and into materializeGenDriverTabs so detection/selection/dispatch agree.
+  getDriverReadyBlocks(): DriverReadyBlockEntry[] {
+    return this.driverReadyBlocks;
+  }
+
+  // The last phase_complete this run emitted ({phase, result, errors, network_permission}), or undefined.
+  // A wiring/diagram excursion gates its post-run render on it (renders success/partial with a fresh doc;
+  // skips a network-render denial — structured decision "deny" and/or a *_PERMISSION_DENIED error).
+  getLastPhaseComplete(): { phase?: string; result?: string; errors?: unknown; network_permission?: unknown } | undefined {
+    return this.lastPhaseComplete;
+  }
+
+  // The last generate phase_complete (or undefined). A wiring/diagram dispatch persists this to disk and
+  // points source_phase_complete_path at it so the run can read the upstream generate result.
+  getLatestGeneratePhaseComplete(): unknown {
+    return this.latestGeneratePhaseComplete;
   }
 
   // A session run owns the serial port from run()'s start until its finally clears
@@ -481,9 +572,15 @@ export class SessionController {
       // format->path map { json: "docs/wiring.json", ... }) is treated as absent so the
       // tab does not regress to empty. latestManifest carries the enriched copy so the
       // deploy checkpoint card shows the same wiring.
-      const manifest = hasRenderableWiring(event.manifest?.wiring)
+      const enriched = hasRenderableWiring(event.manifest?.wiring)
         ? event.manifest
         : { ...event.manifest, wiring: deriveWiring(event.manifest) };
+      // A diagram run streams a thin manifest_content (no devices/pinout) that would blank the Wiring tab
+      // and empty the gen-driver cold-driver picker. Don't regress a devices-bearing manifest to a
+      // device-less one — keep the richer one (a wiring run's manifest carries devices, so it is unaffected).
+      const incomingHasDevices = Array.isArray(event.manifest?.devices) && event.manifest.devices.length > 0;
+      const currentHasDevices = Array.isArray((this.latestManifest as any)?.devices) && (this.latestManifest as any).devices.length > 0;
+      const manifest = (!incomingHasDevices && currentHasDevices) ? this.latestManifest : enriched;
       this.latestManifest = manifest;
       this.record({ type: "artifact", kind: "manifest", manifest });
       this.deps.postMessage({ type: "manifest_updated", manifest });
@@ -493,7 +590,7 @@ export class SessionController {
       // not record() a kind:"diagram" artifact every phase boundary or trip the authored
       // guard. An authored diagram, once seen, always wins.
       if (!this.hasAuthoredDiagram) {
-        this.deps.postMessage({ type: "diagram_updated", diagram: deriveDiagram(event.manifest) });
+        this.deps.postMessage({ type: "diagram_updated", diagram: deriveDiagram(manifest) });
       }
       return;
     }
@@ -552,6 +649,55 @@ export class SessionController {
       this.capturePhaseArtifacts(event.payload);
       this.record({ type: "phase_complete", payload: event.payload });
       this.deps.postMessage({ type: "phase_complete", payload: event.payload });
+      // The domain phase is at payload.phase per the sample contract, but the generate model can
+      // drop the top-level phase and only set manifest_content.phase/domain_phase. Resolve from
+      // either so the generate-keyed logic below fires on that degraded (but successful) shape too.
+      const domainPhase = event.payload?.phase ?? event.payload?.manifest_content?.phase ?? event.payload?.manifest_content?.domain_phase;
+      // Remember this run's terminal outcome so a startPhase excursion can gate its post-run render
+      // on a real success (not a partial/denied run that still emitted a phase_complete).
+      this.lastPhaseComplete = { phase: domainPhase, result: event.payload?.result, errors: event.payload?.errors ?? event.payload?.structured_errors, network_permission: event.payload?.network_permission };
+      // A gen-driver run's phase_complete carries the UI driver status (payload.phase is the DOMAIN
+      // token "gen-driver"). Surface it to the GenDriverPanel; deriveDriverStatus trusts the
+      // authoritative driver_status when present and falls back to the result/verification heuristic.
+      if (event.payload?.phase === GEN_DRIVER_DOMAIN_PHASE) {
+        this.deps.postMessage({ type: "gen_driver_status", status: deriveDriverStatus(event.payload ?? {}), detail: event.payload?.summary });
+        // A successful driver build resolves the gate; drop the stored block so a later unrelated standalone
+        // gen-driver run isn't forced to pipeline by a stale result.
+        if (event.payload?.result === "success") this.driverReadyBlocks = [];
+      }
+      // #53: a generate partial can carry a driver-ready block asking the user to build the driver
+      // first. Surface the affected devices so the panel can OFFER the gen-driver run (never auto-start).
+      // Store the block so the LATER gen-driver dispatch can force pipeline (an error-code-only block is not
+      // re-derivable from the manifest alone). A clean generate completion clears it (register #9/#19).
+      const driverBlocks = detectDriverReadyBlock(event.payload);
+      if (driverBlocks.length > 0) {
+        this.driverReadyBlocks = driverBlocks;
+        this.deps.postMessage({ type: "gen_driver_required", blocks: driverBlocks });
+      } else if (domainPhase === "generate") {
+        this.driverReadyBlocks = [];
+      }
+      // A generate completion is the ONLY thing that sets the optional-flow offers and the stored generate
+      // payload, and BOTH must gate on result === "success". Otherwise a later partial generate leaves an
+      // earlier success's offers installed AND clobbers latestGeneratePhaseComplete with the partial, so the
+      // host would permit wiring/diagram against an upstream the plugin must reject. So: clear offers on EVERY
+      // generate completion, and only persist the payload + install offers on success (register #19/#9).
+      if (domainPhase === "generate") {
+        this.optionalNextPhases = [];
+        if (event.payload?.result === "success") {
+          // A formal wiring/diagram success reads the upstream generate result (source_phase_complete_path);
+          // only a successful generate is a valid upstream. Keep the prior success on a partial (don't clobber).
+          this.latestGeneratePhaseComplete = event.payload;
+          // Upstream sanctions BOTH offer shapes: objects [{phase, reason}] and plain strings
+          // ["upy-wiring-plugin"]. The generate SKILL requires emitting offers on success, but the model
+          // sometimes drops them (which left the flows unreachable), so default to offering both. Normalize
+          // to the object shape so the host gate + webview entries key on `.phase` either way (deliverables 04).
+          const offered = event.payload?.optional_next_phases;
+          this.optionalNextPhases = Array.isArray(offered) && offered.length
+            ? offered.map((p: any) => (typeof p === "string" ? { phase: p } : p))
+            : [{ phase: WIRING_PHASE }, { phase: DIAGRAM_PHASE }];
+        }
+        this.deps.postMessage({ type: "optional_flows", phases: this.optionalNextPhases });
+      }
       return;
     }
     if (event.type === "credits") {
@@ -690,10 +836,26 @@ export class SessionController {
     if (!Array.isArray(artifacts)) return;
     const phase = payload?.phase ?? this.currentPhase ?? "";
     for (const a of artifacts) {
-      if (!a || typeof a.path !== "string" || !a.path) continue;
-      if (this.phaseArtifacts.some((p) => p.path === a.path)) continue;
-      this.phaseArtifacts.push({ path: a.path, role: typeof a.type === "string" ? a.type : "", phase });
+      if (!a || typeof a !== "object") continue;
+      // Flat {type, path} entry (wiring/diagram and most phases).
+      if (typeof a.path === "string" && a.path) {
+        this.pushPhaseArtifact(a.path, a.type, phase);
+        continue;
+      }
+      // gen-driver leads with a file_list whose paths nest at files[].path — fold those in.
+      if (Array.isArray(a.files)) {
+        for (const f of a.files) {
+          if (f && typeof f.path === "string" && f.path) this.pushPhaseArtifact(f.path, f.type ?? a.type, phase);
+        }
+        continue;
+      }
+      // A path-less, file_list-less entry (e.g. diagram's type:"table") has nothing to open — skip it.
     }
+  }
+
+  private pushPhaseArtifact(path: string, type: unknown, phase: string) {
+    if (this.phaseArtifacts.some((p) => p.path === path)) return;
+    this.phaseArtifacts.push({ path, role: typeof type === "string" ? type : "", phase });
   }
 
   // Raw phase-declared artifact records ({relative path, role, phase}); the panel resolves

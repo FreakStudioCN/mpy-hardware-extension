@@ -11,7 +11,9 @@ import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
-import { GEN_DRIVER_TABS, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
+import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
+import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
+import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
 import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
@@ -514,7 +516,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // The panel renders its input tabs from the schema module (single source of truth). The
       // current-missing-driver tab is materialized from this session's manifest so its cold-driver
       // picker reflects the live project (or shows an empty state when there is none).
-      webview.postMessage({ type: "gen_driver_config", tabs: materializeGenDriverTabs(GEN_DRIVER_TABS, controller.getLatestManifest()) });
+      webview.postMessage({ type: "gen_driver_config", tabs: materializeGenDriverTabs(GEN_DRIVER_TABS, controller.getLatestManifest(), controller.getDriverReadyBlocks()) });
       return;
     }
     if (message.type === "request_support_config") {
@@ -634,19 +636,168 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return;
     }
     if (message.type === "start_gen_driver") {
-      // Normalized contract (Ruili 2026-07-06): canonical input is sources[]. Gate on
-      // >=1 source or a driver_request; mode is pipeline when a cold-driver source is present.
-      // ponytail: start_phase dispatch/run is Day 6/8.
+      // Normalized contract (Ruili 2026-07-06): canonical input is sources[]. Gate on >=1 source or a
+      // driver_request, then dispatch the run with the SAME safety as start_session.
       const sources = Array.isArray(message.sources) ? message.sources : [];
       if (!canStartGeneration(sources, message.driverRequest)) {
         webview.postMessage({ type: "gen_driver_status", status: "failed", detail: "Add at least one source (or a target driver) before generating." });
         return;
       }
-      const mode = sources.some((s: any) => s?.type === "current_cold_driver_item") ? "pipeline" : "standalone";
-      webview.postMessage({
-        type: "gen_driver_status",
-        detail: `Received ${sources.length} source(s) (mode=${mode}). Driver generation run is wired in a later step.`,
-      });
+      if (!projectFolder) {
+        webview.postMessage({ type: "gen_driver_status", status: "failed", detail: "Open a workspace folder to generate a driver." });
+        return;
+      }
+      // Reject a re-entrant run at the entry point (register #1/#16), then gate protocol + auth exactly
+      // like start_session before taking the port.
+      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
+      if (registry.warning === "protocol_version_mismatch") {
+        webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
+        webview.postMessage({ type: "session_done", terminal: "session_error" });
+        return;
+      }
+      if (vscode.authentication) {
+        const jwt = await auth.getToken(true, { forceRefresh: true });
+        if (!jwt) {
+          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
+          webview.postMessage({ type: "session_done", terminal: "session_error" });
+          return;
+        }
+      }
+      await ensureProjectGitRepo(projectFolder, deps.log);
+      // Snapshot the manifest to build the dispatch envelope so mode inference + the pipeline envelope
+      // see the cold-driver devices even if the run streams a thin manifest_content (preserveManifest
+      // keeps latestManifest from being clobbered by that thin manifest during the excursion).
+      const manifestSnapshot = controller.getLatestManifest();
+      const releaseRun = await acquireRunOwnership();
+      try {
+        snapshotExistingPaths(projectFolder, preExistingPaths);
+        // Stage picked files under projectFolder (containment-reachable), sha256-verified.
+        const staged = await stageGenDriverSources(sources, projectFolder);
+        const sessionId = randomUUID();
+        const envelope = buildGenDriverDispatch({
+          sessionId,
+          msgId: randomUUID(),
+          timestamp: new Date().toISOString(),
+          sources: staged,
+          manifestContent: manifestSnapshot,
+          // Thread the stored gate result: an error-code-only block (e.g. DRIVER_STATUS_UNSUPPORTED) isn't
+          // re-derivable from the snapshot manifest alone, so force pipeline when the gate flagged a block.
+          blocked: controller.getDriverReadyBlocks().length > 0,
+          driverRequest: message.driverRequest,
+          verification: message.verification,
+        });
+        await controller.startPhase({
+          phase: GEN_DRIVER_ENVELOPE_PHASE,
+          envelope: JSON.stringify(envelope),
+          manifest: manifestSnapshot,
+          boardId: message.boardId,
+          label: "gen-driver run",
+        });
+      } catch (error: any) {
+        // Staging integrity/copy failure (register #8: surface, never proceed as if staged).
+        webview.postMessage({ type: "gen_driver_status", status: "failed", detail: error?.message ?? "gen-driver dispatch failed" });
+      } finally { releaseRun(); }
+      return;
+    }
+    if (message.type === "start_optional_flow") {
+      // Wiring (#60) / diagram (#61) run. Allowlist-map the webview's {flow} to a plugin token (register
+      // #1: never let the untrusted string reach body.phase unmapped), and HOST-side re-check that generate
+      // actually offered this flow (the webview button gate is not the trust boundary).
+      const flow = message.flow;
+      const token = flow === "wiring" ? OPTIONAL_FLOW_PHASE_BY_FLOW.wiring : flow === "diagram" ? OPTIONAL_FLOW_PHASE_BY_FLOW.diagram : null;
+      if (!token) {
+        webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: "Unknown optional flow." });
+        return;
+      }
+      if (!controller.getOptionalNextPhases().some((o) => o?.phase === token)) {
+        webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: "Run generate first — this flow is offered after a successful generate." });
+        return;
+      }
+      if (!projectFolder) {
+        webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: "Open a workspace folder to run this flow." });
+        return;
+      }
+      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
+      if (registry.warning === "protocol_version_mismatch") {
+        webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
+        webview.postMessage({ type: "session_done", terminal: "session_error" });
+        return;
+      }
+      if (vscode.authentication) {
+        const jwt = await auth.getToken(true, { forceRefresh: true });
+        if (!jwt) {
+          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
+          webview.postMessage({ type: "session_done", terminal: "session_error" });
+          return;
+        }
+      }
+      await ensureProjectGitRepo(projectFolder, deps.log);
+      const releaseRun = await acquireRunOwnership();
+      try {
+        snapshotExistingPaths(projectFolder, preExistingPaths);
+        const sessionId = randomUUID();
+        // Persist the upstream generate result under projectFolder so the run can read it via
+        // source_phase_complete_path. The plugins' validate_upstream requires the FULL phase_complete
+        // MESSAGE (type + message-level phase + payload), not the bare payload the controller stores, so
+        // wrap it. Relative POSIX path (register #10), reachable by the run's cwd containment.
+        let sourcePhaseCompletePath: string | undefined;
+        const generatePc = controller.getLatestGeneratePhaseComplete();
+        if (generatePc) {
+          sourcePhaseCompletePath = ".mpyhw/phase_complete.upy_generate_plugin.json";
+          const upstream = wrapGeneratePhaseComplete(generatePc, controller.getOptionalNextPhases(), { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString() });
+          await mkdir(join(projectFolder, ".mpyhw"), { recursive: true });
+          await writeFile(join(projectFolder, ".mpyhw", "phase_complete.upy_generate_plugin.json"), JSON.stringify(upstream), "utf8");
+        }
+        const envelope = buildOptionalFlowDispatch(flow, { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), sourcePhaseCompletePath });
+        const runStartMs = Date.now();
+        await controller.startPhase({ phase: token, envelope: JSON.stringify(envelope), boardId: message.boardId, label: `${flow} run` });
+        // The plugin can't render in its sandbox, so it reports the run "partial" even when the diagram
+        // JSON is complete — that partial is EXACTLY why the host renders, so accept success OR partial.
+        // But require THIS run to have freshly written docs/<kind>.json (mtime at/after run start), so a
+        // cancel/error that wrote nothing, or a stale prior-run doc, still skips (reviewer high-a). Always
+        // post a status so the trigger button restores either way.
+        const runInfo = controller.getLastPhaseComplete();
+        const producedOutput = runInfo?.result === "success" || runInfo?.result === "partial";
+        // Honor an explicit network-render denial: the plugin asks (network_rendering "ask") and a deny
+        // yields partial + a structured network_permission.decision "deny" and/or a *_PERMISSION_DENIED
+        // code (DIAGRAM_/WIRING_IMAGE_RENDER_). The host must NOT then send the diagram to mermaid.ink
+        // anyway. (A transient *_NETWORK_FAILED is not a denial, so it still renders/retries.)
+        const deniedNetwork = isNetworkRenderDenied(runInfo);
+        const docJson = join(projectFolder, "docs", flow === "wiring" ? "wiring.json" : "diagram.json");
+        let freshDoc = false;
+        try { freshDoc = existsSync(docJson) && statSync(docJson).mtimeMs >= runStartMs; }
+        catch (statErr: any) { freshDoc = false; deps.log?.(`optional-flow ${flow} stat failed: ${statErr?.message ?? statErr}`); }
+        if (!producedOutput) {
+          webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `The ${flow} run did not complete — retry to generate it.` });
+        } else if (deniedNetwork) {
+          webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `Network render declined — ${flow} data saved, no image. Retry and allow the network render to generate it.` });
+        } else if (!freshDoc) {
+          webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `The ${flow} run wrote no fresh ${flow}.json to render — retry.` });
+        } else {
+          // Post-run render: the plugin authors docs/<kind>.json but can't render the image in its
+          // sandbox, so the host runs render_<kind>_local.py (-> mermaid.ink) to produce the png, then
+          // re-indexes so the tab shows it and drops a jump card into Activity. render_mermaid_image has
+          // no per-call retry, so one transient mermaid.ink blip fails the whole render — retry once
+          // (idempotent, overwrites the same pngs) with a short backoff before surfacing a failure.
+          const renderOnce = () => (flow === "wiring" ? shim.renderWiring(projectFolder, "png") : shim.renderDiagram(projectFolder, "png"));
+          let rendered = false;
+          for (let attempt = 0; attempt < 2 && !rendered; attempt++) {
+            if (attempt > 0) await new Promise((r) => setTimeout(r, 750));
+            try { await renderOnce(); rendered = true; }
+            catch (renderErr: any) { deps.log?.(`optional-flow ${flow} render attempt ${attempt + 1} failed: ${renderErr?.message ?? renderErr}`); }
+          }
+          if (rendered) {
+            refreshArtifacts();
+            webview.postMessage({ type: "optional_flow_done", flow });
+          } else {
+            webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: `${flow} data generated, but the image render (mermaid.ink) failed — retry to render it.` });
+          }
+        }
+      } catch (error: any) {
+        webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: error?.message ?? "optional flow dispatch failed" });
+      } finally { releaseRun(); }
       return;
     }
     if (message.type === "pick_gen_driver_file") {

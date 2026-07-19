@@ -2440,3 +2440,223 @@ test("support actions are recorded host-side, never rendered into the build feed
   assert.doesNotMatch(activity.textContent!, /Diagnostics exported|Support:/, "no support text leaks into the feed");
   assert.ok(document.querySelector(".feed-pending"), "the working spinner is untouched");
 });
+
+test("a wiring/diagram run's rendered image shows in its tab (svg preferred), else the tab stays derived", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // artifacts_index rows carry kind + webview_uri for images (the host resolves them)
+  post(dom, { type: "artifacts_index", artifacts: [
+    { relative_path: "blockless-project/docs/wiring.png", kind: "wiring", webview_uri: "vscode-resource://wiring.png" },
+    { relative_path: "blockless-project/docs/wiring.svg", kind: "wiring", webview_uri: "vscode-resource://wiring.svg" },
+    { relative_path: "blockless-project/docs/architecture.svg", kind: "diagram", webview_uri: "vscode-resource://arch.svg" },
+    { relative_path: "blockless-project/docs/flowchart.png", kind: "diagram", webview_uri: "vscode-resource://flow.png" },
+    { relative_path: "blockless-project/docs/data_flow.png", kind: "diagram", webview_uri: "vscode-resource://data.png" },
+    { relative_path: "blockless-project/main.py", kind: "code" },
+  ] });
+  const wImgs = [...document.querySelectorAll("#wiringRunImage img")] as HTMLImageElement[];
+  assert.equal(wImgs.length, 1, "wiring's two formats dedup to one image");
+  assert.equal(wImgs[0].src, "vscode-resource://wiring.svg", "svg is preferred over png");
+  // a diagram run emits several distinct diagrams — all show, each in its own card
+  const dImgs = [...document.querySelectorAll("#diagramRunImage img")] as HTMLImageElement[];
+  assert.deepEqual(dImgs.map((i) => i.src).sort(), ["vscode-resource://arch.svg", "vscode-resource://data.png", "vscode-resource://flow.png"], "all three diagrams render");
+  // each image is a clickable card that opens the full-size file. Mutation: drop the click handler -> no post.
+  posted.length = 0;
+  (document.querySelector("#diagramRunImage figure.of-fig") as HTMLElement).click();
+  const open = posted.find((m) => m.type === "open_artifact");
+  assert.ok(open && /docs\/(architecture|flowchart|data_flow)/.test(open.relative_path), "clicking a diagram card opens the full-size file");
+
+  // A later index with no images (e.g. a local-only/partial run) hides the run image -> derived view stays.
+  // Mutation: drop the message-bus route -> the first index never renders and this whole test fails.
+  post(dom, { type: "artifacts_index", artifacts: [{ relative_path: "blockless-project/docs/wiring.md", kind: "wiring" }] });
+  assert.ok(document.getElementById("wiringRunImage")!.classList.contains("hidden"), "no image -> the run-image slot hides");
+});
+
+test("optional-flow entries appear only for offered flows and dispatch start_optional_flow", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // generate offered only the diagram flow
+  post(dom, { type: "optional_flows", phases: [{ phase: "upy-diagram-plugin", reason: "arch" }] });
+  assert.ok(document.getElementById("wiringEntry")!.classList.contains("hidden"), "wiring entry stays hidden (not offered)");
+  const diagramEntry = document.getElementById("diagramEntry")!;
+  assert.ok(!diagramEntry.classList.contains("hidden"), "diagram entry is shown (offered)");
+  const btn = diagramEntry.querySelector("button.of-run") as HTMLButtonElement;
+  assert.ok(btn, "the diagram run entry renders");
+  // switch to the Diagram tab first, so the click's switch-back to Activity is actually verified
+  (document.querySelector('.tab[data-tab="diagram"]') as HTMLButtonElement).click();
+  btn.click();
+  const start = posted.find((m) => m.type === "start_optional_flow");
+  // Mutation: gate on nothing (always show) -> the wiring entry would also render.
+  assert.ok(start && start.flow === "diagram", "clicking dispatches start_optional_flow for the offered flow");
+  assert.equal(btn.disabled, true, "the button disables after dispatch");
+  assert.match(btn.textContent!, /Generating/, "shows a working label after click");
+  // Mutation: drop the setTab('activity') in the click handler -> Diagram stays active and this fails.
+  assert.ok(document.querySelector('.tab[data-tab="activity"]')!.classList.contains("active"), "clicking switches to the Activity tab so the run streams into view");
+});
+
+test("a finished optional-flow run drops a jump card that switches to the tab", async () => {
+  // When the host renders the run's image and posts optional_flow_done, Activity gets a card with a
+  // View button that jumps to the Diagram/Wiring tab. Mutation: drop the setTab(flow) -> tab inactive.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "optional_flows", phases: [{ phase: "upy-diagram-plugin" }] });
+  const trigger = document.getElementById("diagramEntry")!.querySelector("button.of-run") as HTMLButtonElement;
+  trigger.click(); // sets it to the disabled "Generating…" state
+  post(dom, { type: "optional_flow_done", flow: "diagram" });
+  assert.equal(trigger.disabled, false, "the run's completion resets the trigger button");
+  assert.equal(trigger.textContent, "Generate architecture diagram", "restores the trigger label");
+  const view = [...document.getElementById("activity")!.querySelectorAll(".of-done button.of-run")].pop() as HTMLButtonElement;
+  assert.ok(view && /View diagram/.test(view.textContent!), "a View diagram card renders in Activity");
+  view.click();
+  assert.ok(document.querySelector('.tab[data-tab="diagram"]')!.classList.contains("active"), "clicking the card jumps to the Diagram tab");
+});
+
+test("a #53 gen_driver_required message offers to build the driver; clicking dispatches the run", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "gen_driver_required", blocks: [{ device: "SHT30", driver_id: "sht30", next_phase: "upy-gen-driver-plugin" }] });
+  const card = document.querySelector("[data-gen-driver-offer]");
+  assert.ok(card, "the offer card renders");
+  assert.match(card!.textContent!, /SHT30/, "names the affected device");
+  const btn = card!.querySelector("button") as HTMLButtonElement;
+  btn.click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.ok(start, "clicking Build driver dispatches start_gen_driver (approval-first, never auto-start)");
+  assert.ok(Array.isArray(start.sources) && start.sources.some((s: any) => s.type === "current_cold_driver_item"), "runs pipeline mode off the cold-driver source");
+  assert.equal(btn.disabled, true, "the button disables after the click so it can't double-dispatch");
+});
+
+test("gen-driver Confirm & generate dispatches once and reveals the Activity run", async () => {
+  // Repro of the reported blank: the confirm button gave no feedback and was multi-clickable on the
+  // tool overlay while the run streamed to Activity behind it. It must dispatch, disable, and show Activity.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "gen_driver_config", tabs: [
+    { id: "chip", label: "Chip", sourceType: "chip_model", fields: [{ key: "chip_model", label: "Chip model", kind: "text", required: true }] },
+  ] });
+  const gd = document.getElementById("gendriver")!;
+  (gd.querySelector("[data-gdkey='chip_model']") as HTMLInputElement).value = "SHT30";
+  (gd.querySelector("button.gd-add") as HTMLButtonElement).click();            // + Add source
+  (gd.querySelector(".gd-foot button.gd-gen") as HTMLButtonElement).click();   // Generate driver -> confirm card
+  const confirm = document.querySelector("#gdStatus .gd-confirm button.gd-gen") as HTMLButtonElement;
+  assert.ok(confirm, "the confirm card renders with a Confirm & generate button");
+  (document.querySelector('.tab[data-tab="diagram"]') as HTMLButtonElement).click(); // move off Activity so the switch-back is verified
+  confirm.click();
+  const start = posted.find((m) => m.type === "start_gen_driver");
+  assert.ok(start && Array.isArray(start.sources) && start.sources.length, "dispatches start_gen_driver with the assembled source");
+  assert.equal(confirm.disabled, true, "confirm disables so a second click can't re-dispatch (the reported blank)");
+  // Mutation: drop the setTab('activity') in the confirm handler -> Activity is not active and this fails.
+  assert.ok(document.querySelector('.tab[data-tab="activity"]')!.classList.contains("active"), "switches to Activity so the run streams into view");
+});
+
+test("an approval card whose actions carry only `id` answers with the id, so Cancel cancels (not confirm)", async () => {
+  // The wiring network-render card's actions carry `id`, not `value`. With the old value-only answer,
+  // EVERY button (incl. Cancel) posted "confirm" -> the loop's cancel detection never fired (a Cancel
+  // click silently approved). Mutation: revert ApprovalCardHost to `a.value` only -> answer is "confirm".
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "approval_request",
+    promptId: "p1",
+    card: {
+      question: "SVG/PNG rendering uses mermaid.ink over the network. Render?",
+      summary: "Local-only still produces JSON/Markdown/HTML and the pin table.",
+      actions: [
+        { id: "render_all", label: "Render all", primary: true },
+        { id: "local_only", label: "Local only" },
+        { id: "cancel", label: "Cancel" },
+      ],
+    },
+  });
+  const card = document.querySelector('.ev-card.ask[data-prompt-id="p1"]')!;
+  assert.ok(card, "the approval card rendered");
+  const cancelBtn = [...card.querySelectorAll(".ask-opt")].find((b) => b.textContent === "Cancel") as HTMLButtonElement;
+  cancelBtn.click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response" && m.promptId === "p1");
+  assert.ok(resp, "clicking an action posts ui_prompt_response");
+  assert.equal(resp.answer, "cancel", "Cancel answers its id, not the confirm fallback");
+});
+
+test("gen-driver tab strip splits source-input tabs from config tabs", async () => {
+  // The strip must group source tabs (sourceType !== null) apart from the config tabs
+  // (Target driver / Verification, sourceType === null); one flat pill row made the config
+  // tabs read as more sources. Mutation: render every tab in one strip -> only one group and
+  // the config tabs land in the source group, failing the deepEqual assertions below.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "gen_driver_config",
+    tabs: [
+      { id: "pdf", label: "PDF datasheet", sourceType: "pdf", fields: [] },
+      { id: "chip", label: "Chip/module model", sourceType: "chip_model", fields: [] },
+      { id: "driver", label: "Target driver", sourceType: null, fields: [] },
+      { id: "verification", label: "Verification settings", sourceType: null, fields: [] },
+    ],
+  });
+  const groups = [...document.querySelectorAll("#gendriver .gd-tabgroup")];
+  assert.equal(groups.length, 2, "one group for sources, one for config");
+  assert.deepEqual(
+    groups.map((g) => g.querySelector(".gd-tabgroup-label")!.textContent),
+    ["Add a source", "Settings"],
+  );
+  const tabIds = (g: Element) => [...g.querySelectorAll(".gd-tab")].map((b) => (b as HTMLElement).dataset.gdtab);
+  assert.deepEqual(tabIds(groups[0]), ["pdf", "chip"], "source tabs in the Add a source group");
+  assert.deepEqual(tabIds(groups[1]), ["driver", "verification"], "config tabs in the Settings group");
+});
+
+test("Activity tab auto-scrolls to the latest when content is appended", async () => {
+  // jsdom has no layout so scrollHeight is 0; fake a scroll extent and assert the observer pins
+  // scrollTop to it on any append. Mutation: drop the MutationObserver -> scrollTop stays 0.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const list = document.getElementById("activity")!;
+  // The scroll container is the .tabwrap ancestor (overflow-y:auto), NOT #activity's .view parent.
+  const scroller = list.closest(".tabwrap") as HTMLElement;
+  assert.ok(scroller, "activity lives inside the .tabwrap scroll container");
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 500 });
+  scroller.scrollTop = 0;
+  const card = document.createElement("div"); card.className = "ev-card"; card.textContent = "new activity";
+  list.appendChild(card);
+  await new Promise((r) => setTimeout(r, 0)); // MutationObserver callbacks fire on a microtask
+  assert.equal(scroller.scrollTop, 500, "appending to the activity list scrolls .tabwrap to the bottom");
+});
+
+test("Activity auto-scroll sticks only when near the bottom (no yank if scrolled up)", async () => {
+  // Industry-standard stick-to-bottom: a reader who scrolled up must not be yanked down by a stream.
+  // Mutation: drop the `if (!stick) return` guard -> the scrolled-up case jumps to 500 and this fails.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const list = document.getElementById("activity")!;
+  const scroller = list.closest(".tabwrap") as HTMLElement;
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 500 }); // clientHeight is 0 in jsdom, threshold 150 -> "at bottom" needs scrollTop >= 350
+  const append = (t: string) => list.appendChild(Object.assign(document.createElement("div"), { className: "ev-card", textContent: t }));
+  // scrolled up to read history -> a scroll event marks the reader "not at bottom"
+  scroller.scrollTop = 0;
+  scroller.dispatchEvent(new dom.window.Event("scroll"));
+  append("streamed");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(scroller.scrollTop, 0, "a scrolled-up reader is not yanked to the bottom");
+  // scroll back near the bottom -> following resumes
+  scroller.scrollTop = 400;
+  scroller.dispatchEvent(new dom.window.Event("scroll"));
+  append("more");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(scroller.scrollTop, 500, "returning near the bottom re-enables follow");
+});
+
+test("returning to the Activity tab re-follows to the latest (no snap to top)", async () => {
+  // Tabs share one .tabwrap scroller; showing a shorter view clamps scrollTop, so switching away
+  // and back must re-scroll Activity to the bottom. Mutation: drop the setTab re-follow -> stays 0.
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const tabwrap = document.querySelector(".tabwrap") as HTMLElement;
+  Object.defineProperty(tabwrap, "scrollHeight", { configurable: true, value: 500 });
+  (document.querySelector('.tab[data-tab="serial"]') as HTMLButtonElement).click();
+  tabwrap.scrollTop = 0; // the clamp a shorter sibling view causes
+  (document.querySelector('.tab[data-tab="activity"]') as HTMLButtonElement).click();
+  assert.equal(tabwrap.scrollTop, 500, "returning to Activity scrolls .tabwrap to the bottom");
+});

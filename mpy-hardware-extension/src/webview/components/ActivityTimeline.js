@@ -31,7 +31,6 @@
           $("activity").appendChild(pendingCard);
         }
         pendingCard.querySelector(".pending-label").textContent = label;
-        const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
       }
       function clearPending() { if (pendingCard) { pendingCard.remove(); pendingCard = null; } }
       // Settle the open thinking card: spinner -> dot, drop the "Thinking" heading. Called
@@ -104,14 +103,14 @@
       //                     (e.g. a whole file landing in one burst). Default: no cap.
       //   opts.settle     — committer for end(): default renders markdown; code
       //                     passes a plain-text settler so its #/* aren't parsed.
-      function makeTypewriter(el, scroll, opts) {
+      function makeTypewriter(el, opts) {
         opts = opts || {};
         const animated = typeof requestAnimationFrame === "function";
         const CPMS = opts.cpms || 0.7; // chars per ms — faster than the model generates
         const maxBacklog = opts.maxBacklog || Infinity;
         const commit = opts.settle || ((node, text) => { node.innerHTML = renderMarkdown(text); });
         let target = "", shown = 0, raf = null, last = 0, ended = false, stopped = false;
-        const settle = () => { commit(el, target); if (scroll) scroll(); };
+        const settle = () => { commit(el, target); };
         function frame(ts) {
           if (stopped) { raf = null; return; }
           if (!last) { last = ts; raf = requestAnimationFrame(frame); return; }
@@ -119,7 +118,6 @@
           if (target.length - shown > maxBacklog) shown = target.length; // burst: skip the wait
           last = ts;
           el.textContent = target.slice(0, shown);
-          if (scroll) scroll();
           if (shown < target.length) { raf = requestAnimationFrame(frame); return; }
           raf = null; last = 0;
           if (ended) settle();
@@ -128,7 +126,7 @@
         return {
           feed(t) {
             target += (t == null ? "" : String(t));
-            if (!animated) { el.textContent = target; if (scroll) scroll(); return; }
+            if (!animated) { el.textContent = target; return; }
             pump();
           },
           end(finalText) {
@@ -149,8 +147,6 @@
         card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_user") + '</span></div><div class="ev-sum"></div></div></div></div>';
         card.querySelector(".ev-sum").textContent = text;
         $("activity").appendChild(card);
-        const w = $("activity").parentElement;
-        w.scrollTop = w.scrollHeight;
       }
       // Open an empty result card with a typewriter bound to its prose element.
       function openSummaryCard() {
@@ -159,9 +155,7 @@
         card.className = "ev fade-in";
         card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_summary") + '</span></div><div class="ev-sum"></div></div></div></div>';
         $("activity").appendChild(card);
-        const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
-        scroll();
-        return { card, tw: makeTypewriter(card.querySelector(".ev-sum"), scroll) };
+        return { card, tw: makeTypewriter(card.querySelector(".ev-sum")) };
       }
       // A token of the model's reply: feed the open card's typewriter, opening one
       // on the first token. The text types out char-by-char; addSummary() ends it.
@@ -202,12 +196,11 @@
         // forcedKind lets a discrete event (e.g. a user note) render as its own card
         // instead of being text-classified and coalesced into the open thinking stream.
         const kind = forcedKind || classifyActivity(text);
-        const scroll = () => { const w = $("activity").parentElement; w.scrollTop = w.scrollHeight; };
         // The agent streams thinking token-by-token (each delta is its own
         // trace_event). Coalesce consecutive thinking deltas into one growing
         // card instead of a new card per token.
         if (kind === "thinking") {
-          if (currentThink) { currentThink.textContent += text; scroll(); return; }
+          if (currentThink) { currentThink.textContent += text; return; }
           // Only LIVE (spinner + "Thinking" heading) while a build is running — an
           // uncategorized line that lands after the session ends (e.g. "Session ended:
           // Stopped") must render static, or its spinner would never settle.
@@ -221,7 +214,6 @@
           currentThinkCard = live ? card : null; // only a live card needs finalizing
           currentThink.textContent = text;
           $("activity").appendChild(card);
-          scroll();
           return;
         }
         finalizeThinking(); // any non-thinking event closes + settles the open stream
@@ -238,7 +230,6 @@
           card.querySelector(".ev-sum").innerHTML = renderMarkdown(text);
         }
         $("activity").appendChild(card);
-        scroll();
       }
 
       // One-click retry after a transport failure (llm_unreachable / interrupted
@@ -257,7 +248,6 @@
         });
         card.appendChild(btn);
         $("activity").appendChild(card);
-        const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
       }
 
       // Fallback-save notice: no workspace was open, so the project went to the
@@ -278,5 +268,4 @@
         btn.addEventListener("click", () => vscode.postMessage({ type: "open_path", path }));
         card.querySelector(".ev-main").appendChild(btn);
         $("activity").appendChild(card);
-        const w = $("activity").parentElement; w.scrollTop = w.scrollHeight;
       }

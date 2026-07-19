@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { SessionController } from "../src/extension/session-controller.ts";
+import { isNetworkRenderDenied } from "../src/core/optional-flow-schema.ts";
+import { buildGenDriverDispatch } from "../src/core/gen-driver-schema.ts";
 
 // Let a loop that awaits one gate advance to the next: after resolving the first
 // prompt, the loop's continuation (and the next gate's message/record) runs on a
@@ -1369,4 +1371,408 @@ test("the stdout tail clears on a board switch, not only on reset", async () => 
   // A different board is a fresh session; reverting the start()-board-switch clear leaks board A's tail.
   await controller.start({ intent: "y", boardId: "boardB" });
   assert.equal(controller.getDiagnostics().stdout_stderr_summary, "", "board switch clears the stdout tail");
+});
+
+test("startPhase dispatches the optional run at its phase with the envelope as the first message", async () => {
+  const inputs: any[] = [];
+  let finalPhase: string | null = "upy-analyze-plugin";
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async (input: any) => { inputs.push(input); return { terminal: "complete", state: { phase: finalPhase, manifest: input.state?.manifest, intent: input.intent } }; },
+  });
+
+  finalPhase = "upy-gen-driver-plugin"; // standalone: the run ends on the phase it was dispatched at
+  const res = await controller.startPhase({ phase: "upy-gen-driver-plugin", envelope: "START_PHASE_ENVELOPE", manifest: { drv: 1 } });
+  assert.equal(res.terminal, "complete");
+  const disp = inputs.at(-1);
+  assert.equal(disp.state.phase, "upy-gen-driver-plugin", "loop starts at the dispatched phase (body.phase)");
+  assert.deepEqual(disp.state.manifest, { drv: 1 }, "startManifest threads through");
+  assert.equal(disp.intent, "START_PHASE_ENVELOPE", "the envelope is the first user message");
+});
+
+test("startPhase is a transparent excursion: a standalone run restores the prior main-flow state", async () => {
+  const inputs: any[] = [];
+  let finalPhase: string | null = null;
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async (input: any) => { inputs.push(input); return { terminal: "complete", state: { phase: finalPhase, manifest: input.state?.manifest ?? { m: 1 }, intent: input.intent } }; },
+  });
+
+  finalPhase = "upy-analyze-plugin";                       // seed a prior main-flow state
+  await controller.start({ intent: "build a thing", boardId: "auto" });
+  finalPhase = "upy-gen-driver-plugin";                    // standalone dispatch ends on its own phase
+  await controller.startPhase({ phase: "upy-gen-driver-plugin", envelope: "ENV", manifest: { drv: 1 } });
+  // Mutation: drop the `this.state = priorState` restore -> retry resumes gen-driver and this fails.
+  finalPhase = "x";
+  await controller.retry();
+  assert.equal(inputs.at(-1).state.phase, "upy-analyze-plugin", "a standalone excursion did NOT leave gen-driver in the resume state");
+});
+
+test("startPhase keeps the chained state when the optional run continues into a canonical phase (pipeline)", async () => {
+  const inputs: any[] = [];
+  let finalPhase: string | null = null;
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async (input: any) => { inputs.push(input); return { terminal: "complete", state: { phase: finalPhase, manifest: input.state?.manifest ?? {}, intent: input.intent } }; },
+  });
+
+  finalPhase = "upy-analyze-plugin";
+  await controller.start({ intent: "build", boardId: "auto" });
+  finalPhase = "upy-generate-plugin";                      // pipeline: gen-driver chained into generate
+  await controller.startPhase({ phase: "upy-gen-driver-plugin", envelope: "ENV" });
+  finalPhase = "x";
+  await controller.retry();
+  assert.equal(inputs.at(-1).state.phase, "upy-generate-plugin", "a pipeline continuation kept the chained (canonical) state");
+});
+
+test("startPhase rejects while a run is in flight (register #16)", async () => {
+  const posted: any[] = [];
+  let release: (() => void) | null = null;
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: () => new Promise<any>((r) => { release = () => r({ terminal: "complete" }); }),
+  });
+  const running = controller.start({ intent: "x", boardId: "auto" });
+  await flushMicrotasks();
+  const busy = await controller.startPhase({ phase: "upy-gen-driver-plugin", envelope: "E" });
+  assert.equal(busy.terminal, "session_busy", "no second run over an in-flight one");
+  assert.ok(posted.some((m) => m.type === "session_busy"));
+  release!();
+  await running;
+});
+
+test("a gen-driver phase_complete surfaces gen_driver_status; other phases do not", async () => {
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      // gen-driver phase_complete uses the DOMAIN token "gen-driver" and carries driver_status
+      onEvent({ type: "phase_complete", payload: { phase: "gen-driver", result: "success", driver_status: "ready", summary: "SHT30 driver ready" } });
+      // a non-gen-driver phase_complete must NOT post gen_driver_status
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const statuses = posted.filter((m) => m.type === "gen_driver_status");
+  // Mutation: drop the gen_driver_status post -> 0; drop the phase check -> 2 (generate leaks in).
+  assert.equal(statuses.length, 1, "only the gen-driver phase_complete posts gen_driver_status");
+  assert.equal(statuses[0].status, "ready");
+  assert.equal(statuses[0].detail, "SHT30 driver ready");
+});
+
+test("a diagram run's thin manifest_content does not blank a devices-bearing manifest across runs (#17)", async () => {
+  // The real flow is TWO run()s: a generate build sets the devices manifest, then a SEPARATE diagram
+  // excursion (startPhase) streams a thin one. run() clears latestManifest at entry, so the guard only
+  // works if the excursion preserves it — a one-run test (both events in one loop) can't catch this.
+  const posted: any[] = [];
+  let onEventFor: (onEvent: (e: any) => void) => void = () => { };
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => { onEventFor(onEvent); return { terminal: "complete", state: { phase: "upy-diagram-plugin" } }; },
+  });
+  // run 1: a normal build streams a devices-bearing manifest
+  onEventFor = (onEvent) => onEvent({ type: "manifest_updated", manifest: { devices: [{ name: "SHT30" }], wiring: { buses: [], standalone: [] } } });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.equal((controller.getLatestManifest() as any).devices.length, 1, "run 1 set the devices manifest");
+  // run 2: a SEPARATE diagram excursion streams a thin manifest_content
+  posted.length = 0;
+  onEventFor = (onEvent) => onEvent({ type: "manifest_updated", manifest: { phase: "diagram" } });
+  await controller.startPhase({ phase: "upy-diagram-plugin", envelope: "ENV" });
+  const m = controller.getLatestManifest() as any;
+  // Mutation: drop preserveManifest (or the devices guard) -> the excursion clears/clobbers latestManifest
+  // and devices vanish.
+  assert.ok(Array.isArray(m?.devices) && m.devices.length === 1, "the devices manifest survives the separate diagram run");
+  const lastPosted = posted.filter((p) => p.type === "manifest_updated").at(-1);
+  assert.equal(lastPosted.manifest.devices?.length, 1, "the re-posted manifest keeps the devices so the Wiring tab stays populated");
+});
+
+test("capturePhaseArtifacts folds a gen-driver file_list and keeps skipping path-less entries", async () => {
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "gen-driver", result: "success", artifacts: [
+        // gen-driver leads with a file_list whose paths nest at files[].path
+        { type: "file_list", files: [{ path: "firmware/drivers/sht30_driver/__init__.py" }, { path: "firmware/drivers/sht30_driver/mock.py" }] },
+        // a flat {type, path} entry is captured as-is
+        { type: "markdown", path: "docs/wiring.md" },
+        // a path-less, file_list-less entry (diagram's type:"table") has nothing to open -> skipped
+        { type: "table", rows: [["a", "b"]] },
+      ] } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const paths = controller.phaseArtifactRecords().map((r) => r.path).sort();
+  // Mutation: revert to the top-level-path-only capture -> the two file_list paths vanish.
+  assert.deepEqual(paths, ["docs/wiring.md", "firmware/drivers/sht30_driver/__init__.py", "firmware/drivers/sht30_driver/mock.py"]);
+  assert.ok(!controller.phaseArtifactRecords().some((r) => r.role === "table"), "the path-less table entry is not captured");
+});
+
+test("a generate driver-ready block posts gen_driver_required; a clean generate does not (#53)", async () => {
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      // generate blocks pre-application-generation on a cold driver (partial + structured_errors)
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "partial", structured_errors: [{ code: "COLD_DRIVER_REQUIRED", device: "SHT30", next_action: "run_upy_gen_driver_plugin_or_simulate_only" }] } });
+      // a clean generate must NOT offer
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const offers = posted.filter((m) => m.type === "gen_driver_required");
+  // Mutation: drop the detect+post -> 0; broaden to non-partial -> the clean generate also offers (2).
+  assert.equal(offers.length, 1, "only the blocked generate offers the gen-driver run");
+  assert.equal(offers[0].blocks[0].device, "SHT30");
+});
+
+test("captures generate's optional_next_phases and clears them on reset (#8, register #9)", async () => {
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", optional_next_phases: [{ phase: "upy-diagram-plugin", reason: "arch diagram" }, { phase: "upy-wiring-plugin" }] } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.equal(controller.getOptionalNextPhases().length, 2, "captured the offered flows");
+  assert.ok(posted.some((m) => m.type === "optional_flows" && m.phases.length === 2), "posts optional_flows so the panel can gate the entries");
+  // register #9: reset() must clear it, or a Restart leaves the prior session's offers live.
+  // Mutation: drop the optionalNextPhases clear in reset() -> stays 2 and this fails.
+  controller.reset();
+  assert.equal(controller.getOptionalNextPhases().length, 0, "reset clears the captured flows");
+});
+
+test("captures the generate phase_complete for the wiring/diagram source (Q3) and clears it on reset", async () => {
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", summary: "app generated" } });
+      // a non-generate phase_complete must NOT overwrite it
+      onEvent({ type: "phase_complete", payload: { phase: "gen-driver", result: "success" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  // Mutation: drop the generate capture -> undefined and the run gets no source_phase_complete_path.
+  assert.equal((controller.getLatestGeneratePhaseComplete() as any)?.summary, "app generated", "keeps the generate result, not gen-driver's");
+  controller.reset();
+  assert.equal(controller.getLatestGeneratePhaseComplete(), undefined, "reset clears it (register #9)");
+});
+
+test("optional_next_phases accepts the plain-string shape too (normalized to {phase})", async () => {
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      // some generate emitters (the diagram plugin's fixture) use plain strings, not {phase} objects
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", optional_next_phases: ["upy-wiring-plugin", "upy-diagram-plugin"] } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  // Mutation: drop the string normalization -> phase is undefined and the entries/host-gate never fire.
+  assert.deepEqual(controller.getOptionalNextPhases().map((o) => o.phase), ["upy-wiring-plugin", "upy-diagram-plugin"]);
+  const flows = posted.find((m) => m.type === "optional_flows");
+  assert.ok(flows.phases.every((p: any) => typeof p.phase === "string"), "posted phases key on .phase for the panel");
+});
+
+test("a successful generate with NO optional_next_phases still offers wiring+diagram (spec 04)", async () => {
+  // The generate SKILL requires optional_next_phases on success but the model sometimes drops it,
+  // which used to leave the flows unreachable. A successful generate must make them triggerable.
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", summary: "app generated" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  // Mutation: drop the generate-success default -> both stay unreachable and this fails.
+  assert.deepEqual(controller.getOptionalNextPhases().map((o) => o.phase), ["upy-wiring-plugin", "upy-diagram-plugin"], "synthesizes the default offer after a successful generate");
+  const flows = posted.find((m) => m.type === "optional_flows");
+  assert.ok(flows && flows.phases.length === 2, "posts optional_flows so the entries appear without the model's offer");
+});
+
+test("a non-success generate does NOT offer the optional flows", async () => {
+  // A partial/failed generate has not produced valid firmware for wiring/diagram to read.
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "generate", result: "partial", summary: "incomplete" } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  // Mutation: drop the result==="success" guard -> a partial generate offers flows and this fails.
+  assert.equal(controller.getOptionalNextPhases().length, 0, "no offer after a non-success generate");
+  // A partial DOES post optional_flows, but EMPTY: that is the clear signal that hides the webview entries
+  // (register #3, so a prior success's offers can't linger), not an offer. What matters: zero phases offered.
+  const flows = posted.filter((m) => m.type === "optional_flows");
+  assert.ok(flows.every((m) => m.phases.length === 0), "any optional_flows posted for a partial is empty (a clear, not an offer)");
+});
+
+test("generate degraded shape (phase only in manifest_content) still offers + captures for Q3", async () => {
+  // REAL runtime shape (2026-07-16 trace): the model dropped the top-level payload.phase AND
+  // optional_next_phases, putting phase only in manifest_content. The offer + Q3 capture key off
+  // the DOMAIN phase, so they must resolve it from manifest_content, not payload.phase.
+  // Mutation: check event.payload.phase only -> both are undefined here and this fails.
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { result: "success", summary: "app generated", next_phase: "upy-deploy-plugin", manifest_content: { phase: "generate", domain_phase: "generate" } } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.deepEqual(controller.getOptionalNextPhases().map((o) => o.phase), ["upy-wiring-plugin", "upy-diagram-plugin"], "offers both flows off manifest_content.phase");
+  assert.ok(posted.some((m) => m.type === "optional_flows" && m.phases.length === 2), "posts optional_flows for the degraded shape");
+  assert.equal((controller.getLatestGeneratePhaseComplete() as any)?.summary, "app generated", "Q3 captures the generate result off manifest_content.phase");
+});
+
+test("a later partial generate clears the offers and keeps the last success payload (#3)", async () => {
+  // Offers + latestGeneratePhaseComplete must gate on result === "success". A success installs offers and
+  // stores its payload; a LATER partial generate (even one carrying optional_next_phases) must CLEAR the
+  // offers and NOT clobber the stored success — else the host permits wiring/diagram against a partial the
+  // plugin rejects. Mutation: install offers without the success gate, or set latest on any result -> fails.
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { result: "success", summary: "app generated", manifest_content: { phase: "generate" } } });
+      onEvent({ type: "phase_complete", payload: { result: "partial", summary: "blocked", optional_next_phases: ["upy-wiring-plugin"], manifest_content: { phase: "generate" } } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.deepEqual(controller.getOptionalNextPhases(), [], "the later partial cleared the offers");
+  assert.equal((controller.getLatestGeneratePhaseComplete() as any)?.summary, "app generated", "the success payload survives the later partial");
+  const flows = posted.filter((m) => m.type === "optional_flows");
+  assert.deepEqual(flows.at(-1)?.phases, [], "the last optional_flows post is empty so the webview hides the entries");
+});
+
+test("stores the driver-ready gate and threads it to a pipeline dispatch across two runs (#4)", async () => {
+  // Detection runs at generate-time (has errors); dispatch runs later with the manifest only. An
+  // error-code-only block (the manifest device has NO status) isn't re-derivable at dispatch, so the stored
+  // gate result must force pipeline. Register #19: a later clean generate clears it. Mutations that fail this:
+  // don't store at :654 -> getter 0; drop the `blocked` handling in buildGenDriverDispatch -> standalone;
+  // drop the clean-generate clear -> run 2 stays blocked.
+  const posted: any[] = [];
+  let call = 0;
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => {
+      call += 1;
+      if (call === 1) {
+        // manifest_updated populates getLatestManifest() (what panel.ts snapshots for the dispatch); the
+        // device is statusless here, so ONLY the stored error-code gate can force pipeline.
+        onEvent({ type: "manifest_updated", manifest: { phase: "generate", devices: [{ name: "MAX30102", driver: { source: "github" } }] } });
+        onEvent({ type: "phase_complete", payload: { phase: "generate", result: "partial",
+          errors: [{ code: "DRIVER_STATUS_UNSUPPORTED", device: "MAX30102", driver_status: "installed" }],
+          manifest_content: { phase: "generate", devices: [{ name: "MAX30102", driver: { source: "github" } }] } } });
+      } else {
+        onEvent({ type: "phase_complete", payload: { phase: "generate", result: "success", summary: "ok",
+          manifest_content: { phase: "generate", devices: [{ name: "MAX30102", driver: { status: "ready", driver_id: "max30102", path: "p.py", hardware_marker: "SELF_TEST_PASS:max30102:HR" } }] } } });
+      }
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.ok(posted.some((m) => m.type === "gen_driver_required"), "offered gen-driver");
+  assert.equal(controller.getDriverReadyBlocks().length, 1, "the gate result is stored");
+  // The exact expression panel.ts uses to dispatch, over the (statusless) manifest:
+  const payload = buildGenDriverDispatch({
+    sessionId: "s", msgId: "m", timestamp: "t",
+    sources: [{ type: "current_cold_driver_item", artifact_path: null, sha256: null, primary: true, metadata: {} }],
+    manifestContent: controller.getLatestManifest(),
+    blocked: controller.getDriverReadyBlocks().length > 0,
+  }).payload as any;
+  assert.equal(payload.mode, "pipeline", "error-code-only block still forces pipeline");
+  assert.ok(payload.manifest_content && payload.source_phase, "pipeline carries manifest_content + source_phase");
+
+  await controller.start({ intent: "y", boardId: "auto" });
+  assert.equal(controller.getDriverReadyBlocks().length, 0, "a later clean generate success clears the stored gate");
+});
+
+test("getLastPhaseComplete records the run's terminal result so a render can gate on success", async () => {
+  // A wiring/diagram excursion gates its post-run render on result === "success"; a partial run
+  // (e.g. mermaid.ink network render denied) must be distinguishable. Mutation: drop the
+  // lastPhaseComplete capture -> undefined and the render would false-succeed on a partial run.
+  const partial = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { manifest_content: { phase: "wiring" }, result: "partial" } });
+      return { terminal: "complete" };
+    },
+  });
+  await partial.start({ intent: "x", boardId: "auto" });
+  assert.equal(partial.getLastPhaseComplete()?.result, "partial", "captures a partial run's result");
+
+  const ok = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { phase: "upy-diagram-plugin", manifest_content: { phase: "diagram" }, result: "success" } });
+      return { terminal: "complete" };
+    },
+  });
+  await ok.start({ intent: "x", boardId: "auto" });
+  assert.equal(ok.getLastPhaseComplete()?.result, "success", "captures a successful run's result");
+});
+
+test("getLastPhaseComplete captures the run's errors (so a network-render denial can be honored)", async () => {
+  // A deny yields partial + *_IMAGE_RENDER_PERMISSION_DENIED; the panel skips the host render on it.
+  // Mutation: drop errors from the capture -> the deny is invisible and the host renders anyway.
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { manifest_content: { phase: "diagram" }, result: "partial", errors: ["DIAGRAM_IMAGE_RENDER_PERMISSION_DENIED"] } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.match(JSON.stringify(controller.getLastPhaseComplete()?.errors), /RENDER_PERMISSION_DENIED/, "captures the deny error");
+  controller.reset();
+  assert.equal(controller.getLastPhaseComplete(), undefined, "reset clears it (register #9)");
+});
+
+test("getLastPhaseComplete retains structured network_permission so a decision-only deny is honored (#1)", async () => {
+  // The diagram deny fixture carries network_permission.decision "deny". The controller must RETAIN it,
+  // not just phase/result/errors — otherwise a deny whose error code the panel regex doesn't match (here a
+  // non-*_PERMISSION_DENIED code) would slip through and the host would upload to mermaid.ink. Mutation:
+  // drop network_permission from the lastPhaseComplete capture -> isNetworkRenderDenied is false and this fails.
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_complete", payload: { manifest_content: { phase: "diagram" }, result: "partial", errors: [{ code: "SOME_OTHER_PARTIAL_REASON" }], network_permission: { domain: "mermaid.ink", decision: "deny" } } });
+      return { terminal: "complete" };
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  const runInfo = controller.getLastPhaseComplete();
+  assert.deepEqual((runInfo?.network_permission as any), { domain: "mermaid.ink", decision: "deny" }, "the structured decision is retained");
+  assert.equal(isNetworkRenderDenied(runInfo), true, "a decision-only deny is honored (no matching error code)");
+});
+
+test("a later run that emits no phase_complete does not leak the prior run's result (run() entry clears)", async () => {
+  // register #19: without the clear at run() entry, an excursion that emits nothing would inherit a
+  // prior run's success and the render would fire. Mutation: drop the run()-entry clear -> stays success.
+  let call = 0;
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      call += 1;
+      if (call === 1) onEvent({ type: "phase_complete", payload: { manifest_content: { phase: "diagram" }, result: "success" } });
+      return { terminal: "complete" }; // 2nd run emits nothing
+    },
+  });
+  await controller.start({ intent: "x", boardId: "auto" });
+  assert.equal(controller.getLastPhaseComplete()?.result, "success");
+  await controller.start({ intent: "y", boardId: "auto" });
+  assert.equal(controller.getLastPhaseComplete(), undefined, "the second run's entry cleared the prior result");
 });
