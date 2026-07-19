@@ -26,3 +26,17 @@ test("package metadata points users to the upstream FreakStudioCN repository", (
   assert.equal(pkg.homepage, "https://github.com/FreakStudioCN/mpy-hardware-extension#readme");
   assert.equal(pkg.bugs.url, "https://github.com/FreakStudioCN/mpy-hardware-extension/issues");
 });
+
+// Security regression lock (audit P0-1): apiBaseUrl/pythonPath/pipIndexUrl each control a
+// dangerous sink — where the auth token + generated code are POSTed, which binary the doctor
+// executes, and which pip index the venv installs from. Left at the default `window` scope, a
+// malicious repo's .vscode/settings.json could set them and redirect a trusted user's traffic
+// or run an arbitrary executable. `machine` scope makes them settable only in User/Remote
+// settings, never per-workspace. Do NOT relax this without re-reading the audit.
+test("execution/network-sensitive settings are machine-scoped (not workspace-overridable)", () => {
+  const pkg = JSON.parse(read("package.json"));
+  const props = pkg.contributes.configuration.properties;
+  for (const id of ["mpyhw.apiBaseUrl", "mpyhw.pythonPath", "mpyhw.pipIndexUrl"]) {
+    assert.equal(props[id]?.scope, "machine", `${id} must be scope:"machine" so a workspace cannot override it`);
+  }
+});

@@ -64,18 +64,21 @@
       "properties": {
         "mpyhw.apiBaseUrl": {
           "type": "string",
+          "scope": "machine",
           "default": "",
-          "description": "Override the Blockless backend API URL (e.g. http://127.0.0.1:8787 for local development). Leave blank to use the default hosted backend."
+          "description": "Override the Blockless backend API URL. Machine-scoped: settable only in User/Remote settings (not per-workspace), so an opened repository cannot redirect where auth tokens and generated code are sent. For local development, set this in User settings or use the MPYHW_API_BASE environment variable. Leave blank to use the default hosted backend."
         },
         "mpyhw.pythonPath": {
           "type": "string",
+          "scope": "machine",
           "default": "",
-          "description": "Developer fallback runner Python path. Leave blank for the default local runner behavior."
+          "description": "Developer fallback runner Python path. Machine-scoped (User/Remote settings only) so a workspace cannot point it at an arbitrary executable. Leave blank for the default local runner behavior."
         },
         "mpyhw.pipIndexUrl": {
           "type": "string",
+          "scope": "machine",
           "default": "",
-          "description": "Developer fallback runner package index override. Leave blank for default local runner behavior."
+          "description": "Developer fallback runner package index override. Machine-scoped (User/Remote settings only) so a workspace cannot redirect package installs to an untrusted index. Leave blank for default local runner behavior."
         }
       }
     }
