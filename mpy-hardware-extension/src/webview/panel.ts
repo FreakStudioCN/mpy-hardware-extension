@@ -25,7 +25,7 @@ import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
-import { canonicalPathKey, deleteProjectPath, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
+import { canonicalPathKey, deleteProjectPath, isRealContained, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
@@ -1179,7 +1179,7 @@ function makeWorkspaceReader(workspaceFolder?: string) {
   const root = resolve(workspaceFolder);
   return async (relPath: string) => {
     const target = resolve(root, relPath);
-    if (target !== root && !target.startsWith(root + sep)) {
+    if (!isRealContained(root, target)) {
       return { ok: false as const, error_kind: "path_outside_workspace" };
     }
     try {
@@ -1227,7 +1227,7 @@ function makeWorkspaceLister(workspaceFolder?: string) {
   const root = resolve(workspaceFolder);
   return async (relPath: string) => {
     const base = relPath ? resolve(root, relPath) : root;
-    if (base !== root && !base.startsWith(root + sep)) {
+    if (!isRealContained(root, base)) {
       return { ok: false as const, error_kind: "path_outside_workspace" };
     }
     const entries: string[] = [];
@@ -1252,7 +1252,7 @@ function makeWorkspaceMkdir(workspaceFolder?: string) {
   const root = resolve(workspaceFolder);
   return async (relPath: string) => {
     const target = resolve(root, relPath);
-    if (target !== root && !target.startsWith(root + sep)) {
+    if (!isRealContained(root, target)) {
       return { ok: false as const, error_kind: "path_outside_workspace" };
     }
     try { await mkdir(target, { recursive: true }); return { ok: true as const }; }

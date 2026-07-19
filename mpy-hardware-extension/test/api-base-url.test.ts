@@ -54,3 +54,32 @@ test("an empty/whitespace MPYHW_API_BASE falls through to the hosted default (no
     assert.equal(resolveApiBaseUrl(vscodeWith(undefined), undefined), DEFAULT_API_BASE_URL);
   });
 });
+
+// Security (audit P1-D): the backend receives the GitHub token + session JWT, so a
+// non-loopback cleartext (http) override must be refused, not silently used.
+test("a non-loopback http setting is rejected and falls through to the hosted default", () => {
+  withEnv(undefined, () => {
+    assert.equal(resolveApiBaseUrl(vscodeWith("http://evil.example.com"), undefined), DEFAULT_API_BASE_URL);
+  });
+});
+
+test("a non-loopback http MPYHW_API_BASE is rejected and falls through to the hosted default", () => {
+  withEnv("http://192.168.1.50:8787", () => {
+    assert.equal(resolveApiBaseUrl(vscodeWith(undefined), undefined), DEFAULT_API_BASE_URL);
+  });
+});
+
+test("loopback http is allowed for local dev (setting and env)", () => {
+  withEnv(undefined, () => {
+    assert.equal(resolveApiBaseUrl(vscodeWith("http://localhost:8787"), undefined), "http://localhost:8787");
+  });
+  withEnv("http://127.0.0.1:8787", () => {
+    assert.equal(resolveApiBaseUrl(vscodeWith(undefined), undefined), "http://127.0.0.1:8787");
+  });
+});
+
+test("an https override to a self-hosted backend is allowed", () => {
+  withEnv(undefined, () => {
+    assert.equal(resolveApiBaseUrl(vscodeWith("https://my-backend.example.com/"), undefined), "https://my-backend.example.com");
+  });
+});

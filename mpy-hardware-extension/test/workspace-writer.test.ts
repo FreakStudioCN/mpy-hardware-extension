@@ -1,7 +1,43 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { planWorkspaceWrites, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
+import { isRealContained, planWorkspaceWrites, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
+
+test("isRealContained allows the root and contained paths, refuses ../ escapes", () => {
+  const root = mkdtempSync(join(tmpdir(), "mpyhw-contain-"));
+  try {
+    mkdirSync(join(root, "firmware"));
+    assert.equal(isRealContained(root, root), true);
+    assert.equal(isRealContained(root, join(root, "firmware", "main.py")), true); // not-yet-created leaf
+    assert.equal(isRealContained(root, join(root, "..", "outside.py")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("isRealContained refuses a path that escapes via a symlinked directory (P1-C)", (t) => {
+  const base = mkdtempSync(join(tmpdir(), "mpyhw-symln-"));
+  try {
+    const root = join(base, "project");
+    const secret = join(base, "secret");
+    mkdirSync(root);
+    mkdirSync(secret);
+    writeFileSync(join(secret, "creds.txt"), "TOP SECRET");
+    try {
+      symlinkSync(secret, join(root, "escape"), "dir");
+    } catch {
+      t.skip("symlink creation requires privilege on this platform");
+      return;
+    }
+    // Lexically join(root,"escape","creds.txt") is under root, but really resolves into secret/.
+    assert.equal(isRealContained(root, join(root, "escape", "creds.txt")), false);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
 
 test("workspace writer plans main.py and manifest.json in selected workspace", () => {
   const plan = planWorkspaceWrites({ workspaceFolder: "C:/project", files: { "main.py": "print(1)", "manifest.json": "{}" } });

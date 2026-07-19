@@ -1,5 +1,29 @@
-import { lstatSync, readdirSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve, sep } from "node:path";
+
+// Real-path containment (security P1-C). The lexical resolve()+startsWith checks used by the
+// reader / writer / lister / deleter catch `..` but NOT symlinks: a symlink placed under the
+// project root (by a workspace the user opened) can redirect a model-driven read/write/delete
+// outside the root. Resolve the real path of the target's nearest EXISTING ancestor (following
+// symlinks) and re-append the not-yet-created tail, then confirm it stays within the real root.
+// Returns true for the root itself and anything inside it. Falls back to the lexical resolve
+// when realpath is unavailable (headless/edge), never throwing.
+export function isRealContained(root: string, target: string): boolean {
+  let realRoot: string;
+  try { realRoot = realpathSync(resolve(root)); } catch { realRoot = resolve(root); }
+  let existing = resolve(target);
+  const tail: string[] = [];
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) return false; // walked past the fs root with nothing existing
+    tail.unshift(basename(existing));
+    existing = parent;
+  }
+  let realExisting: string;
+  try { realExisting = realpathSync(existing); } catch { return false; }
+  const realTarget = tail.length ? join(realExisting, ...tail) : realExisting;
+  return realTarget === realRoot || realTarget.startsWith(realRoot + sep);
+}
 
 // Canonical Set key for pre-existing-path comparisons. resolve() normalizes separators
 // and relative segments but NOT letter case — and Windows and (default) macOS filesystems
@@ -156,6 +180,11 @@ export async function writeProjectFile(input: {
   const safe = normalizeGeneratedArtifactPath(input.path, { allowProjectTree: true });
   if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path };
   const target = joinPath(root, safe);
+  // normalizeGeneratedArtifactPath already rejects `..`/absolute, but a symlinked dir in the
+  // project tree could still redirect the write outside root — refuse via real-path containment.
+  if (!isRealContained(root, target)) {
+    return { ok: false as const, error_kind: "invalid_generated_path", path: input.path };
+  }
   if (input.guardOverwrite && !(await input.guardOverwrite(target))) {
     return { ok: false as const, error_kind: "overwrite_declined", path: target };
   }
@@ -181,7 +210,7 @@ export async function deleteProjectPath(input: {
 }) {
   const root = resolve(input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated");
   const target = resolve(root, input.path);
-  if (target === root || !target.startsWith(root + sep)) {
+  if (target === root || !isRealContained(root, target)) {
     return { ok: false as const, error_kind: "path_outside_workspace" };
   }
   if (input.guardDelete && !(await input.guardDelete(target))) {

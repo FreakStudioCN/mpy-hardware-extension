@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
 import { readSkillsCommit } from "./skills-commit.mjs";
@@ -70,11 +70,36 @@ const PLUGIN_DIRS = [
   "upy-generate",
 ];
 const EXCLUDE_DIRS = new Set(["test", "tests", "sample", "samples", "mock-messages", "__pycache__"]);
+// Curation cruft that must never ship (security P1-A): the board-source staging area and
+// its dated archives carry the maintainer's local paths + fetch-failure traces (a CSV, a
+// ZIP of OCR reports, cleanup manifests). None is read at runtime.
 function shouldSkip(relPosix) {
   const parts = relPosix.split("/");
-  if (parts.some((p) => EXCLUDE_DIRS.has(p))) return true;
-  return relPosix.endsWith(".md") || relPosix.endsWith(".pyc");
+  if (parts.some((p) => EXCLUDE_DIRS.has(p) || p === "_official_pending" || p.startsWith("_archive_"))) return true;
+  return relPosix.endsWith(".md") || relPosix.endsWith(".pyc") || relPosix.endsWith(".csv") || relPosix.endsWith(".zip");
 }
+
+// The generated board JSONs bake build-time provenance whose values are the maintainer's
+// local absolute paths (e.g. "G:\\...") — dead at runtime (no reader in the extension or
+// the vendored scripts, verified) but shipped in every VSIX. Drop any key/element whose
+// string value is a Windows absolute path. Name-agnostic (can't miss a field) and
+// value-conditional (can't delete a legitimate non-path field).
+const WIN_ABS_PATH = /^[A-Za-z]:[\\/]/;
+function stripLocalPaths(value) {
+  if (Array.isArray(value)) {
+    return value.filter((v) => !(typeof v === "string" && WIN_ABS_PATH.test(v))).map(stripLocalPaths);
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (typeof v === "string" && WIN_ABS_PATH.test(v)) continue;
+      out[k] = stripLocalPaths(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 let vendored = 0;
 for (const dir of PLUGIN_DIRS) {
   const absDir = join(upstreamRoot, dir);
@@ -84,7 +109,11 @@ for (const dir of PLUGIN_DIRS) {
     if (shouldSkip(rel)) continue;
     const to = join(destRoot, rel);
     mkdirSync(dirname(to), { recursive: true });
-    cpSync(abs, to);
+    if (rel.includes("/boards/") && rel.endsWith(".json")) {
+      writeFileSync(to, JSON.stringify(stripLocalPaths(JSON.parse(readFileSync(abs, "utf8"))), null, 2) + "\n");
+    } else {
+      cpSync(abs, to);
+    }
     vendored++;
   }
 }

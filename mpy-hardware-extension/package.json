@@ -34,6 +34,11 @@
   "activationEvents": [
     "onUri"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
