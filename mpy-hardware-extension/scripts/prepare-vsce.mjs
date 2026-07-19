@@ -62,6 +62,12 @@ const PLUGIN_DIRS = [
   "upy-diagram-plugin",
   "shared-plugin-scripts",
   "upy-project-gen-toolchain-spec",
+  // Legacy (non-plugin) scaffold/download scripts: the host's script.run_scaffold /
+  // script.run_download_drivers dispatch passes --project-dir and expects files written to
+  // disk, which only these legacy scripts do (the -plugin equivalents are stdout-only). See
+  // serve.py SCRIPT_FILES. Must ship or the packaged VSIX fails on scaffold/download.
+  "upy-scaffold",
+  "upy-generate",
 ];
 const EXCLUDE_DIRS = new Set(["test", "tests", "sample", "samples", "mock-messages", "__pycache__"]);
 function shouldSkip(relPosix) {

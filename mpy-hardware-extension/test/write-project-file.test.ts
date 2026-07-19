@@ -82,6 +82,25 @@ test("allowProjectTree extends the allowlist without changing the base set", () 
   assert.equal(normalizeGeneratedArtifactPath("lib/aht20.py", { allowProjectTree: true }), "lib/aht20.py");
 });
 
+test("allowProjectTree accepts the scaffold's skeleton infra files (were rejected -> scaffold went partial)", () => {
+  const opt = { allowProjectTree: true } as const;
+  // These are exactly the files the 2026-07-16 scaffold could not write, which stalled the pipeline
+  // before generate. Mutation: revert the scaffold-infra allowlist -> each returns null and this fails.
+  assert.equal(normalizeGeneratedArtifactPath(".flake8", opt), ".flake8");
+  assert.equal(normalizeGeneratedArtifactPath(".gitignore", opt), ".gitignore");
+  assert.equal(normalizeGeneratedArtifactPath("docs/.gitkeep", opt), "docs/.gitkeep");
+  assert.equal(normalizeGeneratedArtifactPath("tools/flash_device.py", opt), "tools/flash_device.py");
+  assert.equal(normalizeGeneratedArtifactPath("firmware/README.md", opt), "firmware/README.md");
+  assert.equal(normalizeGeneratedArtifactPath("README.md", opt), "README.md");
+  assert.equal(normalizeGeneratedArtifactPath("LICENSE", opt), "LICENSE");
+  assert.equal(normalizeGeneratedArtifactPath(".upy/scripts/validate_json.py", opt), ".upy/scripts/validate_json.py");
+  // Still bounded: traversal, absolute, and non-skeleton root files stay rejected.
+  assert.equal(normalizeGeneratedArtifactPath("../secret", opt), null, "traversal rejected");
+  assert.equal(normalizeGeneratedArtifactPath("/etc/passwd", opt), null, "absolute rejected");
+  assert.equal(normalizeGeneratedArtifactPath("evil.sh", opt), null, "arbitrary root file still rejected");
+  assert.equal(normalizeGeneratedArtifactPath("tools/hack.sh", opt), null, "non-.py under tools rejected");
+});
+
 // ---- Overwrite / delete confirmation gate (deliverables 07 §4) ----
 
 test("write_project_file overwrite guard: a decline blocks the write, an allow proceeds", async () => {

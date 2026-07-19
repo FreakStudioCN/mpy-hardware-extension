@@ -378,9 +378,11 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
         ...((p.items ?? []).map((i: any) => i?.id)),
         ...groups.flatMap((g: any) => (g?.items ?? []).map((i: any) => i?.id)),
       ].filter(Boolean);
-      const values = (p.actions ?? []).map((a: any) => a?.value).filter(Boolean);
+      // Action key is `value`, but some cards (e.g. wiring network-render) carry only `id`.
+      const actionKey = (a: any) => a?.value ?? a?.id;
+      const values = (p.actions ?? []).map(actionKey).filter(Boolean);
       const action = NO_HARDWARE_ACTIONS.find((a) => values.includes(a))
-        ?? (p.actions?.find((a: any) => a.primary)?.value) ?? values[0] ?? "confirm";
+        ?? actionKey(p.actions?.find((a: any) => a.primary)) ?? values[0] ?? "confirm";
       return { result: { ok: true, approval_id: p.approval_id, action, selected_ids: ids, added_items: [], text_values: {}, notes: "" } };
     }
     const decision = await input.confirmApproval(p);

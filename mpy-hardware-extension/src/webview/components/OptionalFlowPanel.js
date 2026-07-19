@@ -242,3 +242,99 @@
         host.innerHTML = html;
         markNew("diagram");
       }
+
+      // The optional wiring/diagram RUN entries. Shown only for the flows generate offered
+      // (optional_next_phases); the host re-checks the offer too, so this is convenience, not the gate.
+      // labelKey (not a resolved label): tr() runs at button-creation time, since LOCALE is "en" at module
+      // load and setLocale arrives later — resolving here would bake English for zh users.
+      var OPTIONAL_FLOW_BY_TOKEN = {
+        "upy-wiring-plugin": { flow: "wiring", entry: "wiringEntry", labelKey: "of_gen_wiring" },
+        "upy-diagram-plugin": { flow: "diagram", entry: "diagramEntry", labelKey: "of_gen_diagram" },
+      };
+      function setOptionalFlows(phases) {
+        var offered = {};
+        (Array.isArray(phases) ? phases : []).forEach(function (p) { if (p && p.phase) offered[p.phase] = true; });
+        Object.keys(OPTIONAL_FLOW_BY_TOKEN).forEach(function (token) {
+          var cfg = OPTIONAL_FLOW_BY_TOKEN[token];
+          var el = $(cfg.entry); if (!el) return;
+          el.innerHTML = "";
+          if (!offered[token]) { el.classList.add("hidden"); return; }
+          el.classList.remove("hidden");
+          var label = tr(cfg.labelKey);
+          var btn = document.createElement("button"); btn.className = "of-run"; btn.textContent = label; btn.dataset.flow = cfg.flow; btn.dataset.label = label;
+          btn.addEventListener("click", function () {
+            vscode.postMessage({ type: "start_optional_flow", flow: cfg.flow });
+            btn.disabled = true;
+            btn.textContent = tr("of_generating");
+            setTab("activity"); // the run streams its approvals + progress into the Activity timeline
+          });
+          el.appendChild(btn);
+        });
+      }
+      // Turn "docs/architecture.png" -> "Architecture" for a per-image caption.
+      function optionalFlowImageName(relativePath) {
+        var base = (relativePath || "").split("/").pop().replace(/\.(svg|png)$/i, "").replace(/[_-]+/g, " ").trim();
+        return base ? base.charAt(0).toUpperCase() + base.slice(1) : "";
+      }
+      // Render a wiring/diagram RUN's authored images (the mermaid-rendered svg/png) in its tab. The host
+      // attaches a webview-safe `webview_uri` and tags kind (wiring/diagram) in the artifacts_index. A
+      // diagram run emits several (architecture/flowchart/data_flow) — show all, each a clickable card that
+      // opens the full-size file in the editor (the sidebar is too narrow to read a detailed graph inline).
+      // Falls back to nothing (the derived view stays) when the run produced no image (local-only/partial).
+      function renderOptionalFlowRunImage(containerId, artifacts, kind, label) {
+        var el = $(containerId); if (!el) return;
+        // Dedup by base name (architecture/flowchart/data_flow/wiring) so the same diagram in two
+        // formats shows once, preferring svg (crisper) over png. Then show every distinct diagram.
+        var byName = {};
+        (Array.isArray(artifacts) ? artifacts : []).forEach(function (a) {
+          if (!a || a.kind !== kind || !a.webview_uri) return;
+          var rp = a.relative_path || ""; if (!/\.(svg|png)$/i.test(rp)) return;
+          var base = rp.replace(/\.(svg|png)$/i, "");
+          if (!byName[base] || /\.svg$/i.test(rp)) byName[base] = a;
+        });
+        var imgs = Object.keys(byName).sort().map(function (k) { return byName[k]; });
+        el.innerHTML = "";
+        if (!imgs.length) { el.classList.add("hidden"); return; }
+        el.classList.remove("hidden");
+        var head = document.createElement("div"); head.className = "of-run-cap"; head.textContent = label;
+        el.appendChild(head);
+        imgs.forEach(function (art) {
+          var fig = document.createElement("figure"); fig.className = "of-fig"; fig.title = tr("of_open_full");
+          fig.addEventListener("click", function () { vscode.postMessage({ type: "open_artifact", relative_path: art.relative_path }); });
+          var img = document.createElement("img"); img.className = "of-run-img"; img.src = art.webview_uri; img.alt = art.relative_path; // .src, not innerHTML -> no injection
+          var cap = document.createElement("figcaption"); cap.className = "of-fig-cap"; cap.textContent = optionalFlowImageName(art.relative_path);
+          fig.appendChild(img); fig.appendChild(cap); el.appendChild(fig);
+        });
+      }
+      function renderOptionalFlowImages(artifacts) {
+        // labels computed at call-time so the locale is current (LOCALE is "en" at script load).
+        renderOptionalFlowRunImage("wiringRunImage", artifacts, "wiring", tr("of_img_wiring"));
+        renderOptionalFlowRunImage("diagramRunImage", artifacts, "diagram", tr("of_img_diagram"));
+      }
+      function setOptionalFlowStatus(flow, status, detail) {
+        var entry = flow === "wiring" ? $("wiringEntry") : flow === "diagram" ? $("diagramEntry") : null;
+        if (!entry) return;
+        var note = entry.querySelector(".of-note");
+        if (!note) { note = document.createElement("div"); note.className = "of-note"; entry.appendChild(note); }
+        note.textContent = detail || (status ? "Status: " + status : "");
+        var btn = entry.querySelector("button.of-run");
+        if (btn && status === "failed") { btn.disabled = false; btn.textContent = btn.dataset.label || btn.textContent; } // restore the label so the user can retry
+      }
+      // A wiring/diagram run finished and its rendered image is indexed. Reset the trigger button and
+      // drop a card into Activity with a button that jumps to the tab showing the render.
+      function addOptionalFlowDoneCard(flow) {
+        var ready = flow === "wiring" ? tr("of_ready_wiring") : tr("of_ready_diagram");
+        var viewLabel = flow === "wiring" ? tr("of_view_wiring") : tr("of_view_diagram");
+        var entry = flow === "wiring" ? $("wiringEntry") : flow === "diagram" ? $("diagramEntry") : null;
+        var trigger = entry && entry.querySelector("button.of-run");
+        if (trigger) { trigger.disabled = false; trigger.textContent = trigger.dataset.label || trigger.textContent; }
+        var host = $("activity"); if (!host) return;
+        $("activityEmpty").classList.add("hidden");
+        var card = document.createElement("div"); card.className = "ev fade-in";
+        card.innerHTML = '<div class="ev-card"><div class="ev-head"><div class="ev-ico result">•</div><div class="ev-main"><div class="ev-label"><span class="kind"></span></div><div class="of-done"></div></div></div></div>';
+        card.querySelector(".kind").textContent = ready;
+        var view = document.createElement("button"); view.className = "of-run"; view.dataset.flow = flow; view.textContent = viewLabel;
+        view.addEventListener("click", function () { setTab(flow); });
+        card.querySelector(".of-done").appendChild(view);
+        host.appendChild(card);
+      }

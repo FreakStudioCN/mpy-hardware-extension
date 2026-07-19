@@ -1582,3 +1582,41 @@ test("submit_issue_report records support_feedback_opened entry report_issue", a
   await handler?.({ type: "submit_issue_report", issueType: "bug", description: "it broke", attachDiagnostics: false });
   assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "report_issue"), "records the issue submit");
 });
+
+test("start_gen_driver gates on a source and a workspace before dispatching", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  // No workspace folder and no globalStoragePath -> projectFolder is undefined.
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: undefined }, window: { createWebviewPanel: () => panel } };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any, loopMode: "template" });
+
+  // Empty sources + no driver_request -> refused up front (never reaches a run).
+  await handler?.({ type: "start_gen_driver", sources: [] });
+  assert.ok(posted.some((m) => m.type === "gen_driver_status" && m.status === "failed" && /Add at least one source/.test(m.detail)), "empty input is refused");
+
+  // A valid source but no workspace -> refused (no project dir to stage into / run in). Mutation:
+  // drop the !projectFolder guard -> staging/dispatch proceeds against an undefined root and this fails.
+  posted.length = 0;
+  await handler?.({ type: "start_gen_driver", sources: [{ type: "chip_model", metadata: { chip_model: "SHT30" } }] });
+  assert.ok(posted.some((m) => m.type === "gen_driver_status" && m.status === "failed" && /workspace/.test(m.detail)), "no workspace is refused before dispatch");
+});
+
+test("start_optional_flow allowlist-maps the flow and host-gates on the generate offer (register #1)", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: undefined }, window: { createWebviewPanel: () => panel } };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any, loopMode: "template" });
+
+  // An unknown flow maps to no token -> refused (never reaches body.phase).
+  await handler?.({ type: "start_optional_flow", flow: "bogus" });
+  assert.ok(posted.some((m) => m.type === "optional_flow_status" && m.status === "failed" && /Unknown/.test(m.detail)), "unmapped flow is refused");
+
+  // A valid flow that generate never offered -> the HOST re-checks the offer and refuses, even though a
+  // crafted message could bypass the webview button gate. Mutation: drop the getOptionalNextPhases gate
+  // -> an unoffered wiring run dispatches and this fails.
+  posted.length = 0;
+  await handler?.({ type: "start_optional_flow", flow: "wiring" });
+  assert.ok(posted.some((m) => m.type === "optional_flow_status" && m.status === "failed" && /Run generate first/.test(m.detail)), "an unoffered flow is host-refused");
+});

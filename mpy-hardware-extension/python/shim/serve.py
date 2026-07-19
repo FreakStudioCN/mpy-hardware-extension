@@ -75,11 +75,19 @@ SCHEMA_FILES = {
     "diagram": "upy-project-gen-toolchain-spec/diagram.schema.json",
 }
 SCRIPT_FILES = {
+    # render_wiring/render_diagram/validate use the -plugin dirs (as bundled by prepare-vsce's
+    # PLUGIN_DIRS and named in the submodule); the old non-plugin names resolved to nothing, which
+    # broke rendering (script_not_found -> the run's image never renders).
+    # scaffold/download_drivers deliberately use the LEGACY (non-plugin) scripts: the -plugin
+    # init_scaffold.py ignores --project-dir (argparse.SUPPRESS) and only writes JSON to stdout from a
+    # piped manifest, and the -plugin download_drivers.py rejects --project-dir outright. The host
+    # dispatch (_run_project_script below) passes --project-dir and expects files written to disk
+    # (firmware/board.py, firmware/lib/*), which only the legacy scripts do. PLUGIN_DIRS bundles both.
     "validate": "upy-project-gen-toolchain-spec/scripts/validate_json.py",
     "scaffold": "upy-scaffold/scripts/init_scaffold.py",
     "download_drivers": "upy-generate/scripts/download_drivers.py",
-    "render_wiring": "upy-wiring/scripts/render_wiring_local.py",
-    "render_diagram": "upy-diagram/scripts/render_diagram_local.py",
+    "render_wiring": "upy-wiring-plugin/scripts/render_wiring_local.py",
+    "render_diagram": "upy-diagram-plugin/scripts/render_diagram_local.py",
 }
 
 
@@ -131,6 +139,8 @@ _V0_PLUGIN_DIRS = (
     "upy-wiring-plugin",
     "upy-diagram-plugin",
     "shared-plugin-scripts",
+    # Toolchain-spec scripts (validate_json.py) — wiring/diagram SKILLs invoke the schema check by name.
+    "upy-project-gen-toolchain-spec",
 )
 
 
@@ -152,8 +162,11 @@ def _build_v0_script_index() -> dict:
             norm = dirpath.replace("\\", "/")
             if "__pycache__" in norm:
                 continue
-            # A V0 plugin's own scripts/ dir, or the shared V0 script pool.
-            if "-plugin/scripts" not in norm and "shared-plugin-scripts" not in norm:
+            # A V0 plugin's own scripts/ dir, the shared V0 script pool, or the toolchain-spec scripts
+            # (validate_json.py, invoked by name from the wiring/diagram SKILLs).
+            if ("-plugin/scripts" not in norm
+                    and "shared-plugin-scripts" not in norm
+                    and "upy-project-gen-toolchain-spec/scripts" not in norm):
                 continue
             for fname in files:
                 if fname.endswith(".py"):

@@ -15,17 +15,30 @@
         $("gendriverEmpty").classList.add("hidden");
         if (!gdTab || !tabs.some((t) => t.id === gdTab)) gdTab = tabs[0].id;
         root.innerHTML = "";
-        const strip = document.createElement("div"); strip.className = "gd-tabs";
-        for (const t of tabs) {
-          const b = document.createElement("button");
-          b.className = "gd-tab" + (t.id === gdTab ? " active" : "");
-          b.textContent = t.label; b.dataset.gdtab = t.id;
-          b.addEventListener("click", () => { gdTab = t.id; renderGenDriver(tabs); });
-          strip.appendChild(b);
-        }
-        root.appendChild(strip);
+        // Split the tab strip into a source-input group (sourceType !== null) and a config group
+        // (Target driver / Verification settings, sourceType === null). One flat pill row made the
+        // config tabs read as just more sources; grouping under labels separates the two intents.
+        const sourceTabs = tabs.filter((t) => t.sourceType !== null);
+        const configTabs = tabs.filter((t) => t.sourceType === null);
+        if (sourceTabs.length) root.appendChild(gdTabGroup("Add a source", sourceTabs, tabs));
+        if (configTabs.length) root.appendChild(gdTabGroup("Settings", configTabs, tabs));
         root.appendChild(gdBody(tabs.find((t) => t.id === gdTab), tabs));
         root.appendChild(gdFooter(tabs));
+      }
+      function gdTabButton(t, tabs) {
+        const b = document.createElement("button");
+        b.className = "gd-tab" + (t.id === gdTab ? " active" : "");
+        b.textContent = t.label; b.dataset.gdtab = t.id;
+        b.addEventListener("click", () => { gdTab = t.id; renderGenDriver(tabs); });
+        return b;
+      }
+      function gdTabGroup(label, groupTabs, tabs) {
+        const group = document.createElement("div"); group.className = "gd-tabgroup";
+        const lbl = document.createElement("div"); lbl.className = "gd-tabgroup-label"; lbl.textContent = label;
+        const strip = document.createElement("div"); strip.className = "gd-tabs";
+        for (const t of groupTabs) strip.appendChild(gdTabButton(t, tabs));
+        group.appendChild(lbl); group.appendChild(strip);
+        return group;
       }
       function gdFileField(field, tabId) {
         // The host owns the file dialog; the picked value (name/path/size/sha256) comes
@@ -276,12 +289,14 @@
         for (const line of gdConfirmLines(driverRequest, verification)) { const row = document.createElement("div"); row.textContent = line; bodyEl.appendChild(row); }
         card.appendChild(bodyEl);
         const confirm = document.createElement("button"); confirm.className = "gd-gen"; confirm.textContent = "Confirm & generate";
-        confirm.addEventListener("click", () => vscode.postMessage({
-          type: "start_gen_driver",
-          sources: gdSources,
-          driverRequest,
-          verification,
-        }));
+        confirm.addEventListener("click", () => {
+          vscode.postMessage({ type: "start_gen_driver", sources: gdSources, driverRequest, verification });
+          confirm.disabled = true; confirm.textContent = "Generating…";
+          // Leave the gen-driver tool surface and show Activity, or the run streams behind the overlay
+          // and the click looks like it did nothing.
+          closeGlobalTool();
+          setTab("activity");
+        });
         card.appendChild(confirm);
         statusEl.appendChild(card);
       }
@@ -297,5 +312,21 @@
         hidden.value = JSON.stringify({ name: file.name, path: file.path, size: file.size, sha256: file.sha256, uploaded_at: file.uploaded_at || null });
         const label = hidden.parentElement.querySelector(".gd-filename");
         if (label) label.textContent = file.name;
+      }
+      // #53: generate blocked because a device has no ready driver. OFFER to build it first (never
+      // auto-start) — clicking dispatches a pipeline gen-driver run off the cold-driver source.
+      function showDriverRequiredOffer(blocks) {
+        const host = $("activity"); if (!host || !Array.isArray(blocks) || !blocks.length) return;
+        const devices = blocks.map((b) => (b && (b.device || b.driver_id)) || "").filter(Boolean).join(", ");
+        const card = document.createElement("div"); card.className = "ev-card gd-required"; card.dataset.genDriverOffer = "1";
+        const head = document.createElement("div"); head.className = "gd-required-head";
+        head.textContent = "A driver must be built before generating" + (devices ? ": " + devices : "");
+        const btn = document.createElement("button"); btn.className = "gd-required-run"; btn.textContent = "Build driver";
+        btn.addEventListener("click", () => {
+          vscode.postMessage({ type: "start_gen_driver", sources: [{ type: "current_cold_driver_item", metadata: { driver_status: "cold_driver_required" } }] });
+          btn.disabled = true; head.textContent = "Building driver…";
+        });
+        card.appendChild(head); card.appendChild(btn);
+        host.appendChild(card);
       }
 

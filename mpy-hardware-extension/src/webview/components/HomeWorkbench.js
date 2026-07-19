@@ -19,6 +19,12 @@
         const tabBtn = document.querySelector('.tab[data-tab="' + name + '"]');
         const dot = tabBtn && tabBtn.querySelector(".newdot");
         if (dot) dot.remove();
+        // The tabs share one .tabwrap scroller; showing a shorter sibling view clamps its scrollTop,
+        // so returning to Activity would land at the top. Re-follow to the latest on return.
+        if (name === "activity") {
+          const tw = document.querySelector(".tabwrap");
+          if (tw) tw.scrollTop = tw.scrollHeight;
+        }
       }
       function markNew(name) {
         if (activeTab === name) return;

@@ -64,14 +64,18 @@
           setPending(tr("working"));
         };
         actions.forEach((a) => {
+          // Action key is `value`, but some cards (e.g. wiring network-render) carry only `id`.
+          // Falling back id->"confirm" here keeps Cancel answering "cancel" instead of "confirm"
+          // (which would invert the choice — a Cancel click silently approving). See protocol-loop's
+          // headless branch for the matching fallback.
+          const answer = (a && a.value != null) ? String(a.value) : (a && a.id != null) ? String(a.id) : "confirm";
           const b = document.createElement("button"); b.className = "ask-opt" + (a && a.primary ? " primary" : "");
-          b.textContent = (a && a.label != null) ? String(a.label) : String(a && a.value);
-          b.addEventListener("click", () => respond((a && a.value != null) ? String(a.value) : "confirm"));
+          b.textContent = (a && a.label != null) ? String(a.label) : answer;
+          b.addEventListener("click", () => respond(answer));
           btnRow.appendChild(b);
         });
         main.appendChild(btnRow); head.appendChild(main); wrap.appendChild(head); el.appendChild(wrap);
         $("activity").appendChild(el);
-        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
       }
 
       // status_update -> a timeline trace line.
@@ -139,7 +143,6 @@
         proceedBtn.addEventListener("click", () => reply("proceed", proceedBtn));
         ignoreBtn.addEventListener("click", () => reply("ignore", ignoreBtn));
         $("activity").appendChild(card);
-        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
       }
 
       function addAskPrompt(promptId, question, options, optionsRequiringText, textPlaceholder) {
@@ -162,8 +165,7 @@
           '<div class="ask-options"></div>' +
           (showInput ? '<div class="ask-row"><input class="ask-input" type="text" placeholder="' + tr("type_answer") + '"><button class="ask-send">' + tr("send") + '</button></div>' : '') +
           "</div></div></div>";
-        const askScroll = () => { $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight; };
-        const askTyper = makeTypewriter(card.querySelector(".ask-q"), askScroll);
+        const askTyper = makeTypewriter(card.querySelector(".ask-q"));
         askTyper.feed(question == null ? "" : String(question)); askTyper.end();
         const input = card.querySelector(".ask-input");
         const send = card.querySelector(".ask-send");
@@ -217,7 +219,6 @@
         if (send) send.addEventListener("click", submitText);
         if (input) input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitText(); } });
         $("activity").appendChild(card);
-        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
         if (input) setTimeout(() => input.focus(), 0);
       }
 
@@ -269,7 +270,6 @@
         card.querySelector(".comp-cancel").addEventListener("click", () => reply("cancel"));
         addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); reply("confirm"); } });
         $("activity").appendChild(card);
-        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
         setTimeout(() => addInput.focus(), 0);
       }
 
@@ -295,8 +295,7 @@
         // Model-written narrative (optional), rendered above the structured rows.
         const summaryEl = card.querySelector(".plan-summary");
         if (typeof plan.summary === "string" && plan.summary.trim()) {
-          const planScroll = () => { $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight; };
-          const planTyper = makeTypewriter(summaryEl, planScroll); planTyper.feed(plan.summary.trim()); planTyper.end();
+          const planTyper = makeTypewriter(summaryEl); planTyper.feed(plan.summary.trim()); planTyper.end();
         } else summaryEl.remove();
         const rows = [];
         if (plan.boardId) rows.push([tr("plan_board"), plan.boardId]);
@@ -344,7 +343,6 @@
         card.querySelector(".plan-edit").addEventListener("click", submitRevise);
         reviseInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitRevise(); } });
         $("activity").appendChild(card);
-        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
       }
 
       // ----- deploy checkpoint (board connection + wiring, before install/flash) -----
@@ -418,6 +416,5 @@
           },
         };
         $("activity").appendChild(card);
-        $("activity").parentElement.scrollTop = $("activity").parentElement.scrollHeight;
         vscode.postMessage({ type: "deploy_rescan" });
       }
