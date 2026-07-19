@@ -20,7 +20,7 @@ services:
       - key: MPYHW_ENV
         value: prod
       - key: MPYHW_PUBLIC_API_BASE
-        value: https://blockless-api.onrender.com
+        value: https://blockless.upypi.net
       - key: MPYHW_BROWSER_AUTH_REDIRECT_ORIGINS
         value: https://block-less.com
       - key: MPYHW_GITHUB_CLIENT_ID

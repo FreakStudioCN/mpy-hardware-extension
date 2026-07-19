@@ -49,7 +49,7 @@ def _origin_for(url: str) -> str:
 
 
 def _callback_url() -> str:
-    base = os.getenv("MPYHW_PUBLIC_API_BASE", "https://blockless-api.onrender.com").rstrip("/")
+    base = os.getenv("MPYHW_PUBLIC_API_BASE", "https://blockless.upypi.net").rstrip("/")
     return f"{base}/v1/auth/github/callback"
 
 

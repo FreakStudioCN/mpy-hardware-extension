@@ -51,7 +51,7 @@ def test_browser_oauth_start_redirects_to_github_with_state(monkeypatch):
     query = urllib.parse.parse_qs(parsed.query)
     assert parsed.netloc == "github.com"
     assert query["client_id"] == ["cid"]
-    assert query["redirect_uri"] == ["https://blockless-api.onrender.com/v1/auth/github/callback"]
+    assert query["redirect_uri"] == ["https://blockless.upypi.net/v1/auth/github/callback"]
     assert query["scope"] == ["read:user user:email"]
     assert query["state"][0]
 

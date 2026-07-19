@@ -41,7 +41,7 @@ Use Render's Blueprint sync or service deploy button from the Dashboard. The
 service should expose:
 
 ```text
-https://blockless-api.onrender.com
+https://blockless.upypi.net
 ```
 
 Use `/v1/health/ready` as the readiness check. It validates database
@@ -78,7 +78,7 @@ Render Blueprint sync. The published VS Code
 extension defaults to:
 
 ```text
-https://blockless-api.onrender.com
+https://blockless.upypi.net
 ```
 
 Developers can still override the backend with `mpyhw.apiBaseUrl` or
