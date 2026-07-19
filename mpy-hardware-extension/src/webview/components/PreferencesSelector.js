@@ -1,6 +1,10 @@
       function setMode(mode) {
         selectedMode = mode === "custom" ? "custom" : "beginner";
-        document.querySelectorAll(".mode-chip").forEach((b) => b.classList.toggle("active", b.dataset.mode === selectedMode));
+        document.querySelectorAll(".mode-chip").forEach((b) => {
+          const selected = b.dataset.mode === selectedMode;
+          b.classList.toggle("active", selected);
+          b.setAttribute("aria-pressed", selected ? "true" : "false");
+        });
         vscode.setState({ ...(vscode.getState() || {}), mode: selectedMode }); // remember across panel reopens
       }
       $("modeBeginner").addEventListener("click", () => setMode("beginner"));

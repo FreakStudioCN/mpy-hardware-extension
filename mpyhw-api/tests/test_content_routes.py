@@ -95,6 +95,13 @@ def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monke
                         "features": [],
                         "detail_url": "https://micropython.org/download/PYBD_SF2/",
                     },
+                    {
+                        "slug": "WEACTSTUDIO_MINI_STM32H723",
+                        "name": "WeAct Studio Mini STM32H723",
+                        "vendor": "WeAct Studio",
+                        "features": [],
+                        "detail_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32H723/",
+                    },
                 ],
             }
         ),
@@ -107,6 +114,7 @@ def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monke
         encoding="utf-8",
     )
     monkeypatch.setattr(routes_content, "ROOT", tmp_path)
+    monkeypatch.setattr(routes_content, "_skill_board_ids", lambda: {"esp32-s3-devkitc", "pybd-sf2"})
 
     response = client.get("/v1/micropython/boards")
 
@@ -114,8 +122,8 @@ def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monke
     body = response.json()
     assert body["source_url"] == "https://micropython.org/download/"
     assert body["fetched_at"] == "2026-06-20T00:07:34+00:00"
-    assert body["board_count"] == 2
-    assert body["filters"]["vendor"] == ["Espressif", "George Robotics"]
+    assert body["board_count"] == 3
+    assert body["filters"]["vendor"] == ["Espressif", "George Robotics", "WeAct Studio"]
     assert body["filters"]["port"] == ["esp32", "stm32"]
     first = body["boards"][0]
     assert first["id"] == "esp32-s3-devkitc"
@@ -129,6 +137,7 @@ def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monke
     assert first["support_status"] == "builtin_pin_layout"
     assert first["local_board_id"] == "esp32-s3-devkitc-1"
     assert first["skill_board_id"] == "esp32-s3-devkitc"
+    assert first["skill_profile_available"] is True
     assert body["boards"][1]["support_status"] == "official_firmware_only"
     # A non-builtin board now serves the kebab Skill board id (Option 1) so a selected board resolves to
     # the Skill's boards/<id>.json, while official_id/download_slug keep the raw slug. Under the old
@@ -136,10 +145,25 @@ def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monke
     pybd = body["boards"][1]
     assert pybd["id"] == "pybd-sf2", "non-builtin id is the kebab Skill board id, not the uppercase slug"
     assert pybd["skill_board_id"] == "pybd-sf2"
+    assert pybd["skill_profile_available"] is True
     assert pybd["official_id"] == "PYBD_SF2"
     assert pybd["download_slug"] == "PYBD_SF2"
+    weact = body["boards"][2]
+    assert weact["id"] == "weactstudio-mini-stm32h723"
+    assert weact["skill_board_id"] is None
+    assert weact["skill_profile_available"] is False
     # Every served id is a valid kebab (lowercase, digits, hyphens) so it can name a Skill board file.
     assert all(re.fullmatch(r"[a-z0-9-]+", b["id"]) for b in body["boards"]), "all served ids are kebab-case"
+
+
+@pytest.mark.no_db
+def test_real_catalog_marks_the_one_missing_skill_profile_unavailable():
+    body = client.get("/v1/micropython/boards").json()
+    missing = [board for board in body["boards"] if not board["skill_profile_available"]]
+
+    assert [(board["official_id"], board["id"], board["skill_board_id"]) for board in missing] == [
+        ("WEACTSTUDIO_MINI_STM32H723", "weactstudio-mini-stm32h723", None)
+    ]
 
 
 def test_board_route_rejects_encoded_backslash_path_traversal():

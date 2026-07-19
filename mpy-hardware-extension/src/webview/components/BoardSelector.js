@@ -24,6 +24,8 @@
         const browsing = !$("boardPickerBody").hidden || selectedOfficialBoard != null;
         $("boardAuto").classList.toggle("active", !browsing);
         $("boardMore").classList.toggle("active", browsing);
+        $("boardAuto").setAttribute("aria-pressed", browsing ? "false" : "true");
+        $("boardMore").setAttribute("aria-pressed", browsing ? "true" : "false");
         const chip = $("boardSelected");
         if (!chip) return;
         if (selectedOfficialBoard) {
