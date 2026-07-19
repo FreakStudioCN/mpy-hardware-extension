@@ -445,6 +445,25 @@ test("materializeGenDriverTabs dedups a device-path block against its cold devic
   assert.deepEqual((errTab.fields.find((f) => f.key === "device_id")!.options as { value: string }[]).map((o) => o.value), ["MAX30102"], "synthesized from the block");
 });
 
+test("materializeGenDriverTabs gives name-only live devices a non-empty selectable id", () => {
+  // Real 2026-07-16 manifests identify a cold device by name + driver package, without device_id.
+  // The required select must still submit a stable non-empty value; otherwise Add source is blocked.
+  const manifest = {
+    devices: [{
+      name: "MAX30102",
+      type: "heart_rate_sensor",
+      driver: { source: "github", status: "cold_driver_required", package_name: "max30102" },
+    }],
+  };
+  const blocks = detectDriverReadyBlock({ result: "partial", manifest_content: manifest });
+
+  const tabs = materializeGenDriverTabs(GEN_DRIVER_TABS, manifest, blocks);
+  const current = tabs.find((tab) => tab.sourceType === "current_cold_driver_item");
+  const select = current?.fields.find((field) => field.key === "device_id");
+
+  assert.deepEqual(select?.options, [{ value: "MAX30102", label: "MAX30102" }]);
+});
+
 test("genDriverRuntimeContext roots are cwd-relative and containment-valid", () => {
   const rc = genDriverRuntimeContext("sess-1");
   // Every root must be reachable by the host's file_operation/script_run containment (rooted at

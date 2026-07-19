@@ -394,10 +394,10 @@ export function inferMode(manifestContent: any): GenDriverMode {
   return coldDriverDevices(manifestContent).length > 0 ? "pipeline" : "standalone";
 }
 
-// A device -> select option: value is the device_id the source records; the label carries
+// A device -> select option: prefer device_id, then another stable manifest identifier; the label carries
 // name/interface/address so the user can tell the cold-driver items apart.
 function coldDriverOption(device: any): { value: string; label: string } {
-  const id = String(device?.device_id ?? "");
+  const id = String(device?.device_id || device?.name || device?.driver?.driver_id || device?.driver?.package_name || "");
   const addrs = Array.isArray(device?.i2c_addresses) ? device.i2c_addresses.join("/") : "";
   const detail = [device?.interface, addrs].filter(Boolean).join(" ");
   const label = [device?.name ?? id, detail ? `(${detail})` : ""].filter(Boolean).join(" ");

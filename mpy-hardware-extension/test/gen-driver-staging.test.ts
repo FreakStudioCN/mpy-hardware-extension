@@ -75,6 +75,12 @@ test("stageGenDriverSources rejects a source whose file no longer matches the pi
     const src0 = fileSource("swapped.pdf", src, sha256(Buffer.from("ORIGINAL"))); // ...the sha256 captured at pick time
     // Mutation: drop the sha256 re-hash check -> an arbitrary swapped host file stages silently.
     await assert.rejects(() => stageGenDriverSources([src0], project), /integrity check/);
+    const stagedName = src0.sha256!.slice(0, 12) + "-swapped.pdf";
+    await assert.rejects(
+      () => stat(join(project, "gen-driver", "input", stagedName)),
+      /ENOENT/,
+      "unverified bytes must never be left in the project staging tree",
+    );
   } finally { await cleanup(); }
 });
 

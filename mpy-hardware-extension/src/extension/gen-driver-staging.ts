@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, copyFile, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { GenDriverSource } from "../core/gen-driver-schema.ts";
@@ -23,10 +23,6 @@ function pickedFileEntry(metadata: unknown): PickedFile | null {
     }
   }
   return null;
-}
-
-async function sha256File(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
 // Rewrite the picked-file descriptor in metadata so it no longer carries the absolute HOST path (which
@@ -69,6 +65,15 @@ export async function stageGenDriverSources(
     if (!/^[0-9a-f]{64}$/.test(source.sha256)) {
       throw new Error(`gen-driver source "${file.name}" has a malformed sha256`);
     }
+    // Read once and verify these exact bytes before creating anything in the project. Hashing a copied
+    // destination would reject swapped input only after unverified host-file bytes were left in staging.
+    const bytes = await readFile(file.path);
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    if (actual !== source.sha256) {
+      throw new Error(
+        "gen-driver source \"" + file.name + "\" failed integrity check: picked sha256 " + source.sha256 + ", staged " + actual,
+      );
+    }
     if (!ensuredDir) {
       await mkdir(destDir, { recursive: true });
       ensuredDir = true;
@@ -79,11 +84,7 @@ export async function stageGenDriverSources(
     // sha256 so distinct content gets distinct names; identical content collapses to one file (idempotent).
     const stagedName = `${source.sha256.slice(0, 12)}-${file.name}`;
     const dest = join(destDir, stagedName);
-    await copyFile(file.path, dest);
-    const actual = await sha256File(dest);
-    if (actual !== source.sha256) {
-      throw new Error(`gen-driver source "${file.name}" failed integrity check: picked sha256 ${source.sha256}, staged ${actual}`);
-    }
+    await writeFile(dest, bytes);
     const artifactPath = `${STAGE_DIR}/${stagedName}`;
     staged.push({ ...source, artifact_path: artifactPath, metadata: withStagedFilePath(source.metadata, file, artifactPath) });
   }
