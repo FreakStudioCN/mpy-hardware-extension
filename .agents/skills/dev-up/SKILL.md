@@ -70,7 +70,8 @@ F5 是用户的 GUI 动作，我做不了——但我先把会让 F5 失败的�
    ```powershell
    npm run build   # cwd: mpy-hardware-extension
    ```
-2. build 通过后，把以下步骤**原样交给用户**（这几条正是常见踩坑点）：
+2. **把扩展指到本地后端**：`mpyhw.apiBaseUrl` 现在是 `scope: machine`（安全加固：挡恶意工作区改后端），**工作区 `.vscode/settings.json` 已不再能覆盖它**——本地开发唯一的开关是 `MPYHW_API_BASE` 环境变量。往 [`.vscode/launch.json`](../../.vscode/launch.json) 的 "Run Blockless Extension (dev)" 配置里写 `"env": { "MPYHW_API_BASE": "http://127.0.0.1:8787" }`（F5 dev host 会带上它）。**没有这行，F5 起来的面板会连默认云端而不是本地 8787**。这行是本地开关、别 commit。
+3. build 通过后，把以下步骤**原样交给用户**（这几条正是常见踩坑点）：
    - 用 VS Code 打开**仓库根目录**（不是 `mpy-hardware-extension/` 子文件夹）。F5 配置 `.vscode/launch.json` 在根，打开子文件夹会让 F5 静默没反应——**这是最常见的"dev 模式起不来"原因**。
    - 按 **F5**（或 Run → Start Debugging → "Run Blockless Extension (dev)"）。
    - 会**新开一个标题带 [Extension Development Host] 的窗口**——Blockless 图标在**那个新窗口**的活动栏里，不在原窗口。
@@ -102,6 +103,7 @@ code --install-extension "build/mpy-hardware-extension-$v.vsix" --force
 | F5 没反应/没开新窗口 | 打开的是子文件夹，不是仓库根 | 用根目录重开，再 F5 |
 | 新窗口里找不到 Blockless | 看错窗口了 | 看标题带 [Extension Development Host] 的那个 |
 | 面板板卡/配额加载不出 | API 没起或没健康 | 重跑 Phase 1–2，确认 health=ok |
+| 面板连的是云端不是本地 8787 | launch.json 没写 `env.MPYHW_API_BASE`（machine-scope 后工作区 settings 已失效） | 按 Phase 3 步骤 2 加那行 env，重启 dev host |
 | 重装后扩展还是旧版 | 没 bump version，或只 Reload 没全退 | bump→package→install→**完全重启** VS Code |
 | 前端改了没生效（已装版） | vsix 是冻结快照 | 重新 `npm run package` 再装；或改用 f5 模式实时迭代 |
 | API health 30s 不 ok | DATABASE_URL 连不上 PG / 缺 DeepSeek key | 抓后台 uvicorn 输出；或加 stub 参数先桩跑 |

@@ -1,16 +1,16 @@
 ---
 name: diagnose-cloud-session
-description: 用户报告 Blockless 扩展在云端实测时出问题（卡死/灰屏/跳步/构建失败），但本地复现不了、日志不在本地文件里时，用这个从云端 Render 数据库拉真实 session 定位症状与根因 / Use when a user reports an in-product Blockless bug from live cloud-backend testing and the real session data lives in the Render Postgres (telemetry_events / llm_turns / sessions), not in local files. Triggers — "查数据库找症状", "去看真实log", session 卡死/awaiting_user, 搜索驱动卡住, 审批卡片灰屏, repair_exhausted, 只能靠 trace_id / admin 接口排障.
+description: 用户报告 Blockless 扩展在云端实测时出问题（卡死/灰屏/跳步/构建失败），但本地复现不了、日志不在本地文件里时，用这个从云端托管数据库拉真实 session 定位症状与根因 / Use when a user reports an in-product Blockless bug from live cloud-backend testing and the real session data lives in the hosted Postgres (telemetry_events / llm_turns / sessions), not in local files. Triggers — "查数据库找症状", "去看真实log", session 卡死/awaiting_user, 搜索驱动卡住, 审批卡片灰屏, repair_exhausted, 只能靠 trace_id / admin 接口排障.
 argument-hint: "[N most-recent | trace-id]"
 ---
 
 # diagnose-cloud-session — 从云端库给实测 session 验尸
 
-线上实测（扩展连 `https://blockless.upypi.net`）的 session 事件经 `CloudTelemetryRecorder` 进了 **Render Postgres `blockless-db`**，不在本地。排障入口是这个库的 `sessions` / `telemetry_events` / `llm_turns` 三张表（schema 见 [mpyhw-api/app/db.py](../../../mpyhw-api/app/db.py)）。
+线上实测（扩展连 `https://blockless.upypi.net`）的 session 事件经 `CloudTelemetryRecorder` 进了**云端托管 Postgres（`blockless-db`）**，不在本地。排障入口是这个库的 `sessions` / `telemetry_events` / `llm_turns` 三张表（schema 见 [mpyhw-api/app/db.py](../../../mpyhw-api/app/db.py)）。
 
 ## 凭据（只读，绝不写生产库）
 
-生产库连接串是 Render 上的密钥（`render.yaml` 里 `sync:false`），**不在仓库**。本地 `mpyhw-api/.env` 的 `DATABASE_URL` 是本地 docker 库（127.0.0.1:55432），**不是这个**。把 Render → blockless-db → External Connection String 写进 `mpyhw-api/.env` 一行 `PROD_DATABASE_URL=...`（`.env` 已 gitignore，别贴进聊天、别 echo 连接串）。只跑 `SELECT`，永不 INSERT/UPDATE/DELETE 生产。
+生产库连接串是线上密钥，**不在仓库**（也不在任何提交进 git 的部署配置里）。本地 `mpyhw-api/.env` 的 `DATABASE_URL` 是本地 docker 库（127.0.0.1:55432），**不是这个**。从托管数据库控制台复制生产库的 External Connection String，写进 `mpyhw-api/.env` 一行 `PROD_DATABASE_URL=...`（`.env` 已 gitignore，别贴进聊天、别 echo 连接串）。只跑 `SELECT`，永不 INSERT/UPDATE/DELETE 生产。
 
 ## 步骤
 

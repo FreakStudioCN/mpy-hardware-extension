@@ -174,7 +174,7 @@ With Claude Code, just run `/cloud-test` (defined in `.claude/skills/cloud-test/
 /cloud-test restore    # switch back to local 127.0.0.1:8787 when you are done
 ```
 
-Manual equivalent: point the VS Code setting `mpyhw.apiBaseUrl` at the cloud address (`.vscode/settings.json` is gitignored, so editing it is a purely local change that does not enter git), then F5 or reinstall the extension.
+Manual equivalent: the cloud is already the default, so just make sure no local override points elsewhere — for F5, clear any `MPYHW_API_BASE` in `.vscode/launch.json`'s `env`; for an installed VSIX, unset the `MPYHW_API_BASE` env var (and any User-level `mpyhw.apiBaseUrl`). (`mpyhw.apiBaseUrl` is `scope: machine`, so a workspace `.vscode/settings.json` no longer overrides it.)
 
 `/cloud-test` probes the cloud `/v1/health` before starting a session and diffs the cloud `/v1/tools` against the local `contracts/canonical_tools.json`, heading off two common errors: an unreachable backend ("Cannot reach the auth API") and tool-contract drift ("tool_registry_mismatch").
 
@@ -445,7 +445,7 @@ python -m venv .venv
 /cloud-test restore    # 测完一键切回本地 127.0.0.1:8787
 ```
 
-手动等价操作：把 VS Code 设置 `mpyhw.apiBaseUrl` 指向云端地址即可（`.vscode/settings.json` 已 gitignore，改它是纯本地操作，不进 git），然后 F5 或重装扩展。
+手动等价操作：云端本就是默认地址，确保没有本地覆盖即可——F5 就清掉 `.vscode/launch.json` 里 `env` 的 `MPYHW_API_BASE`；装机版就 unset `MPYHW_API_BASE` 环境变量（及 User 级 `mpyhw.apiBaseUrl`）。（`mpyhw.apiBaseUrl` 现为 `scope: machine`，工作区 `.vscode/settings.json` 已不再能覆盖它。）
 
 `/cloud-test` 会在开会话前先探活云端 `/v1/health`、并比对云端 `/v1/tools` 与本地 `contracts/canonical_tools.json`，提前挡掉两个常见错误：后端不可达（“Cannot reach the auth API”）和工具契约漂移（“tool_registry_mismatch”）。
 
