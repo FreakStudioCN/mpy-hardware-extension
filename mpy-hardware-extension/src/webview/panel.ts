@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -1236,7 +1236,7 @@ function makeWorkspaceLister(workspaceFolder?: string) {
         if (name === ".git" || name === "node_modules") continue;
         const full = join(dir, name);
         const rel = full.slice(root.length + 1).split(sep).join("/");
-        if (statSync(full).isDirectory()) { entries.push(rel + "/"); walk(full); }
+        if (lstatSync(full).isDirectory()) { entries.push(rel + "/"); walk(full); } // lstat: a symlinked dir lists as a leaf, never followed (P1-C: no external-name leak / symlink-loop recursion)
         else entries.push(rel);
       }
     };

@@ -568,10 +568,10 @@ npm run package
 
 ### 9.5 云端后端验收：验证发布环境可用
 
-如果目标是用线上 Render 后端测本地插件，使用本仓库 `cloud-test` skill。它会把扩展的 `mpyhw.apiBaseUrl` 指到：
+如果目标是用线上后端测本地插件，使用本仓库 `cloud-test` skill。云端就是扩展默认后端（`mpyhw.apiBaseUrl` 现为 `scope: machine`，本地开关改用 `MPYHW_API_BASE`／`launch.json` 的 `env`，不再靠工作区 `.vscode/settings.json`）。它确保没有本地覆盖并探活：
 
 ```text
-https://blockless-api.onrender.com
+https://blockless.upypi.net
 ```
 
 并检查：
@@ -595,7 +595,7 @@ https://blockless-api.onrender.com
 | `panel.ts` message routing | `test/webview-panel.test.ts`, `npm test` | 否 | 建议手工 | 否 |
 | `index.html` approval/deploy UI | `test/webview-dom.test.ts`, `test/webview-panel.test.ts` | 否 | 建议手工 | 否 |
 | `device-shim.ts` 或 shim RPC | `test/device-shim.test.ts`, `test/shim-process.test.ts` | 否 | 建议 | 最好有 |
-| 发布前 | `npm test`, `npm run typecheck`, `npm run package`, Render health/tools | 否 | 是 | 可选 |
+| 发布前 | `npm test`, `npm run typecheck`, `npm run package`, 线上 health/tools | 否 | 是 | 可选 |
 
 ## 11. 常见失败怎么定位
 

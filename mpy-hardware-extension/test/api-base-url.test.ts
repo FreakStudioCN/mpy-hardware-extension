@@ -78,6 +78,17 @@ test("loopback http is allowed for local dev (setting and env)", () => {
   });
 });
 
+test("IPv6 loopback http ([::1]) is allowed for local dev", () => {
+  // WHATWG URL yields hostname "[::1]" (bracketed) for http://[::1]:8787 — the allowlist
+  // must accept that form, or the documented IPv6 loopback dev URL silently hits cloud.
+  withEnv("http://[::1]:8787", () => {
+    assert.equal(resolveApiBaseUrl(vscodeWith(undefined), undefined), "http://[::1]:8787");
+  });
+  withEnv(undefined, () => {
+    assert.equal(resolveApiBaseUrl(vscodeWith("http://[::1]:8787"), undefined), "http://[::1]:8787");
+  });
+});
+
 test("an https override to a self-hosted backend is allowed", () => {
   withEnv(undefined, () => {
     assert.equal(resolveApiBaseUrl(vscodeWith("https://my-backend.example.com/"), undefined), "https://my-backend.example.com");

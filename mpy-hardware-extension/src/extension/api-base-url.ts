@@ -22,7 +22,9 @@ function isAllowedBackend(raw: string): boolean {
   try { u = new URL(raw); } catch { return false; }
   if (u.protocol === "https:") return true;
   if (u.protocol === "http:") {
-    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+    // WHATWG URL brackets an IPv6 host, so `http://[::1]:8787` yields hostname "[::1]"
+    // (never a bare "::1"); accept both forms so the documented IPv6 loopback dev URL works.
+    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1" || u.hostname === "[::1]";
   }
   return false;
 }

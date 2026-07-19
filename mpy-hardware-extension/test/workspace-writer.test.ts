@@ -39,6 +39,60 @@ test("isRealContained refuses a path that escapes via a symlinked directory (P1-
   }
 });
 
+test("isRealContained allows a not-yet-created root under a symlink-opened workspace (P1-C #3)", (t) => {
+  // Regression: when the workspace is opened through a symlink/junction AND the project
+  // root does not exist yet, a lexical root vs a realpathed target used to falsely report
+  // "outside" and break the very first scaffold write. Both sides must resolve consistently.
+  const base = mkdtempSync(join(tmpdir(), "mpyhw-symroot-"));
+  try {
+    const physical = join(base, "physical");
+    mkdirSync(physical);
+    const opened = join(base, "opened"); // symlink standing in for a symlink-opened workspace
+    try {
+      symlinkSync(physical, opened, "dir");
+    } catch {
+      t.skip("symlink creation requires privilege on this platform");
+      return;
+    }
+    const root = join(opened, "blockless-project"); // does NOT exist yet
+    assert.equal(isRealContained(root, join(root, "main.py")), true);
+    assert.equal(isRealContained(root, root), true);
+    // A real escape from that same symlinked root is still refused.
+    assert.equal(isRealContained(root, join(root, "..", "..", "outside.py")), false);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("batch writeGeneratedFiles refuses a write through a pre-existing symlinked dir (P1-C #2)", async (t) => {
+  const base = mkdtempSync(join(tmpdir(), "mpyhw-batchln-"));
+  try {
+    const root = join(base, "project");
+    const secret = join(base, "secret");
+    mkdirSync(root);
+    mkdirSync(secret);
+    try {
+      symlinkSync(secret, join(root, "lib"), "dir"); // `lib` redirects outside the project
+    } catch {
+      t.skip("symlink creation requires privilege on this platform");
+      return;
+    }
+    let wrote = false;
+    const result = await writeGeneratedFiles({
+      workspaceFolder: root,
+      files: { "lib/evil.py": "x" },
+      exists: async () => false,
+      writeFile: async () => { wrote = true; },
+      confirmOverwrite: async () => true,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error_kind, "invalid_generated_path");
+    assert.equal(wrote, false); // rejected before ever reaching the injected writer
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("workspace writer plans main.py and manifest.json in selected workspace", () => {
   const plan = planWorkspaceWrites({ workspaceFolder: "C:/project", files: { "main.py": "print(1)", "manifest.json": "{}" } });
 

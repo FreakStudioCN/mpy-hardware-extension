@@ -1,27 +1,41 @@
 import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
-// Real-path containment (security P1-C). The lexical resolve()+startsWith checks used by the
-// reader / writer / lister / deleter catch `..` but NOT symlinks: a symlink placed under the
-// project root (by a workspace the user opened) can redirect a model-driven read/write/delete
-// outside the root. Resolve the real path of the target's nearest EXISTING ancestor (following
-// symlinks) and re-append the not-yet-created tail, then confirm it stays within the real root.
-// Returns true for the root itself and anything inside it. Falls back to the lexical resolve
-// when realpath is unavailable (headless/edge), never throwing.
-export function isRealContained(root: string, target: string): boolean {
-  let realRoot: string;
-  try { realRoot = realpathSync(resolve(root)); } catch { realRoot = resolve(root); }
-  let existing = resolve(target);
+// Resolve p to its real (symlink-followed) absolute path, tolerating a not-yet-created
+// tail: realpath the nearest EXISTING ancestor, then re-append the missing segments.
+// Returns null only if nothing along the chain exists (walked past the fs root) or realpath
+// fails — the caller treats that as "not contained" rather than falling back to a lexical
+// path, so a half-resolved comparison can't be mistaken for containment.
+function realResolve(p: string): string | null {
+  let existing = resolve(p);
   const tail: string[] = [];
   while (!existsSync(existing)) {
     const parent = dirname(existing);
-    if (parent === existing) return false; // walked past the fs root with nothing existing
+    if (parent === existing) return null; // walked past the fs root with nothing existing
     tail.unshift(basename(existing));
     existing = parent;
   }
-  let realExisting: string;
-  try { realExisting = realpathSync(existing); } catch { return false; }
-  const realTarget = tail.length ? join(realExisting, ...tail) : realExisting;
+  try {
+    const real = realpathSync(existing);
+    return tail.length ? join(real, ...tail) : real;
+  } catch {
+    return null;
+  }
+}
+
+// Real-path containment (security P1-C). The lexical resolve()+startsWith checks used by the
+// reader / writer / lister / deleter catch `..` but NOT symlinks: a symlink placed under the
+// project root (by a workspace the user opened) can redirect a model-driven read/write/delete
+// outside the root. Resolve BOTH root and target through realResolve (nearest existing
+// ancestor, symlinks followed) so a symlink anywhere in their shared prefix — e.g. a
+// symlink/junction-opened workspace whose project root does not exist YET — is normalized
+// consistently on both sides; a lexical root vs a realpathed target would otherwise falsely
+// report "outside" and break the initial scaffold. Returns true for the root itself and
+// anything inside it.
+export function isRealContained(root: string, target: string): boolean {
+  const realRoot = realResolve(root);
+  const realTarget = realResolve(target);
+  if (realRoot === null || realTarget === null) return false;
   return realTarget === realRoot || realTarget.startsWith(realRoot + sep);
 }
 
@@ -93,6 +107,12 @@ export async function writeGeneratedFiles(input: {
       return { ok: false, error_kind: "invalid_generated_path", path: name };
     }
     const item = { path: joinPath(root, safeName), content };
+    // Symlink containment (P1-C): normalizeGeneratedArtifactPath already rejects `..`/absolute,
+    // but a pre-existing symlinked dir under root (e.g. `lib`) could still redirect this batch
+    // write outside the project — refuse via real-path containment, same as writeProjectFile.
+    if (!isRealContained(root, item.path)) {
+      return { ok: false, error_kind: "invalid_generated_path", path: name };
+    }
     if (await input.exists(item.path) && !await input.confirmOverwrite(item.path)) {
       return { ok: false, error_kind: "overwrite_rejected", path: item.path };
     }

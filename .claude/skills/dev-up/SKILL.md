@@ -70,7 +70,7 @@ F5 是用户的 GUI 动作，我做不了——但我先把会让 F5 失败的�
    ```powershell
    npm run build   # cwd: mpy-hardware-extension
    ```
-2. **把扩展指到本地后端**：`mpyhw.apiBaseUrl` 现在是 `scope: machine`（安全加固：挡恶意工作区改后端），**工作区 `.vscode/settings.json` 已不再能覆盖它**——本地开发唯一的开关是 `MPYHW_API_BASE` 环境变量。往 [`.vscode/launch.json`](../../.vscode/launch.json) 的 "Run Blockless Extension (dev)" 配置里写 `"env": { "MPYHW_API_BASE": "http://127.0.0.1:8787" }`（F5 dev host 会带上它）。**没有这行，F5 起来的面板会连默认云端而不是本地 8787**。这行是本地开关、别 commit。
+2. **把扩展指到本地后端**：`mpyhw.apiBaseUrl` 现在是 `scope: machine`（安全加固：挡恶意工作区改后端），**工作区 `.vscode/settings.json` 已不再能覆盖它**——本地开发唯一的开关是 `MPYHW_API_BASE` 环境变量。往 [`.vscode/launch.json`](../../../.vscode/launch.json) 的 "Run Blockless Extension (dev)" 配置里写 `"env": { "MPYHW_API_BASE": "http://127.0.0.1:8787" }`（F5 dev host 会带上它）。**没有这行，F5 起来的面板会连默认云端而不是本地 8787**。这行是本地开关、别 commit。⚠️ 顺带确认 **User 级** settings 里没有 `mpyhw.apiBaseUrl`——`resolveApiBaseUrl` 的优先级是 **setting > env**，残留一条 User 级设置会盖过这个 env，让 dev host 静默连到那个地址而不是本地。
 3. build 通过后，把以下步骤**原样交给用户**（这几条正是常见踩坑点）：
    - 用 VS Code 打开**仓库根目录**（不是 `mpy-hardware-extension/` 子文件夹）。F5 配置 `.vscode/launch.json` 在根，打开子文件夹会让 F5 静默没反应——**这是最常见的"dev 模式起不来"原因**。
    - 按 **F5**（或 Run → Start Debugging → "Run Blockless Extension (dev)"）。
