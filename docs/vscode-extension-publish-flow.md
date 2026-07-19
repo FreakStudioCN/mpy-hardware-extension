@@ -57,7 +57,7 @@ mpy-hardware-extension/src/extension/api-base-url.ts
 发布前确认默认值是线上地址，例如：
 
 ```text
-https://blockless-api.onrender.com
+https://blockless.upypi.net
 ```
 
 > 不想长期持有 token、要团队 CI 一键发布、想做到“云端零 secret”？那是另一条
@@ -111,10 +111,10 @@ git submodule update --init --recursive
 然后确认后端可用：
 
 ```powershell
-Invoke-RestMethod https://blockless-api.onrender.com/v1/health
-Invoke-RestMethod https://blockless-api.onrender.com/v1/health/ready
-Invoke-RestMethod https://blockless-api.onrender.com/v1/boards
-Invoke-RestMethod https://blockless-api.onrender.com/v1/skills
+Invoke-RestMethod https://blockless.upypi.net/v1/health
+Invoke-RestMethod https://blockless.upypi.net/v1/health/ready
+Invoke-RestMethod https://blockless.upypi.net/v1/boards
+Invoke-RestMethod https://blockless.upypi.net/v1/skills
 ```
 
 进入扩展目录：

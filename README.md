@@ -164,7 +164,7 @@ Only when you need to verify the "installed artifact" or distribute externally d
 
 ## Test against the cloud backend (no local backend)
 
-When you only want to verify the "local extension × deployed cloud backend" path, you do not need Docker/Postgres/a local backend. The extension's backend address is set by the `mpyhw.apiBaseUrl` setting (then the `MPYHW_API_BASE` env var), and defaults to the hosted address `https://blockless-api.onrender.com`.
+When you only want to verify the "local extension × deployed cloud backend" path, you do not need Docker/Postgres/a local backend. The extension's backend address is set by the `mpyhw.apiBaseUrl` setting (then the `MPYHW_API_BASE` env var), and defaults to the hosted address `https://blockless.upypi.net`.
 
 With Claude Code, just run `/cloud-test` (defined in `.claude/skills/cloud-test/`):
 
@@ -198,7 +198,7 @@ npm run package
 The hosted backend the extension connects to by default is:
 
 ```text
-https://blockless-api.onrender.com
+https://blockless.upypi.net
 ```
 
 > This hosted backend is live (see `mpyhw-api/DEPLOY.md`); after installing the VSIX it connects there by default, and you can verify "local extension × cloud backend" in one step with `/cloud-test`. To point it at a locally-run backend instead, override the VS Code setting `mpyhw.apiBaseUrl`, or set an env var:
@@ -435,7 +435,7 @@ python -m venv .venv
 
 ## 连云端后端测试（不起本地后端）
 
-只想验证「本地扩展 × 已部署的云端后端」这条线时，不必起 Docker/Postgres/本地后端。扩展的后端地址由 `mpyhw.apiBaseUrl` 设置（其次是 `MPYHW_API_BASE` 环境变量）决定，默认就是托管地址 `https://blockless-api.onrender.com`。
+只想验证「本地扩展 × 已部署的云端后端」这条线时，不必起 Docker/Postgres/本地后端。扩展的后端地址由 `mpyhw.apiBaseUrl` 设置（其次是 `MPYHW_API_BASE` 环境变量）决定，默认就是托管地址 `https://blockless.upypi.net`。
 
 用 Claude Code 时直接调 `/cloud-test`（定义在 `.claude/skills/cloud-test/`）：
 
@@ -469,7 +469,7 @@ npm run package
 扩展代码里默认连接的托管后端地址是：
 
 ```text
-https://blockless-api.onrender.com
+https://blockless.upypi.net
 ```
 
 > 该托管后端已部署上线（见 `mpyhw-api/DEPLOY.md`）；安装 VSIX 后默认即连它，也可用 `/cloud-test` 一键验证「本地扩展 × 云端后端」。如果想改连本地自起的后端，用 VS Code 设置 `mpyhw.apiBaseUrl` 覆盖，或设置环境变量：

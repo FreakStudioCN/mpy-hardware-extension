@@ -13,7 +13,7 @@ argument-hint: "[check|local|tag]"
 
 一次性账号/PAT 准备（建 PAT、加 GitHub secret）见 [docs/vscode-extension-publish-flow.md](../../../docs/vscode-extension-publish-flow.md)，本 skill 不重复。
 
-固定事实：publisher=`blockless`、扩展名=`mpy-hardware-extension`、线上后端=`https://blockless-api.onrender.com`。
+固定事实：publisher=`blockless`、扩展名=`mpy-hardware-extension`、线上后端=`https://blockless.upypi.net`。
 
 ## 解析参数（默认 `check`）
 
@@ -32,17 +32,17 @@ argument-hint: "[check|local|tag]"
 git submodule status        # 行首是空格=已初始化；是 - 则先 git submodule update --init --recursive
 ```
 
-**② Render 后端活着 + 指向线上**（有界重试，Render 首调可能热身慢）：
+**② 后端活着 + 指向线上**（有界重试，首调可能冷启动慢）：
 ```powershell
-$base = "https://blockless-api.onrender.com"
+$base = "https://blockless.upypi.net"
 $ok=$false
 for($i=0;$i -lt 12;$i++){ try{ if((Invoke-RestMethod "$base/v1/health" -TimeoutSec 10).status -eq 'ok'){$ok=$true;break} }catch{}; Start-Sleep 5 }
-if(-not $ok){ "后端 60s 内不健康——别发，先去 Render 看服务"; return }
+if(-not $ok){ "后端 60s 内不健康——别发，先去服务器看容器（docker compose ps / 日志）"; return }
 $r=Invoke-RestMethod "$base/v1/health/ready" -TimeoutSec 10   # 期望 {status:ok, db:ok}
 $b=(@((Invoke-RestMethod "$base/v1/boards").builtin)).Count
 "health ok; ready=$($r.status)/db=$($r.db); boards=$b"
 ```
-再确认默认后端就是线上（**不能是 127.0.0.1**，否则用户装上连不到后端）：`DEFAULT_API_BASE_URL` 在 [api-base-url.ts](../../../mpy-hardware-extension/src/extension/api-base-url.ts) 应为 `https://blockless-api.onrender.com`。
+再确认默认后端就是线上（**不能是 127.0.0.1**，否则用户装上连不到后端）：`DEFAULT_API_BASE_URL` 在 [api-base-url.ts](../../../mpy-hardware-extension/src/extension/api-base-url.ts) 应为 `https://blockless.upypi.net`。
 
 **③ typecheck + 测试 + 打包**（这三条从仓库根用 `--prefix` 跑，免 cd）：
 ```powershell
@@ -106,7 +106,7 @@ https://marketplace.visualstudio.com/items?itemName=blockless.mpy-hardware-exten
 
 | 症状 | 多半原因 | 处理 |
 |------|----------|------|
-| 后端 60s 不健康 | Render 没 live / 热身 / 网络 | 重跑 Phase 1②；去 Render 看服务；**别发** |
+| 后端 60s 不健康 | 服务器没 live / 冷启动 / 网络 | 重跑 Phase 1②；去服务器看容器（`docker compose ps` / 日志）；**别发** |
 | `npm test` 挂 deploy 几条 | 已知跨模块全局态 flaky | 重跑一次；单跑 `agent-backed-loop.test.ts` 验证 |
 | 1 个 test skip | e2e 需本地 Postgres+Python，没起 | 正常，不是失败；CI 里才真跑 |
 | package 报缺工具链/schema | 子模块没拉全 | `git submodule update --init --recursive` 再打包 |

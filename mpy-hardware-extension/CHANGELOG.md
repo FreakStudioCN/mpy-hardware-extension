@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Point the default backend at the new hosted address (`blockless.upypi.net`); the previous default host was retired.
+
 ## 0.4.0
 
 - 6 boards with full pin-aware profiles (was 3): + ESP32 DevKit V1, Raspberry Pi Pico, ESP8266 NodeMCU.

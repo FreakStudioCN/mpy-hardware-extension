@@ -6,7 +6,7 @@ argument-hint: "[N most-recent | trace-id]"
 
 # diagnose-cloud-session — 从云端库给实测 session 验尸
 
-线上实测（扩展连 `https://blockless-api.onrender.com`）的 session 事件经 `CloudTelemetryRecorder` 进了 **Render Postgres `blockless-db`**，不在本地。排障入口是这个库的 `sessions` / `telemetry_events` / `llm_turns` 三张表（schema 见 [mpyhw-api/app/db.py](../../../mpyhw-api/app/db.py)）。
+线上实测（扩展连 `https://blockless.upypi.net`）的 session 事件经 `CloudTelemetryRecorder` 进了 **Render Postgres `blockless-db`**，不在本地。排障入口是这个库的 `sessions` / `telemetry_events` / `llm_turns` 三张表（schema 见 [mpyhw-api/app/db.py](../../../mpyhw-api/app/db.py)）。
 
 ## 凭据（只读，绝不写生产库）
 
@@ -25,7 +25,7 @@ python <skill>/db_events.py .env PROD_DATABASE_URL <trace_id> [<trace_id> ...]
 ```
 
 按 trace_id 取整条也可用 admin 接口（无需直连库，但**没有"列出 session"的接口**，必须先有 trace_id）：
-`curl -H "X-Admin-Token: $MPYHW_ADMIN_TOKEN" https://blockless-api.onrender.com/v1/admin/sessions/<trace_id>`（token 在 `.env`；与生产不一致就找维护者要生产值）。
+`curl -H "X-Admin-Token: $MPYHW_ADMIN_TOKEN" https://blockless.upypi.net/v1/admin/sessions/<trace_id>`（token 在 `.env`；与生产不一致就找维护者要生产值）。
 
 ## 判读语义（踩过的坑，最值钱的部分）
 

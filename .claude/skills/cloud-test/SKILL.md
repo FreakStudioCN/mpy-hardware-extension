@@ -1,14 +1,14 @@
 ---
 name: cloud-test
-description: 用本地前端插件连云端后端做端到端测试 / test the local VS Code extension against the deployed Render backend. 把扩展的 mpyhw.apiBaseUrl 指到 https://blockless-api.onrender.com（而不是本地 127.0.0.1:8787），探活云端 /v1/health 与 /v1/tools（顺带挡掉本会话踩过的 "Cannot reach the auth API" 与 "protocol_version_mismatch" 两个坑），再按模式加载扩展。参数 f5(默认) 或 reinstall；restore 一键切回本地。不需要 Docker/Postgres/本地 DeepSeek key。
+description: 用本地前端插件连云端后端做端到端测试 / test the local VS Code extension against the deployed Render backend. 把扩展的 mpyhw.apiBaseUrl 指到 https://blockless.upypi.net（而不是本地 127.0.0.1:8787），探活云端 /v1/health 与 /v1/tools（顺带挡掉本会话踩过的 "Cannot reach the auth API" 与 "protocol_version_mismatch" 两个坑），再按模式加载扩展。参数 f5(默认) 或 reinstall；restore 一键切回本地。不需要 Docker/Postgres/本地 DeepSeek key。
 argument-hint: "[f5|reinstall|restore]"
 ---
 
 # cloud-test — 本地前端 × 云端后端
 
-跟 [dev-up](../dev-up/SKILL.md) 相反：**不起任何本地后端**（不碰 Docker / Postgres / uvicorn / 本地 DeepSeek key），只把**本地的 VS Code 扩展**指到已经部署在 Render 上的后端 `https://blockless-api.onrender.com`，然后真用 UI 跑一遍，验证云端这条线端到端通。
+跟 [dev-up](../dev-up/SKILL.md) 相反：**不起任何本地后端**（不碰 Docker / Postgres / uvicorn / 本地 DeepSeek key），只把**本地的 VS Code 扩展**指到已经部署在 Render 上的后端 `https://blockless.upypi.net`，然后真用 UI 跑一遍，验证云端这条线端到端通。
 
-为什么单独做这个：扩展的后端地址由 `resolveApiBaseUrl` 决定，优先级是 **setting > env > 默认**，而[默认值本身就是云端](../../../mpy-hardware-extension/src/extension/api-base-url.ts) (`DEFAULT_API_BASE_URL = https://blockless-api.onrender.com`)。本地 `.vscode/settings.json` 里把 `mpyhw.apiBaseUrl` 钉死成了 `http://127.0.0.1:8787`，它会赢过默认。所以"测云端"=临时把这一个设置切到云端、测完切回来。`.vscode/` 已 gitignore，**改它是纯本地操作，不进 git、不会留 diff**。
+为什么单独做这个：扩展的后端地址由 `resolveApiBaseUrl` 决定，优先级是 **setting > env > 默认**，而[默认值本身就是云端](../../../mpy-hardware-extension/src/extension/api-base-url.ts) (`DEFAULT_API_BASE_URL = https://blockless.upypi.net`)。本地 `.vscode/settings.json` 里把 `mpyhw.apiBaseUrl` 钉死成了 `http://127.0.0.1:8787`，它会赢过默认。所以"测云端"=临时把这一个设置切到云端、测完切回来。`.vscode/` 已 gitignore，**改它是纯本地操作，不进 git、不会留 diff**。
 
 ## 解析参数（默认 `f5`）
 
@@ -16,7 +16,7 @@ argument-hint: "[f5|reinstall|restore]"
 - `reinstall` — 打包 vsix 重装到日常 VS Code。
 - `restore` — **不加载扩展**，只把 `mpyhw.apiBaseUrl` 切回本地 `http://127.0.0.1:8787`（测完云端回到本地开发用）。
 
-云端地址固定 `https://blockless-api.onrender.com`；要测别的环境，把下文出现的 URL 整体替换。
+云端地址固定 `https://blockless.upypi.net`；要测别的环境，把下文出现的 URL 整体替换。
 
 ---
 
@@ -33,7 +33,7 @@ argument-hint: "[f5|reinstall|restore]"
 
 1. 读 `.vscode/settings.json` 里现在的 `mpyhw.apiBaseUrl`（通常是 `http://127.0.0.1:8787`）。
 2. **先备份**：把旧值写到 sidecar `.vscode/apibase.bak`（同样 gitignore，方便精确还原）。若文件已存在就别覆盖（避免把上次的云端值当成"本地原值"）。
-3. 把 `mpyhw.apiBaseUrl` 改成 `https://blockless-api.onrender.com`。
+3. 把 `mpyhw.apiBaseUrl` 改成 `https://blockless.upypi.net`。
 4. 告诉用户：这是本地改动、不进 git；测完用 `cloud-test restore` 切回。
 
 `restore` 分支：读 `.vscode/apibase.bak`，有就还原成里面的值并删掉 sidecar；没有就直接设回 `http://127.0.0.1:8787`。然后结束（提示用户去新窗口里关掉再打开面板让设置生效）。
@@ -43,7 +43,7 @@ argument-hint: "[f5|reinstall|restore]"
 这一步专门预防本会话真实踩过的两类错误。用**有界重试**（Render starter 付费实例不睡，但部署刚完/久未访问首个请求可能慢几秒）：
 
 ```powershell
-$base = "https://blockless-api.onrender.com"
+$base = "https://blockless.upypi.net"
 $ok=$false
 for($i=0;$i -lt 12;$i++){ try{ if((Invoke-RestMethod "$base/v1/health" -TimeoutSec 10).status -eq 'ok'){$ok=$true;break} }catch{}; Start-Sleep 5 }
 if(-not $ok){ "云端 60s 内不健康——先去 Render 看服务是否 live，别急着 F5"; return }

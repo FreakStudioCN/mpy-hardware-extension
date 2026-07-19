@@ -571,7 +571,7 @@ npm run package
 如果目标是用线上 Render 后端测本地插件，使用本仓库 `cloud-test` skill。它会把扩展的 `mpyhw.apiBaseUrl` 指到：
 
 ```text
-https://blockless-api.onrender.com
+https://blockless.upypi.net
 ```
 
 并检查：
