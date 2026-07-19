@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
 // Resolve p to its real (symlink-followed) absolute path, tolerating a not-yet-created
@@ -9,9 +9,15 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 function realResolve(p: string): string | null {
   let existing = resolve(p);
   const tail: string[] = [];
-  while (!existsSync(existing)) {
+  // Walk up to the nearest existing filesystem ENTRY. lstatSync (the link itself, not its
+  // target) with throwIfNoEntry:false: a DANGLING symlink returns Stats (truthy) and stops
+  // the walk here, so it is never mistaken for an innocent not-yet-created tail — realpathSync
+  // below then throws on the dangling link and we fail closed. existsSync would instead FOLLOW
+  // the link, see its missing target, report "absent", and let a write escape through the link
+  // to its outside-root target (security P1-C, dangling-symlink case).
+  while (!lstatSync(existing, { throwIfNoEntry: false })) {
     const parent = dirname(existing);
-    if (parent === existing) return null; // walked past the fs root with nothing existing
+    if (parent === existing) return null; // walked past the fs root with nothing present
     tail.unshift(basename(existing));
     existing = parent;
   }

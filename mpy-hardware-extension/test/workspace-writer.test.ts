@@ -64,6 +64,28 @@ test("isRealContained allows a not-yet-created root under a symlink-opened works
   }
 });
 
+test("isRealContained refuses a pre-existing DANGLING symlink whose target is outside root (P1-C dangling)", (t) => {
+  // existsSync FOLLOWS a symlink, so a dangling link (target missing) reads as "absent" and
+  // would be re-appended under root as a harmless not-yet-created leaf — yet writing through
+  // it lands on the link's outside-root target. realResolve must see the link itself (lstat)
+  // and fail closed.
+  const base = mkdtempSync(join(tmpdir(), "mpyhw-dangle-"));
+  try {
+    const root = join(base, "project");
+    mkdirSync(root);
+    const outsideTarget = join(base, "outside", "main.py"); // does NOT exist -> dangling link
+    try {
+      symlinkSync(outsideTarget, join(root, "main.py"), "file");
+    } catch {
+      t.skip("symlink creation requires privilege on this platform");
+      return;
+    }
+    assert.equal(isRealContained(root, join(root, "main.py")), false);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("batch writeGeneratedFiles refuses a write through a pre-existing symlinked dir (P1-C #2)", async (t) => {
   const base = mkdtempSync(join(tmpdir(), "mpyhw-batchln-"));
   try {
