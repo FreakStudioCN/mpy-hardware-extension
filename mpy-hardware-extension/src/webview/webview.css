@@ -395,13 +395,36 @@
          composer — and the body — wider than a narrow VS Code side panel. */
       .start-controls { border-bottom: 1px solid var(--vsc-card-border); padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .mode-row, .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-      .mode-chip, .board-chip, .board-page-btn, .board-auto, .board-refresh { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
-      .mode-chip.active, .board-chip.chosen, .board-auto.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
-      /* disclosure for the collapsed board picker; caret flips when open */
-      .board-more { margin-left: auto; border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
-      .board-more::after { content: "\25be"; font-size: 9px; transition: transform .15s; }
-      .board-more.open { border-color: var(--accent); color: var(--fg); }
-      .board-more.open::after { transform: rotate(180deg); }
+      .mode-chip, .board-chip, .board-page-btn, .board-refresh { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
+      .mode-chip.active, .board-chip.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
+      /* Experience-level segmented toggle: Beginner/Custom are ONE connected control (the mode axis),
+         visually distinct from the separate board-choice buttons (Recommend board / Browse boards). */
+      .mode-toggle { display: inline-flex; }
+      /* --vsc-card-border is near-invisible on the dark sidebar; use a clearly visible gray so BOTH
+         segments read as bordered buttons (the active one overrides to accent below). */
+      .mode-toggle .mode-chip { border: 1px solid var(--fg-dim); border-radius: 0; }
+      .mode-toggle .mode-chip:first-child { border-radius: 6px 0 0 6px; }
+      .mode-toggle .mode-chip:last-child { border-radius: 0 6px 6px 0; }
+      /* Overlap the touching borders into a single line (both chips keep a full border, no double edge),
+         and lift the active chip so its accent border wraps the whole segment, including the shared edge. */
+      .mode-toggle .mode-chip + .mode-chip { margin-left: -1px; }
+      .mode-toggle .mode-chip.active { border-color: var(--accent); color: var(--fg-bright); background: #0e7aff26; position: relative; z-index: 1; }
+      /* Board-choice segmented toggle (Recommend vs Browse) — same segmented pattern as the mode toggle,
+         with an always-visible selected-board chip so the current choice is never hidden in a collapsed list. */
+      .board-toggle { display: inline-flex; }
+      .board-toggle .board-seg { border: 1px solid var(--fg-dim); border-radius: 0; background: transparent; color: var(--fg-muted); padding: 5px 8px; font-size: 11px; cursor: pointer; }
+      .board-toggle .board-seg:first-child { border-radius: 6px 0 0 6px; }
+      .board-toggle .board-seg:last-child { border-radius: 0 6px 6px 0; }
+      .board-toggle .board-seg + .board-seg { margin-left: -1px; }
+      .board-toggle .board-seg.active { border-color: var(--accent); color: var(--fg-bright); background: #0e7aff26; position: relative; z-index: 1; }
+      .board-selected { display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 8px; border: 1px solid var(--accent); border-radius: 6px; background: #0e7aff1a; font-size: 11px; color: var(--fg-bright); }
+      .board-selected-ic { color: var(--green); font-size: 11px; }
+      .board-selected-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .board-selected-clear { border: 0; background: transparent; color: var(--fg-muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
+      .board-selected-clear:hover { color: var(--fg-bright); background: #ffffff14; }
+      /* The Browse segment is a disclosure for the collapsed board picker; its caret flips when open. */
+      .board-toggle #boardMore::after { content: "\25be"; font-size: 9px; margin-left: 4px; transition: transform .15s; }
+      .board-toggle #boardMore[aria-expanded="true"]::after { transform: rotate(180deg); }
       .board-picker-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
       /* explicit display defeats the [hidden] attribute; restore it so collapse works */
       .board-picker-body[hidden] { display: none; }

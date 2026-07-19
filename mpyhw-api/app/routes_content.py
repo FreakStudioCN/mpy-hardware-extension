@@ -76,6 +76,11 @@ def _local_board_ids() -> set[str]:
     return ids
 
 
+def _skill_board_ids() -> set[str]:
+    boards_dir = ROOT.parent / "third_party" / "MicroPython_Skills" / "upy-analyze-plugin" / "boards"
+    return {path.stem for path in boards_dir.glob("*.json") if not path.name.startswith("_")}
+
+
 def _port_from_board(board: dict) -> str:
     source = str(board.get("source_url") or "")
     match = re.search(r"/ports/([^/]+)/boards/", source)
@@ -111,19 +116,31 @@ def _mcu_from_board(board: dict, port: str) -> str:
     return port
 
 
-def _official_board_entry(board: dict, *, local_ids: set[str], source_url: str) -> dict:
+def _slug_to_skill_board_id(slug: str) -> str:
+    # Every official MicroPython board's Skill board id is a pure transform of its download slug
+    # (verified: id == slug.lower().replace("_","-") for all 222 boards at Skill bc1769e). The only
+    # exceptions are the curated builtin dev-boards, handled via _OFFICIAL_BOARD_MAPPINGS below.
+    return slug.lower().replace("_", "-")
+
+
+def _official_board_entry(board: dict, *, local_ids: set[str], skill_ids: set[str], source_url: str) -> dict:
     slug = str(board.get("slug") or "").strip()
     port = _port_from_board(board)
     mapping = _OFFICIAL_BOARD_MAPPINGS.get(slug, {})
     local_board_id = mapping.get("local_board_id")
     has_local_layout = bool(local_board_id and local_board_id in local_ids)
-    skill_board_id = mapping.get("skill_board_id") if has_local_layout else None
+    # Keep a stable kebab UI id for every official board. Only expose skill_board_id when the pinned
+    # Skill submodule actually contains boards/<id>.json; callers can otherwise use official firmware
+    # without trying to load a nonexistent profile. Curated builtin ids override the slug transform.
+    candidate_skill_board_id = mapping.get("skill_board_id") or _slug_to_skill_board_id(slug)
+    skill_profile_available = candidate_skill_board_id in skill_ids
+    skill_board_id = candidate_skill_board_id if skill_profile_available else None
     detail_url = str(board.get("detail_url") or f"https://micropython.org/download/{slug}/")
     features = board.get("features") if isinstance(board.get("features"), list) else []
     latest = (board.get("firmware") or {}).get("latest_release") or (board.get("firmware") or {}).get("latest_preview") or {}
     mcu = _mcu_from_board(board, port)
     return {
-        "id": skill_board_id or slug,
+        "id": candidate_skill_board_id,
         "official_id": slug,
         "display_name": board.get("name") or slug,
         "vendor": board.get("vendor") or "",
@@ -141,6 +158,7 @@ def _official_board_entry(board: dict, *, local_ids: set[str], source_url: str) 
         },
         "download_slug": slug,
         "skill_board_id": skill_board_id,
+        "skill_profile_available": skill_profile_available,
         "source_url": source_url,
         "detail_url": detail_url,
         "image_url": board.get("image_url") or "",
@@ -166,8 +184,9 @@ def micropython_boards():
     payload = json.loads(raw.decode("utf-8"))
     source_url = payload.get("source") or "https://micropython.org/download/"
     local_ids = _local_board_ids()
+    skill_ids = _skill_board_ids()
     boards = [
-        _official_board_entry(board, local_ids=local_ids, source_url=source_url)
+        _official_board_entry(board, local_ids=local_ids, skill_ids=skill_ids, source_url=source_url)
         for board in payload.get("boards", [])
         if board.get("slug")
     ]

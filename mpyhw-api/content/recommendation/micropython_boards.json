@@ -1,14 +1,14 @@
 {
-  "board_count": 216,
+  "board_count": 223,
   "boards": [
     {
       "detail_url": "https://micropython.org/download/PYBD_SF2/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PYBD_SF2-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PYBD_SF2-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -25,12 +25,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PYBD_SF3/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PYBD_SF3-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PYBD_SF3-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -51,12 +51,12 @@
         "BLE",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PYBD_SF6-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PYBD_SF6-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -73,12 +73,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PYBLITEV10/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PYBLITEV10-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PYBLITEV10-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -95,12 +95,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PYBV10/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PYBV10-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PYBV10-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -116,12 +116,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PYBV11/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PYBV11-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PYBV11-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -138,12 +138,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/ACTINIUS_ICARUS/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ACTINIUS_ICARUS-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ACTINIUS_ICARUS-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -160,12 +160,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/ADAFRUIT_F405_EXPRESS/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_F405_EXPRESS-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_F405_EXPRESS-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -189,12 +189,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_FEATHER_M0_EXPRESS-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_FEATHER_M0_EXPRESS-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -218,12 +218,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_FEATHER_M4_EXPRESS-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_FEATHER_M4_EXPRESS-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -249,12 +249,12 @@
         "RGB LED",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_FEATHER_RP2040-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_FEATHER_RP2040-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -280,12 +280,12 @@
         "RGB LED",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_FEATHER_RP2350-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_FEATHER_RP2350-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": null
       },
@@ -298,12 +298,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/FEATHER52/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/FEATHER52-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/FEATHER52-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -325,12 +325,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_ITSYBITSY_M0_EXPRESS-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_ITSYBITSY_M0_EXPRESS-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -352,12 +352,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_ITSYBITSY_M4_EXPRESS-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_ITSYBITSY_M4_EXPRESS-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -380,12 +380,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_ITSYBITSY_RP2040-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_ITSYBITSY_RP2040-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -410,12 +410,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_METRO_M4_EXPRESS-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_METRO_M4_EXPRESS-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -440,12 +440,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_METRO_M7-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_METRO_M7-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -466,12 +466,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_NEOKEY_TRINKEY-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_NEOKEY_TRINKEY-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -491,12 +491,12 @@
       "features": [
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_QTPY_SAMD21-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_QTPY_SAMD21-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -520,12 +520,12 @@
         "RGB LED",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_QTPY_RP2040-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_QTPY_RP2040-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -546,12 +546,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ADAFRUIT_TRINKET_M0-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ADAFRUIT_TRINKET_M0-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -571,12 +571,12 @@
       "features": [
         "Ethernet"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ALIF_ENSEMBLE-20260619-v1.29.0-preview.403.g5770cede92.zip",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ALIF_ENSEMBLE-20260714-v1.29.0-preview.536.g532428cc6d.zip",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -601,12 +601,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ARDUINO_GIGA-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ARDUINO_GIGA-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -631,12 +631,12 @@
         "Secure Element",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ARDUINO_NANO_33_BLE_SENSE-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ARDUINO_NANO_33_BLE_SENSE-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -660,12 +660,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ARDUINO_NANO_ESP32-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ARDUINO_NANO_ESP32-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -692,12 +692,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ARDUINO_NANO_RP2040_CONNECT-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ARDUINO_NANO_RP2040_CONNECT-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -722,12 +722,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ARDUINO_NICLA_VISION-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ARDUINO_NICLA_VISION-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -751,12 +751,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ARDUINO_OPTA-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ARDUINO_OPTA-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -781,12 +781,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ARDUINO_PORTENTA_C33-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ARDUINO_PORTENTA_C33-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -812,12 +812,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ARDUINO_PORTENTA_H7-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ARDUINO_PORTENTA_H7-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -834,12 +834,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/ARDUINO_PRIMO/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ARDUINO_PRIMO-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ARDUINO_PRIMO-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -856,12 +856,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/MICROBIT/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MICROBIT-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MICROBIT-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -884,12 +884,12 @@
         "USB-C",
         "RGB LED"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/CYTRON_MOTION_2350_PRO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/CYTRON_MOTION_2350_PRO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -915,12 +915,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/CYTRON_NANOXRP_CONTROLLER-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/CYTRON_NANOXRP_CONTROLLER-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -942,12 +942,12 @@
         "External Flash",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -969,12 +969,12 @@
         "External Flash",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C2-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C2-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -996,12 +996,12 @@
         "External Flash",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C3-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C3-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1023,12 +1023,12 @@
         "External Flash",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C5-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C5-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1049,12 +1049,12 @@
         "BLE",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C6-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_C6-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1070,17 +1070,38 @@
       "vendor": "Espressif"
     },
     {
+      "detail_url": "https://micropython.org/download/ESP32_GENERIC_H2/",
+      "features": [
+        "BLE"
+      ],
+      "fetched_at": "2026-07-17T14:55:34+00:00",
+      "firmware": {
+        "latest_preview": {
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_H2-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
+        },
+        "latest_release": null
+      },
+      "image_url": "https://micropython.org/resources/micropython-media/boards/ESP32_GENERIC_H2/esp32h2_devkitmini.jpg",
+      "more_info_url": "https://www.espressif.com/en/products/modules",
+      "name": "ESP32-H2",
+      "slug": "ESP32_GENERIC_H2",
+      "source_url": "https://github.com/micropython/micropython/tree/master/ports/esp32/boards/ESP32_GENERIC_H2",
+      "vendor": "Espressif"
+    },
+    {
       "detail_url": "https://micropython.org/download/ESP32_GENERIC_P4/",
       "features": [
         "BLE",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_P4-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_P4-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1102,12 +1123,12 @@
         "External RAM",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_S2-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_S2-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1130,12 +1151,12 @@
         "External RAM",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_S3-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP32_GENERIC_S3-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1156,12 +1177,12 @@
         "External Flash",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESP8266_GENERIC-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESP8266_GENERIC-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1178,12 +1199,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/ESPRUINO_PICO/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/ESPRUINO_PICO-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/ESPRUINO_PICO-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1200,12 +1221,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/DVK_BL652/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/DVK_BL652-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/DVK_BL652-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1222,12 +1243,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/CERB40/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/CERB40-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/CERB40-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1243,12 +1264,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/HYDRABUS/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/HYDRABUS-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/HYDRABUS-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1265,12 +1286,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/BLUEIO_TAG_EVIM/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/BLUEIO_TAG_EVIM-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/BLUEIO_TAG_EVIM-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1287,12 +1308,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/IBK_BLYST_NANO/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/IBK_BLYST_NANO-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/IBK_BLYST_NANO-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1309,12 +1330,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/IDK_BLYST_NANO/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/IDK_BLYST_NANO-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/IDK_BLYST_NANO-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1331,12 +1352,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/LEGO_HUB_NO6/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/LEGO_HUB_NO6-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/LEGO_HUB_NO6-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1352,12 +1373,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/LEGO_HUB_NO7/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/LEGO_HUB_NO7-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/LEGO_HUB_NO7-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1383,12 +1404,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/LILYGO_T3_S3-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/LILYGO_T3_S3-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": null
       },
@@ -1410,12 +1431,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/LILYGO_TTGO_LORA32-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/LILYGO_TTGO_LORA32-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1432,12 +1453,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/LIMIFROG/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/LIMIFROG-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/LIMIFROG-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1462,12 +1483,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/M5STACK_ATOM-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/M5STACK_ATOM-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1491,12 +1512,12 @@
         "JST-PH",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/M5STACK_ATOMS3_LITE-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/M5STACK_ATOMS3_LITE-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1521,12 +1542,12 @@
         "USB-C",
         "JST-PH"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/M5STACK_NANOC6-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/M5STACK_NANOC6-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1542,18 +1563,43 @@
       "vendor": "M5Stack"
     },
     {
+      "detail_url": "https://micropython.org/download/M5STACK_NANOH2/",
+      "features": [
+        "BLE",
+        "RGB LED",
+        "USB",
+        "USB-C",
+        "JST-PH"
+      ],
+      "fetched_at": "2026-07-17T14:55:34+00:00",
+      "firmware": {
+        "latest_preview": {
+          "date": "2026-07-06",
+          "url": "https://micropython.org/resources/firmware/M5STACK_NANOH2-20260706-v1.29.0-preview.510.gf67ab9efe1.bin",
+          "version": "v1.29.0-preview.510.gf67ab9efe1"
+        },
+        "latest_release": null
+      },
+      "image_url": "https://micropython.org/resources/micropython-media/boards/M5STACK_NANOH2/m5stack_nanoh2.jpg",
+      "more_info_url": "https://shop.m5stack.com/products/m5stack-nanoh2-dev-kit-esp32-h2",
+      "name": "NanoH2",
+      "slug": "M5STACK_NANOH2",
+      "source_url": "https://github.com/micropython/micropython/tree/master/ports/esp32/boards/M5STACK_NANOH2",
+      "vendor": "M5Stack"
+    },
+    {
       "detail_url": "https://micropython.org/download/MACHDYNE_WERKZEUG/",
       "features": [
         "Dual-core",
         "External Flash",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MACHDYNE_WERKZEUG-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MACHDYNE_WERKZEUG-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1575,12 +1621,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MAKERDIARY_RT1011_NANO_KIT-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MAKERDIARY_RT1011_NANO_KIT-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1597,12 +1643,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NRF52840_MDK_USB_DONGLE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NRF52840_MDK_USB_DONGLE-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NRF52840_MDK_USB_DONGLE-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1619,12 +1665,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/GARATRONIC_NADHAT_F405/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/GARATRONIC_NADHAT_F405-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/GARATRONIC_NADHAT_F405-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1641,12 +1687,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_F411/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/GARATRONIC_PYBSTICK26_F411-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/GARATRONIC_PYBSTICK26_F411-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1669,12 +1715,12 @@
         "RGB LED",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/GARATRONIC_PYBSTICK26_ESP32C3-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/GARATRONIC_PYBSTICK26_ESP32C3-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1697,12 +1743,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/GARATRONIC_PYBSTICK26_RP2040-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/GARATRONIC_PYBSTICK26_RP2040-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1722,12 +1768,12 @@
       "features": [
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SAMD_GENERIC_D21X18-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SAMD_GENERIC_D21X18-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1747,12 +1793,12 @@
       "features": [
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SAMD_GENERIC_D51X19-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SAMD_GENERIC_D51X19-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1772,12 +1818,12 @@
       "features": [
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SAMD_GENERIC_D51X20-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SAMD_GENERIC_D51X20-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1798,12 +1844,12 @@
         "External Flash",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SAMD21_XPLAINED_PRO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SAMD21_XPLAINED_PRO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1823,12 +1869,12 @@
       "features": [
         "mikroBUS"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MIKROE_CLICKER2_STM32-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MIKROE_CLICKER2_STM32-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1848,12 +1894,12 @@
       "features": [
         "mikroBUS"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MIKROE_QUAIL-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MIKROE_QUAIL-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1870,12 +1916,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/RA4M1_CLICKER/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/RA4M1_CLICKER-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/RA4M1_CLICKER-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1897,12 +1943,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MINISAM_M4-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MINISAM_M4-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1925,12 +1971,12 @@
         "Microphone",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MIMXRT1010_EVK-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MIMXRT1010_EVK-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1953,12 +1999,12 @@
         "Microphone",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MIMXRT1015_EVK-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MIMXRT1015_EVK-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -1985,12 +2031,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MIMXRT1020_EVK-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MIMXRT1020_EVK-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2017,12 +2063,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MIMXRT1050_EVK-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MIMXRT1050_EVK-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2050,12 +2096,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MIMXRT1060_EVK-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MIMXRT1060_EVK-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2083,12 +2129,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MIMXRT1064_EVK-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MIMXRT1064_EVK-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2116,12 +2162,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/MIMXRT1170_EVK-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/MIMXRT1170_EVK-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2138,12 +2184,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NETDUINO_PLUS_2/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NETDUINO_PLUS_2-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NETDUINO_PLUS_2-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2159,12 +2205,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PCA10000/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PCA10000-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PCA10000-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2181,12 +2227,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PCA10001/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PCA10001-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PCA10001-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2203,12 +2249,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PCA10028/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PCA10028-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PCA10028-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2225,12 +2271,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PCA10031/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PCA10031-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PCA10031-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2247,12 +2293,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PCA10040/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PCA10040-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PCA10040-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2269,12 +2315,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PCA10056/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PCA10056-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PCA10056-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2291,12 +2337,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PCA10059/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PCA10059-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PCA10059-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2313,12 +2359,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PCA10090/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PCA10090-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PCA10090-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2343,12 +2389,12 @@
         "WiFi",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/OLIMEX_ESP32_EVB-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/OLIMEX_ESP32_EVB-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2374,12 +2420,12 @@
         "WiFi",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/OLIMEX_ESP32_POE-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/OLIMEX_ESP32_POE-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2401,12 +2447,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/OLIMEX_RT1010-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/OLIMEX_RT1010-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2423,12 +2469,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/OLIMEX_E407/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/OLIMEX_E407-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/OLIMEX_E407-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2445,12 +2491,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/OLIMEX_H407/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/OLIMEX_H407-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/OLIMEX_H407-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2481,12 +2527,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PHYBOARD_RT1170-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PHYBOARD_RT1170-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2507,12 +2553,12 @@
         "External Flash",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/TEENSY40-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/TEENSY40-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2535,12 +2581,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/TEENSY41-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/TEENSY41-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2557,12 +2603,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/PARTICLE_XENON/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PARTICLE_XENON-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PARTICLE_XENON-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2586,12 +2632,12 @@
         "JST-SH",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PIMORONI_PICOLIPO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PIMORONI_PICOLIPO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2614,12 +2660,12 @@
         "RGB LED",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/PIMORONI_TINY2040-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/PIMORONI_TINY2040-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2644,12 +2690,12 @@
         "Dual-core",
         "External Flash"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/POLOLU_3PI_2040_ROBOT-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/POLOLU_3PI_2040_ROBOT-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2675,12 +2721,12 @@
         "Dual-core",
         "External Flash"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/POLOLU_ZUMO_2040_ROBOT-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/POLOLU_ZUMO_2040_ROBOT-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2704,12 +2750,12 @@
         "WiFi",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WIPY-20260619-v1.29.0-preview.403.g5770cede92.zip",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WIPY-20260714-v1.29.0-preview.536.g532428cc6d.zip",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2731,12 +2777,12 @@
         "External Flash",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/RPI_PICO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/RPI_PICO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2758,12 +2804,12 @@
         "External Flash",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/RPI_PICO2-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/RPI_PICO2-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2787,12 +2833,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/RPI_PICO2_W-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/RPI_PICO2_W-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2816,12 +2862,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/RPI_PICO_W-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/RPI_PICO_W-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2838,12 +2884,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/EK_RA4M1/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/EK_RA4M1-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/EK_RA4M1-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2860,12 +2906,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/EK_RA4W1/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/EK_RA4W1-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/EK_RA4W1-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2882,12 +2928,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/EK_RA6M1/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/EK_RA6M1-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/EK_RA6M1-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2904,12 +2950,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/EK_RA6M2/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/EK_RA6M2-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/EK_RA6M2-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2926,12 +2972,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/B_L072Z_LRWAN1/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/B_L072Z_LRWAN1-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/B_L072Z_LRWAN1-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2947,12 +2993,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/B_L475E_IOT01A/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/B_L475E_IOT01A-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/B_L475E_IOT01A-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2969,12 +3015,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32F4DISC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32F4DISC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32F4DISC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -2990,12 +3036,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32F411DISC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32F411DISC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32F411DISC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3011,12 +3057,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32F429DISC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32F429DISC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32F429DISC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3032,12 +3078,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32F469DISC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32F469DISC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32F469DISC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3054,12 +3100,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32F7DISC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32F7DISC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32F7DISC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3075,12 +3121,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32F769DISC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32F769DISC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32F769DISC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3096,12 +3142,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32H7B3I_DK/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32H7B3I_DK-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32H7B3I_DK-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3126,12 +3172,12 @@
         "microSD",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32H747I_DISCO-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32H747I_DISCO-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": null
       },
@@ -3144,12 +3190,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32L476DISC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32L476DISC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32L476DISC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3165,12 +3211,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32L496GDISC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32L496GDISC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32L496GDISC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3187,12 +3233,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F091RC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F091RC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F091RC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3208,12 +3254,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F401RE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F401RE-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F401RE-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3229,12 +3275,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F411RE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F411RE-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F411RE-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3250,12 +3296,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F412ZG/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F412ZG-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F412ZG-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3271,12 +3317,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F413ZH/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F413ZH-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F413ZH-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3292,12 +3338,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F429ZI/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F429ZI-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F429ZI-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3313,12 +3359,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F439ZI/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F439ZI-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F439ZI-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3334,12 +3380,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F446RE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F446RE-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F446RE-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3355,12 +3401,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F722ZE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F722ZE-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F722ZE-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3376,12 +3422,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F746ZG/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F746ZG-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F746ZG-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3397,12 +3443,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F756ZG/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F756ZG-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F756ZG-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3419,12 +3465,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_F767ZI/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_F767ZI-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_F767ZI-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3440,12 +3486,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_G0B1RE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_G0B1RE-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_G0B1RE-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3462,12 +3508,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_G474RE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_G474RE-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_G474RE-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3484,12 +3530,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_H563ZI/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_H563ZI-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_H563ZI-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3505,12 +3551,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_H723ZG/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_H723ZG-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_H723ZG-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3527,12 +3573,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_H743ZI/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_H743ZI-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_H743ZI-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3548,12 +3594,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_H743ZI2/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_H743ZI2-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_H743ZI2-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3569,12 +3615,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_H753ZI/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_H753ZI-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_H753ZI-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3591,12 +3637,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_H7A3ZI_Q/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_H7A3ZI_Q-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_H7A3ZI_Q-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3613,12 +3659,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_L073RZ/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_L073RZ-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_L073RZ-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3634,12 +3680,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_L152RE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_L152RE-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_L152RE-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3656,12 +3702,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_L432KC/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_L432KC-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_L432KC-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3677,12 +3723,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_L452RE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_L452RE-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_L452RE-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3698,12 +3744,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_L476RG/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_L476RG-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_L476RG-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3719,12 +3765,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_L4A6ZG/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_L4A6ZG-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_L4A6ZG-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3741,12 +3787,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_U5A5ZJ_Q/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_U5A5ZJ_Q-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_U5A5ZJ_Q-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3762,12 +3808,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_WB55/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_WB55-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_WB55-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3783,12 +3829,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/NUCLEO_WL55/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NUCLEO_WL55-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NUCLEO_WL55-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3805,12 +3851,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/STM32F439/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/STM32F439-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/STM32F439-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3826,12 +3872,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/USBDONGLE_WB55/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/USBDONGLE_WB55-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/USBDONGLE_WB55-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3854,12 +3900,12 @@
         "USB",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SEEED_ARCH_MIX-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_ARCH_MIX-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3885,12 +3931,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SEEED_WIO_TERMINAL-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_WIO_TERMINAL-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3906,6 +3952,58 @@
       "vendor": "Seeed Studio"
     },
     {
+      "detail_url": "https://micropython.org/download/SEEED_XIAO_ESP32C3/",
+      "features": [
+        "BLE",
+        "WiFi",
+        "USB",
+        "USB-C",
+        "Battery Charging"
+      ],
+      "fetched_at": "2026-07-17T14:55:34+00:00",
+      "firmware": {
+        "latest_preview": {
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_ESP32C3-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
+        },
+        "latest_release": null
+      },
+      "image_url": "https://micropython.org/resources/micropython-media/boards/SEEED_XIAO_ESP32C3/seeed_xiao_esp32c3.jpg",
+      "more_info_url": "https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html",
+      "name": "XIAO ESP32C3",
+      "slug": "SEEED_XIAO_ESP32C3",
+      "source_url": "https://github.com/micropython/micropython/tree/master/ports/esp32/boards/SEEED_XIAO_ESP32C3",
+      "vendor": "Seeed Studio"
+    },
+    {
+      "detail_url": "https://micropython.org/download/SEEED_XIAO_ESP32C5/",
+      "features": [
+        "BLE",
+        "External Flash",
+        "External RAM",
+        "WiFi",
+        "USB",
+        "USB-C",
+        "Battery Charging"
+      ],
+      "fetched_at": "2026-07-17T14:55:34+00:00",
+      "firmware": {
+        "latest_preview": {
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_ESP32C5-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
+        },
+        "latest_release": null
+      },
+      "image_url": "https://micropython.org/resources/micropython-media/boards/SEEED_XIAO_ESP32C5/seeed_xiao_esp32c5.jpg",
+      "more_info_url": "https://wiki.seeedstudio.com/xiao_esp32c5_getting_started/",
+      "name": "XIAO ESP32C5",
+      "slug": "SEEED_XIAO_ESP32C5",
+      "source_url": "https://github.com/micropython/micropython/tree/master/ports/esp32/boards/SEEED_XIAO_ESP32C5",
+      "vendor": "Seeed Studio"
+    },
+    {
       "detail_url": "https://micropython.org/download/SEEED_XIAO_ESP32C6/",
       "features": [
         "Battery Charging",
@@ -3915,12 +4013,12 @@
         "USB",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_ESP32C6-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_ESP32C6-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3936,6 +4034,33 @@
       "vendor": "Seeed Studio"
     },
     {
+      "detail_url": "https://micropython.org/download/SEEED_XIAO_ESP32S3/",
+      "features": [
+        "BLE",
+        "External Flash",
+        "External RAM",
+        "WiFi",
+        "USB",
+        "USB-C",
+        "Battery Charging"
+      ],
+      "fetched_at": "2026-07-17T14:55:34+00:00",
+      "firmware": {
+        "latest_preview": {
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_ESP32S3-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
+        },
+        "latest_release": null
+      },
+      "image_url": "https://micropython.org/resources/micropython-media/boards/SEEED_XIAO_ESP32S3/seeed_xiao_esp32s3.jpg",
+      "more_info_url": "https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html",
+      "name": "XIAO ESP32S3",
+      "slug": "SEEED_XIAO_ESP32S3",
+      "source_url": "https://github.com/micropython/micropython/tree/master/ports/esp32/boards/SEEED_XIAO_ESP32S3",
+      "vendor": "Seeed Studio"
+    },
+    {
       "detail_url": "https://micropython.org/download/SEEED_XIAO_RP2040/",
       "features": [
         "Dual-core",
@@ -3944,12 +4069,12 @@
         "USB",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_RP2040-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_RP2040-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3973,12 +4098,12 @@
         "RGB LED",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_RP2350-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_RP2350-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -3998,12 +4123,12 @@
       "features": [
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_SAMD21-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_SAMD21-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4029,12 +4154,12 @@
         "RGB LED",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_NRF52-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SEEED_XIAO_NRF52-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4058,12 +4183,12 @@
         "PoE",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SIL_WESP32-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SIL_WESP32-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4086,12 +4211,12 @@
         "External RAM",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SIL_MANT1S-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SIL_MANT1S-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4114,12 +4239,12 @@
         "External Flash",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SIL_RP2040_SHIM-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SIL_RP2040_SHIM-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4142,12 +4267,12 @@
         "USB-C",
         "JST-PH"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SOLDERED_NULA_MINI-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SOLDERED_NULA_MINI-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4175,12 +4300,12 @@
         "JST-SH",
         "Battery Charging"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SOLDERED_NULA_MAX_RP2350-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SOLDERED_NULA_MAX_RP2350-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": null
       },
@@ -4199,12 +4324,12 @@
         "WiFi",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_IOT_REDBOARD_ESP32-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_IOT_REDBOARD_ESP32-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4232,12 +4357,12 @@
         "USB-C",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_IOTNODE_LORAWAN_RP2350-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_IOTNODE_LORAWAN_RP2350-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4254,12 +4379,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/SPARKFUN_MICROMOD_STM32/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_MICROMOD_STM32-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_MICROMOD_STM32-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4283,12 +4408,12 @@
         "RGB LED",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_PROMICRO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_PROMICRO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4313,12 +4438,12 @@
         "RGB LED",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_PROMICRO_RP2350-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_PROMICRO_RP2350-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4341,12 +4466,12 @@
         "JST-SH",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_SAMD51_THING_PLUS-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_SAMD51_THING_PLUS-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4375,12 +4500,12 @@
         "JST-SH",
         "Battery Charging"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_IOTREDBOARD_RP2350-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_IOTREDBOARD_RP2350-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4404,12 +4529,12 @@
         "USB",
         "RGB LED"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_REDBOARD_TURBO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_REDBOARD_TURBO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4431,12 +4556,12 @@
         "DAC",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_SAMD21_DEV_BREAKOUT-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_SAMD21_DEV_BREAKOUT-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4463,12 +4588,12 @@
         "USB-C",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_THINGPLUS-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_THINGPLUS-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4497,12 +4622,12 @@
         "WiFi",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_THINGPLUS_ESP32C5-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_THINGPLUS_ESP32C5-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4532,12 +4657,12 @@
         "WiFi",
         "microSD"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_THINGPLUS_RP2350-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_THINGPLUS_RP2350-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4565,12 +4690,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_XRP_CONTROLLER-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_XRP_CONTROLLER-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4596,12 +4721,12 @@
         "USB",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/SPARKFUN_XRP_CONTROLLER_BETA-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/SPARKFUN_XRP_CONTROLLER_BETA-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4628,12 +4753,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_FEATHERS2-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_FEATHERS2-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4660,12 +4785,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_FEATHERS2NEO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_FEATHERS2NEO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4693,12 +4818,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_FEATHERS3-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_FEATHERS3-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4726,12 +4851,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_FEATHERS3NEO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_FEATHERS3NEO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4755,12 +4880,12 @@
         "WiFi",
         "BLE"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_NANOS3-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_NANOS3-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4784,12 +4909,12 @@
         "WiFi",
         "BLE"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_OMGS3-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_OMGS3-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4817,12 +4942,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_PROS3-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_PROS3-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4848,12 +4973,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_RGBTOUCH_MINI-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_RGBTOUCH_MINI-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4879,12 +5004,12 @@
         "USB",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_TINYC6-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_TINYC6-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4910,12 +5035,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_TINYPICO-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_TINYPICO-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4941,12 +5066,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_TINYS2-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_TINYS2-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -4972,12 +5097,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_TINYS3-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_TINYS3-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5002,12 +5127,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/UM_TINYWATCHS3-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/UM_TINYWATCHS3-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5024,12 +5149,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/VCC_GND_F407VE/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/VCC_GND_F407VE-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/VCC_GND_F407VE-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5046,12 +5171,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/VCC_GND_F407ZG/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/VCC_GND_F407ZG-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/VCC_GND_F407ZG-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5068,12 +5193,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/VCC_GND_H743VI/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/VCC_GND_H743VI-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/VCC_GND_H743VI-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5093,12 +5218,12 @@
       "features": [
         "DAC"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/VK_RA6M5-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/VK_RA6M5-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5121,12 +5246,12 @@
         "External Flash",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/W5100S_EVB_PICO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/W5100S_EVB_PICO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5149,12 +5274,12 @@
         "External Flash",
         "USB"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/W5500_EVB_PICO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/W5500_EVB_PICO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5178,12 +5303,12 @@
         "Display",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WAVESHARE_RP2040_LCD_0_96-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WAVESHARE_RP2040_LCD_0_96-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5206,12 +5331,12 @@
         "External Flash",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WAVESHARE_RP2040_PLUS-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WAVESHARE_RP2040_PLUS-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5234,12 +5359,12 @@
         "RGB LED",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WAVESHARE_RP2040_ZERO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WAVESHARE_RP2040_ZERO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5262,12 +5387,12 @@
         "External RAM",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WAVESHARE_RP2350B_CORE-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WAVESHARE_RP2350B_CORE-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5283,18 +5408,42 @@
       "vendor": "Waveshare"
     },
     {
+      "detail_url": "https://micropython.org/download/WAVESHARE_ESP32_S3_PICO/",
+      "features": [
+        "BLE",
+        "External Flash",
+        "External RAM",
+        "WiFi"
+      ],
+      "fetched_at": "2026-07-17T14:55:34+00:00",
+      "firmware": {
+        "latest_preview": {
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WAVESHARE_ESP32_S3_PICO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
+        },
+        "latest_release": null
+      },
+      "image_url": "https://micropython.org/resources/micropython-media/boards/WAVESHARE_ESP32_S3_PICO/waveshare_esp32_s3_pico.jpg",
+      "more_info_url": "https://www.waveshare.com/ESP32-S3-Pico.htm",
+      "name": "Waveshare ESP32-S3-Pico",
+      "slug": "WAVESHARE_ESP32_S3_PICO",
+      "source_url": "https://github.com/micropython/micropython/tree/master/ports/esp32/boards/WAVESHARE_ESP32_S3_PICO",
+      "vendor": "Waveshare"
+    },
+    {
       "detail_url": "https://micropython.org/download/WEACTSTUDIO/",
       "features": [
         "Dual-core",
         "External Flash",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WEACTSTUDIO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WEACTSTUDIO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5310,6 +5459,28 @@
       "vendor": "WeAct"
     },
     {
+      "detail_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32H723/",
+      "features": [
+        "External Flash",
+        "DAC",
+        "Display",
+        "microSD",
+        "USB",
+        "USB-C"
+      ],
+      "fetched_at": "2026-07-17T14:55:34+00:00",
+      "firmware": {
+        "latest_preview": null,
+        "latest_release": null
+      },
+      "image_url": "https://micropython.org/resources/micropython-media/boards/WEACTSTUDIO_MINI_STM32H723/weact_stm32h723.jpg",
+      "more_info_url": "https://github.com/WeActStudio/WeActStudio.MiniSTM32H723",
+      "name": "Mini STM32H723",
+      "slug": "WEACTSTUDIO_MINI_STM32H723",
+      "source_url": "https://github.com/micropython/micropython/tree/master/ports/stm32/boards/WEACTSTUDIO_MINI_STM32H723",
+      "vendor": "WeAct Studio"
+    },
+    {
       "detail_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32H743/",
       "features": [
         "External Flash",
@@ -5319,12 +5490,12 @@
         "USB",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WEACTSTUDIO_MINI_STM32H743-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WEACTSTUDIO_MINI_STM32H743-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5341,12 +5512,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32U585/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WEACTSTUDIO_MINI_STM32U585-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WEACTSTUDIO_MINI_STM32U585-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5369,12 +5540,12 @@
         "External RAM",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WEACTSTUDIO_RP2350B_CORE-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WEACTSTUDIO_RP2350B_CORE-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5391,12 +5562,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/WEACT_F411_BLACKPILL/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WEACT_F411_BLACKPILL-20260619-v1.29.0-preview.403.g5770cede92.dfu",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WEACT_F411_BLACKPILL-20260714-v1.29.0-preview.536.g532428cc6d.dfu",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5419,12 +5590,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/LOLIN_C3_MINI-20260619-v1.29.0-preview.403.g5770cede92.bin",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/LOLIN_C3_MINI-20260714-v1.29.0-preview.536.g532428cc6d.bin",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5447,12 +5618,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/LOLIN_S2_MINI-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/LOLIN_S2_MINI-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5477,12 +5648,12 @@
         "USB-C",
         "WiFi"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/LOLIN_S2_PICO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/LOLIN_S2_PICO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5499,12 +5670,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/WT51822_S4AT/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/WT51822_S4AT-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/WT51822_S4AT-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5527,12 +5698,12 @@
         "RGB LED",
         "USB-C"
       ],
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/NULLBITS_BIT_C_PRO-20260619-v1.29.0-preview.403.g5770cede92.uf2",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/NULLBITS_BIT_C_PRO-20260714-v1.29.0-preview.536.g532428cc6d.uf2",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5549,12 +5720,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/EVK_NINA_B1/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/EVK_NINA_B1-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/EVK_NINA_B1-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5571,12 +5742,12 @@
     },
     {
       "detail_url": "https://micropython.org/download/EVK_NINA_B3/",
-      "fetched_at": "2026-06-20T00:07:34+00:00",
+      "fetched_at": "2026-07-17T14:55:34+00:00",
       "firmware": {
         "latest_preview": {
-          "date": "2026-06-19",
-          "url": "https://micropython.org/resources/firmware/EVK_NINA_B3-20260619-v1.29.0-preview.403.g5770cede92.hex",
-          "version": "v1.29.0-preview.403.g5770cede92"
+          "date": "2026-07-14",
+          "url": "https://micropython.org/resources/firmware/EVK_NINA_B3-20260714-v1.29.0-preview.536.g532428cc6d.hex",
+          "version": "v1.29.0-preview.536.g532428cc6d"
         },
         "latest_release": {
           "date": "2026-04-06",
@@ -5592,6 +5763,6 @@
       "vendor": "u-blox"
     }
   ],
-  "fetched_at": "2026-06-20T00:07:34+00:00",
+  "fetched_at": "2026-07-17T14:55:34+00:00",
   "source": "https://micropython.org/download/"
 }

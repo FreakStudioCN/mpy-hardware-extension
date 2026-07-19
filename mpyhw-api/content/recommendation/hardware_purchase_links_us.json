@@ -1,9 +1,9 @@
 {
-  "fetched_at": "2026-06-20T00:07:34+00:00",
+  "fetched_at": "2026-07-17T14:55:34+00:00",
   "links_by_slug": {
     "ACTINIUS_ICARUS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/ACTINIUS_ICARUS/",
         "link_type": "official",
@@ -12,7 +12,7 @@
         "vendor": "Actinius"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ACTINIUS_ICARUS/",
         "link_type": "search_fallback",
@@ -23,7 +23,7 @@
     ],
     "ADAFRUIT_F405_EXPRESS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_F405_EXPRESS/",
         "link_type": "official",
@@ -32,7 +32,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_F405_EXPRESS/",
         "link_type": "official",
@@ -41,7 +41,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_F405_EXPRESS/",
         "link_type": "search_fallback",
@@ -52,7 +52,7 @@
     ],
     "ADAFRUIT_FEATHER_M0_EXPRESS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_M0_EXPRESS/",
         "link_type": "official",
@@ -61,7 +61,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_M0_EXPRESS/",
         "link_type": "official",
@@ -70,7 +70,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_M0_EXPRESS/",
         "link_type": "search_fallback",
@@ -81,7 +81,7 @@
     ],
     "ADAFRUIT_FEATHER_M4_EXPRESS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_M4_EXPRESS/",
         "link_type": "official",
@@ -90,7 +90,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_M4_EXPRESS/",
         "link_type": "official",
@@ -99,7 +99,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_M4_EXPRESS/",
         "link_type": "search_fallback",
@@ -110,7 +110,7 @@
     ],
     "ADAFRUIT_FEATHER_RP2040": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_RP2040/",
         "link_type": "official",
@@ -119,7 +119,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_RP2040/",
         "link_type": "official",
@@ -128,7 +128,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_RP2040/",
         "link_type": "search_fallback",
@@ -139,7 +139,7 @@
     ],
     "ADAFRUIT_FEATHER_RP2350": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_RP2350/",
         "link_type": "official",
@@ -148,7 +148,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_RP2350/",
         "link_type": "official",
@@ -157,7 +157,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_FEATHER_RP2350/",
         "link_type": "search_fallback",
@@ -168,7 +168,7 @@
     ],
     "ADAFRUIT_ITSYBITSY_M0_EXPRESS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_M0_EXPRESS/",
         "link_type": "official",
@@ -177,7 +177,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_M0_EXPRESS/",
         "link_type": "official",
@@ -186,7 +186,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_M0_EXPRESS/",
         "link_type": "search_fallback",
@@ -197,7 +197,7 @@
     ],
     "ADAFRUIT_ITSYBITSY_M4_EXPRESS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_M4_EXPRESS/",
         "link_type": "official",
@@ -206,7 +206,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_M4_EXPRESS/",
         "link_type": "official",
@@ -215,7 +215,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_M4_EXPRESS/",
         "link_type": "search_fallback",
@@ -226,7 +226,7 @@
     ],
     "ADAFRUIT_ITSYBITSY_RP2040": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_RP2040/",
         "link_type": "official",
@@ -235,7 +235,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_RP2040/",
         "link_type": "official",
@@ -244,7 +244,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_ITSYBITSY_RP2040/",
         "link_type": "search_fallback",
@@ -255,7 +255,7 @@
     ],
     "ADAFRUIT_METRO_M4_EXPRESS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_METRO_M4_EXPRESS/",
         "link_type": "official",
@@ -264,7 +264,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_METRO_M4_EXPRESS/",
         "link_type": "official",
@@ -273,7 +273,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_METRO_M4_EXPRESS/",
         "link_type": "search_fallback",
@@ -284,7 +284,7 @@
     ],
     "ADAFRUIT_METRO_M7": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_METRO_M7/",
         "link_type": "official",
@@ -293,7 +293,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_METRO_M7/",
         "link_type": "official",
@@ -302,7 +302,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_METRO_M7/",
         "link_type": "search_fallback",
@@ -313,7 +313,7 @@
     ],
     "ADAFRUIT_NEOKEY_TRINKEY": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_NEOKEY_TRINKEY/",
         "link_type": "official",
@@ -322,7 +322,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_NEOKEY_TRINKEY/",
         "link_type": "official",
@@ -331,7 +331,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_NEOKEY_TRINKEY/",
         "link_type": "search_fallback",
@@ -342,7 +342,7 @@
     ],
     "ADAFRUIT_QTPY_RP2040": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_QTPY_RP2040/",
         "link_type": "official",
@@ -351,7 +351,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_QTPY_RP2040/",
         "link_type": "official",
@@ -360,7 +360,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_QTPY_RP2040/",
         "link_type": "search_fallback",
@@ -371,7 +371,7 @@
     ],
     "ADAFRUIT_QTPY_SAMD21": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_QTPY_SAMD21/",
         "link_type": "official",
@@ -380,7 +380,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_QTPY_SAMD21/",
         "link_type": "official",
@@ -389,7 +389,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_QTPY_SAMD21/",
         "link_type": "search_fallback",
@@ -400,7 +400,7 @@
     ],
     "ADAFRUIT_TRINKET_M0": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_TRINKET_M0/",
         "link_type": "official",
@@ -409,7 +409,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_TRINKET_M0/",
         "link_type": "official",
@@ -418,7 +418,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ADAFRUIT_TRINKET_M0/",
         "link_type": "search_fallback",
@@ -429,7 +429,7 @@
     ],
     "ALIF_ENSEMBLE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/ALIF_ENSEMBLE/",
         "link_type": "official",
@@ -438,7 +438,7 @@
         "vendor": "Alif Semiconductor"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ALIF_ENSEMBLE/",
         "link_type": "search_fallback",
@@ -449,7 +449,7 @@
     ],
     "ARDUINO_GIGA": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_GIGA/",
         "link_type": "official",
@@ -458,7 +458,7 @@
         "vendor": "Arduino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_GIGA/",
         "link_type": "official",
@@ -467,7 +467,7 @@
         "vendor": "Arduino Store"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_GIGA/",
         "link_type": "search_fallback",
@@ -478,7 +478,7 @@
     ],
     "ARDUINO_NANO_33_BLE_SENSE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_33_BLE_SENSE/",
         "link_type": "official",
@@ -487,7 +487,7 @@
         "vendor": "Arduino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_33_BLE_SENSE/",
         "link_type": "official",
@@ -496,7 +496,7 @@
         "vendor": "Arduino Store"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_33_BLE_SENSE/",
         "link_type": "search_fallback",
@@ -507,7 +507,7 @@
     ],
     "ARDUINO_NANO_ESP32": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_ESP32/",
         "link_type": "official",
@@ -516,7 +516,7 @@
         "vendor": "Arduino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_ESP32/",
         "link_type": "official",
@@ -525,7 +525,7 @@
         "vendor": "Arduino Store"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_ESP32/",
         "link_type": "search_fallback",
@@ -536,7 +536,7 @@
     ],
     "ARDUINO_NANO_RP2040_CONNECT": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_RP2040_CONNECT/",
         "link_type": "official",
@@ -545,7 +545,7 @@
         "vendor": "Arduino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_RP2040_CONNECT/",
         "link_type": "official",
@@ -554,7 +554,7 @@
         "vendor": "Arduino Store"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_NANO_RP2040_CONNECT/",
         "link_type": "search_fallback",
@@ -565,7 +565,7 @@
     ],
     "ARDUINO_NICLA_VISION": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_NICLA_VISION/",
         "link_type": "official",
@@ -574,7 +574,7 @@
         "vendor": "Arduino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_NICLA_VISION/",
         "link_type": "official",
@@ -583,7 +583,7 @@
         "vendor": "Arduino Store"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_NICLA_VISION/",
         "link_type": "search_fallback",
@@ -594,7 +594,7 @@
     ],
     "ARDUINO_OPTA": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_OPTA/",
         "link_type": "official",
@@ -603,7 +603,7 @@
         "vendor": "Arduino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_OPTA/",
         "link_type": "official",
@@ -612,7 +612,7 @@
         "vendor": "Arduino Store"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_OPTA/",
         "link_type": "search_fallback",
@@ -623,7 +623,7 @@
     ],
     "ARDUINO_PORTENTA_C33": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/ARDUINO_PORTENTA_C33/",
         "link_type": "official",
@@ -632,7 +632,7 @@
         "vendor": "Arduino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_PORTENTA_C33/",
         "link_type": "official",
@@ -641,7 +641,7 @@
         "vendor": "Arduino Store"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_PORTENTA_C33/",
         "link_type": "search_fallback",
@@ -652,7 +652,7 @@
     ],
     "ARDUINO_PORTENTA_H7": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_PORTENTA_H7/",
         "link_type": "official",
@@ -661,7 +661,7 @@
         "vendor": "Arduino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_PORTENTA_H7/",
         "link_type": "official",
@@ -670,7 +670,7 @@
         "vendor": "Arduino Store"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_PORTENTA_H7/",
         "link_type": "search_fallback",
@@ -681,7 +681,7 @@
     ],
     "ARDUINO_PRIMO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/ARDUINO_PRIMO/",
         "link_type": "official",
@@ -690,7 +690,7 @@
         "vendor": "Arduino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ARDUINO_PRIMO/",
         "link_type": "official",
@@ -699,7 +699,7 @@
         "vendor": "Arduino Store"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ARDUINO_PRIMO/",
         "link_type": "search_fallback",
@@ -710,7 +710,7 @@
     ],
     "BLUEIO_TAG_EVIM": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/BLUEIO_TAG_EVIM/",
         "link_type": "official",
@@ -719,7 +719,7 @@
         "vendor": "I-SYST"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/BLUEIO_TAG_EVIM/",
         "link_type": "search_fallback",
@@ -730,7 +730,7 @@
     ],
     "B_L072Z_LRWAN1": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/B_L072Z_LRWAN1/",
         "link_type": "search_fallback",
@@ -741,7 +741,7 @@
     ],
     "B_L475E_IOT01A": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/B_L475E_IOT01A/",
         "link_type": "official",
@@ -750,7 +750,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/B_L475E_IOT01A/",
         "link_type": "search_fallback",
@@ -761,7 +761,7 @@
     ],
     "CERB40": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/CERB40/",
         "link_type": "search_fallback",
@@ -772,7 +772,7 @@
     ],
     "CYTRON_MOTION_2350_PRO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/CYTRON_MOTION_2350_PRO/",
         "link_type": "official",
@@ -781,7 +781,7 @@
         "vendor": "Cytron"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/CYTRON_MOTION_2350_PRO/",
         "link_type": "search_fallback",
@@ -792,7 +792,7 @@
     ],
     "CYTRON_NANOXRP_CONTROLLER": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/CYTRON_NANOXRP_CONTROLLER/",
         "link_type": "official",
@@ -801,7 +801,7 @@
         "vendor": "Cytron"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/CYTRON_NANOXRP_CONTROLLER/",
         "link_type": "search_fallback",
@@ -812,7 +812,7 @@
     ],
     "DVK_BL652": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/DVK_BL652/",
         "link_type": "official",
@@ -821,7 +821,7 @@
         "vendor": "Ezurio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/DVK_BL652/",
         "link_type": "search_fallback",
@@ -832,7 +832,7 @@
     ],
     "EK_RA4M1": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/EK_RA4M1/",
         "link_type": "official",
@@ -841,7 +841,7 @@
         "vendor": "Renesas Electronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/EK_RA4M1/",
         "link_type": "search_fallback",
@@ -852,7 +852,7 @@
     ],
     "EK_RA4W1": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/EK_RA4W1/",
         "link_type": "official",
@@ -861,7 +861,7 @@
         "vendor": "Renesas Electronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/EK_RA4W1/",
         "link_type": "search_fallback",
@@ -872,7 +872,7 @@
     ],
     "EK_RA6M1": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/EK_RA6M1/",
         "link_type": "official",
@@ -881,7 +881,7 @@
         "vendor": "Renesas Electronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/EK_RA6M1/",
         "link_type": "search_fallback",
@@ -892,7 +892,7 @@
     ],
     "EK_RA6M2": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/EK_RA6M2/",
         "link_type": "official",
@@ -901,7 +901,7 @@
         "vendor": "Renesas Electronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/EK_RA6M2/",
         "link_type": "search_fallback",
@@ -912,7 +912,7 @@
     ],
     "ESP32_GENERIC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC/",
         "link_type": "official",
@@ -921,7 +921,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC/",
         "link_type": "official",
@@ -930,7 +930,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC/",
         "link_type": "search_fallback",
@@ -941,7 +941,7 @@
     ],
     "ESP32_GENERIC_C2": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C2/",
         "link_type": "official",
@@ -950,7 +950,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C2/",
         "link_type": "official",
@@ -959,7 +959,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C2/",
         "link_type": "search_fallback",
@@ -970,7 +970,7 @@
     ],
     "ESP32_GENERIC_C3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C3/",
         "link_type": "official",
@@ -979,7 +979,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C3/",
         "link_type": "official",
@@ -988,7 +988,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C3/",
         "link_type": "search_fallback",
@@ -999,7 +999,7 @@
     ],
     "ESP32_GENERIC_C5": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C5/",
         "link_type": "official",
@@ -1008,7 +1008,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C5/",
         "link_type": "official",
@@ -1017,7 +1017,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C5/",
         "link_type": "search_fallback",
@@ -1028,7 +1028,7 @@
     ],
     "ESP32_GENERIC_C6": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C6/",
         "link_type": "official",
@@ -1037,7 +1037,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C6/",
         "link_type": "official",
@@ -1046,7 +1046,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_C6/",
         "link_type": "search_fallback",
@@ -1055,9 +1055,38 @@
         "vendor": "Amazon"
       }
     ],
+    "ESP32_GENERIC_H2": [
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "high",
+        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_H2/",
+        "link_type": "official",
+        "notes": "Official board More info link from MicroPython download page.",
+        "url": "https://www.espressif.com/en/products/modules",
+        "vendor": "Espressif"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "high",
+        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_H2/",
+        "link_type": "official",
+        "notes": "Official vendor/product-family page.",
+        "url": "https://www.espressif.com/en/products/devkits",
+        "vendor": "Espressif"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "low",
+        "evidence_url": "https://micropython.org/download/ESP32_GENERIC_H2/",
+        "link_type": "search_fallback",
+        "notes": "Search fallback; marketplace listing was not individually verified.",
+        "url": "https://www.amazon.com/s?k=Espressif+ESP32-H2",
+        "vendor": "Amazon"
+      }
+    ],
     "ESP32_GENERIC_P4": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_P4/",
         "link_type": "official",
@@ -1066,7 +1095,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_P4/",
         "link_type": "official",
@@ -1075,7 +1104,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_P4/",
         "link_type": "search_fallback",
@@ -1086,7 +1115,7 @@
     ],
     "ESP32_GENERIC_S2": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_S2/",
         "link_type": "official",
@@ -1095,7 +1124,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_S2/",
         "link_type": "official",
@@ -1104,7 +1133,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_S2/",
         "link_type": "search_fallback",
@@ -1115,7 +1144,7 @@
     ],
     "ESP32_GENERIC_S3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_S3/",
         "link_type": "official",
@@ -1124,7 +1153,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_S3/",
         "link_type": "official",
@@ -1133,7 +1162,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP32_GENERIC_S3/",
         "link_type": "search_fallback",
@@ -1144,7 +1173,7 @@
     ],
     "ESP8266_GENERIC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP8266_GENERIC/",
         "link_type": "official",
@@ -1153,7 +1182,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/ESP8266_GENERIC/",
         "link_type": "official",
@@ -1162,7 +1191,7 @@
         "vendor": "Espressif"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESP8266_GENERIC/",
         "link_type": "search_fallback",
@@ -1173,7 +1202,7 @@
     ],
     "ESPRUINO_PICO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/ESPRUINO_PICO/",
         "link_type": "official",
@@ -1182,7 +1211,7 @@
         "vendor": "Espruino"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/ESPRUINO_PICO/",
         "link_type": "search_fallback",
@@ -1193,7 +1222,7 @@
     ],
     "EVK_NINA_B1": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/EVK_NINA_B1/",
         "link_type": "official",
@@ -1202,7 +1231,7 @@
         "vendor": "u-blox"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/EVK_NINA_B1/",
         "link_type": "search_fallback",
@@ -1213,7 +1242,7 @@
     ],
     "EVK_NINA_B3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/EVK_NINA_B3/",
         "link_type": "official",
@@ -1222,7 +1251,7 @@
         "vendor": "u-blox"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/EVK_NINA_B3/",
         "link_type": "search_fallback",
@@ -1233,7 +1262,7 @@
     ],
     "FEATHER52": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/FEATHER52/",
         "link_type": "official",
@@ -1242,7 +1271,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/FEATHER52/",
         "link_type": "official",
@@ -1251,7 +1280,7 @@
         "vendor": "Adafruit"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/FEATHER52/",
         "link_type": "search_fallback",
@@ -1262,7 +1291,7 @@
     ],
     "GARATRONIC_NADHAT_F405": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/GARATRONIC_NADHAT_F405/",
         "link_type": "official",
@@ -1271,7 +1300,7 @@
         "vendor": "McHobby"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/GARATRONIC_NADHAT_F405/",
         "link_type": "search_fallback",
@@ -1282,7 +1311,7 @@
     ],
     "GARATRONIC_PYBSTICK26_ESP32C3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_ESP32C3/",
         "link_type": "official",
@@ -1291,7 +1320,7 @@
         "vendor": "McHobby"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_ESP32C3/",
         "link_type": "search_fallback",
@@ -1302,7 +1331,7 @@
     ],
     "GARATRONIC_PYBSTICK26_F411": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_F411/",
         "link_type": "official",
@@ -1311,7 +1340,7 @@
         "vendor": "McHobby"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_F411/",
         "link_type": "search_fallback",
@@ -1322,7 +1351,7 @@
     ],
     "GARATRONIC_PYBSTICK26_RP2040": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_RP2040/",
         "link_type": "official",
@@ -1331,7 +1360,7 @@
         "vendor": "McHobby"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/GARATRONIC_PYBSTICK26_RP2040/",
         "link_type": "search_fallback",
@@ -1342,7 +1371,7 @@
     ],
     "HYDRABUS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/HYDRABUS/",
         "link_type": "official",
@@ -1351,7 +1380,7 @@
         "vendor": "HydraBus"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/HYDRABUS/",
         "link_type": "search_fallback",
@@ -1362,7 +1391,7 @@
     ],
     "IBK_BLYST_NANO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/IBK_BLYST_NANO/",
         "link_type": "official",
@@ -1371,7 +1400,7 @@
         "vendor": "I-SYST"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/IBK_BLYST_NANO/",
         "link_type": "search_fallback",
@@ -1382,7 +1411,7 @@
     ],
     "IDK_BLYST_NANO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/IDK_BLYST_NANO/",
         "link_type": "official",
@@ -1391,7 +1420,7 @@
         "vendor": "I-SYST"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/IDK_BLYST_NANO/",
         "link_type": "search_fallback",
@@ -1402,7 +1431,7 @@
     ],
     "LEGO_HUB_NO6": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LEGO_HUB_NO6/",
         "link_type": "search_fallback",
@@ -1413,7 +1442,7 @@
     ],
     "LEGO_HUB_NO7": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LEGO_HUB_NO7/",
         "link_type": "search_fallback",
@@ -1424,7 +1453,7 @@
     ],
     "LILYGO_T3_S3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/LILYGO_T3_S3/",
         "link_type": "official",
@@ -1433,7 +1462,7 @@
         "vendor": "LILYGO"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LILYGO_T3_S3/",
         "link_type": "search_fallback",
@@ -1444,7 +1473,7 @@
     ],
     "LILYGO_TTGO_LORA32": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/LILYGO_TTGO_LORA32/",
         "link_type": "official",
@@ -1453,7 +1482,7 @@
         "vendor": "LILYGO"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LILYGO_TTGO_LORA32/",
         "link_type": "search_fallback",
@@ -1464,7 +1493,7 @@
     ],
     "LIMIFROG": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/LIMIFROG/",
         "link_type": "official",
@@ -1473,7 +1502,7 @@
         "vendor": "LimiFrog"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LIMIFROG/",
         "link_type": "search_fallback",
@@ -1484,7 +1513,7 @@
     ],
     "LOLIN_C3_MINI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/LOLIN_C3_MINI/",
         "link_type": "official",
@@ -1493,7 +1522,7 @@
         "vendor": "Wemos"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LOLIN_C3_MINI/",
         "link_type": "search_fallback",
@@ -1504,7 +1533,7 @@
     ],
     "LOLIN_S2_MINI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/LOLIN_S2_MINI/",
         "link_type": "official",
@@ -1513,7 +1542,7 @@
         "vendor": "Wemos"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LOLIN_S2_MINI/",
         "link_type": "search_fallback",
@@ -1524,7 +1553,7 @@
     ],
     "LOLIN_S2_PICO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/LOLIN_S2_PICO/",
         "link_type": "official",
@@ -1533,7 +1562,7 @@
         "vendor": "Wemos"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/LOLIN_S2_PICO/",
         "link_type": "search_fallback",
@@ -1544,7 +1573,7 @@
     ],
     "M5STACK_ATOM": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/M5STACK_ATOM/",
         "link_type": "official",
@@ -1553,7 +1582,7 @@
         "vendor": "M5Stack"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/M5STACK_ATOM/",
         "link_type": "search_fallback",
@@ -1564,7 +1593,7 @@
     ],
     "M5STACK_ATOMS3_LITE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/M5STACK_ATOMS3_LITE/",
         "link_type": "official",
@@ -1573,7 +1602,7 @@
         "vendor": "M5Stack"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/M5STACK_ATOMS3_LITE/",
         "link_type": "search_fallback",
@@ -1584,7 +1613,7 @@
     ],
     "M5STACK_NANOC6": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/M5STACK_NANOC6/",
         "link_type": "official",
@@ -1593,7 +1622,7 @@
         "vendor": "M5Stack"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/M5STACK_NANOC6/",
         "link_type": "search_fallback",
@@ -1602,9 +1631,29 @@
         "vendor": "Amazon"
       }
     ],
+    "M5STACK_NANOH2": [
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "high",
+        "evidence_url": "https://micropython.org/download/M5STACK_NANOH2/",
+        "link_type": "official",
+        "notes": "Official board More info link from MicroPython download page.",
+        "url": "https://shop.m5stack.com/products/m5stack-nanoh2-dev-kit-esp32-h2",
+        "vendor": "M5Stack"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "low",
+        "evidence_url": "https://micropython.org/download/M5STACK_NANOH2/",
+        "link_type": "search_fallback",
+        "notes": "Search fallback; marketplace listing was not individually verified.",
+        "url": "https://www.amazon.com/s?k=M5Stack+NanoH2",
+        "vendor": "Amazon"
+      }
+    ],
     "MACHDYNE_WERKZEUG": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/MACHDYNE_WERKZEUG/",
         "link_type": "official",
@@ -1613,7 +1662,7 @@
         "vendor": "Machdyne"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MACHDYNE_WERKZEUG/",
         "link_type": "search_fallback",
@@ -1624,7 +1673,7 @@
     ],
     "MAKERDIARY_RT1011_NANO_KIT": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/MAKERDIARY_RT1011_NANO_KIT/",
         "link_type": "official",
@@ -1633,7 +1682,7 @@
         "vendor": "Makerdiary"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MAKERDIARY_RT1011_NANO_KIT/",
         "link_type": "search_fallback",
@@ -1644,7 +1693,7 @@
     ],
     "MICROBIT": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MICROBIT/",
         "link_type": "official",
@@ -1653,7 +1702,7 @@
         "vendor": "BBC"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MICROBIT/",
         "link_type": "search_fallback",
@@ -1664,7 +1713,7 @@
     ],
     "MIKROE_CLICKER2_STM32": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MIKROE_CLICKER2_STM32/",
         "link_type": "official",
@@ -1673,7 +1722,7 @@
         "vendor": "MikroElektronika"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIKROE_CLICKER2_STM32/",
         "link_type": "search_fallback",
@@ -1684,7 +1733,7 @@
     ],
     "MIKROE_QUAIL": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MIKROE_QUAIL/",
         "link_type": "official",
@@ -1693,7 +1742,7 @@
         "vendor": "MikroElektronika"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIKROE_QUAIL/",
         "link_type": "search_fallback",
@@ -1704,7 +1753,7 @@
     ],
     "MIMXRT1010_EVK": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MIMXRT1010_EVK/",
         "link_type": "official",
@@ -1713,7 +1762,7 @@
         "vendor": "NXP"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1010_EVK/",
         "link_type": "search_fallback",
@@ -1724,7 +1773,7 @@
     ],
     "MIMXRT1015_EVK": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MIMXRT1015_EVK/",
         "link_type": "official",
@@ -1733,7 +1782,7 @@
         "vendor": "NXP"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1015_EVK/",
         "link_type": "search_fallback",
@@ -1744,7 +1793,7 @@
     ],
     "MIMXRT1020_EVK": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MIMXRT1020_EVK/",
         "link_type": "official",
@@ -1753,7 +1802,7 @@
         "vendor": "NXP"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1020_EVK/",
         "link_type": "search_fallback",
@@ -1764,7 +1813,7 @@
     ],
     "MIMXRT1050_EVK": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MIMXRT1050_EVK/",
         "link_type": "official",
@@ -1773,7 +1822,7 @@
         "vendor": "NXP"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1050_EVK/",
         "link_type": "search_fallback",
@@ -1784,7 +1833,7 @@
     ],
     "MIMXRT1060_EVK": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MIMXRT1060_EVK/",
         "link_type": "official",
@@ -1793,7 +1842,7 @@
         "vendor": "NXP"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1060_EVK/",
         "link_type": "search_fallback",
@@ -1804,7 +1853,7 @@
     ],
     "MIMXRT1064_EVK": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MIMXRT1064_EVK/",
         "link_type": "official",
@@ -1813,7 +1862,7 @@
         "vendor": "NXP"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1064_EVK/",
         "link_type": "search_fallback",
@@ -1824,7 +1873,7 @@
     ],
     "MIMXRT1170_EVK": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/MIMXRT1170_EVK/",
         "link_type": "official",
@@ -1833,7 +1882,7 @@
         "vendor": "NXP"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MIMXRT1170_EVK/",
         "link_type": "search_fallback",
@@ -1844,7 +1893,7 @@
     ],
     "MINISAM_M4": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/MINISAM_M4/",
         "link_type": "official",
@@ -1853,7 +1902,7 @@
         "vendor": "MiniFig Boards"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/MINISAM_M4/",
         "link_type": "search_fallback",
@@ -1864,7 +1913,7 @@
     ],
     "NETDUINO_PLUS_2": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NETDUINO_PLUS_2/",
         "link_type": "search_fallback",
@@ -1875,7 +1924,7 @@
     ],
     "NRF52840_MDK_USB_DONGLE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NRF52840_MDK_USB_DONGLE/",
         "link_type": "official",
@@ -1884,7 +1933,7 @@
         "vendor": "Makerdiary"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NRF52840_MDK_USB_DONGLE/",
         "link_type": "search_fallback",
@@ -1895,7 +1944,7 @@
     ],
     "NUCLEO_F091RC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F091RC/",
         "link_type": "search_fallback",
@@ -1906,7 +1955,7 @@
     ],
     "NUCLEO_F401RE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F401RE/",
         "link_type": "search_fallback",
@@ -1917,7 +1966,7 @@
     ],
     "NUCLEO_F411RE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F411RE/",
         "link_type": "search_fallback",
@@ -1928,7 +1977,7 @@
     ],
     "NUCLEO_F412ZG": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F412ZG/",
         "link_type": "search_fallback",
@@ -1939,7 +1988,7 @@
     ],
     "NUCLEO_F413ZH": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F413ZH/",
         "link_type": "search_fallback",
@@ -1950,7 +1999,7 @@
     ],
     "NUCLEO_F429ZI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F429ZI/",
         "link_type": "search_fallback",
@@ -1961,7 +2010,7 @@
     ],
     "NUCLEO_F439ZI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F439ZI/",
         "link_type": "search_fallback",
@@ -1972,7 +2021,7 @@
     ],
     "NUCLEO_F446RE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F446RE/",
         "link_type": "search_fallback",
@@ -1983,7 +2032,7 @@
     ],
     "NUCLEO_F722ZE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F722ZE/",
         "link_type": "search_fallback",
@@ -1994,7 +2043,7 @@
     ],
     "NUCLEO_F746ZG": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F746ZG/",
         "link_type": "search_fallback",
@@ -2005,7 +2054,7 @@
     ],
     "NUCLEO_F756ZG": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NUCLEO_F756ZG/",
         "link_type": "official",
@@ -2014,7 +2063,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F756ZG/",
         "link_type": "search_fallback",
@@ -2025,7 +2074,7 @@
     ],
     "NUCLEO_F767ZI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_F767ZI/",
         "link_type": "search_fallback",
@@ -2036,7 +2085,7 @@
     ],
     "NUCLEO_G0B1RE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NUCLEO_G0B1RE/",
         "link_type": "official",
@@ -2045,7 +2094,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_G0B1RE/",
         "link_type": "search_fallback",
@@ -2056,7 +2105,7 @@
     ],
     "NUCLEO_G474RE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NUCLEO_G474RE/",
         "link_type": "official",
@@ -2065,7 +2114,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_G474RE/",
         "link_type": "search_fallback",
@@ -2076,7 +2125,7 @@
     ],
     "NUCLEO_H563ZI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_H563ZI/",
         "link_type": "search_fallback",
@@ -2087,7 +2136,7 @@
     ],
     "NUCLEO_H723ZG": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NUCLEO_H723ZG/",
         "link_type": "official",
@@ -2096,7 +2145,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_H723ZG/",
         "link_type": "search_fallback",
@@ -2107,7 +2156,7 @@
     ],
     "NUCLEO_H743ZI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_H743ZI/",
         "link_type": "search_fallback",
@@ -2118,7 +2167,7 @@
     ],
     "NUCLEO_H743ZI2": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_H743ZI2/",
         "link_type": "search_fallback",
@@ -2129,7 +2178,7 @@
     ],
     "NUCLEO_H753ZI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NUCLEO_H753ZI/",
         "link_type": "official",
@@ -2138,7 +2187,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_H753ZI/",
         "link_type": "search_fallback",
@@ -2149,7 +2198,7 @@
     ],
     "NUCLEO_H7A3ZI_Q": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NUCLEO_H7A3ZI_Q/",
         "link_type": "official",
@@ -2158,7 +2207,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_H7A3ZI_Q/",
         "link_type": "search_fallback",
@@ -2169,7 +2218,7 @@
     ],
     "NUCLEO_L073RZ": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_L073RZ/",
         "link_type": "search_fallback",
@@ -2180,7 +2229,7 @@
     ],
     "NUCLEO_L152RE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NUCLEO_L152RE/",
         "link_type": "official",
@@ -2189,7 +2238,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_L152RE/",
         "link_type": "search_fallback",
@@ -2200,7 +2249,7 @@
     ],
     "NUCLEO_L432KC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_L432KC/",
         "link_type": "search_fallback",
@@ -2211,7 +2260,7 @@
     ],
     "NUCLEO_L452RE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_L452RE/",
         "link_type": "search_fallback",
@@ -2222,7 +2271,7 @@
     ],
     "NUCLEO_L476RG": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_L476RG/",
         "link_type": "search_fallback",
@@ -2233,7 +2282,7 @@
     ],
     "NUCLEO_L4A6ZG": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NUCLEO_L4A6ZG/",
         "link_type": "official",
@@ -2242,7 +2291,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_L4A6ZG/",
         "link_type": "search_fallback",
@@ -2253,7 +2302,7 @@
     ],
     "NUCLEO_U5A5ZJ_Q": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_U5A5ZJ_Q/",
         "link_type": "search_fallback",
@@ -2264,7 +2313,7 @@
     ],
     "NUCLEO_WB55": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_WB55/",
         "link_type": "search_fallback",
@@ -2275,7 +2324,7 @@
     ],
     "NUCLEO_WL55": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NUCLEO_WL55/",
         "link_type": "official",
@@ -2284,7 +2333,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NUCLEO_WL55/",
         "link_type": "search_fallback",
@@ -2295,7 +2344,7 @@
     ],
     "NULLBITS_BIT_C_PRO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/NULLBITS_BIT_C_PRO/",
         "link_type": "official",
@@ -2304,7 +2353,7 @@
         "vendor": "nullbits"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/NULLBITS_BIT_C_PRO/",
         "link_type": "search_fallback",
@@ -2315,7 +2364,7 @@
     ],
     "OLIMEX_E407": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/OLIMEX_E407/",
         "link_type": "official",
@@ -2324,7 +2373,7 @@
         "vendor": "Olimex"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/OLIMEX_E407/",
         "link_type": "search_fallback",
@@ -2335,7 +2384,7 @@
     ],
     "OLIMEX_ESP32_EVB": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/OLIMEX_ESP32_EVB/",
         "link_type": "official",
@@ -2344,7 +2393,7 @@
         "vendor": "Olimex"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/OLIMEX_ESP32_EVB/",
         "link_type": "search_fallback",
@@ -2355,7 +2404,7 @@
     ],
     "OLIMEX_ESP32_POE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/OLIMEX_ESP32_POE/",
         "link_type": "official",
@@ -2364,7 +2413,7 @@
         "vendor": "Olimex"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/OLIMEX_ESP32_POE/",
         "link_type": "search_fallback",
@@ -2375,7 +2424,7 @@
     ],
     "OLIMEX_H407": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/OLIMEX_H407/",
         "link_type": "official",
@@ -2384,7 +2433,7 @@
         "vendor": "Olimex"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/OLIMEX_H407/",
         "link_type": "search_fallback",
@@ -2395,7 +2444,7 @@
     ],
     "OLIMEX_RT1010": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/OLIMEX_RT1010/",
         "link_type": "official",
@@ -2404,7 +2453,7 @@
         "vendor": "Olimex"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/OLIMEX_RT1010/",
         "link_type": "search_fallback",
@@ -2415,7 +2464,7 @@
     ],
     "PARTICLE_XENON": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/PARTICLE_XENON/",
         "link_type": "official",
@@ -2424,7 +2473,7 @@
         "vendor": "Particle"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PARTICLE_XENON/",
         "link_type": "search_fallback",
@@ -2435,7 +2484,7 @@
     ],
     "PCA10000": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/PCA10000/",
         "link_type": "official",
@@ -2444,7 +2493,7 @@
         "vendor": "Nordic Semiconductor"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10000/",
         "link_type": "search_fallback",
@@ -2455,7 +2504,7 @@
     ],
     "PCA10001": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/PCA10001/",
         "link_type": "official",
@@ -2464,7 +2513,7 @@
         "vendor": "Nordic Semiconductor"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10001/",
         "link_type": "search_fallback",
@@ -2475,7 +2524,7 @@
     ],
     "PCA10028": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/PCA10028/",
         "link_type": "official",
@@ -2484,7 +2533,7 @@
         "vendor": "Nordic Semiconductor"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10028/",
         "link_type": "search_fallback",
@@ -2495,7 +2544,7 @@
     ],
     "PCA10031": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/PCA10031/",
         "link_type": "official",
@@ -2504,7 +2553,7 @@
         "vendor": "Nordic Semiconductor"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10031/",
         "link_type": "search_fallback",
@@ -2515,7 +2564,7 @@
     ],
     "PCA10040": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/PCA10040/",
         "link_type": "official",
@@ -2524,7 +2573,7 @@
         "vendor": "Nordic Semiconductor"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10040/",
         "link_type": "search_fallback",
@@ -2535,7 +2584,7 @@
     ],
     "PCA10056": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/PCA10056/",
         "link_type": "official",
@@ -2544,7 +2593,7 @@
         "vendor": "Nordic Semiconductor"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10056/",
         "link_type": "search_fallback",
@@ -2555,7 +2604,7 @@
     ],
     "PCA10059": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/PCA10059/",
         "link_type": "official",
@@ -2564,7 +2613,7 @@
         "vendor": "Nordic Semiconductor"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10059/",
         "link_type": "search_fallback",
@@ -2575,7 +2624,7 @@
     ],
     "PCA10090": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/PCA10090/",
         "link_type": "official",
@@ -2584,7 +2633,7 @@
         "vendor": "Nordic Semiconductor"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PCA10090/",
         "link_type": "search_fallback",
@@ -2595,7 +2644,7 @@
     ],
     "PHYBOARD_RT1170": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/PHYBOARD_RT1170/",
         "link_type": "official",
@@ -2604,7 +2653,7 @@
         "vendor": "PHYTEC"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PHYBOARD_RT1170/",
         "link_type": "search_fallback",
@@ -2615,7 +2664,7 @@
     ],
     "PIMORONI_PICOLIPO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/PIMORONI_PICOLIPO/",
         "link_type": "official",
@@ -2624,7 +2673,7 @@
         "vendor": "Pimoroni"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PIMORONI_PICOLIPO/",
         "link_type": "search_fallback",
@@ -2635,7 +2684,7 @@
     ],
     "PIMORONI_TINY2040": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/PIMORONI_TINY2040/",
         "link_type": "official",
@@ -2644,7 +2693,7 @@
         "vendor": "Pimoroni"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PIMORONI_TINY2040/",
         "link_type": "search_fallback",
@@ -2655,7 +2704,7 @@
     ],
     "POLOLU_3PI_2040_ROBOT": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/POLOLU_3PI_2040_ROBOT/",
         "link_type": "official",
@@ -2664,7 +2713,7 @@
         "vendor": "Pololu"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/POLOLU_3PI_2040_ROBOT/",
         "link_type": "search_fallback",
@@ -2675,7 +2724,7 @@
     ],
     "POLOLU_ZUMO_2040_ROBOT": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/POLOLU_ZUMO_2040_ROBOT/",
         "link_type": "official",
@@ -2684,7 +2733,7 @@
         "vendor": "Pololu"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/POLOLU_ZUMO_2040_ROBOT/",
         "link_type": "search_fallback",
@@ -2695,7 +2744,7 @@
     ],
     "PYBD_SF2": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/PYBD_SF2/",
         "link_type": "official",
@@ -2704,7 +2753,7 @@
         "vendor": "George Robotics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PYBD_SF2/",
         "link_type": "search_fallback",
@@ -2715,7 +2764,7 @@
     ],
     "PYBD_SF3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/PYBD_SF3/",
         "link_type": "official",
@@ -2724,7 +2773,7 @@
         "vendor": "George Robotics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PYBD_SF3/",
         "link_type": "search_fallback",
@@ -2735,7 +2784,7 @@
     ],
     "PYBD_SF6": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/PYBD_SF6/",
         "link_type": "official",
@@ -2744,7 +2793,7 @@
         "vendor": "George Robotics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PYBD_SF6/",
         "link_type": "search_fallback",
@@ -2755,7 +2804,7 @@
     ],
     "PYBLITEV10": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/PYBLITEV10/",
         "link_type": "official",
@@ -2764,7 +2813,7 @@
         "vendor": "George Robotics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PYBLITEV10/",
         "link_type": "search_fallback",
@@ -2775,7 +2824,7 @@
     ],
     "PYBV10": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PYBV10/",
         "link_type": "search_fallback",
@@ -2786,7 +2835,7 @@
     ],
     "PYBV11": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/PYBV11/",
         "link_type": "official",
@@ -2795,7 +2844,7 @@
         "vendor": "George Robotics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/PYBV11/",
         "link_type": "search_fallback",
@@ -2806,7 +2855,7 @@
     ],
     "RA4M1_CLICKER": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/RA4M1_CLICKER/",
         "link_type": "official",
@@ -2815,7 +2864,7 @@
         "vendor": "MikroElektronika"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/RA4M1_CLICKER/",
         "link_type": "search_fallback",
@@ -2826,7 +2875,7 @@
     ],
     "RPI_PICO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/RPI_PICO/",
         "link_type": "official",
@@ -2835,7 +2884,7 @@
         "vendor": "Raspberry Pi"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/RPI_PICO/",
         "link_type": "search_fallback",
@@ -2846,7 +2895,7 @@
     ],
     "RPI_PICO2": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/RPI_PICO2/",
         "link_type": "official",
@@ -2855,7 +2904,7 @@
         "vendor": "Raspberry Pi"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/RPI_PICO2/",
         "link_type": "official",
@@ -2864,7 +2913,7 @@
         "vendor": "Raspberry Pi"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/RPI_PICO2/",
         "link_type": "search_fallback",
@@ -2875,7 +2924,7 @@
     ],
     "RPI_PICO2_W": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/RPI_PICO2_W/",
         "link_type": "official",
@@ -2884,7 +2933,7 @@
         "vendor": "Raspberry Pi"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/RPI_PICO2_W/",
         "link_type": "official",
@@ -2893,7 +2942,7 @@
         "vendor": "Raspberry Pi"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/RPI_PICO2_W/",
         "link_type": "search_fallback",
@@ -2904,7 +2953,7 @@
     ],
     "RPI_PICO_W": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/RPI_PICO_W/",
         "link_type": "official",
@@ -2913,7 +2962,7 @@
         "vendor": "Raspberry Pi"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/RPI_PICO_W/",
         "link_type": "search_fallback",
@@ -2924,7 +2973,7 @@
     ],
     "SAMD21_XPLAINED_PRO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SAMD21_XPLAINED_PRO/",
         "link_type": "official",
@@ -2933,7 +2982,7 @@
         "vendor": "Microchip"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SAMD21_XPLAINED_PRO/",
         "link_type": "search_fallback",
@@ -2944,7 +2993,7 @@
     ],
     "SAMD_GENERIC_D21X18": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D21X18/",
         "link_type": "official",
@@ -2953,7 +3002,7 @@
         "vendor": "Microchip"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D21X18/",
         "link_type": "search_fallback",
@@ -2964,7 +3013,7 @@
     ],
     "SAMD_GENERIC_D51X19": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D51X19/",
         "link_type": "official",
@@ -2973,7 +3022,7 @@
         "vendor": "Microchip"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D51X19/",
         "link_type": "search_fallback",
@@ -2984,7 +3033,7 @@
     ],
     "SAMD_GENERIC_D51X20": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D51X20/",
         "link_type": "official",
@@ -2993,7 +3042,7 @@
         "vendor": "Microchip"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SAMD_GENERIC_D51X20/",
         "link_type": "search_fallback",
@@ -3004,7 +3053,7 @@
     ],
     "SEEED_ARCH_MIX": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SEEED_ARCH_MIX/",
         "link_type": "official",
@@ -3013,7 +3062,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SEEED_ARCH_MIX/",
         "link_type": "official",
@@ -3022,7 +3071,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_ARCH_MIX/",
         "link_type": "search_fallback",
@@ -3033,7 +3082,7 @@
     ],
     "SEEED_WIO_TERMINAL": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SEEED_WIO_TERMINAL/",
         "link_type": "official",
@@ -3042,7 +3091,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SEEED_WIO_TERMINAL/",
         "link_type": "official",
@@ -3051,7 +3100,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_WIO_TERMINAL/",
         "link_type": "search_fallback",
@@ -3060,9 +3109,67 @@
         "vendor": "Amazon"
       }
     ],
+    "SEEED_XIAO_ESP32C3": [
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "medium",
+        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C3/",
+        "link_type": "official",
+        "notes": "Official board More info link from MicroPython download page.",
+        "url": "https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html",
+        "vendor": "Seeed Studio"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "high",
+        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C3/",
+        "link_type": "official",
+        "notes": "Official vendor/product-family page.",
+        "url": "https://www.seeedstudio.com/",
+        "vendor": "Seeed Studio"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "low",
+        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C3/",
+        "link_type": "search_fallback",
+        "notes": "Search fallback; marketplace listing was not individually verified.",
+        "url": "https://www.amazon.com/s?k=Seeed+Studio+XIAO+ESP32C3",
+        "vendor": "Amazon"
+      }
+    ],
+    "SEEED_XIAO_ESP32C5": [
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "medium",
+        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C5/",
+        "link_type": "official",
+        "notes": "Official board More info link from MicroPython download page.",
+        "url": "https://wiki.seeedstudio.com/xiao_esp32c5_getting_started/",
+        "vendor": "Seeed Studio"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "high",
+        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C5/",
+        "link_type": "official",
+        "notes": "Official vendor/product-family page.",
+        "url": "https://www.seeedstudio.com/",
+        "vendor": "Seeed Studio"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "low",
+        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C5/",
+        "link_type": "search_fallback",
+        "notes": "Search fallback; marketplace listing was not individually verified.",
+        "url": "https://www.amazon.com/s?k=Seeed+Studio+XIAO+ESP32C5",
+        "vendor": "Amazon"
+      }
+    ],
     "SEEED_XIAO_ESP32C6": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C6/",
         "link_type": "official",
@@ -3071,7 +3178,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C6/",
         "link_type": "official",
@@ -3080,7 +3187,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32C6/",
         "link_type": "search_fallback",
@@ -3089,9 +3196,38 @@
         "vendor": "Amazon"
       }
     ],
+    "SEEED_XIAO_ESP32S3": [
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "medium",
+        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32S3/",
+        "link_type": "official",
+        "notes": "Official board More info link from MicroPython download page.",
+        "url": "https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html",
+        "vendor": "Seeed Studio"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "high",
+        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32S3/",
+        "link_type": "official",
+        "notes": "Official vendor/product-family page.",
+        "url": "https://www.seeedstudio.com/",
+        "vendor": "Seeed Studio"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "low",
+        "evidence_url": "https://micropython.org/download/SEEED_XIAO_ESP32S3/",
+        "link_type": "search_fallback",
+        "notes": "Search fallback; marketplace listing was not individually verified.",
+        "url": "https://www.amazon.com/s?k=Seeed+Studio+XIAO+ESP32S3",
+        "vendor": "Amazon"
+      }
+    ],
     "SEEED_XIAO_NRF52": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_NRF52/",
         "link_type": "official",
@@ -3100,7 +3236,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_NRF52/",
         "link_type": "official",
@@ -3109,7 +3245,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_NRF52/",
         "link_type": "search_fallback",
@@ -3120,7 +3256,7 @@
     ],
     "SEEED_XIAO_RP2040": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_RP2040/",
         "link_type": "official",
@@ -3129,7 +3265,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_RP2040/",
         "link_type": "official",
@@ -3138,7 +3274,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_RP2040/",
         "link_type": "search_fallback",
@@ -3149,7 +3285,7 @@
     ],
     "SEEED_XIAO_RP2350": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_RP2350/",
         "link_type": "official",
@@ -3158,7 +3294,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_RP2350/",
         "link_type": "official",
@@ -3167,7 +3303,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_RP2350/",
         "link_type": "search_fallback",
@@ -3178,7 +3314,7 @@
     ],
     "SEEED_XIAO_SAMD21": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_SAMD21/",
         "link_type": "official",
@@ -3187,7 +3323,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_SAMD21/",
         "link_type": "official",
@@ -3196,7 +3332,7 @@
         "vendor": "Seeed Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SEEED_XIAO_SAMD21/",
         "link_type": "search_fallback",
@@ -3207,7 +3343,7 @@
     ],
     "SIL_MANT1S": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SIL_MANT1S/",
         "link_type": "official",
@@ -3216,7 +3352,7 @@
         "vendor": "Silicognition LLC"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SIL_MANT1S/",
         "link_type": "search_fallback",
@@ -3227,7 +3363,7 @@
     ],
     "SIL_RP2040_SHIM": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SIL_RP2040_SHIM/",
         "link_type": "official",
@@ -3236,7 +3372,7 @@
         "vendor": "Silicognition LLC"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SIL_RP2040_SHIM/",
         "link_type": "search_fallback",
@@ -3247,7 +3383,7 @@
     ],
     "SIL_WESP32": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SIL_WESP32/",
         "link_type": "official",
@@ -3256,7 +3392,7 @@
         "vendor": "Silicognition"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SIL_WESP32/",
         "link_type": "search_fallback",
@@ -3267,7 +3403,7 @@
     ],
     "SOLDERED_NULA_MAX_RP2350": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SOLDERED_NULA_MAX_RP2350/",
         "link_type": "official",
@@ -3276,7 +3412,7 @@
         "vendor": "Soldered Electronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SOLDERED_NULA_MAX_RP2350/",
         "link_type": "search_fallback",
@@ -3287,7 +3423,7 @@
     ],
     "SOLDERED_NULA_MINI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SOLDERED_NULA_MINI/",
         "link_type": "official",
@@ -3296,7 +3432,7 @@
         "vendor": "Soldered Electronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SOLDERED_NULA_MINI/",
         "link_type": "search_fallback",
@@ -3307,7 +3443,7 @@
     ],
     "SPARKFUN_IOTNODE_LORAWAN_RP2350": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOTNODE_LORAWAN_RP2350/",
         "link_type": "official",
@@ -3316,7 +3452,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOTNODE_LORAWAN_RP2350/",
         "link_type": "official",
@@ -3325,7 +3461,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOTNODE_LORAWAN_RP2350/",
         "link_type": "search_fallback",
@@ -3336,7 +3472,7 @@
     ],
     "SPARKFUN_IOTREDBOARD_RP2350": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOTREDBOARD_RP2350/",
         "link_type": "official",
@@ -3345,7 +3481,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOTREDBOARD_RP2350/",
         "link_type": "official",
@@ -3354,7 +3490,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOTREDBOARD_RP2350/",
         "link_type": "search_fallback",
@@ -3365,7 +3501,7 @@
     ],
     "SPARKFUN_IOT_REDBOARD_ESP32": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOT_REDBOARD_ESP32/",
         "link_type": "official",
@@ -3374,7 +3510,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOT_REDBOARD_ESP32/",
         "link_type": "official",
@@ -3383,7 +3519,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_IOT_REDBOARD_ESP32/",
         "link_type": "search_fallback",
@@ -3394,7 +3530,7 @@
     ],
     "SPARKFUN_MICROMOD_STM32": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_MICROMOD_STM32/",
         "link_type": "official",
@@ -3403,7 +3539,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_MICROMOD_STM32/",
         "link_type": "official",
@@ -3412,7 +3548,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_MICROMOD_STM32/",
         "link_type": "search_fallback",
@@ -3423,7 +3559,7 @@
     ],
     "SPARKFUN_PROMICRO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_PROMICRO/",
         "link_type": "official",
@@ -3432,7 +3568,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_PROMICRO/",
         "link_type": "official",
@@ -3441,7 +3577,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_PROMICRO/",
         "link_type": "search_fallback",
@@ -3452,7 +3588,7 @@
     ],
     "SPARKFUN_PROMICRO_RP2350": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_PROMICRO_RP2350/",
         "link_type": "official",
@@ -3461,7 +3597,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_PROMICRO_RP2350/",
         "link_type": "official",
@@ -3470,7 +3606,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_PROMICRO_RP2350/",
         "link_type": "search_fallback",
@@ -3481,7 +3617,7 @@
     ],
     "SPARKFUN_REDBOARD_TURBO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_REDBOARD_TURBO/",
         "link_type": "official",
@@ -3490,7 +3626,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_REDBOARD_TURBO/",
         "link_type": "official",
@@ -3499,7 +3635,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_REDBOARD_TURBO/",
         "link_type": "search_fallback",
@@ -3510,7 +3646,7 @@
     ],
     "SPARKFUN_SAMD21_DEV_BREAKOUT": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_SAMD21_DEV_BREAKOUT/",
         "link_type": "official",
@@ -3519,7 +3655,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_SAMD21_DEV_BREAKOUT/",
         "link_type": "official",
@@ -3528,7 +3664,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_SAMD21_DEV_BREAKOUT/",
         "link_type": "search_fallback",
@@ -3539,7 +3675,7 @@
     ],
     "SPARKFUN_SAMD51_THING_PLUS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_SAMD51_THING_PLUS/",
         "link_type": "official",
@@ -3548,7 +3684,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_SAMD51_THING_PLUS/",
         "link_type": "official",
@@ -3557,7 +3693,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_SAMD51_THING_PLUS/",
         "link_type": "search_fallback",
@@ -3568,7 +3704,7 @@
     ],
     "SPARKFUN_THINGPLUS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS/",
         "link_type": "official",
@@ -3577,7 +3713,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS/",
         "link_type": "official",
@@ -3586,7 +3722,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS/",
         "link_type": "search_fallback",
@@ -3597,7 +3733,7 @@
     ],
     "SPARKFUN_THINGPLUS_ESP32C5": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS_ESP32C5/",
         "link_type": "official",
@@ -3606,7 +3742,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS_ESP32C5/",
         "link_type": "official",
@@ -3615,7 +3751,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS_ESP32C5/",
         "link_type": "search_fallback",
@@ -3626,7 +3762,7 @@
     ],
     "SPARKFUN_THINGPLUS_RP2350": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS_RP2350/",
         "link_type": "official",
@@ -3635,7 +3771,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS_RP2350/",
         "link_type": "official",
@@ -3644,7 +3780,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_THINGPLUS_RP2350/",
         "link_type": "search_fallback",
@@ -3655,7 +3791,7 @@
     ],
     "SPARKFUN_XRP_CONTROLLER": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER/",
         "link_type": "official",
@@ -3664,7 +3800,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER/",
         "link_type": "official",
@@ -3673,7 +3809,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER/",
         "link_type": "search_fallback",
@@ -3684,7 +3820,7 @@
     ],
     "SPARKFUN_XRP_CONTROLLER_BETA": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER_BETA/",
         "link_type": "official",
@@ -3693,7 +3829,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER_BETA/",
         "link_type": "official",
@@ -3702,7 +3838,7 @@
         "vendor": "SparkFun"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/SPARKFUN_XRP_CONTROLLER_BETA/",
         "link_type": "search_fallback",
@@ -3713,7 +3849,7 @@
     ],
     "STM32F411DISC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F411DISC/",
         "link_type": "search_fallback",
@@ -3724,7 +3860,7 @@
     ],
     "STM32F429DISC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F429DISC/",
         "link_type": "search_fallback",
@@ -3735,7 +3871,7 @@
     ],
     "STM32F439": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F439/",
         "link_type": "search_fallback",
@@ -3746,7 +3882,7 @@
     ],
     "STM32F469DISC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/STM32F469DISC/",
         "link_type": "official",
@@ -3755,7 +3891,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F469DISC/",
         "link_type": "search_fallback",
@@ -3766,7 +3902,7 @@
     ],
     "STM32F4DISC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F4DISC/",
         "link_type": "search_fallback",
@@ -3777,7 +3913,7 @@
     ],
     "STM32F769DISC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F769DISC/",
         "link_type": "search_fallback",
@@ -3788,7 +3924,7 @@
     ],
     "STM32F7DISC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32F7DISC/",
         "link_type": "search_fallback",
@@ -3799,7 +3935,7 @@
     ],
     "STM32H747I_DISCO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/STM32H747I_DISCO/",
         "link_type": "official",
@@ -3808,7 +3944,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32H747I_DISCO/",
         "link_type": "search_fallback",
@@ -3819,7 +3955,7 @@
     ],
     "STM32H7B3I_DK": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32H7B3I_DK/",
         "link_type": "search_fallback",
@@ -3830,7 +3966,7 @@
     ],
     "STM32L476DISC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32L476DISC/",
         "link_type": "search_fallback",
@@ -3841,7 +3977,7 @@
     ],
     "STM32L496GDISC": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/STM32L496GDISC/",
         "link_type": "official",
@@ -3850,7 +3986,7 @@
         "vendor": "ST Microelectronics"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/STM32L496GDISC/",
         "link_type": "search_fallback",
@@ -3861,7 +3997,7 @@
     ],
     "TEENSY40": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/TEENSY40/",
         "link_type": "official",
@@ -3870,7 +4006,7 @@
         "vendor": "PJRC"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/TEENSY40/",
         "link_type": "search_fallback",
@@ -3881,7 +4017,7 @@
     ],
     "TEENSY41": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/TEENSY41/",
         "link_type": "official",
@@ -3890,7 +4026,7 @@
         "vendor": "PJRC"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/TEENSY41/",
         "link_type": "search_fallback",
@@ -3901,7 +4037,7 @@
     ],
     "UM_FEATHERS2": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS2/",
         "link_type": "official",
@@ -3910,7 +4046,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS2/",
         "link_type": "search_fallback",
@@ -3921,7 +4057,7 @@
     ],
     "UM_FEATHERS2NEO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS2NEO/",
         "link_type": "official",
@@ -3930,7 +4066,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS2NEO/",
         "link_type": "search_fallback",
@@ -3941,7 +4077,7 @@
     ],
     "UM_FEATHERS3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS3/",
         "link_type": "official",
@@ -3950,7 +4086,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS3/",
         "link_type": "search_fallback",
@@ -3961,7 +4097,7 @@
     ],
     "UM_FEATHERS3NEO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS3NEO/",
         "link_type": "official",
@@ -3970,7 +4106,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_FEATHERS3NEO/",
         "link_type": "search_fallback",
@@ -3981,7 +4117,7 @@
     ],
     "UM_NANOS3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_NANOS3/",
         "link_type": "official",
@@ -3990,7 +4126,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_NANOS3/",
         "link_type": "search_fallback",
@@ -4001,7 +4137,7 @@
     ],
     "UM_OMGS3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_OMGS3/",
         "link_type": "official",
@@ -4010,7 +4146,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_OMGS3/",
         "link_type": "search_fallback",
@@ -4021,7 +4157,7 @@
     ],
     "UM_PROS3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_PROS3/",
         "link_type": "official",
@@ -4030,7 +4166,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_PROS3/",
         "link_type": "search_fallback",
@@ -4041,7 +4177,7 @@
     ],
     "UM_RGBTOUCH_MINI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_RGBTOUCH_MINI/",
         "link_type": "official",
@@ -4050,7 +4186,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_RGBTOUCH_MINI/",
         "link_type": "search_fallback",
@@ -4061,7 +4197,7 @@
     ],
     "UM_TINYC6": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_TINYC6/",
         "link_type": "official",
@@ -4070,7 +4206,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_TINYC6/",
         "link_type": "search_fallback",
@@ -4081,7 +4217,7 @@
     ],
     "UM_TINYPICO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_TINYPICO/",
         "link_type": "official",
@@ -4090,7 +4226,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_TINYPICO/",
         "link_type": "search_fallback",
@@ -4101,7 +4237,7 @@
     ],
     "UM_TINYS2": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_TINYS2/",
         "link_type": "official",
@@ -4110,7 +4246,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_TINYS2/",
         "link_type": "search_fallback",
@@ -4121,7 +4257,7 @@
     ],
     "UM_TINYS3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_TINYS3/",
         "link_type": "official",
@@ -4130,7 +4266,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_TINYS3/",
         "link_type": "search_fallback",
@@ -4141,7 +4277,7 @@
     ],
     "UM_TINYWATCHS3": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/UM_TINYWATCHS3/",
         "link_type": "official",
@@ -4150,7 +4286,7 @@
         "vendor": "Unexpected Maker"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/UM_TINYWATCHS3/",
         "link_type": "search_fallback",
@@ -4161,7 +4297,7 @@
     ],
     "USBDONGLE_WB55": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/USBDONGLE_WB55/",
         "link_type": "search_fallback",
@@ -4172,7 +4308,7 @@
     ],
     "VCC_GND_F407VE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/VCC_GND_F407VE/",
         "link_type": "official",
@@ -4181,7 +4317,7 @@
         "vendor": "VCC-GND Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/VCC_GND_F407VE/",
         "link_type": "search_fallback",
@@ -4192,7 +4328,7 @@
     ],
     "VCC_GND_F407ZG": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/VCC_GND_F407ZG/",
         "link_type": "official",
@@ -4201,7 +4337,7 @@
         "vendor": "VCC-GND Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/VCC_GND_F407ZG/",
         "link_type": "search_fallback",
@@ -4212,7 +4348,7 @@
     ],
     "VCC_GND_H743VI": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/VCC_GND_H743VI/",
         "link_type": "official",
@@ -4221,7 +4357,7 @@
         "vendor": "VCC-GND Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/VCC_GND_H743VI/",
         "link_type": "search_fallback",
@@ -4232,7 +4368,7 @@
     ],
     "VK_RA6M5": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/VK_RA6M5/",
         "link_type": "official",
@@ -4241,7 +4377,7 @@
         "vendor": "Vekatech"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/VK_RA6M5/",
         "link_type": "search_fallback",
@@ -4252,7 +4388,7 @@
     ],
     "W5100S_EVB_PICO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/W5100S_EVB_PICO/",
         "link_type": "official",
@@ -4261,7 +4397,7 @@
         "vendor": "WIZnet"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/W5100S_EVB_PICO/",
         "link_type": "search_fallback",
@@ -4272,7 +4408,7 @@
     ],
     "W5500_EVB_PICO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/W5500_EVB_PICO/",
         "link_type": "official",
@@ -4281,7 +4417,7 @@
         "vendor": "WIZnet"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/W5500_EVB_PICO/",
         "link_type": "search_fallback",
@@ -4290,9 +4426,29 @@
         "vendor": "Amazon"
       }
     ],
+    "WAVESHARE_ESP32_S3_PICO": [
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "medium",
+        "evidence_url": "https://micropython.org/download/WAVESHARE_ESP32_S3_PICO/",
+        "link_type": "official",
+        "notes": "Official board More info link from MicroPython download page.",
+        "url": "https://www.waveshare.com/ESP32-S3-Pico.htm",
+        "vendor": "Waveshare"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "low",
+        "evidence_url": "https://micropython.org/download/WAVESHARE_ESP32_S3_PICO/",
+        "link_type": "search_fallback",
+        "notes": "Search fallback; marketplace listing was not individually verified.",
+        "url": "https://www.amazon.com/s?k=Waveshare+Waveshare+ESP32-S3-Pico",
+        "vendor": "Amazon"
+      }
+    ],
     "WAVESHARE_RP2040_LCD_0_96": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_LCD_0_96/",
         "link_type": "official",
@@ -4301,7 +4457,7 @@
         "vendor": "Waveshare"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_LCD_0_96/",
         "link_type": "search_fallback",
@@ -4312,7 +4468,7 @@
     ],
     "WAVESHARE_RP2040_PLUS": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_PLUS/",
         "link_type": "official",
@@ -4321,7 +4477,7 @@
         "vendor": "Waveshare"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_PLUS/",
         "link_type": "search_fallback",
@@ -4332,7 +4488,7 @@
     ],
     "WAVESHARE_RP2040_ZERO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_ZERO/",
         "link_type": "official",
@@ -4341,7 +4497,7 @@
         "vendor": "Waveshare"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2040_ZERO/",
         "link_type": "search_fallback",
@@ -4352,7 +4508,7 @@
     ],
     "WAVESHARE_RP2350B_CORE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2350B_CORE/",
         "link_type": "official",
@@ -4361,7 +4517,7 @@
         "vendor": "Waveshare"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WAVESHARE_RP2350B_CORE/",
         "link_type": "search_fallback",
@@ -4372,7 +4528,7 @@
     ],
     "WEACTSTUDIO": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO/",
         "link_type": "official",
@@ -4381,7 +4537,7 @@
         "vendor": "WeAct"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO/",
         "link_type": "search_fallback",
@@ -4390,9 +4546,29 @@
         "vendor": "Amazon"
       }
     ],
+    "WEACTSTUDIO_MINI_STM32H723": [
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "medium",
+        "evidence_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32H723/",
+        "link_type": "official",
+        "notes": "Official board More info link from MicroPython download page.",
+        "url": "https://github.com/WeActStudio/WeActStudio.MiniSTM32H723",
+        "vendor": "WeAct Studio"
+      },
+      {
+        "checked_at": "2026-07-17",
+        "confidence": "low",
+        "evidence_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32H723/",
+        "link_type": "search_fallback",
+        "notes": "Search fallback; marketplace listing was not individually verified.",
+        "url": "https://www.amazon.com/s?k=WeAct+Studio+Mini+STM32H723",
+        "vendor": "Amazon"
+      }
+    ],
     "WEACTSTUDIO_MINI_STM32H743": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32H743/",
         "link_type": "official",
@@ -4401,7 +4577,7 @@
         "vendor": "WeAct Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32H743/",
         "link_type": "search_fallback",
@@ -4412,7 +4588,7 @@
     ],
     "WEACTSTUDIO_MINI_STM32U585": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32U585/",
         "link_type": "official",
@@ -4421,7 +4597,7 @@
         "vendor": "WeAct Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO_MINI_STM32U585/",
         "link_type": "search_fallback",
@@ -4432,7 +4608,7 @@
     ],
     "WEACTSTUDIO_RP2350B_CORE": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO_RP2350B_CORE/",
         "link_type": "official",
@@ -4441,7 +4617,7 @@
         "vendor": "WeAct Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WEACTSTUDIO_RP2350B_CORE/",
         "link_type": "search_fallback",
@@ -4452,7 +4628,7 @@
     ],
     "WEACT_F411_BLACKPILL": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "medium",
         "evidence_url": "https://micropython.org/download/WEACT_F411_BLACKPILL/",
         "link_type": "official",
@@ -4461,7 +4637,7 @@
         "vendor": "WeAct Studio"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WEACT_F411_BLACKPILL/",
         "link_type": "search_fallback",
@@ -4472,7 +4648,7 @@
     ],
     "WIPY": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/WIPY/",
         "link_type": "official",
@@ -4481,7 +4657,7 @@
         "vendor": "Pycom"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WIPY/",
         "link_type": "search_fallback",
@@ -4492,7 +4668,7 @@
     ],
     "WT51822_S4AT": [
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "high",
         "evidence_url": "https://micropython.org/download/WT51822_S4AT/",
         "link_type": "official",
@@ -4501,7 +4677,7 @@
         "vendor": "Wireless-Tag"
       },
       {
-        "checked_at": "2026-06-20",
+        "checked_at": "2026-07-17",
         "confidence": "low",
         "evidence_url": "https://micropython.org/download/WT51822_S4AT/",
         "link_type": "search_fallback",

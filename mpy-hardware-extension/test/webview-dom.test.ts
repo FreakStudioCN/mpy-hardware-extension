@@ -55,6 +55,11 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
+  assert.equal(document.getElementById("modeBeginner")!.getAttribute("aria-pressed"), "true");
+  assert.equal(document.getElementById("modeCustom")!.getAttribute("aria-pressed"), "false");
+  assert.equal(document.getElementById("boardAuto")!.getAttribute("aria-pressed"), "true");
+  assert.equal(document.getElementById("boardMore")!.getAttribute("aria-pressed"), "false");
+
   post(dom, {
     type: "micropython_boards",
     source_url: "https://micropython.org/download/",
@@ -98,7 +103,17 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   assert.doesNotMatch(document.getElementById("boardPicker")!.textContent!, /Pyboard D-series/);
 
   (document.getElementById("modeCustom") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("modeBeginner")!.getAttribute("aria-pressed"), "false");
+  assert.equal(document.getElementById("modeCustom")!.getAttribute("aria-pressed"), "true");
   (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+  // Picking a board shows the selected chip (naming the choice) and flips the segmented toggle to Browse,
+  // so the current choice is always visible instead of hidden in the collapsed list.
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), false, "selected chip shown after picking");
+  assert.match(document.getElementById("boardSelectedName")!.textContent!, /ESP32-S3/, "chip names the picked board");
+  assert.equal(document.getElementById("boardMore")!.classList.contains("active"), true, "Browse segment active when a board is picked");
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), false, "Recommend not active when a board is picked");
+  assert.equal(document.getElementById("boardAuto")!.getAttribute("aria-pressed"), "false");
+  assert.equal(document.getElementById("boardMore")!.getAttribute("aria-pressed"), "true");
   (document.getElementById("intent") as HTMLTextAreaElement).value = "做一个温度报警器";
   (document.getElementById("generate") as HTMLButtonElement).click();
 
@@ -108,6 +123,34 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   assert.equal(start.pre_selected_board.id, "esp32-s3-devkitc");
   assert.equal(start.pre_selected_board.official_id, "ESP32_GENERIC_S3");
   assert.equal(start.pre_selected_board.firmware.board_name, "ESP32_GENERIC_S3");
+});
+
+test("clearing the selected-board chip returns to the recommend choice", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    source_url: "https://micropython.org/download/",
+    boards: [{ id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: [], firmware: { url: "u", board_name: "ESP32_GENERIC_S3" }, download_slug: "ESP32_GENERIC_S3", support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" }],
+  });
+  (document.getElementById("boardMore") as HTMLButtonElement).click(); // open the browse panel
+  assert.equal((document.getElementById("boardPickerBody") as HTMLElement).hidden, false, "browse panel open");
+  (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), false, "chip shown after picking");
+  // The chip's ✕ (clear) returns to the recommend choice: chip hidden, Recommend active, browse panel
+  // collapsed, and the start payload carries board_selection_mode recommend with no pre_selected_board.
+  (document.getElementById("boardSelectedClear") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), true, "chip hidden after clear");
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), true, "Recommend segment active after clear");
+  assert.equal(document.getElementById("boardAuto")!.getAttribute("aria-pressed"), "true");
+  assert.equal(document.getElementById("boardMore")!.getAttribute("aria-pressed"), "false");
+  assert.equal((document.getElementById("boardPickerBody") as HTMLElement).hidden, true, "browse panel collapsed after clear");
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  const start = posted.find((m) => m.type === "start_session");
+  assert.equal(start.pre_selected_board, null, "no board after clear");
+  assert.equal(start.board_selection_mode, "recommend", "recommend after clear");
 });
 
 test("the last-used preference mode persists across panel reopens", async () => {
@@ -141,6 +184,20 @@ test("the last-used preference mode persists across panel reopens", async () => 
   const beginner = reopened.window.document.getElementById("modeBeginner") as HTMLElement;
   assert.equal(custom.classList.contains("active"), true, "custom mode is restored active on reopen");
   assert.equal(beginner.classList.contains("active"), false, "beginner is no longer the active chip");
+  assert.equal(custom.getAttribute("aria-pressed"), "true");
+  assert.equal(beginner.getAttribute("aria-pressed"), "false");
+});
+
+test("preference and board groups expose localized accessible names", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  assert.equal(document.querySelector(".mode-toggle")!.getAttribute("aria-label"), "Experience level");
+  assert.equal(document.querySelector(".board-toggle")!.getAttribute("aria-label"), "Board selection");
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "\u6e29\u5ea6\u62a5\u8b66";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.equal(document.querySelector(".mode-toggle")!.getAttribute("aria-label"), "\u4f53\u9a8c\u7ea7\u522b");
+  assert.equal(document.querySelector(".board-toggle")!.getAttribute("aria-label"), "\u5f00\u53d1\u677f\u9009\u62e9");
 });
 
 test("board cards show the 3-way badges (firmware + local-layout state)", async () => {
@@ -184,7 +241,10 @@ test("board cards show a firmware format and a details link that opens the downl
   const ext = posted.find((m) => m.type === "open_external");
   assert.ok(ext, "clicking details opens the page externally");
   assert.match(ext.url, /micropython\.org\/download\/ESP32_GENERIC_S3/);
-  assert.equal(document.getElementById("boardAuto")!.classList.contains("chosen"), true, "details click does not select the board (stopPropagation)");
+  // details click must NOT select the board (stopPropagation): stays on the recommend choice, so the
+  // Recommend segment is active and the selected-board chip is hidden.
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), true, "Recommend segment stays active");
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), true, "no selected-board chip after a details click");
 });
 
 test("the recommend path sends board_selection_mode=recommend; selecting a board omits it", async () => {

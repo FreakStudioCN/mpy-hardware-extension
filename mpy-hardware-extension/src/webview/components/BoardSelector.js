@@ -14,7 +14,31 @@
         $("boardPickerBody").hidden = !expanded;
         const more = $("boardMore");
         more.setAttribute("aria-expanded", expanded ? "true" : "false");
-        more.classList.toggle("open", expanded);
+        syncBoardChoice();
+      }
+      // The board choice is one axis (Recommend vs Browse). Reflect it in the segmented toggle + the
+      // selected-board chip: Recommend is active until a specific board is picked or the list is open;
+      // once a board is chosen the chip names it (with a clear-to-recommend affordance). Keeps the
+      // current choice always visible instead of hidden inside a collapsed list.
+      function syncBoardChoice() {
+        const browsing = !$("boardPickerBody").hidden || selectedOfficialBoard != null;
+        $("boardAuto").classList.toggle("active", !browsing);
+        $("boardMore").classList.toggle("active", browsing);
+        $("boardAuto").setAttribute("aria-pressed", browsing ? "false" : "true");
+        $("boardMore").setAttribute("aria-pressed", browsing ? "true" : "false");
+        const chip = $("boardSelected");
+        if (!chip) return;
+        if (selectedOfficialBoard) {
+          $("boardSelectedName").textContent = boardLabel(selectedOfficialBoard);
+          chip.classList.remove("hidden");
+        } else {
+          chip.classList.add("hidden");
+        }
+      }
+      function clearBoardChoice() {
+        selectedOfficialBoard = null;
+        setBoardBodyExpanded(false);
+        renderBoardPicker();
       }
       function boardLabel(board) { return board.display_name || board.id || board.download_slug || ""; }
       function optionLabelAll(key) { return tr(key); }
@@ -104,8 +128,8 @@
         }).join("");
         list.querySelectorAll(".board-card").forEach((btn) => btn.addEventListener("click", () => {
           selectedOfficialBoard = officialBoards.find((b) => b.id === btn.dataset.boardId) || null;
-          $("boardAuto").classList.toggle("chosen", selectedOfficialBoard == null);
           renderBoardPicker();
+          syncBoardChoice();
         }));
         // Open the official download page; stop the click so it doesn't also select the card.
         list.querySelectorAll(".board-detail").forEach((a) => a.addEventListener("click", (e) => {
@@ -117,9 +141,11 @@
         $("boardPrev").disabled = boardPage <= 0;
         $("boardNext").disabled = boardPage >= maxPage;
       }
-      $("boardAuto").addEventListener("click", () => { selectedOfficialBoard = null; $("boardAuto").classList.add("chosen"); renderBoardPicker(); });
+      $("boardAuto").addEventListener("click", clearBoardChoice);
+      $("boardSelectedClear")?.addEventListener("click", clearBoardChoice);
       $("boardRefresh").addEventListener("click", () => vscode.postMessage({ type: "request_boards" }));
       ["boardSearch", "boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { const el = $(id); el.addEventListener("input", () => { boardPage = 0; renderBoardPicker(); }); el.addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
       $("boardPrev").addEventListener("click", () => { boardPage = Math.max(0, boardPage - 1); renderBoardPicker(); });
       $("boardNext").addEventListener("click", () => { boardPage += 1; renderBoardPicker(); });
       renderBoardPicker();
+      syncBoardChoice();
