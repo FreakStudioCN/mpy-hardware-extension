@@ -1,6 +1,6 @@
 ---
 name: publish-extension
-description: 发布 Blockless VS Code 扩展到 Visual Studio Marketplace（含发布前测试）/ ship the Blockless extension to the VS Code Marketplace. 先跑预检（Render 后端探活 + api-base-url 指向线上 + 子模块完整 + typecheck + npm test + 打包 VSIX），再二选一发布：GitHub Actions 打 v* tag 自动发（仓库 secret VSCE_PAT），或本地 vsce login blockless + npm run publish。publisher=blockless，Marketplace ID=blockless.mpy-hardware-extension。**默认只预检、不发布**；真正发布要用户在本次调用里显式确认。参数 check(默认)/local/tag。
+description: 发布 Blockless VS Code 扩展到 Visual Studio Marketplace（含发布前测试）/ ship the Blockless extension to the VS Code Marketplace. 先跑预检（线上后端探活 + api-base-url 指向线上 + 子模块完整 + typecheck + npm test + 打包 VSIX），再二选一发布：GitHub Actions 打 v* tag 自动发（仓库 secret VSCE_PAT），或本地 vsce login blockless + npm run publish。publisher=blockless，Marketplace ID=blockless.mpy-hardware-extension。**默认只预检、不发布**；真正发布要用户在本次调用里显式确认。参数 check(默认)/local/tag。
 argument-hint: "[check|local|tag]"
 ---
 
