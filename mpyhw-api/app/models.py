@@ -18,4 +18,7 @@ class PackageSearchRequest(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     board_id: str | None = None
     bus: str | None = None
+    # Restrict results to a single catalog source (e.g. "upypi", "github"). Lets the
+    # package browser's source selector constrain the list; None = all sources.
+    source: str | None = None
     limit: int = 10

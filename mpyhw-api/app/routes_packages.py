@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app.models import PackageResolveRequest, PackageSearchRequest
-from app.package_store import PackageStore
+from app.package_store import PackageStore, board_family
 
 
 router = APIRouter()
@@ -18,7 +18,14 @@ def package_index():
 
 @router.post("/v1/packages/search")
 def search_packages(request: PackageSearchRequest):
-    return {"results": store().search(request.query, request.capabilities, request.limit), "cached": True}
+    results = store().search(
+        request.query,
+        request.capabilities,
+        request.limit,
+        board_family(request.board_id or ""),
+        request.source,
+    )
+    return {"results": results, "cached": True}
 
 
 @router.post("/v1/packages/resolve")

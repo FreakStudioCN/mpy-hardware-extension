@@ -217,6 +217,53 @@ def test_missing_context_returns_driver_context_missing():
     assert response.json()["detail"]["error"] == "driver_context_missing"
 
 
+def test_search_source_filter_restricts_to_one_catalog_source(tmp_path, monkeypatch):
+    from app import package_store
+
+    pkg = tmp_path / "content" / "packages"
+    pkg.mkdir(parents=True)
+    (pkg / "curated-driver-contexts.json").write_text(
+        json.dumps([
+            {"name": "aht20_driver", "version": "1.0.0", "source": "curated", "package_json_url": "u",
+             "capabilities": ["temperature_sensing"], "support_level": "verified"},
+            {"name": "bmp280", "version": "2.0.0", "source": "upypi", "package_json_url": "u",
+             "capabilities": ["temperature_sensing"], "support_level": "installable"},
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(package_store, "ROOT", tmp_path)
+    store = package_store.PackageStore.default()
+
+    upypi_only = store.search("", ["temperature_sensing"], source="upypi")
+    assert upypi_only and all(hit["source"] == "upypi" for hit in upypi_only)
+    # Unfiltered still returns both sources, so the filter is what excludes curated.
+    assert {hit["source"] for hit in store.search("", ["temperature_sensing"])} == {"curated", "upypi"}
+
+
+def test_search_route_forwards_board_id_and_source_to_store(monkeypatch):
+    # Regression: the route accepted board_id/source but dropped them. Assert both now
+    # reach the store -- board_id mapped to its board_family ("" before the fix).
+    from app import routes_packages
+
+    captured: dict = {}
+
+    class FakeStore:
+        def search(self, query, capabilities, limit, board_family="", source=None):
+            captured.update(board_family=board_family, source=source)
+            return []
+
+    monkeypatch.setattr(routes_packages, "store", lambda: FakeStore())
+    response = client.post(
+        "/v1/packages/search",
+        json={"query": "temp", "capabilities": ["temperature_sensing"],
+              "board_id": "esp32-s3-devkitc-1", "source": "upypi"},
+    )
+
+    assert response.status_code == 200
+    assert captured["board_family"] == "esp32"
+    assert captured["source"] == "upypi"
+
+
 def test_package_endpoint_returns_support_level_and_install_url():
     response = client.get("/v1/packages/aht20_driver/1.0.0")
 
