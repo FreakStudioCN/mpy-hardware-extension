@@ -71,7 +71,7 @@
         dtNoDevice = true;
         const entries = $("dtEntries"); if (entries) entries.innerHTML = "";
         const crumbs = $("dtCrumbs"); if (crumbs) crumbs.innerHTML = "";
-        dtFilesStatus("");
+        dtFilesStatus(""); dtPkgStatus(""); // clear BOTH so a stale "Installing…" can't survive an unplug/replug
         const ui = $("dtDeviceUi"); if (ui) ui.classList.add("hidden"); // hide all controls (crumbs/add/mip)
         const nodev = $("dtNoDev"); if (nodev) nodev.classList.remove("hidden");
       }

@@ -2413,6 +2413,16 @@ test("device tools: a mip install result reports under the Packages status, not 
   assert.equal((document.getElementById("dtFilesStatus")!.textContent || "").trim(), "", "Board files status stays clear on a package install");
 });
 
+test("device tools: unplug clears a lingering Packages status (no stale message)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  post(dom, { type: "device_tool_result", command: "mip_install", result: { url: "aioble" } });
+  assert.notEqual((document.getElementById("dtPkgStatus")!.textContent || "").trim(), "", "packages status is set after an install");
+  post(dom, { type: "device_present", present: false }); // board unplugged
+  assert.equal((document.getElementById("dtPkgStatus")!.textContent || "").trim(), "", "packages status is cleared when the device drops");
+});
+
 test("device tools: device_busy shows the busy banner naming the owning phase", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;
@@ -2763,7 +2773,9 @@ test("package browser: a uPyPI result resolves lazily on click, then shows metad
   assert.match(detail.textContent || "", /leezisheng/, "author shown in detail");
   assert.match(detail.textContent || "", /MIT/, "license shown in detail");
   assert.match(detail.textContent || "", /bmp280\.py/, "url/file list shown in detail");
+  assert.doesNotMatch(detail.textContent || "", /code\/bmp280\.py/, "shows the target name, not the raw source path");
   assert.match(detail.textContent || "", /ws61_driver/, "dependency name (not just count) shown in detail");
+  assert.doesNotMatch(detail.textContent || "", /upypi\.net\/pkgs\/ws61_driver/, "shows the dep name, not the raw ref url");
 });
 
 test("package browser: micropython-lib detail links the repo and installs by name", async () => {
@@ -2771,6 +2783,7 @@ test("package browser: micropython-lib detail links the repo and installs by nam
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // clear no-device
   post(dom, { type: "package_search_result", source: "micropython_lib", results: [
     { name: "aioble", version: "0.6.0", source: "micropython_lib", description: "BLE",
       repo_url: "https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble",
@@ -2779,6 +2792,9 @@ test("package browser: micropython-lib detail links the repo and installs by nam
   (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
   const detail = document.getElementById("dtPkgDetail")!;
   assert.match(detail.textContent || "", /micropython-lib\/tree\/master/, "repo_url surfaced for micropython-lib");
+  (detail.querySelector(".dt-pkg-install") as HTMLButtonElement).click();
+  const mip = posted.find((m) => m.type === "device_tool_mip");
+  assert.ok(mip && mip.url === "aioble", "micropython-lib installs by bare name");
 });
 
 test("package browser: MicroPython-lib searches by name; GitHub opens Advanced without searching", async () => {

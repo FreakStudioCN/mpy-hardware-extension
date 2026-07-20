@@ -509,7 +509,6 @@
       /* Device Tools global tool (#54): file browser + mip install. */
       .dt-busy { padding: 8px 10px; margin-bottom: 8px; border-radius: 6px; background: var(--vsc-card); border: 1px solid var(--yellow); color: var(--fg); font-size: 12px; }
       .dt-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
-      .dt-controls { flex-wrap: wrap; }
       .dt-input { flex: 1; min-width: 80px; padding: 4px 6px; background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 4px; font-size: 12px; }
       .dt-input-sm { flex: 0 0 90px; }
       .dt-act { flex: none; padding: 4px 8px; background: var(--vsc-card); color: var(--fg); border: 1px solid var(--vsc-border); border-radius: 4px; font-size: 12px; cursor: pointer; }
