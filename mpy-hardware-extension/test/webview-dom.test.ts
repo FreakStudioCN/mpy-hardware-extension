@@ -2401,7 +2401,16 @@ test("device tools: a mutation's result stays visible; the auto-refresh does not
   // an mkdir success sets the status, then silently refreshes the listing
   post(dom, { type: "device_tool_result", command: "mkdir", result: { path: "/x" } });
   post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
-  assert.match(document.getElementById("dtStatus").textContent, /mkdir done/i, "the done message survives the auto-refresh");
+  // A file-op result reports under the Board files section status (not the Packages one).
+  assert.match(document.getElementById("dtFilesStatus").textContent, /mkdir done/i, "the done message survives the auto-refresh");
+});
+
+test("device tools: a mip install result reports under the Packages status, not Board files", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "mip_install", result: { url: "aioble" } });
+  assert.match(document.getElementById("dtPkgStatus")!.textContent || "", /mip_install done/i, "install result lands in the Packages status");
+  assert.equal((document.getElementById("dtFilesStatus")!.textContent || "").trim(), "", "Board files status stays clear on a package install");
 });
 
 test("device tools: device_busy shows the busy banner naming the owning phase", async () => {

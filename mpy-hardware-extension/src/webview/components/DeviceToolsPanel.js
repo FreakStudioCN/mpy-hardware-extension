@@ -27,8 +27,11 @@
           host.appendChild(dtCrumb(seg, prefix));
         }
       }
-      function dtStatus(text) { const n = $("dtStatus"); if (n) n.textContent = text || ""; }
-      function dtListCurrent() { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
+      function dtFilesStatus(text) { const n = $("dtFilesStatus"); if (n) n.textContent = text || ""; }
+      function dtPkgStatus(text) { const n = $("dtPkgStatus"); if (n) n.textContent = text || ""; }
+      // File ops report under the Board files section; a mip install under Packages.
+      function dtOpStatus(command, text) { (command === "mip_install" ? dtPkgStatus : dtFilesStatus)(text); }
+      function dtListCurrent() { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
 
       // How long a Delete stays armed ("Confirm?") before disarming.
       var DT_CONFIRM_MS = 3000;
@@ -68,7 +71,7 @@
         dtNoDevice = true;
         const entries = $("dtEntries"); if (entries) entries.innerHTML = "";
         const crumbs = $("dtCrumbs"); if (crumbs) crumbs.innerHTML = "";
-        dtStatus("");
+        dtFilesStatus("");
         const ui = $("dtDeviceUi"); if (ui) ui.classList.add("hidden"); // hide all controls (crumbs/add/mip)
         const nodev = $("dtNoDev"); if (nodev) nodev.classList.remove("hidden");
       }
@@ -124,13 +127,13 @@
             row.appendChild(nav);
           } else {
             const label = document.createElement("span"); label.className = "dt-name"; label.textContent = name;
-            const dl = dtActionButton(tr("dt_download"), () => { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_download", path: full }); });
+            const dl = dtActionButton(tr("dt_download"), () => { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_download", path: full }); });
             // Destructive: the first click asks the host to ARM (it issues a one-shot nonce;
             // nothing is deleted yet); the confirm click echoes the nonce so the host can
             // enforce the two-step. Auto-disarms and drops the nonce after DT_CONFIRM_MS.
             const del = dtActionButton(tr("dt_delete"), () => {
               if (del.dataset.armed && dtDeleteNonces[full]) {
-                dtStatus(tr("dt_working"));
+                dtFilesStatus(tr("dt_working"));
                 vscode.postMessage({ type: "device_tool_delete", path: full, nonce: dtDeleteNonces[full] });
                 delete dtDeleteNonces[full];
                 return;
@@ -156,10 +159,10 @@
         dtSetBusy(null);
         if (command === "list") {
           dtRenderEntries((result && result.path) || "", result && result.entries);
-          if (dtSilentList) dtSilentList = false; else dtStatus("");
+          if (dtSilentList) dtSilentList = false; else dtFilesStatus("");
           return;
         }
-        dtStatus(tr("dt_ok", { c: command }));
+        dtOpStatus(command, tr("dt_ok", { c: command }));
         dtRefreshSilently(); // refresh the listing after any mutation, keeping the status
       }
       function onDeviceToolError(command, error) {
@@ -167,9 +170,9 @@
         // A command that failed because the board is gone -> revert to the no-device state
         // immediately (don't wait for the next poll), instead of a confusing error.
         if (/device_unavailable|no device|could not open|failed to access/i.test(String(error))) { dtShowNoDevice(); return; }
-        dtStatus(tr("dt_err", { c: command, e: error }));
+        dtOpStatus(command, tr("dt_err", { c: command, e: error }));
       }
-      function onDeviceBusy(phase) { dtSetBusy(phase || tr("dt_busy_generic")); dtStatus(""); }
+      function onDeviceBusy(phase) { dtSetBusy(phase || tr("dt_busy_generic")); dtFilesStatus(""); dtPkgStatus(""); }
       // Host armed a delete: keep its one-shot nonce so the confirm click can echo it back.
       function onDeviceDeleteArmed(path, nonce) { dtDeleteNonces[path] = nonce; }
 
@@ -260,8 +263,8 @@
           const line = dtDetailLine(label, value); if (line) host.appendChild(line);
         }
         const install = dtActionButton(tr("dt_pkg_install"), () => {
-          if (dtNoDevice) { dtStatus(tr("dt_nodev_h")); return; }
-          dtStatus(tr("dt_installing"));
+          if (dtNoDevice) { dtPkgStatus(tr("dt_nodev_h")); return; }
+          dtPkgStatus(tr("dt_installing"));
           vscode.postMessage({ type: "device_tool_mip", url: url, version: "" });
         });
         install.classList.add("dt-pkg-install");
@@ -274,13 +277,13 @@
         $("dtMkdir").addEventListener("click", () => {
           const name = $("dtNewName").value.trim(); if (!name) return;
           $("dtNewName").value = "";
-          dtStatus(tr("dt_working"));
+          dtFilesStatus(tr("dt_working"));
           vscode.postMessage({ type: "device_tool_mkdir", path: dtJoin(dtCurrentPath(), name) });
         });
-        $("dtUpload").addEventListener("click", () => { dtStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_upload", dir: dtCurrentPath() }); });
+        $("dtUpload").addEventListener("click", () => { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_upload", dir: dtCurrentPath() }); });
         $("dtMipInstall").addEventListener("click", () => {
           const url = $("dtMipUrl").value.trim(); if (!url) return;
-          dtStatus(tr("dt_installing")); // mip fetches on the host then copies to the board — can take a while
+          dtPkgStatus(tr("dt_installing")); // mip fetches on the host then copies to the board — can take a while
           vscode.postMessage({ type: "device_tool_mip", url, version: $("dtMipVersion").value.trim() });
         });
         if ($("dtPkgSearch")) $("dtPkgSearch").addEventListener("click", dtPkgSearch);

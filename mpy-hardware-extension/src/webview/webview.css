@@ -531,16 +531,29 @@
       .dt-pkg-v { flex: 1; word-break: break-all; }
       .dt-pkg-install { align-self: flex-start; margin-top: 4px; }
       .dt-pkg-adv .dt-mip { margin-top: 6px; }
-      .dt-status { margin-top: 8px; font-size: 12px; color: var(--fg-dim); }
+      /* Reserve one line so a status message appearing/clearing doesn't shift the UI below it. */
+      .dt-status { margin-top: 8px; min-height: 1.2em; font-size: 12px; color: var(--fg-dim); }
       /* Breadcrumb path navigation. */
-      .dt-crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; margin-bottom: 8px; font-family: var(--mono); font-size: 12px; color: var(--fg-dim); }
-      .dt-crumb { font: inherit; color: var(--accent); background: transparent; border: 0; padding: 1px 3px; border-radius: 3px; cursor: pointer; }
-      .dt-crumb:hover { background: var(--vsc-hover); color: var(--fg-bright); }
+      /* Named sub-sections inside Device Tools (Board files / Packages). */
+      .dt-section { margin-bottom: 14px; }
+      .dt-section:last-child { margin-bottom: 0; }
+      .dt-section-h { font-size: 12px; font-weight: 650; color: var(--fg-bright); margin: 10px 0 8px; }
+      /* Breadcrumb path: each segment is a clickable chip -> / › lib › drivers */
+      .dt-crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; font-family: var(--mono); font-size: 12px; color: var(--fg-dim); }
+      .dt-crumb { font: inherit; color: var(--fg); background: var(--vsc-card); border: 1px solid var(--vsc-border); border-radius: 999px; padding: 2px 9px; cursor: pointer; }
+      .dt-crumb:hover { border-color: var(--accent); color: var(--fg-bright); background: var(--vsc-hover); }
       /* Add / manage disclosure: collapsed by default; controls stacked one per row. */
       .dt-actions { margin-bottom: 8px; }
-      .dt-sum { font-size: 12px; color: var(--fg-dim); cursor: pointer; padding: 4px 2px; user-select: none; }
-      .dt-sum:hover { color: var(--fg-bright); }
-      .dt-actions[open] .dt-sum { color: var(--fg-bright); }
+      /* Disclosure toggles (Add or manage / Install a package / Advanced) styled like the
+         Support "Report an issue" toggle: a full-width bordered button with a rotating chevron. */
+      .dt-sum { display: flex; align-items: center; width: 100%; box-sizing: border-box;
+        background: var(--vsc-input); border: 1px solid var(--vsc-input-border); border-radius: 6px;
+        color: var(--fg); font-size: 12px; font-weight: 600; cursor: pointer;
+        padding: 7px 10px; user-select: none; list-style: none; transition: border-color .12s, background .12s; }
+      .dt-sum::-webkit-details-marker { display: none; }
+      .dt-sum::after { content: "\25BE"; margin-left: auto; font-size: 11px; color: var(--fg-dim); transition: transform .15s; }
+      details[open] > .dt-sum::after { transform: rotate(180deg); }
+      .dt-sum:hover, details[open] > .dt-sum { border-color: var(--accent); color: var(--fg-bright); }
       .dt-actions-body { display: flex; flex-direction: column; gap: 6px; padding: 6px 2px 2px; }
       /* Folder rows: the whole name is a click-to-descend button. */
       .dt-navbtn { text-align: left; font: inherit; background: transparent; border: 0; color: var(--fg); cursor: pointer; padding: 0; }
