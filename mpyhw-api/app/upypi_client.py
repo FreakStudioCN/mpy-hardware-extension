@@ -6,12 +6,13 @@ urllib to match the rest of the backend (app/auth.py). A failure raises UpypiUna
 so the route can degrade to a 502 rather than 500 -- these are live external calls and
 must never be assumed reachable.
 """
+import http.client
 import json
 import logging
-import urllib.error
 import urllib.parse
 import urllib.request
 
+from app import safe_http
 from app.package_store import infer_capabilities
 
 logger = logging.getLogger(__name__)
@@ -28,9 +29,11 @@ class UpypiUnavailable(Exception):
 def _fetch_json(url: str):
     request = urllib.request.Request(url, headers={"user-agent": "mpyhw-api", "accept": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+        with safe_http.urlopen_same_host(request, _TIMEOUT_SECONDS) as response:
             return json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, ValueError) as error:
+    # OSError subsumes URLError + socket timeout; HTTPException covers a truncated body
+    # (IncompleteRead); ValueError covers a malformed JSON body. All degrade to a 502.
+    except (OSError, ValueError, http.client.HTTPException) as error:
         logger.warning("upypi fetch failed url=%s err=%s", url, error)
         raise UpypiUnavailable(str(error)) from error
 

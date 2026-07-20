@@ -25,6 +25,11 @@ const SANCTIONED: ReadonlySet<string> = new Set<DriverSource>([
 // "curated") to a sanctioned manifest driver.source. Hard invariant: this never returns
 // "graftsense" -- a browsed graftsense record is re-routed to its GitHub repo when it
 // has one, otherwise to uPyPI (the standard installable source).
+//
+// NOT yet wired to a production caller: no code currently writes manifest driver.source
+// (the manifest builder emits packages + driver_context_refs only). This is the guard the
+// generate/manifest-writer path MUST route through when that path lands, so a browsed
+// selection can never smuggle "graftsense" into the downstream contract.
 // ponytail: curated/unknown default to "upypi"; Phase 2/3 may refine per-record once
 // live micropython-lib/uPyPI resolution lands. The ceiling is the coarse default, not
 // the graftsense guarantee, which is exact.

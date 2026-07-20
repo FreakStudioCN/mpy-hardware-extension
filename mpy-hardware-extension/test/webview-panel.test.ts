@@ -826,6 +826,83 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response;
 }
 
+// Minimal panel wired only for package-browser message handling (no workspace/shim).
+function packageSearchPanel(fetchImpl: any): { getHandler: () => (m: any) => Promise<void>; posted: any[]; requested: string[] } {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  const requested: string[] = [];
+  const wrapped = async (url: string, init?: RequestInit) => { requested.push(url); return fetchImpl(url, init); };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: wrapped });
+  return { getHandler: () => handler!, posted, requested };
+}
+
+test("package browser host: auto search drops graftsense rows before they reach the webview", async () => {
+  // The single enforcement line of the graftsense invariant lives host-side; drive a real
+  // package_search through the handler so removing the filter fails this test.
+  const { getHandler, posted } = packageSearchPanel(async (url: string) => {
+    if (url === "http://api.test/v1/packages/search") {
+      return jsonResponse({ results: [
+        { name: "aht20_driver", source: "curated" },
+        { name: "graft_thing", source: "graftsense" },
+        { name: "bmp280", source: "upypi" },
+      ] });
+    }
+    throw new Error(`unexpected ${url}`);
+  });
+
+  await getHandler()({ type: "package_search", source: "auto", query: "temp" });
+
+  const result = posted.find((m) => m.type === "package_search_result");
+  assert.ok(result, "posts a package_search_result");
+  assert.ok(!result.results.some((r: any) => r.source === "graftsense"), "graftsense rows dropped host-side");
+  assert.deepEqual(result.results.map((r: any) => r.name), ["aht20_driver", "bmp280"]);
+});
+
+test("package browser host: an explicit non-auto source still drops graftsense", async () => {
+  const { getHandler, posted } = packageSearchPanel(async (url: string) => {
+    if (url === "http://api.test/v1/packages/search") {
+      return jsonResponse({ results: [{ name: "graft_thing", source: "graftsense" }, { name: "ok", source: "curated" }] });
+    }
+    throw new Error(`unexpected ${url}`);
+  });
+
+  await getHandler()({ type: "package_search", source: "curated", query: "x" });
+
+  const result = posted.find((m) => m.type === "package_search_result");
+  assert.deepEqual(result.results.map((r: any) => r.name), ["ok"]);
+});
+
+test("package browser host: uPyPI and micropython-lib route to their own endpoints", async () => {
+  const { getHandler, requested } = packageSearchPanel(async (url: string) => {
+    if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ results: [{ name: "bmp280", url: "u" }], source: "upypi" });
+    if (url.startsWith("http://api.test/v1/packages/micropython-lib/search")) return jsonResponse({ results: [{ name: "aioble", source: "micropython_lib" }], source: "micropython_lib" });
+    throw new Error(`unexpected ${url}`);
+  });
+
+  await getHandler()({ type: "package_search", source: "upypi", query: "bmp" });
+  await getHandler()({ type: "package_search", source: "micropython_lib", query: "aio" });
+
+  assert.ok(requested.some((u) => u.includes("/v1/packages/upypi/search?q=bmp")), "uPyPI routed to the upypi endpoint");
+  assert.ok(requested.some((u) => u.includes("/v1/packages/micropython-lib/search?q=aio")), "micropython-lib routed to its endpoint");
+});
+
+test("package browser host: an upstream failure posts package_search_error, not a throw", async () => {
+  const { getHandler, posted } = packageSearchPanel(async () => jsonResponse({ detail: { error: "upstream_unavailable" } }, 502));
+
+  await getHandler()({ type: "package_search", source: "upypi", query: "x" });
+
+  assert.ok(posted.find((m) => m.type === "package_search_error"), "a 502 degrades to package_search_error");
+});
+
 function aht20Context() {
   return { package: { name: "aht20_driver", version: "1.0.0" }, import_names: ["aht20"], constructors: ["AHT20(i2c)"], read_properties: ["temperature"], bus: ["i2c"], pin_roles: ["i2c_sda", "i2c_scl"], install: { url: "https://upypi.net/pkgs/aht20/1.0.0/package.json" } };
 }

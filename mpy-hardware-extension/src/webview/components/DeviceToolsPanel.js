@@ -175,7 +175,7 @@
 
       // ----- Package browser: search standard sources + install onto the board -----
       // Auto = local catalog (graftsense already stripped host-side), uPyPI = live search
-      // (name+url, resolved to metadata on select), MicroPython-lib = pending its backend,
+      // (name+url, resolved to metadata on select), MicroPython-lib = official index search,
       // GitHub = advanced raw-URL fallback only. All upstream strings go in via textContent.
       function dtPkgSel() { const n = $("dtPkgSource"); return n ? n.value : "auto"; }
       function dtPkgClear() {

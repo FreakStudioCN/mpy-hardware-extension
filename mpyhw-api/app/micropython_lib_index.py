@@ -5,11 +5,13 @@ cached in-process; micropython-lib installs by name (`mpremote mip install <name
 there is no per-package metadata fetch like uPyPI needs. Outbound HTTP uses stdlib urllib
 to match the rest of the backend.
 """
+import http.client
 import json
 import logging
 import time
-import urllib.error
 import urllib.request
+
+from app import safe_http
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,7 @@ class MicropythonLibUnavailable(Exception):
 
 def _fetch_index() -> dict:
     request = urllib.request.Request(INDEX_URL, headers={"user-agent": "mpyhw-api", "accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+    with safe_http.urlopen_same_host(request, _TIMEOUT_SECONDS) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -38,7 +40,9 @@ def _packages() -> list[dict]:
         return _cache["packages"]
     try:
         data = _fetch_index()
-    except (urllib.error.URLError, ValueError) as error:
+    # OSError subsumes URLError + socket timeout; HTTPException covers a truncated body;
+    # ValueError a malformed JSON body. Any of them serves stale, or raises if no cache.
+    except (OSError, ValueError, http.client.HTTPException) as error:
         logger.warning("micropython-lib index fetch failed: %s", error)
         if _cache["packages"] is not None:
             return _cache["packages"]  # serve stale on failure

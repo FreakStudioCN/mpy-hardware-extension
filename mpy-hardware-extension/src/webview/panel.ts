@@ -446,9 +446,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
   }
 
-  // Package browser search (Device Tools). uPyPI is a live upstream; the micropython-lib
-  // index is not built yet (degrade gracefully); everything else hits the local catalog
-  // with a source filter. GraftSense is never a browsable source, so Auto drops graftsense
+  // Package browser search (Device Tools). uPyPI and micropython-lib are live upstreams
+  // with their own endpoints; everything else hits the local catalog with a source filter.
+  // GraftSense is never a browsable source, so every catalog path drops graftsense
   // provenance rows before they reach the UI.
   async function handlePackageSearch(source: string, query: string) {
     try {

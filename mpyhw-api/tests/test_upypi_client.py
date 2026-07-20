@@ -69,14 +69,18 @@ def test_resolve_rejects_non_upypi_url(monkeypatch):
 
 
 def test_fetch_failure_raises_unavailable(monkeypatch):
-    import urllib.error
+    import http.client
 
-    def _raise(*args, **kwargs):
-        raise urllib.error.URLError("boom")
+    # A mid-read timeout (TimeoutError, an OSError but NOT a URLError) and a truncated body
+    # (IncompleteRead, an HTTPException) both occur inside the read and must degrade to
+    # UpypiUnavailable, not escape as a 500.
+    for boom in (TimeoutError("slow"), http.client.IncompleteRead(b""), ValueError("bad json")):
+        def _raise(*args, _boom=boom, **kwargs):
+            raise _boom
 
-    monkeypatch.setattr(upypi_client.urllib.request, "urlopen", _raise)
-    with pytest.raises(upypi_client.UpypiUnavailable):
-        upypi_client._fetch_json("https://upypi.net/api/search?q=x")
+        monkeypatch.setattr(upypi_client.safe_http, "urlopen_same_host", _raise)
+        with pytest.raises(upypi_client.UpypiUnavailable):
+            upypi_client._fetch_json("https://upypi.net/api/search?q=x")
 
 
 def test_route_upypi_search_returns_results(monkeypatch):
