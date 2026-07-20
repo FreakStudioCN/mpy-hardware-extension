@@ -114,7 +114,7 @@ def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monke
         encoding="utf-8",
     )
     monkeypatch.setattr(routes_content, "ROOT", tmp_path)
-    monkeypatch.setattr(routes_content, "_skill_board_ids", lambda: {"esp32-s3-devkitc", "pybd-sf2"})
+    monkeypatch.setattr(routes_content, "_skill_board_ids", lambda: {"esp32-s3-devkitc", "pybd-sf2", "weactstudio-mini-stm32h723"})
 
     response = client.get("/v1/micropython/boards")
 
@@ -150,20 +150,21 @@ def test_micropython_board_catalog_serves_official_cached_boards(tmp_path, monke
     assert pybd["download_slug"] == "PYBD_SF2"
     weact = body["boards"][2]
     assert weact["id"] == "weactstudio-mini-stm32h723"
-    assert weact["skill_board_id"] is None
-    assert weact["skill_profile_available"] is False
+    assert weact["skill_board_id"] == "weactstudio-mini-stm32h723"
+    assert weact["skill_profile_available"] is True
     # Every served id is a valid kebab (lowercase, digits, hyphens) so it can name a Skill board file.
     assert all(re.fullmatch(r"[a-z0-9-]+", b["id"]) for b in body["boards"]), "all served ids are kebab-case"
 
 
 @pytest.mark.no_db
-def test_real_catalog_marks_the_one_missing_skill_profile_unavailable():
+def test_real_catalog_has_no_missing_skill_profiles():
     body = client.get("/v1/micropython/boards").json()
-    missing = [board for board in body["boards"] if not board["skill_profile_available"]]
+    missing = [(board["official_id"], board["id"]) for board in body["boards"] if not board["skill_profile_available"]]
 
-    assert [(board["official_id"], board["id"], board["skill_board_id"]) for board in missing] == [
-        ("WEACTSTUDIO_MINI_STM32H723", "weactstudio-mini-stm32h723", None)
-    ]
+    # After the Skill added weactstudio-mini-stm32h723.json (submodule 065925f), every official board in the
+    # cache resolves to a Skill profile. Reads the real submodule, so this goes green only once it is synced;
+    # names any offenders if a new gap appears.
+    assert missing == [], f"official boards with no Skill profile: {missing}"
 
 
 def test_board_route_rejects_encoded_backslash_path_traversal():
