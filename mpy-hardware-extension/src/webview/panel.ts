@@ -213,6 +213,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   deps.onWebviewReady?.(webview);
   const apiBaseUrl = resolveApiBaseUrl(vscode, deps.apiBaseUrl);
   const fetchImpl = deps.fetchImpl ?? fetch;
+  // Package browser (Device Tools): search standard sources + resolve uPyPI metadata.
+  const packageBrowserClient = new PackageClient(apiBaseUrl, fetchImpl);
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
@@ -441,6 +443,31 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const msg = error?.message ?? "device_tool_failed";
       await controller.recordDeviceTool(command, params, { ok: false, error: msg });
       webview.postMessage({ type: "device_tool_error", command, error: msg });
+    }
+  }
+
+  // Package browser search (Device Tools). uPyPI is a live upstream; the micropython-lib
+  // index is not built yet (degrade gracefully); everything else hits the local catalog
+  // with a source filter. GraftSense is never a browsable source, so Auto drops graftsense
+  // provenance rows before they reach the UI.
+  async function handlePackageSearch(source: string, query: string) {
+    try {
+      if (source === "upypi") {
+        const body = await packageBrowserClient.upypiSearch(query);
+        webview.postMessage({ type: "package_search_result", source, results: body?.results ?? [] });
+        return;
+      }
+      if (source === "micropython_lib") {
+        webview.postMessage({ type: "package_search_result", source, results: [], note: "micropython_lib_pending" });
+        return;
+      }
+      const request: { query: string; source?: string } = { query };
+      if (source && source !== "auto") request.source = source;
+      const body = await packageBrowserClient.search(request);
+      const results = (body?.results ?? []).filter((hit: any) => hit?.source !== "graftsense");
+      webview.postMessage({ type: "package_search_result", source: source || "auto", results });
+    } catch (error: any) {
+      webview.postMessage({ type: "package_search_error", error: error?.code ?? "search_failed" });
     }
   }
 
@@ -994,6 +1021,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "device_tool_mip" && typeof message.url === "string") {
       const version = typeof message.version === "string" && message.version ? message.version : undefined;
       await runDeviceTool("mip_install", { url: message.url, version }, async () => { await shim.installPackage(message.url, version); return { url: message.url }; });
+    }
+    if (message.type === "package_search") {
+      await handlePackageSearch(
+        typeof message.source === "string" ? message.source : "auto",
+        typeof message.query === "string" ? message.query : "",
+      );
+    }
+    if (message.type === "package_resolve" && typeof message.url === "string") {
+      try {
+        const record = await packageBrowserClient.upypiResolve(message.url);
+        webview.postMessage({ type: "package_resolve_result", record });
+      } catch (error: any) {
+        webview.postMessage({ type: "package_resolve_error", error: error?.code ?? "resolve_failed" });
+      }
     }
     if (message.type === "device_tool_upload") {
       await handleDeviceUpload(typeof message.dir === "string" ? message.dir : "");

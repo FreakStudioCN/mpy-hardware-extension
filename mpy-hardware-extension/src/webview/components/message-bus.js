@@ -18,6 +18,10 @@
         if (msg.type === "device_tool_result") { onDeviceToolResult(msg.command, msg.result); }
         if (msg.type === "device_tool_error") { onDeviceToolError(msg.command, msg.error); }
         if (msg.type === "device_tool_delete_armed") { onDeviceDeleteArmed(msg.path, msg.nonce); }
+        if (msg.type === "package_search_result") { onPackageSearchResult(msg.source, msg.results, msg.note); }
+        if (msg.type === "package_search_error") { onPackageSearchError(); }
+        if (msg.type === "package_resolve_result") { onPackageResolveResult(msg.record); }
+        if (msg.type === "package_resolve_error") { onPackageResolveError(); }
         if (msg.type === "device_busy") { onDeviceBusy(msg.phase); }
         if (msg.type === "device_present") { onDevicePresent(msg.present); }
         if (msg.type === "logs_status") { const n = $("scDiag"); if (n) n.textContent = msg.text; }

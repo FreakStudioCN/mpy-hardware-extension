@@ -173,6 +173,89 @@
       // Host armed a delete: keep its one-shot nonce so the confirm click can echo it back.
       function onDeviceDeleteArmed(path, nonce) { dtDeleteNonces[path] = nonce; }
 
+      // ----- Package browser: search standard sources + install onto the board -----
+      // Auto = local catalog (graftsense already stripped host-side), uPyPI = live search
+      // (name+url, resolved to metadata on select), MicroPython-lib = pending its backend,
+      // GitHub = advanced raw-URL fallback only. All upstream strings go in via textContent.
+      function dtPkgSel() { const n = $("dtPkgSource"); return n ? n.value : "auto"; }
+      function dtPkgClear() {
+        const r = $("dtPkgResults"); if (r) r.innerHTML = "";
+        const d = $("dtPkgDetail"); if (d) { d.innerHTML = ""; d.classList.add("hidden"); }
+      }
+      function dtPkgSearch() {
+        const source = dtPkgSel();
+        dtPkgClear();
+        if (source === "github") { // fallback is raw-URL only, not searchable
+          const adv = $("dtPkgAdv"); if (adv) adv.open = true;
+          const r = $("dtPkgResults"); if (r) r.textContent = tr("dt_pkg_github_hint");
+          const u = $("dtMipUrl"); if (u) u.focus();
+          return;
+        }
+        const query = ($("dtPkgQuery") ? $("dtPkgQuery").value : "").trim();
+        const r = $("dtPkgResults"); if (r) r.textContent = tr("dt_pkg_searching");
+        vscode.postMessage({ type: "package_search", source: source, query: query });
+      }
+      function dtPkgRow(pkg, onClick) {
+        const row = document.createElement("button");
+        row.type = "button"; row.className = "dt-pkg-row";
+        const name = document.createElement("span"); name.className = "dt-pkg-name";
+        name.textContent = pkg.name + (pkg.version ? " " + pkg.version : "");
+        row.appendChild(name);
+        if (pkg.description) { const d = document.createElement("span"); d.className = "dt-pkg-desc"; d.textContent = pkg.description; row.appendChild(d); }
+        row.addEventListener("click", onClick);
+        return row;
+      }
+      function onPackageSearchResult(source, results, note) {
+        const host = $("dtPkgResults"); if (!host) return;
+        host.innerHTML = "";
+        if (note === "micropython_lib_pending") { host.textContent = tr("dt_pkg_lib_pending"); return; }
+        const list = Array.isArray(results) ? results : [];
+        if (!list.length) { host.textContent = tr("dt_pkg_none"); return; }
+        for (const pkg of list) {
+          // uPyPI search gives name+url only -> resolve on click; local hits are full records.
+          const onClick = (source === "upypi")
+            ? () => vscode.postMessage({ type: "package_resolve", url: pkg.url })
+            : () => dtShowPkgDetail(pkg);
+          host.appendChild(dtPkgRow(pkg, onClick));
+        }
+      }
+      function onPackageSearchError() { const h = $("dtPkgResults"); if (h) h.textContent = tr("dt_pkg_err"); }
+      function onPackageResolveResult(record) { if (record) dtShowPkgDetail(record); }
+      function onPackageResolveError() { const h = $("dtPkgResults"); if (h) h.textContent = tr("dt_pkg_err"); }
+
+      function dtDetailLine(label, value) {
+        if (!value) return null;
+        const line = document.createElement("div"); line.className = "dt-pkg-kv";
+        const k = document.createElement("span"); k.className = "dt-pkg-k"; k.textContent = label;
+        const v = document.createElement("span"); v.className = "dt-pkg-v"; v.textContent = value;
+        line.append(k, v); return line;
+      }
+      // uPyPI/local records install from their package.json url; a bare micropython-lib name
+      // installs by name. GitHub uses the advanced raw-URL input, not this path.
+      function dtPkgInstallUrl(pkg) { return pkg.source === "micropython_lib" ? pkg.name : (pkg.package_json_url || pkg.name); }
+      function dtShowPkgDetail(pkg) {
+        const host = $("dtPkgDetail"); if (!host) return;
+        host.innerHTML = ""; host.classList.remove("hidden");
+        const title = document.createElement("div"); title.className = "dt-pkg-title";
+        title.textContent = pkg.name + (pkg.version ? " " + pkg.version : "");
+        host.appendChild(title);
+        if (pkg.description) { const d = document.createElement("div"); d.className = "dt-pkg-desc"; d.textContent = pkg.description; host.appendChild(d); }
+        const chips = pkg.chips && pkg.chips !== "all" ? pkg.chips : "";
+        const fw = pkg.fw && pkg.fw !== "all" ? pkg.fw : "";
+        const deps = Array.isArray(pkg.deps) && pkg.deps.length ? String(pkg.deps.length) : "";
+        const url = dtPkgInstallUrl(pkg);
+        for (const [label, value] of [["Author", pkg.author], ["License", pkg.license], ["Chips", chips], ["Firmware", fw], ["Depends", deps], ["Install", pkg.install_cmd || ("mpremote mip install " + url)]]) {
+          const line = dtDetailLine(label, value); if (line) host.appendChild(line);
+        }
+        const install = dtActionButton(tr("dt_pkg_install"), () => {
+          if (dtNoDevice) { dtStatus(tr("dt_nodev_h")); return; }
+          dtStatus(tr("dt_installing"));
+          vscode.postMessage({ type: "device_tool_mip", url: url, version: "" });
+        });
+        install.classList.add("dt-pkg-install");
+        host.appendChild(install);
+      }
+
       // Controls live in the DOM at load (the tool-view is hidden, not removed).
       if ($("dtPath")) {
         $("dtPath").addEventListener("keydown", (e) => { if (e.key === "Enter") dtListCurrent(); }); // fallback path entry
@@ -187,6 +270,12 @@
           const url = $("dtMipUrl").value.trim(); if (!url) return;
           dtStatus(tr("dt_installing")); // mip fetches on the host then copies to the board — can take a while
           vscode.postMessage({ type: "device_tool_mip", url, version: $("dtMipVersion").value.trim() });
+        });
+        if ($("dtPkgSearch")) $("dtPkgSearch").addEventListener("click", dtPkgSearch);
+        if ($("dtPkgQuery")) $("dtPkgQuery").addEventListener("keydown", (e) => { if (e.key === "Enter") dtPkgSearch(); });
+        if ($("dtPkgSource")) $("dtPkgSource").addEventListener("change", () => {
+          dtPkgClear();
+          if (dtPkgSel() === "github") { const adv = $("dtPkgAdv"); if (adv) adv.open = true; }
         });
         // Poll device presence only while the tab is open, so the file list reflects an
         // unplug within a couple of seconds (the scan is a host-side port list — no port open).

@@ -2685,3 +2685,85 @@ test("returning to the Activity tab re-follows to the latest (no snap to top)", 
   (document.querySelector('.tab[data-tab="activity"]') as HTMLButtonElement).click();
   assert.equal(tabwrap.scrollTop, 500, "returning to Activity scrolls .tabwrap to the bottom");
 });
+
+
+test("package browser: Search posts a package_search with the selected source and query", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "auto";
+  (document.getElementById("dtPkgQuery") as HTMLInputElement).value = "temperature";
+  (document.getElementById("dtPkgSearch") as HTMLButtonElement).click();
+
+  const msg = posted.find((m) => m.type === "package_search");
+  assert.ok(msg, "Search posts a package_search");
+  assert.equal(msg.source, "auto");
+  assert.equal(msg.query, "temperature");
+});
+
+test("package browser: local results render and Install posts device_tool_mip with the package url", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // A prior list clears the no-device guard so Install is enabled.
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  post(dom, { type: "package_search_result", source: "auto", results: [
+    { name: "aht20_driver", version: "1.0.0", source: "curated", description: "temp+humidity", package_json_url: "https://x/aht20/package.json" },
+  ] });
+
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+  assert.equal(rows.length, 1, "one result row");
+  assert.match(rows[0].textContent || "", /aht20_driver/);
+
+  (rows[0] as HTMLButtonElement).click(); // select -> detail
+  const detail = document.getElementById("dtPkgDetail")!;
+  assert.equal(detail.classList.contains("hidden"), false, "detail shown after select");
+  const install = detail.querySelector(".dt-pkg-install") as HTMLButtonElement;
+  assert.ok(install, "detail has an Install button");
+
+  install.click();
+  const mip = posted.find((m) => m.type === "device_tool_mip");
+  assert.ok(mip, "Install posts device_tool_mip");
+  assert.equal(mip.url, "https://x/aht20/package.json");
+});
+
+test("package browser: a uPyPI result resolves lazily on click, then shows metadata", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "package_search_result", source: "upypi", results: [
+    { name: "bmp280", url: "https://upypi.net/pkgs/bmp280/1.0.0" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+
+  const resolve = posted.find((m) => m.type === "package_resolve");
+  assert.ok(resolve, "clicking a uPyPI hit posts package_resolve");
+  assert.equal(resolve.url, "https://upypi.net/pkgs/bmp280/1.0.0");
+
+  post(dom, { type: "package_resolve_result", record: {
+    name: "bmp280", version: "1.0.0", source: "upypi", author: "leezisheng", license: "MIT",
+    package_json_url: "https://upypi.net/pkgs/bmp280/1.0.0/package.json",
+    install_cmd: "mpremote mip install https://upypi.net/pkgs/bmp280/1.0.0/package.json",
+  } });
+  const detail = document.getElementById("dtPkgDetail")!;
+  assert.match(detail.textContent || "", /leezisheng/, "author shown in detail");
+  assert.match(detail.textContent || "", /MIT/, "license shown in detail");
+});
+
+test("package browser: MicroPython-lib is pending (no rows) and GitHub opens Advanced without searching", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [], note: "micropython_lib_pending" });
+  assert.equal(document.querySelectorAll("#dtPkgResults .dt-pkg-row").length, 0, "no rows while lib backend pending");
+  assert.ok((document.getElementById("dtPkgResults")!.textContent || "").length > 0, "shows a pending message");
+
+  (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "github";
+  (document.getElementById("dtPkgSearch") as HTMLButtonElement).click();
+  assert.equal(posted.filter((m) => m.type === "package_search").length, 0, "GitHub fallback does not search");
+  assert.equal((document.getElementById("dtPkgAdv") as HTMLDetailsElement).open, true, "GitHub opens the Advanced raw-URL section");
+});
