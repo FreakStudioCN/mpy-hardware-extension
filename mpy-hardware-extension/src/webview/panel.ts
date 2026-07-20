@@ -458,7 +458,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         return;
       }
       if (source === "micropython_lib") {
-        webview.postMessage({ type: "package_search_result", source, results: [], note: "micropython_lib_pending" });
+        const body = await packageBrowserClient.micropythonLibSearch(query);
+        webview.postMessage({ type: "package_search_result", source, results: body?.results ?? [] });
         return;
       }
       const request: { query: string; source?: string } = { query };

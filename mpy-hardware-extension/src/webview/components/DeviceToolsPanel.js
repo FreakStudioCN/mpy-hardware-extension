@@ -205,10 +205,9 @@
         row.addEventListener("click", onClick);
         return row;
       }
-      function onPackageSearchResult(source, results, note) {
+      function onPackageSearchResult(source, results) {
         const host = $("dtPkgResults"); if (!host) return;
         host.innerHTML = "";
-        if (note === "micropython_lib_pending") { host.textContent = tr("dt_pkg_lib_pending"); return; }
         const list = Array.isArray(results) ? results : [];
         if (!list.length) { host.textContent = tr("dt_pkg_none"); return; }
         for (const pkg of list) {

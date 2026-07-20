@@ -2753,17 +2753,32 @@ test("package browser: a uPyPI result resolves lazily on click, then shows metad
   assert.match(detail.textContent || "", /MIT/, "license shown in detail");
 });
 
-test("package browser: MicroPython-lib is pending (no rows) and GitHub opens Advanced without searching", async () => {
+test("package browser: MicroPython-lib searches by name; GitHub opens Advanced without searching", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
-  post(dom, { type: "package_search_result", source: "micropython_lib", results: [], note: "micropython_lib_pending" });
-  assert.equal(document.querySelectorAll("#dtPkgResults .dt-pkg-row").length, 0, "no rows while lib backend pending");
-  assert.ok((document.getElementById("dtPkgResults")!.textContent || "").length > 0, "shows a pending message");
+  // A prior list clears the no-device guard so Install is enabled.
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "micropython_lib";
+  (document.getElementById("dtPkgQuery") as HTMLInputElement).value = "aioble";
+  (document.getElementById("dtPkgSearch") as HTMLButtonElement).click();
+  const libSearch = posted.find((m) => m.type === "package_search");
+  assert.ok(libSearch && libSearch.source === "micropython_lib", "micropython-lib triggers a search");
+
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", description: "BLE", install_cmd: "mpremote mip install aioble" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+  assert.equal(rows.length, 1, "lib result renders directly (no per-package resolve)");
+
+  (rows[0] as HTMLButtonElement).click();
+  (document.querySelector("#dtPkgDetail .dt-pkg-install") as HTMLButtonElement).click();
+  const mip = posted.find((m) => m.type === "device_tool_mip");
+  assert.ok(mip && mip.url === "aioble", "micropython-lib installs by bare name");
 
   (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "github";
   (document.getElementById("dtPkgSearch") as HTMLButtonElement).click();
-  assert.equal(posted.filter((m) => m.type === "package_search").length, 0, "GitHub fallback does not search");
+  assert.equal(posted.filter((m) => m.type === "package_search").length, 1, "GitHub fallback does not search");
   assert.equal((document.getElementById("dtPkgAdv") as HTMLDetailsElement).open, true, "GitHub opens the Advanced raw-URL section");
 });

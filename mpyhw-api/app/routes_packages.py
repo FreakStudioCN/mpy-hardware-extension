@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from app import upypi_client
+from app import micropython_lib_index, upypi_client
 from app.models import PackageResolveRequest, PackageSearchRequest
 from app.package_store import PackageStore, board_family
 
@@ -49,6 +49,14 @@ def upypi_resolve(url: str):
         return upypi_client.resolve(url)
     except upypi_client.UpypiUnavailable:
         raise HTTPException(status_code=502, detail={"error": "upstream_unavailable", "source": "upypi"})
+
+
+@router.get("/v1/packages/micropython-lib/search")
+def micropython_lib_search(q: str = ""):
+    try:
+        return {"results": micropython_lib_index.search(q), "source": "micropython_lib"}
+    except micropython_lib_index.MicropythonLibUnavailable:
+        raise HTTPException(status_code=502, detail={"error": "upstream_unavailable", "source": "micropython_lib"})
 
 
 @router.get("/v1/packages/{name}/{version}")

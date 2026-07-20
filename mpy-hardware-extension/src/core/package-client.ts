@@ -47,6 +47,11 @@ export class PackageClient {
     return this.get(`/v1/packages/upypi/resolve?url=${encodeURIComponent(url)}`);
   }
 
+  // Official micropython-lib index: full records (installed by name), no per-package resolve.
+  micropythonLibSearch(query: string) {
+    return this.get(`/v1/packages/micropython-lib/search?q=${encodeURIComponent(query)}`);
+  }
+
   getPackageContext(name: string, version: string) {
     return this.get(`/v1/packages/${encodeURIComponent(name)}/${encodeURIComponent(version)}/driver-context`);
   }
