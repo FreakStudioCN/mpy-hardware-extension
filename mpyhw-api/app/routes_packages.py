@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
+from app import upypi_client
 from app.models import PackageResolveRequest, PackageSearchRequest
 from app.package_store import PackageStore, board_family
 
@@ -31,6 +32,23 @@ def search_packages(request: PackageSearchRequest):
 @router.post("/v1/packages/resolve")
 def resolve_packages(request: PackageResolveRequest):
     return store().resolve(request.intent, request.capabilities, request.board_id)
+
+
+# Declared BEFORE /v1/packages/{name}/{version} so "upypi" is not captured as a {name}.
+@router.get("/v1/packages/upypi/search")
+def upypi_search(q: str = ""):
+    try:
+        return {"results": upypi_client.search(q), "source": "upypi"}
+    except upypi_client.UpypiUnavailable:
+        raise HTTPException(status_code=502, detail={"error": "upstream_unavailable", "source": "upypi"})
+
+
+@router.get("/v1/packages/upypi/resolve")
+def upypi_resolve(url: str):
+    try:
+        return upypi_client.resolve(url)
+    except upypi_client.UpypiUnavailable:
+        raise HTTPException(status_code=502, detail={"error": "upstream_unavailable", "source": "upypi"})
 
 
 @router.get("/v1/packages/{name}/{version}")
