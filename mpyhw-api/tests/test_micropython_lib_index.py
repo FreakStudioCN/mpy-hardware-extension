@@ -27,7 +27,7 @@ def test_search_filters_and_normalizes(monkeypatch):
     hits = mli.search("aioble")
     assert len(hits) == 1
     hit = hits[0]
-    assert hit["name"] == "aioble" and hit["source"] == "micropython_lib"
+    assert hit["name"] == "aioble" and hit["package_name"] == "aioble" and hit["source"] == "micropython_lib"
     assert hit["install_cmd"] == "mpremote mip install aioble"
     assert hit["repo_url"] == "https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble"
     assert hit["version"] == "0.6.0" and hit["license"] == "MIT"

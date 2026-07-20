@@ -232,6 +232,18 @@
       // uPyPI/local records install from their package.json url; a bare micropython-lib name
       // installs by name. GitHub uses the advanced raw-URL input, not this path.
       function dtPkgInstallUrl(pkg) { return pkg.source === "micropython_lib" ? pkg.name : (pkg.package_json_url || pkg.name); }
+      // A dep is a string or a [ref, version] pair; a uPyPI ref is a /pkgs/<name>/<ver> url.
+      function dtDepName(dep) {
+        const ref = Array.isArray(dep) ? dep[0] : dep;
+        if (typeof ref !== "string") return "";
+        const match = ref.match(/\/pkgs\/([^\/]+)/);
+        return match ? match[1] : ref;
+      }
+      // A url entry is a string or a [targetName, sourcePath] pair; show the on-device target.
+      function dtUrlName(entry) { const t = Array.isArray(entry) ? entry[0] : entry; return typeof t === "string" ? t : ""; }
+      function dtJoinNames(list, pick) {
+        return (Array.isArray(list) ? list : []).map(pick).filter(Boolean).join(", ");
+      }
       function dtShowPkgDetail(pkg) {
         const host = $("dtPkgDetail"); if (!host) return;
         host.innerHTML = ""; host.classList.remove("hidden");
@@ -241,9 +253,10 @@
         if (pkg.description) { const d = document.createElement("div"); d.className = "dt-pkg-desc"; d.textContent = pkg.description; host.appendChild(d); }
         const chips = pkg.chips && pkg.chips !== "all" ? pkg.chips : "";
         const fw = pkg.fw && pkg.fw !== "all" ? pkg.fw : "";
-        const deps = Array.isArray(pkg.deps) && pkg.deps.length ? String(pkg.deps.length) : "";
+        const deps = dtJoinNames(pkg.deps, dtDepName);
+        const files = dtJoinNames(pkg.urls, dtUrlName);
         const url = dtPkgInstallUrl(pkg);
-        for (const [label, value] of [["Author", pkg.author], ["License", pkg.license], ["Chips", chips], ["Firmware", fw], ["Depends", deps], ["Install", pkg.install_cmd || ("mpremote mip install " + url)]]) {
+        for (const [label, value] of [["Author", pkg.author], ["License", pkg.license], ["Chips", chips], ["Firmware", fw], ["Depends", deps], ["Files", files], ["Repo", pkg.repo_url], ["Install", pkg.install_cmd || ("mpremote mip install " + url)]]) {
           const line = dtDetailLine(label, value); if (line) host.appendChild(line);
         }
         const install = dtActionButton(tr("dt_pkg_install"), () => {

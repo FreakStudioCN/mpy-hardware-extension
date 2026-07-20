@@ -75,6 +75,9 @@ def _normalize(data: dict, package_url: str) -> dict:
     package_json_url = f"{package_url.rstrip('/')}/package.json"
     return {
         "name": data.get("name", ""),
+        # `package_name` mirrors `name` for the manifest contract (driver.package_name);
+        # the browser UI reads `name`. Both point at the same value.
+        "package_name": data.get("name", ""),
         "version": data.get("version", ""),
         "source": "upypi",
         "description": data.get("description", ""),

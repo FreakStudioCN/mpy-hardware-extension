@@ -2747,10 +2747,29 @@ test("package browser: a uPyPI result resolves lazily on click, then shows metad
     name: "bmp280", version: "1.0.0", source: "upypi", author: "leezisheng", license: "MIT",
     package_json_url: "https://upypi.net/pkgs/bmp280/1.0.0/package.json",
     install_cmd: "mpremote mip install https://upypi.net/pkgs/bmp280/1.0.0/package.json",
+    urls: [["bmp280.py", "code/bmp280.py"]],
+    deps: [["https://upypi.net/pkgs/ws61_driver/1.0.0", "latest"]],
   } });
   const detail = document.getElementById("dtPkgDetail")!;
   assert.match(detail.textContent || "", /leezisheng/, "author shown in detail");
   assert.match(detail.textContent || "", /MIT/, "license shown in detail");
+  assert.match(detail.textContent || "", /bmp280\.py/, "url/file list shown in detail");
+  assert.match(detail.textContent || "", /ws61_driver/, "dependency name (not just count) shown in detail");
+});
+
+test("package browser: micropython-lib detail links the repo and installs by name", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", description: "BLE",
+      repo_url: "https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble",
+      install_cmd: "mpremote mip install aioble" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+  const detail = document.getElementById("dtPkgDetail")!;
+  assert.match(detail.textContent || "", /micropython-lib\/tree\/master/, "repo_url surfaced for micropython-lib");
 });
 
 test("package browser: MicroPython-lib searches by name; GitHub opens Advanced without searching", async () => {

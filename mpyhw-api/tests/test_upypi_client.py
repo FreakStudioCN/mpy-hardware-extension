@@ -51,7 +51,7 @@ def test_resolve_normalizes_package_json(monkeypatch):
     monkeypatch.setattr(upypi_client, "_fetch_json", lambda url: PACKAGE_JSON)
     record = upypi_client.resolve("https://upypi.net/pkgs/bmp280/1.0.0")
     assert record["source"] == "upypi"
-    assert record["name"] == "bmp280" and record["version"] == "1.0.0"
+    assert record["name"] == "bmp280" and record["package_name"] == "bmp280" and record["version"] == "1.0.0"
     assert record["author"] == "leezisheng" and record["license"] == "MIT"
     assert record["urls"] == [["bmp280.py", "code/bmp280.py"]]
     assert record["package_json_url"] == "https://upypi.net/pkgs/bmp280/1.0.0/package.json"

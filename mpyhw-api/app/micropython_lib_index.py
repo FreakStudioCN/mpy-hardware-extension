@@ -58,6 +58,9 @@ def _normalize(pkg: dict) -> dict:
     path = str(pkg.get("path", ""))
     return {
         "name": name,
+        # `package_name` mirrors `name` for the manifest contract (driver.package_name);
+        # the browser UI reads `name`. Both point at the same value.
+        "package_name": name,
         "version": pkg.get("version", ""),
         "source": "micropython_lib",
         "description": pkg.get("description", ""),
