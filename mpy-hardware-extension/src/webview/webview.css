@@ -518,17 +518,24 @@
       .dt-mip { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); flex-wrap: wrap; }
       .dt-pkg { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); }
       .dt-pkg-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 2px 2px; }
-      .dt-pkg-results { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg-dim); }
-      .dt-pkg-row { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 6px 8px; background: var(--vsc-card); color: var(--fg); border: 1px solid var(--vsc-border); border-radius: 4px; cursor: pointer; }
-      .dt-pkg-row:hover { background: var(--vsc-hover); }
+      .dt-pkg-results { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--fg-dim); }
+      /* Each result is an accordion card: header (row) + inline detail body. */
+      .dt-pkg-item { background: var(--vsc-card); border: 1px solid var(--vsc-border); border-radius: 6px; overflow: hidden; }
+      .dt-pkg-item:hover { border-color: var(--vsc-input-border); }
+      .dt-pkg-row { position: relative; display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; text-align: left; padding: 8px 26px 8px 10px; background: transparent; color: var(--fg); border: 0; cursor: pointer; }
+      .dt-pkg-row::after { content: "\25BE"; position: absolute; right: 10px; top: 9px; font-size: 10px; color: var(--fg-dim); transition: transform .15s; }
+      .dt-pkg-row[aria-expanded="true"]::after { transform: rotate(180deg); }
+      .dt-pkg-row:hover, .dt-pkg-row[aria-expanded="true"] { background: var(--vsc-hover); }
       .dt-pkg-name { font-weight: 600; }
       .dt-pkg-desc { color: var(--fg-dim); font-size: 11px; }
-      .dt-pkg-detail { display: flex; flex-direction: column; gap: 3px; padding: 8px; background: var(--vsc-card); border: 1px solid var(--vsc-border); border-radius: 4px; font-size: 12px; }
-      .dt-pkg-title { font-weight: 600; }
-      .dt-pkg-kv { display: flex; gap: 6px; }
-      .dt-pkg-k { flex: 0 0 64px; color: var(--fg-dim); }
-      .dt-pkg-v { flex: 1; word-break: break-all; }
-      .dt-pkg-install { align-self: flex-start; margin-top: 4px; }
+      .dt-pkg-detail { display: flex; flex-direction: column; gap: 8px; padding: 9px 10px 10px; border-top: 1px solid var(--vsc-border); font-size: 12px; }
+      .dt-pkg-meta { display: flex; flex-direction: column; gap: 3px; }
+      .dt-pkg-kv { display: flex; gap: 8px; }
+      .dt-pkg-k { flex: 0 0 60px; color: var(--fg-dim); }
+      .dt-pkg-v { flex: 1; word-break: break-word; }
+      .dt-pkg-cmd { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); background: var(--vsc-input); border: 1px solid var(--vsc-input-border); border-radius: 4px; padding: 5px 7px; word-break: break-all; }
+      .dt-pkg-install { align-self: flex-start; background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+      .dt-pkg-install:hover { background: var(--accent); filter: brightness(1.08); }
       .dt-pkg-adv .dt-mip { margin-top: 6px; }
       /* Reserve one line so a status message appearing/clearing doesn't shift the UI below it. */
       .dt-status { margin-top: 8px; min-height: 1.2em; font-size: 12px; color: var(--fg-dim); }

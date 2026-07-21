@@ -177,53 +177,74 @@
       function onDeviceDeleteArmed(path, nonce) { dtDeleteNonces[path] = nonce; }
 
       // ----- Package browser: search standard sources + install onto the board -----
-      // Auto = local catalog (graftsense already stripped host-side), uPyPI = live search
-      // (name+url, resolved to metadata on select), MicroPython-lib = official index search,
-      // GitHub = advanced raw-URL fallback only. All upstream strings go in via textContent.
+      // Auto = live micropython-lib + uPyPI merged (host-side), uPyPI = live search (name+url,
+      // resolved to metadata on expand), MicroPython-lib = official index (full records). The
+      // raw GitHub/mip URL lives only in the Advanced box. Each result carries its own `source`,
+      // so the accordion resolves uPyPI hits and fills lib hits directly. Upstream strings go
+      // in via textContent.
       function dtPkgSel() { const n = $("dtPkgSource"); return n ? n.value : "auto"; }
       function dtPkgClear() {
         const r = $("dtPkgResults"); if (r) r.innerHTML = "";
-        const d = $("dtPkgDetail"); if (d) { d.innerHTML = ""; d.classList.add("hidden"); }
       }
       function dtPkgSearch() {
         const source = dtPkgSel();
         dtPkgClear();
-        if (source === "github") { // fallback is raw-URL only, not searchable
-          const adv = $("dtPkgAdv"); if (adv) adv.open = true;
-          const r = $("dtPkgResults"); if (r) r.textContent = tr("dt_pkg_github_hint");
-          const u = $("dtMipUrl"); if (u) u.focus();
-          return;
-        }
         const query = ($("dtPkgQuery") ? $("dtPkgQuery").value : "").trim();
         const r = $("dtPkgResults"); if (r) r.textContent = tr("dt_pkg_searching");
         vscode.postMessage({ type: "package_search", source: source, query: query });
       }
-      function dtPkgRow(pkg, onClick) {
-        const row = document.createElement("button");
-        row.type = "button"; row.className = "dt-pkg-row";
-        const name = document.createElement("span"); name.className = "dt-pkg-name";
-        name.textContent = pkg.name + (pkg.version ? " " + pkg.version : "");
-        row.appendChild(name);
-        if (pkg.description) { const d = document.createElement("span"); d.className = "dt-pkg-desc"; d.textContent = pkg.description; row.appendChild(d); }
-        row.addEventListener("click", onClick);
-        return row;
-      }
+      // Results are an accordion: clicking a row expands its detail inline (one open at a time).
+      var dtExpandedBody = null;       // the currently expanded item's detail body
+      var dtPendingResolveBody = null; // a uPyPI item body awaiting its package.json resolve
+
       function onPackageSearchResult(source, results) {
         const host = $("dtPkgResults"); if (!host) return;
-        host.innerHTML = "";
+        host.innerHTML = ""; dtExpandedBody = null; dtPendingResolveBody = null;
         const list = Array.isArray(results) ? results : [];
         if (!list.length) { host.textContent = tr("dt_pkg_none"); return; }
-        for (const pkg of list) {
-          // uPyPI search gives name+url only -> resolve on click; local hits are full records.
-          const onClick = (source === "upypi")
-            ? () => vscode.postMessage({ type: "package_resolve", url: pkg.url })
-            : () => dtShowPkgDetail(pkg);
-          host.appendChild(dtPkgRow(pkg, onClick));
+        for (const pkg of list) host.appendChild(dtPkgItem(pkg));
+      }
+      function onPackageSearchError() { const h = $("dtPkgResults"); if (h) { h.innerHTML = ""; h.textContent = tr("dt_pkg_err"); } }
+
+      function dtPkgItem(pkg) {
+        const item = document.createElement("div"); item.className = "dt-pkg-item";
+        const head = document.createElement("button"); head.type = "button"; head.className = "dt-pkg-row"; head.setAttribute("aria-expanded", "false");
+        const name = document.createElement("span"); name.className = "dt-pkg-name"; name.textContent = pkg.name + (pkg.version ? " " + pkg.version : "");
+        head.appendChild(name);
+        if (pkg.description) { const d = document.createElement("span"); d.className = "dt-pkg-desc"; d.textContent = pkg.description; head.appendChild(d); }
+        const body = document.createElement("div"); body.className = "dt-pkg-detail hidden"; body._head = head;
+        head.addEventListener("click", () => dtToggleItem(head, body, pkg));
+        item.append(head, body);
+        return item;
+      }
+      function dtToggleItem(head, body, pkg) {
+        const willOpen = body.classList.contains("hidden");
+        if (dtExpandedBody && dtExpandedBody !== body) { // accordion: collapse the other open one
+          dtExpandedBody.classList.add("hidden");
+          if (dtExpandedBody._head) dtExpandedBody._head.setAttribute("aria-expanded", "false");
+        }
+        if (!willOpen) { body.classList.add("hidden"); head.setAttribute("aria-expanded", "false"); dtExpandedBody = null; return; }
+        body.classList.remove("hidden"); head.setAttribute("aria-expanded", "true"); dtExpandedBody = body;
+        if (body.dataset.filled) return;
+        if (pkg.source === "upypi") { // uPyPI hits are name+url only -> resolve for the metadata
+          // ponytail: last-expanded uPyPI item wins the resolve; a fast double-expand could
+          // fill the wrong body. Resolves are quick; not worth threading a request id.
+          body.textContent = tr("dt_pkg_searching");
+          dtPendingResolveBody = body;
+          vscode.postMessage({ type: "package_resolve", url: pkg.url });
+        } else {
+          dtFillDetail(body, pkg); body.dataset.filled = "1";
         }
       }
-      function onPackageSearchError() { const h = $("dtPkgResults"); if (h) h.textContent = tr("dt_pkg_err"); }
-      function onPackageResolveResult(record) { if (record) dtShowPkgDetail(record); }
-      function onPackageResolveError() { const h = $("dtPkgResults"); if (h) h.textContent = tr("dt_pkg_err"); }
+      function onPackageResolveResult(record) {
+        const body = dtPendingResolveBody; dtPendingResolveBody = null;
+        if (!body || !record) return;
+        dtFillDetail(body, record); body.dataset.filled = "1";
+      }
+      function onPackageResolveError() {
+        const body = dtPendingResolveBody; dtPendingResolveBody = null;
+        if (body) body.textContent = tr("dt_pkg_err");
+      }
 
       function dtDetailLine(label, value) {
         if (!value) return null;
@@ -247,21 +268,23 @@
       function dtJoinNames(list, pick) {
         return (Array.isArray(list) ? list : []).map(pick).filter(Boolean).join(", ");
       }
-      function dtShowPkgDetail(pkg) {
-        const host = $("dtPkgDetail"); if (!host) return;
-        host.innerHTML = ""; host.classList.remove("hidden");
-        const title = document.createElement("div"); title.className = "dt-pkg-title";
-        title.textContent = pkg.name + (pkg.version ? " " + pkg.version : "");
-        host.appendChild(title);
-        if (pkg.description) { const d = document.createElement("div"); d.className = "dt-pkg-desc"; d.textContent = pkg.description; host.appendChild(d); }
+      // Fill an accordion item's body with the package detail: a metadata grid, the install
+      // command as a mono line, and the Install button. The row header already shows name+version.
+      function dtFillDetail(host, pkg) {
+        host.innerHTML = "";
         const chips = pkg.chips && pkg.chips !== "all" ? pkg.chips : "";
         const fw = pkg.fw && pkg.fw !== "all" ? pkg.fw : "";
         const deps = dtJoinNames(pkg.deps, dtDepName);
         const files = dtJoinNames(pkg.urls, dtUrlName);
         const url = dtPkgInstallUrl(pkg);
-        for (const [label, value] of [["Author", pkg.author], ["License", pkg.license], ["Chips", chips], ["Firmware", fw], ["Depends", deps], ["Files", files], ["Repo", pkg.repo_url], ["Install", pkg.install_cmd || ("mpremote mip install " + url)]]) {
-          const line = dtDetailLine(label, value); if (line) host.appendChild(line);
+        const meta = document.createElement("div"); meta.className = "dt-pkg-meta";
+        for (const [label, value] of [["Author", pkg.author], ["License", pkg.license], ["Chips", chips], ["Firmware", fw], ["Depends", deps], ["Files", files], ["Repo", pkg.repo_url]]) {
+          const line = dtDetailLine(label, value); if (line) meta.appendChild(line);
         }
+        if (meta.childNodes.length) host.appendChild(meta);
+        const cmd = document.createElement("div"); cmd.className = "dt-pkg-cmd";
+        cmd.textContent = pkg.install_cmd || ("mpremote mip install " + url);
+        host.appendChild(cmd);
         const install = dtActionButton(tr("dt_pkg_install"), () => {
           if (dtNoDevice) { dtPkgStatus(tr("dt_nodev_h")); return; }
           dtPkgStatus(tr("dt_installing"));
@@ -288,10 +311,7 @@
         });
         if ($("dtPkgSearch")) $("dtPkgSearch").addEventListener("click", dtPkgSearch);
         if ($("dtPkgQuery")) $("dtPkgQuery").addEventListener("keydown", (e) => { if (e.key === "Enter") dtPkgSearch(); });
-        if ($("dtPkgSource")) $("dtPkgSource").addEventListener("change", () => {
-          dtPkgClear();
-          if (dtPkgSel() === "github") { const adv = $("dtPkgAdv"); if (adv) adv.open = true; }
-        });
+        if ($("dtPkgSource")) $("dtPkgSource").addEventListener("change", dtPkgClear);
         // Poll device presence only while the tab is open, so the file list reflects an
         // unplug within a couple of seconds (the scan is a host-side port list — no port open).
         setInterval(() => {

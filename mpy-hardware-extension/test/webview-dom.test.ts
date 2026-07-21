@@ -2721,31 +2721,50 @@ test("package browser: Search posts a package_search with the selected source an
   assert.equal(msg.query, "temperature");
 });
 
-test("package browser: local results render and Install posts device_tool_mip with the package url", async () => {
+test("package browser: an Auto merged list keys resolve on each result's own source", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
   // A prior list clears the no-device guard so Install is enabled.
   post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  // Auto returns a merged list: a full micropython-lib record + a name+url uPyPI hit.
   post(dom, { type: "package_search_result", source: "auto", results: [
-    { name: "aht20_driver", version: "1.0.0", source: "curated", description: "temp+humidity", package_json_url: "https://x/aht20/package.json" },
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", description: "BLE", install_cmd: "mpremote mip install aioble" },
+    { name: "bmp280", source: "upypi", url: "https://upypi.net/pkgs/bmp280/1.0.0" },
   ] });
-
   const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
-  assert.equal(rows.length, 1, "one result row");
-  assert.match(rows[0].textContent || "", /aht20_driver/);
+  assert.equal(rows.length, 2, "both merged results render");
 
-  (rows[0] as HTMLButtonElement).click(); // select -> detail
-  const detail = document.getElementById("dtPkgDetail")!;
-  assert.equal(detail.classList.contains("hidden"), false, "detail shown after select");
-  const install = detail.querySelector(".dt-pkg-install") as HTMLButtonElement;
-  assert.ok(install, "detail has an Install button");
+  // The micropython-lib row fills directly (no resolve) and installs by bare name.
+  (rows[0] as HTMLButtonElement).click();
+  assert.equal(posted.filter((m) => m.type === "package_resolve").length, 0, "a lib result does not resolve");
+  (document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement).click();
+  assert.equal(posted.find((m) => m.type === "device_tool_mip").url, "aioble", "lib installs by bare name");
 
-  install.click();
-  const mip = posted.find((m) => m.type === "device_tool_mip");
-  assert.ok(mip, "Install posts device_tool_mip");
-  assert.equal(mip.url, "https://x/aht20/package.json");
+  // The uPyPI row (name+url only) resolves on expand.
+  (rows[1] as HTMLButtonElement).click();
+  const resolve = posted.find((m) => m.type === "package_resolve");
+  assert.ok(resolve && resolve.url === "https://upypi.net/pkgs/bmp280/1.0.0", "a uPyPI result resolves on expand");
+});
+
+test("package browser: results are an accordion (one open at a time, click again to close)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+    { name: "urequests", version: "0.9.0", source: "micropython_lib", install_cmd: "mpremote mip install urequests" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+  const bodies = document.querySelectorAll("#dtPkgResults .dt-pkg-detail");
+
+  (rows[0] as HTMLButtonElement).click();
+  assert.equal(bodies[0].classList.contains("hidden"), false, "first row expands");
+  (rows[1] as HTMLButtonElement).click();
+  assert.equal(bodies[0].classList.contains("hidden"), true, "opening the second collapses the first");
+  assert.equal(bodies[1].classList.contains("hidden"), false, "second row expands");
+  (rows[1] as HTMLButtonElement).click();
+  assert.equal(bodies[1].classList.contains("hidden"), true, "clicking an open row closes it");
 });
 
 test("package browser: a uPyPI result resolves lazily on click, then shows metadata", async () => {
@@ -2753,8 +2772,9 @@ test("package browser: a uPyPI result resolves lazily on click, then shows metad
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // enable Install
   post(dom, { type: "package_search_result", source: "upypi", results: [
-    { name: "bmp280", url: "https://upypi.net/pkgs/bmp280/1.0.0" },
+    { name: "bmp280", source: "upypi", url: "https://upypi.net/pkgs/bmp280/1.0.0" },
   ] });
   (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
 
@@ -2769,13 +2789,16 @@ test("package browser: a uPyPI result resolves lazily on click, then shows metad
     urls: [["bmp280.py", "code/bmp280.py"]],
     deps: [["https://upypi.net/pkgs/ws61_driver/1.0.0", "latest"]],
   } });
-  const detail = document.getElementById("dtPkgDetail")!;
+  const detail = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden)") as HTMLElement;
   assert.match(detail.textContent || "", /leezisheng/, "author shown in detail");
   assert.match(detail.textContent || "", /MIT/, "license shown in detail");
   assert.match(detail.textContent || "", /bmp280\.py/, "url/file list shown in detail");
   assert.doesNotMatch(detail.textContent || "", /code\/bmp280\.py/, "shows the target name, not the raw source path");
   assert.match(detail.textContent || "", /ws61_driver/, "dependency name (not just count) shown in detail");
   assert.doesNotMatch(detail.textContent || "", /upypi\.net\/pkgs\/ws61_driver/, "shows the dep name, not the raw ref url");
+  (detail.querySelector(".dt-pkg-install") as HTMLButtonElement).click();
+  const mip = posted.find((m) => m.type === "device_tool_mip");
+  assert.ok(mip && mip.url === "https://upypi.net/pkgs/bmp280/1.0.0/package.json", "a resolved uPyPI package installs by its package.json url");
 });
 
 test("package browser: micropython-lib detail links the repo and installs by name", async () => {
@@ -2790,14 +2813,14 @@ test("package browser: micropython-lib detail links the repo and installs by nam
       install_cmd: "mpremote mip install aioble" },
   ] });
   (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
-  const detail = document.getElementById("dtPkgDetail")!;
+  const detail = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden)") as HTMLElement;
   assert.match(detail.textContent || "", /micropython-lib\/tree\/master/, "repo_url surfaced for micropython-lib");
   (detail.querySelector(".dt-pkg-install") as HTMLButtonElement).click();
   const mip = posted.find((m) => m.type === "device_tool_mip");
   assert.ok(mip && mip.url === "aioble", "micropython-lib installs by bare name");
 });
 
-test("package browser: MicroPython-lib searches by name; GitHub opens Advanced without searching", async () => {
+test("package browser: MicroPython-lib searches by name; GitHub is not a search source", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
@@ -2817,12 +2840,11 @@ test("package browser: MicroPython-lib searches by name; GitHub opens Advanced w
   assert.equal(rows.length, 1, "lib result renders directly (no per-package resolve)");
 
   (rows[0] as HTMLButtonElement).click();
-  (document.querySelector("#dtPkgDetail .dt-pkg-install") as HTMLButtonElement).click();
+  (document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement).click();
   const mip = posted.find((m) => m.type === "device_tool_mip");
   assert.ok(mip && mip.url === "aioble", "micropython-lib installs by bare name");
 
-  (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "github";
-  (document.getElementById("dtPkgSearch") as HTMLButtonElement).click();
-  assert.equal(posted.filter((m) => m.type === "package_search").length, 1, "GitHub fallback does not search");
-  assert.equal((document.getElementById("dtPkgAdv") as HTMLDetailsElement).open, true, "GitHub opens the Advanced raw-URL section");
+  // GitHub is no longer a search source; the selector offers only the searchable ones.
+  const sourceValues = [...(document.getElementById("dtPkgSource") as HTMLSelectElement).options].map((o) => o.value);
+  assert.deepEqual(sourceValues, ["auto", "micropython_lib", "upypi"], "selector has no github option");
 });

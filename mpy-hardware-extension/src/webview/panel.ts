@@ -446,30 +446,70 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
   }
 
-  // Package browser search (Device Tools). uPyPI and micropython-lib are live upstreams
-  // with their own endpoints; everything else hits the local catalog with a source filter.
-  // GraftSense is never a browsable source, so every catalog path drops graftsense
-  // provenance rows before they reach the UI.
+  // Package browser search (Device Tools). The two standard sources are live upstreams:
+  // uPyPI (search returns name+url; the browser resolves package.json on expand) and
+  // micropython-lib (search returns full records). "Auto" searches BOTH at once and merges;
+  // there is no separate local catalog to query (graftsense content is identical to uPyPI).
+  // Every result carries its own `source` so the accordion knows whether to resolve on expand.
+  const AUTO_RESULT_LIMIT = 30;
+
+  function tagUpypi(results: any): any[] {
+    return (Array.isArray(results) ? results : []).map((hit: any) => ({ ...hit, source: "upypi" }));
+  }
+
+  // Dedup by normalized name keeping the micropython-lib record (official + full metadata,
+  // renders without a resolve round-trip); order prefix-matches first, then by name, lib
+  // before uPyPI. Deterministic.
+  function mergePackages(query: string, libHits: any[], upypiHits: any[]): any[] {
+    const prefix = (query || "").trim().toLowerCase();
+    const norm = (name: string) => String(name || "").toLowerCase().replace(/[-_]/g, "_");
+    const byName = new Map<string, any>();
+    for (const hit of [...libHits, ...upypiHits]) { // lib first -> wins the dedup
+      const key = norm(hit?.name);
+      if (key && !byName.has(key)) byName.set(key, hit);
+    }
+    const rank = (s: string) => (s === "micropython_lib" ? 0 : 1);
+    return [...byName.values()].sort((a, b) => {
+      const ap = a.name.toLowerCase().startsWith(prefix) ? 0 : 1;
+      const bp = b.name.toLowerCase().startsWith(prefix) ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      const an = a.name.toLowerCase(), bn = b.name.toLowerCase();
+      if (an !== bn) return an < bn ? -1 : 1;
+      return rank(a.source) - rank(b.source);
+    }).slice(0, AUTO_RESULT_LIMIT);
+  }
+
   async function handlePackageSearch(source: string, query: string) {
-    try {
-      if (source === "upypi") {
-        const body = await packageBrowserClient.upypiSearch(query);
-        webview.postMessage({ type: "package_search_result", source, results: body?.results ?? [] });
-        return;
-      }
-      if (source === "micropython_lib") {
+    if (source === "micropython_lib") {
+      try {
         const body = await packageBrowserClient.micropythonLibSearch(query);
         webview.postMessage({ type: "package_search_result", source, results: body?.results ?? [] });
-        return;
+      } catch (error: any) {
+        webview.postMessage({ type: "package_search_error", error: error?.code ?? "search_failed" });
       }
-      const request: { query: string; source?: string } = { query };
-      if (source && source !== "auto") request.source = source;
-      const body = await packageBrowserClient.search(request);
-      const results = (body?.results ?? []).filter((hit: any) => hit?.source !== "graftsense");
-      webview.postMessage({ type: "package_search_result", source: source || "auto", results });
-    } catch (error: any) {
-      webview.postMessage({ type: "package_search_error", error: error?.code ?? "search_failed" });
+      return;
     }
+    if (source === "upypi") {
+      try {
+        const body = await packageBrowserClient.upypiSearch(query);
+        webview.postMessage({ type: "package_search_result", source, results: tagUpypi(body?.results) });
+      } catch (error: any) {
+        webview.postMessage({ type: "package_search_error", error: error?.code ?? "search_failed" });
+      }
+      return;
+    }
+    // Auto: search both live sources at once; return whatever came back, error only if BOTH fail.
+    const [up, lib] = await Promise.allSettled([
+      packageBrowserClient.upypiSearch(query),
+      packageBrowserClient.micropythonLibSearch(query),
+    ]);
+    if (up.status === "rejected" && lib.status === "rejected") {
+      webview.postMessage({ type: "package_search_error", error: "search_failed" });
+      return;
+    }
+    const upypiHits = up.status === "fulfilled" ? tagUpypi(up.value?.results) : [];
+    const libHits = lib.status === "fulfilled" ? (lib.value?.results ?? []) : [];
+    webview.postMessage({ type: "package_search_result", source: "auto", results: mergePackages(query, libHits, upypiHits) });
   }
 
   // Acquire run ownership of the serial port before a session run takes it: wait for any

@@ -845,40 +845,62 @@ function packageSearchPanel(fetchImpl: any): { getHandler: () => (m: any) => Pro
   return { getHandler: () => handler!, posted, requested };
 }
 
-test("package browser host: auto search drops graftsense rows before they reach the webview", async () => {
-  // The single enforcement line of the graftsense invariant lives host-side; drive a real
-  // package_search through the handler so removing the filter fails this test.
-  const { getHandler, posted } = packageSearchPanel(async (url: string) => {
-    if (url === "http://api.test/v1/packages/search") {
-      return jsonResponse({ results: [
-        { name: "aht20_driver", source: "curated" },
-        { name: "graft_thing", source: "graftsense" },
-        { name: "bmp280", source: "upypi" },
-      ] });
-    }
+test("package browser host: Auto searches both live sources and never the local catalog", async () => {
+  // Auto merges live micropython-lib + uPyPI; it must NOT hit /v1/packages/search (the
+  // graftsense-heavy local catalog), and each result carries its own source.
+  const { getHandler, posted, requested } = packageSearchPanel(async (url: string) => {
+    if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ results: [{ name: "bmp280", url: "u" }], source: "upypi" });
+    if (url.startsWith("http://api.test/v1/packages/micropython-lib/search")) return jsonResponse({ results: [{ name: "aioble", version: "0.6.0", source: "micropython_lib" }], source: "micropython_lib" });
     throw new Error(`unexpected ${url}`);
   });
 
-  await getHandler()({ type: "package_search", source: "auto", query: "temp" });
+  await getHandler()({ type: "package_search", source: "auto", query: "b" });
 
+  assert.ok(requested.some((u) => u.includes("/v1/packages/upypi/search?q=b")), "Auto hits uPyPI");
+  assert.ok(requested.some((u) => u.includes("/v1/packages/micropython-lib/search?q=b")), "Auto hits micropython-lib");
+  assert.ok(!requested.some((u) => u.includes("/v1/packages/search")), "Auto never hits the local catalog");
   const result = posted.find((m) => m.type === "package_search_result");
-  assert.ok(result, "posts a package_search_result");
-  assert.ok(!result.results.some((r: any) => r.source === "graftsense"), "graftsense rows dropped host-side");
-  assert.deepEqual(result.results.map((r: any) => r.name), ["aht20_driver", "bmp280"]);
+  const bySource: Record<string, string> = {};
+  for (const r of result.results) bySource[r.name] = r.source;
+  assert.equal(bySource["bmp280"], "upypi", "uPyPI hit tagged with its per-result source");
+  assert.equal(bySource["aioble"], "micropython_lib", "lib hit keeps its source");
 });
 
-test("package browser host: an explicit non-auto source still drops graftsense", async () => {
+test("package browser host: Auto returns the surviving source when the other upstream is down", async () => {
   const { getHandler, posted } = packageSearchPanel(async (url: string) => {
-    if (url === "http://api.test/v1/packages/search") {
-      return jsonResponse({ results: [{ name: "graft_thing", source: "graftsense" }, { name: "ok", source: "curated" }] });
-    }
+    if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ detail: { error: "upstream_unavailable" } }, 502);
+    if (url.startsWith("http://api.test/v1/packages/micropython-lib/search")) return jsonResponse({ results: [{ name: "aioble", source: "micropython_lib" }], source: "micropython_lib" });
     throw new Error(`unexpected ${url}`);
   });
 
-  await getHandler()({ type: "package_search", source: "curated", query: "x" });
+  await getHandler()({ type: "package_search", source: "auto", query: "aio" });
 
   const result = posted.find((m) => m.type === "package_search_result");
-  assert.deepEqual(result.results.map((r: any) => r.name), ["ok"]);
+  assert.ok(result, "one source down still returns results");
+  assert.equal(posted.find((m) => m.type === "package_search_error"), undefined, "no error while one source survives");
+  assert.deepEqual(result.results.map((r: any) => r.name), ["aioble"]);
+});
+
+test("package browser host: Auto errors only when BOTH live sources are down", async () => {
+  const { getHandler, posted } = packageSearchPanel(async () => jsonResponse({ detail: { error: "upstream_unavailable" } }, 502));
+  await getHandler()({ type: "package_search", source: "auto", query: "x" });
+  assert.ok(posted.find((m) => m.type === "package_search_error"), "both down -> package_search_error");
+});
+
+test("package browser host: Auto dedups by name keeping the micropython-lib record, deterministic order", async () => {
+  const { getHandler, posted } = packageSearchPanel(async (url: string) => {
+    if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ results: [{ name: "aioble", url: "u" }, { name: "zzz", url: "u2" }], source: "upypi" });
+    if (url.startsWith("http://api.test/v1/packages/micropython-lib/search")) return jsonResponse({ results: [{ name: "aioble", version: "0.6.0", source: "micropython_lib" }], source: "micropython_lib" });
+    throw new Error(`unexpected ${url}`);
+  });
+
+  await getHandler()({ type: "package_search", source: "auto", query: "aioble" });
+
+  const result = posted.find((m) => m.type === "package_search_result");
+  const names = result.results.map((r: any) => r.name);
+  assert.equal(names.filter((n: string) => n === "aioble").length, 1, "aioble appears once (deduped)");
+  assert.equal(result.results.find((r: any) => r.name === "aioble").source, "micropython_lib", "the micropython-lib record wins the dedup");
+  assert.deepEqual(names, ["aioble", "zzz"], "prefix-match first, deterministic order");
 });
 
 test("package browser host: uPyPI and micropython-lib route to their own endpoints", async () => {
