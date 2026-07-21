@@ -218,6 +218,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
   // Injectable so tests can drive the "broken venv" branch of the presence poll + doctor.
   const venvReadyFn = deps.venvReady ?? venvReady;
+  // The presence poll fires every 2.5s and venvReadyFn() is a synchronous 7-import python
+  // spawn (~130-260ms, worse on Windows). A venv that has imported its deps once does not
+  // spontaneously lose them, so memoize the first success and never re-probe on the hot
+  // path. The Doctor keeps calling venvReadyFn directly, so its Re-check still detects a
+  // deleted/broken venv live.
+  // ponytail: ceiling — if the user deletes the venv mid-session, the poll won't notice
+  // until shim.scan() itself fails; the Doctor Re-check is the recovery path. Upgrade to a
+  // shim-is-running check if that edge ever bites.
+  let venvConfirmed = false;
+  const venvReadyForPoll = (): boolean => venvConfirmed || (venvConfirmed = venvReadyFn());
   // Serializes user-initiated device-tool commands so two never overlap on the one
   // serial port (#54, spec §41). The active-run gate is checked per command below.
   const deviceQueue = new DeviceCommandQueue();
@@ -1009,7 +1019,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Gate on venvReady() first: shim.scan() lazily bootstraps the venv (a blocking
       // pip/venv install), and this poll fires every 2.5s — a broken venv would otherwise
       // retrigger that install on every tick. No venv -> answer "no device", don't spawn.
-      if (!venvReadyFn()) {
+      // Memoized (venvReadyForPoll) so the healthy steady state doesn't re-spawn the probe.
+      if (!venvReadyForPoll()) {
         webview.postMessage({ type: "device_present", present: false });
       } else {
         try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }

@@ -388,14 +388,16 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
     const scriptPath = join(shimDir, "serve.py");
     // Put the venv's bin on PATH so serve.py's bare `mpremote` calls resolve.
     const env = { ...process.env, PATH: venvBin + delimiter + (process.env.PATH ?? "") };
-    // detached: the shim leads its OWN process group, so Stop can signal the whole group
-    // (serve.py + every descendant it spawns — the flash plugin's esptool, mpremote) instead
-    // of just serve.py, which would orphan an in-flight flash. stdio stays piped and we keep
-    // the reference (no unref), so communication + lifecycle are unchanged.
-    // windowsHide: without it a detached (own-process-group) child gets its own
-    // visible console window on Windows — the venv/serve.py terminal users saw pop
-    // repeatedly. All spawn sites below carry it for the same reason.
-    return spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env, detached: true, windowsHide: true });
+    // detached (POSIX only): the shim leads its OWN process group, so Stop can signal the
+    // whole group (serve.py + every descendant it spawns — the flash plugin's esptool,
+    // mpremote) via a negative pid instead of just serve.py, which would orphan an in-flight
+    // flash. Windows has no process groups: killProcessTree uses `taskkill /T` (walks the
+    // tree by pid), so detached buys nothing there — and Node IGNORES windowsHide whenever
+    // detached is true (nodejs/node#21825), leaving the venv/serve.py console visibly popping.
+    // So detach only off-Windows; on Windows windowsHide then actually suppresses the console.
+    // stdio stays piped and we keep the reference (no unref), so lifecycle is unchanged.
+    const detached = process.platform !== "win32";
+    return spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env, detached, windowsHide: true });
   });
 }
 

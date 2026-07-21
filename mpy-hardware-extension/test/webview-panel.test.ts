@@ -749,6 +749,26 @@ test("device_presence scans and reports the device once the venv is ready", asyn
   assert.equal(posted.filter((m) => m.type === "device_present").pop()?.present, true);
 });
 
+test("device_presence probes venvReady once then memoizes it on the hot poll path", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
+  let probes = 0;
+  let scanned = 0;
+  const shim = { scan: async () => { scanned++; return ["/dev/ttyX"]; }, setPort: () => {}, kill: () => {} };
+  createPanel(vscode, {}, { shim, venvReady: () => { probes++; return true; }, apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  // The poll fires every 2.5s; venvReady() is a synchronous multi-import python spawn, so
+  // once it confirms ready the hot path must not re-probe it.
+  await handler!({ type: "device_presence" });
+  await handler!({ type: "device_presence" });
+  await handler!({ type: "device_presence" });
+
+  assert.equal(probes, 1, "venvReady is probed once, then the confirmed-ready result is memoized");
+  assert.equal(scanned, 3, "every tick still scans for presence");
+});
+
 test("device tools are refused with device_busy while a session run owns the port (spec §41)", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
   try {
