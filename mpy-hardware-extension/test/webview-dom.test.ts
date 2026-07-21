@@ -2889,6 +2889,17 @@ test("installed view: a search result is marked Installed from the real /lib set
   assert.equal(btn.dataset.installed, "1", "an already-installed package shows as Uninstall in search results");
 });
 
+test("installed view: paginates 10 per page", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const entries = Array.from({ length: 12 }, (_, i) => `pkg${String(i).padStart(2, "0")}.py`);
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries } });
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 10, "first page shows 10 of 12");
+  const next = [...document.querySelectorAll("#dtPkgInstalled .dt-pager-btn")].find((b: any) => b.textContent === "›") as HTMLButtonElement;
+  next.click();
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 2, "next page shows the remaining 2");
+});
+
 test("package browser: a uPyPI result resolves lazily on click, then shows metadata", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

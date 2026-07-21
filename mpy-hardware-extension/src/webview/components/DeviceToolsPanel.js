@@ -238,17 +238,18 @@
         dtPkgPage = Math.min(Math.max(dtPkgPage, 0), pages - 1);
         const start = dtPkgPage * DT_PKG_PAGE_SIZE;
         for (const pkg of dtPkgResultsAll.slice(start, start + DT_PKG_PAGE_SIZE)) host.appendChild(dtPkgItem(pkg));
-        if (pages > 1) host.appendChild(dtPkgPager(pages));
+        if (pages > 1) host.appendChild(dtPager(dtPkgPage, pages, (p) => { dtPkgPage = p; dtRenderPkgPage(); }));
       }
-      function dtPkgPager(pages) {
+      // Shared prev/next pager: goTo(newPage) re-renders. Used by search results + installed.
+      function dtPager(page, pages, goTo) {
         const pager = document.createElement("div"); pager.className = "dt-pkg-pager";
         const prev = document.createElement("button"); prev.type = "button"; prev.className = "dt-pager-btn"; prev.textContent = "‹";
-        prev.disabled = dtPkgPage === 0;
-        prev.addEventListener("click", () => { dtPkgPage--; dtRenderPkgPage(); });
-        const label = document.createElement("span"); label.className = "dt-pkg-page"; label.textContent = tr("dt_pkg_page", { n: dtPkgPage + 1, t: pages });
+        prev.disabled = page === 0;
+        prev.addEventListener("click", () => goTo(page - 1));
+        const label = document.createElement("span"); label.className = "dt-pkg-page"; label.textContent = tr("dt_pkg_page", { n: page + 1, t: pages });
         const next = document.createElement("button"); next.type = "button"; next.className = "dt-pager-btn"; next.textContent = "›";
-        next.disabled = dtPkgPage >= pages - 1;
-        next.addEventListener("click", () => { dtPkgPage++; dtRenderPkgPage(); });
+        next.disabled = page >= pages - 1;
+        next.addEventListener("click", () => goTo(page + 1));
         pager.append(prev, label, next);
         return pager;
       }
@@ -273,6 +274,8 @@
       function dtInstalledName(raw) {
         return raw.charAt(raw.length - 1) === "/" ? raw.slice(0, -1) : raw.replace(/\.(mpy|py)$/, "");
       }
+      var dtInstalledNamesAll = [];
+      var dtInstalledPage = 0;
       function onInstalledList(entries) {
         const seen = new Set(), names = [];
         for (const raw of (Array.isArray(entries) ? entries : [])) {
@@ -281,13 +284,20 @@
           if (!seen.has(key)) { seen.add(key); names.push(name); } // dedup <name>.py + <name>.mpy
         }
         dtInstalledSet = seen;
-        dtRenderInstalled(names);
+        dtInstalledNamesAll = names;
+        dtInstalledPage = 0;
+        dtRenderInstalledPage();
       }
-      function dtRenderInstalled(names) {
+      function dtRenderInstalledPage() {
         const host = $("dtPkgInstalled"); if (!host) return;
         host.innerHTML = "";
-        const empty = $("dtPkgInstalledEmpty"); if (empty) empty.classList.toggle("hidden", names.length > 0);
-        for (const name of names) host.appendChild(dtInstalledRow(name));
+        const empty = $("dtPkgInstalledEmpty"); if (empty) empty.classList.toggle("hidden", dtInstalledNamesAll.length > 0);
+        if (!dtInstalledNamesAll.length) return;
+        const pages = Math.ceil(dtInstalledNamesAll.length / DT_PKG_PAGE_SIZE);
+        dtInstalledPage = Math.min(Math.max(dtInstalledPage, 0), pages - 1);
+        const start = dtInstalledPage * DT_PKG_PAGE_SIZE;
+        for (const name of dtInstalledNamesAll.slice(start, start + DT_PKG_PAGE_SIZE)) host.appendChild(dtInstalledRow(name));
+        if (pages > 1) host.appendChild(dtPager(dtInstalledPage, pages, (p) => { dtInstalledPage = p; dtRenderInstalledPage(); }));
       }
       function dtInstalledRow(name) {
         const row = document.createElement("div"); row.className = "dt-row";
