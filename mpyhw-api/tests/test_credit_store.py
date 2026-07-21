@@ -279,6 +279,7 @@ def test_unlimited_account_gets_unlimited_grant_by_login_or_email():
     assert credit_store.grant_for({"id": "9", "login": "ersonp", "email": None}) == unlimited
     assert credit_store.grant_for({"id": "9", "login": "ErsonP", "email": None}) == unlimited
     assert credit_store.grant_for({"id": "9", "login": "other", "email": "ErsonPereiraCR7@gmail.com"}) == unlimited
+    assert credit_store.grant_for({"id": "9", "login": "leezisheng", "email": None}) == unlimited
     assert credit_store.grant_for({"id": "1", "login": "octocat", "email": None}) == credit_store.DAILY_GRANT
 
 
