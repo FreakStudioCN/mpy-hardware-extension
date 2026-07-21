@@ -2767,6 +2767,33 @@ test("package browser: results are an accordion (one open at a time, click again
   assert.equal(bodies[1].classList.contains("hidden"), true, "clicking an open row closes it");
 });
 
+test("package browser: results paginate 10 per page", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const results = Array.from({ length: 12 }, (_, i) => ({ name: `pkg${String(i).padStart(2, "0")}`, source: "micropython_lib", install_cmd: "x" }));
+  post(dom, { type: "package_search_result", source: "micropython_lib", results });
+
+  assert.equal(document.querySelectorAll("#dtPkgResults .dt-pkg-row").length, 10, "first page shows 10 of 12");
+  const pager = document.querySelector("#dtPkgResults .dt-pkg-pager")!;
+  assert.ok(pager, "a pager appears when there are more than 10 results");
+  const next = [...pager.querySelectorAll(".dt-pager-btn")].find((b: any) => b.textContent === "›") as HTMLButtonElement;
+  next.click();
+  assert.equal(document.querySelectorAll("#dtPkgResults .dt-pkg-row").length, 2, "next page shows the remaining 2");
+});
+
+test("package browser: each result row shows its source chip", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "package_search_result", source: "auto", results: [
+    { name: "aioble", source: "micropython_lib", install_cmd: "x" },
+    { name: "bmp280", source: "upypi", url: "u" },
+  ] });
+  const chips = [...document.querySelectorAll("#dtPkgResults .dt-pkg-src")].map((c: any) => c.textContent);
+  assert.equal(chips.length, 2, "each row carries a source chip");
+  assert.ok(chips.some((c: string) => /MicroPython-lib/i.test(c)), "a micropython-lib chip is shown");
+  assert.ok(chips.some((c: string) => /uPyPI/i.test(c)), "a uPyPI chip is shown");
+});
+
 test("package browser: a uPyPI result resolves lazily on click, then shows metadata", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

@@ -193,24 +193,56 @@
         const r = $("dtPkgResults"); if (r) r.textContent = tr("dt_pkg_searching");
         vscode.postMessage({ type: "package_search", source: source, query: query });
       }
-      // Results are an accordion: clicking a row expands its detail inline (one open at a time).
+      // Results are an accordion (one row open at a time), paginated at DT_PKG_PAGE_SIZE per page.
+      var DT_PKG_PAGE_SIZE = 10;
       var dtExpandedBody = null;       // the currently expanded item's detail body
       var dtPendingResolveBody = null; // a uPyPI item body awaiting its package.json resolve
+      var dtPkgResultsAll = [];        // full result set; one page slice is rendered at a time
+      var dtPkgPage = 0;
 
       function onPackageSearchResult(source, results) {
+        dtPkgResultsAll = Array.isArray(results) ? results : [];
+        dtPkgPage = 0;
+        dtRenderPkgPage();
+      }
+      function dtRenderPkgPage() {
         const host = $("dtPkgResults"); if (!host) return;
-        host.innerHTML = ""; dtExpandedBody = null; dtPendingResolveBody = null;
-        const list = Array.isArray(results) ? results : [];
-        if (!list.length) { host.textContent = tr("dt_pkg_none"); return; }
-        for (const pkg of list) host.appendChild(dtPkgItem(pkg));
+        host.innerHTML = ""; dtExpandedBody = null; dtPendingResolveBody = null; // a page change collapses all
+        if (!dtPkgResultsAll.length) { host.textContent = tr("dt_pkg_none"); return; }
+        const pages = Math.ceil(dtPkgResultsAll.length / DT_PKG_PAGE_SIZE);
+        dtPkgPage = Math.min(Math.max(dtPkgPage, 0), pages - 1);
+        const start = dtPkgPage * DT_PKG_PAGE_SIZE;
+        for (const pkg of dtPkgResultsAll.slice(start, start + DT_PKG_PAGE_SIZE)) host.appendChild(dtPkgItem(pkg));
+        if (pages > 1) host.appendChild(dtPkgPager(pages));
+      }
+      function dtPkgPager(pages) {
+        const pager = document.createElement("div"); pager.className = "dt-pkg-pager";
+        const prev = document.createElement("button"); prev.type = "button"; prev.className = "dt-pager-btn"; prev.textContent = "‹";
+        prev.disabled = dtPkgPage === 0;
+        prev.addEventListener("click", () => { dtPkgPage--; dtRenderPkgPage(); });
+        const label = document.createElement("span"); label.className = "dt-pkg-page"; label.textContent = tr("dt_pkg_page", { n: dtPkgPage + 1, t: pages });
+        const next = document.createElement("button"); next.type = "button"; next.className = "dt-pager-btn"; next.textContent = "›";
+        next.disabled = dtPkgPage >= pages - 1;
+        next.addEventListener("click", () => { dtPkgPage++; dtRenderPkgPage(); });
+        pager.append(prev, label, next);
+        return pager;
       }
       function onPackageSearchError() { const h = $("dtPkgResults"); if (h) { h.innerHTML = ""; h.textContent = tr("dt_pkg_err"); } }
 
+      function dtSourceLabel(source) {
+        if (source === "micropython_lib") return tr("dt_pkg_src_lib");
+        if (source === "upypi") return tr("dt_pkg_src_upypi");
+        return "";
+      }
       function dtPkgItem(pkg) {
         const item = document.createElement("div"); item.className = "dt-pkg-item";
         const head = document.createElement("button"); head.type = "button"; head.className = "dt-pkg-row"; head.setAttribute("aria-expanded", "false");
+        const top = document.createElement("div"); top.className = "dt-pkg-top";
         const name = document.createElement("span"); name.className = "dt-pkg-name"; name.textContent = pkg.name + (pkg.version ? " " + pkg.version : "");
-        head.appendChild(name);
+        top.appendChild(name);
+        const srcLabel = dtSourceLabel(pkg.source);
+        if (srcLabel) { const chip = document.createElement("span"); chip.className = "dt-pkg-src"; chip.textContent = srcLabel; top.appendChild(chip); }
+        head.appendChild(top);
         if (pkg.description) { const d = document.createElement("span"); d.className = "dt-pkg-desc"; d.textContent = pkg.description; head.appendChild(d); }
         const body = document.createElement("div"); body.className = "dt-pkg-detail hidden"; body._head = head;
         head.addEventListener("click", () => dtToggleItem(head, body, pkg));
