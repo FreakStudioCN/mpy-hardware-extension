@@ -94,6 +94,24 @@ test("DeviceShim resolves+caches the port from device.scan and maps loop methods
   assert.equal(calls.find((c) => c.method === "device.write_main_py").params.code, "print('hi')");
 });
 
+test("DeviceShim.uninstallPackage sends the package name + port and throws on a shim error", async () => {
+  const calls: any[] = [];
+  let response: any = { status: "ok", removed: true };
+  const rpc = async (method: string, params: any) => {
+    calls.push({ method, params });
+    return method === "device.scan" ? { status: "ok", devices: [{ port: "COM7" }] } : response;
+  };
+  const shim = new DeviceShim(rpc);
+
+  await shim.uninstallPackage("aioble");
+  const un = calls.find((c) => c.method === "device.uninstall_package");
+  assert.equal(un.params.name, "aioble");
+  assert.equal(un.params.port, "COM7");
+
+  response = { status: "error", error_kind: "mpremote_error", message: "boom" };
+  await assert.rejects(() => shim.uninstallPackage("aioble"), /mpremote_error: boom/);
+});
+
 test("DeviceShim.scan drops a cached port that vanished from the scan so ops re-resolve (PR #31 finding 3)", async () => {
   const calls: any[] = [];
   const rpc = async (method: string, params: any) => {

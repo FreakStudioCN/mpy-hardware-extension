@@ -470,6 +470,32 @@ def _fs_remove(port, path):
     return {"status": "ok"}
 
 
+def _is_absent(err):
+    e = (err or "").lower()
+    return "no such file" in e or "enoent" in e or "does not exist" in e or "errno 2" in e
+
+
+def _uninstall_package(port, name):
+    """Best-effort uninstall: mip has no uninstall, so remove the package's files under /lib.
+    Covers a package dir (/lib/<name>/) and a single module (/lib/<name>.mpy|.py). The name
+    is guarded to a bare slug directly under /lib so this can never rm an arbitrary path.
+    An all-absent result is success (nothing installed under that name)."""
+    slug = (name or "").strip().strip("/")
+    if not slug or "/" in slug or slug in (".", ".."):
+        return {"status": "error", "error_kind": "invalid_package_name", "message": str(name)}
+    removed = False
+    last_err = ""
+    for path in (f":/lib/{slug}", f":/lib/{slug}.mpy", f":/lib/{slug}.py"):
+        r = _run_mpremote(["connect", port, "resume", "fs", "rm", "-r", path], timeout=30)
+        if r.returncode == 0:
+            removed = True
+        else:
+            last_err = (r.stderr or "").strip()
+    if removed or _is_absent(last_err):
+        return {"status": "ok", "removed": removed}
+    return {"status": "error", "error_kind": "mpremote_error", "message": last_err}
+
+
 def _fs_mkdir(port, path):
     r = _run_mpremote(["connect", port, "resume", "fs", "mkdir", path], timeout=15)
     if r.returncode != 0:
@@ -843,6 +869,8 @@ def _dispatch(shim, method, params):
     if method == "device.install_package":
         res = shim.install_package(params["port"], params["url"], params.get("version"))
         return {"status": "ok"} if res.get("ok") else {"status": "error", "error_kind": res.get("error"), "message": res.get("message")}
+    if method == "device.uninstall_package":
+        return _uninstall_package(params["port"], params["name"])
     if method == "device.serial_read_until":
         markers = params.get("markers") or ([params["pattern"]] if params.get("pattern") else [])
         return shim.serial_read_until(params["port"], markers, float(params.get("timeout_sec", 10)))

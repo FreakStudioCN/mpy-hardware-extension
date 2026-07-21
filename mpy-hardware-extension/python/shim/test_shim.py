@@ -92,6 +92,33 @@ def test_install_command_uses_mpremote_mip_package_json_url():
     assert shim.commands[-1] == ["mpremote", "connect", "COM3", "resume", "mip", "install", "https://upypi.net/pkgs/aht20/1.0.0/package.json"]
 
 
+def test_uninstall_package_removes_lib_paths_guards_name_and_treats_absent_as_ok(monkeypatch):
+    import serve
+
+    calls = []
+
+    def fake_run(args, timeout=30):
+        calls.append(args)
+        removed = args[-1].endswith(".mpy")  # only the .mpy candidate exists
+        return subprocess.CompletedProcess(args, 0 if removed else 1, "", "" if removed else "no such file")
+
+    monkeypatch.setattr(serve, "_run_mpremote", fake_run)
+    res = serve._uninstall_package("COM3", "aioble")
+    assert res == {"status": "ok", "removed": True}
+    assert [a[-1] for a in calls] == [":/lib/aioble", ":/lib/aioble.mpy", ":/lib/aioble.py"]
+    assert all(a[:5] == ["connect", "COM3", "resume", "fs", "rm"] and "-r" in a for a in calls)
+
+    # A name with a path separator is rejected without running mpremote at all.
+    calls.clear()
+    bad = serve._uninstall_package("COM3", "../etc/passwd")
+    assert bad["status"] == "error" and bad["error_kind"] == "invalid_package_name"
+    assert calls == []
+
+    # Nothing installed under that name -> success (removed False), not an error.
+    monkeypatch.setattr(serve, "_run_mpremote", lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "", "no such file"))
+    assert serve._uninstall_package("COM3", "notthere") == {"status": "ok", "removed": False}
+
+
 def test_write_device_file_mkdirs_parents_then_copies_to_mirror_path():
     shim = Shim(runner=lambda cmd, **_kwargs: subprocess.CompletedProcess(cmd, 0, "", ""))
 

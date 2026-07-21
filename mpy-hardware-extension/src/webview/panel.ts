@@ -1064,6 +1064,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const version = typeof message.version === "string" && message.version ? message.version : undefined;
       await runDeviceTool("mip_install", { url: message.url, version }, async () => { await shim.installPackage(message.url, version); return { url: message.url }; });
     }
+    if (message.type === "device_tool_uninstall" && typeof message.name === "string") {
+      await runDeviceTool("uninstall", { name: message.name }, async () => { await shim.uninstallPackage(message.name); return { name: message.name }; });
+    }
     if (message.type === "package_search") {
       await handlePackageSearch(
         typeof message.source === "string" ? message.source : "auto",

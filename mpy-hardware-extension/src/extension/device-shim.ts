@@ -81,6 +81,16 @@ export class DeviceShim {
     }
   }
 
+  // Best-effort uninstall (mip has no uninstall): the shim removes the package's /lib files.
+  async uninstallPackage(name: string): Promise<void> {
+    const port = await this.ensurePort();
+    const r = await this.rpc("device.uninstall_package", { name, port });
+    if (r?.status !== "ok") {
+      const kind = r?.error_kind ?? "uninstall_failed";
+      throw new Error(r?.message ? `${kind}: ${r.message}` : kind);
+    }
+  }
+
   async writeMainPy(content: string): Promise<void> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.write_main_py", { code: content, port });

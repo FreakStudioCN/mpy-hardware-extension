@@ -29,8 +29,6 @@
       }
       function dtFilesStatus(text) { const n = $("dtFilesStatus"); if (n) n.textContent = text || ""; }
       function dtPkgStatus(text) { const n = $("dtPkgStatus"); if (n) n.textContent = text || ""; }
-      // File ops report under the Board files section; a mip install under Packages.
-      function dtOpStatus(command, text) { (command === "mip_install" ? dtPkgStatus : dtFilesStatus)(text); }
       function dtListCurrent() { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
 
       // How long a Delete stays armed ("Confirm?") before disarming.
@@ -155,6 +153,7 @@
       var dtSilentList = false;
       function dtRefreshSilently() { dtSilentList = true; vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
 
+      var DT_INSTALL_CMDS = { mip_install: true, uninstall: true };
       function onDeviceToolResult(command, result) {
         dtSetBusy(null);
         if (command === "list") {
@@ -162,17 +161,38 @@
           if (dtSilentList) dtSilentList = false; else dtFilesStatus("");
           return;
         }
-        dtOpStatus(command, tr("dt_ok", { c: command }));
+        if (DT_INSTALL_CMDS[command]) { dtFinishInstall(command); dtRefreshSilently(); return; } // /lib changed
+        dtFilesStatus(tr("dt_ok", { c: command }));
         dtRefreshSilently(); // refresh the listing after any mutation, keeping the status
+      }
+      // An install/uninstall result updates the card that started it: clear the bar, show the
+      // outcome, and flip its button (Install <-> Uninstall). No card (Advanced-box install)
+      // falls back to the Packages section status.
+      function dtFinishInstall(command) {
+        const ctx = dtActiveInstall; dtActiveInstall = null;
+        const installed = command === "mip_install";
+        if (!ctx) { dtPkgStatus(tr(installed ? "dt_pkg_installed" : "dt_pkg_removed")); return; }
+        ctx.status.classList.remove("installing");
+        ctx.status.textContent = tr(installed ? "dt_pkg_installed" : "dt_pkg_removed");
+        dtSetInstallButton(ctx.btn, installed);
       }
       function onDeviceToolError(command, error) {
         dtSetBusy(null);
         // A command that failed because the board is gone -> revert to the no-device state
         // immediately (don't wait for the next poll), instead of a confusing error.
         if (/device_unavailable|no device|could not open|failed to access/i.test(String(error))) { dtShowNoDevice(); return; }
-        dtOpStatus(command, tr("dt_err", { c: command, e: error }));
+        if (DT_INSTALL_CMDS[command]) {
+          const ctx = dtActiveInstall; dtActiveInstall = null;
+          if (ctx) { ctx.status.classList.remove("installing"); ctx.status.textContent = tr("dt_err", { c: command, e: error }); }
+          else dtPkgStatus(tr("dt_err", { c: command, e: error }));
+          return;
+        }
+        dtFilesStatus(tr("dt_err", { c: command, e: error }));
       }
-      function onDeviceBusy(phase) { dtSetBusy(phase || tr("dt_busy_generic")); dtFilesStatus(""); dtPkgStatus(""); }
+      function onDeviceBusy(phase) {
+        dtSetBusy(phase || tr("dt_busy_generic")); dtFilesStatus(""); dtPkgStatus("");
+        if (dtActiveInstall) { dtActiveInstall.status.classList.remove("installing"); dtActiveInstall.status.textContent = ""; dtActiveInstall = null; }
+      }
       // Host armed a delete: keep its one-shot nonce so the confirm click can echo it back.
       function onDeviceDeleteArmed(path, nonce) { dtDeleteNonces[path] = nonce; }
 
@@ -197,6 +217,7 @@
       var DT_PKG_PAGE_SIZE = 10;
       var dtExpandedBody = null;       // the currently expanded item's detail body
       var dtPendingResolveBody = null; // a uPyPI item body awaiting its package.json resolve
+      var dtActiveInstall = null; // { status, btn } of the card whose install/uninstall is running
       var dtPkgResultsAll = [];        // full result set; one page slice is rendered at a time
       var dtPkgPage = 0;
 
@@ -207,7 +228,7 @@
       }
       function dtRenderPkgPage() {
         const host = $("dtPkgResults"); if (!host) return;
-        host.innerHTML = ""; dtExpandedBody = null; dtPendingResolveBody = null; // a page change collapses all
+        host.innerHTML = ""; dtExpandedBody = null; dtPendingResolveBody = null; dtActiveInstall = null; // a page change collapses all
         if (!dtPkgResultsAll.length) { host.textContent = tr("dt_pkg_none"); return; }
         const pages = Math.ceil(dtPkgResultsAll.length / DT_PKG_PAGE_SIZE);
         dtPkgPage = Math.min(Math.max(dtPkgPage, 0), pages - 1);
@@ -317,13 +338,28 @@
         const cmd = document.createElement("div"); cmd.className = "dt-pkg-cmd";
         cmd.textContent = pkg.install_cmd || ("mpremote mip install " + url);
         host.appendChild(cmd);
-        const install = dtActionButton(tr("dt_pkg_install"), () => {
-          if (dtNoDevice) { dtPkgStatus(tr("dt_nodev_h")); return; }
-          dtPkgStatus(tr("dt_installing"));
-          vscode.postMessage({ type: "device_tool_mip", url: url, version: "" });
-        });
+        const status = document.createElement("div"); status.className = "dt-pkg-cardstatus";
+        const install = dtActionButton("", () => dtDoInstall(pkg, install, status, url));
         install.classList.add("dt-pkg-install");
-        host.appendChild(install);
+        dtSetInstallButton(install, false);
+        host.append(install, status);
+      }
+      // Install <-> Uninstall button state.
+      function dtSetInstallButton(btn, installed) {
+        btn.dataset.installed = installed ? "1" : "";
+        btn.textContent = installed ? tr("dt_pkg_uninstall") : tr("dt_pkg_install");
+        btn.classList.toggle("dt-pkg-installed", installed);
+      }
+      // Kick off an install (or uninstall, if the card is already installed): show the busy
+      // bar in the card and post to the host; the result flips the button (dtFinishInstall).
+      function dtDoInstall(pkg, btn, status, url) {
+        if (dtNoDevice) { status.className = "dt-pkg-cardstatus"; status.textContent = tr("dt_nodev_h"); return; }
+        const removing = btn.dataset.installed === "1";
+        dtActiveInstall = { status: status, btn: btn };
+        status.className = "dt-pkg-cardstatus installing";
+        status.textContent = removing ? tr("dt_pkg_uninstalling") : tr("dt_installing");
+        if (removing) vscode.postMessage({ type: "device_tool_uninstall", name: pkg.name });
+        else vscode.postMessage({ type: "device_tool_mip", url: url, version: "" });
       }
 
       // Controls live in the DOM at load (the tool-view is hidden, not removed).

@@ -2409,7 +2409,7 @@ test("device tools: a mip install result reports under the Packages status, not 
   const dom = await loadWebview([]);
   const { document } = dom.window;
   post(dom, { type: "device_tool_result", command: "mip_install", result: { url: "aioble" } });
-  assert.match(document.getElementById("dtPkgStatus")!.textContent || "", /mip_install done/i, "install result lands in the Packages status");
+  assert.match(document.getElementById("dtPkgStatus")!.textContent || "", /Installed/i, "install result lands in the Packages status (no card active)");
   assert.equal((document.getElementById("dtFilesStatus")!.textContent || "").trim(), "", "Board files status stays clear on a package install");
 });
 
@@ -2792,6 +2792,39 @@ test("package browser: each result row shows its source chip", async () => {
   assert.equal(chips.length, 2, "each row carries a source chip");
   assert.ok(chips.some((c: string) => /MicroPython-lib/i.test(c)), "a micropython-lib chip is shown");
   assert.ok(chips.some((c: string) => /uPyPI/i.test(c)), "a uPyPI chip is shown");
+});
+
+test("package browser: a card installs, shows Installed, then uninstalls", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // enable install
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+  const detail = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden)") as HTMLElement;
+  const btn = detail.querySelector(".dt-pkg-install") as HTMLButtonElement;
+  const status = detail.querySelector(".dt-pkg-cardstatus") as HTMLElement;
+
+  // Install: shows the in-card progress bar and posts device_tool_mip.
+  btn.click();
+  assert.ok(posted.find((m) => m.type === "device_tool_mip"), "Install posts device_tool_mip");
+  assert.ok(status.classList.contains("installing"), "the card shows the installing bar");
+
+  // Result: bar clears, card shows Installed, button flips to Uninstall.
+  post(dom, { type: "device_tool_result", command: "mip_install", result: { url: "aioble" } });
+  assert.equal(status.classList.contains("installing"), false, "the bar clears on the result");
+  assert.match(status.textContent || "", /Installed/i, "the card shows Installed");
+  assert.equal(btn.dataset.installed, "1", "the button is now in the installed state");
+
+  // Uninstall: posts device_tool_uninstall by name; result flips back to Install.
+  btn.click();
+  const un = posted.find((m) => m.type === "device_tool_uninstall");
+  assert.ok(un && un.name === "aioble", "Uninstall posts device_tool_uninstall with the package name");
+  post(dom, { type: "device_tool_result", command: "uninstall", result: { name: "aioble" } });
+  assert.match(status.textContent || "", /Removed/i, "the card shows Removed");
+  assert.equal(btn.dataset.installed, "", "the button is back to the install state");
 });
 
 test("package browser: a uPyPI result resolves lazily on click, then shows metadata", async () => {
