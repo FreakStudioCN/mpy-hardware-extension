@@ -71,13 +71,20 @@
         const single = group.multi_select === false;
         const section = document.createElement("div"); section.className = "ask-group";
         const h = document.createElement("div"); h.className = "ask-group-h";
-        h.textContent = group.label != null ? String(group.label) : tr(GROUP_LABEL_KEYS[gid] || "");
+        const labelKey = Object.prototype.hasOwnProperty.call(GROUP_LABEL_KEYS, gid) ? GROUP_LABEL_KEYS[gid] : "";
+        h.textContent = group.label != null ? String(group.label) : tr(labelKey);
         if (h.textContent) section.appendChild(h);
         const radioName = single ? "apr-" + String(promptId) + "-" + gid : null;
-        const inputs = groupItems.map((it) => renderItem(it, section, radioName)).filter(Boolean);
-        // Single-choice: guarantee exactly one radio checked (honor an explicit default,
-        // else the first) so a mode is always posted even if the card marks none.
-        if (single && inputs.length && !inputs.some((r) => r.checked)) inputs[0].checked = true;
+        const pairs = groupItems.map((it) => ({ it, inp: renderItem(it, section, radioName) })).filter((p) => p.inp);
+        // Single-choice: exactly ONE radio checked. renderItem defaults selected:undefined
+        // to checked, which for radios would leave several checked at once (checkedness is
+        // set while each radio is detached, so browsers don't auto-uncheck group mates).
+        // Force the first explicitly-selected item (else the first) and clear the rest —
+        // matching the headless one-per-group rule (protocol-loop.ts).
+        if (single && pairs.length) {
+          const chosen = pairs.find((p) => p.it && p.it.selected === true) || pairs[0];
+          pairs.forEach((p) => { p.inp.checked = (p === chosen); });
+        }
         main.appendChild(section);
       }
 
@@ -120,8 +127,10 @@
         };
         // item_groups is contract-valid as an array OR an object map (keyed by group id).
         // Normalize to {id,label,multi_select,items}, preserving the key as the id.
+        // Array form uses group_id/group_header (spec 02-protocol.md); object form is keyed
+        // by group id. Normalize both to {id,label,multi_select,items}.
         const groupList = Array.isArray(card.item_groups)
-          ? card.item_groups.map((g) => ({ id: g && g.id, label: g && g.label, multi_select: g && g.multi_select, items: g && g.items }))
+          ? card.item_groups.map((g) => ({ id: g && (g.group_id != null ? g.group_id : g.id), label: g && (g.group_header != null ? g.group_header : g.label), multi_select: g && g.multi_select, items: g && g.items }))
           : Object.keys(card.item_groups || {}).map((id) => { const m = card.item_groups[id] || {}; return { id, label: m.label, multi_select: m.multi_select, items: m.items }; });
         const groupIds = new Set(groupList.map((g) => String(g.id == null ? "" : g.id)).filter(Boolean));
         // Ungrouped items (and any whose group has no matching entry) render flat, as before.
@@ -184,9 +193,11 @@
           const msg = { type: "ui_prompt_response", promptId, answer: action, selected_ids, text_values };
           // Ride the chosen port + baud so the host sets the port before the agent's flash
           // tool runs (same no-race rationale as the deploy card's port passthrough).
-          if (isFlashConfirm && selectedPort) { msg.serial_port = selectedPort; msg.baud = selectedBaud; }
+          if (isFlashConfirm && action === FLASH_ACTION && selectedPort) { msg.serial_port = selectedPort; msg.baud = selectedBaud; }
           vscode.postMessage(msg);
-          btnRow.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+          // Disable every button in the card (actions + the flash picker's rescan/port
+          // buttons), not just the action row, so nothing stays clickable after answering.
+          wrap.querySelectorAll("button").forEach((b) => { b.disabled = true; });
           checks.forEach((c) => { c.disabled = true; });
           currentDeployCard = null;
           setPending(tr("working"));

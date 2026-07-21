@@ -373,8 +373,9 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     if (typeof input.confirmApproval !== "function") {
       // item_groups is contract-valid as an array OR an object map; normalize to a list
       // that keeps each group's id + multi_select (the object form is keyed by id).
+      // Array form uses group_id (spec 02-protocol.md); object form is keyed by group id.
       const groupList = Array.isArray(p.item_groups)
-        ? p.item_groups.map((g: any) => ({ id: g?.id, multi_select: g?.multi_select, items: g?.items }))
+        ? p.item_groups.map((g: any) => ({ id: g?.group_id ?? g?.id, multi_select: g?.multi_select, items: g?.items }))
         : Object.entries(p.item_groups ?? {}).map(([id, meta]: [string, any]) => ({ id, multi_select: meta?.multi_select, items: meta?.items }));
       // A single-choice group (multi_select:false — scheduler mode) must contribute ONE
       // id, not all: auto-selecting every id would post timer+asyncio+_thread at once.

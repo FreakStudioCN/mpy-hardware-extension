@@ -125,7 +125,7 @@ const confirmApproval = async (card: any) => {
     ?? (card.actions ?? []).find((a: any) => a?.primary)?.value
     ?? values[0] ?? "confirm";
   const groupList = Array.isArray(card.item_groups)
-    ? card.item_groups.map((g: any) => ({ id: g?.id, multi_select: g?.multi_select, items: g?.items }))
+    ? card.item_groups.map((g: any) => ({ id: g?.group_id ?? g?.id, multi_select: g?.multi_select, items: g?.items }))
     : Object.entries(card.item_groups ?? {}).map(([id, meta]: [string, any]) => ({ id, multi_select: meta?.multi_select, items: meta?.items }));
   // Single-choice groups (multi_select:false) contribute one id, not all — else a
   // scaffold card would auto-select every scheduler mode at once.

@@ -1990,6 +1990,31 @@ test("a single-choice group with no default pre-checks the first item", async ()
   assert.equal(radios.find((r) => r.checked)?.dataset.id, "mode_timer", "the first mode is checked when none is marked");
 });
 
+test("the REAL generate_behavior sample posts exactly one next_phase id despite omitted `selected`", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Source of truth: the bundled sample (submodule at the repo root, two up from test/).
+  // Its next_phase group is multi_select:false with only next_deploy selected; next_simulate
+  // and next_stop OMIT `selected`. renderItem defaults omitted -> checked, so without the
+  // exactly-one fix all three radios stay checked and post at once (the reviewer's repro).
+  const sample = JSON.parse(readFileSync(new URL("../../third_party/MicroPython_Skills/upy-generate-plugin/sample/approval_request.generate_behavior.json", import.meta.url), "utf-8")).payload;
+  post(dom, { type: "approval_request", promptId: "p-gen", card: sample });
+
+  const card = document.querySelector('[data-prompt-id="p-gen"]')!;
+  const radios = [...card.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+  assert.equal(radios.length, 3, "next_phase renders three radios");
+  assert.equal(radios.filter((r) => r.checked).length, 1, "exactly one radio is checked");
+  assert.equal(radios.find((r) => r.checked)?.dataset.id, "next_deploy", "the explicitly-selected item wins");
+
+  posted.length = 0;
+  (card.querySelector("button.ask-opt") as HTMLButtonElement).click();
+  const ids = [...posted.find((m) => m.type === "ui_prompt_response").selected_ids];
+  assert.equal(ids.filter((i: string) => i.startsWith("next_")).length, 1, "only one next_phase id is posted");
+  assert.ok(ids.includes("next_deploy"), "the chosen next_phase id is posted");
+});
+
 test("an ungrouped approval card renders flat checkboxes with no group headers (back-compat)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
