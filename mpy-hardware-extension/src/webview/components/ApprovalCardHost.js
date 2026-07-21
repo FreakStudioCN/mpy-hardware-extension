@@ -15,6 +15,19 @@
       const FLASH_ACTION = "flash_now";
       const FLASH_BAUDS = ["460800", "115200", "230400", "921600"];
 
+      // A scalar summary/detail value: render an http(s) URL as a real clickable link
+      // (http/https only — never an arbitrary scheme, so no javascript:/data: href),
+      // otherwise plain text. Long values wrap via CSS (overflow-wrap) so a URL like
+      // firmware_page doesn't clip at a narrow panel width.
+      function renderScalarValue(text) {
+        if (/^https?:\/\/\S+$/i.test(text)) {
+          const a = document.createElement("a"); a.className = "ask-link";
+          a.setAttribute("href", text); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noreferrer");
+          a.textContent = text; return a;
+        }
+        return document.createTextNode(text);
+      }
+
       // Card body: the flash/scaffold cards carry their detail in summary/steps/guidance/
       // links, which the renderer used to drop — leaving the flash confirm card as just
       // three buttons. Render them with textContent/anchors only, never innerHTML.
@@ -27,7 +40,7 @@
             if (v == null || typeof v === "object") return; // scalar values only
             const row = document.createElement("div"); row.className = "ask-kv-row";
             const kEl = document.createElement("span"); kEl.className = "ask-kv-k"; kEl.textContent = String(k) + ": ";
-            row.appendChild(kEl); row.appendChild(document.createTextNode(String(v)));
+            row.appendChild(kEl); row.appendChild(renderScalarValue(String(v)));
             kv.appendChild(row);
           });
           if (kv.children.length) main.appendChild(kv);
@@ -51,7 +64,7 @@
             const href = typeof l === "string" ? l : (l.url || l.href);
             if (!href) return;
             const a = document.createElement("a"); a.className = "ask-link";
-            a.setAttribute("href", String(href)); a.setAttribute("target", "_blank");
+            a.setAttribute("href", String(href)); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noreferrer");
             a.textContent = String((l && l.label) || (l && l.title) || href);
             box.appendChild(a);
           });

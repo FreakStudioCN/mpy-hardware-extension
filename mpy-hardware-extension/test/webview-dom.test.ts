@@ -2031,6 +2031,33 @@ test("an ungrouped approval card renders flat checkboxes with no group headers (
   assert.equal(card.querySelectorAll('input[type="radio"]').length, 0, "no radios without a single-choice group");
 });
 
+test("a summary value that is an http(s) URL renders as a clickable link; plain values stay text", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-url",
+    card: {
+      question: "Prepare firmware",
+      summary: {
+        display_name: "ESP32-C6-DevKitC-1",
+        firmware_page: "https://micropython.org/download/ESP32_GENERIC_C6/",
+      },
+      actions: [{ label: "OK", value: "confirm", primary: true }],
+    },
+  });
+
+  const card = document.querySelector('[data-prompt-id="p-url"]')!;
+  const link = card.querySelector('.ask-kv a.ask-link') as HTMLAnchorElement | null;
+  assert.ok(link, "the URL value renders as an anchor");
+  assert.equal(link!.getAttribute("href"), "https://micropython.org/download/ESP32_GENERIC_C6/", "href is the URL");
+  assert.equal(link!.getAttribute("target"), "_blank", "opens in a new context");
+  // The plain value must NOT be linkified — exactly one anchor in the summary.
+  assert.equal(card.querySelectorAll('.ask-kv a.ask-link').length, 1, "only the URL value is a link");
+  assert.match(card.querySelector('.ask-kv')!.textContent!, /ESP32-C6-DevKitC-1/, "the plain value still shows as text");
+});
+
 test("a keyless item_groups entry does not double-render ungrouped items", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
