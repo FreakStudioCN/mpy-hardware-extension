@@ -2827,6 +2827,68 @@ test("package browser: a card installs, shows Installed, then uninstalls", async
   assert.equal(btn.dataset.installed, "", "the button is back to the install state");
 });
 
+test("installed view: a list_lib result does NOT repaint the Board files pane", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py", "lib/"] } });
+  const filesBefore = document.querySelectorAll("#dtEntries .dt-name").length;
+
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } });
+
+  assert.equal(document.querySelectorAll("#dtEntries .dt-name").length, filesBefore, "Board files list is untouched by list_lib");
+  assert.equal((document.getElementById("dtPath") as HTMLInputElement).value, "/", "the Board files path is unchanged");
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 1, "the installed view rendered the /lib entry");
+});
+
+test("installed view: toggle switches views and lists /lib", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("dtPkgModeInstalled") as HTMLButtonElement).click();
+  assert.equal((document.getElementById("dtPkgSearchView") as HTMLElement).classList.contains("hidden"), true, "search view hidden");
+  assert.equal((document.getElementById("dtPkgInstalledView") as HTMLElement).classList.contains("hidden"), false, "installed view shown");
+  assert.equal(document.getElementById("dtPkgModeInstalled")!.getAttribute("aria-pressed"), "true");
+  assert.ok(posted.find((m) => m.type === "device_tool_list_lib"), "switching to Installed lists /lib");
+  (document.getElementById("dtPkgModeSearch") as HTMLButtonElement).click();
+  assert.equal((document.getElementById("dtPkgSearchView") as HTMLElement).classList.contains("hidden"), false, "search view restored");
+});
+
+test("installed view: parses /lib entries (dir + .mpy/.py, deduped)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/", "urequests.mpy", "bmp280.py", "urequests.py"] } });
+  const names = [...document.querySelectorAll("#dtPkgInstalled .dt-name")].map((n: any) => n.textContent);
+  assert.deepEqual(names, ["aioble", "urequests", "bmp280"], "dir + module names, urequests deduped");
+});
+
+test("installed view: empty /lib shows the empty state; Uninstall posts + refreshes", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // clear no-device
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: [] } });
+  assert.equal(document.getElementById("dtPkgInstalledEmpty")!.classList.contains("hidden"), false, "empty state shown for empty /lib");
+
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } });
+  (document.querySelector("#dtPkgInstalled .dt-row .dt-act") as HTMLButtonElement).click();
+  assert.ok(posted.find((m) => m.type === "device_tool_uninstall" && m.name === "aioble"), "Uninstall posts device_tool_uninstall");
+  const before = posted.filter((m) => m.type === "device_tool_list_lib").length;
+  post(dom, { type: "device_tool_result", command: "uninstall", result: { name: "aioble" } });
+  assert.ok(posted.filter((m) => m.type === "device_tool_list_lib").length > before, "an uninstall refreshes the installed list");
+});
+
+test("installed view: a search result is marked Installed from the real /lib set", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } }); // seed the set
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+  const btn = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement;
+  assert.equal(btn.dataset.installed, "1", "an already-installed package shows as Uninstall in search results");
+});
+
 test("package browser: a uPyPI result resolves lazily on click, then shows metadata", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

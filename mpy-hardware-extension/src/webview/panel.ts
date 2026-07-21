@@ -1043,6 +1043,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const path = typeof message.path === "string" ? message.path : "";
       await runDeviceTool("list", { path }, async () => ({ path, entries: await shim.listDir(path) }));
     }
+    // Distinct command ("list_lib") so the /lib listing for the Packages "Installed" view
+    // does NOT repaint the Board files pane (which keys on command "list").
+    if (message.type === "device_tool_list_lib") {
+      await runDeviceTool("list_lib", {}, async () => ({ entries: await shim.listDir("/lib") }));
+    }
     if (message.type === "device_tool_mkdir" && typeof message.path === "string") {
       await runDeviceTool("mkdir", { path: message.path }, async () => { await shim.makeDir(message.path); return { path: message.path }; });
     }

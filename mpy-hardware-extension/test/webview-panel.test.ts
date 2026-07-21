@@ -931,6 +931,23 @@ test("package browser host: an upstream failure posts package_search_error, not 
   assert.ok(posted.find((m) => m.type === "package_search_error"), "a 502 degrades to package_search_error");
 });
 
+test("device_tool_list_lib lists /lib via the shim under its own command name (not list)", async () => {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const dirs: string[] = [];
+  const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const shim = { listDir: async (dir: string) => { dirs.push(dir); return ["aioble/"]; } };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network"); }, shim });
+
+  await handler!({ type: "device_tool_list_lib" });
+
+  assert.deepEqual(dirs, ["/lib"], "lists the board's /lib");
+  const res = posted.find((m) => m.type === "device_tool_result" && m.command === "list_lib");
+  assert.ok(res, "result carries the distinct list_lib command, not list");
+  assert.deepEqual(res.result.entries, ["aioble/"]);
+});
+
 function aht20Context() {
   return { package: { name: "aht20_driver", version: "1.0.0" }, import_names: ["aht20"], constructors: ["AHT20(i2c)"], read_properties: ["temperature"], bus: ["i2c"], pin_roles: ["i2c_sda", "i2c_scl"], install: { url: "https://upypi.net/pkgs/aht20/1.0.0/package.json" } };
 }

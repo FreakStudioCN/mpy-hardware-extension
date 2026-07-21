@@ -206,25 +206,36 @@
               <details class="dt-pkg" id="dtPkg">
                 <summary class="dt-sum" data-i18n="dt_pkg_sum">Install a package</summary>
                 <div class="dt-pkg-body">
-                  <div class="dt-row">
-                    <select id="dtPkgSource" class="dt-input dt-input-sm" title="Package source">
-                      <option value="auto" data-i18n="dt_pkg_src_auto">Auto</option>
-                      <option value="micropython_lib" data-i18n="dt_pkg_src_lib">MicroPython-lib</option>
-                      <option value="upypi" data-i18n="dt_pkg_src_upypi">uPyPI</option>
-                    </select>
-                    <input type="text" id="dtPkgQuery" class="dt-input" placeholder="search packages" data-i18n-ph="dt_pkg_query_ph" />
-                    <button type="button" class="dt-act" id="dtPkgSearch" data-i18n="dt_pkg_search">Search</button>
+                  <!-- Search the live sources vs. list what's actually installed on the board (/lib). -->
+                  <div class="dt-pkg-toggle" role="group">
+                    <button type="button" class="dt-pkg-seg active" id="dtPkgModeSearch" aria-pressed="true" data-i18n="dt_pkg_mode_search">Search packages</button>
+                    <button type="button" class="dt-pkg-seg" id="dtPkgModeInstalled" aria-pressed="false" data-i18n="dt_pkg_mode_installed">Installed packages</button>
                   </div>
-                  <div id="dtPkgResults" class="dt-pkg-results"></div>
-                  <!-- GitHub fallback / advanced: raw mip or github: URL install. -->
-                  <details class="dt-pkg-adv" id="dtPkgAdv">
-                    <summary class="dt-sum" data-i18n="dt_pkg_adv">Advanced: raw mip / GitHub URL</summary>
-                    <div class="dt-mip">
-                      <input type="text" id="dtMipUrl" class="dt-input" placeholder="github:org/repo/pkg" data-i18n-ph="dt_mip_url_ph" />
-                      <input type="text" id="dtMipVersion" class="dt-input dt-input-sm" placeholder="version" data-i18n-ph="dt_mip_version_ph" />
-                      <button type="button" class="dt-act" id="dtMipInstall" data-i18n="dt_mip_install">Install (mip)</button>
+                  <div id="dtPkgSearchView">
+                    <div class="dt-row">
+                      <select id="dtPkgSource" class="dt-input dt-input-sm" title="Package source">
+                        <option value="auto" data-i18n="dt_pkg_src_auto">Auto</option>
+                        <option value="micropython_lib" data-i18n="dt_pkg_src_lib">MicroPython-lib</option>
+                        <option value="upypi" data-i18n="dt_pkg_src_upypi">uPyPI</option>
+                      </select>
+                      <input type="text" id="dtPkgQuery" class="dt-input" placeholder="search packages" data-i18n-ph="dt_pkg_query_ph" />
+                      <button type="button" class="dt-act" id="dtPkgSearch" data-i18n="dt_pkg_search">Search</button>
                     </div>
-                  </details>
+                    <div id="dtPkgResults" class="dt-pkg-results"></div>
+                    <!-- GitHub fallback / advanced: raw mip or github: URL install. -->
+                    <details class="dt-pkg-adv" id="dtPkgAdv">
+                      <summary class="dt-sum" data-i18n="dt_pkg_adv">Advanced: raw mip / GitHub URL</summary>
+                      <div class="dt-mip">
+                        <input type="text" id="dtMipUrl" class="dt-input" placeholder="github:org/repo/pkg" data-i18n-ph="dt_mip_url_ph" />
+                        <input type="text" id="dtMipVersion" class="dt-input dt-input-sm" placeholder="version" data-i18n-ph="dt_mip_version_ph" />
+                        <button type="button" class="dt-act" id="dtMipInstall" data-i18n="dt_mip_install">Install (mip)</button>
+                      </div>
+                    </details>
+                  </div>
+                  <div id="dtPkgInstalledView" class="hidden">
+                    <div id="dtPkgInstalled" class="dt-pkg-results"></div>
+                    <div class="empty hidden" id="dtPkgInstalledEmpty"><h4 data-i18n="dt_pkg_installed_none">No packages installed</h4></div>
+                  </div>
                   <div class="dt-status" id="dtPkgStatus"></div>
                 </div>
               </details>

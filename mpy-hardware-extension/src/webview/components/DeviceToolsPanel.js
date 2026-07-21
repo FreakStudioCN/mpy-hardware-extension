@@ -69,6 +69,8 @@
         dtNoDevice = true;
         const entries = $("dtEntries"); if (entries) entries.innerHTML = "";
         const crumbs = $("dtCrumbs"); if (crumbs) crumbs.innerHTML = "";
+        const inst = $("dtPkgInstalled"); if (inst) inst.innerHTML = "";
+        dtInstalledSet = new Set(); // drop a stale installed set so it can't mislabel after a different board replugs
         dtFilesStatus(""); dtPkgStatus(""); // clear BOTH so a stale "Installing…" can't survive an unplug/replug
         const ui = $("dtDeviceUi"); if (ui) ui.classList.add("hidden"); // hide all controls (crumbs/add/mip)
         const nodev = $("dtNoDev"); if (nodev) nodev.classList.remove("hidden");
@@ -81,7 +83,7 @@
         if (running) return;
         if (!present) { dtShowNoDevice(); return; }
         const relist = dtRelistOnNextPresence; dtRelistOnNextPresence = false;
-        if (dtNoDevice) { dtNoDevice = false; dtNavigate("/"); return; } // first detection lists root
+        if (dtNoDevice) { dtNoDevice = false; dtNavigate("/"); dtRefreshInstalled(); return; } // first detection lists root + seeds the installed set
         if (relist) dtListCurrent(); // re-opened with the board already present -> refresh current path
       }
 
@@ -161,7 +163,8 @@
           if (dtSilentList) dtSilentList = false; else dtFilesStatus("");
           return;
         }
-        if (DT_INSTALL_CMDS[command]) { dtFinishInstall(command); dtRefreshSilently(); return; } // /lib changed
+        if (command === "list_lib") { onInstalledList(result && result.entries); return; }
+        if (DT_INSTALL_CMDS[command]) { dtFinishInstall(command); dtRefreshSilently(); dtRefreshInstalled(); return; } // /lib changed
         dtFilesStatus(tr("dt_ok", { c: command }));
         dtRefreshSilently(); // refresh the listing after any mutation, keeping the status
       }
@@ -181,6 +184,7 @@
         // A command that failed because the board is gone -> revert to the no-device state
         // immediately (don't wait for the next poll), instead of a confusing error.
         if (/device_unavailable|no device|could not open|failed to access/i.test(String(error))) { dtShowNoDevice(); return; }
+        if (command === "list_lib") { onInstalledError(error); return; }
         if (DT_INSTALL_CMDS[command]) {
           const ctx = dtActiveInstall; dtActiveInstall = null;
           if (ctx) { ctx.status.classList.remove("installing"); ctx.status.textContent = tr("dt_err", { c: command, e: error }); }
@@ -249,6 +253,64 @@
         return pager;
       }
       function onPackageSearchError() { const h = $("dtPkgResults"); if (h) { h.innerHTML = ""; h.textContent = tr("dt_pkg_err"); } }
+
+      // ----- Installed packages view: the real installed set, read from the board's /lib -----
+      var dtPkgMode = "search";
+      var dtInstalledSet = new Set(); // normalized names installed on the board
+      function dtPkgNorm(name) { return String(name || "").toLowerCase().replace(/[-_]/g, "_"); }
+      function dtRefreshInstalled() { vscode.postMessage({ type: "device_tool_list_lib" }); }
+      function dtPkgSetMode(mode) {
+        dtPkgMode = mode;
+        const sv = $("dtPkgSearchView"), iv = $("dtPkgInstalledView");
+        if (sv) sv.classList.toggle("hidden", mode !== "search");
+        if (iv) iv.classList.toggle("hidden", mode !== "installed");
+        for (const [id, m] of [["dtPkgModeSearch", "search"], ["dtPkgModeInstalled", "installed"]]) {
+          const b = $(id); if (b) { b.classList.toggle("active", mode === m); b.setAttribute("aria-pressed", String(mode === m)); }
+        }
+        if (mode === "installed") dtRefreshInstalled();
+      }
+      // A /lib entry -> installed package name: strip the trailing "/" (dir) or a .py/.mpy suffix.
+      function dtInstalledName(raw) {
+        return raw.charAt(raw.length - 1) === "/" ? raw.slice(0, -1) : raw.replace(/\.(mpy|py)$/, "");
+      }
+      function onInstalledList(entries) {
+        const seen = new Set(), names = [];
+        for (const raw of (Array.isArray(entries) ? entries : [])) {
+          const name = dtInstalledName(raw); if (!name) continue;
+          const key = dtPkgNorm(name);
+          if (!seen.has(key)) { seen.add(key); names.push(name); } // dedup <name>.py + <name>.mpy
+        }
+        dtInstalledSet = seen;
+        dtRenderInstalled(names);
+      }
+      function dtRenderInstalled(names) {
+        const host = $("dtPkgInstalled"); if (!host) return;
+        host.innerHTML = "";
+        const empty = $("dtPkgInstalledEmpty"); if (empty) empty.classList.toggle("hidden", names.length > 0);
+        for (const name of names) host.appendChild(dtInstalledRow(name));
+      }
+      function dtInstalledRow(name) {
+        const row = document.createElement("div"); row.className = "dt-row";
+        const label = document.createElement("span"); label.className = "dt-name"; label.textContent = name;
+        const status = document.createElement("span"); status.className = "dt-pkg-cardstatus";
+        const btn = dtActionButton(tr("dt_pkg_uninstall"), () => {
+          if (dtNoDevice) { status.className = "dt-pkg-cardstatus"; status.textContent = tr("dt_nodev_h"); return; }
+          dtActiveInstall = { status: status, btn: btn };
+          status.className = "dt-pkg-cardstatus installing"; status.textContent = tr("dt_pkg_uninstalling");
+          vscode.postMessage({ type: "device_tool_uninstall", name: name });
+        });
+        btn.classList.add("dt-del");
+        row.append(label, status, btn);
+        return row;
+      }
+      function onInstalledError(error) {
+        const host = $("dtPkgInstalled"); if (host) host.innerHTML = "";
+        // A fresh board has no /lib yet -> treat "not found" as empty; else surface an error.
+        if (/no such file|enoent|does not exist|package_not_found/i.test(String(error))) {
+          dtInstalledSet = new Set();
+          const empty = $("dtPkgInstalledEmpty"); if (empty) empty.classList.remove("hidden");
+        } else { dtPkgStatus(tr("dt_pkg_installed_err")); }
+      }
 
       function dtSourceLabel(source) {
         if (source === "micropython_lib") return tr("dt_pkg_src_lib");
@@ -341,7 +403,10 @@
         const status = document.createElement("div"); status.className = "dt-pkg-cardstatus";
         const install = dtActionButton("", () => dtDoInstall(pkg, install, status, url));
         install.classList.add("dt-pkg-install");
-        dtSetInstallButton(install, false);
+        // Real installed state (from the board's /lib), not optimistic. Caveat: package name
+        // vs on-device module name can diverge for multi-module packages; a false "Install" is
+        // the safe failure mode (mip install is idempotent).
+        dtSetInstallButton(install, dtInstalledSet.has(dtPkgNorm(pkg.name)));
         host.append(install, status);
       }
       // Install <-> Uninstall button state.
@@ -380,6 +445,8 @@
         if ($("dtPkgSearch")) $("dtPkgSearch").addEventListener("click", dtPkgSearch);
         if ($("dtPkgQuery")) $("dtPkgQuery").addEventListener("keydown", (e) => { if (e.key === "Enter") dtPkgSearch(); });
         if ($("dtPkgSource")) $("dtPkgSource").addEventListener("change", dtPkgClear);
+        if ($("dtPkgModeSearch")) $("dtPkgModeSearch").addEventListener("click", () => dtPkgSetMode("search"));
+        if ($("dtPkgModeInstalled")) $("dtPkgModeInstalled").addEventListener("click", () => dtPkgSetMode("installed"));
         // Poll device presence only while the tab is open, so the file list reflects an
         // unplug within a couple of seconds (the scan is a host-side port list — no port open).
         setInterval(() => {

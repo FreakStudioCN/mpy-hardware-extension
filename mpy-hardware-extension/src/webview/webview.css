@@ -518,6 +518,13 @@
       .dt-mip { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); flex-wrap: wrap; }
       .dt-pkg { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); }
       .dt-pkg-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 2px 2px; }
+      /* Search | Installed segmented toggle (mirrors the board picker's .board-toggle). */
+      .dt-pkg-toggle { display: inline-flex; align-self: flex-start; }
+      .dt-pkg-seg { border: 1px solid var(--fg-dim); border-radius: 0; background: transparent; color: var(--fg-muted); padding: 5px 10px; font-size: 11px; cursor: pointer; }
+      .dt-pkg-seg:first-child { border-radius: 6px 0 0 6px; }
+      .dt-pkg-seg:last-child { border-radius: 0 6px 6px 0; }
+      .dt-pkg-seg + .dt-pkg-seg { margin-left: -1px; }
+      .dt-pkg-seg.active { border-color: var(--accent); color: var(--fg-bright); background: #0e7aff26; position: relative; z-index: 1; }
       .dt-pkg-results { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--fg-dim); }
       /* Each result is an accordion card: header (row) + inline detail body. */
       .dt-pkg-item { background: var(--vsc-card); border: 1px solid var(--vsc-border); border-radius: 6px; overflow: hidden; }
