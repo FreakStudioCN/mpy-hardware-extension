@@ -47,6 +47,9 @@ def upypi_search(q: str = ""):
 def upypi_resolve(url: str):
     try:
         return upypi_client.resolve(url)
+    except upypi_client.UpypiBadRequest:
+        # A non-upypi.net URL is a caller error, not an upstream outage.
+        raise HTTPException(status_code=400, detail={"error": "invalid_package_url", "source": "upypi"})
     except upypi_client.UpypiUnavailable:
         raise HTTPException(status_code=502, detail={"error": "upstream_unavailable", "source": "upypi"})
 

@@ -71,20 +71,36 @@
         const crumbs = $("dtCrumbs"); if (crumbs) crumbs.innerHTML = "";
         const inst = $("dtPkgInstalled"); if (inst) inst.innerHTML = "";
         dtInstalledSet = new Set(); // drop a stale installed set so it can't mislabel after a different board replugs
+        // Reset the in-flight guard here (not only in the success branch): the device-gone error
+        // path returns before onDeviceToolError's clear, so without this an unplug-during-install
+        // sticks dtInstallInFlight=true and every later Install/Uninstall silently no-ops.
+        if (dtActiveInstall) { dtActiveInstall.status.classList.remove("installing"); dtActiveInstall = null; }
+        dtInstallInFlight = false;
         dtFilesStatus(""); dtPkgStatus(""); // clear BOTH so a stale "Installing…" can't survive an unplug/replug
         const ui = $("dtDeviceUi"); if (ui) ui.classList.add("hidden"); // hide all controls (crumbs/add/mip)
         const nodev = $("dtNoDev"); if (nodev) nodev.classList.remove("hidden");
       }
       // Host reply to the presence poll: gone -> show the no-device state; came back -> list root.
-      function onDevicePresent(present) {
+      function onDevicePresent(present, ports) {
         // Ignore presence entirely while a run owns the port: the board may reset/re-enumerate
         // mid-flash, so a transient absent must NOT wipe the listing to "no device". session_done
         // (dtRefreshAfterRun) is the safe point to re-check.
         if (running) return;
-        if (!present) { dtShowNoDevice(); return; }
-        const relist = dtRelistOnNextPresence; dtRelistOnNextPresence = false;
+        if (!present) { dtLastPortSig = ""; dtShowNoDevice(); return; }
+        const sig = Array.isArray(ports) ? ports.slice().sort().join("|") : "";
+        // A board SWAP between polls (ports changed while never reporting zero) must drop the prior
+        // board's installed state, or Uninstall would delete a same-named module off the new board.
+        // (Port identity: a same-port A->B swap is indistinguishable; catches the common COM3->COM7.)
+        const swapped = !!dtLastPortSig && !!sig && sig !== dtLastPortSig;
+        dtLastPortSig = sig;
+        const relist = dtRelistOnNextPresence || swapped; dtRelistOnNextPresence = false;
         if (dtNoDevice) { dtNoDevice = false; dtNavigate("/"); dtRefreshInstalled(); return; } // first detection lists root + seeds the installed set
-        if (relist) { dtListCurrent(); dtRefreshInstalled(); } // re-opened -> refresh files AND the installed set
+        if (relist) {
+          // A swap must drop the prior board's installed state immediately (set + rendered rows),
+          // so no stale Uninstall row can be actioned before the new board's list_lib lands.
+          if (swapped) { dtInstalledSet = new Set(); dtInstalledNamesAll = []; const inst = $("dtPkgInstalled"); if (inst) inst.innerHTML = ""; }
+          dtListCurrent(); dtRefreshInstalled(); // refresh files AND the installed set for the (new) board
+        }
       }
 
       // phase set => a session run owns the port; null hides the banner. While busy, disable
@@ -187,7 +203,9 @@
         if (command === "list_lib") { onInstalledError(error); return; }
         if (DT_INSTALL_CMDS[command]) {
           const ctx = dtActiveInstall; dtActiveInstall = null; dtInstallInFlight = false;
-          if (ctx) { ctx.status.classList.remove("installing"); ctx.status.textContent = tr("dt_err", { c: command, e: error }); }
+          // Restore the button to the UNCHANGED state (a failed uninstall is still installed, a
+          // failed install still not) so it doesn't stick at "Confirm?" and silently re-arm.
+          if (ctx) { ctx.status.classList.remove("installing"); ctx.status.textContent = tr("dt_err", { c: command, e: error }); dtSetInstallButton(ctx.btn, command === "uninstall"); }
           else dtPkgStatus(tr("dt_err", { c: command, e: error }));
           return;
         }
@@ -216,26 +234,33 @@
         dtPkgClear();
         const query = ($("dtPkgQuery") ? $("dtPkgQuery").value : "").trim();
         const r = $("dtPkgResults"); if (r) r.textContent = tr("dt_pkg_searching");
+        dtPendingSearch = { query: query, source: source }; // correlate the reply (drop a stale one)
         vscode.postMessage({ type: "package_search", source: source, query: query });
       }
       // Results are an accordion (one row open at a time), paginated at DT_PKG_PAGE_SIZE per page.
       var DT_PKG_PAGE_SIZE = 10;
       var dtExpandedBody = null;       // the currently expanded item's detail body
-      var dtPendingResolveBody = null; // a uPyPI item body awaiting its package.json resolve
+      var dtPendingResolve = null;     // { body, url } of the uPyPI item awaiting its package.json resolve
+      var dtPendingSearch = null;      // { query, source } of the in-flight search (drop stale replies)
+      var dtLastPortSig = "";          // sorted port signature of the present board (detect a swap)
       var dtActiveInstall = null; // { status, btn } of the card whose install/uninstall is running
       var dtInstallInFlight = false; // one install/uninstall at a time (device is serialized) so a
                                      // second click can't overwrite dtActiveInstall and flip the wrong card
       var dtPkgResultsAll = [];        // full result set; one page slice is rendered at a time
       var dtPkgPage = 0;
 
-      function onPackageSearchResult(source, results) {
+      function onPackageSearchResult(source, results, query) {
+        // Drop a stale reply: a slower older query/source must not overwrite the newer one the
+        // input now shows (uncorrelated responses race, e.g. "bmp" landing after "aio").
+        const p = dtPendingSearch;
+        if (p && ((query != null && query !== p.query) || (source != null && source !== p.source))) return;
         dtPkgResultsAll = Array.isArray(results) ? results : [];
         dtPkgPage = 0;
         dtRenderPkgPage();
       }
       function dtRenderPkgPage() {
         const host = $("dtPkgResults"); if (!host) return;
-        host.innerHTML = ""; dtExpandedBody = null; dtPendingResolveBody = null; dtActiveInstall = null; // a page change collapses all
+        host.innerHTML = ""; dtExpandedBody = null; dtPendingResolve = null; dtActiveInstall = null; // a page change collapses all
         if (!dtPkgResultsAll.length) { host.textContent = tr("dt_pkg_none"); return; }
         const pages = Math.ceil(dtPkgResultsAll.length / DT_PKG_PAGE_SIZE);
         dtPkgPage = Math.min(Math.max(dtPkgPage, 0), pages - 1);
@@ -353,23 +378,26 @@
         body.classList.remove("hidden"); head.setAttribute("aria-expanded", "true"); dtExpandedBody = body;
         if (body.dataset.filled) return;
         if (pkg.source === "upypi") { // uPyPI hits are name+url only -> resolve for the metadata
-          // ponytail: last-expanded uPyPI item wins the resolve; a fast double-expand could
-          // fill the wrong body. Resolves are quick; not worth threading a request id.
+          // Correlate the resolve by url: a fast double-expand repoints dtPendingResolve, and the
+          // host echoes the url back so a late reply for the collapsed row is dropped, not filled
+          // into the wrong body (which would install A's package under B's button).
           body.textContent = tr("dt_pkg_searching");
-          dtPendingResolveBody = body;
+          dtPendingResolve = { body: body, url: pkg.url };
           vscode.postMessage({ type: "package_resolve", url: pkg.url });
         } else {
           dtFillDetail(body, pkg); body.dataset.filled = "1";
         }
       }
-      function onPackageResolveResult(record) {
-        const body = dtPendingResolveBody; dtPendingResolveBody = null;
-        if (!body || !record) return;
-        dtFillDetail(body, record); body.dataset.filled = "1";
+      function onPackageResolveResult(record, url) {
+        const pending = dtPendingResolve;
+        // Drop a late resolve whose url doesn't match the row still awaiting one.
+        if (!pending || !record || (url != null && url !== pending.url)) return;
+        dtPendingResolve = null;
+        dtFillDetail(pending.body, record); pending.body.dataset.filled = "1";
       }
       function onPackageResolveError() {
-        const body = dtPendingResolveBody; dtPendingResolveBody = null;
-        if (body) body.textContent = tr("dt_pkg_err");
+        const pending = dtPendingResolve; dtPendingResolve = null;
+        if (pending) pending.body.textContent = tr("dt_pkg_err");
       }
 
       function dtDetailLine(label, value) {

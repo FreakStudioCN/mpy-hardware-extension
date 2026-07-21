@@ -26,6 +26,10 @@ class UpypiUnavailable(Exception):
     """uPyPI could not be reached or returned an unusable response."""
 
 
+class UpypiBadRequest(Exception):
+    """The caller supplied a URL that is not a resolvable uPyPI package URL (a 400, not a 502)."""
+
+
 def _fetch_json(url: str):
     request = urllib.request.Request(url, headers={"user-agent": "mpyhw-api", "accept": "application/json"})
     try:
@@ -54,7 +58,11 @@ def search(query: str) -> list[dict]:
         return []
     url = f"{SEARCH_URL}?{urllib.parse.urlencode({'q': normalized})}"
     data = _fetch_json(url)
-    results = data.get("results", []) if isinstance(data, dict) else []
+    results = data.get("results") if isinstance(data, dict) else None
+    # A wrong-shaped body ({"results": null}, or a non-dict top level) is an upstream error
+    # (-> 502), not a crash: iterating a non-list would raise TypeError and surface as a 500.
+    if not isinstance(results, list):
+        raise UpypiUnavailable("malformed search body")
     # Coerce to str (like the micropython-lib index does): a non-string upstream name would
     # otherwise crash the browser's Auto merge sort downstream.
     return [
@@ -66,7 +74,8 @@ def search(query: str) -> list[dict]:
 
 def resolve(package_url: str) -> dict:
     if not _is_upypi_url(package_url):
-        raise UpypiUnavailable("not a upypi url")
+        # A non-upypi URL is a CALLER error (-> 400), not an upstream outage (-> 502).
+        raise UpypiBadRequest("not a upypi url")
     data = _fetch_json(f"{package_url.rstrip('/')}/package.json")
     if not isinstance(data, dict) or not data.get("name"):
         raise UpypiUnavailable("bad package.json")

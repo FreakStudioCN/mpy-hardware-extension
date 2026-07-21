@@ -10,8 +10,12 @@ import urllib.request
 
 class _SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if urllib.parse.urlparse(newurl).netloc != urllib.parse.urlparse(req.full_url).netloc:
-            return None  # do not follow a cross-host redirect
+        old = urllib.parse.urlparse(req.full_url)
+        new = urllib.parse.urlparse(newurl)
+        # Refuse a cross-host redirect (SSRF) AND a scheme downgrade: https -> http on the same
+        # host silently drops TLS on the metadata that decides what gets installed.
+        if new.netloc != old.netloc or new.scheme != old.scheme:
+            return None
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 

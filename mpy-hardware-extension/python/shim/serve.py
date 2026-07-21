@@ -472,20 +472,35 @@ def _fs_remove(port, path):
 
 def _is_absent(err):
     e = (err or "").lower()
-    return "no such file" in e or "enoent" in e or "does not exist" in e or "errno 2" in e
+    # Anchor the errno match: "errno 2" as a bare substring also matches errno 20-29
+    # (ENOTDIR/EISDIR/ENOSPC ...), so a real failure would be misread as "absent" and
+    # reported as a successful no-op. Require a word boundary after the 2.
+    return "no such file" in e or "enoent" in e or "does not exist" in e or re.search(r"\berrno 2\b", e) is not None
 
 
 def _uninstall_package(port, name):
     """Best-effort uninstall: mip has no uninstall, so remove the package's files under /lib.
-    Covers a package dir (/lib/<name>/) and a single module (/lib/<name>.mpy|.py). The name
-    is guarded to a bare slug directly under /lib so this can never rm an arbitrary path.
-    An all-absent result is success (nothing installed under that name)."""
+    Covers a package dir (/lib/<name>/), a flat module (/lib/<name>.mpy|.py), and a dotted
+    module laid down nested (umqtt.simple -> /lib/umqtt/simple.py). The name is restricted to
+    an ALLOWLIST charset directly under /lib (never a blocklist): mpremote raw-interpolates the
+    name into on-device Python (os.remove('%s')), so a permissive name is arbitrary code exec
+    on the board. An all-absent result is success (nothing installed under that name)."""
     slug = (name or "").strip().strip("/")
-    if not slug or "/" in slug or slug in (".", ".."):
+    # Allowlist, plus explicit reject of "." and ".." (the charset allows dots, so a bare "."
+    # -> `rm -r :/lib/.` = wipe all of /lib, and ".." would traverse). A guard REWRITE must
+    # re-cover the cases the old guard did. A blocklist here cannot anticipate mpremote's quoting.
+    if not slug or slug in (".", "..") or ".." in slug or not re.fullmatch(r"[A-Za-z0-9_.-]+", slug):
         return {"status": "error", "error_kind": "invalid_package_name", "message": str(name)}
+    candidates = [f":/lib/{slug}", f":/lib/{slug}.mpy", f":/lib/{slug}.py"]
+    nested = slug.replace(".", "/")
+    if nested != slug:
+        # A dotted package (umqtt.simple) installs as /lib/umqtt/simple.py — probe the nested
+        # file forms so a dotted name isn't a false "Removed". rm on a file is not recursive
+        # over a shared namespace dir, so this can't wipe sibling umqtt.* packages.
+        candidates += [f":/lib/{nested}.mpy", f":/lib/{nested}.py"]
     removed = False
-    real_err = ""  # a failure that is NOT just "absent" -- must not be masked by a later absent candidate
-    for path in (f":/lib/{slug}", f":/lib/{slug}.mpy", f":/lib/{slug}.py"):
+    real_err = ""  # a failure that is NOT just "absent"
+    for path in candidates:
         r = _run_mpremote(["connect", port, "resume", "fs", "rm", "-r", path], timeout=30)
         if r.returncode == 0:
             removed = True
@@ -493,9 +508,9 @@ def _uninstall_package(port, name):
             err = (r.stderr or "").strip()
             if not _is_absent(err):
                 real_err = err
-    # A genuine removal failure on a present path is an error even if a sibling candidate was
-    # absent; only all-absent (nothing installed under that name) counts as a no-op success.
-    if real_err and not removed:
+    # A genuine removal failure on a present path is an error, even if another candidate was
+    # removed: reporting "Removed" while a file is still importable on the board is the bug.
+    if real_err:
         return {"status": "error", "error_kind": "mpremote_error", "message": real_err}
     return {"status": "ok", "removed": removed}
 

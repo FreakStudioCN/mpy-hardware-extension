@@ -19,7 +19,7 @@ INDEX = {
 
 @pytest.fixture(autouse=True)
 def _reset_cache(monkeypatch):
-    monkeypatch.setattr(mli, "_cache", {"packages": None, "fetched_at": 0.0})
+    monkeypatch.setattr(mli, "_cache", {"packages": None, "fetched_at": 0.0, "failed_at": 0.0})
 
 
 def test_search_filters_and_normalizes(monkeypatch):
@@ -59,13 +59,62 @@ def test_unavailable_when_fetch_fails_and_no_cache(monkeypatch):
 def test_serves_stale_cache_on_fetch_failure(monkeypatch):
     import urllib.error
 
-    monkeypatch.setattr(mli, "_cache", {"packages": INDEX["packages"], "fetched_at": 0.0})  # stale
+    monkeypatch.setattr(mli, "_cache", {"packages": INDEX["packages"], "fetched_at": 0.0, "failed_at": 0.0})  # stale
 
     def _fail():
         raise urllib.error.URLError("down")
 
     monkeypatch.setattr(mli, "_fetch_index", _fail)
     assert [hit["name"] for hit in mli.search("aioble")] == ["aioble"]
+
+
+def test_malformed_body_is_not_cached_as_empty_success(monkeypatch):
+    # A wrong-shaped body (non-dict, or `packages` not a list) is an upstream error, NOT a valid
+    # empty catalog that gets served for the whole 6h TTL. With no cache -> raise, not empty 200.
+    monkeypatch.setattr(mli, "_fetch_index", lambda: {"packages": None})
+    with pytest.raises(mli.MicropythonLibUnavailable):
+        mli.search("aioble")
+    assert mli._cache["packages"] is None  # must NOT have cached the bad body
+
+    monkeypatch.setattr(mli, "_fetch_index", lambda: ["not", "a", "dict"])
+    with pytest.raises(mli.MicropythonLibUnavailable):
+        mli.search("aioble")
+    assert mli._cache["packages"] is None
+
+
+def test_backs_off_after_failure_instead_of_refetching_every_request(monkeypatch):
+    # A stale-cache + down-upstream must NOT re-hit the 10s urlopen on every request (which
+    # pins an anyio worker each time). After one failed fetch, serve stale within the backoff.
+    monkeypatch.setattr(mli, "_cache", {"packages": INDEX["packages"], "fetched_at": 0.0, "failed_at": 0.0})  # stale
+    import urllib.error
+    calls = {"n": 0}
+
+    def _fail():
+        calls["n"] += 1
+        raise urllib.error.URLError("down")
+
+    monkeypatch.setattr(mli, "_fetch_index", _fail)
+    assert [h["name"] for h in mli.search("aioble")] == ["aioble"]  # 1st: fetches, fails, serves stale
+    assert [h["name"] for h in mli.search("aioble")] == ["aioble"]  # 2nd: backoff -> serves stale, no fetch
+    assert calls["n"] == 1
+
+
+def test_cold_start_during_outage_backs_off_without_a_cache(monkeypatch):
+    # Empty cache + down upstream: the first request fetches & fails, the second must back off
+    # (raise) rather than burn another 10s urlopen -- so an outage-on-restart isn't a per-request DoS.
+    import urllib.error
+    calls = {"n": 0}
+
+    def _fail():
+        calls["n"] += 1
+        raise urllib.error.URLError("down")
+
+    monkeypatch.setattr(mli, "_fetch_index", _fail)
+    with pytest.raises(mli.MicropythonLibUnavailable):
+        mli.search("aioble")
+    with pytest.raises(mli.MicropythonLibUnavailable):
+        mli.search("aioble")
+    assert calls["n"] == 1  # the second request backed off instead of refetching
 
 
 def test_route_returns_results(monkeypatch):

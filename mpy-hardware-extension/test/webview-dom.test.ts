@@ -2830,6 +2830,91 @@ test("package browser: a card installs, shows Installed, then uninstalls", async
   assert.equal(btn.dataset.installed, "", "the button is back to the install state");
 });
 
+test("package browser: an unplug-during-install clears the in-flight guard so Install works after replug (PR #45 #2)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const installOnce = () => {
+    post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+    post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+      { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+    ] });
+    (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+    (document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement).click();
+  };
+  installOnce();
+  assert.equal(posted.filter((m) => m.type === "device_tool_mip").length, 1, "first install posted");
+  // Board unplugged mid-install: the device-gone error returns before the normal in-flight clear,
+  // so dtShowNoDevice must reset it, or every later Install/Uninstall silently no-ops.
+  post(dom, { type: "device_tool_error", command: "mip_install", error: "device_unavailable" });
+  installOnce();
+  assert.equal(posted.filter((m) => m.type === "device_tool_mip").length, 2, "a new install proceeds after the device-gone error cleared the guard");
+});
+
+test("package browser: a late resolve for a re-collapsed row does not fill the wrong body (PR #45 #4)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  post(dom, { type: "package_search_result", source: "upypi", results: [
+    { name: "aaa", source: "upypi", url: "https://upypi.net/pkgs/aaa/1.0.0" },
+    { name: "bbb", source: "upypi", url: "https://upypi.net/pkgs/bbb/1.0.0" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+  (rows[0] as HTMLButtonElement).click(); // expand A -> resolve A
+  (rows[1] as HTMLButtonElement).click(); // expand B -> resolve B (A collapses; pending = B's url)
+  const bodyB = document.querySelectorAll("#dtPkgResults .dt-pkg-detail")[1] as HTMLElement;
+  // A's resolve arrives LATE (out of order). With the url echoed it must be dropped, not fill B.
+  // (install_cmd is rendered into the body; description is only in the row head.)
+  post(dom, { type: "package_resolve_result", url: "https://upypi.net/pkgs/aaa/1.0.0", record: { name: "aaa", source: "upypi", install_cmd: "mip-AAA" } });
+  assert.doesNotMatch(bodyB.textContent || "", /mip-AAA/, "A's late resolve must not fill B (would install A under B)");
+  // B's own resolve then fills B correctly.
+  post(dom, { type: "package_resolve_result", url: "https://upypi.net/pkgs/bbb/1.0.0", record: { name: "bbb", source: "upypi", install_cmd: "mip-BBB" } });
+  assert.match(bodyB.textContent || "", /mip-BBB/, "B's own resolve fills B");
+});
+
+test("package browser: a resolve error surfaces on the row instead of throwing (PR #45 review)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  post(dom, { type: "package_search_result", source: "upypi", results: [
+    { name: "aaa", source: "upypi", url: "https://upypi.net/pkgs/aaa/1.0.0" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click(); // expand -> resolve pending
+  const body = document.querySelector("#dtPkgResults .dt-pkg-detail") as HTMLElement;
+  // The resolve fails: the handler must NOT throw (it referenced a renamed var) and must clear the
+  // "Searching…" placeholder to an error, or the row is stuck forever.
+  post(dom, { type: "package_resolve_error", error: "resolve_failed" });
+  assert.ok((body.textContent || "").length > 0, "the row shows something (handler did not throw)");
+  assert.doesNotMatch(body.textContent || "", /Searching|Loading/i, "the row is no longer stuck on the loading placeholder");
+});
+
+test("package browser: a stale search reply does not overwrite a newer query (PR #45 #6)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "micropython_lib";
+  const search = (q: string) => { (document.getElementById("dtPkgQuery") as HTMLInputElement).value = q; (document.getElementById("dtPkgSearch") as HTMLButtonElement).click(); };
+  search("aaa");
+  search("bbb"); // pending is now { query: "bbb" }
+  post(dom, { type: "package_search_result", source: "micropython_lib", query: "bbb", results: [{ name: "bbbpkg", source: "micropython_lib", install_cmd: "x" }] });
+  // The slower "aaa" reply arrives after -> must be dropped, not overwrite "bbb".
+  post(dom, { type: "package_search_result", source: "micropython_lib", query: "aaa", results: [{ name: "aaapkg", source: "micropython_lib", install_cmd: "x" }] });
+  const names = [...document.querySelectorAll("#dtPkgResults .dt-pkg-name")].map((n: any) => n.textContent);
+  assert.ok(names.some((n) => /bbbpkg/.test(n)), "the newer query's results are shown");
+  assert.ok(!names.some((n) => /aaapkg/.test(n)), "the stale query's late reply was dropped");
+});
+
+test("package browser: a board swap between polls drops the prior board's installed rows (PR #45 #7)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  document.getElementById("deviceToolsOpen")!.click();
+  post(dom, { type: "device_present", present: true, ports: ["COM3"] });          // board A on COM3
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } });
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 1, "board A's installed row shows");
+  // Board B on a different port, never reporting zero between polls.
+  post(dom, { type: "device_present", present: true, ports: ["COM7"] });
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 0, "A's installed rows cleared on the swap (no stale Uninstall row)");
+});
+
 test("installed view: a list_lib result does NOT repaint the Board files pane", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

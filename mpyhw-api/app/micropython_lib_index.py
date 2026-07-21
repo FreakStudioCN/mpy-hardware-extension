@@ -18,10 +18,14 @@ logger = logging.getLogger(__name__)
 INDEX_URL = "https://micropython.org/pi/v2/index.json"
 _CACHE_TTL_SECONDS = 6 * 60 * 60
 _TIMEOUT_SECONDS = 10
+# After a failed refetch, keep serving the stale copy WITHOUT re-hitting upstream for this
+# window. Without it, a stale-cache-with-down-upstream retries the 10s urlopen on EVERY request,
+# and the sync route pins an anyio threadpool worker each time -> one outage degrades the whole API.
+_FAILURE_BACKOFF_SECONDS = 60
 
 # ponytail: in-process cache. Refetches once per TTL (or on restart) -- fine for a ~128
-# package index. Serves the stale copy if a later refetch fails.
-_cache: dict = {"packages": None, "fetched_at": 0.0}
+# package index. Serves the stale copy if a later refetch fails (with backoff).
+_cache: dict = {"packages": None, "fetched_at": 0.0, "failed_at": 0.0}
 
 
 class MicropythonLibUnavailable(Exception):
@@ -36,21 +40,38 @@ def _fetch_index() -> dict:
 
 def _packages() -> list[dict]:
     now = time.time()
-    if _cache["packages"] is not None and (now - _cache["fetched_at"]) < _CACHE_TTL_SECONDS:
-        return _cache["packages"]
+    if _cache["packages"] is not None:
+        fresh = (now - _cache["fetched_at"]) < _CACHE_TTL_SECONDS
+        backing_off = (now - _cache["failed_at"]) < _FAILURE_BACKOFF_SECONDS
+        if fresh or backing_off:  # fresh, or a stale copy inside the post-failure backoff window
+            return _cache["packages"]
+    elif (now - _cache["failed_at"]) < _FAILURE_BACKOFF_SECONDS:
+        # Cold start during an outage (empty cache): back off too, or every request burns a 10s
+        # urlopen + an anyio threadpool worker while upstream is down.
+        raise MicropythonLibUnavailable("micropython-lib index unavailable (backing off)")
     try:
         data = _fetch_index()
     # OSError subsumes URLError + socket timeout; HTTPException covers a truncated body;
-    # ValueError a malformed JSON body. Any of them serves stale, or raises if no cache.
+    # ValueError a malformed JSON body. Any of them serves stale (with backoff), or raises.
     except (OSError, ValueError, http.client.HTTPException) as error:
         logger.warning("micropython-lib index fetch failed: %s", error)
-        if _cache["packages"] is not None:
-            return _cache["packages"]  # serve stale on failure
-        raise MicropythonLibUnavailable(str(error)) from error
-    packages = data.get("packages", []) if isinstance(data, dict) else []
-    _cache["packages"] = packages
+        return _serve_stale_or_raise(now, str(error))
+    # A wrong-shaped body (non-dict, or `packages` not a list) is an UPSTREAM error, not a valid
+    # empty catalog -- never cache it as an empty success and serve it for the whole 6h TTL.
+    if not isinstance(data, dict) or not isinstance(data.get("packages"), list):
+        logger.warning("micropython-lib index body malformed: %r", type(data))
+        return _serve_stale_or_raise(now, "malformed index body")
+    _cache["packages"] = data["packages"]
     _cache["fetched_at"] = now
-    return packages
+    _cache["failed_at"] = 0.0  # a success clears the backoff window
+    return data["packages"]
+
+
+def _serve_stale_or_raise(now: float, reason: str) -> list[dict]:
+    _cache["failed_at"] = now  # start/refresh the backoff window
+    if _cache["packages"] is not None:
+        return _cache["packages"]  # serve stale on failure
+    raise MicropythonLibUnavailable(reason)
 
 
 def _normalize(pkg: dict) -> dict:

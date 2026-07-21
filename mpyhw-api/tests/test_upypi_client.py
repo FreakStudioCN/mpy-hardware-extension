@@ -67,11 +67,21 @@ def test_resolve_normalizes_package_json(monkeypatch):
 
 
 def test_resolve_rejects_non_upypi_url(monkeypatch):
-    # SSRF guard: a caller-supplied url must be on upypi.net over https.
+    # SSRF guard: a caller-supplied url must be on upypi.net over https. A bad url is a CALLER
+    # error (UpypiBadRequest -> 400), not an upstream outage (UpypiUnavailable -> 502).
     monkeypatch.setattr(upypi_client, "_fetch_json", lambda url: PACKAGE_JSON)
     for bad in ("https://evil.example/pkgs/x/1.0", "http://upypi.net/pkgs/x/1.0", "file:///etc/passwd"):
-        with pytest.raises(upypi_client.UpypiUnavailable):
+        with pytest.raises(upypi_client.UpypiBadRequest):
             upypi_client.resolve(bad)
+
+
+def test_search_malformed_body_raises_unavailable(monkeypatch):
+    # A wrong-shaped body ({"results": null}, a non-dict, a non-list results) is an upstream
+    # error (-> 502), never a 500 from iterating a non-list.
+    for bad in ({"results": None}, ["not", "a", "dict"], {"results": "nope"}):
+        monkeypatch.setattr(upypi_client, "_fetch_json", lambda url, _b=bad: _b)
+        with pytest.raises(upypi_client.UpypiUnavailable):
+            upypi_client.search("x")
 
 
 def test_fetch_failure_raises_unavailable(monkeypatch):
@@ -113,6 +123,16 @@ def test_route_upypi_resolve_returns_normalized(monkeypatch):
     response = client.get("/v1/packages/upypi/resolve", params={"url": "https://upypi.net/pkgs/bmp280/1.0.0"})
     assert response.status_code == 200
     assert response.json()["source"] == "upypi"
+
+
+def test_route_upypi_resolve_bad_url_is_400(monkeypatch):
+    def _bad(url):
+        raise upypi_client.UpypiBadRequest("not a upypi url")
+
+    monkeypatch.setattr(upypi_client, "resolve", _bad)
+    response = client.get("/v1/packages/upypi/resolve", params={"url": "https://evil.example/x"})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_package_url"
 
 
 def test_upypi_search_route_not_shadowed_by_name_version(monkeypatch):

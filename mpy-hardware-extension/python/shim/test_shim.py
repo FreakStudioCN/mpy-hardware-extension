@@ -129,6 +129,52 @@ def test_uninstall_package_removes_lib_paths_guards_name_and_treats_absent_as_ok
     assert res["status"] == "error" and res["error_kind"] == "mpremote_error"
     assert "directory not empty" in res["message"]
 
+    # RCE guard (finding 1): an injection payload (quotes/;/parens/#) is rejected by the
+    # allowlist without ever reaching mpremote (which raw-interpolates the name into
+    # on-device Python). A blocklist that only rejected "/" would let this through.
+    calls.clear()
+    evil = serve._uninstall_package("COM3", "x');__import__('os').remove(chr(47)+'boot.py');#")
+    assert evil["status"] == "error" and evil["error_kind"] == "invalid_package_name"
+    assert calls == []
+
+    # A guard REWRITE must re-cover the old blocklist's cases: a bare "." (-> rm -r :/lib/. wipes
+    # all of /lib) and ".." must be rejected without any mpremote call.
+    for traversal in (".", ".."):
+        calls.clear()
+        bad = serve._uninstall_package("COM3", traversal)
+        assert bad["status"] == "error" and bad["error_kind"] == "invalid_package_name"
+        assert calls == []
+
+    # Finding 3: a real failure on a present path is an error even when ANOTHER candidate was
+    # removed -- the old `real_err and not removed` masked this as "Removed".
+    def removed_dir_then_real_error(args, timeout=30):
+        if args[-1] == ":/lib/aioble":
+            return subprocess.CompletedProcess(args, 0, "", "")            # dir removed
+        if args[-1].endswith(".mpy"):
+            return subprocess.CompletedProcess(args, 1, "", "[Errno 21] EISDIR")  # real failure
+        return subprocess.CompletedProcess(args, 1, "", "no such file")
+    monkeypatch.setattr(serve, "_run_mpremote", removed_dir_then_real_error)
+    res = serve._uninstall_package("COM3", "aioble")
+    assert res["status"] == "error" and res["error_kind"] == "mpremote_error"
+
+    # Finding 5: a dotted package installs nested (umqtt.simple -> /lib/umqtt/simple.py),
+    # so the nested file forms must be probed too, or a dotted name is a false "Removed".
+    calls.clear()
+    def record_absent(args, timeout=30):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 1, "", "no such file")
+    monkeypatch.setattr(serve, "_run_mpremote", record_absent)
+    serve._uninstall_package("COM3", "umqtt.simple")
+    probed = [a[-1] for a in calls]
+    assert ":/lib/umqtt/simple.py" in probed and ":/lib/umqtt/simple.mpy" in probed
+    # Must NOT rm the shared namespace dir -- that would take sibling umqtt.* packages with it.
+    assert ":/lib/umqtt" not in probed
+
+    # Finding 3b: _is_absent anchors errno 2 -- errno 20-29 are real failures, not "absent".
+    assert serve._is_absent("[Errno 2] ENOENT: no such file") is True
+    assert serve._is_absent("[Errno 28] ENOSPC: no space left on device") is False
+    assert serve._is_absent("[Errno 21] EISDIR") is False
+
 
 def test_write_device_file_mkdirs_parents_then_copies_to_mirror_path():
     shim = Shim(runner=lambda cmd, **_kwargs: subprocess.CompletedProcess(cmd, 0, "", ""))

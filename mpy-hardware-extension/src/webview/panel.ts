@@ -484,7 +484,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (source === "micropython_lib") {
       try {
         const body = await packageBrowserClient.micropythonLibSearch(query);
-        webview.postMessage({ type: "package_search_result", source, results: body?.results ?? [] });
+        webview.postMessage({ type: "package_search_result", source, query, results: body?.results ?? [] });
       } catch (error: any) {
         webview.postMessage({ type: "package_search_error", error: error?.code ?? "search_failed" });
       }
@@ -493,7 +493,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (source === "upypi") {
       try {
         const body = await packageBrowserClient.upypiSearch(query);
-        webview.postMessage({ type: "package_search_result", source, results: tagUpypi(body?.results) });
+        webview.postMessage({ type: "package_search_result", source, query, results: tagUpypi(body?.results) });
       } catch (error: any) {
         webview.postMessage({ type: "package_search_error", error: error?.code ?? "search_failed" });
       }
@@ -510,7 +510,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     const upypiHits = up.status === "fulfilled" ? tagUpypi(up.value?.results) : [];
     const libHits = lib.status === "fulfilled" ? (lib.value?.results ?? []) : [];
-    webview.postMessage({ type: "package_search_result", source: "auto", results: mergePackages(query, libHits, upypiHits) });
+    webview.postMessage({ type: "package_search_result", source: "auto", query, results: mergePackages(query, libHits, upypiHits) });
   }
 
   // Acquire run ownership of the serial port before a session run takes it: wait for any
@@ -1081,7 +1081,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "package_resolve" && typeof message.url === "string") {
       try {
         const record = await packageBrowserClient.upypiResolve(message.url);
-        webview.postMessage({ type: "package_resolve_result", record });
+        // Echo the requested url so the webview can drop a late resolve that would fill the
+        // wrong (since-collapsed / re-expanded) row — else Install under B installs A.
+        webview.postMessage({ type: "package_resolve_result", record, url: message.url });
       } catch (error: any) {
         webview.postMessage({ type: "package_resolve_error", error: error?.code ?? "resolve_failed" });
       }
@@ -1094,9 +1096,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     if (message.type === "device_presence") {
       // Device Tools presence poll: a host-side port scan (lists ports, never opens one, so
-      // it's safe during a flash) lets the tab show "no device" and revert on unplug.
-      try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }
-      catch { webview.postMessage({ type: "device_present", present: false }); }
+      // it's safe during a flash) lets the tab show "no device" and revert on unplug. Carry the
+      // ports so the webview can detect a board SWAP (A on COM3 -> B on COM7) between polls that
+      // never reports zero, and drop A's installed state instead of deleting off the wrong board.
+      try { const ports = await shim.scan(); webview.postMessage({ type: "device_present", present: ports.length > 0, ports }); }
+      catch { webview.postMessage({ type: "device_present", present: false, ports: [] }); }
     }
     if (message.type === "run_doctor_check" || message.type === "doctor_action") {
       // Environment preflight for the Doctor tab. "install_deps" runs the async (non-
