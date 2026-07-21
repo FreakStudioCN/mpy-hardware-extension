@@ -7,6 +7,80 @@
       // plan/deploy). Items render as checkboxes (default selected), actions as
       // buttons; the chosen action + selected ids + text values ride back as a
       // ui_prompt_response, which the controller resolves into approval_response.
+      // Fallback group headers when a card carries no authored label (real scaffold
+      // cards do carry one). Keys resolve via tr() (shared.js en+zh).
+      const GROUP_LABEL_KEYS = { scheduler_mode: "group_scheduler_mode", extra_modules: "group_extra_modules" };
+      // The ESP32 flash-confirm card gets a live serial-port + baud picker.
+      const FLASH_CONFIRM_ID = "esp32_flash_confirm";
+      const FLASH_ACTION = "flash_now";
+      const FLASH_BAUDS = ["460800", "115200", "230400", "921600"];
+
+      // Card body: the flash/scaffold cards carry their detail in summary/steps/guidance/
+      // links, which the renderer used to drop — leaving the flash confirm card as just
+      // three buttons. Render them with textContent/anchors only, never innerHTML.
+      function renderApprovalBody(main, card) {
+        const summary = card.summary;
+        if (summary && typeof summary === "object" && !Array.isArray(summary)) {
+          const kv = document.createElement("div"); kv.className = "ask-kv";
+          Object.keys(summary).forEach((k) => {
+            const v = summary[k];
+            if (v == null || typeof v === "object") return; // scalar values only
+            const row = document.createElement("div"); row.className = "ask-kv-row";
+            const kEl = document.createElement("span"); kEl.className = "ask-kv-k"; kEl.textContent = String(k) + ": ";
+            row.appendChild(kEl); row.appendChild(document.createTextNode(String(v)));
+            kv.appendChild(row);
+          });
+          if (kv.children.length) main.appendChild(kv);
+        } else if (typeof summary === "string" && summary.trim()) {
+          const p = document.createElement("div"); p.className = "ev-sum"; p.textContent = summary.trim(); main.appendChild(p);
+        }
+        const steps = Array.isArray(card.steps) ? card.steps : [];
+        if (steps.length) {
+          const ol = document.createElement("ol"); ol.className = "ask-steps";
+          steps.forEach((s) => { if (s == null || typeof s === "object") return; const li = document.createElement("li"); li.textContent = String(s); ol.appendChild(li); });
+          if (ol.children.length) main.appendChild(ol);
+        }
+        if (typeof card.guidance === "string" && card.guidance.trim()) {
+          const g = document.createElement("div"); g.className = "ask-guidance"; g.textContent = card.guidance.trim(); main.appendChild(g);
+        }
+        const links = Array.isArray(card.links) ? card.links : [];
+        if (links.length) {
+          const box = document.createElement("div"); box.className = "ask-links";
+          links.forEach((l) => {
+            if (!l) return;
+            const href = typeof l === "string" ? l : (l.url || l.href);
+            if (!href) return;
+            const a = document.createElement("a"); a.className = "ask-link";
+            a.setAttribute("href", String(href)); a.setAttribute("target", "_blank");
+            a.textContent = String((l && l.label) || (l && l.title) || href);
+            box.appendChild(a);
+          });
+          if (box.children.length) main.appendChild(box);
+        }
+      }
+
+      // Render one item_groups section: a header + its items. multi_select:false renders
+      // radios sharing one name (native mutual exclusion); otherwise checkboxes. renderItem
+      // is passed in so every input still lands in the card's shared checks[] array.
+      function renderApprovalGroup(group, items, main, promptId, renderItem) {
+        const gid = group.id == null ? "" : String(group.id);
+        const groupItems = (Array.isArray(group.items) && group.items.length)
+          ? group.items
+          : items.filter((it) => it && String(it.group == null ? "" : it.group) === gid);
+        if (!groupItems.length) return;
+        const single = group.multi_select === false;
+        const section = document.createElement("div"); section.className = "ask-group";
+        const h = document.createElement("div"); h.className = "ask-group-h";
+        h.textContent = group.label != null ? String(group.label) : tr(GROUP_LABEL_KEYS[gid] || "");
+        if (h.textContent) section.appendChild(h);
+        const radioName = single ? "apr-" + String(promptId) + "-" + gid : null;
+        const inputs = groupItems.map((it) => renderItem(it, section, radioName)).filter(Boolean);
+        // Single-choice: guarantee exactly one radio checked (honor an explicit default,
+        // else the first) so a mode is always posted even if the card marks none.
+        if (single && inputs.length && !inputs.some((r) => r.checked)) inputs[0].checked = true;
+        main.appendChild(section);
+      }
+
       function addApprovalPrompt(promptId, card) {
         finalizeThinking();
         clearPending();
@@ -14,9 +88,6 @@
         setTab("activity");
         card = card || {};
         const items = Array.isArray(card.items) ? card.items : [];
-        // item_groups is contract-valid as either an array OR an object map; an object
-        // form was being dropped here, hiding its items from the user. Normalize both.
-        const groups = Array.isArray(card.item_groups) ? card.item_groups : Object.values(card.item_groups || {});
         const actions = (Array.isArray(card.actions) && card.actions.length) ? card.actions : [{ label: tr("send"), value: "confirm", primary: true }];
         const textInputs = Array.isArray(card.text_inputs) ? card.text_inputs : [];
         const el = document.createElement("div");
@@ -31,19 +102,31 @@
         const q = document.createElement("div"); q.className = "ev-sum ask-q";
         q.textContent = card.question == null ? "" : String(card.question);
         main.appendChild(q);
+        renderApprovalBody(main, card);
         const checks = [];
-        const renderItem = (it) => {
-          if (!it || typeof it !== "object") return;
+        // A single-choice group (multi_select:false) renders radios sharing one name for
+        // native mutual exclusion; multi-select and ungrouped items stay checkboxes. Every
+        // input lands in checks[] so the selected_ids computation stays uniform.
+        const renderItem = (it, host, radioName) => {
+          if (!it || typeof it !== "object") return null;
           const row = document.createElement("label"); row.className = "ask-opt"; row.style.display = "block";
-          const cb = document.createElement("input"); cb.type = "checkbox";
-          cb.checked = it.selected !== false; cb.dataset.id = it.id == null ? "" : String(it.id);
-          cb.disabled = it.selectable === false; checks.push(cb); row.appendChild(cb);
+          const inp = document.createElement("input"); inp.type = radioName ? "radio" : "checkbox";
+          if (radioName) inp.name = radioName;
+          inp.checked = it.selected !== false; inp.dataset.id = it.id == null ? "" : String(it.id);
+          inp.disabled = it.selectable === false; checks.push(inp); row.appendChild(inp);
           const span = document.createElement("span");
           span.textContent = " " + (it.name == null ? "" : String(it.name)) + (it.subtitle ? " — " + String(it.subtitle) : "");
-          row.appendChild(span); main.appendChild(row);
+          row.appendChild(span); host.appendChild(row); return inp;
         };
-        items.forEach(renderItem);
-        groups.forEach((g) => (Array.isArray(g && g.items) ? g.items : []).forEach(renderItem));
+        // item_groups is contract-valid as an array OR an object map (keyed by group id).
+        // Normalize to {id,label,multi_select,items}, preserving the key as the id.
+        const groupList = Array.isArray(card.item_groups)
+          ? card.item_groups.map((g) => ({ id: g && g.id, label: g && g.label, multi_select: g && g.multi_select, items: g && g.items }))
+          : Object.keys(card.item_groups || {}).map((id) => { const m = card.item_groups[id] || {}; return { id, label: m.label, multi_select: m.multi_select, items: m.items }; });
+        const groupIds = new Set(groupList.map((g) => String(g.id == null ? "" : g.id)).filter(Boolean));
+        // Ungrouped items (and any whose group has no matching entry) render flat, as before.
+        items.filter((it) => !it || it.group == null || !groupIds.has(String(it.group))).forEach((it) => renderItem(it, main, null));
+        groupList.forEach((g) => renderApprovalGroup(g, items, main, promptId, renderItem));
         const textEls = {};
         textInputs.forEach((ti) => {
           if (!ti || typeof ti !== "object") return;
@@ -52,15 +135,60 @@
           if (ti.placeholder) inp.placeholder = String(ti.placeholder);
           textEls[ti.id == null ? "" : String(ti.id)] = inp; row.appendChild(inp); main.appendChild(row);
         });
+        // esp32_flash_confirm: a live serial-port + baud picker. The Skill card carries the
+        // firmware path + esptool commands in summary/steps (rendered above); the port list
+        // is scanned host-side (deploy_rescan -> deploy_ports_updated, routed to
+        // currentDeployCard — only one card is ever active). Any other card gets no picker,
+        // so the body render alone still fixes the "only three buttons" symptom.
+        const isFlashConfirm = card.approval_id === FLASH_CONFIRM_ID;
+        let selectedPort = null;
+        let selectedBaud = FLASH_BAUDS[0];
+        let flashBtn = null;
+        let flashPortsEl = null, flashStatusEl = null;
+        const setFlashPorts = (ports) => {
+          ports = Array.isArray(ports) ? ports : [];
+          flashPortsEl.innerHTML = "";
+          if (!ports.length) { flashStatusEl.textContent = tr("no_board"); selectedPort = null; if (flashBtn) flashBtn.disabled = true; return; }
+          if (ports.length === 1) { selectedPort = ports[0]; flashStatusEl.textContent = tr("connected", { p: ports[0] }); }
+          else {
+            flashStatusEl.textContent = tr("multiple_devices"); selectedPort = null;
+            ports.forEach((p) => {
+              const b = document.createElement("button"); b.className = "ask-opt"; b.type = "button"; b.textContent = p;
+              b.addEventListener("click", () => { selectedPort = p; flashPortsEl.querySelectorAll(".ask-opt").forEach((x) => x.classList.remove("chosen")); b.classList.add("chosen"); if (flashBtn) flashBtn.disabled = false; });
+              flashPortsEl.appendChild(b);
+            });
+          }
+          if (flashBtn) flashBtn.disabled = selectedPort == null;
+        };
+        if (isFlashConfirm) {
+          const pick = document.createElement("div"); pick.className = "flash-pick";
+          flashStatusEl = document.createElement("div"); flashStatusEl.className = "flash-status"; flashStatusEl.textContent = tr("detecting_board"); pick.appendChild(flashStatusEl);
+          flashPortsEl = document.createElement("div"); flashPortsEl.className = "flash-ports"; pick.appendChild(flashPortsEl);
+          const baudRow = document.createElement("label"); baudRow.className = "flash-baud"; baudRow.textContent = tr("flash_baud") + " ";
+          const sel = document.createElement("select");
+          FLASH_BAUDS.forEach((rate) => { const o = document.createElement("option"); o.value = rate; o.textContent = rate; sel.appendChild(o); });
+          sel.addEventListener("change", () => { selectedBaud = sel.value; });
+          baudRow.appendChild(sel); pick.appendChild(baudRow);
+          const rescan = document.createElement("button"); rescan.className = "ask-opt flash-rescan"; rescan.type = "button"; rescan.textContent = tr("rescan");
+          rescan.addEventListener("click", () => { flashStatusEl.textContent = tr("detecting_board"); vscode.postMessage({ type: "deploy_rescan" }); });
+          pick.appendChild(rescan);
+          main.appendChild(pick);
+          currentDeployCard = { setPorts: setFlashPorts };
+        }
         const btnRow = document.createElement("div"); btnRow.className = "ask-options";
         let answered = false;
         const respond = (action) => {
           if (answered) return; answered = true;
           const selected_ids = checks.filter((c) => c.checked).map((c) => c.dataset.id).filter(Boolean);
           const text_values = {}; Object.keys(textEls).forEach((k) => { text_values[k] = textEls[k].value; });
-          vscode.postMessage({ type: "ui_prompt_response", promptId, answer: action, selected_ids, text_values });
+          const msg = { type: "ui_prompt_response", promptId, answer: action, selected_ids, text_values };
+          // Ride the chosen port + baud so the host sets the port before the agent's flash
+          // tool runs (same no-race rationale as the deploy card's port passthrough).
+          if (isFlashConfirm && selectedPort) { msg.serial_port = selectedPort; msg.baud = selectedBaud; }
+          vscode.postMessage(msg);
           btnRow.querySelectorAll("button").forEach((b) => { b.disabled = true; });
           checks.forEach((c) => { c.disabled = true; });
+          currentDeployCard = null;
           setPending(tr("working"));
         };
         actions.forEach((a) => {
@@ -71,11 +199,15 @@
           const answer = (a && a.value != null) ? String(a.value) : (a && a.id != null) ? String(a.id) : "confirm";
           const b = document.createElement("button"); b.className = "ask-opt" + (a && a.primary ? " primary" : "");
           b.textContent = (a && a.label != null) ? String(a.label) : answer;
+          // Gate Start Flashing on a chosen port; setFlashPorts enables it once one is picked.
+          if (isFlashConfirm && answer === FLASH_ACTION) { flashBtn = b; b.disabled = true; }
           b.addEventListener("click", () => respond(answer));
           btnRow.appendChild(b);
         });
         main.appendChild(btnRow); head.appendChild(main); wrap.appendChild(head); el.appendChild(wrap);
         $("activity").appendChild(el);
+        // Kick off the initial port scan for the flash picker (mirrors addDeployPrompt).
+        if (isFlashConfirm) vscode.postMessage({ type: "deploy_rescan" });
       }
 
       // status_update -> a timeline trace line.

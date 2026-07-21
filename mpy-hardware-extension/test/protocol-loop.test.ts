@@ -347,6 +347,39 @@ test("approval: headless auto-confirms, but a callback returning null cancels (n
   assert.equal(cancelled.result.error_kind, "user_cancelled");
 });
 
+test("approval: headless auto-confirm picks ONE id from a single-choice group, all from multi-select", async () => {
+  const res = await executeProtocolTool(
+    tu("sc", "approval_request", {
+      approval_id: "scaffold_config",
+      items: [
+        { id: "mode_timer", group: "scheduler_mode", selected: false },
+        { id: "mode_async", group: "scheduler_mode", selected: true },
+        { id: "mode_thread", group: "scheduler_mode", selected: false },
+        { id: "module_logger", group: "extra_modules", selected: true },
+        { id: "module_flash", group: "extra_modules", selected: true },
+      ],
+      item_groups: { scheduler_mode: { multi_select: false }, extra_modules: { multi_select: true } },
+      actions: [{ value: "confirm", primary: true }],
+    }) as any,
+    { intent: "x" }, { llmClient: scriptedLlm({}) },
+  );
+  const ids = res.result.selected_ids;
+  // Mutation guard: the old code selected ALL ids -> this would be all three modes.
+  assert.deepEqual(ids.filter((i: string) => i.startsWith("mode_")), ["mode_async"], "one scheduler mode (the default), not all three");
+  assert.ok(ids.includes("module_logger") && ids.includes("module_flash"), "all multi-select modules kept");
+});
+
+test("approval: a confirmApproval decision carries serial_port + baud into the result", async () => {
+  const res = await executeProtocolTool(
+    tu("fl", "approval_request", { approval_id: "esp32_flash_confirm", actions: [{ value: "flash_now", primary: true }] }) as any,
+    { intent: "x", confirmApproval: async () => ({ action: "flash_now", serial_port: "COM3", baud: "460800" }) },
+    { llmClient: scriptedLlm({}) },
+  );
+  assert.equal(res.result.action, "flash_now");
+  assert.equal(res.result.serial_port, "COM3", "the chosen port rides into the approval_response");
+  assert.equal(res.result.baud, "460800", "the chosen baud rides into the approval_response");
+});
+
 test("script_run routes to the host runner, forwards stdin, maps a failed gate to success=false (not faked)", async () => {
   const calls: any[] = [];
   const { result } = await executeProtocolTool(

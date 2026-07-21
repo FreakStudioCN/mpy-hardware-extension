@@ -11,7 +11,7 @@
       let localeLocked = false;
       const I18N = {
         en: {
-          credits: "Credits", lowCredits: "Running low on credits today.",
+          credits: "Credits", lowCredits: "Today's quota is nearly exhausted.", creditsExhausted: "Today's quota has been exhausted.",
           stub_badge: "Stub", stub_badge_tip: "This backend runs a stub LLM: it returns a fixed reply and never generates code. Restart the API without MPYHW_LLM_STUB=1 for real output.",
           tab_activity: "Activity", tab_serial: "Serial", tab_wiring: "Wiring", tab_diagram: "Diagram", tab_artifacts: "Artifacts", tab_doctor: "Env",
           device_tools: "Device Tools", dt_path_ph: "/", dt_newname_ph: "new-folder", dt_mip_url_ph: "github:org/repo/pkg", dt_mip_version_ph: "version",
@@ -76,6 +76,7 @@
           detecting_board: "Detecting board…", deploy: "Deploy", rescan: "Rescan",
           no_board: "No board detected — connect one and click Rescan.", connected: "Connected: {p}",
           multiple_devices: "Multiple devices found — pick one:",
+          flash_baud: "Baud rate", group_scheduler_mode: "Scheduling Mode", group_extra_modules: "Modules to Inject",
           copy: "Copy", copied: "Copied",
           device_selected: "Device selected: {p}", files_written: "Generated files written: {p}", files_write_failed: "Generated files not written: {e}",
           saved_location: "No folder open — your project was saved to {p}", open_folder_btn: "Reveal in file manager",
@@ -108,6 +109,7 @@
           retry_btn: "Retry", retrying: "Network unstable — retrying ({n}/{m})…",
           err_out_of_credits: "Out of credits — resets at midnight UTC",
           err_daily_cap_reached: "Daily limit reached — resets at midnight UTC",
+          err_device_unavailable: "No board detected — connect one, or flash MicroPython firmware if the board is new.",
           err_sign_in_required: "Sign in with GitHub to start",
           err_auth_provider_unavailable: "VS Code GitHub auth is unavailable",
           err_github_session_failed: "GitHub sign-in did not complete in VS Code",
@@ -117,7 +119,7 @@
           err_github_token_missing: "Auth API returned no session token",
         },
         zh: {
-          credits: "额度", lowCredits: "今日额度快用完了。",
+          credits: "额度", lowCredits: "今日额度快用完了。", creditsExhausted: "今日额度已用完。",
           stub_badge: "桩", stub_badge_tip: "当前后端跑的是桩 LLM：只返回固定回复、不会真正生成代码。重启 API 时去掉 MPYHW_LLM_STUB=1 才是真实输出。",
           tab_activity: "动态", tab_serial: "串口", tab_wiring: "接线", tab_diagram: "架构图", tab_artifacts: "产物", tab_doctor: "环境",
           device_tools: "设备工具", dt_path_ph: "/", dt_newname_ph: "新建文件夹", dt_mip_url_ph: "github:org/repo/pkg", dt_mip_version_ph: "版本",
@@ -182,6 +184,7 @@
           detecting_board: "正在检测开发板…", deploy: "部署", rescan: "重新扫描",
           no_board: "未检测到开发板——请连接后点击“重新扫描”。", connected: "已连接：{p}",
           multiple_devices: "发现多个设备——请选择一个：",
+          flash_baud: "波特率", group_scheduler_mode: "调度模式", group_extra_modules: "注入模块",
           copy: "复制", copied: "已复制",
           device_selected: "已选择设备：{p}", files_written: "已写入生成文件：{p}", files_write_failed: "生成文件写入失败：{e}",
           saved_location: "未打开文件夹——项目已保存到 {p}", open_folder_btn: "在文件管理器中打开",
@@ -208,6 +211,7 @@
           retry_btn: "重试", retrying: "网络不稳定，正在重试（{n}/{m}）…",
           err_out_of_credits: "额度已用完——UTC 午夜重置",
           err_daily_cap_reached: "今日额度已达上限——UTC 午夜重置",
+          err_device_unavailable: "未检测到开发板——请连接，若是新板请先刷入 MicroPython 固件。",
           err_sign_in_required: "请用 GitHub 登录后开始",
           err_auth_provider_unavailable: "VS Code 的 GitHub 登录不可用",
           err_github_session_failed: "GitHub 登录未在 VS Code 中完成",

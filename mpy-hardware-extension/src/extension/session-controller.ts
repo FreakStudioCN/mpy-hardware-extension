@@ -454,7 +454,7 @@ export class SessionController {
       this.pendingPrompts.set(promptId, (answer, extra) => resolve(
         answer == null
           ? null
-          : { action: answer, selected_ids: extra?.selected_ids ?? [], added_items: extra?.added_items ?? [], text_values: extra?.text_values ?? {}, notes: extra?.notes ?? "" },
+          : { action: answer, selected_ids: extra?.selected_ids ?? [], added_items: extra?.added_items ?? [], text_values: extra?.text_values ?? {}, notes: extra?.notes ?? "", serial_port: extra?.serial_port, baud: extra?.baud },
       ));
       this.record({ type: "approval_requested", promptId, card });
       this.deps.postMessage({ type: "approval_request", promptId, card });

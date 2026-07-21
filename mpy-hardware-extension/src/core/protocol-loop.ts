@@ -108,7 +108,7 @@ export type ProtocolInput = {
   onSafePoint?: (phase: string, hasNextPhase: boolean) => string | null;
   // The single rich approval gate (replaces ask/components/plan/deploy). Resolves the
   // user's decision; null/undefined = headless auto-confirm (select all items).
-  confirmApproval?: (card: any) => Promise<{ action: string; selected_ids?: string[]; added_items?: any[]; text_values?: any; notes?: string } | null>;
+  confirmApproval?: (card: any) => Promise<{ action: string; selected_ids?: string[]; added_items?: any[]; text_values?: any; notes?: string; serial_port?: string; baud?: string | number } | null>;
   startPhase?: string;
   startManifest?: any;
   // Per-phase turn cap (default MAX_TURNS_PER_PHASE). V0 phases need a high budget.
@@ -371,13 +371,24 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // and select all items. With a callback, null means the user dismissed/cancelled
     // (NOT auto-confirm), so it must abort 鈥?conflating the two would silently approve.
     if (typeof input.confirmApproval !== "function") {
-      // item_groups is contract-valid as an array OR an object map; .flatMap on the
-      // object form would throw and crash the headless run, so normalize first.
-      const groups = Array.isArray(p.item_groups) ? p.item_groups : Object.values(p.item_groups ?? {});
-      const ids = [
-        ...((p.items ?? []).map((i: any) => i?.id)),
-        ...groups.flatMap((g: any) => (g?.items ?? []).map((i: any) => i?.id)),
-      ].filter(Boolean);
+      // item_groups is contract-valid as an array OR an object map; normalize to a list
+      // that keeps each group's id + multi_select (the object form is keyed by id).
+      const groupList = Array.isArray(p.item_groups)
+        ? p.item_groups.map((g: any) => ({ id: g?.id, multi_select: g?.multi_select, items: g?.items }))
+        : Object.entries(p.item_groups ?? {}).map(([id, meta]: [string, any]) => ({ id, multi_select: meta?.multi_select, items: meta?.items }));
+      // A single-choice group (multi_select:false — scheduler mode) must contribute ONE
+      // id, not all: auto-selecting every id would post timer+asyncio+_thread at once.
+      const singleChoice = new Set(groupList.filter((g: any) => g?.multi_select === false).map((g: any) => String(g?.id)));
+      const perGroup = new Map<string, any[]>();
+      const takeAll: any[] = [];
+      const bucket = (it: any, gid: string) => {
+        if (singleChoice.has(gid)) { const arr = perGroup.get(gid) ?? []; arr.push(it); perGroup.set(gid, arr); }
+        else if (it?.id != null) takeAll.push(it.id);
+      };
+      for (const it of (p.items ?? [])) bucket(it, it?.group == null ? "" : String(it.group));
+      for (const g of groupList) for (const it of (Array.isArray(g?.items) ? g.items : [])) bucket(it, String(g?.id));
+      const oneEach = [...perGroup.values()].map((list) => (list.find((i: any) => i?.selected === true) ?? list[0])?.id);
+      const ids = [...takeAll, ...oneEach].filter(Boolean);
       // Action key is `value`, but some cards (e.g. wiring network-render) carry only `id`.
       const actionKey = (a: any) => a?.value ?? a?.id;
       const values = (p.actions ?? []).map(actionKey).filter(Boolean);
@@ -387,7 +398,7 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     }
     const decision = await input.confirmApproval(p);
     if (decision == null || decision.action === "cancel") return { result: { ok: false, error_kind: "user_cancelled" } };
-    return { result: { ok: true, approval_id: p.approval_id, action: decision.action, selected_ids: decision.selected_ids ?? [], added_items: decision.added_items ?? [], text_values: decision.text_values ?? {}, notes: decision.notes ?? "" } };
+    return { result: { ok: true, approval_id: p.approval_id, action: decision.action, selected_ids: decision.selected_ids ?? [], added_items: decision.added_items ?? [], text_values: decision.text_values ?? {}, notes: decision.notes ?? "", serial_port: decision.serial_port, baud: decision.baud } };
   }
 
   if (route === "fs") {

@@ -30,7 +30,7 @@ import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveAr
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
-type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
+type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
 
 const execFileAsync = promisify(execFile);
 
@@ -216,6 +216,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
+  // Injectable so tests can drive the "broken venv" branch of the presence poll + doctor.
+  const venvReadyFn = deps.venvReady ?? venvReady;
   // Serializes user-initiated device-tool commands so two never overlap on the one
   // serial port (#54, spec §41). The active-run gate is checked per command below.
   const deviceQueue = new DeviceCommandQueue();
@@ -1004,8 +1006,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "device_presence") {
       // Device Tools presence poll: a host-side port scan (lists ports, never opens one, so
       // it's safe during a flash) lets the tab show "no device" and revert on unplug.
-      try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }
-      catch { webview.postMessage({ type: "device_present", present: false }); }
+      // Gate on venvReady() first: shim.scan() lazily bootstraps the venv (a blocking
+      // pip/venv install), and this poll fires every 2.5s — a broken venv would otherwise
+      // retrigger that install on every tick. No venv -> answer "no device", don't spawn.
+      if (!venvReadyFn()) {
+        webview.postMessage({ type: "device_present", present: false });
+      } else {
+        try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }
+        catch { webview.postMessage({ type: "device_present", present: false }); }
+      }
     }
     if (message.type === "run_doctor_check" || message.type === "doctor_action") {
       // Environment preflight for the Doctor tab. "install_deps" runs the async (non-
@@ -1017,7 +1026,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       const items = await runDoctor({
         detectPython: () => detectPython(vscode),
-        venvReady,
+        venvReady: venvReadyFn,
         scan: () => shim.scan(),
         probeMicroPython: (port: string) => shim.probeMicroPython(port),
       }, { probe: message.probe === true }); // probe only on an explicit Re-check — it interrupts a running board
@@ -1111,11 +1120,14 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Set the deploy port (if the response carries one) before resolving, so the
       // agent's first device tool always sees the chosen port — no select_device race.
       if (message.answer === "confirm" && message.port) shim.setPort?.(message.port);
+      // Flash-confirm card rides serial_port/baud: set the port before resolving so the
+      // agent's flash tool sees it (same no-race rationale as the deploy card's port).
+      if (message.serial_port) shim.setPort?.(message.serial_port);
       // `feedback` rides along on a plan "revise" so the agent can re-plan; `devices`
       // rides along on a component-confirm so the host knows the kept parts. The
       // protocol approval card also rides selected_ids/text_values/added_items here,
       // which confirmApproval unpacks into the approval_response.
-      controller.resolvePrompt(message.promptId, message.answer, { feedback: message.feedback, devices: message.devices, selected_ids: message.selected_ids, text_values: message.text_values, added_items: message.added_items });
+      controller.resolvePrompt(message.promptId, message.answer, { feedback: message.feedback, devices: message.devices, selected_ids: message.selected_ids, text_values: message.text_values, added_items: message.added_items, serial_port: message.serial_port, baud: message.baud });
     }
     if (message.type === "user_supplement" && typeof message.text === "string") {
       // A note the user added mid-build (deliverables 07): queue it, don't interrupt.

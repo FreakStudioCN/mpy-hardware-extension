@@ -267,6 +267,25 @@
       .ask-opt:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); }
       .ask-opt.chosen { background: var(--accent); color: #fff; border-color: var(--accent); }
       .ask-opt:disabled { opacity: .5; cursor: default; }
+      /* Approval-card body (summary/steps/guidance/links) + grouped item sections. */
+      .ask-kv { margin-top: 8px; font-size: 12px; }
+      .ask-kv-row { margin-top: 2px; }
+      .ask-kv-k { color: var(--fg-dim, #8b949e); }
+      .ask-steps { margin: 8px 0 0; padding-left: 20px; font-size: 12px; }
+      .ask-steps li { margin-top: 2px; }
+      .ask-guidance { margin-top: 8px; font-size: 12px; color: var(--fg-dim, #8b949e); }
+      .ask-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+      .ask-link { font-size: 12px; color: var(--accent); }
+      /* item_groups: each group is a titled, separated section. */
+      .ask-group { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-input-border); }
+      .ask-group-h { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-dim, #8b949e); margin-bottom: 4px; }
+      /* Flash-confirm serial-port + baud picker. */
+      .flash-pick { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-input-border); }
+      .flash-status { font-size: 12px; }
+      .flash-ports { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      .flash-baud { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
+      .flash-baud select { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 4px 6px; font-family: var(--ui); font-size: 12px; }
+      .flash-rescan { margin-top: 8px; }
       /* Deploy checkpoint: device-pick chips above a divider, then a primary Deploy
          (full-width) over a secondary Rescan/Cancel row — keeps selection and actions
          visually distinct and avoids the 3-button wrap. */

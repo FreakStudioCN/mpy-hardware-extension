@@ -103,7 +103,7 @@
             const now = new Date();
             capBlockedUntil = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
           }
-          if (msg.error === "out_of_credits" || msg.error === "daily_cap_reached") { quotaExhausted = true; $("quota").classList.add("exhausted"); updateGenerateEnabled(); }
+          if (msg.error === "out_of_credits" || msg.error === "daily_cap_reached") { quotaExhausted = true; $("quota").classList.add("exhausted"); setQuotaWarn(true); updateGenerateEnabled(); }
           addActivity({ text });
         }
         if (msg.type === "session_done") {
