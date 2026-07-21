@@ -894,17 +894,19 @@ test("package browser host: Auto dedups by name keeping the micropython-lib reco
     throw new Error(`unexpected ${url}`);
   });
 
-  await getHandler()({ type: "package_search", source: "auto", query: "aioble" });
+  // query "z": prefix and alphabetical DISAGREE (alpha would be aioble,zzz), so this order
+  // only holds if prefix ranking is applied.
+  await getHandler()({ type: "package_search", source: "auto", query: "z" });
 
   const result = posted.find((m) => m.type === "package_search_result");
   const names = result.results.map((r: any) => r.name);
   assert.equal(names.filter((n: string) => n === "aioble").length, 1, "aioble appears once (deduped)");
   assert.equal(result.results.find((r: any) => r.name === "aioble").source, "micropython_lib", "the micropython-lib record wins the dedup");
-  assert.deepEqual(names, ["aioble", "zzz"], "prefix-match first, deterministic order");
+  assert.deepEqual(names, ["zzz", "aioble"], "prefix-match ranks ahead of alphabetical");
 });
 
 test("package browser host: uPyPI and micropython-lib route to their own endpoints", async () => {
-  const { getHandler, requested } = packageSearchPanel(async (url: string) => {
+  const { getHandler, requested, posted } = packageSearchPanel(async (url: string) => {
     if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ results: [{ name: "bmp280", url: "u" }], source: "upypi" });
     if (url.startsWith("http://api.test/v1/packages/micropython-lib/search")) return jsonResponse({ results: [{ name: "aioble", source: "micropython_lib" }], source: "micropython_lib" });
     throw new Error(`unexpected ${url}`);
@@ -915,6 +917,10 @@ test("package browser host: uPyPI and micropython-lib route to their own endpoin
 
   assert.ok(requested.some((u) => u.includes("/v1/packages/upypi/search?q=bmp")), "uPyPI routed to the upypi endpoint");
   assert.ok(requested.some((u) => u.includes("/v1/packages/micropython-lib/search?q=aio")), "micropython-lib routed to its endpoint");
+  // Explicit-branch uPyPI hits must be tagged per-result (backend returns them untagged);
+  // an untagged hit would mis-render + install by bare name.
+  const upResult = posted.find((m) => m.type === "package_search_result" && m.source === "upypi");
+  assert.equal(upResult.results[0].source, "upypi", "explicit uPyPI hits are tagged source:upypi");
 });
 
 test("package browser host: an upstream failure posts package_search_error, not a throw", async () => {

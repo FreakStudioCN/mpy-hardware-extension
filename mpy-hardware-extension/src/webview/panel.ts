@@ -454,7 +454,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const AUTO_RESULT_LIMIT = 30;
 
   function tagUpypi(results: any): any[] {
-    return (Array.isArray(results) ? results : []).map((hit: any) => ({ ...hit, source: "upypi" }));
+    // Coerce name to a string (defensive: a non-string upstream name would crash the merge sort).
+    return (Array.isArray(results) ? results : []).map((hit: any) => ({ ...hit, name: String(hit?.name ?? ""), source: "upypi" }));
   }
 
   // Dedup by normalized name keeping the micropython-lib record (official + full metadata,

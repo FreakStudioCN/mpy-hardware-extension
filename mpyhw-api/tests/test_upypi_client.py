@@ -39,6 +39,12 @@ def test_search_parses_results_and_drops_incomplete(monkeypatch):
     ]
 
 
+def test_search_coerces_non_string_name(monkeypatch):
+    # A numeric upstream name must come back as a string (else it crashes the Auto merge sort).
+    monkeypatch.setattr(upypi_client, "_fetch_json", lambda url: {"results": [{"name": 42, "url": 7}]})
+    assert upypi_client.search("x") == [{"name": "42", "url": "7"}]
+
+
 def test_search_empty_query_does_not_fetch(monkeypatch):
     def _boom(url):
         raise AssertionError("must not fetch on empty query")

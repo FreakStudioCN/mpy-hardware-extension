@@ -55,8 +55,10 @@ def search(query: str) -> list[dict]:
     url = f"{SEARCH_URL}?{urllib.parse.urlencode({'q': normalized})}"
     data = _fetch_json(url)
     results = data.get("results", []) if isinstance(data, dict) else []
+    # Coerce to str (like the micropython-lib index does): a non-string upstream name would
+    # otherwise crash the browser's Auto merge sort downstream.
     return [
-        {"name": hit["name"], "url": hit["url"]}
+        {"name": str(hit["name"]), "url": str(hit["url"])}
         for hit in results
         if isinstance(hit, dict) and hit.get("name") and hit.get("url")
     ]
