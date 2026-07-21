@@ -2031,6 +2031,36 @@ test("an ungrouped approval card renders flat checkboxes with no group headers (
   assert.equal(card.querySelectorAll('input[type="radio"]').length, 0, "no radios without a single-choice group");
 });
 
+test("a keyless item_groups entry does not double-render ungrouped items", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Array-form item_groups with a malformed entry that carries no group_id and no inline
+  // items. Its gid resolves to "", and ungrouped items (it.group == null) also stringify
+  // to "" — so a keyless group must NOT vacuum them up, or they render twice and post
+  // duplicate ids.
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-keyless",
+    card: {
+      question: "Pick",
+      items: [{ id: "u1", name: "Ungrouped 1" }, { id: "u2", name: "Ungrouped 2" }],
+      item_groups: [{ group_header: "Broken", multi_select: false }],
+      actions: [{ label: "Confirm", value: "confirm", primary: true }],
+    },
+  });
+
+  const card = document.querySelector('[data-prompt-id="p-keyless"]')!;
+  assert.equal(card.querySelectorAll('input[type="checkbox"]').length, 2, "the two items render once, flat");
+  assert.equal(card.querySelectorAll('input[type="radio"]').length, 0, "the keyless group renders nothing");
+
+  posted.length = 0;
+  (card.querySelector("button.ask-opt") as HTMLButtonElement).click();
+  const ids = [...posted.find((m) => m.type === "ui_prompt_response").selected_ids];
+  assert.deepStrictEqual(ids, ["u1", "u2"], "each id is posted exactly once, no duplicates");
+});
+
 test("esp32_flash_confirm renders its body and a port+baud picker; Start Flashing is gated on a port", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -2075,7 +2105,7 @@ test("esp32_flash_confirm renders its body and a port+baud picker; Start Flashin
   assert.equal(resp.length, 1, "exactly one response posted");
   assert.equal(resp[0].answer, "flash_now");
   assert.equal(resp[0].serial_port, "COM3", "the chosen port rides on the response");
-  assert.equal(resp[0].baud, "460800", "the default baud rides on the response");
+  assert.strictEqual(resp[0].baud, 460800, "baud rides as a number, matching the plugin contract sample");
 });
 
 test("a single detected port auto-selects and enables Start Flashing", async () => {

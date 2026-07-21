@@ -64,9 +64,12 @@
       // is passed in so every input still lands in the card's shared checks[] array.
       function renderApprovalGroup(group, items, main, promptId, renderItem) {
         const gid = group.id == null ? "" : String(group.id);
-        const groupItems = (Array.isArray(group.items) && group.items.length)
-          ? group.items
-          : items.filter((it) => it && String(it.group == null ? "" : it.group) === gid);
+        // A group with no id must NOT vacuum up every ungrouped item (it.group == null also
+        // stringifies to "", and those items already render flat) — a keyless group is
+        // honored only via its explicit inline items, else it renders nothing.
+        const inlineItems = (Array.isArray(group.items) && group.items.length) ? group.items : null;
+        const groupItems = inlineItems
+          || (gid ? items.filter((it) => it && String(it.group == null ? "" : it.group) === gid) : []);
         if (!groupItems.length) return;
         const single = group.multi_select === false;
         const section = document.createElement("div"); section.className = "ask-group";
@@ -193,7 +196,7 @@
           const msg = { type: "ui_prompt_response", promptId, answer: action, selected_ids, text_values };
           // Ride the chosen port + baud so the host sets the port before the agent's flash
           // tool runs (same no-race rationale as the deploy card's port passthrough).
-          if (isFlashConfirm && action === FLASH_ACTION && selectedPort) { msg.serial_port = selectedPort; msg.baud = selectedBaud; }
+          if (isFlashConfirm && action === FLASH_ACTION && selectedPort) { msg.serial_port = selectedPort; msg.baud = Number(selectedBaud); }
           vscode.postMessage(msg);
           // Disable every button in the card (actions + the flash picker's rescan/port
           // buttons), not just the action row, so nothing stays clickable after answering.

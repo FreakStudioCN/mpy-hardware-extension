@@ -369,6 +369,34 @@ test("deploy confirm sets the chosen port on the prompt response, before the age
   assert.deepEqual(selectedPorts, ["COM8"]);
 });
 
+test("flash serial_port repoints the shim only on a flash_now answer, not on cancel", async () => {
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const selectedPorts: Array<string | null> = [];
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: () => {},
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const shim = {
+    scan: async () => ["COM3", "COM9"],
+    setPort: (port: string | null) => selectedPorts.push(port),
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); }, shim });
+  // A cancelled flash card can still carry serial_port; it must NOT repoint the shim.
+  await handler?.({ type: "ui_prompt_response", promptId: "flash-1", answer: "cancel", serial_port: "COM3" });
+  await handler?.({ type: "ui_prompt_response", promptId: "flash-2", answer: "flash_now", serial_port: "COM9" });
+
+  assert.deepEqual(selectedPorts, ["COM9"]);
+});
+
 test("view provider wires the same session controller into a docked webview view", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;

@@ -1122,7 +1122,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       if (message.answer === "confirm" && message.port) shim.setPort?.(message.port);
       // Flash-confirm card rides serial_port/baud: set the port before resolving so the
       // agent's flash tool sees it (same no-race rationale as the deploy card's port).
-      if (message.serial_port) shim.setPort?.(message.serial_port);
+      if (message.answer === "flash_now" && message.serial_port) shim.setPort?.(message.serial_port);
       // `feedback` rides along on a plan "revise" so the agent can re-plan; `devices`
       // rides along on a component-confirm so the host knows the kept parts. The
       // protocol approval card also rides selected_ids/text_values/added_items here,
