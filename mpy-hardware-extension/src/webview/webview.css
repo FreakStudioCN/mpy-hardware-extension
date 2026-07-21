@@ -516,7 +516,6 @@
       .dt-del { color: var(--red); }
       .dt-name { flex: 1; font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .dt-mip { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); flex-wrap: wrap; }
-      .dt-pkg { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); }
       .dt-pkg-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 2px 2px; }
       /* Search | Installed segmented toggle (mirrors the board picker's .board-toggle). */
       .dt-pkg-toggle { display: inline-flex; align-self: flex-start; }

@@ -152,7 +152,13 @@ export class DeviceShim {
   async listDir(dir?: string): Promise<string[]> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.list_files", { port, path: dir });
-    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "ls_failed");
+    // Forward the raw message (like uninstallPackage) so a caller branching on it -- e.g. the
+    // Installed view treating a missing /lib as "no packages" -- sees the real "No such file"
+    // text, not just the coarse kind.
+    if (r?.status !== "ok") {
+      const kind = r?.error_kind ?? "ls_failed";
+      throw new Error(r?.message ? `${kind}: ${r.message}` : kind);
+    }
     return r.files ?? [];
   }
 

@@ -118,6 +118,17 @@ def test_uninstall_package_removes_lib_paths_guards_name_and_treats_absent_as_ok
     monkeypatch.setattr(serve, "_run_mpremote", lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "", "no such file"))
     assert serve._uninstall_package("COM3", "notthere") == {"status": "ok", "removed": False}
 
+    # A REAL failure on a present path must NOT be masked by later absent candidates.
+    def real_error_then_absent(args, timeout=30):
+        if args[-1].endswith(".mpy") or args[-1].endswith(".py"):
+            return subprocess.CompletedProcess(args, 1, "", "no such file")
+        return subprocess.CompletedProcess(args, 1, "", "could not remove: directory not empty")
+
+    monkeypatch.setattr(serve, "_run_mpremote", real_error_then_absent)
+    res = serve._uninstall_package("COM3", "aioble")
+    assert res["status"] == "error" and res["error_kind"] == "mpremote_error"
+    assert "directory not empty" in res["message"]
+
 
 def test_write_device_file_mkdirs_parents_then_copies_to_mirror_path():
     shim = Shim(runner=lambda cmd, **_kwargs: subprocess.CompletedProcess(cmd, 0, "", ""))

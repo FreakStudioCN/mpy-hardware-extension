@@ -2818,10 +2818,13 @@ test("package browser: a card installs, shows Installed, then uninstalls", async
   assert.match(status.textContent || "", /Installed/i, "the card shows Installed");
   assert.equal(btn.dataset.installed, "1", "the button is now in the installed state");
 
-  // Uninstall: posts device_tool_uninstall by name; result flips back to Install.
+  // Uninstall needs a confirm: the first click only arms ("Confirm?"), a second runs it.
+  btn.click();
+  assert.equal(posted.filter((m) => m.type === "device_tool_uninstall").length, 0, "first Uninstall click only arms");
+  assert.match(btn.textContent || "", /Confirm/i, "the button shows a confirm prompt");
   btn.click();
   const un = posted.find((m) => m.type === "device_tool_uninstall");
-  assert.ok(un && un.name === "aioble", "Uninstall posts device_tool_uninstall with the package name");
+  assert.ok(un && un.name === "aioble", "the confirm click posts device_tool_uninstall with the package name");
   post(dom, { type: "device_tool_result", command: "uninstall", result: { name: "aioble" } });
   assert.match(status.textContent || "", /Removed/i, "the card shows Removed");
   assert.equal(btn.dataset.installed, "", "the button is back to the install state");
@@ -2870,8 +2873,9 @@ test("installed view: empty /lib shows the empty state; Uninstall posts + refres
   assert.equal(document.getElementById("dtPkgInstalledEmpty")!.classList.contains("hidden"), false, "empty state shown for empty /lib");
 
   post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } });
-  (document.querySelector("#dtPkgInstalled .dt-row .dt-act") as HTMLButtonElement).click();
-  assert.ok(posted.find((m) => m.type === "device_tool_uninstall" && m.name === "aioble"), "Uninstall posts device_tool_uninstall");
+  const uninstallBtn = document.querySelector("#dtPkgInstalled .dt-row .dt-act") as HTMLButtonElement;
+  uninstallBtn.click(); uninstallBtn.click(); // arm + confirm
+  assert.ok(posted.find((m) => m.type === "device_tool_uninstall" && m.name === "aioble"), "Uninstall posts device_tool_uninstall after confirm");
   const before = posted.filter((m) => m.type === "device_tool_list_lib").length;
   post(dom, { type: "device_tool_result", command: "uninstall", result: { name: "aioble" } });
   assert.ok(posted.filter((m) => m.type === "device_tool_list_lib").length > before, "an uninstall refreshes the installed list");
@@ -2898,6 +2902,46 @@ test("installed view: paginates 10 per page", async () => {
   const next = [...document.querySelectorAll("#dtPkgInstalled .dt-pager-btn")].find((b: any) => b.textContent === "›") as HTMLButtonElement;
   next.click();
   assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 2, "next page shows the remaining 2");
+});
+
+test("installed view: a not-found /lib error shows the empty state, not an error", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // A fresh board has no /lib; the shim forwards the real message so the not-found branch fires.
+  post(dom, { type: "device_tool_error", command: "list_lib", error: "mpremote_error: ls: /lib: No such file or directory." });
+  assert.equal(document.getElementById("dtPkgInstalledEmpty")!.classList.contains("hidden"), false, "no /lib -> empty state");
+  assert.equal((document.getElementById("dtPkgStatus")!.textContent || "").trim(), "", "no error surfaced for a missing /lib");
+});
+
+test("installed view: a real /lib read error surfaces a message", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_error", command: "list_lib", error: "mpremote_error: some genuine failure" });
+  assert.match(document.getElementById("dtPkgStatus")!.textContent || "", /Could not read/i, "a genuine error is surfaced");
+});
+
+test("packages: only one install runs at a time; the first card flips, not the second", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // enable install
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "x" },
+    { name: "urequests", version: "0.9.0", source: "micropython_lib", install_cmd: "y" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+
+  (rows[0] as HTMLButtonElement).click();
+  const btnA = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement;
+  btnA.click(); // install A -> in flight
+  (rows[1] as HTMLButtonElement).click(); // expand B (collapses A but keeps btnA in the DOM)
+  const btnB = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement;
+  btnB.click(); // ignored while A is pending
+
+  assert.equal(posted.filter((m) => m.type === "device_tool_mip").length, 1, "a second install while one is pending is ignored");
+  post(dom, { type: "device_tool_result", command: "mip_install", result: { url: "aioble" } });
+  assert.equal(btnA.dataset.installed, "1", "the first card is marked installed by its own result");
+  assert.equal(btnB.dataset.installed, "", "the second card is untouched");
 });
 
 test("package browser: a uPyPI result resolves lazily on click, then shows metadata", async () => {

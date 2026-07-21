@@ -484,16 +484,20 @@ def _uninstall_package(port, name):
     if not slug or "/" in slug or slug in (".", ".."):
         return {"status": "error", "error_kind": "invalid_package_name", "message": str(name)}
     removed = False
-    last_err = ""
+    real_err = ""  # a failure that is NOT just "absent" -- must not be masked by a later absent candidate
     for path in (f":/lib/{slug}", f":/lib/{slug}.mpy", f":/lib/{slug}.py"):
         r = _run_mpremote(["connect", port, "resume", "fs", "rm", "-r", path], timeout=30)
         if r.returncode == 0:
             removed = True
         else:
-            last_err = (r.stderr or "").strip()
-    if removed or _is_absent(last_err):
-        return {"status": "ok", "removed": removed}
-    return {"status": "error", "error_kind": "mpremote_error", "message": last_err}
+            err = (r.stderr or "").strip()
+            if not _is_absent(err):
+                real_err = err
+    # A genuine removal failure on a present path is an error even if a sibling candidate was
+    # absent; only all-absent (nothing installed under that name) counts as a no-op success.
+    if real_err and not removed:
+        return {"status": "error", "error_kind": "mpremote_error", "message": real_err}
+    return {"status": "ok", "removed": removed}
 
 
 def _fs_mkdir(port, path):
