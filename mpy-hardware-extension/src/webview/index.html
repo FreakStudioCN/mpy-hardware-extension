@@ -180,25 +180,63 @@
                a device is present (dtNoDev shows instead). -->
           <div id="dtDeviceUi" class="hidden">
             <div class="dt-busy hidden" id="dtBusy"></div>
-            <!-- Breadcrumb path is the primary navigation; click a crumb to jump up. -->
-            <div class="dt-crumbs" id="dtCrumbs"></div>
-            <!-- Add / manage controls, collapsed by default so the file list is the focus. -->
-            <details class="dt-actions">
-              <summary class="dt-sum" data-i18n="dt_actions">Add or manage</summary>
-              <div class="dt-actions-body">
-                <input type="text" id="dtPath" class="dt-input" placeholder="/" data-i18n-ph="dt_path_ph" title="Type a path and press Enter" />
-                <button type="button" class="dt-act" id="dtUpload" data-i18n="dt_upload">Upload</button>
-                <div class="dt-row"><input type="text" id="dtNewName" class="dt-input" placeholder="new-folder" data-i18n-ph="dt_newname_ph" /><button type="button" class="dt-act" id="dtMkdir" data-i18n="dt_mkdir">New folder</button></div>
-              </div>
-            </details>
-            <div id="dtEntries"></div>
-            <div class="empty hidden" id="dtEmpty"><h4 data-i18n="dt_empty_h">Empty folder</h4><p data-i18n="dt_empty_p">Nothing here on the connected board.</p></div>
-            <div class="dt-mip">
-              <input type="text" id="dtMipUrl" class="dt-input" placeholder="github:org/repo/pkg" data-i18n-ph="dt_mip_url_ph" />
-              <input type="text" id="dtMipVersion" class="dt-input dt-input-sm" placeholder="version" data-i18n-ph="dt_mip_version_ph" />
-              <button type="button" class="dt-act" id="dtMipInstall" data-i18n="dt_mip_install">Install (mip)</button>
-            </div>
-            <div class="dt-status" id="dtStatus"></div>
+            <!-- Board files section: browse + manage the connected board's filesystem. -->
+            <section class="dt-section">
+              <div class="dt-section-h" data-i18n="dt_sec_files">Board files</div>
+              <!-- Breadcrumb path is the primary navigation; click a crumb to jump up. -->
+              <div class="dt-crumbs" id="dtCrumbs"></div>
+              <!-- Add / manage controls, collapsed by default so the file list is the focus. -->
+              <details class="dt-actions">
+                <summary class="dt-sum" data-i18n="dt_actions">Add or manage</summary>
+                <div class="dt-actions-body">
+                  <input type="text" id="dtPath" class="dt-input" placeholder="/" data-i18n-ph="dt_path_ph" title="Type a path and press Enter" />
+                  <button type="button" class="dt-act" id="dtUpload" data-i18n="dt_upload">Upload</button>
+                  <div class="dt-row"><input type="text" id="dtNewName" class="dt-input" placeholder="new-folder" data-i18n-ph="dt_newname_ph" /><button type="button" class="dt-act" id="dtMkdir" data-i18n="dt_mkdir">New folder</button></div>
+                </div>
+              </details>
+              <div id="dtEntries"></div>
+              <div class="empty hidden" id="dtEmpty"><h4 data-i18n="dt_empty_h">Empty folder</h4><p data-i18n="dt_empty_p">Nothing here on the connected board.</p></div>
+              <div class="dt-status" id="dtFilesStatus"></div>
+            </section>
+            <!-- Packages section: search standard sources (micropython-lib + uPyPI) and
+                 install onto the board. GraftSense is never offered as a source; the raw
+                 mip/GitHub URL is kept under Advanced only. -->
+            <section class="dt-section">
+              <div class="dt-section-h" data-i18n="dt_sec_packages">Packages</div>
+              <div class="dt-pkg-body">
+                  <!-- Search the live sources vs. list what's actually installed on the board (/lib). -->
+                  <div class="dt-pkg-toggle" role="group">
+                    <button type="button" class="dt-pkg-seg active" id="dtPkgModeSearch" aria-pressed="true" data-i18n="dt_pkg_mode_search">Search packages</button>
+                    <button type="button" class="dt-pkg-seg" id="dtPkgModeInstalled" aria-pressed="false" data-i18n="dt_pkg_mode_installed">Installed packages</button>
+                  </div>
+                  <div id="dtPkgSearchView">
+                    <div class="dt-row">
+                      <select id="dtPkgSource" class="dt-input dt-input-sm" title="Package source">
+                        <option value="auto" data-i18n="dt_pkg_src_auto">Auto</option>
+                        <option value="micropython_lib" data-i18n="dt_pkg_src_lib">MicroPython-lib</option>
+                        <option value="upypi" data-i18n="dt_pkg_src_upypi">uPyPI</option>
+                      </select>
+                      <input type="text" id="dtPkgQuery" class="dt-input" placeholder="search packages" data-i18n-ph="dt_pkg_query_ph" />
+                      <button type="button" class="dt-act" id="dtPkgSearch" data-i18n="dt_pkg_search">Search</button>
+                    </div>
+                    <div id="dtPkgResults" class="dt-pkg-results"></div>
+                    <!-- GitHub fallback / advanced: raw mip or github: URL install. -->
+                    <details class="dt-pkg-adv" id="dtPkgAdv">
+                      <summary class="dt-sum" data-i18n="dt_pkg_adv">Advanced: raw mip / GitHub URL</summary>
+                      <div class="dt-mip">
+                        <input type="text" id="dtMipUrl" class="dt-input" placeholder="github:org/repo/pkg" data-i18n-ph="dt_mip_url_ph" />
+                        <input type="text" id="dtMipVersion" class="dt-input dt-input-sm" placeholder="version" data-i18n-ph="dt_mip_version_ph" />
+                        <button type="button" class="dt-act" id="dtMipInstall" data-i18n="dt_mip_install">Install (mip)</button>
+                      </div>
+                    </details>
+                  </div>
+                  <div id="dtPkgInstalledView" class="hidden">
+                    <div id="dtPkgInstalled" class="dt-pkg-results"></div>
+                    <div class="empty hidden" id="dtPkgInstalledEmpty"><h4 data-i18n="dt_pkg_installed_none">No packages installed</h4></div>
+                  </div>
+                  <div class="dt-status" id="dtPkgStatus"></div>
+                </div>
+            </section>
           </div>
           <div class="empty" id="dtNoDev"><h4 data-i18n="dt_nodev_h">No device connected</h4><p data-i18n="dt_nodev_p">Plug in a MicroPython board to browse its files.</p></div>
           <div class="empty hidden" id="dtEnvSetup"><h4 data-i18n="dt_env_setup_h">Set up environment</h4><p data-i18n="dt_env_setup_p">Blockless needs to install device tools before it can detect your board.</p><button type="button" class="dt-act" id="dtEnvSetupBtn" data-i18n="doc_install">Install dependencies</button></div>

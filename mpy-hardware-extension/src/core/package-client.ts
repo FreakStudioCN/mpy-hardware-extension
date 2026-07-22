@@ -28,12 +28,28 @@ export class PackageClient {
     this.fetchImpl = fetchImpl;
   }
 
-  search(request: { query?: string; capabilities?: string[]; board_id?: string }) {
+  search(request: { query?: string; capabilities?: string[]; board_id?: string; source?: string }) {
     return this.post("/v1/packages/search", request);
   }
 
   resolve(request: { intent: string; capabilities: string[]; board_id: string }) {
     return this.post("/v1/packages/resolve", request);
+  }
+
+  // Live uPyPI search returns name+url only; resolve fetches the package.json for the rich
+  // metadata (description/author/license/chips/fw/deps/urls/install_cmd), used by the
+  // package browser lazily on selection.
+  upypiSearch(query: string) {
+    return this.get(`/v1/packages/upypi/search?q=${encodeURIComponent(query)}`);
+  }
+
+  upypiResolve(url: string) {
+    return this.get(`/v1/packages/upypi/resolve?url=${encodeURIComponent(url)}`);
+  }
+
+  // Official micropython-lib index: full records (installed by name), no per-package resolve.
+  micropythonLibSearch(query: string) {
+    return this.get(`/v1/packages/micropython-lib/search?q=${encodeURIComponent(query)}`);
   }
 
   getPackageContext(name: string, version: string) {

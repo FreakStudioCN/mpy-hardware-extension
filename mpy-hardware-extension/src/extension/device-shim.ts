@@ -81,6 +81,19 @@ export class DeviceShim {
     }
   }
 
+  // Best-effort uninstall (mip has no uninstall): the shim removes the package's /lib files.
+  // Returns whether a file was actually removed -- an all-absent result is a non-error "nothing
+  // was there", and the UI must not claim "Removed" for it.
+  async uninstallPackage(name: string): Promise<boolean> {
+    const port = await this.ensurePort();
+    const r = await this.rpc("device.uninstall_package", { name, port });
+    if (r?.status !== "ok") {
+      const kind = r?.error_kind ?? "uninstall_failed";
+      throw new Error(r?.message ? `${kind}: ${r.message}` : kind);
+    }
+    return r?.removed === true;
+  }
+
   async writeMainPy(content: string): Promise<void> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.write_main_py", { code: content, port });
@@ -142,7 +155,13 @@ export class DeviceShim {
   async listDir(dir?: string): Promise<string[]> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.list_files", { port, path: dir });
-    if (r?.status !== "ok") throw new Error(r?.error_kind ?? "ls_failed");
+    // Forward the raw message (like uninstallPackage) so a caller branching on it -- e.g. the
+    // Installed view treating a missing /lib as "no packages" -- sees the real "No such file"
+    // text, not just the coarse kind.
+    if (r?.status !== "ok") {
+      const kind = r?.error_kind ?? "ls_failed";
+      throw new Error(r?.message ? `${kind}: ${r.message}` : kind);
+    }
     return r.files ?? [];
   }
 

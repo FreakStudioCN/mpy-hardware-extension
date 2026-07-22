@@ -470,6 +470,102 @@ def _fs_remove(port, path):
     return {"status": "ok"}
 
 
+def _is_absent(err):
+    e = (err or "").lower()
+    # Anchor the errno match: "errno 2" as a bare substring also matches errno 20-29
+    # (ENOTDIR/EISDIR/ENOSPC ...), so a real failure would be misread as "absent" and
+    # reported as a successful no-op. Require a word boundary after the 2.
+    return "no such file" in e or "enoent" in e or "does not exist" in e or re.search(r"\berrno 2\b", e) is not None
+
+
+# A package __init__ can be either source or compiled: `mpremote mip install` defaults to .mpy
+# (mip.py sets args.mpy=True and fetches the device's mpy ABI variant), so a real package like
+# aioble lands as __init__.mpy + core.mpy + ... with NO __init__.py. Both forms mark "one package".
+_PACKAGE_INIT_NAMES = ("__init__.py", "__init__.mpy")
+
+
+def _is_shared_namespace(files):
+    """Pure: is a /lib/<name>/ dir a SHARED namespace that `rm -r` would wrongly wipe whole?
+
+    True iff the dir has NO package __init__ (neither __init__.py nor __init__.mpy) AND more than
+    one entry -- then each entry is an independently-installed module (umqtt/ = simple + robust,
+    installed as umqtt.simple / umqtt.robust) and removing the dir takes siblings with it. A dir
+    WITH an __init__ is one package (safe to remove whole); a 0/1-entry dir is not shared."""
+    names = [f.strip().rstrip("/") for f in files]
+    if any(n in _PACKAGE_INIT_NAMES for n in names):
+        return False
+    return len(names) > 1
+
+
+def _uninstall_package(port, name):
+    """Best-effort uninstall: mip has no uninstall, so remove the package's files under /lib.
+    Covers a package dir (/lib/<name>/), a flat module (/lib/<name>.mpy|.py), and a dotted
+    module laid down nested (umqtt.simple -> /lib/umqtt/simple.py). The name is restricted to
+    an ALLOWLIST charset directly under /lib (never a blocklist): mpremote raw-interpolates the
+    name into on-device Python (os.remove('%s')), so a permissive name is arbitrary code exec
+    on the board. An all-absent result is success (nothing installed under that name)."""
+    slug = (name or "").strip().strip("/")
+    # Allowlist, plus explicit reject of "." and ".." (the charset allows dots, so a bare "."
+    # -> `rm -r :/lib/.` = wipe all of /lib, and ".." would traverse). A guard REWRITE must
+    # re-cover the cases the old guard did. A blocklist here cannot anticipate mpremote's quoting.
+    if not slug or slug in (".", "..") or ".." in slug or not re.fullmatch(r"[A-Za-z0-9_.-]+", slug):
+        return {"status": "error", "error_kind": "invalid_package_name", "message": str(name)}
+    # Guard the Installed-view path: a bare name (no dot) whose /lib/<name>/ is a shared namespace
+    # dir must NOT `rm -r` -- that wipes sibling modules. Refuse and point at the specific module.
+    # Dotted names skip this: their candidates target the exact nested file, never the dir.
+    if "." not in slug:
+        listing = _list_files(port, f":/lib/{slug}")
+        if listing.get("status") == "ok":
+            files = [f.strip().rstrip("/") for f in (listing.get("files") or [])]
+            if _is_shared_namespace(files):
+                modules = ", ".join(f"{slug}.{f.rsplit('.', 1)[0]}" for f in files)
+                return {"status": "error", "error_kind": "shared_namespace",
+                        "message": f"'{slug}' is a shared namespace with multiple modules. "
+                                   f"Uninstall a specific one instead: {modules}."}
+        elif not _is_absent(listing.get("message") or ""):
+            # ls failed for a reason other than "absent" (busy / comms / mid-op): we cannot verify
+            # the dir isn't a shared namespace, so REFUSE the destructive rm -r rather than risk
+            # wiping siblings. Fail closed -- an absent path (the common flat-module case) is the
+            # only ls failure we treat as "safe to proceed".
+            return {"status": "error", "error_kind": "mpremote_error",
+                    "message": f"could not list /lib/{slug} before uninstall: "
+                               f"{(listing.get('message') or '').strip()}"}
+    candidates = [f":/lib/{slug}", f":/lib/{slug}.mpy", f":/lib/{slug}.py"]
+    nested = slug.replace(".", "/")
+    if nested != slug:
+        # A dotted package (umqtt.simple) installs as /lib/umqtt/simple.py — probe the nested
+        # file forms so a dotted name isn't a false "Removed". rm on a file is not recursive
+        # over a shared namespace dir, so this can't wipe sibling umqtt.* packages.
+        candidates += [f":/lib/{nested}.mpy", f":/lib/{nested}.py"]
+    removed = False
+    real_err = None  # message of a genuine, identifiable (non-absent) failure
+    unknown_fail = False  # a non-zero exit that gave no message at all -- ambiguous
+    for path in candidates:
+        r = _run_mpremote(["connect", port, "resume", "fs", "rm", "-r", path], timeout=30)
+        if r.returncode == 0:
+            removed = True
+            continue
+        # mpremote writes some rm errors ("no such file", OSError) to STDOUT, not stderr -- read
+        # both, else a genuine failure is misclassified as "absent" and reported as "Removed".
+        err = (r.stderr or r.stdout or "").strip()
+        if _is_absent(err):
+            continue
+        if err:
+            real_err = err  # permission/busy/etc -- authoritative even if a sibling was removed
+        else:
+            unknown_fail = True  # non-zero with no message -- don't silently treat as absent
+    # A genuine, identifiable failure on a present path is an error even if another candidate was
+    # removed: reporting "Removed" while a file is still importable on the board is the bug. An
+    # unexplained non-zero exit is an error only when NOTHING was removed, so a silently-absent
+    # probe (an extension we tried that isn't there) alongside a real removal isn't misread.
+    if real_err is not None:
+        return {"status": "error", "error_kind": "mpremote_error", "message": real_err}
+    if unknown_fail and not removed:
+        return {"status": "error", "error_kind": "mpremote_error",
+                "message": "mpremote exited non-zero with no message"}
+    return {"status": "ok", "removed": removed}
+
+
 def _fs_mkdir(port, path):
     r = _run_mpremote(["connect", port, "resume", "fs", "mkdir", path], timeout=15)
     if r.returncode != 0:
@@ -843,6 +939,8 @@ def _dispatch(shim, method, params):
     if method == "device.install_package":
         res = shim.install_package(params["port"], params["url"], params.get("version"))
         return {"status": "ok"} if res.get("ok") else {"status": "error", "error_kind": res.get("error"), "message": res.get("message")}
+    if method == "device.uninstall_package":
+        return _uninstall_package(params["port"], params["name"])
     if method == "device.serial_read_until":
         markers = params.get("markers") or ([params["pattern"]] if params.get("pattern") else [])
         return shim.serial_read_until(params["port"], markers, float(params.get("timeout_sec", 10)))

@@ -687,6 +687,45 @@ test("device tools delete is host-armed: a bare message only arms; the echoed no
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
+test("device tools uninstall is host-armed: a bare message only arms; the echoed nonce uninstalls once; a replay can't re-run (PR #45 review, checklist #1)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const uninstalled: string[] = [];
+    const shim = { uninstallPackage: async (name: string) => { uninstalled.push(name); return true; } };
+    const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    // 1) Bare uninstall = arm only (the stale/duplicate/crafted case): nothing removed; host issues a nonce.
+    await handler!({ type: "device_tool_uninstall", name: "aioble" });
+    assert.equal(uninstalled.length, 0, "a bare uninstall does not remove — it only arms");
+    const armed = posted.find((m) => m.type === "device_tool_uninstall_armed" && m.name === "aioble");
+    assert.ok(armed && armed.nonce, "host posts an arm carrying a one-shot nonce");
+
+    // 2) A message with the WRONG nonce still only re-arms, never uninstalls.
+    await handler!({ type: "device_tool_uninstall", name: "aioble", nonce: "not-the-nonce" });
+    assert.equal(uninstalled.length, 0, "a mismatched nonce cannot uninstall");
+
+    // 3) Echo the current nonce -> the uninstall happens exactly once. (Step 2 re-armed; use the latest.)
+    const latest = posted.filter((m) => m.type === "device_tool_uninstall_armed").at(-1);
+    await handler!({ type: "device_tool_uninstall", name: "aioble", nonce: latest.nonce });
+    assert.deepEqual(uninstalled, ["aioble"], "the confirm with the host nonce uninstalls exactly once");
+
+    // 4) Replay the consumed nonce -> no second uninstall (re-arms instead).
+    await handler!({ type: "device_tool_uninstall", name: "aioble", nonce: latest.nonce });
+    assert.deepEqual(uninstalled, ["aioble"], "a replayed nonce cannot uninstall again");
+
+    // 5) A nonce armed for a DIFFERENT package cannot uninstall this one.
+    await handler!({ type: "device_tool_uninstall", name: "umqtt" }); // arm umqtt
+    const umqttArm = posted.filter((m) => m.type === "device_tool_uninstall_armed" && m.name === "umqtt").at(-1);
+    await handler!({ type: "device_tool_uninstall", name: "aioble", nonce: umqttArm.nonce });
+    assert.deepEqual(uninstalled, ["aioble"], "a nonce armed for umqtt cannot uninstall aioble");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 test("device tools download fails (never clobbers) once every dedup slot is taken — N3", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
   try {
@@ -950,6 +989,221 @@ function jsonResponse(body: unknown, status = 200) {
     json: async () => body,
   } as Response;
 }
+
+// Minimal panel wired only for package-browser message handling (no workspace/shim).
+function packageSearchPanel(fetchImpl: any): { getHandler: () => (m: any) => Promise<void>; posted: any[]; requested: string[] } {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  const requested: string[] = [];
+  const wrapped = async (url: string, init?: RequestInit) => { requested.push(url); return fetchImpl(url, init); };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: wrapped });
+  return { getHandler: () => handler!, posted, requested };
+}
+
+test("package browser host: Auto searches both live sources and never the local catalog", async () => {
+  // Auto merges live micropython-lib + uPyPI; it must NOT hit /v1/packages/search (the
+  // graftsense-heavy local catalog), and each result carries its own source.
+  const { getHandler, posted, requested } = packageSearchPanel(async (url: string) => {
+    if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ results: [{ name: "bmp280", url: "u" }], source: "upypi" });
+    if (url.startsWith("http://api.test/v1/packages/micropython-lib/search")) return jsonResponse({ results: [{ name: "aioble", version: "0.6.0", source: "micropython_lib" }], source: "micropython_lib" });
+    throw new Error(`unexpected ${url}`);
+  });
+
+  await getHandler()({ type: "package_search", source: "auto", query: "b" });
+
+  assert.ok(requested.some((u) => u.includes("/v1/packages/upypi/search?q=b")), "Auto hits uPyPI");
+  assert.ok(requested.some((u) => u.includes("/v1/packages/micropython-lib/search?q=b")), "Auto hits micropython-lib");
+  assert.ok(!requested.some((u) => u.includes("/v1/packages/search")), "Auto never hits the local catalog");
+  const result = posted.find((m) => m.type === "package_search_result");
+  const bySource: Record<string, string> = {};
+  for (const r of result.results) bySource[r.name] = r.source;
+  assert.equal(bySource["bmp280"], "upypi", "uPyPI hit tagged with its per-result source");
+  assert.equal(bySource["aioble"], "micropython_lib", "lib hit keeps its source");
+});
+
+test("package browser host: mergePackages invariants hold over generated hit lists (property test)", async () => {
+  // Hand-rolled property test (no fast-check dep): drive the Auto merge with many random lib/uPyPI
+  // hit lists and assert the invariants example tests can't span -- a killed rank()/dedup/cap/sort
+  // currently fails only a single hand-picked fixture.
+  const norm = (n: string) => String(n || "").toLowerCase().replace(/[-_]/g, "_");
+  const POOL = ["aio", "aioble", "a-b", "a_b", "AIO", "bmp280", "bmp-280", "umqtt", "zzz", "Zzz", "req"];
+  let rngState = 0x2545f491; // fixed seed -> deterministic run (no Math.random)
+  const rnd = () => { rngState = (rngState * 1103515245 + 12345) & 0x7fffffff; return rngState / 0x7fffffff; };
+  const pick = () => POOL[Math.floor(rnd() * POOL.length)];
+  const sampleNames = () => Array.from({ length: Math.floor(rnd() * 6) }, pick);
+
+  let curLib: any[] = [], curUpypi: any[] = [];
+  const { getHandler, posted } = packageSearchPanel(async (url: string) => {
+    if (url.includes("/upypi/search")) return jsonResponse({ results: curUpypi });
+    if (url.includes("/micropython-lib/search")) return jsonResponse({ results: curLib });
+    throw new Error(`unexpected ${url}`);
+  });
+
+  const QUERIES = ["a", "bmp", "z", ""];
+  for (let i = 0; i < 60; i++) {
+    curLib = sampleNames().map((name) => ({ name, version: "1", source: "micropython_lib" }));
+    curUpypi = sampleNames().map((name) => ({ name, url: "u" })); // uPyPI shape: name+url; host tags source
+    const query = QUERIES[i % QUERIES.length];
+    posted.length = 0;
+    await getHandler()({ type: "package_search", source: "auto", query });
+    const out: any[] = posted.find((m) => m.type === "package_search_result").results;
+    const keys = out.map((r) => norm(r.name));
+
+    // (a) dedup: no two outputs share a normalized name.
+    assert.equal(new Set(keys).size, keys.length, `iter ${i} (q=${query}): outputs deduped by normalized name`);
+    // (b) a name present in BOTH sources keeps the micropython_lib record.
+    const libKeys = new Set(curLib.map((h) => norm(h.name)));
+    const upypiKeys = new Set(curUpypi.map((h) => norm(h.name)));
+    for (const r of out) {
+      if (libKeys.has(norm(r.name)) && upypiKeys.has(norm(r.name))) {
+        assert.equal(r.source, "micropython_lib", `iter ${i}: a name in both sources keeps the lib record`);
+      }
+    }
+    // (c) capped at AUTO_RESULT_LIMIT.
+    assert.ok(out.length <= 30, `iter ${i}: capped at 30`);
+    // (d) deterministic: identical inputs reproduce the same order.
+    posted.length = 0;
+    await getHandler()({ type: "package_search", source: "auto", query });
+    assert.deepEqual(posted.find((m) => m.type === "package_search_result").results.map((r: any) => norm(r.name)), keys, `iter ${i}: order is deterministic`);
+    // (e) prefix matches sort before non-prefix (non-empty query).
+    if (query) {
+      let seenNonPrefix = false;
+      for (const r of out) {
+        if (r.name.toLowerCase().startsWith(query)) assert.ok(!seenNonPrefix, `iter ${i}: a prefix match must not follow a non-prefix one`);
+        else seenNonPrefix = true;
+      }
+    }
+  }
+
+  // (c) explicit cap: the random pool is too small to ever exceed 30, so force it -- 50 distinct
+  // names must return exactly AUTO_RESULT_LIMIT (30).
+  curLib = Array.from({ length: 50 }, (_, k) => ({ name: `pkg${String(k).padStart(2, "0")}`, version: "1", source: "micropython_lib" }));
+  curUpypi = [];
+  posted.length = 0;
+  await getHandler()({ type: "package_search", source: "auto", query: "pkg" });
+  assert.equal(posted.find((m) => m.type === "package_search_result").results.length, 30, "50 distinct names cap to AUTO_RESULT_LIMIT (30)");
+});
+
+test("package browser host: a non-string micropython-lib name is coerced, not crashing the merge (PR #45 minor)", async () => {
+  // libHits reach mergePackages un-tagged (unlike tagUpypi'd uPyPI hits); a non-string name must
+  // be coerced on the survivor, or the sort's toLowerCase() throws. Reverting the String() coerce
+  // makes this throw instead of returning "42".
+  const { getHandler, posted } = packageSearchPanel(async (url: string) => {
+    if (url.includes("/micropython-lib/search")) return jsonResponse({ results: [{ name: 42, version: 1, source: "micropython_lib" }] });
+    if (url.includes("/upypi/search")) return jsonResponse({ results: [] });
+    throw new Error(`unexpected ${url}`);
+  });
+  await getHandler()({ type: "package_search", source: "auto", query: "4" });
+  const res = posted.find((m) => m.type === "package_search_result");
+  assert.ok(res, "the merge did not throw on a non-string lib name");
+  assert.equal(res.results[0].name, "42", "the lib name is coerced to a string");
+});
+
+test("package browser host: Auto returns the surviving source when the other upstream is down", async () => {
+  const { getHandler, posted } = packageSearchPanel(async (url: string) => {
+    if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ detail: { error: "upstream_unavailable" } }, 502);
+    if (url.startsWith("http://api.test/v1/packages/micropython-lib/search")) return jsonResponse({ results: [{ name: "aioble", source: "micropython_lib" }], source: "micropython_lib" });
+    throw new Error(`unexpected ${url}`);
+  });
+
+  await getHandler()({ type: "package_search", source: "auto", query: "aio" });
+
+  const result = posted.find((m) => m.type === "package_search_result");
+  assert.ok(result, "one source down still returns results");
+  assert.equal(posted.find((m) => m.type === "package_search_error"), undefined, "no error while one source survives");
+  assert.deepEqual(result.results.map((r: any) => r.name), ["aioble"]);
+});
+
+test("package browser host: Auto errors only when BOTH live sources are down", async () => {
+  const { getHandler, posted } = packageSearchPanel(async () => jsonResponse({ detail: { error: "upstream_unavailable" } }, 502));
+  await getHandler()({ type: "package_search", source: "auto", query: "x" });
+  assert.ok(posted.find((m) => m.type === "package_search_error"), "both down -> package_search_error");
+});
+
+test("package browser host: Auto dedups by name keeping the micropython-lib record, deterministic order", async () => {
+  const { getHandler, posted } = packageSearchPanel(async (url: string) => {
+    if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ results: [{ name: "aioble", url: "u" }, { name: "zzz", url: "u2" }], source: "upypi" });
+    if (url.startsWith("http://api.test/v1/packages/micropython-lib/search")) return jsonResponse({ results: [{ name: "aioble", version: "0.6.0", source: "micropython_lib" }], source: "micropython_lib" });
+    throw new Error(`unexpected ${url}`);
+  });
+
+  // query "z": prefix and alphabetical DISAGREE (alpha would be aioble,zzz), so this order
+  // only holds if prefix ranking is applied.
+  await getHandler()({ type: "package_search", source: "auto", query: "z" });
+
+  const result = posted.find((m) => m.type === "package_search_result");
+  const names = result.results.map((r: any) => r.name);
+  assert.equal(names.filter((n: string) => n === "aioble").length, 1, "aioble appears once (deduped)");
+  assert.equal(result.results.find((r: any) => r.name === "aioble").source, "micropython_lib", "the micropython-lib record wins the dedup");
+  assert.deepEqual(names, ["zzz", "aioble"], "prefix-match ranks ahead of alphabetical");
+});
+
+test("package browser host: uPyPI and micropython-lib route to their own endpoints", async () => {
+  const { getHandler, requested, posted } = packageSearchPanel(async (url: string) => {
+    if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ results: [{ name: "bmp280", url: "u" }], source: "upypi" });
+    if (url.startsWith("http://api.test/v1/packages/micropython-lib/search")) return jsonResponse({ results: [{ name: "aioble", source: "micropython_lib" }], source: "micropython_lib" });
+    throw new Error(`unexpected ${url}`);
+  });
+
+  await getHandler()({ type: "package_search", source: "upypi", query: "bmp" });
+  await getHandler()({ type: "package_search", source: "micropython_lib", query: "aio" });
+
+  assert.ok(requested.some((u) => u.includes("/v1/packages/upypi/search?q=bmp")), "uPyPI routed to the upypi endpoint");
+  assert.ok(requested.some((u) => u.includes("/v1/packages/micropython-lib/search?q=aio")), "micropython-lib routed to its endpoint");
+  // Explicit-branch uPyPI hits must be tagged per-result (backend returns them untagged);
+  // an untagged hit would mis-render + install by bare name.
+  const upResult = posted.find((m) => m.type === "package_search_result" && m.source === "upypi");
+  assert.equal(upResult.results[0].source, "upypi", "explicit uPyPI hits are tagged source:upypi");
+});
+
+test("package browser host: an upstream failure posts package_search_error, not a throw", async () => {
+  const { getHandler, posted } = packageSearchPanel(async () => jsonResponse({ detail: { error: "upstream_unavailable" } }, 502));
+
+  await getHandler()({ type: "package_search", source: "upypi", query: "x" });
+
+  const err = posted.find((m) => m.type === "package_search_error");
+  assert.ok(err, "a 502 degrades to package_search_error");
+  // The error must echo source+query so the webview can drop a stale failure the same way it
+  // drops a stale result (PR #45 review: error responses were uncorrelated).
+  assert.equal(err.source, "upypi", "the error echoes its source for correlation");
+  assert.equal(err.query, "x", "the error echoes its query for correlation");
+});
+
+test("package browser host: a resolve failure echoes the url for correlation (PR #45 review)", async () => {
+  const { getHandler, posted } = packageSearchPanel(async () => jsonResponse({ detail: { error: "upstream_unavailable" } }, 502));
+
+  await getHandler()({ type: "package_resolve", url: "https://upypi.net/pkgs/aaa/1.0.0" });
+
+  const err = posted.find((m) => m.type === "package_resolve_error");
+  assert.ok(err, "a failed resolve posts package_resolve_error");
+  assert.equal(err.url, "https://upypi.net/pkgs/aaa/1.0.0", "the error echoes the url so a stale one is dropped");
+});
+
+test("device_tool_list_lib lists /lib via the shim under its own command name (not list)", async () => {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const dirs: string[] = [];
+  const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const shim = { listDir: async (dir: string) => { dirs.push(dir); return ["aioble/"]; } };
+  const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network"); }, shim });
+
+  await handler!({ type: "device_tool_list_lib" });
+
+  assert.deepEqual(dirs, ["/lib"], "lists the board's /lib");
+  const res = posted.find((m) => m.type === "device_tool_result" && m.command === "list_lib");
+  assert.ok(res, "result carries the distinct list_lib command, not list");
+  assert.deepEqual(res.result.entries, ["aioble/"]);
+});
 
 function aht20Context() {
   return { package: { name: "aht20_driver", version: "1.0.0" }, import_names: ["aht20"], constructors: ["AHT20(i2c)"], read_properties: ["temperature"], bus: ["i2c"], pin_roles: ["i2c_sda", "i2c_scl"], install: { url: "https://upypi.net/pkgs/aht20/1.0.0/package.json" } };

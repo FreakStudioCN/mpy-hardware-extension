@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
+from app import micropython_lib_index, upypi_client
 from app.models import PackageResolveRequest, PackageSearchRequest
-from app.package_store import PackageStore
+from app.package_store import PackageStore, board_family
 
 
 router = APIRouter()
@@ -18,12 +19,47 @@ def package_index():
 
 @router.post("/v1/packages/search")
 def search_packages(request: PackageSearchRequest):
-    return {"results": store().search(request.query, request.capabilities, request.limit), "cached": True}
+    results = store().search(
+        request.query,
+        request.capabilities,
+        request.limit,
+        board_family(request.board_id or ""),
+        request.source,
+    )
+    return {"results": results, "cached": True}
 
 
 @router.post("/v1/packages/resolve")
 def resolve_packages(request: PackageResolveRequest):
     return store().resolve(request.intent, request.capabilities, request.board_id)
+
+
+# Declared BEFORE /v1/packages/{name}/{version} so "upypi" is not captured as a {name}.
+@router.get("/v1/packages/upypi/search")
+def upypi_search(q: str = ""):
+    try:
+        return {"results": upypi_client.search(q), "source": "upypi"}
+    except upypi_client.UpypiUnavailable:
+        raise HTTPException(status_code=502, detail={"error": "upstream_unavailable", "source": "upypi"})
+
+
+@router.get("/v1/packages/upypi/resolve")
+def upypi_resolve(url: str):
+    try:
+        return upypi_client.resolve(url)
+    except upypi_client.UpypiBadRequest:
+        # A non-upypi.net URL is a caller error, not an upstream outage.
+        raise HTTPException(status_code=400, detail={"error": "invalid_package_url", "source": "upypi"})
+    except upypi_client.UpypiUnavailable:
+        raise HTTPException(status_code=502, detail={"error": "upstream_unavailable", "source": "upypi"})
+
+
+@router.get("/v1/packages/micropython-lib/search")
+def micropython_lib_search(q: str = ""):
+    try:
+        return {"results": micropython_lib_index.search(q), "source": "micropython_lib"}
+    except micropython_lib_index.MicropythonLibUnavailable:
+        raise HTTPException(status_code=502, detail={"error": "upstream_unavailable", "source": "micropython_lib"})
 
 
 @router.get("/v1/packages/{name}/{version}")

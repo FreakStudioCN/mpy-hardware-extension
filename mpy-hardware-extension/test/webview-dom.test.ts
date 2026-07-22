@@ -2844,7 +2844,26 @@ test("device tools: a mutation's result stays visible; the auto-refresh does not
   // an mkdir success sets the status, then silently refreshes the listing
   post(dom, { type: "device_tool_result", command: "mkdir", result: { path: "/x" } });
   post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
-  assert.match(document.getElementById("dtStatus").textContent, /mkdir done/i, "the done message survives the auto-refresh");
+  // A file-op result reports under the Board files section status (not the Packages one).
+  assert.match(document.getElementById("dtFilesStatus").textContent, /mkdir done/i, "the done message survives the auto-refresh");
+});
+
+test("device tools: a mip install result reports under the Packages status, not Board files", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "mip_install", result: { url: "aioble" } });
+  assert.match(document.getElementById("dtPkgStatus")!.textContent || "", /Installed/i, "install result lands in the Packages status (no card active)");
+  assert.equal((document.getElementById("dtFilesStatus")!.textContent || "").trim(), "", "Board files status stays clear on a package install");
+});
+
+test("device tools: unplug clears a lingering Packages status (no stale message)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  post(dom, { type: "device_tool_result", command: "mip_install", result: { url: "aioble" } });
+  assert.notEqual((document.getElementById("dtPkgStatus")!.textContent || "").trim(), "", "packages status is set after an install");
+  post(dom, { type: "device_present", present: false }); // board unplugged
+  assert.equal((document.getElementById("dtPkgStatus")!.textContent || "").trim(), "", "packages status is cleared when the device drops");
 });
 
 test("device tools: device_busy shows the busy banner naming the owning phase", async () => {
@@ -3127,4 +3146,492 @@ test("returning to the Activity tab re-follows to the latest (no snap to top)", 
   tabwrap.scrollTop = 0; // the clamp a shorter sibling view causes
   (document.querySelector('.tab[data-tab="activity"]') as HTMLButtonElement).click();
   assert.equal(tabwrap.scrollTop, 500, "returning to Activity scrolls .tabwrap to the bottom");
+});
+
+
+test("package browser: Search posts a package_search with the selected source and query", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "auto";
+  (document.getElementById("dtPkgQuery") as HTMLInputElement).value = "temperature";
+  (document.getElementById("dtPkgSearch") as HTMLButtonElement).click();
+
+  const msg = posted.find((m) => m.type === "package_search");
+  assert.ok(msg, "Search posts a package_search");
+  assert.equal(msg.source, "auto");
+  assert.equal(msg.query, "temperature");
+});
+
+test("package browser: an Auto merged list keys resolve on each result's own source", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // A prior list clears the no-device guard so Install is enabled.
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  // Auto returns a merged list: a full micropython-lib record + a name+url uPyPI hit.
+  post(dom, { type: "package_search_result", source: "auto", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", description: "BLE", install_cmd: "mpremote mip install aioble" },
+    { name: "bmp280", source: "upypi", url: "https://upypi.net/pkgs/bmp280/1.0.0" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+  assert.equal(rows.length, 2, "both merged results render");
+
+  // The micropython-lib row fills directly (no resolve) and installs by bare name.
+  (rows[0] as HTMLButtonElement).click();
+  assert.equal(posted.filter((m) => m.type === "package_resolve").length, 0, "a lib result does not resolve");
+  (document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement).click();
+  assert.equal(posted.find((m) => m.type === "device_tool_mip").url, "aioble", "lib installs by bare name");
+
+  // The uPyPI row (name+url only) resolves on expand.
+  (rows[1] as HTMLButtonElement).click();
+  const resolve = posted.find((m) => m.type === "package_resolve");
+  assert.ok(resolve && resolve.url === "https://upypi.net/pkgs/bmp280/1.0.0", "a uPyPI result resolves on expand");
+});
+
+test("package browser: results are an accordion (one open at a time, click again to close)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+    { name: "urequests", version: "0.9.0", source: "micropython_lib", install_cmd: "mpremote mip install urequests" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+  const bodies = document.querySelectorAll("#dtPkgResults .dt-pkg-detail");
+
+  (rows[0] as HTMLButtonElement).click();
+  assert.equal(bodies[0].classList.contains("hidden"), false, "first row expands");
+  (rows[1] as HTMLButtonElement).click();
+  assert.equal(bodies[0].classList.contains("hidden"), true, "opening the second collapses the first");
+  assert.equal(bodies[1].classList.contains("hidden"), false, "second row expands");
+  (rows[1] as HTMLButtonElement).click();
+  assert.equal(bodies[1].classList.contains("hidden"), true, "clicking an open row closes it");
+});
+
+test("package browser: results paginate 10 per page", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const results = Array.from({ length: 12 }, (_, i) => ({ name: `pkg${String(i).padStart(2, "0")}`, source: "micropython_lib", install_cmd: "x" }));
+  post(dom, { type: "package_search_result", source: "micropython_lib", results });
+
+  assert.equal(document.querySelectorAll("#dtPkgResults .dt-pkg-row").length, 10, "first page shows 10 of 12");
+  const pager = document.querySelector("#dtPkgResults .dt-pkg-pager")!;
+  assert.ok(pager, "a pager appears when there are more than 10 results");
+  const next = [...pager.querySelectorAll(".dt-pager-btn")].find((b: any) => b.textContent === "›") as HTMLButtonElement;
+  next.click();
+  assert.equal(document.querySelectorAll("#dtPkgResults .dt-pkg-row").length, 2, "next page shows the remaining 2");
+});
+
+test("package browser: each result row shows its source chip", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "package_search_result", source: "auto", results: [
+    { name: "aioble", source: "micropython_lib", install_cmd: "x" },
+    { name: "bmp280", source: "upypi", url: "u" },
+  ] });
+  const chips = [...document.querySelectorAll("#dtPkgResults .dt-pkg-src")].map((c: any) => c.textContent);
+  assert.equal(chips.length, 2, "each row carries a source chip");
+  assert.ok(chips.some((c: string) => /MicroPython-lib/i.test(c)), "a micropython-lib chip is shown");
+  assert.ok(chips.some((c: string) => /uPyPI/i.test(c)), "a uPyPI chip is shown");
+});
+
+test("package browser: a card installs, shows Installed, then uninstalls", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // enable install
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+  const detail = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden)") as HTMLElement;
+  const btn = detail.querySelector(".dt-pkg-install") as HTMLButtonElement;
+  const status = detail.querySelector(".dt-pkg-cardstatus") as HTMLElement;
+
+  // Install: shows the in-card progress bar and posts device_tool_mip.
+  btn.click();
+  assert.ok(posted.find((m) => m.type === "device_tool_mip"), "Install posts device_tool_mip");
+  assert.ok(status.classList.contains("installing"), "the card shows the installing bar");
+
+  // Result: bar clears, card shows Installed, button flips to Uninstall.
+  post(dom, { type: "device_tool_result", command: "mip_install", result: { url: "aioble" } });
+  assert.equal(status.classList.contains("installing"), false, "the bar clears on the result");
+  assert.match(status.textContent || "", /Installed/i, "the card shows Installed");
+  assert.equal(btn.dataset.installed, "1", "the button is now in the installed state");
+
+  // Uninstall needs a HOST-enforced confirm: the first click posts a bare arm request (no nonce,
+  // nothing removed yet); the host replies with a one-shot nonce; the confirm click echoes it.
+  btn.click();
+  const arm = posted.filter((m) => m.type === "device_tool_uninstall");
+  assert.equal(arm.length, 1, "first Uninstall click posts one arm request");
+  assert.equal(arm[0].nonce, undefined, "the arm request carries NO nonce (nothing is removed on it)");
+  assert.match(btn.textContent || "", /Confirm/i, "the button shows a confirm prompt");
+  post(dom, { type: "device_tool_uninstall_armed", name: "aioble", nonce: "n-123" }); // host arms
+  btn.click();
+  const confirm = posted.filter((m) => m.type === "device_tool_uninstall").find((m) => m.nonce);
+  assert.ok(confirm && confirm.name === "aioble" && confirm.nonce === "n-123", "the confirm click echoes the host nonce");
+  post(dom, { type: "device_tool_result", command: "uninstall", result: { name: "aioble", removed: true } });
+  assert.match(status.textContent || "", /Removed/i, "the card shows Removed");
+  assert.equal(btn.dataset.installed, "", "the button is back to the install state");
+});
+
+test("package browser: an uninstall that removed nothing shows a truthful line, not 'Removed' (PR #45 review)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+  const detail = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden)") as HTMLElement;
+  const btn = detail.querySelector(".dt-pkg-install") as HTMLButtonElement;
+  const status = detail.querySelector(".dt-pkg-cardstatus") as HTMLElement;
+  btn.click(); btn.click(); // arm + confirm the uninstall
+  // The shim found nothing installed under that name (all paths absent): removed:false. The card
+  // must NOT claim "Removed" -- that lies about what happened on the board.
+  post(dom, { type: "device_tool_result", command: "uninstall", result: { name: "aioble", removed: false } });
+  assert.doesNotMatch(status.textContent || "", /Removed/i, "removed:false must not render 'Removed'");
+  assert.match(status.textContent || "", /Nothing to remove/i, "it shows a truthful 'nothing to remove' line");
+});
+
+test("package browser: a stale search ERROR does not wipe a newer query's results (PR #45 review)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "micropython_lib";
+  const search = (q: string) => { (document.getElementById("dtPkgQuery") as HTMLInputElement).value = q; (document.getElementById("dtPkgSearch") as HTMLButtonElement).click(); };
+  search("aaa");
+  search("bbb"); // pending is now { query: "bbb" }
+  post(dom, { type: "package_search_result", source: "micropython_lib", query: "bbb", results: [{ name: "bbbpkg", source: "micropython_lib", install_cmd: "x" }] });
+  // The slower "aaa" FAILURE arrives after -> must be dropped, not blank out "bbb"'s results.
+  post(dom, { type: "package_search_error", source: "micropython_lib", query: "aaa", error: "search_failed" });
+  const names = [...document.querySelectorAll("#dtPkgResults .dt-pkg-name")].map((n: any) => n.textContent);
+  assert.ok(names.some((n) => /bbbpkg/.test(n)), "the newer query's results survive the stale error");
+  // A MATCHING error (current query) DOES render — proves the handler isn't a no-op that only ever
+  // drops (mutating onPackageSearchError to always-return-early must fail here, not just the stale case).
+  post(dom, { type: "package_search_error", source: "micropython_lib", query: "bbb", error: "search_failed" });
+  assert.match(document.getElementById("dtPkgResults")!.textContent || "", /Search failed/i, "a current-query error renders the failure line");
+  assert.equal(document.querySelectorAll("#dtPkgResults .dt-pkg-name").length, 0, "the failed query clears the stale results");
+});
+
+test("package browser: a stale resolve ERROR for a collapsed row does not overwrite the open one (PR #45 review)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  post(dom, { type: "package_search_result", source: "upypi", results: [
+    { name: "aaa", source: "upypi", url: "https://upypi.net/pkgs/aaa/1.0.0" },
+    { name: "bbb", source: "upypi", url: "https://upypi.net/pkgs/bbb/1.0.0" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+  (rows[0] as HTMLButtonElement).click(); // expand A -> resolve A
+  (rows[1] as HTMLButtonElement).click(); // expand B -> resolve B (A collapses; pending = B's url)
+  const bodyB = document.querySelectorAll("#dtPkgResults .dt-pkg-detail")[1] as HTMLElement;
+  // A's resolve ERROR arrives late. With the url echoed it must be dropped, not stamp an error on B.
+  post(dom, { type: "package_resolve_error", url: "https://upypi.net/pkgs/aaa/1.0.0", error: "resolve_failed" });
+  assert.doesNotMatch(bodyB.textContent || "", /failed|error/i, "A's late error must not overwrite B's still-loading body");
+  // B's own resolve then fills B correctly (proves B was never clobbered).
+  post(dom, { type: "package_resolve_result", url: "https://upypi.net/pkgs/bbb/1.0.0", record: { name: "bbb", source: "upypi", install_cmd: "mip-BBB" } });
+  assert.match(bodyB.textContent || "", /mip-BBB/, "B's own resolve fills B");
+});
+
+test("package browser: an unplug-during-install clears the in-flight guard so Install works after replug (PR #45 #2)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const installOnce = () => {
+    post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+    post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+      { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+    ] });
+    (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+    (document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement).click();
+  };
+  installOnce();
+  assert.equal(posted.filter((m) => m.type === "device_tool_mip").length, 1, "first install posted");
+  // Board unplugged mid-install: the device-gone error returns before the normal in-flight clear,
+  // so dtShowNoDevice must reset it, or every later Install/Uninstall silently no-ops.
+  post(dom, { type: "device_tool_error", command: "mip_install", error: "device_unavailable" });
+  installOnce();
+  assert.equal(posted.filter((m) => m.type === "device_tool_mip").length, 2, "a new install proceeds after the device-gone error cleared the guard");
+});
+
+test("package browser: a late resolve for a re-collapsed row does not fill the wrong body (PR #45 #4)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  post(dom, { type: "package_search_result", source: "upypi", results: [
+    { name: "aaa", source: "upypi", url: "https://upypi.net/pkgs/aaa/1.0.0" },
+    { name: "bbb", source: "upypi", url: "https://upypi.net/pkgs/bbb/1.0.0" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+  (rows[0] as HTMLButtonElement).click(); // expand A -> resolve A
+  (rows[1] as HTMLButtonElement).click(); // expand B -> resolve B (A collapses; pending = B's url)
+  const bodyB = document.querySelectorAll("#dtPkgResults .dt-pkg-detail")[1] as HTMLElement;
+  // A's resolve arrives LATE (out of order). With the url echoed it must be dropped, not fill B.
+  // (install_cmd is rendered into the body; description is only in the row head.)
+  post(dom, { type: "package_resolve_result", url: "https://upypi.net/pkgs/aaa/1.0.0", record: { name: "aaa", source: "upypi", install_cmd: "mip-AAA" } });
+  assert.doesNotMatch(bodyB.textContent || "", /mip-AAA/, "A's late resolve must not fill B (would install A under B)");
+  // B's own resolve then fills B correctly.
+  post(dom, { type: "package_resolve_result", url: "https://upypi.net/pkgs/bbb/1.0.0", record: { name: "bbb", source: "upypi", install_cmd: "mip-BBB" } });
+  assert.match(bodyB.textContent || "", /mip-BBB/, "B's own resolve fills B");
+});
+
+test("package browser: a resolve error surfaces on the row instead of throwing (PR #45 review)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  post(dom, { type: "package_search_result", source: "upypi", results: [
+    { name: "aaa", source: "upypi", url: "https://upypi.net/pkgs/aaa/1.0.0" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click(); // expand -> resolve pending
+  const body = document.querySelector("#dtPkgResults .dt-pkg-detail") as HTMLElement;
+  // The resolve fails: the handler must NOT throw (it referenced a renamed var) and must clear the
+  // "Searching…" placeholder to an error, or the row is stuck forever.
+  post(dom, { type: "package_resolve_error", error: "resolve_failed" });
+  assert.ok((body.textContent || "").length > 0, "the row shows something (handler did not throw)");
+  assert.doesNotMatch(body.textContent || "", /Searching|Loading/i, "the row is no longer stuck on the loading placeholder");
+});
+
+test("package browser: a stale search reply does not overwrite a newer query (PR #45 #6)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "micropython_lib";
+  const search = (q: string) => { (document.getElementById("dtPkgQuery") as HTMLInputElement).value = q; (document.getElementById("dtPkgSearch") as HTMLButtonElement).click(); };
+  search("aaa");
+  search("bbb"); // pending is now { query: "bbb" }
+  post(dom, { type: "package_search_result", source: "micropython_lib", query: "bbb", results: [{ name: "bbbpkg", source: "micropython_lib", install_cmd: "x" }] });
+  // The slower "aaa" reply arrives after -> must be dropped, not overwrite "bbb".
+  post(dom, { type: "package_search_result", source: "micropython_lib", query: "aaa", results: [{ name: "aaapkg", source: "micropython_lib", install_cmd: "x" }] });
+  const names = [...document.querySelectorAll("#dtPkgResults .dt-pkg-name")].map((n: any) => n.textContent);
+  assert.ok(names.some((n) => /bbbpkg/.test(n)), "the newer query's results are shown");
+  assert.ok(!names.some((n) => /aaapkg/.test(n)), "the stale query's late reply was dropped");
+});
+
+test("package browser: a board swap between polls drops the prior board's installed rows (PR #45 #7)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  document.getElementById("deviceToolsOpen")!.click();
+  post(dom, { type: "device_present", present: true, ports: ["COM3"] });          // board A on COM3
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } });
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 1, "board A's installed row shows");
+  // Board B on a different port, never reporting zero between polls.
+  post(dom, { type: "device_present", present: true, ports: ["COM7"] });
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 0, "A's installed rows cleared on the swap (no stale Uninstall row)");
+});
+
+test("installed view: an errored list_lib clears the installed set so search cards aren't mis-marked (PR #45 review)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  document.getElementById("deviceToolsOpen")!.click();
+  post(dom, { type: "device_present", present: true, ports: ["COM3"] });
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } });
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 1, "aioble shows installed");
+  // A later /lib listing fails (not a clean "empty board"): the prior installed set must be
+  // dropped, else a search card for aioble mislabels its button as the installed state.
+  post(dom, { type: "device_tool_error", command: "list_lib", error: "device_busy" });
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 0, "the errored listing clears the rows");
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click(); // expand to render its button
+  const btn = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement;
+  assert.equal(btn.dataset.installed, "", "aioble's card is NOT marked installed after the errored listing");
+});
+
+test("installed view: a list_lib result does NOT repaint the Board files pane", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py", "lib/"] } });
+  const filesBefore = document.querySelectorAll("#dtEntries .dt-name").length;
+
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } });
+
+  assert.equal(document.querySelectorAll("#dtEntries .dt-name").length, filesBefore, "Board files list is untouched by list_lib");
+  assert.equal((document.getElementById("dtPath") as HTMLInputElement).value, "/", "the Board files path is unchanged");
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 1, "the installed view rendered the /lib entry");
+});
+
+test("installed view: toggle switches views and lists /lib", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("dtPkgModeInstalled") as HTMLButtonElement).click();
+  assert.equal((document.getElementById("dtPkgSearchView") as HTMLElement).classList.contains("hidden"), true, "search view hidden");
+  assert.equal((document.getElementById("dtPkgInstalledView") as HTMLElement).classList.contains("hidden"), false, "installed view shown");
+  assert.equal(document.getElementById("dtPkgModeInstalled")!.getAttribute("aria-pressed"), "true");
+  assert.ok(posted.find((m) => m.type === "device_tool_list_lib"), "switching to Installed lists /lib");
+  (document.getElementById("dtPkgModeSearch") as HTMLButtonElement).click();
+  assert.equal((document.getElementById("dtPkgSearchView") as HTMLElement).classList.contains("hidden"), false, "search view restored");
+});
+
+test("installed view: parses /lib entries (dir + .mpy/.py, deduped)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/", "urequests.mpy", "bmp280.py", "urequests.py"] } });
+  const names = [...document.querySelectorAll("#dtPkgInstalled .dt-name")].map((n: any) => n.textContent);
+  assert.deepEqual(names, ["aioble", "urequests", "bmp280"], "dir + module names, urequests deduped");
+});
+
+test("installed view: empty /lib shows the empty state; Uninstall posts + refreshes", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // clear no-device
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: [] } });
+  assert.equal(document.getElementById("dtPkgInstalledEmpty")!.classList.contains("hidden"), false, "empty state shown for empty /lib");
+
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } });
+  const uninstallBtn = document.querySelector("#dtPkgInstalled .dt-row .dt-act") as HTMLButtonElement;
+  uninstallBtn.click(); uninstallBtn.click(); // arm + confirm
+  assert.ok(posted.find((m) => m.type === "device_tool_uninstall" && m.name === "aioble"), "Uninstall posts device_tool_uninstall after confirm");
+  const before = posted.filter((m) => m.type === "device_tool_list_lib").length;
+  post(dom, { type: "device_tool_result", command: "uninstall", result: { name: "aioble" } });
+  assert.ok(posted.filter((m) => m.type === "device_tool_list_lib").length > before, "an uninstall refreshes the installed list");
+});
+
+test("installed view: a search result is marked Installed from the real /lib set", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries: ["aioble/"] } }); // seed the set
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "mpremote mip install aioble" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+  const btn = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement;
+  assert.equal(btn.dataset.installed, "1", "an already-installed package shows as Uninstall in search results");
+});
+
+test("installed view: paginates 10 per page", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const entries = Array.from({ length: 12 }, (_, i) => `pkg${String(i).padStart(2, "0")}.py`);
+  post(dom, { type: "device_tool_result", command: "list_lib", result: { entries } });
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 10, "first page shows 10 of 12");
+  const next = [...document.querySelectorAll("#dtPkgInstalled .dt-pager-btn")].find((b: any) => b.textContent === "›") as HTMLButtonElement;
+  next.click();
+  assert.equal(document.querySelectorAll("#dtPkgInstalled .dt-row").length, 2, "next page shows the remaining 2");
+});
+
+test("installed view: a not-found /lib error shows the empty state, not an error", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // A fresh board has no /lib; the shim forwards the real message so the not-found branch fires.
+  post(dom, { type: "device_tool_error", command: "list_lib", error: "mpremote_error: ls: /lib: No such file or directory." });
+  assert.equal(document.getElementById("dtPkgInstalledEmpty")!.classList.contains("hidden"), false, "no /lib -> empty state");
+  assert.equal((document.getElementById("dtPkgStatus")!.textContent || "").trim(), "", "no error surfaced for a missing /lib");
+});
+
+test("installed view: a real /lib read error surfaces a message", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_error", command: "list_lib", error: "mpremote_error: some genuine failure" });
+  assert.match(document.getElementById("dtPkgStatus")!.textContent || "", /Could not read/i, "a genuine error is surfaced");
+});
+
+test("packages: only one install runs at a time; the first card flips, not the second", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // enable install
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", install_cmd: "x" },
+    { name: "urequests", version: "0.9.0", source: "micropython_lib", install_cmd: "y" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+
+  (rows[0] as HTMLButtonElement).click();
+  const btnA = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement;
+  btnA.click(); // install A -> in flight
+  (rows[1] as HTMLButtonElement).click(); // expand B (collapses A but keeps btnA in the DOM)
+  const btnB = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement;
+  btnB.click(); // ignored while A is pending
+
+  assert.equal(posted.filter((m) => m.type === "device_tool_mip").length, 1, "a second install while one is pending is ignored");
+  post(dom, { type: "device_tool_result", command: "mip_install", result: { url: "aioble" } });
+  assert.equal(btnA.dataset.installed, "1", "the first card is marked installed by its own result");
+  assert.equal(btnB.dataset.installed, "", "the second card is untouched");
+});
+
+test("package browser: a uPyPI result resolves lazily on click, then shows metadata", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // enable Install
+  post(dom, { type: "package_search_result", source: "upypi", results: [
+    { name: "bmp280", source: "upypi", url: "https://upypi.net/pkgs/bmp280/1.0.0" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+
+  const resolve = posted.find((m) => m.type === "package_resolve");
+  assert.ok(resolve, "clicking a uPyPI hit posts package_resolve");
+  assert.equal(resolve.url, "https://upypi.net/pkgs/bmp280/1.0.0");
+
+  post(dom, { type: "package_resolve_result", record: {
+    name: "bmp280", version: "1.0.0", source: "upypi", author: "leezisheng", license: "MIT",
+    package_json_url: "https://upypi.net/pkgs/bmp280/1.0.0/package.json",
+    install_cmd: "mpremote mip install https://upypi.net/pkgs/bmp280/1.0.0/package.json",
+    urls: [["bmp280.py", "code/bmp280.py"]],
+    deps: [["https://upypi.net/pkgs/ws61_driver/1.0.0", "latest"]],
+  } });
+  const detail = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden)") as HTMLElement;
+  assert.match(detail.textContent || "", /leezisheng/, "author shown in detail");
+  assert.match(detail.textContent || "", /MIT/, "license shown in detail");
+  assert.match(detail.textContent || "", /bmp280\.py/, "url/file list shown in detail");
+  assert.doesNotMatch(detail.textContent || "", /code\/bmp280\.py/, "shows the target name, not the raw source path");
+  assert.match(detail.textContent || "", /ws61_driver/, "dependency name (not just count) shown in detail");
+  assert.doesNotMatch(detail.textContent || "", /upypi\.net\/pkgs\/ws61_driver/, "shows the dep name, not the raw ref url");
+  (detail.querySelector(".dt-pkg-install") as HTMLButtonElement).click();
+  const mip = posted.find((m) => m.type === "device_tool_mip");
+  assert.ok(mip && mip.url === "https://upypi.net/pkgs/bmp280/1.0.0/package.json", "a resolved uPyPI package installs by its package.json url");
+});
+
+test("package browser: micropython-lib detail links the repo and installs by name", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } }); // clear no-device
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", description: "BLE",
+      repo_url: "https://github.com/micropython/micropython-lib/tree/master/micropython/bluetooth/aioble",
+      install_cmd: "mpremote mip install aioble" },
+  ] });
+  (document.querySelector("#dtPkgResults .dt-pkg-row") as HTMLButtonElement).click();
+  const detail = document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden)") as HTMLElement;
+  assert.match(detail.textContent || "", /micropython-lib\/tree\/master/, "repo_url surfaced for micropython-lib");
+  (detail.querySelector(".dt-pkg-install") as HTMLButtonElement).click();
+  const mip = posted.find((m) => m.type === "device_tool_mip");
+  assert.ok(mip && mip.url === "aioble", "micropython-lib installs by bare name");
+});
+
+test("package browser: MicroPython-lib searches by name; GitHub is not a search source", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // A prior list clears the no-device guard so Install is enabled.
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+  (document.getElementById("dtPkgSource") as HTMLSelectElement).value = "micropython_lib";
+  (document.getElementById("dtPkgQuery") as HTMLInputElement).value = "aioble";
+  (document.getElementById("dtPkgSearch") as HTMLButtonElement).click();
+  const libSearch = posted.find((m) => m.type === "package_search");
+  assert.ok(libSearch && libSearch.source === "micropython_lib", "micropython-lib triggers a search");
+
+  post(dom, { type: "package_search_result", source: "micropython_lib", results: [
+    { name: "aioble", version: "0.6.0", source: "micropython_lib", description: "BLE", install_cmd: "mpremote mip install aioble" },
+  ] });
+  const rows = document.querySelectorAll("#dtPkgResults .dt-pkg-row");
+  assert.equal(rows.length, 1, "lib result renders directly (no per-package resolve)");
+
+  (rows[0] as HTMLButtonElement).click();
+  (document.querySelector("#dtPkgResults .dt-pkg-detail:not(.hidden) .dt-pkg-install") as HTMLButtonElement).click();
+  const mip = posted.find((m) => m.type === "device_tool_mip");
+  assert.ok(mip && mip.url === "aioble", "micropython-lib installs by bare name");
+
+  // GitHub is no longer a search source; the selector offers only the searchable ones.
+  const sourceValues = [...(document.getElementById("dtPkgSource") as HTMLSelectElement).options].map((o) => o.value);
+  assert.deepEqual(sourceValues, ["auto", "micropython_lib", "upypi"], "selector has no github option");
 });

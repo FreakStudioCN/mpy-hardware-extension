@@ -82,15 +82,18 @@ class PackageStore:
             "cached": True,
         }
 
-    def search(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10, board_family: str = "") -> list[dict[str, Any]]:
-        return [_public_hit(hit) for hit in self._ranked(query, capabilities, limit, board_family)]
+    def search(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10, board_family: str = "", source: str | None = None) -> list[dict[str, Any]]:
+        return [_public_hit(hit) for hit in self._ranked(query, capabilities, limit, board_family, source)]
 
-    def _ranked(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10, board_family: str = "") -> list[dict[str, Any]]:
+    def _ranked(self, query: str = "", capabilities: list[str] | None = None, limit: int = 10, board_family: str = "", source: str | None = None) -> list[dict[str, Any]]:
         capabilities = capabilities or []
         stop_words = {"the", "and", "when", "with", "over", "turn", "on", "off", "read", "show", "is"}
         terms = {term for term in query.lower().replace("_", " ").split() if len(term) >= 3 and term not in stop_words}
         hits: list[dict[str, Any]] = []
         for record in self.records:
+            # Source selector (package browser): constrain to one catalog source.
+            if source and record.get("source") != source:
+                continue
             score = 0.0
             record_caps = set(record.get("capabilities", []))
             score += 10.0 * len(record_caps.intersection(capabilities))

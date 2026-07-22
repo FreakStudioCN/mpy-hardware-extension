@@ -213,6 +213,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   deps.onWebviewReady?.(webview);
   const apiBaseUrl = resolveApiBaseUrl(vscode, deps.apiBaseUrl);
   const fetchImpl = deps.fetchImpl ?? fetch;
+  // Package browser (Device Tools): search standard sources + resolve uPyPI metadata.
+  const packageBrowserClient = new PackageClient(apiBaseUrl, fetchImpl);
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
@@ -255,6 +257,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // only removes the file when the webview echoes that exact nonce back for the same path
   // in time; the nonce is consumed on use, so a replay cannot delete again.
   let pendingDelete: { path: string; nonce: string; expiresAt: number } | null = null;
+  // Uninstall is a recursive `rm -r :/lib/<name>` -- host-enforce the same one-shot nonce as
+  // delete so a stale/duplicated/crafted bare message can't wipe a package dir (the webview
+  // two-click alone is not a security boundary). Keyed by package name.
+  let pendingUninstall: { name: string; nonce: string; expiresAt: number } | null = null;
   const auth = createGithubAuth({ vscode, apiBaseUrl, fetchImpl, log: deps.log });
   const workspaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
   // Project output goes into a dedicated subfolder (see PROJECT_SUBDIR); session
@@ -472,6 +478,77 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       await controller.recordDeviceTool(command, params, { ok: false, error: msg });
       webview.postMessage({ type: "device_tool_error", command, error: msg });
     }
+  }
+
+  // Package browser search (Device Tools). The two standard sources are live upstreams:
+  // uPyPI (search returns name+url; the browser resolves package.json on expand) and
+  // micropython-lib (search returns full records). "Auto" searches BOTH at once and merges;
+  // there is no separate local catalog to query (graftsense content is identical to uPyPI).
+  // Every result carries its own `source` so the accordion knows whether to resolve on expand.
+  const AUTO_RESULT_LIMIT = 30;
+
+  function tagUpypi(results: any): any[] {
+    // Coerce name to a string (defensive: a non-string upstream name would crash the merge sort).
+    return (Array.isArray(results) ? results : []).map((hit: any) => ({ ...hit, name: String(hit?.name ?? ""), source: "upypi" }));
+  }
+
+  // Dedup by normalized name keeping the micropython-lib record (official + full metadata,
+  // renders without a resolve round-trip); order prefix-matches first, then by name, lib
+  // before uPyPI. Deterministic.
+  function mergePackages(query: string, libHits: any[], upypiHits: any[]): any[] {
+    const prefix = (query || "").trim().toLowerCase();
+    const norm = (name: string) => String(name || "").toLowerCase().replace(/[-_]/g, "_");
+    const byName = new Map<string, any>();
+    for (const hit of [...libHits, ...upypiHits]) { // lib first -> wins the dedup
+      const key = norm(hit?.name);
+      // Coerce name to a string on the survivor: a non-string lib name would throw in the sort's
+      // toLowerCase() (tagUpypi already coerces uPyPI hits; the backend coerces lib -- defense in
+      // depth for both).
+      if (key && !byName.has(key)) byName.set(key, { ...hit, name: String(hit?.name ?? "") });
+    }
+    return [...byName.values()].sort((a, b) => {
+      const ap = a.name.toLowerCase().startsWith(prefix) ? 0 : 1;
+      const bp = b.name.toLowerCase().startsWith(prefix) ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      // Names are unique after the normalized-name dedup, so the name comparison is total here --
+      // the old source tiebreak was unreachable (lib-before-uPyPI is already enforced by the
+      // lib-first dedup above), so it's dropped as dead code.
+      const an = a.name.toLowerCase(), bn = b.name.toLowerCase();
+      return an < bn ? -1 : an > bn ? 1 : 0;
+    }).slice(0, AUTO_RESULT_LIMIT);
+  }
+
+  async function handlePackageSearch(source: string, query: string) {
+    if (source === "micropython_lib") {
+      try {
+        const body = await packageBrowserClient.micropythonLibSearch(query);
+        webview.postMessage({ type: "package_search_result", source, query, results: body?.results ?? [] });
+      } catch (error: any) {
+        webview.postMessage({ type: "package_search_error", source, query, error: error?.code ?? "search_failed" });
+      }
+      return;
+    }
+    if (source === "upypi") {
+      try {
+        const body = await packageBrowserClient.upypiSearch(query);
+        webview.postMessage({ type: "package_search_result", source, query, results: tagUpypi(body?.results) });
+      } catch (error: any) {
+        webview.postMessage({ type: "package_search_error", source, query, error: error?.code ?? "search_failed" });
+      }
+      return;
+    }
+    // Auto: search both live sources at once; return whatever came back, error only if BOTH fail.
+    const [up, lib] = await Promise.allSettled([
+      packageBrowserClient.upypiSearch(query),
+      packageBrowserClient.micropythonLibSearch(query),
+    ]);
+    if (up.status === "rejected" && lib.status === "rejected") {
+      webview.postMessage({ type: "package_search_error", source: "auto", query, error: "search_failed" });
+      return;
+    }
+    const upypiHits = up.status === "fulfilled" ? tagUpypi(up.value?.results) : [];
+    const libHits = lib.status === "fulfilled" ? (lib.value?.results ?? []) : [];
+    webview.postMessage({ type: "package_search_result", source: "auto", query, results: mergePackages(query, libHits, upypiHits) });
   }
 
   // Acquire run ownership of the serial port before a session run takes it: wait for any
@@ -1004,6 +1081,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const path = typeof message.path === "string" ? message.path : "";
       await runDeviceTool("list", { path }, async () => ({ path, entries: await shim.listDir(path) }));
     }
+    // Distinct command ("list_lib") so the /lib listing for the Packages "Installed" view
+    // does NOT repaint the Board files pane (which keys on command "list").
+    if (message.type === "device_tool_list_lib") {
+      await runDeviceTool("list_lib", {}, async () => ({ entries: await shim.listDir("/lib") }));
+    }
     if (message.type === "device_tool_mkdir" && typeof message.path === "string") {
       await runDeviceTool("mkdir", { path: message.path }, async () => { await shim.makeDir(message.path); return { path: message.path }; });
     }
@@ -1025,6 +1107,36 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const version = typeof message.version === "string" && message.version ? message.version : undefined;
       await runDeviceTool("mip_install", { url: message.url, version }, async () => { await shim.installPackage(message.url, version); return { url: message.url }; });
     }
+    if (message.type === "device_tool_uninstall" && typeof message.name === "string") {
+      const now = Date.now();
+      const armed = pendingUninstall;
+      if (armed && armed.name === message.name && armed.nonce === message.nonce && now < armed.expiresAt) {
+        pendingUninstall = null; // one-shot: consume the nonce so a duplicate confirm can't re-run
+        await runDeviceTool("uninstall", { name: message.name }, async () => { const removed = await shim.uninstallPackage(message.name); return { name: message.name, removed }; });
+      } else {
+        // First click, or a stale/expired/mismatched nonce: arm and wait for the webview to echo
+        // the nonce. Nothing is removed, so a duplicated bare message is harmless.
+        const nonce = randomUUID();
+        pendingUninstall = { name: message.name, nonce, expiresAt: now + DELETE_ARM_TTL_MS };
+        webview.postMessage({ type: "device_tool_uninstall_armed", name: message.name, nonce });
+      }
+    }
+    if (message.type === "package_search") {
+      await handlePackageSearch(
+        typeof message.source === "string" ? message.source : "auto",
+        typeof message.query === "string" ? message.query : "",
+      );
+    }
+    if (message.type === "package_resolve" && typeof message.url === "string") {
+      try {
+        const record = await packageBrowserClient.upypiResolve(message.url);
+        // Echo the requested url so the webview can drop a late resolve that would fill the
+        // wrong (since-collapsed / re-expanded) row — else Install under B installs A.
+        webview.postMessage({ type: "package_resolve_result", record, url: message.url });
+      } catch (error: any) {
+        webview.postMessage({ type: "package_resolve_error", url: message.url, error: error?.code ?? "resolve_failed" });
+      }
+    }
     if (message.type === "device_tool_upload") {
       await handleDeviceUpload(typeof message.dir === "string" ? message.dir : "");
     }
@@ -1033,7 +1145,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     if (message.type === "device_presence") {
       // Device Tools presence poll: a host-side port scan (lists ports, never opens one, so
-      // it's safe during a flash) lets the tab show "no device" and revert on unplug.
+      // it's safe during a flash) lets the tab show "no device" and revert on unplug. Carry the
+      // ports so the webview can detect a board SWAP (A on COM3 -> B on COM7) between polls that
+      // never reports zero, and drop A's installed state instead of deleting off the wrong board.
       // Gate on venvReady() first: shim.scan() lazily bootstraps the venv (a blocking
       // pip/venv install), and this poll fires every 2.5s — a broken venv would otherwise
       // retrigger that install on every tick. No venv -> answer "no device", don't spawn.
@@ -1043,10 +1157,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // silent "No device": the presence poll USED to bootstrap the venv via shim.scan(), and
         // gating it (venvReadyForPoll) removed that, so a fresh install would hide the board
         // forever. A present-but-broken venv (exists but venvReady() false) stays silent.
-        webview.postMessage({ type: "device_present", present: false, needsEnvSetup: !venvExistsFn() });
+        webview.postMessage({ type: "device_present", present: false, ports: [], needsEnvSetup: !venvExistsFn() });
       } else {
-        try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }
-        catch { webview.postMessage({ type: "device_present", present: false }); }
+        try { const ports = await shim.scan(); webview.postMessage({ type: "device_present", present: ports.length > 0, ports }); }
+        catch { webview.postMessage({ type: "device_present", present: false, ports: [] }); }
       }
     }
     if (message.type === "run_doctor_check" || message.type === "doctor_action") {
