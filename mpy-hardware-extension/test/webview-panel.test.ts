@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -1998,4 +1999,151 @@ test("start_optional_flow allowlist-maps the flow and host-gates on the generate
   posted.length = 0;
   await handler?.({ type: "start_optional_flow", flow: "wiring" });
   assert.ok(posted.some((m) => m.type === "optional_flow_status" && m.status === "failed" && /Run generate first/.test(m.detail)), "an unoffered flow is host-refused");
+});
+
+// ----- Save Version (#95) real-git panel tests -----
+// Drive a template-mode session so the controller has state + the project folder is a real
+// git repo (ensureProjectGitRepo runs on start_session). Reuses the file's jsonResponse/
+// aht20Context/board fixtures.
+async function startTemplateSession(ws: string) {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+    if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+    if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+    if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+    if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") return jsonResponse(board());
+    throw new Error(`unexpected URL ${url}`);
+  }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+  await handler!({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+  return { handler: handler!, posted, projectFolder: join(ws, "blockless-project") };
+}
+
+// save_version_request awaits confirmApproval, so fire it (don't await) then answer the posted
+// approval card. Polls because the git status probe runs before the card is posted.
+async function answerApproval(handler: (m: any) => Promise<void>, posted: any[], answer: string, text_values?: any) {
+  for (let i = 0; i < 100 && !posted.some((m) => m.type === "approval_request"); i++) await new Promise((r) => setTimeout(r, 5));
+  const req = posted.find((m) => m.type === "approval_request");
+  assert.ok(req, "an approval_request card was posted");
+  await handler({ type: "ui_prompt_response", promptId: req.promptId, answer, text_values });
+  return req;
+}
+
+function findSnapshot(ws: string): any | null {
+  const base = join(ws, ".mpyhw", "sessions");
+  if (!existsSync(base)) return null;
+  for (const id of readdirSync(base)) {
+    const p = join(base, id, "checkpoints", "snapshot.json");
+    if (existsSync(p)) return JSON.parse(readFileSync(p, "utf-8"));
+  }
+  return null;
+}
+
+function readSessionJsonl(ws: string): string {
+  const base = join(ws, ".mpyhw", "sessions");
+  if (!existsSync(base)) return "";
+  for (const id of readdirSync(base)) {
+    const p = join(base, id, "session.jsonl");
+    if (existsSync(p)) return readFileSync(p, "utf-8");
+  }
+  return "";
+}
+
+test("save_version commits in a git repo and posts+records the real new HEAD hash", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "guaranteed change"); // ensure the tree is dirty
+    posted.length = 0;
+    const save = handler({ type: "save_version_request" });
+    await answerApproval(handler, posted, "commit_git", { commit_message: "test: save version" });
+    await save;
+    const head = execFileSync("git", ["-C", projectFolder, "rev-parse", "HEAD"], { windowsHide: true }).toString().trim();
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_commit");
+    assert.equal(status?.hash, head, "the posted hash is the real new HEAD (kills a fake/fixed-hash return)");
+    assert.equal(findSnapshot(ws)?.git?.commit_hash, head, "one save = one restorable point: the snapshot records the commit hash");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version respects staging: commits only staged fileA, leaves fileB uncommitted", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    // Base commit so HEAD exists and "staged vs unstaged" is meaningful.
+    execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
+    execFileSync("git", ["-C", projectFolder, "commit", "-m", "base"], { windowsHide: true });
+    writeFileSync(join(projectFolder, "fileA.txt"), "A");
+    writeFileSync(join(projectFolder, "fileB.txt"), "B");
+    execFileSync("git", ["-C", projectFolder, "add", "fileA.txt"], { windowsHide: true }); // stage A only
+    posted.length = 0;
+    const save = handler({ type: "save_version_request" });
+    await answerApproval(handler, posted, "commit_git", { commit_message: "test: staged only" });
+    await save;
+    const committed = execFileSync("git", ["-C", projectFolder, "show", "--name-only", "--pretty=format:", "HEAD"], { windowsHide: true }).toString();
+    assert.match(committed, /fileA\.txt/, "the staged file is committed");
+    assert.doesNotMatch(committed, /fileB\.txt/, "the unstaged file is NOT committed (kills an add -A mutation)");
+    assert.match(execFileSync("git", ["-C", projectFolder, "status", "--porcelain"], { windowsHide: true }).toString(), /fileB\.txt/, "fileB remains uncommitted");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version in a non-git project writes a snapshot.json covering the #88 schema", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // make it a non-git project
+    posted.length = 0;
+    const save = handler({ type: "save_version_request" });
+    await answerApproval(handler, posted, "snapshot");
+    await save;
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_snapshot");
+    const snap = findSnapshot(ws);
+    assert.ok(snap, "snapshot.json written");
+    for (const key of ["schema", "stage", "state", "board", "preferences", "manifest", "artifacts", "restore"]) {
+      assert.ok(key in snap, `snapshot has ${key} (a dropped field fails the #88 contract)`);
+    }
+    assert.equal(snap.git, null, "no commit → git linkage null");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version cancel creates no commit or snapshot and records ui_prompt_answer(cancel)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "x");
+    posted.length = 0;
+    const save = handler({ type: "save_version_request" });
+    await answerApproval(handler, posted, "cancel");
+    await save;
+    await new Promise((r) => setTimeout(r, 40)); // let the fire-and-forget ui_prompt_answer append flush before cleanup
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "cancelled");
+    assert.equal(findSnapshot(ws), null, "no snapshot written on cancel");
+    let hasCommit = true;
+    try { execFileSync("git", ["-C", projectFolder, "rev-parse", "HEAD"], { windowsHide: true, stdio: "ignore" }); } catch { hasCommit = false; }
+    assert.equal(hasCommit, false, "no commit created on cancel");
+    assert.match(readSessionJsonl(ws), /"type":"ui_prompt_answer"[^\n]*"answer":"cancel"/, "the cancel answer is recorded in session.jsonl");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version on a clean git repo surfaces nothing_to_commit (auditable, no throw)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
+    execFileSync("git", ["-C", projectFolder, "commit", "-m", "commit everything"], { windowsHide: true }); // tree now clean
+    posted.length = 0;
+    const save = handler({ type: "save_version_request" });
+    await answerApproval(handler, posted, "commit_git", { commit_message: "nothing here" });
+    await save;
+    await new Promise((r) => setTimeout(r, 40)); // let the fire-and-forget ui_prompt_answer append flush before cleanup
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "nothing_to_commit");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
 });

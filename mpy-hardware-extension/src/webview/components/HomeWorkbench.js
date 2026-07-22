@@ -70,6 +70,9 @@
       // the root if one is connected, else shows the "plug in a device" state.
       $("deviceToolsOpen").addEventListener("click", () => { openGlobalTool("toolDeviceTools"); dtOnOpen(); });
       $("deviceToolsBack").addEventListener("click", closeGlobalTool);
+      // Save Version (#95): a host-initiated confirm (git commit or session snapshot), not a
+      // view surface. Close any open tool first so the confirm card is visible in Activity.
+      $("saveVersionOpen").addEventListener("click", () => { closeGlobalTool(); vscode.postMessage({ type: "save_version_request" }); });
       // Global-tools overflow: any number of circle tools fit — the row scrolls and the
       // chevrons show only when it clips (recomputed on scroll/resize).
       const gtoolsTrack = $("globalTools");
@@ -93,8 +96,8 @@
       updateGtoolArrows();
       // Home hero action: begin a build. The composer is always mounted, so "start"
       // just reveals the board picker and focuses the prompt (no session yet).
-      // ponytail: Git history / Save Version (spec 3.8) are still stubbed global tools
-      // pending their own cards.
+      // ponytail: Git History (spec 3.8) is still a stubbed global tool pending #94.
+      // Save Version (#95) is wired above (saveVersionOpen -> save_version_request).
       $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); setBoardBodyExpanded(true); $("intent").focus(); });
       // Import Existing Project: host opens a folder picker then reloads on that
       // folder (no webview surface). Recent Sessions: read-only list of past session

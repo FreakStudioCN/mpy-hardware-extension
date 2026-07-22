@@ -2570,6 +2570,44 @@ test("wiring/diagram rows jump to their rendered tab instead of opening raw JSON
   assert.ok(!(document.querySelector('.view[data-view="wiring"]') as HTMLElement).classList.contains("hidden"), "Wiring tab activated by the row");
 });
 
+test("Save Version gtool button posts save_version_request", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("saveVersionOpen") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "save_version_request"), "clicking Save Version posts save_version_request");
+});
+
+test("an approval card prefills a text_input value (not just placeholder)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "approval_request", promptId: "p-sv",
+    card: {
+      kind: "save_version", header: "Save Version", question: "phase: generate",
+      text_inputs: [{ id: "commit_message", placeholder: "Commit message", value: "blockless: temp logger (generate)" }],
+      actions: [{ label: "Save Snapshot", value: "snapshot", primary: true }, { label: "Cancel", value: "cancel" }],
+    },
+  });
+  const input = document.querySelector('[data-prompt-id="p-sv"] input.ask-input') as HTMLInputElement;
+  assert.equal(input.value, "blockless: temp logger (generate)", "the proposed message is prefilled and editable");
+  assert.equal(input.placeholder, "Commit message", "placeholder still set");
+});
+
+test("save_version_status clears the pending spinner armed by the card's respond()", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "approval_request", promptId: "p-sv2",
+    card: { kind: "save_version", header: "Save Version", question: "phase: generate", text_inputs: [{ id: "commit_message", value: "msg" }], actions: [{ label: "Cancel", value: "cancel", primary: true }] },
+  });
+  (document.querySelector('[data-prompt-id="p-sv2"] button.ask-opt') as HTMLButtonElement).click(); // respond() -> setPending
+  assert.ok(document.querySelector(".feed-pending"), "respond() armed the working spinner");
+  post(dom, { type: "save_version_status", status: "cancelled" });
+  assert.equal(document.querySelector(".feed-pending"), null, "the status line cleared the spinner");
+  assert.match(document.getElementById("activity")!.textContent ?? "", /cancel/i, "the cancelled status line rendered");
+});
+
 test("artifact rows show role + created_at, and an 'on disk' tag for disk-origin files", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

@@ -29,6 +29,9 @@ import { canonicalPathKey, deleteProjectPath, isRealContained, snapshotExistingP
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
+import { GitUnavailableError, gitBranch, gitCommit, gitStatusPorcelain, isGitRepo } from "../extension/project-git.ts";
+import { buildSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
+import type { SnapshotArtifact } from "../extension/session-snapshot.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
 
@@ -68,6 +71,30 @@ const MAX_DOWNLOAD_DEDUP = 1000;
 // (spec §4). Longer than the webview's 3s UI arm so the confirm click is never rejected
 // by a host/webview clock race; short enough that a leaked nonce is not reusable later.
 const DELETE_ARM_TTL_MS = 10_000;
+
+// Save Version (#95). The approval card's kind — telemetry.ts already maps approval_requested
+// and carries card.kind, so the cloud DB sees the request with no mpyhw-api change.
+const SAVE_VERSION_CARD_KIND = "save_version";
+// The commit-message text_input id (host reads it back from the approval response text_values).
+const SAVE_VERSION_MSG_INPUT_ID = "commit_message";
+// Actions offered on the card (values are stable, decoupled from localized labels).
+const SAVE_VERSION_ACTION = { commit: "commit_git", snapshot: "snapshot", cancel: "cancel" } as const;
+// Failure/outcome taxonomy (§D). Named so no code is a bare string literal at a call site.
+const SAVE_VERSION_STATUS = {
+  savedCommit: "saved_commit",
+  savedSnapshot: "saved_snapshot",
+  cancelled: "cancelled",
+  nothing: "nothing_to_save",
+  busy: "busy",
+  gitUnavailable: "git_unavailable",
+  nothingToCommit: "nothing_to_commit",
+  commitFailed: "git_commit_failed",
+  snapshotWriteFailed: "snapshot_write_failed",
+  workspaceUnavailable: "workspace_unavailable",
+} as const;
+// Keep the proposed commit summary to a readable one-liner (§C deterministic template).
+const SAVE_VERSION_INTENT_MAX = 60;
+const SAVE_VERSION_FILE_ITEMS_MAX = 50; // display-only file rows shown on the card
 
 // Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
 // timeout, never throws — a headless/missing tool yields "unknown".
@@ -184,6 +211,29 @@ function scanArtifactTree(root: string, origin: "session" | "disk"): ArtifactSou
     }
   }
   return out;
+}
+
+// Deterministic proposed commit message (§C, no LLM): "blockless: <intent> (<phase>, <board>)".
+// P0-deterministic so the same state always proposes the same message; the user edits it on
+// the card (the prefilled text_input). Missing pieces are dropped, never rendered as "()".
+function buildCommitMessage(intent: string | undefined, phase: string | null, boardId: string | null): string {
+  const head = (intent ?? "").trim().slice(0, SAVE_VERSION_INTENT_MAX) || "save version";
+  const context = [phase, boardId && boardId !== "auto" ? boardId : null].filter(Boolean).join(", ");
+  return context ? `blockless: ${head} (${context})` : `blockless: ${head}`;
+}
+
+// Project the host artifact index into the portable snapshot rows (§4.2): relative_path only,
+// NO absolute_path. sha256 lets #88 verify integrity before replaying code from disk.
+function toSnapshotArtifacts(index: Artifact[]): SnapshotArtifact[] {
+  return index.map((a) => ({
+    relative_path: a.relative_path,
+    kind: a.kind,
+    role: a.role,
+    phase: a.phase,
+    size: a.size,
+    sha256: a.sha256,
+    created_at: a.created_at,
+  }));
 }
 
 // Open the UI as an editor-area tab. Kept for the mpyhw.openPanel command and
@@ -448,6 +498,135 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return rest;
     });
     webview.postMessage({ type: "artifacts_index", artifacts: forWebview });
+  }
+
+  // Save Version (#95 §D): host-initiated confirm → git commit OR session snapshot. Never
+  // mid-run. Detect-only git (never init, §3.6.3). The card offers only the actions the
+  // current state supports, so commit/snapshot/cancel always mean exactly what they say.
+  // ponytail: the card BODY strings are English; the gtool button + the status line are
+  // localized (data-i18n + save_version_status → tr). Localizing the card body would need the
+  // webview locale threaded to the host — its own follow-up if the team wants it.
+  async function handleSaveVersion() {
+    if (controller.isRunning()) {
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.busy });
+      return;
+    }
+    if (!projectFolder && !sessionRoot) {
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.workspaceUnavailable });
+      return;
+    }
+    // Probe the git path (detect-only). A .git present AND git on PATH enables the commit
+    // action; a missing binary or absent repo routes to the snapshot path.
+    const repoPresent = !!projectFolder && isGitRepo(projectFolder);
+    let gitFiles: string[] = [];
+    let canCommit = false;
+    if (repoPresent && projectFolder) {
+      try { gitFiles = await gitStatusPorcelain(projectFolder); canCommit = true; }
+      catch (error: any) {
+        // GitUnavailableError → snapshot-only; any other status failure also falls back.
+        if (!(error instanceof GitUnavailableError)) deps.log?.(`save_version: git status failed: ${error?.message ?? error}`);
+      }
+    }
+    const hasState = controller.hasSnapshotState();
+    if (!canCommit && !hasState) {
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.nothing });
+      return;
+    }
+
+    // Build the confirmation card: file summary (display-only) + editable proposed message.
+    refreshArtifacts();
+    const snap = controller.getSnapshotState();
+    const diag = controller.getDiagnostics();
+    const proposed = buildCommitMessage(snap.state?.intent, snap.currentPhase, snap.boardId);
+    const fileItems = gitFiles.slice(0, SAVE_VERSION_FILE_ITEMS_MAX).map((line, i) => ({ id: `chg-${i}`, name: line, selectable: false }));
+    const stageBits = [diag.current_phase && `phase: ${diag.current_phase}`, diag.selected_board && `board: ${diag.selected_board}`, `${artifactIndex.length} artifact(s)`].filter(Boolean).join("  |  ");
+    const note = canCommit ? "" : (repoPresent ? "Git is unavailable — a session snapshot will be saved instead." : "Not a git repo — a session snapshot will be saved instead.");
+    const actions = canCommit
+      ? [{ label: "Commit to Git", value: SAVE_VERSION_ACTION.commit, primary: true }, { label: "Save Snapshot", value: SAVE_VERSION_ACTION.snapshot }, { label: "Cancel", value: SAVE_VERSION_ACTION.cancel }]
+      : [{ label: "Save Snapshot", value: SAVE_VERSION_ACTION.snapshot, primary: true }, { label: "Cancel", value: SAVE_VERSION_ACTION.cancel }];
+    const card = {
+      kind: SAVE_VERSION_CARD_KIND,
+      header: "Save Version",
+      question: [stageBits, note].filter(Boolean).join("  —  "),
+      items: fileItems,
+      text_inputs: [{ id: SAVE_VERSION_MSG_INPUT_ID, placeholder: "Commit message", value: proposed }],
+      actions,
+    };
+
+    const resp = await controller.confirmApproval(card);
+    // Cancel (button) or null (run terminated / reset → cancelPrompts): zero side effects.
+    // The ui_prompt_answer(cancel) is already recorded by resolvePrompt — audit for free.
+    if (!resp || resp.action === SAVE_VERSION_ACTION.cancel) {
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.cancelled });
+      return;
+    }
+    const message = String(resp.text_values?.[SAVE_VERSION_MSG_INPUT_ID] ?? "").trim() || proposed;
+    const sessionId = diag.session_id;
+    const sessionDir = sessionRoot && sessionId ? join(sessionRoot, ".mpyhw", "sessions", sessionId) : undefined;
+
+    // Commit path.
+    if (resp.action === SAVE_VERSION_ACTION.commit && canCommit && projectFolder) {
+      let hash: string;
+      try {
+        hash = await gitCommit(projectFolder, message);
+      } catch (error: any) {
+        if (error instanceof GitUnavailableError) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.gitUnavailable }); return; }
+        const detail = String(error?.message ?? error);
+        const status = /nothing to commit/i.test(detail) ? SAVE_VERSION_STATUS.nothingToCommit : SAVE_VERSION_STATUS.commitFailed;
+        webview.postMessage({ type: "save_version_status", status, error: detail });
+        return;
+      }
+      // One save = one restorable point: also snapshot with the commit hash when a session
+      // exists, so #88 can restore this exact save. A snapshot miss must NOT undo the commit.
+      if (hasState && sessionDir) {
+        try { await writeSaveSnapshot(sessionDir, snap, diag, { commit_hash: hash, branch: await gitBranch(projectFolder) }); }
+        catch (error: any) { deps.log?.(`save_version: post-commit snapshot failed: ${error?.message ?? error}`); }
+      }
+      refreshArtifacts();
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.savedCommit, hash });
+      return;
+    }
+
+    // Snapshot path (user picked Snapshot, or no git). Needs a session to snapshot.
+    if (!hasState || !sessionDir) {
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.nothing });
+      return;
+    }
+    try {
+      await writeSaveSnapshot(sessionDir, snap, diag, null);
+    } catch (error: any) {
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.snapshotWriteFailed, error: String(error?.code ?? error?.message ?? error) });
+      return;
+    }
+    refreshArtifacts();
+    webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.savedSnapshot });
+  }
+
+  // Build + write the session snapshot from the controller state bundle + diagnostics (§A).
+  async function writeSaveSnapshot(sessionDir: string, snap: ReturnType<typeof controller.getSnapshotState>, diag: Record<string, string>, git: { commit_hash: string; branch: string } | null) {
+    const snapshot = buildSessionSnapshot({
+      traceId: snap.traceId,
+      savedAt: new Date().toISOString(),
+      currentPhase: snap.currentPhase,
+      terminal: snap.terminal,
+      state: snap.state,
+      boardId: snap.boardId,
+      preSelectedBoard: snap.preSelectedBoard,
+      boardSelectionMode: snap.boardSelectionMode,
+      preferences: snap.preferences,
+      manifest: controller.getLatestManifest() ?? null,
+      diagram: snap.diagram ?? null,
+      credits: snap.credits,
+      diagnostics: {
+        selected_board: diag.selected_board ?? "",
+        key_errors: diag.key_errors ?? "",
+        recent_activity: diag.recent_activity ?? "",
+        last_command: diag.last_command ?? "",
+      },
+      artifacts: toSnapshotArtifacts(artifactIndex),
+      git,
+    });
+    await writeSessionSnapshot(sessionDir, snapshot);
   }
 
   // Device Tools (#54): run a user-initiated device command. Refuse while a session
@@ -1262,6 +1441,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           }
         }
       }
+    }
+    if (message.type === "save_version_request") {
+      await handleSaveVersion();
+      return;
     }
     if (message.type === "ui_prompt_response") {
       // Set the deploy port (if the response carries one) before resolving, so the
