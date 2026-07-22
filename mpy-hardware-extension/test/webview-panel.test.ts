@@ -968,6 +968,21 @@ test("package browser host: mergePackages invariants hold over generated hit lis
   assert.equal(posted.find((m) => m.type === "package_search_result").results.length, 30, "50 distinct names cap to AUTO_RESULT_LIMIT (30)");
 });
 
+test("package browser host: a non-string micropython-lib name is coerced, not crashing the merge (PR #45 minor)", async () => {
+  // libHits reach mergePackages un-tagged (unlike tagUpypi'd uPyPI hits); a non-string name must
+  // be coerced on the survivor, or the sort's toLowerCase() throws. Reverting the String() coerce
+  // makes this throw instead of returning "42".
+  const { getHandler, posted } = packageSearchPanel(async (url: string) => {
+    if (url.includes("/micropython-lib/search")) return jsonResponse({ results: [{ name: 42, version: 1, source: "micropython_lib" }] });
+    if (url.includes("/upypi/search")) return jsonResponse({ results: [] });
+    throw new Error(`unexpected ${url}`);
+  });
+  await getHandler()({ type: "package_search", source: "auto", query: "4" });
+  const res = posted.find((m) => m.type === "package_search_result");
+  assert.ok(res, "the merge did not throw on a non-string lib name");
+  assert.equal(res.results[0].name, "42", "the lib name is coerced to a string");
+});
+
 test("package browser host: Auto returns the surviving source when the other upstream is down", async () => {
   const { getHandler, posted } = packageSearchPanel(async (url: string) => {
     if (url.startsWith("http://api.test/v1/packages/upypi/search")) return jsonResponse({ detail: { error: "upstream_unavailable" } }, 502);

@@ -471,16 +471,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     const byName = new Map<string, any>();
     for (const hit of [...libHits, ...upypiHits]) { // lib first -> wins the dedup
       const key = norm(hit?.name);
-      if (key && !byName.has(key)) byName.set(key, hit);
+      // Coerce name to a string on the survivor: a non-string lib name would throw in the sort's
+      // toLowerCase() (tagUpypi already coerces uPyPI hits; the backend coerces lib -- defense in
+      // depth for both).
+      if (key && !byName.has(key)) byName.set(key, { ...hit, name: String(hit?.name ?? "") });
     }
-    const rank = (s: string) => (s === "micropython_lib" ? 0 : 1);
     return [...byName.values()].sort((a, b) => {
       const ap = a.name.toLowerCase().startsWith(prefix) ? 0 : 1;
       const bp = b.name.toLowerCase().startsWith(prefix) ? 0 : 1;
       if (ap !== bp) return ap - bp;
+      // Names are unique after the normalized-name dedup, so the name comparison is total here --
+      // the old source tiebreak was unreachable (lib-before-uPyPI is already enforced by the
+      // lib-first dedup above), so it's dropped as dead code.
       const an = a.name.toLowerCase(), bn = b.name.toLowerCase();
-      if (an !== bn) return an < bn ? -1 : 1;
-      return rank(a.source) - rank(b.source);
+      return an < bn ? -1 : an > bn ? 1 : 0;
     }).slice(0, AUTO_RESULT_LIMIT);
   }
 
