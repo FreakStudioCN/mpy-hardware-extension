@@ -63,10 +63,12 @@ def _packages() -> list[dict]:
         return _serve_stale_or_raise(now, "malformed index body")
     # Element-level guard (same class as the body-shape one): a non-dict entry (e.g.
     # {"packages": [null]}) cached as-is would crash every search with AttributeError for
-    # the whole TTL -- persistent 500s instead of one 502. Drop unusable entries before
-    # caching; a non-empty list with NO usable entry is a malformed body, not an empty
-    # catalog (mirrors upypi_client.search, which drops non-dict hits).
-    packages = [pkg for pkg in data["packages"] if isinstance(pkg, dict)]
+    # the whole TTL -- persistent 500s instead of one 502. "Usable" requires a non-empty
+    # string name, not just a dict: a nameless {} would otherwise cache as a silently
+    # EMPTY catalog for the TTL, and a null name would str() into the literal "None".
+    # Drop unusable entries before caching; a non-empty list with NO usable entry is a
+    # malformed body, not an empty catalog (mirrors upypi_client.search's hit filter).
+    packages = [pkg for pkg in data["packages"] if _usable(pkg)]
     if data["packages"] and not packages:
         logger.warning("micropython-lib index entries all malformed")
         return _serve_stale_or_raise(now, "malformed index entries")
@@ -74,6 +76,12 @@ def _packages() -> list[dict]:
     _cache["fetched_at"] = now
     _cache["failed_at"] = 0.0  # a success clears the backoff window
     return packages
+
+
+def _usable(pkg) -> bool:
+    """An index entry the browser can actually serve: a dict with a non-empty str name
+    (micropython-lib installs by name, so a nameless record is unusable by definition)."""
+    return isinstance(pkg, dict) and isinstance(pkg.get("name"), str) and bool(pkg["name"].strip())
 
 
 def _serve_stale_or_raise(now: float, reason: str) -> list[dict]:
