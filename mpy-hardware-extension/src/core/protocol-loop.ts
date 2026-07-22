@@ -382,7 +382,13 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
       const singleChoice = new Set(groupList.filter((g: any) => g?.multi_select === false).map((g: any) => String(g?.id)));
       const perGroup = new Map<string, any[]>();
       const takeAll: any[] = [];
+      // Dedup by id: an item can appear BOTH in p.items (with .group === gid) and inline in a
+      // group's items. Counting it twice pushed a duplicate id into selected_ids; bucket it once,
+      // matching the webview's merge+dedup in renderApprovalGroup.
+      const seen = new Set<string>();
       const bucket = (it: any, gid: string) => {
+        const key = it?.id != null ? String(it.id) : null;
+        if (key != null) { if (seen.has(key)) return; seen.add(key); }
         if (singleChoice.has(gid)) { const arr = perGroup.get(gid) ?? []; arr.push(it); perGroup.set(gid, arr); }
         else if (it?.id != null) takeAll.push(it.id);
       };

@@ -2124,6 +2124,38 @@ test("a keyless item_groups entry does not double-render ungrouped items", async
   assert.deepStrictEqual(ids, ["u1", "u2"], "each id is posted exactly once, no duplicates");
 });
 
+test("a group with BOTH inline items and flat card.items pointing at it renders each once (PR #46 minor)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // The group declares an inline item; the card ALSO lists items flat, pointing at the group via
+  // .group. Before, inline shadowed the flat ones so a flat item rendered nowhere (excluded from
+  // the flat pass AND the group). And an item in BOTH forms (m_dup) was double-counted headless.
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-mix",
+    card: {
+      question: "Pick modules",
+      items: [
+        { id: "m_flat", name: "Flat module", group: "extra_modules" },
+        { id: "m_dup", name: "Dup module", group: "extra_modules" },
+      ],
+      item_groups: { extra_modules: { multi_select: true, label: "Modules", items: [{ id: "m_inline", name: "Inline module" }, { id: "m_dup", name: "Dup module" }] } },
+      actions: [{ label: "Confirm", value: "confirm", primary: true }],
+    },
+  });
+  const card = document.querySelector('[data-prompt-id="p-mix"]')!;
+  assert.equal(card.querySelectorAll(".ask-group").length, 1, "one group section");
+  const boxes = [...card.querySelectorAll('.ask-group input[type="checkbox"]')] as any[];
+  assert.deepStrictEqual(boxes.map((b) => b.dataset.id).sort(), ["m_dup", "m_flat", "m_inline"], "inline + flat render, m_dup deduped");
+  assert.equal(card.querySelectorAll('input[type="checkbox"]').length, 3, "no item renders outside the group either");
+
+  posted.length = 0;
+  ([...card.querySelectorAll("button")].find((b) => b.textContent === "Confirm") as HTMLButtonElement).click();
+  const sent = [...posted.find((m) => m.type === "ui_prompt_response").selected_ids].sort();
+  assert.deepStrictEqual(sent, ["m_dup", "m_flat", "m_inline"], "each id posts exactly once (m_dup not duplicated)");
+});
+
 test("esp32_flash_confirm renders its body and a port picker; Start Flashing is gated on a port", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

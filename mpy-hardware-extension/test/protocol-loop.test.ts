@@ -369,6 +369,21 @@ test("approval: headless auto-confirm picks ONE id from a single-choice group, a
   assert.ok(ids.includes("module_logger") && ids.includes("module_flash"), "all multi-select modules kept");
 });
 
+test("headless: an item in BOTH p.items and a group's inline items is counted once, not twice (PR #46 minor)", async () => {
+  const res = await executeProtocolTool(
+    tu("mix", "approval_request", {
+      approval_id: "scaffold_config",
+      items: [{ id: "m_flat", group: "extra_modules" }, { id: "m_dup", group: "extra_modules" }],
+      item_groups: { extra_modules: { multi_select: true, items: [{ id: "m_inline" }, { id: "m_dup" }] } },
+      actions: [{ value: "confirm", primary: true }],
+    }) as any,
+    { intent: "x" }, { llmClient: scriptedLlm({}) },
+  );
+  // m_dup is declared in p.items AND inline in the group -> it must be counted ONCE. Without the
+  // dedup, selected_ids carried m_dup twice (the webview merge+dedup would then disagree).
+  assert.deepStrictEqual([...res.result.selected_ids].sort(), ["m_dup", "m_flat", "m_inline"], "each id once; the duplicate is deduped");
+});
+
 // The serial_port passthrough is live; the baud passthrough is DORMANT plumbing kept ready for
 // re-enable — the webview baud picker is commented (gated on ruili consuming approval_response.baud),
 // so no live decision supplies baud today. This test pins that the plumbing still carries it when

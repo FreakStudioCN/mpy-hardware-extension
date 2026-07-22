@@ -115,12 +115,22 @@
       // is passed in so every input still lands in the card's shared checks[] array.
       function renderApprovalGroup(group, items, main, promptId, renderItem) {
         const gid = group.id == null ? "" : String(group.id);
-        // A group with no id must NOT vacuum up every ungrouped item (it.group == null also
-        // stringifies to "", and those items already render flat) — a keyless group is
-        // honored only via its explicit inline items, else it renders nothing.
-        const inlineItems = (Array.isArray(group.items) && group.items.length) ? group.items : null;
-        const groupItems = inlineItems
-          || (gid ? items.filter((it) => it && String(it.group == null ? "" : it.group) === gid) : []);
+        // An item belongs to this group two ways: declared INLINE in group.items, OR listed flat in
+        // card.items with .group === gid (those are already excluded from the flat pass). Merge both
+        // and dedup by id so an item present in BOTH forms renders exactly once. Before, inline items
+        // SHADOWED the flat ones, so a flat item pointing at an inline-items group rendered nowhere
+        // while the headless loop still counted it (protocol-loop dedups the same way now).
+        // A keyless group (gid == "") must NOT vacuum up every ungrouped item (it.group == null also
+        // stringifies to ""), so its flat set is empty -- it's honored only via inline items.
+        const inline = Array.isArray(group.items) ? group.items : [];
+        const flat = gid ? items.filter((it) => it && String(it.group == null ? "" : it.group) === gid) : [];
+        const seen = new Set();
+        const groupItems = [];
+        for (const it of [...inline, ...flat]) {
+          const key = it && it.id != null ? String(it.id) : null;
+          if (key != null) { if (seen.has(key)) continue; seen.add(key); }
+          groupItems.push(it);
+        }
         if (!groupItems.length) return;
         const single = group.multi_select === false;
         const section = document.createElement("div"); section.className = "ask-group";
