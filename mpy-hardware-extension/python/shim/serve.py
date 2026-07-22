@@ -478,6 +478,23 @@ def _is_absent(err):
     return "no such file" in e or "enoent" in e or "does not exist" in e or re.search(r"\berrno 2\b", e) is not None
 
 
+def _shared_namespace_modules(port, slug):
+    """Return the module list if /lib/<slug>/ is a SHARED namespace dir, else None.
+
+    A namespace dir (e.g. umqtt/ holding simple.py + robust.py) has NO __init__.py and more
+    than one entry: each entry is an independently-installed module (umqtt.simple, umqtt.robust),
+    so `rm -r :/lib/umqtt` would wipe siblings the user did not ask to remove. A regular package
+    dir HAS __init__.py and is one unit -- safe to remove whole -- so it returns None. A flat
+    module or an absent path is not a listable dir and also returns None."""
+    r = _list_files(port, f":/lib/{slug}")
+    if r.get("status") != "ok":
+        return None  # not a listable directory (flat module or absent) -> normal removal path
+    files = [f.strip().rstrip("/") for f in (r.get("files") or [])]
+    if any(f == "__init__.py" for f in files):
+        return None  # one package, not a shared namespace
+    return files if len(files) > 1 else None
+
+
 def _uninstall_package(port, name):
     """Best-effort uninstall: mip has no uninstall, so remove the package's files under /lib.
     Covers a package dir (/lib/<name>/), a flat module (/lib/<name>.mpy|.py), and a dotted
@@ -491,6 +508,16 @@ def _uninstall_package(port, name):
     # re-cover the cases the old guard did. A blocklist here cannot anticipate mpremote's quoting.
     if not slug or slug in (".", "..") or ".." in slug or not re.fullmatch(r"[A-Za-z0-9_.-]+", slug):
         return {"status": "error", "error_kind": "invalid_package_name", "message": str(name)}
+    # Guard the Installed-view path: a bare name (no dot) whose /lib/<name>/ is a shared namespace
+    # dir must NOT `rm -r` -- that wipes sibling modules. Refuse and point at the specific module.
+    # Dotted names skip this: their candidates target the exact nested file, never the dir.
+    if "." not in slug:
+        siblings = _shared_namespace_modules(port, slug)
+        if siblings is not None:
+            modules = ", ".join(f"{slug}.{s.rsplit('.', 1)[0]}" for s in siblings)
+            return {"status": "error", "error_kind": "shared_namespace",
+                    "message": f"'{slug}' is a shared namespace with multiple modules. "
+                               f"Uninstall a specific one instead: {modules}."}
     candidates = [f":/lib/{slug}", f":/lib/{slug}.mpy", f":/lib/{slug}.py"]
     nested = slug.replace(".", "/")
     if nested != slug:
@@ -499,19 +526,31 @@ def _uninstall_package(port, name):
         # over a shared namespace dir, so this can't wipe sibling umqtt.* packages.
         candidates += [f":/lib/{nested}.mpy", f":/lib/{nested}.py"]
     removed = False
-    real_err = ""  # a failure that is NOT just "absent"
+    real_err = None  # message of a genuine, identifiable (non-absent) failure
+    unknown_fail = False  # a non-zero exit that gave no message at all -- ambiguous
     for path in candidates:
         r = _run_mpremote(["connect", port, "resume", "fs", "rm", "-r", path], timeout=30)
         if r.returncode == 0:
             removed = True
+            continue
+        # mpremote writes some rm errors ("no such file", OSError) to STDOUT, not stderr -- read
+        # both, else a genuine failure is misclassified as "absent" and reported as "Removed".
+        err = (r.stderr or r.stdout or "").strip()
+        if _is_absent(err):
+            continue
+        if err:
+            real_err = err  # permission/busy/etc -- authoritative even if a sibling was removed
         else:
-            err = (r.stderr or "").strip()
-            if not _is_absent(err):
-                real_err = err
-    # A genuine removal failure on a present path is an error, even if another candidate was
-    # removed: reporting "Removed" while a file is still importable on the board is the bug.
-    if real_err:
+            unknown_fail = True  # non-zero with no message -- don't silently treat as absent
+    # A genuine, identifiable failure on a present path is an error even if another candidate was
+    # removed: reporting "Removed" while a file is still importable on the board is the bug. An
+    # unexplained non-zero exit is an error only when NOTHING was removed, so a silently-absent
+    # probe (an extension we tried that isn't there) alongside a real removal isn't misread.
+    if real_err is not None:
         return {"status": "error", "error_kind": "mpremote_error", "message": real_err}
+    if unknown_fail and not removed:
+        return {"status": "error", "error_kind": "mpremote_error",
+                "message": "mpremote exited non-zero with no message"}
     return {"status": "ok", "removed": removed}
 
 

@@ -486,7 +486,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         const body = await packageBrowserClient.micropythonLibSearch(query);
         webview.postMessage({ type: "package_search_result", source, query, results: body?.results ?? [] });
       } catch (error: any) {
-        webview.postMessage({ type: "package_search_error", error: error?.code ?? "search_failed" });
+        webview.postMessage({ type: "package_search_error", source, query, error: error?.code ?? "search_failed" });
       }
       return;
     }
@@ -495,7 +495,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         const body = await packageBrowserClient.upypiSearch(query);
         webview.postMessage({ type: "package_search_result", source, query, results: tagUpypi(body?.results) });
       } catch (error: any) {
-        webview.postMessage({ type: "package_search_error", error: error?.code ?? "search_failed" });
+        webview.postMessage({ type: "package_search_error", source, query, error: error?.code ?? "search_failed" });
       }
       return;
     }
@@ -505,7 +505,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       packageBrowserClient.micropythonLibSearch(query),
     ]);
     if (up.status === "rejected" && lib.status === "rejected") {
-      webview.postMessage({ type: "package_search_error", error: "search_failed" });
+      webview.postMessage({ type: "package_search_error", source: "auto", query, error: "search_failed" });
       return;
     }
     const upypiHits = up.status === "fulfilled" ? tagUpypi(up.value?.results) : [];
@@ -1070,7 +1070,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       await runDeviceTool("mip_install", { url: message.url, version }, async () => { await shim.installPackage(message.url, version); return { url: message.url }; });
     }
     if (message.type === "device_tool_uninstall" && typeof message.name === "string") {
-      await runDeviceTool("uninstall", { name: message.name }, async () => { await shim.uninstallPackage(message.name); return { name: message.name }; });
+      await runDeviceTool("uninstall", { name: message.name }, async () => { const removed = await shim.uninstallPackage(message.name); return { name: message.name, removed }; });
     }
     if (message.type === "package_search") {
       await handlePackageSearch(
@@ -1085,7 +1085,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // wrong (since-collapsed / re-expanded) row — else Install under B installs A.
         webview.postMessage({ type: "package_resolve_result", record, url: message.url });
       } catch (error: any) {
-        webview.postMessage({ type: "package_resolve_error", error: error?.code ?? "resolve_failed" });
+        webview.postMessage({ type: "package_resolve_error", url: message.url, error: error?.code ?? "resolve_failed" });
       }
     }
     if (message.type === "device_tool_upload") {

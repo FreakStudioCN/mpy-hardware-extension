@@ -105,8 +105,11 @@ def test_uninstall_package_removes_lib_paths_guards_name_and_treats_absent_as_ok
     monkeypatch.setattr(serve, "_run_mpremote", fake_run)
     res = serve._uninstall_package("COM3", "aioble")
     assert res == {"status": "ok", "removed": True}
-    assert [a[-1] for a in calls] == [":/lib/aioble", ":/lib/aioble.mpy", ":/lib/aioble.py"]
-    assert all(a[:5] == ["connect", "COM3", "resume", "fs", "rm"] and "-r" in a for a in calls)
+    # A bare name first probes /lib/<name>/ with `fs ls` (shared-namespace guard); the removal
+    # candidates are the `fs rm` calls that follow.
+    rm_calls = [a for a in calls if a[3:5] == ["fs", "rm"]]
+    assert [a[-1] for a in rm_calls] == [":/lib/aioble", ":/lib/aioble.mpy", ":/lib/aioble.py"]
+    assert all(a[:5] == ["connect", "COM3", "resume", "fs", "rm"] and "-r" in a for a in rm_calls)
 
     # A name with a path separator is rejected without running mpremote at all.
     calls.clear()
@@ -169,6 +172,70 @@ def test_uninstall_package_removes_lib_paths_guards_name_and_treats_absent_as_ok
     assert ":/lib/umqtt/simple.py" in probed and ":/lib/umqtt/simple.mpy" in probed
     # Must NOT rm the shared namespace dir -- that would take sibling umqtt.* packages with it.
     assert ":/lib/umqtt" not in probed
+
+
+def test_uninstall_reads_stdout_errors_and_flags_unexplained_nonzero(monkeypatch):
+    import serve
+
+    # mpremote writes some rm failures to STDOUT, not stderr. A real error there must SURFACE,
+    # not be masked into "Removed" (PR #45 finding: the loop read only stderr).
+    def stdout_error(args, timeout=30):
+        if args[3:5] == ["fs", "ls"]:
+            return subprocess.CompletedProcess(args, 1, "", "")  # not a listable dir
+        return subprocess.CompletedProcess(args, 1, "Permission denied", "")  # error on STDOUT
+    monkeypatch.setattr(serve, "_run_mpremote", stdout_error)
+    res = serve._uninstall_package("COM3", "aioble")
+    assert res["status"] == "error" and res["error_kind"] == "mpremote_error"
+    assert "Permission denied" in res["message"]  # reverting to stderr-only loses this message
+
+    # A non-zero exit with NO message anywhere, and nothing removed, is a real error -- never a
+    # silent "nothing was installed" success.
+    def silent_fail(args, timeout=30):
+        return subprocess.CompletedProcess(args, 1, "", "")  # non-zero, no output, on ls + every rm
+    monkeypatch.setattr(serve, "_run_mpremote", silent_fail)
+    res = serve._uninstall_package("COM3", "aioble")
+    assert res["status"] == "error" and res["error_kind"] == "mpremote_error"
+
+    # But an unexplained non-zero on a probe candidate that didn't need to exist, ALONGSIDE a real
+    # removal, is still success -- the removal is trusted.
+    def removed_then_silent(args, timeout=30):
+        if args[-1] == ":/lib/aioble" and args[3:5] == ["fs", "rm"]:
+            return subprocess.CompletedProcess(args, 0, "", "")  # dir removed
+        return subprocess.CompletedProcess(args, 1, "", "")  # silent non-zero (ls probe + other rm)
+    monkeypatch.setattr(serve, "_run_mpremote", removed_then_silent)
+    assert serve._uninstall_package("COM3", "aioble") == {"status": "ok", "removed": True}
+
+
+def test_uninstall_refuses_shared_namespace_but_removes_regular_package(monkeypatch):
+    import serve
+
+    # A bare name whose /lib/<name>/ is a shared namespace (no __init__.py, >1 module) must be
+    # REFUSED, not `rm -r`ed -- that would wipe sibling packages (umqtt/ = simple.py + robust.py).
+    calls = []
+
+    def namespace_dir(args, timeout=30):
+        calls.append(args)
+        if args[3:5] == ["fs", "ls"] and args[-1] == ":/lib/umqtt":
+            return subprocess.CompletedProcess(args, 0, "         0 simple.py\n         0 robust.py\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(serve, "_run_mpremote", namespace_dir)
+    res = serve._uninstall_package("COM3", "umqtt")
+    assert res["status"] == "error" and res["error_kind"] == "shared_namespace"
+    assert "umqtt.simple" in res["message"] and "umqtt.robust" in res["message"]
+    assert all(a[3:5] != ["fs", "rm"] for a in calls)  # refusing means it issued NO rm
+
+    # A regular package dir HAS __init__.py -> one unit, removed whole (not refused).
+    calls.clear()
+
+    def package_dir(args, timeout=30):
+        calls.append(args)
+        if args[3:5] == ["fs", "ls"] and args[-1] == ":/lib/mypkg":
+            return subprocess.CompletedProcess(args, 0, "         0 __init__.py\n         0 core.py\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(serve, "_run_mpremote", package_dir)
+    res = serve._uninstall_package("COM3", "mypkg")
+    assert res["status"] == "ok"
+    assert any(a[3:5] == ["fs", "rm"] for a in calls)  # __init__.py carve-out lets it remove
 
     # Finding 3b: _is_absent anchors errno 2 -- errno 20-29 are real failures, not "absent".
     assert serve._is_absent("[Errno 2] ENOENT: no such file") is True

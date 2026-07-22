@@ -103,10 +103,16 @@ test("DeviceShim.uninstallPackage sends the package name + port and throws on a 
   };
   const shim = new DeviceShim(rpc);
 
-  await shim.uninstallPackage("aioble");
+  // removed:true from the shim surfaces as true so the UI can honestly say "Removed".
+  assert.equal(await shim.uninstallPackage("aioble"), true);
   const un = calls.find((c) => c.method === "device.uninstall_package");
   assert.equal(un.params.name, "aioble");
   assert.equal(un.params.port, "COM7");
+
+  // An all-absent uninstall (removed:false) is a non-error "nothing was there" -- the flag must
+  // be threaded through so the UI can show a truthful line instead of a false "Removed".
+  response = { status: "ok", removed: false };
+  assert.equal(await shim.uninstallPackage("aioble"), false);
 
   response = { status: "error", error_kind: "mpremote_error", message: "boom" };
   await assert.rejects(() => shim.uninstallPackage("aioble"), /mpremote_error: boom/);

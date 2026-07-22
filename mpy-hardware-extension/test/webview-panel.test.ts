@@ -928,7 +928,22 @@ test("package browser host: an upstream failure posts package_search_error, not 
 
   await getHandler()({ type: "package_search", source: "upypi", query: "x" });
 
-  assert.ok(posted.find((m) => m.type === "package_search_error"), "a 502 degrades to package_search_error");
+  const err = posted.find((m) => m.type === "package_search_error");
+  assert.ok(err, "a 502 degrades to package_search_error");
+  // The error must echo source+query so the webview can drop a stale failure the same way it
+  // drops a stale result (PR #45 review: error responses were uncorrelated).
+  assert.equal(err.source, "upypi", "the error echoes its source for correlation");
+  assert.equal(err.query, "x", "the error echoes its query for correlation");
+});
+
+test("package browser host: a resolve failure echoes the url for correlation (PR #45 review)", async () => {
+  const { getHandler, posted } = packageSearchPanel(async () => jsonResponse({ detail: { error: "upstream_unavailable" } }, 502));
+
+  await getHandler()({ type: "package_resolve", url: "https://upypi.net/pkgs/aaa/1.0.0" });
+
+  const err = posted.find((m) => m.type === "package_resolve_error");
+  assert.ok(err, "a failed resolve posts package_resolve_error");
+  assert.equal(err.url, "https://upypi.net/pkgs/aaa/1.0.0", "the error echoes the url so a stale one is dropped");
 });
 
 test("device_tool_list_lib lists /lib via the shim under its own command name (not list)", async () => {

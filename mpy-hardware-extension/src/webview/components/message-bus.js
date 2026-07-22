@@ -19,9 +19,9 @@
         if (msg.type === "device_tool_error") { onDeviceToolError(msg.command, msg.error); }
         if (msg.type === "device_tool_delete_armed") { onDeviceDeleteArmed(msg.path, msg.nonce); }
         if (msg.type === "package_search_result") { onPackageSearchResult(msg.source, msg.results, msg.query); }
-        if (msg.type === "package_search_error") { onPackageSearchError(); }
+        if (msg.type === "package_search_error") { onPackageSearchError(msg.source, msg.query); }
         if (msg.type === "package_resolve_result") { onPackageResolveResult(msg.record, msg.url); }
-        if (msg.type === "package_resolve_error") { onPackageResolveError(); }
+        if (msg.type === "package_resolve_error") { onPackageResolveError(msg.url); }
         if (msg.type === "device_busy") { onDeviceBusy(msg.phase); }
         if (msg.type === "device_present") { onDevicePresent(msg.present, msg.ports); }
         if (msg.type === "logs_status") { const n = $("scDiag"); if (n) n.textContent = msg.text; }

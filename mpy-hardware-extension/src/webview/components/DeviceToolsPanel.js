@@ -180,19 +180,22 @@
           return;
         }
         if (command === "list_lib") { onInstalledList(result && result.entries); return; }
-        if (DT_INSTALL_CMDS[command]) { dtFinishInstall(command); dtRefreshSilently(); dtRefreshInstalled(); return; } // /lib changed
+        if (DT_INSTALL_CMDS[command]) { dtFinishInstall(command, result); dtRefreshSilently(); dtRefreshInstalled(); return; } // /lib changed
         dtFilesStatus(tr("dt_ok", { c: command }));
         dtRefreshSilently(); // refresh the listing after any mutation, keeping the status
       }
       // An install/uninstall result updates the card that started it: clear the bar, show the
       // outcome, and flip its button (Install <-> Uninstall). No card (Advanced-box install)
       // falls back to the Packages section status.
-      function dtFinishInstall(command) {
+      function dtFinishInstall(command, result) {
         const ctx = dtActiveInstall; dtActiveInstall = null; dtInstallInFlight = false;
         const installed = command === "mip_install";
-        if (!ctx) { dtPkgStatus(tr(installed ? "dt_pkg_installed" : "dt_pkg_removed")); return; }
+        // An uninstall that removed nothing (all paths absent) must not claim "Removed" -- the
+        // shim reports removed:false for that, so show a truthful line instead of lying.
+        const key = installed ? "dt_pkg_installed" : (result && result.removed === false ? "dt_pkg_nothing_removed" : "dt_pkg_removed");
+        if (!ctx) { dtPkgStatus(tr(key)); return; }
         ctx.status.classList.remove("installing");
-        ctx.status.textContent = tr(installed ? "dt_pkg_installed" : "dt_pkg_removed");
+        ctx.status.textContent = tr(key);
         dtSetInstallButton(ctx.btn, installed);
       }
       function onDeviceToolError(command, error) {
@@ -281,7 +284,13 @@
         pager.append(prev, label, next);
         return pager;
       }
-      function onPackageSearchError() { const h = $("dtPkgResults"); if (h) { h.innerHTML = ""; h.textContent = tr("dt_pkg_err"); } }
+      function onPackageSearchError(source, query) {
+        // Drop a stale error just as onPackageSearchResult drops a stale result: a failed OLDER
+        // query/source must not wipe the results the newer one now shows (the responses race).
+        const p = dtPendingSearch;
+        if (p && ((query != null && query !== p.query) || (source != null && source !== p.source))) return;
+        const h = $("dtPkgResults"); if (h) { h.innerHTML = ""; h.textContent = tr("dt_pkg_err"); }
+      }
 
       // ----- Installed packages view: the real installed set, read from the board's /lib -----
       var dtPkgMode = "search";
@@ -341,9 +350,13 @@
       }
       function onInstalledError(error) {
         const host = $("dtPkgInstalled"); if (host) host.innerHTML = "";
+        // An errored listing means we no longer know what's installed: clear BOTH accumulators
+        // (names + set), not just one. Leaving dtInstalledNamesAll would let a later pager/refresh
+        // repaint the prior board's rows, and a stale dtInstalledSet mis-marks search results as
+        // installed (read at dtSetInstallButton). Then branch only on how to message it.
+        dtInstalledNamesAll = []; dtInstalledSet = new Set();
         // A fresh board has no /lib yet -> treat "not found" as empty; else surface an error.
         if (/no such file|enoent|does not exist|package_not_found/i.test(String(error))) {
-          dtInstalledSet = new Set();
           const empty = $("dtPkgInstalledEmpty"); if (empty) empty.classList.remove("hidden");
         } else { dtPkgStatus(tr("dt_pkg_installed_err")); }
       }
@@ -395,9 +408,13 @@
         dtPendingResolve = null;
         dtFillDetail(pending.body, record); pending.body.dataset.filled = "1";
       }
-      function onPackageResolveError() {
-        const pending = dtPendingResolve; dtPendingResolve = null;
-        if (pending) pending.body.textContent = tr("dt_pkg_err");
+      function onPackageResolveError(url) {
+        const pending = dtPendingResolve;
+        // Drop a late error whose url doesn't match the row still awaiting one (mirror of the
+        // result path): an error for a collapsed/superseded row must not overwrite the open one.
+        if (!pending || (url != null && url !== pending.url)) return;
+        dtPendingResolve = null;
+        pending.body.textContent = tr("dt_pkg_err");
       }
 
       function dtDetailLine(label, value) {
