@@ -72,8 +72,12 @@ export async function runDoctor(deps: DoctorDeps, opts: { probe?: boolean } = {}
     return results;
   }
   if (ports.length === 0) {
+    // No serial port at all is often a brand-new board with no MicroPython yet:
+    // native-USB boards enumerate no port until flashed. Surface the firmware link
+    // here (not only after a port exists), so "flash firmware first" is offered
+    // exactly when it's the fix — the device row's hint names it too.
     results.push({ id: "device", status: "warn", messageKey: "doc_device_none", errorKind: "device_unavailable" });
-    results.push({ id: "micropython", status: "warn", messageKey: "doc_mpy_need_device" });
+    results.push({ id: "micropython", status: "warn", messageKey: "doc_mpy_need_device", link: firmwareLink(deps.board) });
     return results;
   }
   if (ports.length > 1) {

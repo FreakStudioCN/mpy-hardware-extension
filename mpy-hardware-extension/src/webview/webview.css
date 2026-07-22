@@ -246,6 +246,7 @@
       .ev-sum strong { color: var(--fg-bright); font-weight: 600; }
       .ev-sum code { font-family: var(--mono); font-size: 11px; background: rgba(255,255,255,0.06); padding: 0 3px; border-radius: 3px; }
       .ev-card.ask { border-color: #a371f733; }
+      .ev-card.ask .ev-head { padding-bottom: 14px; }
       .ask-row { display: flex; gap: 6px; margin-top: 8px; }
       .ask-input { flex: 1; min-width: 0; background: var(--vsc-input); border: 1px solid var(--vsc-input-border); color: var(--fg); border-radius: 6px; padding: 5px 8px; font-family: var(--ui); font-size: 12px; outline: none; }
       .ask-input:focus { border-color: var(--accent); }
@@ -257,6 +258,10 @@
       .retry-session:disabled { background: #3a3a3c; color: #8a8a8a; cursor: default; }
       .ask-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
       .ask-opt { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: var(--ui); }
+      /* Flat checkbox/radio item rows (label.ask-opt) stack vertically — space them so
+         they don't touch each other or the summary above. Action buttons use .ask-options
+         flex gap instead, so scope this to labels only. */
+      label.ask-opt { margin-top: 6px; }
       .plan-list { margin: 8px 0 0; padding-left: 16px; font-size: 12px; line-height: 1.6; }
       .plan-k { color: var(--fg-muted); }
       .plan-cost { margin-top: 8px; font-size: 12px; font-weight: 600; }
@@ -267,6 +272,27 @@
       .ask-opt:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); }
       .ask-opt.chosen { background: var(--accent); color: #fff; border-color: var(--accent); }
       .ask-opt:disabled { opacity: .5; cursor: default; }
+      /* Approval-card body (summary/steps/guidance/links) + grouped item sections. */
+      .ask-kv { margin-top: 8px; font-size: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 7px 9px; }
+      .ask-kv-row { margin-top: 3px; line-height: 1.45; overflow-wrap: anywhere; }
+      .ask-kv-row:first-child { margin-top: 0; }
+      .ask-kv-k { color: var(--fg-dim, #8b949e); }
+      .ask-steps { margin: 8px 0 0; padding-left: 20px; font-size: 12px; overflow-wrap: anywhere; }
+      .ask-steps li { margin-top: 2px; }
+      .ask-guidance { margin-top: 8px; font-size: 12px; color: var(--fg-dim, #8b949e); overflow-wrap: anywhere; }
+      .ask-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+      .ask-link { font-size: 12px; color: var(--accent); overflow-wrap: anywhere; text-decoration: none; }
+      .ask-link:hover { text-decoration: underline; }
+      /* item_groups: each group is a titled, separated section. */
+      .ask-group { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-input-border); }
+      .ask-group-h { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-dim, #8b949e); margin-bottom: 4px; }
+      /* Flash-confirm serial-port + baud picker. */
+      .flash-pick { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-input-border); }
+      .flash-status { font-size: 12px; }
+      .flash-ports { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      .flash-baud { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
+      .flash-baud select { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 4px 6px; font-family: var(--ui); font-size: 12px; }
+      .flash-rescan { margin-top: 8px; }
       /* Deploy checkpoint: device-pick chips above a divider, then a primary Deploy
          (full-width) over a secondary Rescan/Cancel row — keeps selection and actions
          visually distinct and avoids the 3-button wrap. */

@@ -560,7 +560,7 @@ test("the Doctor tab requests a check on load and renders results as localized s
       { id: "python", status: "ok", messageKey: "doc_python_ok", detail: "Python 3.12.1" },
       { id: "deps", status: "ok", messageKey: "doc_deps_ok" },
       { id: "device", status: "warn", messageKey: "doc_device_none", errorKind: "device_unavailable" },
-      { id: "micropython", status: "warn", messageKey: "doc_mpy_need_device" },
+      { id: "micropython", status: "warn", messageKey: "doc_mpy_need_device", link: "https://micropython.org/download/" },
     ],
   });
 
@@ -570,6 +570,13 @@ test("the Doctor tab requests a check on load and renders results as localized s
   assert.match(view.textContent!, /Python 3\.12\.1/, "version detail shown");
   assert.ok(view.querySelector(".doc-row.doc-ok"), "ok status styled");
   assert.ok(view.querySelector(".doc-row.doc-warn"), "warn status styled");
+  // No serial port at all: the hint names unflashed firmware as a likely cause, and a
+  // firmware download link is offered even without a detected port.
+  assert.match(view.textContent!, /flash MicroPython firmware/, "device_unavailable hint names flashing firmware");
+  assert.ok(
+    [...view.querySelectorAll("a.doc-link")].some((a) => /micropython\.org\/download/.test(a.getAttribute("href") || "")),
+    "a firmware link is offered even with no port",
+  );
 });
 
 test("a failing Doctor check offers an install button and guide links wired to the host (no raw error_kind)", async () => {
@@ -1004,6 +1011,47 @@ test("credits message updates the quota label and gates Start", async () => {
   assert.equal(document.getElementById("qUsed")!.textContent, "0");
   assert.ok(document.getElementById("quota")!.classList.contains("exhausted"));
   assert.equal(generate.disabled, true, "out of credits -> Start disabled");
+});
+
+test("quota warning copy distinguishes nearly-exhausted (>0) from fully exhausted (==0)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const warn = document.getElementById("qWarn")!;
+
+  // Low but non-zero: the "nearly exhausted" copy, quota flagged .low.
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 3, dailyGrant: 50 } });
+  assert.ok(document.getElementById("quota")!.classList.contains("low"));
+  assert.equal(warn.getAttribute("data-i18n"), "lowCredits");
+  assert.equal(warn.textContent, "Today's quota is nearly exhausted.");
+
+  // Fully consumed: switches to the "has been exhausted" copy + feature lock.
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 0, dailyGrant: 50 } });
+  assert.ok(document.getElementById("quota")!.classList.contains("exhausted"));
+  assert.equal(warn.getAttribute("data-i18n"), "creditsExhausted");
+  assert.equal(warn.textContent, "Today's quota has been exhausted.");
+
+  // The out_of_credits session_error (no credits event) also switches the copy.
+  const dom2 = await loadWebview();
+  post(dom2, { type: "session_error", error: "out_of_credits" });
+  const warn2 = dom2.window.document.getElementById("qWarn")!;
+  assert.equal(warn2.getAttribute("data-i18n"), "creditsExhausted");
+  assert.equal(warn2.textContent, "Today's quota has been exhausted.");
+
+  // Recovery: a healthy refresh returns the copy to the nearly-exhausted key.
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 47, dailyGrant: 50 } });
+  assert.equal(warn.getAttribute("data-i18n"), "lowCredits");
+  assert.equal(warn.textContent, "Today's quota is nearly exhausted.");
+});
+
+test("a device_unavailable session_error renders a friendly sentence, not the raw kind", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "session_error", error: "device_unavailable" });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.match(feed, /No board detected/, "the friendly err_device_unavailable copy shows");
+  assert.doesNotMatch(feed, /device_unavailable/, "the raw machine kind is never shown");
 });
 
 test("a daily_cap_reached session_error shows the dedicated message and disables Start, like out_of_credits", async () => {
@@ -1859,6 +1907,365 @@ test("session_done disables a still-open approval card so stale clicks can't pos
   assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "a stale click posts nothing");
 });
 
+test("approval card renders a STRUCTURED guidance object (tool/steps/normal_range/diagram), not just a string (PR #46 review)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // The protocol contract defines guidance as an object; before, only a string rendered, so a
+  // contract-shaped card showed none of its safety/troubleshooting detail.
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-guid",
+    card: {
+      question: "Confirm the sensor read?",
+      guidance: { tool: "multimeter", steps: ["Probe VCC to GND", "Expect 3.3V"], normal_range: "3.0-3.6V", diagram_ref: "fig-3" },
+      actions: [{ label: "Confirm", value: "confirm", primary: true }],
+    },
+  });
+  const card = document.querySelector('[data-prompt-id="p-guid"]')!;
+  const g = card.querySelector(".ask-guidance");
+  assert.ok(g, "the guidance block renders for the object shape (not dropped)");
+  assert.match(g!.textContent!, /multimeter/, "tool shown");
+  assert.match(g!.textContent!, /Probe VCC to GND/, "first step shown");
+  assert.match(g!.textContent!, /Expect 3\.3V/, "every step shown");
+  assert.match(g!.textContent!, /3\.0-3\.6V/, "normal range shown");
+  assert.match(g!.textContent!, /fig-3/, "diagram ref shown");
+});
+
+test("approval card still renders a plain-string guidance (back-compat)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-guid-str",
+    card: { question: "ok?", guidance: "Hold BOOT while connecting.", actions: [{ label: "Confirm", value: "confirm", primary: true }] },
+  });
+  const g = document.querySelector('[data-prompt-id="p-guid-str"] .ask-guidance');
+  assert.match(g!.textContent!, /Hold BOOT while connecting\./, "string guidance still renders");
+});
+
+function scaffoldCard(overrides: any = {}) {
+  return {
+    approval_id: "scaffold_config",
+    question: "Configure the project skeleton",
+    items: [
+      { id: "mode_timer", name: "Timer tick", group: "scheduler_mode", selected: false },
+      { id: "mode_async", name: "asyncio", group: "scheduler_mode", selected: true },
+      { id: "mode_thread", name: "_thread", group: "scheduler_mode", selected: false },
+      { id: "module_logger", name: "Logger", group: "extra_modules", selected: true },
+      { id: "module_flash", name: "Flash helper", group: "extra_modules", selected: true },
+    ],
+    item_groups: {
+      scheduler_mode: { multi_select: false, label: "Scheduling Mode" },
+      extra_modules: { multi_select: true, label: "Modules to Inject" },
+    },
+    actions: [{ label: "Confirm", value: "confirm", primary: true }],
+    ...overrides,
+  };
+}
+
+test("scaffold approval card groups a single-choice scheduler and multi-select modules", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-scaffold", card: scaffoldCard() });
+
+  const card = document.querySelector('[data-prompt-id="p-scaffold"]')!;
+  assert.equal(card.querySelectorAll(".ask-group").length, 2, "two separated group sections");
+  assert.match(card.textContent!, /Scheduling Mode/, "scheduler header rendered");
+  assert.match(card.textContent!, /Modules to Inject/, "modules header rendered");
+  const radios = [...card.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+  const checks = [...card.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+  assert.equal(radios.length, 3, "scheduler modes are mutually exclusive radios");
+  assert.equal(checks.length, 2, "modules stay multi-select checkboxes");
+  assert.equal(new Set(radios.map((r) => r.name)).size, 1, "all scheduler radios share one name");
+  assert.equal(radios.find((r) => r.checked)?.dataset.id, "mode_async", "the default-selected mode is checked");
+});
+
+test("scaffold scheduler group enforces single choice, and confirm posts one mode + the checked modules", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-scaffold2", card: scaffoldCard() });
+  const card = document.querySelector('[data-prompt-id="p-scaffold2"]')!;
+  const radios = [...card.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+  const byId = (id: string) => radios.find((r) => r.dataset.id === id)!;
+
+  // Picking _thread must clear asyncio (real mutual exclusion, not just rendered).
+  byId("mode_thread").click();
+  assert.equal(byId("mode_thread").checked, true);
+  assert.equal(byId("mode_async").checked, false, "selecting one mode unchecks the others");
+
+  // Uncheck one module, keep the other.
+  const modLogger = card.querySelector('input[data-id="module_logger"]') as HTMLInputElement;
+  modLogger.click();
+  assert.equal(modLogger.checked, false);
+
+  posted.length = 0;
+  (card.querySelector("button.ask-opt") as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  // resp.selected_ids is created in the jsdom realm, so deepStrictEqual would fail on a
+  // prototype mismatch — assert element-wise on the primitives instead.
+  const modeIds = [...resp.selected_ids].filter((id: string) => id.startsWith("mode_"));
+  assert.equal(modeIds.length, 1, "exactly one scheduler mode is posted");
+  assert.equal(modeIds[0], "mode_thread", "the chosen mode is the last one picked");
+  assert.ok([...resp.selected_ids].includes("module_flash"), "the kept module is posted");
+  assert.ok(![...resp.selected_ids].includes("module_logger"), "the unchecked module is dropped");
+});
+
+test("a single-choice group with no default pre-checks the first item", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  const card = scaffoldCard();
+  card.items = card.items.map((it: any) => (it.group === "scheduler_mode" ? { ...it, selected: false } : it));
+  post(dom, { type: "approval_request", promptId: "p-scaffold3", card });
+
+  const radios = [...document.querySelectorAll('[data-prompt-id="p-scaffold3"] input[type="radio"]')] as HTMLInputElement[];
+  assert.equal(radios.filter((r) => r.checked).length, 1, "exactly one mode is checked");
+  assert.equal(radios.find((r) => r.checked)?.dataset.id, "mode_timer", "the first mode is checked when none is marked");
+});
+
+test("the REAL generate_behavior sample posts exactly one next_phase id despite omitted `selected`", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Source of truth: the bundled sample (submodule at the repo root, two up from test/).
+  // Its next_phase group is multi_select:false with only next_deploy selected; next_simulate
+  // and next_stop OMIT `selected`. renderItem defaults omitted -> checked, so without the
+  // exactly-one fix all three radios stay checked and post at once (the reviewer's repro).
+  const sample = JSON.parse(readFileSync(new URL("../../third_party/MicroPython_Skills/upy-generate-plugin/sample/approval_request.generate_behavior.json", import.meta.url), "utf-8")).payload;
+  post(dom, { type: "approval_request", promptId: "p-gen", card: sample });
+
+  const card = document.querySelector('[data-prompt-id="p-gen"]')!;
+  const radios = [...card.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+  assert.equal(radios.length, 3, "next_phase renders three radios");
+  assert.equal(radios.filter((r) => r.checked).length, 1, "exactly one radio is checked");
+  assert.equal(radios.find((r) => r.checked)?.dataset.id, "next_deploy", "the explicitly-selected item wins");
+
+  posted.length = 0;
+  (card.querySelector("button.ask-opt") as HTMLButtonElement).click();
+  const ids = [...posted.find((m) => m.type === "ui_prompt_response").selected_ids];
+  assert.equal(ids.filter((i: string) => i.startsWith("next_")).length, 1, "only one next_phase id is posted");
+  assert.ok(ids.includes("next_deploy"), "the chosen next_phase id is posted");
+});
+
+test("an ungrouped approval card renders flat checkboxes with no group headers (back-compat)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-flat",
+    card: { question: "Keep these parts?", items: [{ id: "a", name: "A" }, { id: "b", name: "B" }], actions: [{ label: "Confirm", value: "confirm", primary: true }] },
+  });
+
+  const card = document.querySelector('[data-prompt-id="p-flat"]')!;
+  assert.equal(card.querySelectorAll(".ask-group").length, 0, "no group sections for a flat card");
+  assert.equal(card.querySelectorAll('input[type="checkbox"]').length, 2, "items render as checkboxes");
+  assert.equal(card.querySelectorAll('input[type="radio"]').length, 0, "no radios without a single-choice group");
+});
+
+test("a summary value that is an http(s) URL renders as a clickable link; plain values stay text", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-url",
+    card: {
+      question: "Prepare firmware",
+      summary: {
+        display_name: "ESP32-C6-DevKitC-1",
+        firmware_page: "https://micropython.org/download/ESP32_GENERIC_C6/",
+      },
+      actions: [{ label: "OK", value: "confirm", primary: true }],
+    },
+  });
+
+  const card = document.querySelector('[data-prompt-id="p-url"]')!;
+  const link = card.querySelector('.ask-kv a.ask-link') as HTMLAnchorElement | null;
+  assert.ok(link, "the URL value renders as an anchor");
+  assert.equal(link!.getAttribute("href"), "https://micropython.org/download/ESP32_GENERIC_C6/", "href is the URL");
+  assert.equal(link!.getAttribute("target"), "_blank", "opens in a new context");
+  // The plain value must NOT be linkified — exactly one anchor in the summary.
+  assert.equal(card.querySelectorAll('.ask-kv a.ask-link').length, 1, "only the URL value is a link");
+  assert.match(card.querySelector('.ask-kv')!.textContent!, /ESP32-C6-DevKitC-1/, "the plain value still shows as text");
+});
+
+test("approval card.links: only http(s) hrefs become anchors; a javascript: link is dropped (PR #46 review)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // links[] come from the same untrusted producer as summary values -- a javascript:/data: href
+  // must NOT become a live anchor (the scheme allowlist was on summary values only).
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-links",
+    card: {
+      question: "Refs",
+      links: [
+        { url: "https://docs.example.com/guide", label: "Guide" },
+        { url: "javascript:alert(1)", label: "Evil" },
+        { url: "data:text/html,x", label: "Evil2" },
+      ],
+      actions: [{ label: "OK", value: "confirm", primary: true }],
+    },
+  });
+  const anchors = [...document.querySelectorAll('[data-prompt-id="p-links"] .ask-links a.ask-link')] as HTMLAnchorElement[];
+  assert.equal(anchors.length, 1, "only the https link renders as an anchor");
+  assert.equal(anchors[0].getAttribute("href"), "https://docs.example.com/guide", "the safe href is kept");
+  assert.equal([...document.querySelectorAll('[data-prompt-id="p-links"] a')].some((a) => /^(javascript|data):/i.test(a.getAttribute("href") || "")), false, "no javascript:/data: anchor exists");
+});
+
+test("a keyless item_groups entry does not double-render ungrouped items", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Array-form item_groups with a malformed entry that carries no group_id and no inline
+  // items. Its gid resolves to "", and ungrouped items (it.group == null) also stringify
+  // to "" — so a keyless group must NOT vacuum them up, or they render twice and post
+  // duplicate ids.
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-keyless",
+    card: {
+      question: "Pick",
+      items: [{ id: "u1", name: "Ungrouped 1" }, { id: "u2", name: "Ungrouped 2" }],
+      item_groups: [{ group_header: "Broken", multi_select: false }],
+      actions: [{ label: "Confirm", value: "confirm", primary: true }],
+    },
+  });
+
+  const card = document.querySelector('[data-prompt-id="p-keyless"]')!;
+  assert.equal(card.querySelectorAll('input[type="checkbox"]').length, 2, "the two items render once, flat");
+  assert.equal(card.querySelectorAll('input[type="radio"]').length, 0, "the keyless group renders nothing");
+
+  posted.length = 0;
+  (card.querySelector("button.ask-opt") as HTMLButtonElement).click();
+  const ids = [...posted.find((m) => m.type === "ui_prompt_response").selected_ids];
+  assert.deepStrictEqual(ids, ["u1", "u2"], "each id is posted exactly once, no duplicates");
+});
+
+test("a group with BOTH inline items and flat card.items pointing at it renders each once (PR #46 minor)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // The group declares an inline item; the card ALSO lists items flat, pointing at the group via
+  // .group. Before, inline shadowed the flat ones so a flat item rendered nowhere (excluded from
+  // the flat pass AND the group). And an item in BOTH forms (m_dup) was double-counted headless.
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-mix",
+    card: {
+      question: "Pick modules",
+      items: [
+        { id: "m_flat", name: "Flat module", group: "extra_modules" },
+        { id: "m_dup", name: "Dup module", group: "extra_modules" },
+      ],
+      item_groups: { extra_modules: { multi_select: true, label: "Modules", items: [{ id: "m_inline", name: "Inline module" }, { id: "m_dup", name: "Dup module" }] } },
+      actions: [{ label: "Confirm", value: "confirm", primary: true }],
+    },
+  });
+  const card = document.querySelector('[data-prompt-id="p-mix"]')!;
+  assert.equal(card.querySelectorAll(".ask-group").length, 1, "one group section");
+  const boxes = [...card.querySelectorAll('.ask-group input[type="checkbox"]')] as any[];
+  assert.deepStrictEqual(boxes.map((b) => b.dataset.id).sort(), ["m_dup", "m_flat", "m_inline"], "inline + flat render, m_dup deduped");
+  assert.equal(card.querySelectorAll('input[type="checkbox"]').length, 3, "no item renders outside the group either");
+
+  posted.length = 0;
+  ([...card.querySelectorAll("button")].find((b) => b.textContent === "Confirm") as HTMLButtonElement).click();
+  const sent = [...posted.find((m) => m.type === "ui_prompt_response").selected_ids].sort();
+  assert.deepStrictEqual(sent, ["m_dup", "m_flat", "m_inline"], "each id posts exactly once (m_dup not duplicated)");
+});
+
+test("esp32_flash_confirm renders its body and a port picker; Start Flashing is gated on a port", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-flash",
+    card: {
+      approval_id: "esp32_flash_confirm",
+      question: "Confirm flashing",
+      summary: { firmware: "ESP32_GENERIC-20240105.bin", chip: "esp32" },
+      steps: ["Hold BOOT while connecting", "Click Start Flashing"],
+      actions: [
+        { label: "Start Flashing", value: "flash_now", primary: true },
+        { label: "Continue Later", value: "save_partial" },
+        { label: "Cancel", value: "cancel" },
+      ],
+    },
+  });
+
+  const card = document.querySelector('[data-prompt-id="p-flash"]')!;
+  // The card body (summary + steps) that used to be dropped now renders.
+  assert.match(card.textContent!, /ESP32_GENERIC-20240105\.bin/, "summary firmware shown");
+  assert.match(card.textContent!, /Hold BOOT while connecting/, "steps shown");
+  assert.ok(posted.some((m) => m.type === "deploy_rescan"), "the picker requests a port scan");
+
+  const flashBtn = [...card.querySelectorAll("button")].find((b) => b.textContent === "Start Flashing") as HTMLButtonElement;
+  assert.equal(flashBtn.disabled, true, "Start Flashing is disabled with no port");
+
+  post(dom, { type: "deploy_ports_updated", ports: ["COM3", "COM7"] });
+  const portBtns = [...card.querySelectorAll(".flash-ports button")] as HTMLButtonElement[];
+  assert.equal(portBtns.length, 2, "one button per detected port");
+  assert.equal(flashBtn.disabled, true, "still gated before a port is picked");
+  portBtns[0].click();
+  assert.equal(flashBtn.disabled, false, "picking a port enables Start Flashing");
+  // Baud picker is GATED ON RUILI (the flash ignores a chosen baud until her plugin consumes
+  // approval_response.baud): the dropdown must NOT render and baud must NOT ride. Re-enabling the
+  // picker without that change should fail here, prompting a matching test update.
+  assert.equal(card.querySelector(".flash-baud select"), null, "no baud selector while the picker is gated");
+
+  posted.length = 0;
+  flashBtn.click();
+  const resp = posted.filter((m) => m.type === "ui_prompt_response");
+  assert.equal(resp.length, 1, "exactly one response posted");
+  assert.equal(resp[0].answer, "flash_now");
+  assert.equal(resp[0].serial_port, "COM3", "the chosen port rides on the response");
+  assert.equal(resp[0].baud, undefined, "baud is NOT sent while the picker is gated on ruili");
+});
+
+test("a single detected port auto-selects and enables Start Flashing", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-flash1",
+    card: { approval_id: "esp32_flash_confirm", question: "Flash?", actions: [{ label: "Start Flashing", value: "flash_now", primary: true }, { label: "Cancel", value: "cancel" }] },
+  });
+  const card = document.querySelector('[data-prompt-id="p-flash1"]')!;
+  post(dom, { type: "deploy_ports_updated", ports: ["COM9"] });
+  const flashBtn = [...card.querySelectorAll("button")].find((b) => b.textContent === "Start Flashing") as HTMLButtonElement;
+  assert.equal(flashBtn.disabled, false, "the lone port auto-selects and enables flashing");
+
+  posted.length = 0;
+  flashBtn.click();
+  assert.equal(posted.find((m) => m.type === "ui_prompt_response").serial_port, "COM9");
+});
+
+test("a non-flash approval card renders no port picker and requests no scan", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-noflash",
+    card: { approval_id: "device_confirm", question: "ok?", items: [{ id: "d1", name: "SHT30" }], actions: [{ label: "Confirm", value: "confirm", primary: true }] },
+  });
+
+  const card = document.querySelector('[data-prompt-id="p-noflash"]')!;
+  assert.equal(card.querySelector(".flash-pick"), null, "no picker on a non-flash card");
+  assert.ok(!posted.some((m) => m.type === "deploy_rescan"), "no port scan requested for a non-flash card");
+});
+
 test("the add-note button appears while running and posts a user_supplement", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -2324,6 +2731,42 @@ test("device tools: shows a no-device state until a board is present, and revert
   assert.ok(!document.getElementById("dtNoDev").classList.contains("hidden"), "unplugging reverts to the no-device state");
   assert.ok(document.getElementById("dtDeviceUi").classList.contains("hidden"), "controls hide again on unplug");
   assert.equal(document.getElementById("dtEntries").children.length, 0, "the file list is cleared on unplug");
+});
+
+test("device tools: an ABSENT venv shows the set-up-environment affordance; its button installs deps + opens Env", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // Open the REAL Device Tools surface first: it is a global tool that hides .tabwrap while
+  // open, so the button must close it or the promised Doctor progress stays covered.
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("toolDeviceTools")!.classList.contains("hidden"), false, "the Device Tools surface is open");
+  // Absent venv (fresh install): the host flags needsEnvSetup, so Device Tools offers setup rather
+  // than a dead-end "No device connected".
+  post(dom, { type: "device_present", present: false, needsEnvSetup: true });
+  assert.equal(document.getElementById("dtEnvSetup")!.classList.contains("hidden"), false, "the set-up-environment affordance shows");
+  assert.equal(document.getElementById("dtNoDev")!.classList.contains("hidden"), true, "the plain no-device state is hidden");
+
+  // The button starts the venv install and jumps to the Env tab so the user sees progress.
+  const envBtn = document.getElementById("dtEnvSetupBtn") as HTMLButtonElement;
+  envBtn.click();
+  assert.ok(posted.some((m) => m.type === "doctor_action" && m.action === "install_deps"), "the button starts the venv install");
+  assert.equal(document.querySelector('.view[data-view="doctor"]')!.classList.contains("hidden"), false, "it switches to the Env tab");
+  // The tab switch is only VISIBLE if the global-tool surface actually closes: setTab() flips
+  // the .view but .tabwrap stays hidden while a global tool is open (the PR #46 review bug).
+  assert.equal(document.getElementById("toolDeviceTools")!.classList.contains("hidden"), true, "the Device Tools surface closes");
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), false, "the tab area is visible again (Doctor progress not covered)");
+  assert.equal(envBtn.disabled, true, "the button disables while installing");
+
+  // If the install FAILED, the venv is still absent, so the next poll re-offers setup -- the button
+  // must be handed back live, not stranded disabled at "Installing…".
+  post(dom, { type: "device_present", present: false, needsEnvSetup: true });
+  assert.equal(envBtn.disabled, false, "the re-offered button is re-enabled (not stranded after a failed install)");
+
+  // A plain unplug (no needsEnvSetup) shows the normal no-device state, not the setup affordance.
+  post(dom, { type: "device_present", present: false });
+  assert.equal(document.getElementById("dtEnvSetup")!.classList.contains("hidden"), true, "a broken/unplug case does NOT show env-setup");
+  assert.equal(document.getElementById("dtNoDev")!.classList.contains("hidden"), false, "the plain no-device state shows instead");
 });
 
 test("device tools: re-opening with the board already present refreshes the current path; a poll tick does not", async () => {

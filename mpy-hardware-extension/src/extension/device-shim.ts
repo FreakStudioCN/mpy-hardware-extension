@@ -281,7 +281,7 @@ export class DeviceShim {
 export function killProcessTree(child: { pid?: number; kill: (signal?: any) => void } | null | undefined) {
   if (!child?.pid) return;
   if (process.platform === "win32") {
-    try { spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"]); }
+    try { spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }); }
     catch { try { child.kill(); } catch { /* already gone */ } }
     return;
   }
@@ -388,11 +388,16 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
     const scriptPath = join(shimDir, "serve.py");
     // Put the venv's bin on PATH so serve.py's bare `mpremote` calls resolve.
     const env = { ...process.env, PATH: venvBin + delimiter + (process.env.PATH ?? "") };
-    // detached: the shim leads its OWN process group, so Stop can signal the whole group
-    // (serve.py + every descendant it spawns — the flash plugin's esptool, mpremote) instead
-    // of just serve.py, which would orphan an in-flight flash. stdio stays piped and we keep
-    // the reference (no unref), so communication + lifecycle are unchanged.
-    return spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env, detached: true });
+    // detached (POSIX only): the shim leads its OWN process group, so Stop can signal the
+    // whole group (serve.py + every descendant it spawns — the flash plugin's esptool,
+    // mpremote) via a negative pid instead of just serve.py, which would orphan an in-flight
+    // flash. Windows has no process groups: killProcessTree uses `taskkill /T` (walks the
+    // tree by pid), so detached buys nothing there — and Node IGNORES windowsHide whenever
+    // detached is true (nodejs/node#21825), leaving the venv/serve.py console visibly popping.
+    // So detach only off-Windows; on Windows windowsHide then actually suppresses the console.
+    // stdio stays piped and we keep the reference (no unref), so lifecycle is unchanged.
+    const detached = process.platform !== "win32";
+    return spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env, detached, windowsHide: true });
   });
 }
 
@@ -427,7 +432,7 @@ export function detectPython(vscode: any): { ok: boolean; version?: string; comm
   const setting = vscode?.workspace?.getConfiguration?.("mpyhw")?.get?.("pythonPath");
   for (const candidate of [setting, "python3", "python"]) {
     if (!candidate) continue;
-    const r = spawnSync(candidate, ["--version"], { encoding: "utf8", timeout: 15_000 });
+    const r = spawnSync(candidate, ["--version"], { encoding: "utf8", timeout: 15_000, windowsHide: true });
     if (r.status === 0) {
       // Older CPython prints "--version" to stderr; newer to stdout. Read both.
       const version = ((r.stdout || "") + (r.stderr || "")).trim() || undefined;
@@ -458,6 +463,14 @@ export function venvReady(): boolean {
   return existsSync(python) && canRun(python, SHIM_IMPORT_PROBE);
 }
 
+// Cheap existence check (no import probe / no spawn) — distinguishes a venv that was NEVER set up
+// ("absent": offer environment setup) from one that exists but is broken ("present but broken":
+// venvReady() is false yet this is true; the Doctor Re-check recovers it). The presence poll uses
+// this to pick which no-device state to show without paying the 7-import probe on every tick.
+export function venvExists(): boolean {
+  return existsSync(venvPaths().python);
+}
+
 // Best-effort mpremote version from the managed venv (where the shim installs it) — the
 // diagnostics snapshot needs it, and mpremote is rarely on the global PATH. Runs
 // `<venvPython> -m mpremote --version`; undefined if the venv/mpremote is absent or fails.
@@ -465,7 +478,7 @@ export function venvReady(): boolean {
 export function venvMpremoteVersion(pythonPath: string = venvPaths().python): string | undefined {
   if (!existsSync(pythonPath)) return undefined;
   try {
-    const r = spawnSync(pythonPath, ["-m", "mpremote", "--version"], { encoding: "utf8", timeout: 5_000 });
+    const r = spawnSync(pythonPath, ["-m", "mpremote", "--version"], { encoding: "utf8", timeout: 5_000, windowsHide: true });
     if (r.status !== 0) return undefined;
     return ((r.stdout || "") + (r.stderr || "")).trim().split("\n")[0] || undefined;
   } catch {
@@ -476,14 +489,14 @@ export function venvMpremoteVersion(pythonPath: string = venvPaths().python): st
 function ensureVenv(python: string, vscode: any, requirementsPath: string): string {
   const { dir: venvDir, python: venvPython } = venvPaths();
   if (!existsSync(venvPython)) {
-    const result = spawnSync(python, ["-m", "venv", venvDir], { stdio: "ignore", timeout: 30_000 });
+    const result = spawnSync(python, ["-m", "venv", venvDir], { stdio: "ignore", timeout: 30_000, windowsHide: true });
     if (result.error || result.status !== 0) throw new Error("python_venv_failed");
   }
   if (!canRun(venvPython, SHIM_IMPORT_PROBE)) {
     const indexUrl = vscode?.workspace?.getConfiguration?.("mpyhw")?.get?.("pipIndexUrl");
     const args = ["-m", "pip", "install", "--upgrade", "-r", requirementsPath];
     if (indexUrl) args.push("--index-url", indexUrl);
-    const result = spawnSync(venvPython, args, { stdio: "ignore", timeout: 300_000 });
+    const result = spawnSync(venvPython, args, { stdio: "ignore", timeout: 300_000, windowsHide: true });
     if (result.error || result.status !== 0 || !canRun(venvPython, SHIM_IMPORT_PROBE)) {
       throw new Error("shim_dependency_install_failed");
     }
@@ -516,7 +529,7 @@ export async function installVenvAsync(opts: { vscode: any; extensionUri: any })
 
 function runAsync(command: string, args: string[], timeout: number): Promise<number> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: "ignore" });
+    const child = spawn(command, args, { stdio: "ignore", windowsHide: true });
     const timer = setTimeout(() => {
       try { child.kill(); } catch { /* already gone */ }
       resolve(-1);
@@ -528,7 +541,7 @@ function runAsync(command: string, args: string[], timeout: number): Promise<num
 
 function canRun(command: string, args: string[]): boolean {
   try {
-    const r = spawnSync(command, args, { stdio: "ignore", timeout: 15_000 });
+    const r = spawnSync(command, args, { stdio: "ignore", timeout: 15_000, windowsHide: true });
     return r.status === 0;
   } catch {
     return false;

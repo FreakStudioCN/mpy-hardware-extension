@@ -347,6 +347,58 @@ test("approval: headless auto-confirms, but a callback returning null cancels (n
   assert.equal(cancelled.result.error_kind, "user_cancelled");
 });
 
+test("approval: headless auto-confirm picks ONE id from a single-choice group, all from multi-select", async () => {
+  const res = await executeProtocolTool(
+    tu("sc", "approval_request", {
+      approval_id: "scaffold_config",
+      items: [
+        { id: "mode_timer", group: "scheduler_mode", selected: false },
+        { id: "mode_async", group: "scheduler_mode", selected: true },
+        { id: "mode_thread", group: "scheduler_mode", selected: false },
+        { id: "module_logger", group: "extra_modules", selected: true },
+        { id: "module_flash", group: "extra_modules", selected: true },
+      ],
+      item_groups: { scheduler_mode: { multi_select: false }, extra_modules: { multi_select: true } },
+      actions: [{ value: "confirm", primary: true }],
+    }) as any,
+    { intent: "x" }, { llmClient: scriptedLlm({}) },
+  );
+  const ids = res.result.selected_ids;
+  // Mutation guard: the old code selected ALL ids -> this would be all three modes.
+  assert.deepEqual(ids.filter((i: string) => i.startsWith("mode_")), ["mode_async"], "one scheduler mode (the default), not all three");
+  assert.ok(ids.includes("module_logger") && ids.includes("module_flash"), "all multi-select modules kept");
+});
+
+test("headless: an item in BOTH p.items and a group's inline items is counted once, not twice (PR #46 minor)", async () => {
+  const res = await executeProtocolTool(
+    tu("mix", "approval_request", {
+      approval_id: "scaffold_config",
+      items: [{ id: "m_flat", group: "extra_modules" }, { id: "m_dup", group: "extra_modules" }],
+      item_groups: { extra_modules: { multi_select: true, items: [{ id: "m_inline" }, { id: "m_dup" }] } },
+      actions: [{ value: "confirm", primary: true }],
+    }) as any,
+    { intent: "x" }, { llmClient: scriptedLlm({}) },
+  );
+  // m_dup is declared in p.items AND inline in the group -> it must be counted ONCE. Without the
+  // dedup, selected_ids carried m_dup twice (the webview merge+dedup would then disagree).
+  assert.deepStrictEqual([...res.result.selected_ids].sort(), ["m_dup", "m_flat", "m_inline"], "each id once; the duplicate is deduped");
+});
+
+// The serial_port passthrough is live; the baud passthrough is DORMANT plumbing kept ready for
+// re-enable — the webview baud picker is commented (gated on ruili consuming approval_response.baud),
+// so no live decision supplies baud today. This test pins that the plumbing still carries it when
+// a decision does, so restoring the picker is a webview-only change.
+test("approval: a confirmApproval decision carries serial_port + baud into the result", async () => {
+  const res = await executeProtocolTool(
+    tu("fl", "approval_request", { approval_id: "esp32_flash_confirm", actions: [{ value: "flash_now", primary: true }] }) as any,
+    { intent: "x", confirmApproval: async () => ({ action: "flash_now", serial_port: "COM3", baud: "460800" }) },
+    { llmClient: scriptedLlm({}) },
+  );
+  assert.equal(res.result.action, "flash_now");
+  assert.equal(res.result.serial_port, "COM3", "the chosen port rides into the approval_response");
+  assert.equal(res.result.baud, "460800", "the chosen baud rides into the approval_response");
+});
+
 test("script_run routes to the host runner, forwards stdin, maps a failed gate to success=false (not faked)", async () => {
   const calls: any[] = [];
   const { result } = await executeProtocolTool(

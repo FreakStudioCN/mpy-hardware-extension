@@ -124,12 +124,27 @@ const confirmApproval = async (card: any) => {
   const action = NO_HW.find((a) => values.includes(a))
     ?? (card.actions ?? []).find((a: any) => a?.primary)?.value
     ?? values[0] ?? "confirm";
-  const groups = card.item_groups ?? [];
-  const groupList = Array.isArray(groups) ? groups : Object.values(groups);
-  const selected_ids = [
-    ...((card.items ?? []).map((i: any) => i?.id)),
-    ...groupList.flatMap((g: any) => ((g?.items ?? []).map((i: any) => i?.id))),
-  ].filter(Boolean);
+  const groupList = Array.isArray(card.item_groups)
+    ? card.item_groups.map((g: any) => ({ id: g?.group_id ?? g?.id, multi_select: g?.multi_select, items: g?.items }))
+    : Object.entries(card.item_groups ?? {}).map(([id, meta]: [string, any]) => ({ id, multi_select: meta?.multi_select, items: meta?.items }));
+  // Single-choice groups (multi_select:false) contribute one id, not all — else a
+  // scaffold card would auto-select every scheduler mode at once.
+  const singleChoice = new Set(groupList.filter((g: any) => g?.multi_select === false).map((g: any) => String(g?.id)));
+  const perGroup = new Map<string, any[]>();
+  const takeAll: any[] = [];
+  // Dedup by id: an item can appear in BOTH card.items (with .group) and a group's inline items;
+  // count it once (mirrors protocol-loop.ts + the webview merge, so all three agree).
+  const seen = new Set<string>();
+  const bucket = (it: any, gid: string) => {
+    const key = it?.id != null ? String(it.id) : null;
+    if (key != null) { if (seen.has(key)) return; seen.add(key); }
+    if (singleChoice.has(gid)) { const arr = perGroup.get(gid) ?? []; arr.push(it); perGroup.set(gid, arr); }
+    else if (it?.id != null) takeAll.push(it.id);
+  };
+  for (const it of (card.items ?? [])) bucket(it, it?.group == null ? "" : String(it.group));
+  for (const g of groupList) for (const it of (Array.isArray(g?.items) ? g.items : [])) bucket(it, String(g?.id));
+  const oneEach = [...perGroup.values()].map((list) => (list.find((i: any) => i?.selected === true) ?? list[0])?.id);
+  const selected_ids = [...takeAll, ...oneEach].filter(Boolean);
   return { action, selected_ids, added_items: [], text_values: {}, notes: "" };
 };
 

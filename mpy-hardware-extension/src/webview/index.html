@@ -27,7 +27,7 @@
         <div class="quota hidden" id="quota">
           <div class="quota-top"><span data-i18n="credits">Credits</span><span class="num"><b id="qUsed">0</b></span></div>
           <div class="quota-bar"><div class="quota-fill" id="qFill" style="width:0%"></div></div>
-          <div class="quota-warn" id="qWarn" data-i18n="lowCredits">Running low on credits today.</div>
+          <div class="quota-warn" id="qWarn" data-i18n="lowCredits">Today's quota is nearly exhausted.</div>
         </div>
       </div>
 
@@ -201,6 +201,7 @@
             <div class="dt-status" id="dtStatus"></div>
           </div>
           <div class="empty" id="dtNoDev"><h4 data-i18n="dt_nodev_h">No device connected</h4><p data-i18n="dt_nodev_p">Plug in a MicroPython board to browse its files.</p></div>
+          <div class="empty hidden" id="dtEnvSetup"><h4 data-i18n="dt_env_setup_h">Set up environment</h4><p data-i18n="dt_env_setup_p">Blockless needs to install device tools before it can detect your board.</p><button type="button" class="dt-act" id="dtEnvSetupBtn" data-i18n="doc_install">Install dependencies</button></div>
         </div>
       </div>
 

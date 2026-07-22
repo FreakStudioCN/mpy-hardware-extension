@@ -64,21 +64,30 @@
         dtRelistOnNextPresence = true;
         dtCheckDevice();
       }
-      function dtShowNoDevice() {
+      function dtShowNoDevice(needsEnvSetup) {
         dtNoDevice = true;
         const entries = $("dtEntries"); if (entries) entries.innerHTML = "";
         const crumbs = $("dtCrumbs"); if (crumbs) crumbs.innerHTML = "";
         dtStatus("");
         const ui = $("dtDeviceUi"); if (ui) ui.classList.add("hidden"); // hide all controls (crumbs/add/mip)
-        const nodev = $("dtNoDev"); if (nodev) nodev.classList.remove("hidden");
+        // An ABSENT managed venv can't detect the board at all: show the "set up environment"
+        // affordance instead of a dead-end "No device connected". A present-but-broken venv (or a
+        // simple unplug) shows the normal no-device state -- the Doctor recovers a broken one.
+        const env = $("dtEnvSetup"); if (env) env.classList.toggle("hidden", !needsEnvSetup);
+        // Reset the button whenever the affordance is (re-)shown: a prior FAILED install left it
+        // disabled at "Installing…", and the next poll re-offers setup, so hand back a live button
+        // rather than a dead one that lies.
+        if (needsEnvSetup) { const b = $("dtEnvSetupBtn"); if (b) { b.disabled = false; b.textContent = tr("doc_install"); } }
+        const nodev = $("dtNoDev"); if (nodev) nodev.classList.toggle("hidden", !!needsEnvSetup);
       }
-      // Host reply to the presence poll: gone -> show the no-device state; came back -> list root.
-      function onDevicePresent(present) {
+      // Host reply to the presence poll: gone -> show the no-device (or set-up-env) state; came
+      // back -> list root. needsEnvSetup is set by the host only when the venv is absent.
+      function onDevicePresent(present, needsEnvSetup) {
         // Ignore presence entirely while a run owns the port: the board may reset/re-enumerate
         // mid-flash, so a transient absent must NOT wipe the listing to "no device". session_done
         // (dtRefreshAfterRun) is the safe point to re-check.
         if (running) return;
-        if (!present) { dtShowNoDevice(); return; }
+        if (!present) { dtShowNoDevice(needsEnvSetup); return; }
         const relist = dtRelistOnNextPresence; dtRelistOnNextPresence = false;
         if (dtNoDevice) { dtNoDevice = false; dtNavigate("/"); return; } // first detection lists root
         if (relist) dtListCurrent(); // re-opened with the board already present -> refresh current path
@@ -105,6 +114,7 @@
         dtNoDevice = false;
         const ui = $("dtDeviceUi"); if (ui) ui.classList.remove("hidden"); // show controls again
         const nodev = $("dtNoDev"); if (nodev) nodev.classList.add("hidden");
+        const env = $("dtEnvSetup"); if (env) env.classList.add("hidden");
         dtRenderCrumbs(path);
         const host = $("dtEntries"); if (!host) return;
         const pathInput = $("dtPath"); if (pathInput) pathInput.value = path;
@@ -176,6 +186,18 @@
       // Controls live in the DOM at load (the tool-view is hidden, not removed).
       if ($("dtPath")) {
         $("dtPath").addEventListener("keydown", (e) => { if (e.key === "Enter") dtListCurrent(); }); // fallback path entry
+        // "Set up environment" affordance (shown when the venv is absent): kick off the same async
+        // venv install the Doctor uses, and jump to the Env tab so the user sees its progress. Once
+        // the venv exists, the next presence poll drops this state and scans for the board.
+        const envBtn = $("dtEnvSetupBtn");
+        if (envBtn) envBtn.addEventListener("click", () => {
+          envBtn.disabled = true; envBtn.textContent = tr("doc_installing");
+          vscode.postMessage({ type: "doctor_action", action: "install_deps" });
+          // Device Tools is a global-tool surface that hides .tabwrap while open, so the tab
+          // switch alone would leave the Doctor progress covered — close the surface first.
+          closeGlobalTool();
+          setTab("doctor");
+        });
         $("dtMkdir").addEventListener("click", () => {
           const name = $("dtNewName").value.trim(); if (!name) return;
           $("dtNewName").value = "";

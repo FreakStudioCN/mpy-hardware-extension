@@ -19,7 +19,7 @@ import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
-import { createDeviceShim, detectPython, venvReady, venvMpremoteVersion, installVenvAsync } from "../extension/device-shim.ts";
+import { createDeviceShim, detectPython, venvReady, venvExists, venvMpremoteVersion, installVenvAsync } from "../extension/device-shim.ts";
 import { DeviceCommandQueue } from "../extension/device-lock.ts";
 import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
@@ -30,7 +30,7 @@ import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveAr
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
-type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
+type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
 
 const execFileAsync = promisify(execFile);
 
@@ -216,6 +216,36 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
   const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
+  // Injectable so tests can drive the "broken venv" branch of the presence poll + doctor.
+  const venvReadyFn = deps.venvReady ?? venvReady;
+  // The presence poll fires every 2.5s and venvReadyFn() is a synchronous 7-import python
+  // spawn (~130-260ms, worse on Windows). A venv that has imported its deps once does not
+  // spontaneously lose them, so memoize the first success and never re-probe on the hot
+  // path. A NOT-ready probe backs off VENV_REPROBE_MS instead of re-spawning every tick:
+  // a present-but-broken venv would otherwise block the extension host on each poll. The
+  // backoff (not a failure memo) keeps recovery automatic — after install_deps succeeds,
+  // the next allowed probe flips the poll to ready without a reload. The Doctor keeps
+  // calling venvReadyFn directly, so its Re-check still detects a deleted/broken venv live.
+  // ponytail: ceiling — if the user deletes the venv mid-session, the poll won't notice
+  // until shim.scan() itself fails; the Doctor Re-check is the recovery path. Upgrade to a
+  // shim-is-running check if that edge ever bites.
+  const VENV_REPROBE_MS = 10_000;
+  let venvConfirmed = false;
+  let venvLastProbeAt = 0;
+  const venvReadyForPoll = (): boolean => {
+    if (venvConfirmed) return true;
+    if (Date.now() - venvLastProbeAt < VENV_REPROBE_MS) return false;
+    const ready = venvReadyFn();
+    // Stamp AFTER the probe returns: the probe itself can block up to its 15s spawnSync
+    // timeout, so a before-stamp would let a stalled probe outlive its own quiet window
+    // and a queued poll re-spawn back-to-back. (Synchronous, so no reentrancy in between.)
+    venvLastProbeAt = Date.now();
+    return (venvConfirmed = ready);
+  };
+  // Cheap absent-vs-broken split for the presence poll: an ABSENT venv (never set up) surfaces a
+  // "set up environment" affordance in Device Tools; a present-but-broken one stays silent (the
+  // Doctor Re-check recovers it). venvExists is existsSync-only, so it's fine on the hot path.
+  const venvExistsFn = deps.venvExists ?? venvExists;
   // Serializes user-initiated device-tool commands so two never overlap on the one
   // serial port (#54, spec §41). The active-run gate is checked per command below.
   const deviceQueue = new DeviceCommandQueue();
@@ -1004,8 +1034,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "device_presence") {
       // Device Tools presence poll: a host-side port scan (lists ports, never opens one, so
       // it's safe during a flash) lets the tab show "no device" and revert on unplug.
-      try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }
-      catch { webview.postMessage({ type: "device_present", present: false }); }
+      // Gate on venvReady() first: shim.scan() lazily bootstraps the venv (a blocking
+      // pip/venv install), and this poll fires every 2.5s — a broken venv would otherwise
+      // retrigger that install on every tick. No venv -> answer "no device", don't spawn.
+      // Memoized (venvReadyForPoll) so the healthy steady state doesn't re-spawn the probe.
+      if (!venvReadyForPoll()) {
+        // Absent venv (never set up) -> tell Device Tools to offer environment setup instead of a
+        // silent "No device": the presence poll USED to bootstrap the venv via shim.scan(), and
+        // gating it (venvReadyForPoll) removed that, so a fresh install would hide the board
+        // forever. A present-but-broken venv (exists but venvReady() false) stays silent.
+        webview.postMessage({ type: "device_present", present: false, needsEnvSetup: !venvExistsFn() });
+      } else {
+        try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }
+        catch { webview.postMessage({ type: "device_present", present: false }); }
+      }
     }
     if (message.type === "run_doctor_check" || message.type === "doctor_action") {
       // Environment preflight for the Doctor tab. "install_deps" runs the async (non-
@@ -1017,7 +1059,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       const items = await runDoctor({
         detectPython: () => detectPython(vscode),
-        venvReady,
+        venvReady: venvReadyFn,
         scan: () => shim.scan(),
         probeMicroPython: (port: string) => shim.probeMicroPython(port),
       }, { probe: message.probe === true }); // probe only on an explicit Re-check — it interrupts a running board
@@ -1111,11 +1153,14 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Set the deploy port (if the response carries one) before resolving, so the
       // agent's first device tool always sees the chosen port — no select_device race.
       if (message.answer === "confirm" && message.port) shim.setPort?.(message.port);
+      // Flash-confirm card rides serial_port/baud: set the port before resolving so the
+      // agent's flash tool sees it (same no-race rationale as the deploy card's port).
+      if (message.answer === "flash_now" && message.serial_port) shim.setPort?.(message.serial_port);
       // `feedback` rides along on a plan "revise" so the agent can re-plan; `devices`
       // rides along on a component-confirm so the host knows the kept parts. The
       // protocol approval card also rides selected_ids/text_values/added_items here,
       // which confirmApproval unpacks into the approval_response.
-      controller.resolvePrompt(message.promptId, message.answer, { feedback: message.feedback, devices: message.devices, selected_ids: message.selected_ids, text_values: message.text_values, added_items: message.added_items });
+      controller.resolvePrompt(message.promptId, message.answer, { feedback: message.feedback, devices: message.devices, selected_ids: message.selected_ids, text_values: message.text_values, added_items: message.added_items, serial_port: message.serial_port, baud: message.baud });
     }
     if (message.type === "user_supplement" && typeof message.text === "string") {
       // A note the user added mid-build (deliverables 07): queue it, don't interrupt.
