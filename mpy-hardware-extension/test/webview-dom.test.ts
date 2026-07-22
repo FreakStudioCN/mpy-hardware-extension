@@ -2862,6 +2862,11 @@ test("package browser: a stale search ERROR does not wipe a newer query's result
   post(dom, { type: "package_search_error", source: "micropython_lib", query: "aaa", error: "search_failed" });
   const names = [...document.querySelectorAll("#dtPkgResults .dt-pkg-name")].map((n: any) => n.textContent);
   assert.ok(names.some((n) => /bbbpkg/.test(n)), "the newer query's results survive the stale error");
+  // A MATCHING error (current query) DOES render — proves the handler isn't a no-op that only ever
+  // drops (mutating onPackageSearchError to always-return-early must fail here, not just the stale case).
+  post(dom, { type: "package_search_error", source: "micropython_lib", query: "bbb", error: "search_failed" });
+  assert.match(document.getElementById("dtPkgResults")!.textContent || "", /Search failed/i, "a current-query error renders the failure line");
+  assert.equal(document.querySelectorAll("#dtPkgResults .dt-pkg-name").length, 0, "the failed query clears the stale results");
 });
 
 test("package browser: a stale resolve ERROR for a collapsed row does not overwrite the open one (PR #45 review)", async () => {

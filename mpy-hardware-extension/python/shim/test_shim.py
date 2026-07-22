@@ -177,11 +177,15 @@ def test_uninstall_package_removes_lib_paths_guards_name_and_treats_absent_as_ok
 def test_uninstall_reads_stdout_errors_and_flags_unexplained_nonzero(monkeypatch):
     import serve
 
+    # The namespace guard lists /lib/<name>/ first; these tests target the REMOVAL loop, so the
+    # ls returns a single-package listing (__init__.mpy present -> not a shared namespace -> proceed).
+    one_package_ls = subprocess.CompletedProcess(["ls"], 0, "         0 __init__.mpy\n", "")
+
     # mpremote writes some rm failures to STDOUT, not stderr. A real error there must SURFACE,
     # not be masked into "Removed" (PR #45 finding: the loop read only stderr).
     def stdout_error(args, timeout=30):
         if args[3:5] == ["fs", "ls"]:
-            return subprocess.CompletedProcess(args, 1, "", "")  # not a listable dir
+            return one_package_ls
         return subprocess.CompletedProcess(args, 1, "Permission denied", "")  # error on STDOUT
     monkeypatch.setattr(serve, "_run_mpremote", stdout_error)
     res = serve._uninstall_package("COM3", "aioble")
@@ -191,7 +195,9 @@ def test_uninstall_reads_stdout_errors_and_flags_unexplained_nonzero(monkeypatch
     # A non-zero exit with NO message anywhere, and nothing removed, is a real error -- never a
     # silent "nothing was installed" success.
     def silent_fail(args, timeout=30):
-        return subprocess.CompletedProcess(args, 1, "", "")  # non-zero, no output, on ls + every rm
+        if args[3:5] == ["fs", "ls"]:
+            return one_package_ls
+        return subprocess.CompletedProcess(args, 1, "", "")  # non-zero, no output, on every rm
     monkeypatch.setattr(serve, "_run_mpremote", silent_fail)
     res = serve._uninstall_package("COM3", "aioble")
     assert res["status"] == "error" and res["error_kind"] == "mpremote_error"
@@ -199,9 +205,11 @@ def test_uninstall_reads_stdout_errors_and_flags_unexplained_nonzero(monkeypatch
     # But an unexplained non-zero on a probe candidate that didn't need to exist, ALONGSIDE a real
     # removal, is still success -- the removal is trusted.
     def removed_then_silent(args, timeout=30):
+        if args[3:5] == ["fs", "ls"]:
+            return one_package_ls
         if args[-1] == ":/lib/aioble" and args[3:5] == ["fs", "rm"]:
             return subprocess.CompletedProcess(args, 0, "", "")  # dir removed
-        return subprocess.CompletedProcess(args, 1, "", "")  # silent non-zero (ls probe + other rm)
+        return subprocess.CompletedProcess(args, 1, "", "")  # silent non-zero (other rm candidates)
     monkeypatch.setattr(serve, "_run_mpremote", removed_then_silent)
     assert serve._uninstall_package("COM3", "aioble") == {"status": "ok", "removed": True}
 
@@ -224,23 +232,81 @@ def test_uninstall_refuses_shared_namespace_but_removes_regular_package(monkeypa
     assert "umqtt.simple" in res["message"] and "umqtt.robust" in res["message"]
     assert all(a[3:5] != ["fs", "rm"] for a in calls)  # refusing means it issued NO rm
 
-    # A regular package dir HAS __init__.py -> one unit, removed whole (not refused).
+    # A regular package dir is ONE unit -> removed whole (not refused). Real shape: `mip install`
+    # defaults to COMPILED .mpy, so aioble lands as __init__.mpy + core.mpy + ... with NO
+    # __init__.py (verified against mip.py args.mpy=True + the live index). The carve-out must
+    # accept __init__.mpy, else the feature's own happy path (install then uninstall) is refused.
     calls.clear()
 
     def package_dir(args, timeout=30):
         calls.append(args)
-        if args[3:5] == ["fs", "ls"] and args[-1] == ":/lib/mypkg":
-            return subprocess.CompletedProcess(args, 0, "         0 __init__.py\n         0 core.py\n", "")
+        if args[3:5] == ["fs", "ls"] and args[-1] == ":/lib/aioble":
+            return subprocess.CompletedProcess(
+                args, 0, "         0 __init__.mpy\n         0 core.mpy\n         0 device.mpy\n", "")
         return subprocess.CompletedProcess(args, 0, "", "")
     monkeypatch.setattr(serve, "_run_mpremote", package_dir)
-    res = serve._uninstall_package("COM3", "mypkg")
+    res = serve._uninstall_package("COM3", "aioble")
     assert res["status"] == "ok"
-    assert any(a[3:5] == ["fs", "rm"] for a in calls)  # __init__.py carve-out lets it remove
+    assert any(a[3:5] == ["fs", "rm"] for a in calls)  # __init__.mpy carve-out lets it remove
+
+    # Fail closed: an ls that fails for a NON-absent reason (busy/comms) can't verify the dir isn't
+    # a shared namespace, so the destructive rm -r is refused rather than risked.
+    calls.clear()
+
+    def ls_busy(args, timeout=30):
+        calls.append(args)
+        if args[3:5] == ["fs", "ls"]:
+            return subprocess.CompletedProcess(args, 1, "", "could not access port: device busy")
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(serve, "_run_mpremote", ls_busy)
+    res = serve._uninstall_package("COM3", "aioble")
+    assert res["status"] == "error" and res["error_kind"] == "mpremote_error"
+    assert "could not list" in res["message"]
+    assert all(a[3:5] != ["fs", "rm"] for a in calls)  # nothing removed on an unverifiable listing
+
+    # But an ABSENT ls (the common flat-module case: /lib/<name> the dir doesn't exist) is safe to
+    # proceed -- the flat-module candidates still run.
+    calls.clear()
+
+    def ls_absent_then_ok(args, timeout=30):
+        calls.append(args)
+        if args[3:5] == ["fs", "ls"]:
+            return subprocess.CompletedProcess(args, 1, "", "ls: :/lib/flatmod: No such file or directory.")
+        removed = args[-1].endswith(".py")
+        return subprocess.CompletedProcess(args, 0 if removed else 1, "", "" if removed else "No such file")
+    monkeypatch.setattr(serve, "_run_mpremote", ls_absent_then_ok)
+    res = serve._uninstall_package("COM3", "flatmod")
+    assert res == {"status": "ok", "removed": True}
 
     # Finding 3b: _is_absent anchors errno 2 -- errno 20-29 are real failures, not "absent".
     assert serve._is_absent("[Errno 2] ENOENT: no such file") is True
     assert serve._is_absent("[Errno 28] ENOSPC: no space left on device") is False
     assert serve._is_absent("[Errno 21] EISDIR") is False
+
+
+def test_is_shared_namespace_pure_classification():
+    """Property-style: over the real /lib listing shapes, refuse iff there is NO package __init__
+    (neither .py nor .mpy) AND >1 entry; NEVER refuse a dir that carries an __init__, whatever the
+    other entries are. The forbidden output is 'refuse a real package'."""
+    import serve
+
+    # Any listing containing a package __init__ (either form) is one package -> never shared.
+    for init in ("__init__.py", "__init__.mpy"):
+        for others in ([], ["core.mpy"], ["core.mpy", "device.mpy", "server.mpy"], ["a.py", "b.py"]):
+            assert serve._is_shared_namespace([init] + others) is False, (init, others)
+
+    # No __init__ + >1 entry -> shared namespace (the umqtt hazard), regardless of file extension.
+    assert serve._is_shared_namespace(["simple.py", "robust.py"]) is True
+    assert serve._is_shared_namespace(["simple.mpy", "robust.mpy"]) is True
+    assert serve._is_shared_namespace(["a.py", "b.mpy", "c.py"]) is True
+    assert serve._is_shared_namespace(["simple/", "robust/"]) is True  # dir entries count too
+
+    # No __init__ but <=1 entry -> not shared (a lone module dir removes cleanly).
+    assert serve._is_shared_namespace([]) is False
+    assert serve._is_shared_namespace(["only.py"]) is False
+
+    # Whitespace / trailing-slash normalization must not defeat the __init__ carve-out.
+    assert serve._is_shared_namespace(["  __init__.mpy  ", "core.mpy"]) is False
 
 
 def test_write_device_file_mkdirs_parents_then_copies_to_mirror_path():

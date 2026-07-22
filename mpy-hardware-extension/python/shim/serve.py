@@ -478,21 +478,23 @@ def _is_absent(err):
     return "no such file" in e or "enoent" in e or "does not exist" in e or re.search(r"\berrno 2\b", e) is not None
 
 
-def _shared_namespace_modules(port, slug):
-    """Return the module list if /lib/<slug>/ is a SHARED namespace dir, else None.
+# A package __init__ can be either source or compiled: `mpremote mip install` defaults to .mpy
+# (mip.py sets args.mpy=True and fetches the device's mpy ABI variant), so a real package like
+# aioble lands as __init__.mpy + core.mpy + ... with NO __init__.py. Both forms mark "one package".
+_PACKAGE_INIT_NAMES = ("__init__.py", "__init__.mpy")
 
-    A namespace dir (e.g. umqtt/ holding simple.py + robust.py) has NO __init__.py and more
-    than one entry: each entry is an independently-installed module (umqtt.simple, umqtt.robust),
-    so `rm -r :/lib/umqtt` would wipe siblings the user did not ask to remove. A regular package
-    dir HAS __init__.py and is one unit -- safe to remove whole -- so it returns None. A flat
-    module or an absent path is not a listable dir and also returns None."""
-    r = _list_files(port, f":/lib/{slug}")
-    if r.get("status") != "ok":
-        return None  # not a listable directory (flat module or absent) -> normal removal path
-    files = [f.strip().rstrip("/") for f in (r.get("files") or [])]
-    if any(f == "__init__.py" for f in files):
-        return None  # one package, not a shared namespace
-    return files if len(files) > 1 else None
+
+def _is_shared_namespace(files):
+    """Pure: is a /lib/<name>/ dir a SHARED namespace that `rm -r` would wrongly wipe whole?
+
+    True iff the dir has NO package __init__ (neither __init__.py nor __init__.mpy) AND more than
+    one entry -- then each entry is an independently-installed module (umqtt/ = simple + robust,
+    installed as umqtt.simple / umqtt.robust) and removing the dir takes siblings with it. A dir
+    WITH an __init__ is one package (safe to remove whole); a 0/1-entry dir is not shared."""
+    names = [f.strip().rstrip("/") for f in files]
+    if any(n in _PACKAGE_INIT_NAMES for n in names):
+        return False
+    return len(names) > 1
 
 
 def _uninstall_package(port, name):
@@ -512,12 +514,22 @@ def _uninstall_package(port, name):
     # dir must NOT `rm -r` -- that wipes sibling modules. Refuse and point at the specific module.
     # Dotted names skip this: their candidates target the exact nested file, never the dir.
     if "." not in slug:
-        siblings = _shared_namespace_modules(port, slug)
-        if siblings is not None:
-            modules = ", ".join(f"{slug}.{s.rsplit('.', 1)[0]}" for s in siblings)
-            return {"status": "error", "error_kind": "shared_namespace",
-                    "message": f"'{slug}' is a shared namespace with multiple modules. "
-                               f"Uninstall a specific one instead: {modules}."}
+        listing = _list_files(port, f":/lib/{slug}")
+        if listing.get("status") == "ok":
+            files = [f.strip().rstrip("/") for f in (listing.get("files") or [])]
+            if _is_shared_namespace(files):
+                modules = ", ".join(f"{slug}.{f.rsplit('.', 1)[0]}" for f in files)
+                return {"status": "error", "error_kind": "shared_namespace",
+                        "message": f"'{slug}' is a shared namespace with multiple modules. "
+                                   f"Uninstall a specific one instead: {modules}."}
+        elif not _is_absent(listing.get("message") or ""):
+            # ls failed for a reason other than "absent" (busy / comms / mid-op): we cannot verify
+            # the dir isn't a shared namespace, so REFUSE the destructive rm -r rather than risk
+            # wiping siblings. Fail closed -- an absent path (the common flat-module case) is the
+            # only ls failure we treat as "safe to proceed".
+            return {"status": "error", "error_kind": "mpremote_error",
+                    "message": f"could not list /lib/{slug} before uninstall: "
+                               f"{(listing.get('message') or '').strip()}"}
     candidates = [f":/lib/{slug}", f":/lib/{slug}.mpy", f":/lib/{slug}.py"]
     nested = slug.replace(".", "/")
     if nested != slug:
