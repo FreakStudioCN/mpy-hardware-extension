@@ -1907,6 +1907,42 @@ test("session_done disables a still-open approval card so stale clicks can't pos
   assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "a stale click posts nothing");
 });
 
+test("approval card renders a STRUCTURED guidance object (tool/steps/normal_range/diagram), not just a string (PR #46 review)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // The protocol contract defines guidance as an object; before, only a string rendered, so a
+  // contract-shaped card showed none of its safety/troubleshooting detail.
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-guid",
+    card: {
+      question: "Confirm the sensor read?",
+      guidance: { tool: "multimeter", steps: ["Probe VCC to GND", "Expect 3.3V"], normal_range: "3.0-3.6V", diagram_ref: "fig-3" },
+      actions: [{ label: "Confirm", value: "confirm", primary: true }],
+    },
+  });
+  const card = document.querySelector('[data-prompt-id="p-guid"]')!;
+  const g = card.querySelector(".ask-guidance");
+  assert.ok(g, "the guidance block renders for the object shape (not dropped)");
+  assert.match(g!.textContent!, /multimeter/, "tool shown");
+  assert.match(g!.textContent!, /Probe VCC to GND/, "first step shown");
+  assert.match(g!.textContent!, /Expect 3\.3V/, "every step shown");
+  assert.match(g!.textContent!, /3\.0-3\.6V/, "normal range shown");
+  assert.match(g!.textContent!, /fig-3/, "diagram ref shown");
+});
+
+test("approval card still renders a plain-string guidance (back-compat)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-guid-str",
+    card: { question: "ok?", guidance: "Hold BOOT while connecting.", actions: [{ label: "Confirm", value: "confirm", primary: true }] },
+  });
+  const g = document.querySelector('[data-prompt-id="p-guid-str"] .ask-guidance');
+  assert.match(g!.textContent!, /Hold BOOT while connecting\./, "string guidance still renders");
+});
+
 function scaffoldCard(overrides: any = {}) {
   return {
     approval_id: "scaffold_config",

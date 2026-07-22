@@ -60,8 +60,14 @@
           steps.forEach((s) => { if (s == null || typeof s === "object") return; const li = document.createElement("li"); li.textContent = String(s); ol.appendChild(li); });
           if (ol.children.length) main.appendChild(ol);
         }
+        // guidance is an OBJECT per the protocol (02-protocol.md): {tool, steps[], normal_range,
+        // diagram_ref} -- render each present field. A plain-string guidance is still honored for
+        // back-compat. Before, only the string form rendered, so an object card (the contract
+        // shape) showed no safety/troubleshooting detail at all.
         if (typeof card.guidance === "string" && card.guidance.trim()) {
           const g = document.createElement("div"); g.className = "ask-guidance"; g.textContent = card.guidance.trim(); main.appendChild(g);
+        } else if (card.guidance && typeof card.guidance === "object" && !Array.isArray(card.guidance)) {
+          renderGuidanceObject(card.guidance, main);
         }
         const links = Array.isArray(card.links) ? card.links : [];
         if (links.length) {
@@ -77,6 +83,31 @@
           });
           if (box.children.length) main.appendChild(box);
         }
+      }
+
+      // Render the object form of `guidance` ({tool, steps[], normal_range, diagram_ref}). Each
+      // field is optional; scalars render as a labeled line, steps as an ordered list. Nothing is
+      // appended if every field is empty.
+      function renderGuidanceObject(g, main) {
+        const box = document.createElement("div"); box.className = "ask-guidance";
+        const line = (labelKey, value) => {
+          if (value == null || typeof value === "object") return;
+          const text = String(value).trim(); if (!text) return;
+          const row = document.createElement("div"); row.className = "ask-guidance-row";
+          const k = document.createElement("span"); k.className = "ask-guidance-k"; k.textContent = tr(labelKey) + ": ";
+          row.appendChild(k); row.appendChild(document.createTextNode(text)); box.appendChild(row);
+        };
+        line("guidance_tool", g.tool);
+        const steps = Array.isArray(g.steps) ? g.steps : [];
+        if (steps.length) {
+          const label = document.createElement("div"); label.className = "ask-guidance-k"; label.textContent = tr("guidance_steps") + ":"; box.appendChild(label);
+          const ol = document.createElement("ol"); ol.className = "ask-steps";
+          steps.forEach((s) => { if (s == null || typeof s === "object") return; const li = document.createElement("li"); li.textContent = String(s); ol.appendChild(li); });
+          if (ol.children.length) box.appendChild(ol); else box.removeChild(label);
+        }
+        line("guidance_normal_range", g.normal_range);
+        line("guidance_diagram", g.diagram_ref);
+        if (box.children.length) main.appendChild(box);
       }
 
       // Render one item_groups section: a header + its items. multi_select:false renders
