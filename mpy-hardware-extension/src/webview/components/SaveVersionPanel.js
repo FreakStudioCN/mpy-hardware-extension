@@ -11,13 +11,31 @@
       function svStatusMsg(text) { const n = $("svStatus"); if (n) n.textContent = text || ""; }
       function svSetButtons(disabled) { ["svCommit", "svSnapshot"].forEach((id) => { const b = $(id); if (b) b.disabled = disabled; }); }
 
+      // When saving isn't possible right now (a build is running / no workspace / nothing to save),
+      // replace the whole form with a full-view message (like Device Tools' "No device connected"),
+      // so the user isn't offered a form that can't work.
+      function svBlock(heading, sub) {
+        const body = $("svBody"); if (body) body.classList.add("hidden");
+        const bl = $("svBlocked"); if (bl) bl.classList.remove("hidden");
+        const h = $("svBlockedH"); if (h) h.textContent = heading || "";
+        const p = $("svBlockedP"); if (p) p.textContent = sub || "";
+        svStatusMsg(""); // the full-view carries the message
+      }
+      function svUnblock() {
+        const bl = $("svBlocked"); if (bl) bl.classList.add("hidden");
+        const body = $("svBody"); if (body) body.classList.remove("hidden");
+      }
+
       // Render the change list: a color-coded letter badge + the path. Device-supplied paths go in
-      // via textContent (never HTML). Empty -> a "no changes" line.
+      // via textContent (never HTML). Empty -> a centered icon empty state (svNoChanges), not a row.
       function svRenderFiles(files) {
         const host = $("svFiles"); if (!host) return;
         host.innerHTML = "";
         files = Array.isArray(files) ? files : [];
-        if (!files.length) { const e = document.createElement("div"); e.className = "sv-empty"; e.textContent = tr("sv_no_changes"); host.appendChild(e); return; }
+        const none = $("svNoChanges");
+        if (none) none.classList.toggle("hidden", files.length > 0);
+        host.classList.toggle("hidden", files.length === 0);
+        if (!files.length) return;
         for (const f of files) {
           const row = document.createElement("div"); row.className = "ask-file";
           const badge = document.createElement("span"); badge.className = "ask-file-badge ask-file-badge-" + String(f && f.status);
@@ -42,12 +60,8 @@
       // Opened from the global-tools bar: clear the last render and ask the host for a fresh summary.
       function svOnOpen() {
         svBusy = false;
-        const files = $("svFiles"); if (files) files.innerHTML = "";
-        const stage = $("svStage"); if (stage) stage.textContent = "";
-        const note = $("svNote"); if (note) { note.textContent = ""; note.classList.add("hidden"); }
-        const msg = $("svMsg"); if (msg) msg.value = "";
-        svStatusMsg(tr("sv_loading"));
         svSetButtons(true); // re-enabled once the data lands
+        svBlock(tr("sv_loading"), ""); // full-view "Reading changes…" until data or a blocking status
         vscode.postMessage({ type: "save_version_open" });
       }
 
@@ -56,6 +70,7 @@
       // supplied paths go in via textContent (never HTML).
       function onSaveVersionData(d) {
         d = d || {};
+        svUnblock(); // data means we can save -> show the form
         svStatusMsg("");
         const stage = $("svStage"); if (stage) stage.textContent = d.stage || "";
         const note = $("svNote"); if (note) { note.textContent = d.note || ""; note.classList.toggle("hidden", !d.note); }
@@ -72,15 +87,18 @@
       function onSaveVersionStatus(s) {
         svBusy = false; svSetButtons(false);
         const status = s && s.status;
-        // A commit changed the tree — refresh the list to the post-commit truth the host re-read
-        // (empty after add -A, or the remaining unstaged files), so it no longer shows the
-        // just-committed files as pending. Snapshot leaves git untouched, so its list stays.
+        // Can't-proceed states (from open, or a build that started mid-panel): no interactive form
+        // makes sense, so take over the whole view with a full-view message.
+        if (status === "busy") { svBlock(tr("sv_busy_h"), tr("sv_busy_p")); return; }
+        if (status === "nothing_to_save") { svBlock(tr("sv_nothing_h"), tr("sv_nothing_p")); return; }
+        if (status === "workspace_unavailable") { svBlock(tr("sv_noworkspace_h"), tr("sv_noworkspace_p")); return; }
+        // Act results: keep the form and show an inline status. A commit refreshes the file list to
+        // the post-commit truth the host re-read; snapshot leaves git untouched, so its list stays.
+        svUnblock();
         if (status === "saved_commit" && s && s.files) svRenderFiles(s.files);
         const text = status === "saved_commit" ? tr("sv_saved_commit", { hash: String((s && s.hash) || "").slice(0, 8) })
           : status === "saved_snapshot" ? tr("sv_saved_snapshot")
           : status === "nothing_to_commit" ? tr("sv_nothing_to_commit")
-          : status === "nothing_to_save" ? tr("sv_nothing")
-          : status === "busy" ? tr("sv_busy")
           : tr("sv_failed", { e: String((s && s.error) || status) });
         svStatusMsg(text);
       }
@@ -92,7 +110,9 @@
         $("svCommit").addEventListener("click", () => {
           if (svBusy) return;
           svBusy = true; svSetButtons(true); svStatusMsg(tr("sv_saving"));
-          vscode.postMessage({ type: "save_version_commit", message: ($("svMsg") ? $("svMsg").value : "") });
+          const msg = $("svMsg");
+          vscode.postMessage({ type: "save_version_commit", message: msg ? msg.value : "" });
+          if (msg) msg.value = ""; // clear the box on commit (the host falls back to the proposed message)
         });
         $("svSnapshot").addEventListener("click", () => {
           if (svBusy) return;

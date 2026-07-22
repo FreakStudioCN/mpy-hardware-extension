@@ -2671,6 +2671,7 @@ test("Save Version panel: commit/snapshot buttons post their acts, and save_vers
   (document.getElementById("svCommit") as HTMLButtonElement).click();
   const commit = posted.find((m) => m.type === "save_version_commit");
   assert.ok(commit && commit.message === "my message", "Commit posts save_version_commit with the edited message");
+  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "", "the message box is cleared on Commit click");
   // The result renders in the panel's own status line, and NOT in the Activity feed.
   post(dom, { type: "save_version_status", status: "saved_commit", hash: "abcdef1234", files: [] });
   assert.match(document.getElementById("svStatus")!.textContent || "", /abcdef12/, "the commit result shows in the panel status");
@@ -2700,7 +2701,26 @@ test("Save Version panel: a saved_commit status refreshes the file list to the p
   // An add -A commit cleans the tree: an empty refresh shows the 'no changes' line, not stale rows.
   post(dom, { type: "save_version_status", status: "saved_commit", hash: "def5678", files: [] });
   assert.equal(document.querySelectorAll("#svFiles .ask-file").length, 0, "no file rows after a clean commit");
-  assert.ok(document.querySelector("#svFiles .sv-empty"), "shows the 'no changes' line");
+  assert.ok(!document.getElementById("svNoChanges")!.classList.contains("hidden"), "the centered 'no changes' empty state is shown");
+  assert.ok(document.getElementById("svFiles")!.classList.contains("hidden"), "the empty file list is hidden so the icon empty state stands alone");
+});
+
+test("Save Version panel: a build-running (busy) status blocks the whole view, not just a status line", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // The form is shown once data arrives.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [] });
+  assert.equal(document.getElementById("svBody")!.classList.contains("hidden"), false, "the save form is visible with data");
+  // A busy status (a build is running) takes over the WHOLE view: form hidden, full message shown.
+  post(dom, { type: "save_version_status", status: "busy" });
+  assert.equal(document.getElementById("svBody")!.classList.contains("hidden"), true, "the save form is hidden while a build runs");
+  assert.equal(document.getElementById("svBlocked")!.classList.contains("hidden"), false, "the full-view blocked state shows instead");
+  assert.match(document.getElementById("svBlockedH")!.textContent || "", /Build in progress/i, "the blocked state explains why (heading)");
+  assert.ok((document.getElementById("svBlockedP")!.textContent || "").length > 0, "and a subtext line, like the no-device empty state");
+  // Fresh data (build finished / reopened) restores the form.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [] });
+  assert.equal(document.getElementById("svBody")!.classList.contains("hidden"), false, "the form is restored on fresh data");
+  assert.equal(document.getElementById("svBlocked")!.classList.contains("hidden"), true, "the blocked state is hidden again");
 });
 
 test("artifact rows show role + created_at, and an 'on disk' tag for disk-origin files", async () => {

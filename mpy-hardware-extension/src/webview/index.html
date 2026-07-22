@@ -256,23 +256,37 @@
           <span class="tool-title" data-i18n="save_version">Save Version</span>
         </div>
         <div class="tool-body">
-          <div class="sv-stage" id="svStage"></div>
-          <div class="sv-note" id="svNote"></div>
-          <div class="sv-files" id="svFiles"></div>
-          <!-- Save method: a segmented either/or (like the Beginner/Custom mode toggle). Commit
-               reveals the message box + Commit button; Snapshot reveals just a Save button. -->
-          <div class="mode-toggle sv-mode" id="svMode" role="group" data-i18n-aria="sv_mode_group" aria-label="Save method">
-            <button class="mode-chip active" id="svModeCommit" type="button" data-svmode="commit" aria-pressed="true" data-i18n="sv_commit">Commit to Git</button>
-            <button class="mode-chip" id="svModeSnapshot" type="button" data-svmode="snapshot" aria-pressed="false" data-i18n="sv_snapshot">Save Snapshot</button>
+          <!-- The interactive save form. Hidden and replaced by svBlocked when saving isn't
+               possible right now (a build is running / no workspace / nothing to save). -->
+          <div id="svBody">
+            <div class="sv-stage" id="svStage"></div>
+            <div class="sv-note" id="svNote"></div>
+            <div class="sv-files" id="svFiles"></div>
+            <!-- Clean-tree empty state: centered icon + message (like the other empty panels),
+                 shown by svRenderFiles when there are no pending changes. -->
+            <div class="empty hidden sv-nochanges" id="svNoChanges">
+              <svg class="sv-nochanges-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M8.5 12.4l2.4 2.4 4.6-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <h4 data-i18n="sv_no_changes">No file changes</h4>
+              <p data-i18n="sv_no_changes_p">Everything here is already saved.</p>
+            </div>
+            <!-- Save method: a segmented either/or (like the Beginner/Custom mode toggle). Commit
+                 reveals the message box + Commit button; Snapshot reveals just a Save button. -->
+            <div class="mode-toggle sv-mode" id="svMode" role="group" data-i18n-aria="sv_mode_group" aria-label="Save method">
+              <button class="mode-chip active" id="svModeCommit" type="button" data-svmode="commit" aria-pressed="true" data-i18n="sv_commit">Commit to Git</button>
+              <button class="mode-chip" id="svModeSnapshot" type="button" data-svmode="snapshot" aria-pressed="false" data-i18n="sv_snapshot">Save Snapshot</button>
+            </div>
+            <div class="sv-pane" id="svCommitPane">
+              <label class="sv-msg-label" for="svMsg" data-i18n="sv_msg_label">Commit message</label>
+              <textarea id="svMsg" class="dt-input sv-msg" rows="3" placeholder="Commit message" data-i18n-ph="sv_msg_ph"></textarea>
+              <div class="sv-actions"><button type="button" class="dt-act sv-commit" id="svCommit" data-i18n="sv_do_commit">Commit</button></div>
+            </div>
+            <div class="sv-pane hidden" id="svSnapshotPane">
+              <div class="sv-actions"><button type="button" class="dt-act sv-snapshot" id="svSnapshot" data-i18n="sv_snapshot">Save Snapshot</button></div>
+            </div>
           </div>
-          <div class="sv-pane" id="svCommitPane">
-            <label class="sv-msg-label" for="svMsg" data-i18n="sv_msg_label">Commit message</label>
-            <textarea id="svMsg" class="dt-input sv-msg" rows="3" placeholder="Commit message" data-i18n-ph="sv_msg_ph"></textarea>
-            <div class="sv-actions"><button type="button" class="dt-act sv-commit" id="svCommit" data-i18n="sv_do_commit">Commit</button></div>
-          </div>
-          <div class="sv-pane hidden" id="svSnapshotPane">
-            <div class="sv-actions"><button type="button" class="dt-act sv-snapshot" id="svSnapshot" data-i18n="sv_snapshot">Save Snapshot</button></div>
-          </div>
+          <!-- Full-view blocking state (build running / no workspace / nothing to save), styled
+               like Device Tools' "No device connected". Its heading + text are set from JS. -->
+          <div class="empty hidden" id="svBlocked"><h4 id="svBlockedH"></h4><p id="svBlockedP"></p></div>
           <div class="dt-status" id="svStatus"></div>
         </div>
       </div>

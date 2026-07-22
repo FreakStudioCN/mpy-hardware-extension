@@ -189,6 +189,8 @@
       .empty { padding: 40px 22px; text-align: center; color: var(--fg-dim); }
       .empty h4 { color: var(--fg-muted); font-size: 13px; font-weight: 600; margin: 0 0 5px; }
       .empty p { font-size: 12px; line-height: 1.5; margin: 0; }
+      .sv-nochanges { padding: 26px 22px; }
+      .sv-nochanges-icon { display: block; margin: 0 auto 10px; color: var(--fg-dim); opacity: 0.75; }
 
       /* Activity welcome hero — the first-run / empty-feed landing. Reuses
          #activityEmpty so every existing show/hide path keeps working
