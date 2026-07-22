@@ -2737,6 +2737,10 @@ test("device tools: an ABSENT venv shows the set-up-environment affordance; its 
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
+  // Open the REAL Device Tools surface first: it is a global tool that hides .tabwrap while
+  // open, so the button must close it or the promised Doctor progress stays covered.
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("toolDeviceTools")!.classList.contains("hidden"), false, "the Device Tools surface is open");
   // Absent venv (fresh install): the host flags needsEnvSetup, so Device Tools offers setup rather
   // than a dead-end "No device connected".
   post(dom, { type: "device_present", present: false, needsEnvSetup: true });
@@ -2748,6 +2752,10 @@ test("device tools: an ABSENT venv shows the set-up-environment affordance; its 
   envBtn.click();
   assert.ok(posted.some((m) => m.type === "doctor_action" && m.action === "install_deps"), "the button starts the venv install");
   assert.equal(document.querySelector('.view[data-view="doctor"]')!.classList.contains("hidden"), false, "it switches to the Env tab");
+  // The tab switch is only VISIBLE if the global-tool surface actually closes: setTab() flips
+  // the .view but .tabwrap stays hidden while a global tool is open (the PR #46 review bug).
+  assert.equal(document.getElementById("toolDeviceTools")!.classList.contains("hidden"), true, "the Device Tools surface closes");
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), false, "the tab area is visible again (Doctor progress not covered)");
   assert.equal(envBtn.disabled, true, "the button disables while installing");
 
   // If the install FAILED, the venv is still absent, so the next poll re-offers setup -- the button

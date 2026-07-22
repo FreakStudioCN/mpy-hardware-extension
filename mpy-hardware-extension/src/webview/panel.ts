@@ -221,13 +221,24 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // The presence poll fires every 2.5s and venvReadyFn() is a synchronous 7-import python
   // spawn (~130-260ms, worse on Windows). A venv that has imported its deps once does not
   // spontaneously lose them, so memoize the first success and never re-probe on the hot
-  // path. The Doctor keeps calling venvReadyFn directly, so its Re-check still detects a
-  // deleted/broken venv live.
+  // path. A NOT-ready probe backs off VENV_REPROBE_MS instead of re-spawning every tick:
+  // a present-but-broken venv would otherwise block the extension host on each poll. The
+  // backoff (not a failure memo) keeps recovery automatic — after install_deps succeeds,
+  // the next allowed probe flips the poll to ready without a reload. The Doctor keeps
+  // calling venvReadyFn directly, so its Re-check still detects a deleted/broken venv live.
   // ponytail: ceiling — if the user deletes the venv mid-session, the poll won't notice
   // until shim.scan() itself fails; the Doctor Re-check is the recovery path. Upgrade to a
   // shim-is-running check if that edge ever bites.
+  const VENV_REPROBE_MS = 10_000;
   let venvConfirmed = false;
-  const venvReadyForPoll = (): boolean => venvConfirmed || (venvConfirmed = venvReadyFn());
+  let venvLastProbeAt = 0;
+  const venvReadyForPoll = (): boolean => {
+    if (venvConfirmed) return true;
+    const now = Date.now();
+    if (now - venvLastProbeAt < VENV_REPROBE_MS) return false;
+    venvLastProbeAt = now;
+    return (venvConfirmed = venvReadyFn());
+  };
   // Cheap absent-vs-broken split for the presence poll: an ABSENT venv (never set up) surfaces a
   // "set up environment" affordance in Device Tools; a present-but-broken one stays silent (the
   // Doctor Re-check recovers it). venvExists is existsSync-only, so it's fine on the hot path.

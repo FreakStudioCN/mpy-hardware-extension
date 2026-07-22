@@ -756,6 +756,29 @@ test("device_presence: a present-but-broken venv stays silent (no env-setup affo
   assert.equal(msg?.needsEnvSetup, false, "a broken (present) venv stays silent — recovery is the Doctor's job");
 });
 
+test("device_presence: a broken venv probes once per backoff window, not on every 2.5s tick", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
+  let scanned = 0;
+  let probes = 0;
+  const shim = { scan: async () => { scanned++; return ["/dev/ttyX"]; }, setPort: () => {}, kill: () => {} };
+  // venvReadyFn is a SYNCHRONOUS python spawn on the extension host: a broken venv returning
+  // false must not re-spawn it on every poll tick (that repeatedly blocks the host). The poll
+  // backs off between not-ready probes; three immediate ticks land inside one window.
+  createPanel(vscode, {}, { shim, venvReady: () => { probes++; return false; }, venvExists: () => true, apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler!({ type: "device_presence" });
+  await handler!({ type: "device_presence" });
+  await handler!({ type: "device_presence" });
+
+  assert.equal(probes, 1, "a not-ready probe backs off instead of re-spawning python per tick");
+  assert.equal(scanned, 0, "the shim is never scanned while the venv is not ready");
+  const msg = posted.filter((m) => m.type === "device_present").pop();
+  assert.equal(msg?.present, false, "backed-off ticks still answer the poll (as no-device)");
+});
+
 test("device_presence scans and reports the device once the venv is ready", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;
