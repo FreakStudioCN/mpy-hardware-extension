@@ -293,6 +293,27 @@
       .flash-baud { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
       .flash-baud select { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 4px 6px; font-family: var(--ui); font-size: 12px; }
       .flash-rescan { margin-top: 8px; }
+      /* Save Version file-summary rows: a color-coded git-status badge + the path. Colors use
+         VS Code's own git-decoration theme vars (theme-aware) with GitHub-ish fallbacks. */
+      .ask-file { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-size: 12px; }
+      .ask-file-badge { flex: none; width: 16px; text-align: center; border: 1px solid currentColor; border-radius: 3px; padding: 1px 0; font-size: 10px; font-weight: 600; text-transform: uppercase; opacity: .95; }
+      .ask-file-path { font-family: var(--vscode-editor-font-family, monospace); word-break: break-all; }
+      .ask-file-badge-new, .ask-file-badge-added { color: var(--vscode-gitDecoration-untrackedResourceForeground, #3fb950); }
+      .ask-file-badge-modified { color: var(--vscode-gitDecoration-modifiedResourceForeground, #d29922); }
+      .ask-file-badge-deleted { color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149); }
+      .ask-file-badge-renamed { color: var(--vscode-gitDecoration-renamedResourceForeground, #a371f7); }
+      .ask-file-badge-changed { color: var(--vscode-descriptionForeground, #8b949e); }
+      /* Save Version tool surface (its own view, not the Activity feed). */
+      .sv-stage { font-size: 12px; opacity: .8; margin-bottom: 6px; }
+      .sv-note { font-size: 12px; color: var(--vscode-descriptionForeground, #8b949e); margin-bottom: 6px; }
+      .sv-files { margin: 6px 0; max-height: 240px; overflow: auto; }
+      .sv-empty { font-size: 12px; opacity: .7; padding: 4px 0; }
+      .sv-mode { margin: 12px 0 4px; }
+      .sv-pane { margin-top: 6px; }
+      .sv-msg { display: block; width: 100%; box-sizing: border-box; min-height: 54px; resize: vertical; font-family: var(--vscode-editor-font-family, monospace); }
+      .sv-msg-label { display: block; font-size: 11px; opacity: .8; margin: 6px 0 3px; }
+      .sv-actions { display: flex; gap: 8px; margin-top: 8px; }
+      .sv-actions .sv-commit, .sv-actions .sv-snapshot { background: var(--accent, #2f6feb); color: #fff; border-color: transparent; }
       /* Deploy checkpoint: device-pick chips above a divider, then a primary Deploy
          (full-width) over a secondary Rescan/Cancel row — keeps selection and actions
          visually distinct and avoids the 3-button wrap. */

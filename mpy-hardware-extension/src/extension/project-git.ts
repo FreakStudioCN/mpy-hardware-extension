@@ -47,7 +47,10 @@ async function git(projectFolder: string, args: string[]): Promise<{ stdout: str
     // locale. The caller classifies outcomes by matching that output ("nothing to commit"), and
     // git is gettext-localized (e.g. zh_CN "无文件要提交") — on a non-English machine, which is
     // this product's primary audience, an un-forced locale silently breaks the taxonomy.
-    return await execFileAsync("git", ["-C", projectFolder, ...args], {
+    // core.quotepath=false so a non-ASCII (e.g. CJK — the primary audience) filename in `status`
+    // output is raw UTF-8, not octal escapes ("\346\270\251"). The Save Version panel shows these
+    // paths verbatim.
+    return await execFileAsync("git", ["-C", projectFolder, "-c", "core.quotepath=false", ...args], {
       windowsHide: true,
       timeout: GIT_TIMEOUT_MS,
       env: { ...process.env, LC_ALL: "C" },

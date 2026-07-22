@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createPanel, createViewProvider } from "../src/webview/panel.ts";
+import { createPanel, createViewProvider, parseGitStatusRow } from "../src/webview/panel.ts";
 
 test("webview start_session runs API-backed pipeline and renders generated outputs", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
@@ -2027,15 +2027,26 @@ async function startTemplateSession(ws: string) {
   return { handler: handler!, posted, projectFolder: join(ws, "blockless-project") };
 }
 
-// save_version_request awaits confirmApproval, so fire it (don't await) then answer the posted
-// approval card. Polls because the git status probe runs before the card is posted.
-async function answerApproval(handler: (m: any) => Promise<void>, posted: any[], answer: string, text_values?: any) {
-  for (let i = 0; i < 100 && !posted.some((m) => m.type === "approval_request"); i++) await new Promise((r) => setTimeout(r, 5));
-  const req = posted.find((m) => m.type === "approval_request");
-  assert.ok(req, "an approval_request card was posted");
-  await handler({ type: "ui_prompt_response", promptId: req.promptId, answer, text_values });
-  return req;
-}
+test("parseGitStatusRow maps every porcelain XY to a kind + letter, with the XY code stripped", () => {
+  const cases: Array<[string, string, string, string]> = [
+    ["?? .flake8", ".flake8", "new", "U"],
+    [" M main.py", "main.py", "modified", "M"],
+    ["M  staged.py", "staged.py", "modified", "M"],
+    ["MM both.py", "both.py", "modified", "M"],
+    ["A  added.py", "added.py", "added", "A"],
+    ["AM addmod.py", "addmod.py", "added", "A"],   // A checked before M
+    [" D gone.py", "gone.py", "deleted", "D"],
+    ["R  old.py -> new.py", "old.py -> new.py", "renamed", "R"],
+    ["T  typed.py", "typed.py", "changed", "•"], // typechange -> fallback bullet
+  ];
+  for (const [line, name, status, badge] of cases) {
+    const row = parseGitStatusRow(line, 0);
+    assert.equal(row.name, name, `path for "${line}"`);
+    assert.equal(row.status, status, `status for "${line}"`);
+    assert.equal(row.badge, badge, `badge for "${line}"`);
+    assert.ok(!/^[ ?ADMRTC]{2}\s/.test(row.name), `no XY code left in "${row.name}"`);
+  }
+});
 
 function findSnapshot(ws: string): any | null {
   const base = join(ws, ".mpyhw", "sessions");
@@ -2047,54 +2058,72 @@ function findSnapshot(ws: string): any | null {
   return null;
 }
 
-function readSessionJsonl(ws: string): string {
-  const base = join(ws, ".mpyhw", "sessions");
-  if (!existsSync(base)) return "";
-  for (const id of readdirSync(base)) {
-    const p = join(base, id, "session.jsonl");
-    if (existsSync(p)) return readFileSync(p, "utf-8");
-  }
-  return "";
-}
-
-test("save_version commits in a git repo and posts+records the real new HEAD hash", async () => {
-  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
-  try {
-    const { handler, posted, projectFolder } = await startTemplateSession(ws);
-    writeFileSync(join(projectFolder, "extra.txt"), "guaranteed change"); // ensure the tree is dirty
-    posted.length = 0;
-    const save = handler({ type: "save_version_request" });
-    await answerApproval(handler, posted, "commit_git", { commit_message: "test: save version" });
-    await save;
-    const head = execFileSync("git", ["-C", projectFolder, "rev-parse", "HEAD"], { windowsHide: true }).toString().trim();
-    const status = posted.find((m) => m.type === "save_version_status");
-    assert.equal(status?.status, "saved_commit");
-    assert.equal(status?.hash, head, "the posted hash is the real new HEAD (kills a fake/fixed-hash return)");
-    assert.equal(findSnapshot(ws)?.git?.commit_hash, head, "one save = one restorable point: the snapshot records the commit hash");
-    // The user-edited message must be what git actually consumed -- assert the real commit subject,
-    // not just that a commit happened (kills dropping resp.text_values and falling back to proposed).
-    const subject = execFileSync("git", ["-C", projectFolder, "log", "-1", "--format=%s"], { windowsHide: true }).toString().trim();
-    assert.equal(subject, "test: save version", "git committed the user-edited message from text_values");
-  } finally { rmSync(ws, { recursive: true, force: true }); }
-});
-
-test("save_version: a repeat click while the card is open does not stack a second card (in-flight guard)", async () => {
+test("save_version_open posts the summary with parsed file rows (status kind + letter, clean path)", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
   try {
     const { handler, posted, projectFolder } = await startTemplateSession(ws);
     writeFileSync(join(projectFolder, "extra.txt"), "change");
     posted.length = 0;
-    const save = handler({ type: "save_version_request" });               // opens a card
-    for (let i = 0; i < 100 && !posted.some((m) => m.type === "approval_request"); i++) await new Promise((r) => setTimeout(r, 5));
-    await handler({ type: "save_version_request" });                       // repeat click: must be ignored
-    assert.equal(posted.filter((m) => m.type === "approval_request").length, 1, "the repeat click did not stack a second card");
-    await answerApproval(handler, posted, "cancel");
-    await save;
-    await new Promise((r) => setTimeout(r, 150)); // let the session recorder's trailing write drain before rmSync
+    await handler({ type: "save_version_open" });
+    const data = posted.find((m) => m.type === "save_version_data");
+    assert.ok(data, "opening posts save_version_data");
+    assert.equal(data.canCommit, true, "a git repo can commit");
+    const f = (data.files as any[]).find((it) => it.name === "extra.txt");
+    assert.ok(f && f.status === "new" && f.badge === "U", "an untracked file parses to status 'new' + badge 'U'");
+    assert.ok(!(data.files as any[]).some((it) => String(it.name).startsWith("?? ")), "no path carries the raw XY porcelain code");
+    // Opening alone writes nothing — no commit, no snapshot.
+    assert.equal(findSnapshot(ws), null, "opening the panel writes no snapshot");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
-test("save_version: a build started while the card is open aborts the save as busy (TOCTOU re-check)", async () => {
+test("save_version_open: a CJK filename shows as raw UTF-8, not octal-escaped (core.quotepath=false)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "温度.py"), "x"); // untracked CJK-named file (the primary audience)
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    const names = ((posted.find((m) => m.type === "save_version_data")!.files) as any[]).map((f) => f.name);
+    assert.ok(names.includes("温度.py"), "the CJK filename is raw UTF-8, not git's octal-escaped form");
+    assert.ok(!names.some((n) => /\\\d{3}/.test(n)), "no path carries backslash-octal escapes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit commits in a git repo and posts the real new HEAD hash + user message", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "guaranteed change");
+    posted.length = 0;
+    await handler({ type: "save_version_commit", message: "test: save version" });
+    const head = execFileSync("git", ["-C", projectFolder, "rev-parse", "HEAD"], { windowsHide: true }).toString().trim();
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_commit");
+    assert.equal(status?.hash, head, "the posted hash is the real new HEAD (kills a fake/fixed-hash return)");
+    assert.equal(findSnapshot(ws)?.git?.commit_hash, head, "one save = one restorable point: the snapshot records the commit hash");
+    const subject = execFileSync("git", ["-C", projectFolder, "log", "-1", "--format=%s"], { windowsHide: true }).toString().trim();
+    assert.equal(subject, "test: save version", "git committed the user-edited message (kills dropping message)");
+    // Post-commit refresh: an add -A commit cleaned the tree, so the status carries an empty list
+    // (no longer showing the just-committed extra.txt as pending).
+    assert.deepEqual(status?.files, [], "the saved_commit status refreshes the file list to the clean post-commit tree");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version: two concurrent commit acts are serialized — only one commit lands (in-flight guard)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // Two acts fired together (e.g. a double-click that beat the webview's own disable): saveInFlight
+    // lets exactly one through; the second returns early with no commit.
+    await Promise.all([handler({ type: "save_version_commit", message: "one" }), handler({ type: "save_version_commit", message: "two" })]);
+    assert.equal(execFileSync("git", ["-C", projectFolder, "rev-list", "--count", "HEAD"], { windowsHide: true }).toString().trim(), "1", "only one commit landed despite two concurrent acts");
+    assert.equal(posted.filter((m) => m.type === "save_version_status" && m.status === "saved_commit").length, 1, "exactly one saved_commit status");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit: a build running at commit time aborts as busy, no commit (TOCTOU re-check)", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
   try {
     const posted: any[] = [];
@@ -2117,17 +2146,12 @@ test("save_version: a build started while the card is open aborts the save as bu
     writeFileSync(join(projectFolder, "extra.txt"), "change");
     posted.length = 0;
 
-    const save = handler!({ type: "save_version_request" });               // open the card
-    for (let i = 0; i < 100 && !posted.some((m) => m.type === "approval_request"); i++) await new Promise((r) => setTimeout(r, 5));
     holdBoard = true;
     const build2 = handler!({ type: "start_session", intent: "second", boardId: "esp32-s3-devkitc-1" }); // starts a run that hangs at the board fetch
     for (let i = 0; i < 200 && !gate; i++) await new Promise((r) => setTimeout(r, 5)); // wait until the run is blocked (isRunning true)
-    const req = posted.find((m) => m.type === "approval_request");
-    await handler!({ type: "ui_prompt_response", promptId: req.promptId, answer: "commit_git", text_values: { commit_message: "should NOT commit" } });
-    await save;
+    await handler!({ type: "save_version_commit", message: "should NOT commit" });
 
-    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "busy", "a run active at answer time aborts the save as busy");
-    // No commit landed (unborn HEAD = zero commits = correct; git log throws on it, treat as empty).
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "busy", "a run active at act time aborts the save as busy");
     let log = "";
     try { log = execFileSync("git", ["-C", projectFolder, "log", "--format=%s"], { windowsHide: true }).toString(); } catch { log = ""; }
     assert.ok(!/should NOT commit/.test(log), "no commit landed while a build was running");
@@ -2137,36 +2161,36 @@ test("save_version: a build started while the card is open aborts the save as bu
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
-test("save_version respects staging: commits only staged fileA, leaves fileB uncommitted", async () => {
+test("save_version_commit respects staging: commits only staged fileA, leaves fileB uncommitted", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
   try {
     const { handler, posted, projectFolder } = await startTemplateSession(ws);
-    // Base commit so HEAD exists and "staged vs unstaged" is meaningful.
     execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
     execFileSync("git", ["-C", projectFolder, "commit", "-m", "base"], { windowsHide: true });
     writeFileSync(join(projectFolder, "fileA.txt"), "A");
     writeFileSync(join(projectFolder, "fileB.txt"), "B");
     execFileSync("git", ["-C", projectFolder, "add", "fileA.txt"], { windowsHide: true }); // stage A only
     posted.length = 0;
-    const save = handler({ type: "save_version_request" });
-    await answerApproval(handler, posted, "commit_git", { commit_message: "test: staged only" });
-    await save;
+    await handler({ type: "save_version_commit", message: "test: staged only" });
     const committed = execFileSync("git", ["-C", projectFolder, "show", "--name-only", "--pretty=format:", "HEAD"], { windowsHide: true }).toString();
     assert.match(committed, /fileA\.txt/, "the staged file is committed");
     assert.doesNotMatch(committed, /fileB\.txt/, "the unstaged file is NOT committed (kills an add -A mutation)");
     assert.match(execFileSync("git", ["-C", projectFolder, "status", "--porcelain"], { windowsHide: true }).toString(), /fileB\.txt/, "fileB remains uncommitted");
+    // Post-commit refresh: a staged-only commit leaves fileB behind, so the refreshed list shows it
+    // (not an empty list, and not the committed fileA).
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.ok((status?.files as any[]).some((f) => f.name === "fileB.txt"), "the refreshed list shows the remaining unstaged file");
+    assert.ok(!(status?.files as any[]).some((f) => f.name === "fileA.txt"), "the committed file is gone from the list");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
-test("save_version in a non-git project writes a snapshot.json covering the #88 schema", async () => {
+test("save_version_snapshot in a non-git project writes a snapshot.json covering the #88 schema", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
   try {
     const { handler, posted, projectFolder } = await startTemplateSession(ws);
-    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // make it a non-git project
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // non-git project
     posted.length = 0;
-    const save = handler({ type: "save_version_request" });
-    await answerApproval(handler, posted, "snapshot");
-    await save;
+    await handler({ type: "save_version_snapshot" });
     assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_snapshot");
     const snap = findSnapshot(ws);
     assert.ok(snap, "snapshot.json written");
@@ -2177,36 +2201,14 @@ test("save_version in a non-git project writes a snapshot.json covering the #88 
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
-test("save_version cancel creates no commit or snapshot and records ui_prompt_answer(cancel)", async () => {
-  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
-  try {
-    const { handler, posted, projectFolder } = await startTemplateSession(ws);
-    writeFileSync(join(projectFolder, "extra.txt"), "x");
-    posted.length = 0;
-    const save = handler({ type: "save_version_request" });
-    await answerApproval(handler, posted, "cancel");
-    await save;
-    await new Promise((r) => setTimeout(r, 40)); // let the fire-and-forget ui_prompt_answer append flush before cleanup
-    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "cancelled");
-    assert.equal(findSnapshot(ws), null, "no snapshot written on cancel");
-    let hasCommit = true;
-    try { execFileSync("git", ["-C", projectFolder, "rev-parse", "HEAD"], { windowsHide: true, stdio: "ignore" }); } catch { hasCommit = false; }
-    assert.equal(hasCommit, false, "no commit created on cancel");
-    assert.match(readSessionJsonl(ws), /"type":"ui_prompt_answer"[^\n]*"answer":"cancel"/, "the cancel answer is recorded in session.jsonl");
-  } finally { rmSync(ws, { recursive: true, force: true }); }
-});
-
-test("save_version on a clean git repo surfaces nothing_to_commit (auditable, no throw)", async () => {
+test("save_version_commit on a clean git repo surfaces nothing_to_commit (auditable, no throw)", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
   try {
     const { handler, posted, projectFolder } = await startTemplateSession(ws);
     execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
     execFileSync("git", ["-C", projectFolder, "commit", "-m", "commit everything"], { windowsHide: true }); // tree now clean
     posted.length = 0;
-    const save = handler({ type: "save_version_request" });
-    await answerApproval(handler, posted, "commit_git", { commit_message: "nothing here" });
-    await save;
-    await new Promise((r) => setTimeout(r, 40)); // let the fire-and-forget ui_prompt_answer append flush before cleanup
+    await handler({ type: "save_version_commit", message: "nothing here" });
     assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "nothing_to_commit");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });

@@ -98,21 +98,9 @@
         if (msg.type === "user_supplement_applied") { addActivity({ type: "trace", text: tr("supplement_applied", { d: msg.decision, r: msg.reason }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
         if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); vscode.postMessage({ type: "request_artifacts" }); addArtifactsLink(); }
         if (msg.type === "files_write_failed") { addActivity({ type: "trace", text: tr("files_write_failed", { e: msg.error }) }); }
-        // Save Version (#95) outcome. addActivity clears the pending spinner the card's
-        // respond() armed, so the save always ends with a visible, terminal status line.
-        if (msg.type === "save_version_status") {
-          const s = msg.status;
-          const text = s === "saved_commit" ? tr("sv_saved_commit", { hash: String(msg.hash || "").slice(0, 8) })
-            : s === "saved_snapshot" ? tr("sv_saved_snapshot")
-            : s === "cancelled" ? tr("sv_cancelled")
-            : s === "nothing_to_save" ? tr("sv_nothing")
-            : s === "busy" ? tr("sv_busy")
-            : tr("sv_failed", { e: String(msg.error || s) });
-          addActivity({ text });
-          // addActivity clears the working spinner; a Save Version status (esp. "busy") can arrive
-          // WHILE a build is running, so re-arm the spinner like the supplement handlers above.
-          if (running && pendingLabel) setPending(pendingLabel);
-        }
+        // Save Version (#95) lives in its own tool surface (SaveVersionPanel), not the Activity feed.
+        if (msg.type === "save_version_data") { onSaveVersionData(msg); }
+        if (msg.type === "save_version_status") { onSaveVersionStatus(msg); }
         if (msg.type === "session_error") {
           const errKey = "err_" + msg.error;
           const text = (I18N[LOCALE] && I18N[LOCALE][errKey]) || I18N.en[errKey] || msg.error;
