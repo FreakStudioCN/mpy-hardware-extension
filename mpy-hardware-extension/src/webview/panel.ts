@@ -234,10 +234,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   let venvLastProbeAt = 0;
   const venvReadyForPoll = (): boolean => {
     if (venvConfirmed) return true;
-    const now = Date.now();
-    if (now - venvLastProbeAt < VENV_REPROBE_MS) return false;
-    venvLastProbeAt = now;
-    return (venvConfirmed = venvReadyFn());
+    if (Date.now() - venvLastProbeAt < VENV_REPROBE_MS) return false;
+    const ready = venvReadyFn();
+    // Stamp AFTER the probe returns: the probe itself can block up to its 15s spawnSync
+    // timeout, so a before-stamp would let a stalled probe outlive its own quiet window
+    // and a queued poll re-spawn back-to-back. (Synchronous, so no reentrancy in between.)
+    venvLastProbeAt = Date.now();
+    return (venvConfirmed = ready);
   };
   // Cheap absent-vs-broken split for the presence poll: an ABSENT venv (never set up) surfaces a
   // "set up environment" affordance in Device Tools; a present-but-broken one stays silent (the
