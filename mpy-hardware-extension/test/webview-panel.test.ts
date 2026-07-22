@@ -2071,6 +2071,69 @@ test("save_version commits in a git repo and posts+records the real new HEAD has
     assert.equal(status?.status, "saved_commit");
     assert.equal(status?.hash, head, "the posted hash is the real new HEAD (kills a fake/fixed-hash return)");
     assert.equal(findSnapshot(ws)?.git?.commit_hash, head, "one save = one restorable point: the snapshot records the commit hash");
+    // The user-edited message must be what git actually consumed -- assert the real commit subject,
+    // not just that a commit happened (kills dropping resp.text_values and falling back to proposed).
+    const subject = execFileSync("git", ["-C", projectFolder, "log", "-1", "--format=%s"], { windowsHide: true }).toString().trim();
+    assert.equal(subject, "test: save version", "git committed the user-edited message from text_values");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version: a repeat click while the card is open does not stack a second card (in-flight guard)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    const save = handler({ type: "save_version_request" });               // opens a card
+    for (let i = 0; i < 100 && !posted.some((m) => m.type === "approval_request"); i++) await new Promise((r) => setTimeout(r, 5));
+    await handler({ type: "save_version_request" });                       // repeat click: must be ignored
+    assert.equal(posted.filter((m) => m.type === "approval_request").length, 1, "the repeat click did not stack a second card");
+    await answerApproval(handler, posted, "cancel");
+    await save;
+    await new Promise((r) => setTimeout(r, 150)); // let the session recorder's trailing write drain before rmSync
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version: a build started while the card is open aborts the save as busy (TOCTOU re-check)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+    let gate: (() => void) | null = null;
+    let holdBoard = false; // block the SECOND build at its per-build board fetch so it stays running
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+      if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+      if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+      if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") { if (holdBoard) await new Promise<void>((r) => { gate = r; }); return jsonResponse(board()); }
+      throw new Error(`unexpected URL ${url}`);
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    await handler!({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+    const projectFolder = join(ws, "blockless-project");
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+
+    const save = handler!({ type: "save_version_request" });               // open the card
+    for (let i = 0; i < 100 && !posted.some((m) => m.type === "approval_request"); i++) await new Promise((r) => setTimeout(r, 5));
+    holdBoard = true;
+    const build2 = handler!({ type: "start_session", intent: "second", boardId: "esp32-s3-devkitc-1" }); // starts a run that hangs at the board fetch
+    for (let i = 0; i < 200 && !gate; i++) await new Promise((r) => setTimeout(r, 5)); // wait until the run is blocked (isRunning true)
+    const req = posted.find((m) => m.type === "approval_request");
+    await handler!({ type: "ui_prompt_response", promptId: req.promptId, answer: "commit_git", text_values: { commit_message: "should NOT commit" } });
+    await save;
+
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "busy", "a run active at answer time aborts the save as busy");
+    // No commit landed (unborn HEAD = zero commits = correct; git log throws on it, treat as empty).
+    let log = "";
+    try { log = execFileSync("git", ["-C", projectFolder, "log", "--format=%s"], { windowsHide: true }).toString(); } catch { log = ""; }
+    assert.ok(!/should NOT commit/.test(log), "no commit landed while a build was running");
+
+    (gate as any)?.(); await build2.catch(() => {}); // unblock the held run
+    await new Promise((r) => setTimeout(r, 200)); // let build2's trailing recorder writes drain before rmSync
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

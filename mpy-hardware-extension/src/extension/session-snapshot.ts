@@ -8,7 +8,7 @@
 // injected savedAt); writeSessionSnapshot does the mkdir + writeFile and surfaces any
 // non-ENOENT fs error verbatim (never blanket-swallows — recurring reviewer finding).
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const SNAPSHOT_SCHEMA = "blockless-session-snapshot";
@@ -141,6 +141,11 @@ export function snapshotPath(sessionDir: string): string {
 export async function writeSessionSnapshot(sessionDir: string, snapshot: SessionSnapshot): Promise<string> {
   const target = snapshotPath(sessionDir);
   await mkdir(join(sessionDir, "checkpoints"), { recursive: true });
-  await writeFile(target, JSON.stringify(snapshot, null, 2), "utf-8");
+  // Atomic overwrite: write a temp file then rename over the target. snapshot.json is the ONLY
+  // restore point (fixed name, previous content replaced), so a crash mid-write must not truncate
+  // it to a half-written, unparseable file. rename() is atomic on the same filesystem.
+  const tmp = target + ".tmp";
+  await writeFile(tmp, JSON.stringify(snapshot, null, 2), "utf-8");
+  await rename(tmp, target);
   return target;
 }

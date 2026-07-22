@@ -136,6 +136,31 @@ test("a reset clears the artifact accumulators so a new session does not surface
   assert.ok(!controller.artifactSources().some((s) => s.absolute_path === "/abs/session-a/main.py"), "session B does not inherit session A's produced files");
 });
 
+test("reset() clears the Save Version accumulators (terminal/diagram/credits) so the next snapshot doesn't inherit them", async () => {
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "diagram_updated", diagram: { nodes: ["a"] } });
+      onEvent({ type: "credits", remaining: 42, dailyGrant: 100, resetsAt: "2026-07-07T00:00:00Z" });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "acc", boardId: "auto" });
+  let snap = controller.getSnapshotState();
+  assert.equal(snap.terminal, "complete", "terminal accumulated from the run");
+  assert.deepEqual(snap.diagram, { nodes: ["a"] }, "authored diagram accumulated");
+  assert.equal(snap.credits?.balance, 42, "credits accumulated");
+
+  // reset() must null ALL THREE (they're cleared in reset(), not start()'s board-change block —
+  // reset() nulls boardId, short-circuiting that block; a leftover would leak into the next snapshot).
+  controller.reset();
+  snap = controller.getSnapshotState();
+  assert.equal(snap.terminal, null, "reset clears terminal");
+  assert.equal(snap.diagram, undefined, "reset clears diagram");
+  assert.equal(snap.credits, null, "reset clears credits");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];

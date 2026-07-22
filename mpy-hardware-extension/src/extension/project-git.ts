@@ -43,7 +43,15 @@ export function isGitRepo(projectFolder: string): boolean {
 // any nonzero exit rejects with stderr verbatim (never swallowed).
 async function git(projectFolder: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   try {
-    return await execFileAsync("git", ["-C", projectFolder, ...args], { windowsHide: true, timeout: GIT_TIMEOUT_MS });
+    // LC_ALL=C so git's human-readable output is stable English regardless of the machine's
+    // locale. The caller classifies outcomes by matching that output ("nothing to commit"), and
+    // git is gettext-localized (e.g. zh_CN "无文件要提交") — on a non-English machine, which is
+    // this product's primary audience, an un-forced locale silently breaks the taxonomy.
+    return await execFileAsync("git", ["-C", projectFolder, ...args], {
+      windowsHide: true,
+      timeout: GIT_TIMEOUT_MS,
+      env: { ...process.env, LC_ALL: "C" },
+    });
   } catch (error: any) {
     if (error?.code === "ENOENT") {
       throw new GitUnavailableError("git is not installed or not on PATH");

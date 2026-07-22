@@ -14,7 +14,7 @@ import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
 import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
-import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale } from "../core/support-config.ts";
+import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale, sliceCodePoints } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
@@ -217,7 +217,8 @@ function scanArtifactTree(root: string, origin: "session" | "disk"): ArtifactSou
 // P0-deterministic so the same state always proposes the same message; the user edits it on
 // the card (the prefilled text_input). Missing pieces are dropped, never rendered as "()".
 function buildCommitMessage(intent: string | undefined, phase: string | null, boardId: string | null): string {
-  const head = (intent ?? "").trim().slice(0, SAVE_VERSION_INTENT_MAX) || "save version";
+  // Slice by whole code points so a CJK/emoji intent isn't cut mid-surrogate into a U+FFFD.
+  const head = sliceCodePoints((intent ?? "").trim(), SAVE_VERSION_INTENT_MAX) || "save version";
   const context = [phase, boardId && boardId !== "auto" ? boardId : null].filter(Boolean).join(", ");
   return context ? `blockless: ${head} (${context})` : `blockless: ${head}`;
 }
@@ -506,7 +507,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // ponytail: the card BODY strings are English; the gtool button + the status line are
   // localized (data-i18n + save_version_status → tr). Localizing the card body would need the
   // webview locale threaded to the host — its own follow-up if the team wants it.
+  // Serialize Save Version: reject a repeat click while a card is already in flight (no stacked
+  // cards), and runSaveVersion re-checks isRunning after the card resolves so a build started while
+  // the card was open isn't committed over.
+  let saveInFlight = false;
   async function handleSaveVersion() {
+    if (saveInFlight) return;
+    saveInFlight = true;
+    try { await runSaveVersion(); } finally { saveInFlight = false; }
+  }
+  async function runSaveVersion() {
     if (controller.isRunning()) {
       webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.busy });
       return;
@@ -558,6 +568,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     // The ui_prompt_answer(cancel) is already recorded by resolvePrompt — audit for free.
     if (!resp || resp.action === SAVE_VERSION_ACTION.cancel) {
       webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.cancelled });
+      return;
+    }
+    // Re-check at DEQUEUE, not just entry (a busy gate is not a lock): a build may have STARTED
+    // while the confirmation card was open. Committing / snapshotting now would capture
+    // half-written files + stale state, exactly what the entry busy-check exists to prevent.
+    if (controller.isRunning()) {
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.busy });
       return;
     }
     const message = String(resp.text_values?.[SAVE_VERSION_MSG_INPUT_ID] ?? "").trim() || proposed;

@@ -109,6 +109,9 @@
             : s === "busy" ? tr("sv_busy")
             : tr("sv_failed", { e: String(msg.error || s) });
           addActivity({ text });
+          // addActivity clears the working spinner; a Save Version status (esp. "busy") can arrive
+          // WHILE a build is running, so re-arm the spinner like the supplement handlers above.
+          if (running && pendingLabel) setPending(pendingLabel);
         }
         if (msg.type === "session_error") {
           const errKey = "err_" + msg.error;

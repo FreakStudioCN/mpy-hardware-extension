@@ -68,13 +68,31 @@ test("buildSessionSnapshot: missing pieces are explicit nulls/empties, never dro
   assert.deepEqual(snap.artifacts, []);
 });
 
-test("buildSessionSnapshot: no absolute path appears anywhere (portability, §4.2)", () => {
-  const snap = buildSessionSnapshot(fullInput());
-  const text = JSON.stringify(snap);
-  assert.ok(!/"[A-Za-z]:\\\\/.test(text), "no windows drive path");
-  assert.ok(!text.includes("absolute_path"), "no absolute_path key leaked");
-  for (const a of snap.artifacts) {
-    assert.ok(!a.relative_path.startsWith("/") && !/^[A-Za-z]:/.test(a.relative_path), "artifact path is relative");
+test("buildSessionSnapshot: JSON round-trips losslessly over a sweep of inputs — an undefined value never drops a key (property)", () => {
+  // JSON.stringify DROPS any key whose value is `undefined`, so if build() emits an undefined
+  // VALUE for a field (e.g. a `?? null` guard removed), the WRITTEN snapshot silently loses that
+  // key and #88's "every key present" contract breaks. The old fixture-only "no absolute path"
+  // test was vacuous (build() copies artifacts verbatim; the strip lives upstream in the panel).
+  // Assert parse(stringify(x)) deep-equals x across full / all-empty / partial inputs.
+  const base = fullInput();
+  const allEmpty: SnapshotInput = {
+    traceId: null, savedAt: "2026-07-22T02:00:00.000Z", currentPhase: null, terminal: null,
+    state: undefined, boardId: null, preSelectedBoard: undefined, boardSelectionMode: undefined,
+    preferences: undefined, manifest: undefined, diagram: undefined, credits: null,
+    diagnostics: {}, artifacts: [], git: null,
+  };
+  const inputs: SnapshotInput[] = [
+    base,
+    allEmpty,
+    { ...base, diagram: undefined },
+    { ...base, manifest: undefined, state: undefined },
+    { ...base, preferences: undefined, credits: null, git: null },
+    { ...base, preSelectedBoard: undefined, boardSelectionMode: undefined },
+  ];
+  for (const [i, input] of inputs.entries()) {
+    const snap = buildSessionSnapshot(input);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(snap)), snap, `input ${i}: no key dropped by an undefined value (round-trip lossless)`);
+    assert.ok(!JSON.stringify(snap).includes("absolute_path"), `input ${i}: no absolute_path key leaked`);
   }
 });
 

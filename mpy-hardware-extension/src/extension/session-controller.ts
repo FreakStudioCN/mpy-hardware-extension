@@ -276,10 +276,12 @@ export class SessionController {
       const message = causeDetail && !String(base).includes(causeDetail) ? `${base} (${causeDetail})` : base;
       this.keyErrors.push(`session_error: ${message}`);
       const result = { terminal: "session_error", error: message };
-      this.lastTerminal = result.terminal; // retained for the Save Version snapshot (#95)
       await this.record({ type: "session_error", error: message });
       await this.record({ type: "session_finished", terminal: result.terminal });
       if (current()) {
+        // Guard the accumulator like the success path (:265): a SUPERSEDED run's late unwind must
+        // not stamp "session_error" into the NEXT session's snapshot terminal.
+        this.lastTerminal = result.terminal; // retained for the Save Version snapshot (#95)
         this.deps.postMessage({ type: "session_error", error: message });
         this.deps.postMessage({ type: "session_done", terminal: result.terminal });
       }
