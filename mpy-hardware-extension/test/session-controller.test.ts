@@ -307,6 +307,29 @@ test("reset() supersedes the in-flight run: late messages are dropped and a new 
   assert.equal(messages.some((m) => m.type === "session_done"), true, "the new run posts its own session_done");
 });
 
+test("reset() supersedes a THROWING run: its catch records/accumulates nothing into the next session (#29)", async () => {
+  const recorded: any[] = [];
+  let release: () => void = () => { };
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async () => { await gate; throw new Error("boom"); }, // parks in flight, then throws after reset
+  });
+
+  const first = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  await Promise.resolve();          // let the loop reach `await gate`
+  controller.reset();               // supersede: current() is now false for the in-flight run
+  release();
+  await first;
+
+  // The superseded run's catch path is guarded by current(), so it records NOTHING and does not
+  // push into keyErrors -- else its "boom" leaks into the freshly-reset next session's log/snapshot.
+  assert.equal(recorded.some((e) => e.type === "session_error"), false, "superseded throw records no session_error");
+  assert.equal(recorded.some((e) => e.type === "session_finished"), false, "superseded throw records no session_finished");
+  assert.ok(!/boom/.test(controller.getDiagnostics().key_errors ?? ""), "the superseded error did not poison the next session's key_errors");
+});
+
 test("session controller writes generated files after code and manifest are available", async () => {
   const written: any[] = [];
   const messages: any[] = [];

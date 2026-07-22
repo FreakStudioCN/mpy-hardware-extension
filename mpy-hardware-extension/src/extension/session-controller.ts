@@ -274,13 +274,15 @@ export class SessionController {
       const causeDetail = error?.cause?.code ?? error?.cause?.message;
       const base = error?.message ?? "session_error";
       const message = causeDetail && !String(base).includes(causeDetail) ? `${base} (${causeDetail})` : base;
-      this.keyErrors.push(`session_error: ${message}`);
       const result = { terminal: "session_error", error: message };
-      await this.record({ type: "session_error", error: message });
-      await this.record({ type: "session_finished", terminal: result.terminal });
       if (current()) {
-        // Guard the accumulator like the success path (:265): a SUPERSEDED run's late unwind must
-        // not stamp "session_error" into the NEXT session's snapshot terminal.
+        // Guard EVERYTHING a live run accumulates/records, matching the success path (:264): a
+        // reset()-SUPERSEDED run's late unwind must not push keyErrors, record session_error/
+        // _finished, OR stamp lastTerminal into the NEXT session's log + snapshot. Stop (cancel())
+        // keeps current() true, so the Stop-path error recording is unaffected.
+        this.keyErrors.push(`session_error: ${message}`);
+        await this.record({ type: "session_error", error: message });
+        await this.record({ type: "session_finished", terminal: result.terminal });
         this.lastTerminal = result.terminal; // retained for the Save Version snapshot (#95)
         this.deps.postMessage({ type: "session_error", error: message });
         this.deps.postMessage({ type: "session_done", terminal: result.terminal });
