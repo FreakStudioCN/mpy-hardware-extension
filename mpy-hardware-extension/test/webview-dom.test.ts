@@ -2641,6 +2641,27 @@ test("device tools: shows a no-device state until a board is present, and revert
   assert.equal(document.getElementById("dtEntries").children.length, 0, "the file list is cleared on unplug");
 });
 
+test("device tools: an ABSENT venv shows the set-up-environment affordance; its button installs deps + opens Env", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // Absent venv (fresh install): the host flags needsEnvSetup, so Device Tools offers setup rather
+  // than a dead-end "No device connected".
+  post(dom, { type: "device_present", present: false, needsEnvSetup: true });
+  assert.equal(document.getElementById("dtEnvSetup")!.classList.contains("hidden"), false, "the set-up-environment affordance shows");
+  assert.equal(document.getElementById("dtNoDev")!.classList.contains("hidden"), true, "the plain no-device state is hidden");
+
+  // The button starts the venv install and jumps to the Env tab so the user sees progress.
+  (document.getElementById("dtEnvSetupBtn") as any).click();
+  assert.ok(posted.some((m) => m.type === "doctor_action" && m.action === "install_deps"), "the button starts the venv install");
+  assert.equal(document.querySelector('.view[data-view="doctor"]')!.classList.contains("hidden"), false, "it switches to the Env tab");
+
+  // A plain unplug (no needsEnvSetup) shows the normal no-device state, not the setup affordance.
+  post(dom, { type: "device_present", present: false });
+  assert.equal(document.getElementById("dtEnvSetup")!.classList.contains("hidden"), true, "a broken/unplug case does NOT show env-setup");
+  assert.equal(document.getElementById("dtNoDev")!.classList.contains("hidden"), false, "the plain no-device state shows instead");
+});
+
 test("device tools: re-opening with the board already present refreshes the current path; a poll tick does not", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

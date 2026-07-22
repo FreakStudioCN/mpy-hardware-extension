@@ -19,7 +19,7 @@ import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { PROTOCOL_VERSION } from "../core/protocol-registry.ts";
-import { createDeviceShim, detectPython, venvReady, venvMpremoteVersion, installVenvAsync } from "../extension/device-shim.ts";
+import { createDeviceShim, detectPython, venvReady, venvExists, venvMpremoteVersion, installVenvAsync } from "../extension/device-shim.ts";
 import { DeviceCommandQueue } from "../extension/device-lock.ts";
 import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
@@ -30,7 +30,7 @@ import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveAr
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 
-type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
+type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
 
 const execFileAsync = promisify(execFile);
 
@@ -228,6 +228,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // shim-is-running check if that edge ever bites.
   let venvConfirmed = false;
   const venvReadyForPoll = (): boolean => venvConfirmed || (venvConfirmed = venvReadyFn());
+  // Cheap absent-vs-broken split for the presence poll: an ABSENT venv (never set up) surfaces a
+  // "set up environment" affordance in Device Tools; a present-but-broken one stays silent (the
+  // Doctor Re-check recovers it). venvExists is existsSync-only, so it's fine on the hot path.
+  const venvExistsFn = deps.venvExists ?? venvExists;
   // Serializes user-initiated device-tool commands so two never overlap on the one
   // serial port (#54, spec §41). The active-run gate is checked per command below.
   const deviceQueue = new DeviceCommandQueue();
@@ -1021,7 +1025,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // retrigger that install on every tick. No venv -> answer "no device", don't spawn.
       // Memoized (venvReadyForPoll) so the healthy steady state doesn't re-spawn the probe.
       if (!venvReadyForPoll()) {
-        webview.postMessage({ type: "device_present", present: false });
+        // Absent venv (never set up) -> tell Device Tools to offer environment setup instead of a
+        // silent "No device": the presence poll USED to bootstrap the venv via shim.scan(), and
+        // gating it (venvReadyForPoll) removed that, so a fresh install would hide the board
+        // forever. A present-but-broken venv (exists but venvReady() false) stays silent.
+        webview.postMessage({ type: "device_present", present: false, needsEnvSetup: !venvExistsFn() });
       } else {
         try { webview.postMessage({ type: "device_present", present: (await shim.scan()).length > 0 }); }
         catch { webview.postMessage({ type: "device_present", present: false }); }

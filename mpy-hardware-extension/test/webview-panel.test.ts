@@ -717,21 +717,43 @@ test("device tools download fails (never clobbers) once every dedup slot is take
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
-test("device_presence answers 'no device' without touching the shim when the venv isn't ready", async () => {
+test("device_presence: a fresh install (ABSENT venv) offers environment setup, without touching the shim", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;
   const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
   const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
   let scanned = 0;
   const shim = { scan: async () => { scanned++; return ["/dev/ttyX"]; }, setPort: () => {}, kill: () => {} };
-  createPanel(vscode, {}, { shim, venvReady: () => false, apiBaseUrl: "http://api.test", loopMode: "template" });
+  // A real first run: the venv was NEVER set up (venvExists false). The presence poll used to
+  // bootstrap it via shim.scan(); gating the poll dropped that, so an absent venv must surface a
+  // "set up environment" affordance instead of hiding the board forever.
+  createPanel(vscode, {}, { shim, venvReady: () => false, venvExists: () => false, apiBaseUrl: "http://api.test", loopMode: "template" });
 
   await handler!({ type: "device_presence" });
 
-  // The poll fires every 2.5s; scanning through a broken venv would re-run a blocking
-  // venv/pip bootstrap each tick. No venv -> report "no device", never touch the shim.
   assert.equal(scanned, 0, "a not-ready venv must not trigger shim.scan()");
-  assert.equal(posted.filter((m) => m.type === "device_present").pop()?.present, false);
+  const msg = posted.filter((m) => m.type === "device_present").pop();
+  assert.equal(msg?.present, false);
+  assert.equal(msg?.needsEnvSetup, true, "an ABSENT venv surfaces the set-up-environment affordance");
+});
+
+test("device_presence: a present-but-broken venv stays silent (no env-setup affordance; the Doctor recovers it)", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
+  let scanned = 0;
+  const shim = { scan: async () => { scanned++; return ["/dev/ttyX"]; }, setPort: () => {}, kill: () => {} };
+  // The venv EXISTS but its imports are broken (venvReady false, venvExists true): don't nag with a
+  // setup affordance -- that's the Doctor Re-check's job. Just report no device, don't scan.
+  createPanel(vscode, {}, { shim, venvReady: () => false, venvExists: () => true, apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler!({ type: "device_presence" });
+
+  assert.equal(scanned, 0, "a broken venv must not trigger shim.scan() either");
+  const msg = posted.filter((m) => m.type === "device_present").pop();
+  assert.equal(msg?.present, false);
+  assert.equal(msg?.needsEnvSetup, false, "a broken (present) venv stays silent — recovery is the Doctor's job");
 });
 
 test("device_presence scans and reports the device once the venv is ready", async () => {

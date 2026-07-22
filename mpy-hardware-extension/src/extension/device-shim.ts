@@ -463,6 +463,14 @@ export function venvReady(): boolean {
   return existsSync(python) && canRun(python, SHIM_IMPORT_PROBE);
 }
 
+// Cheap existence check (no import probe / no spawn) — distinguishes a venv that was NEVER set up
+// ("absent": offer environment setup) from one that exists but is broken ("present but broken":
+// venvReady() is false yet this is true; the Doctor Re-check recovers it). The presence poll uses
+// this to pick which no-device state to show without paying the 7-import probe on every tick.
+export function venvExists(): boolean {
+  return existsSync(venvPaths().python);
+}
+
 // Best-effort mpremote version from the managed venv (where the shim installs it) — the
 // diagnostics snapshot needs it, and mpremote is rarely on the global PATH. Runs
 // `<venvPython> -m mpremote --version`; undefined if the venv/mpremote is absent or fails.
