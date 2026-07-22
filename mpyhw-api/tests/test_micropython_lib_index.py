@@ -82,6 +82,24 @@ def test_malformed_body_is_not_cached_as_empty_success(monkeypatch):
     assert mli._cache["packages"] is None
 
 
+def test_non_dict_entries_are_dropped_before_caching(monkeypatch):
+    # Element-level twin of the body-shape guard: {"packages": [null, ...]} is valid JSON with a
+    # list, so it passed the shape check and the null was CACHED -- then every search crashed with
+    # AttributeError (persistent 500s) for the whole 6h TTL. Bad entries are dropped pre-cache.
+    monkeypatch.setattr(mli, "_fetch_index", lambda: {"packages": [None, "nope", INDEX["packages"][0]]})
+    assert [hit["name"] for hit in mli.search("aioble")] == ["aioble"]
+    assert mli._cache["packages"] == [INDEX["packages"][0]]  # only the usable entry was cached
+
+
+def test_all_entries_malformed_is_an_upstream_error_not_an_empty_catalog(monkeypatch):
+    # A NON-empty packages list with no usable entry is a malformed body: raise (or serve stale),
+    # never cache it as a valid empty catalog and serve that for the TTL.
+    monkeypatch.setattr(mli, "_fetch_index", lambda: {"packages": [None]})
+    with pytest.raises(mli.MicropythonLibUnavailable):
+        mli.search("aioble")
+    assert mli._cache["packages"] is None
+
+
 def test_backs_off_after_failure_instead_of_refetching_every_request(monkeypatch):
     # A stale-cache + down-upstream must NOT re-hit the 10s urlopen on every request (which
     # pins an anyio worker each time). After one failed fetch, serve stale within the backoff.

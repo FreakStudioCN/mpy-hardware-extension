@@ -61,10 +61,19 @@ def _packages() -> list[dict]:
     if not isinstance(data, dict) or not isinstance(data.get("packages"), list):
         logger.warning("micropython-lib index body malformed: %r", type(data))
         return _serve_stale_or_raise(now, "malformed index body")
-    _cache["packages"] = data["packages"]
+    # Element-level guard (same class as the body-shape one): a non-dict entry (e.g.
+    # {"packages": [null]}) cached as-is would crash every search with AttributeError for
+    # the whole TTL -- persistent 500s instead of one 502. Drop unusable entries before
+    # caching; a non-empty list with NO usable entry is a malformed body, not an empty
+    # catalog (mirrors upypi_client.search, which drops non-dict hits).
+    packages = [pkg for pkg in data["packages"] if isinstance(pkg, dict)]
+    if data["packages"] and not packages:
+        logger.warning("micropython-lib index entries all malformed")
+        return _serve_stale_or_raise(now, "malformed index entries")
+    _cache["packages"] = packages
     _cache["fetched_at"] = now
     _cache["failed_at"] = 0.0  # a success clears the backoff window
-    return data["packages"]
+    return packages
 
 
 def _serve_stale_or_raise(now: float, reason: str) -> list[dict]:
