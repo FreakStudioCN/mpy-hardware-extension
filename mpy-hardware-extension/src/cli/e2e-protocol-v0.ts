@@ -132,7 +132,12 @@ const confirmApproval = async (card: any) => {
   const singleChoice = new Set(groupList.filter((g: any) => g?.multi_select === false).map((g: any) => String(g?.id)));
   const perGroup = new Map<string, any[]>();
   const takeAll: any[] = [];
+  // Dedup by id: an item can appear in BOTH card.items (with .group) and a group's inline items;
+  // count it once (mirrors protocol-loop.ts + the webview merge, so all three agree).
+  const seen = new Set<string>();
   const bucket = (it: any, gid: string) => {
+    const key = it?.id != null ? String(it.id) : null;
+    if (key != null) { if (seen.has(key)) return; seen.add(key); }
     if (singleChoice.has(gid)) { const arr = perGroup.get(gid) ?? []; arr.push(it); perGroup.set(gid, arr); }
     else if (it?.id != null) takeAll.push(it.id);
   };

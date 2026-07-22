@@ -74,6 +74,10 @@
         // affordance instead of a dead-end "No device connected". A present-but-broken venv (or a
         // simple unplug) shows the normal no-device state -- the Doctor recovers a broken one.
         const env = $("dtEnvSetup"); if (env) env.classList.toggle("hidden", !needsEnvSetup);
+        // Reset the button whenever the affordance is (re-)shown: a prior FAILED install left it
+        // disabled at "Installing…", and the next poll re-offers setup, so hand back a live button
+        // rather than a dead one that lies.
+        if (needsEnvSetup) { const b = $("dtEnvSetupBtn"); if (b) { b.disabled = false; b.textContent = tr("doc_install"); } }
         const nodev = $("dtNoDev"); if (nodev) nodev.classList.toggle("hidden", !!needsEnvSetup);
       }
       // Host reply to the presence poll: gone -> show the no-device (or set-up-env) state; came

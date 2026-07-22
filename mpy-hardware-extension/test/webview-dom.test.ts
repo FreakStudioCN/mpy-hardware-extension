@@ -2094,6 +2094,30 @@ test("a summary value that is an http(s) URL renders as a clickable link; plain 
   assert.match(card.querySelector('.ask-kv')!.textContent!, /ESP32-C6-DevKitC-1/, "the plain value still shows as text");
 });
 
+test("approval card.links: only http(s) hrefs become anchors; a javascript: link is dropped (PR #46 review)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // links[] come from the same untrusted producer as summary values -- a javascript:/data: href
+  // must NOT become a live anchor (the scheme allowlist was on summary values only).
+  post(dom, {
+    type: "approval_request",
+    promptId: "p-links",
+    card: {
+      question: "Refs",
+      links: [
+        { url: "https://docs.example.com/guide", label: "Guide" },
+        { url: "javascript:alert(1)", label: "Evil" },
+        { url: "data:text/html,x", label: "Evil2" },
+      ],
+      actions: [{ label: "OK", value: "confirm", primary: true }],
+    },
+  });
+  const anchors = [...document.querySelectorAll('[data-prompt-id="p-links"] .ask-links a.ask-link')] as HTMLAnchorElement[];
+  assert.equal(anchors.length, 1, "only the https link renders as an anchor");
+  assert.equal(anchors[0].getAttribute("href"), "https://docs.example.com/guide", "the safe href is kept");
+  assert.equal([...document.querySelectorAll('[data-prompt-id="p-links"] a')].some((a) => /^(javascript|data):/i.test(a.getAttribute("href") || "")), false, "no javascript:/data: anchor exists");
+});
+
 test("a keyless item_groups entry does not double-render ungrouped items", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -2720,9 +2744,16 @@ test("device tools: an ABSENT venv shows the set-up-environment affordance; its 
   assert.equal(document.getElementById("dtNoDev")!.classList.contains("hidden"), true, "the plain no-device state is hidden");
 
   // The button starts the venv install and jumps to the Env tab so the user sees progress.
-  (document.getElementById("dtEnvSetupBtn") as any).click();
+  const envBtn = document.getElementById("dtEnvSetupBtn") as HTMLButtonElement;
+  envBtn.click();
   assert.ok(posted.some((m) => m.type === "doctor_action" && m.action === "install_deps"), "the button starts the venv install");
   assert.equal(document.querySelector('.view[data-view="doctor"]')!.classList.contains("hidden"), false, "it switches to the Env tab");
+  assert.equal(envBtn.disabled, true, "the button disables while installing");
+
+  // If the install FAILED, the venv is still absent, so the next poll re-offers setup -- the button
+  // must be handed back live, not stranded disabled at "Installing…".
+  post(dom, { type: "device_present", present: false, needsEnvSetup: true });
+  assert.equal(envBtn.disabled, false, "the re-offered button is re-enabled (not stranded after a failed install)");
 
   // A plain unplug (no needsEnvSetup) shows the normal no-device state, not the setup affordance.
   post(dom, { type: "device_present", present: false });

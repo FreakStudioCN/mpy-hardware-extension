@@ -75,7 +75,9 @@
           links.forEach((l) => {
             if (!l) return;
             const href = typeof l === "string" ? l : (l.url || l.href);
-            if (!href) return;
+            // http/https only, same as renderScalarValue -- a card's links come from the same
+            // untrusted producer, so a `javascript:`/`data:` href must NOT become a live anchor.
+            if (!href || !/^https?:\/\/\S+$/i.test(String(href))) return;
             const a = document.createElement("a"); a.className = "ask-link";
             a.setAttribute("href", String(href)); a.setAttribute("target", "_blank"); a.setAttribute("rel", "noreferrer");
             a.textContent = String((l && l.label) || (l && l.title) || href);
