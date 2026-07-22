@@ -92,6 +92,9 @@ test("runDoctor warns when no board is connected but does not probe", async () =
   assert.equal(r.device.status, "warn");
   assert.equal(r.device.errorKind, "device_unavailable");
   assert.equal(r.micropython.status, "warn");
+  // No serial port at all is often a new, unflashed board — offer the firmware link
+  // here too, not only after a port exists.
+  assert.match(r.micropython.link, /micropython\.org\/download/, "no port -> firmware link offered");
   assert.equal(probed, false, "nothing to probe with no port");
 });
 

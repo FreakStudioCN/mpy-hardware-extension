@@ -24,7 +24,7 @@
         if (msg.type === "package_resolve_result") { onPackageResolveResult(msg.record, msg.url); }
         if (msg.type === "package_resolve_error") { onPackageResolveError(msg.url); }
         if (msg.type === "device_busy") { onDeviceBusy(msg.phase); }
-        if (msg.type === "device_present") { onDevicePresent(msg.present, msg.ports); }
+        if (msg.type === "device_present") { onDevicePresent(msg.present, msg.ports, msg.needsEnvSetup); }
         if (msg.type === "logs_status") { const n = $("scDiag"); if (n) n.textContent = msg.text; }
         if (msg.type === "partners_config") { renderPartners(msg.partners); }
         if (msg.type === "recent_sessions") { renderRecent(msg.sessions); }
@@ -108,7 +108,7 @@
             const now = new Date();
             capBlockedUntil = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
           }
-          if (msg.error === "out_of_credits" || msg.error === "daily_cap_reached") { quotaExhausted = true; $("quota").classList.add("exhausted"); updateGenerateEnabled(); }
+          if (msg.error === "out_of_credits" || msg.error === "daily_cap_reached") { quotaExhausted = true; $("quota").classList.add("exhausted"); setQuotaWarn(true); updateGenerateEnabled(); }
           addActivity({ text });
         }
         if (msg.type === "session_done") {

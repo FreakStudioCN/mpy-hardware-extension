@@ -369,6 +369,34 @@ test("deploy confirm sets the chosen port on the prompt response, before the age
   assert.deepEqual(selectedPorts, ["COM8"]);
 });
 
+test("flash serial_port repoints the shim only on a flash_now answer, not on cancel", async () => {
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const selectedPorts: Array<string | null> = [];
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: () => {},
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const shim = {
+    scan: async () => ["COM3", "COM9"],
+    setPort: (port: string | null) => selectedPorts.push(port),
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); }, shim });
+  // A cancelled flash card can still carry serial_port; it must NOT repoint the shim.
+  await handler?.({ type: "ui_prompt_response", promptId: "flash-1", answer: "cancel", serial_port: "COM3" });
+  await handler?.({ type: "ui_prompt_response", promptId: "flash-2", answer: "flash_now", serial_port: "COM9" });
+
+  assert.deepEqual(selectedPorts, ["COM9"]);
+});
+
 test("view provider wires the same session controller into a docked webview view", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;
@@ -726,6 +754,103 @@ test("device tools download fails (never clobbers) once every dedup slot is take
     assert.equal(copied.length, 0, "no copy to the clobbering original path");
     assert.equal(readFileSync(join(ws, "boot.py"), "utf8"), "original", "the existing file is untouched");
   } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("device_presence: a fresh install (ABSENT venv) offers environment setup, without touching the shim", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
+  let scanned = 0;
+  const shim = { scan: async () => { scanned++; return ["/dev/ttyX"]; }, setPort: () => {}, kill: () => {} };
+  // A real first run: the venv was NEVER set up (venvExists false). The presence poll used to
+  // bootstrap it via shim.scan(); gating the poll dropped that, so an absent venv must surface a
+  // "set up environment" affordance instead of hiding the board forever.
+  createPanel(vscode, {}, { shim, venvReady: () => false, venvExists: () => false, apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler!({ type: "device_presence" });
+
+  assert.equal(scanned, 0, "a not-ready venv must not trigger shim.scan()");
+  const msg = posted.filter((m) => m.type === "device_present").pop();
+  assert.equal(msg?.present, false);
+  assert.equal(msg?.needsEnvSetup, true, "an ABSENT venv surfaces the set-up-environment affordance");
+});
+
+test("device_presence: a present-but-broken venv stays silent (no env-setup affordance; the Doctor recovers it)", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
+  let scanned = 0;
+  const shim = { scan: async () => { scanned++; return ["/dev/ttyX"]; }, setPort: () => {}, kill: () => {} };
+  // The venv EXISTS but its imports are broken (venvReady false, venvExists true): don't nag with a
+  // setup affordance -- that's the Doctor Re-check's job. Just report no device, don't scan.
+  createPanel(vscode, {}, { shim, venvReady: () => false, venvExists: () => true, apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler!({ type: "device_presence" });
+
+  assert.equal(scanned, 0, "a broken venv must not trigger shim.scan() either");
+  const msg = posted.filter((m) => m.type === "device_present").pop();
+  assert.equal(msg?.present, false);
+  assert.equal(msg?.needsEnvSetup, false, "a broken (present) venv stays silent — recovery is the Doctor's job");
+});
+
+test("device_presence: a broken venv probes once per backoff window, not on every 2.5s tick", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
+  let scanned = 0;
+  let probes = 0;
+  const shim = { scan: async () => { scanned++; return ["/dev/ttyX"]; }, setPort: () => {}, kill: () => {} };
+  // venvReadyFn is a SYNCHRONOUS python spawn on the extension host: a broken venv returning
+  // false must not re-spawn it on every poll tick (that repeatedly blocks the host). The poll
+  // backs off between not-ready probes; three immediate ticks land inside one window.
+  createPanel(vscode, {}, { shim, venvReady: () => { probes++; return false; }, venvExists: () => true, apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler!({ type: "device_presence" });
+  await handler!({ type: "device_presence" });
+  await handler!({ type: "device_presence" });
+
+  assert.equal(probes, 1, "a not-ready probe backs off instead of re-spawning python per tick");
+  assert.equal(scanned, 0, "the shim is never scanned while the venv is not ready");
+  const msg = posted.filter((m) => m.type === "device_present").pop();
+  assert.equal(msg?.present, false, "backed-off ticks still answer the poll (as no-device)");
+});
+
+test("device_presence scans and reports the device once the venv is ready", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
+  let scanned = 0;
+  const shim = { scan: async () => { scanned++; return ["/dev/ttyX"]; }, setPort: () => {}, kill: () => {} };
+  createPanel(vscode, {}, { shim, venvReady: () => true, apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  await handler!({ type: "device_presence" });
+
+  assert.equal(scanned, 1, "a ready venv scans normally");
+  assert.equal(posted.filter((m) => m.type === "device_present").pop()?.present, true);
+});
+
+test("device_presence probes venvReady once then memoizes it on the hot poll path", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
+  let probes = 0;
+  let scanned = 0;
+  const shim = { scan: async () => { scanned++; return ["/dev/ttyX"]; }, setPort: () => {}, kill: () => {} };
+  createPanel(vscode, {}, { shim, venvReady: () => { probes++; return true; }, apiBaseUrl: "http://api.test", loopMode: "template" });
+
+  // The poll fires every 2.5s; venvReady() is a synchronous multi-import python spawn, so
+  // once it confirms ready the hot path must not re-probe it.
+  await handler!({ type: "device_presence" });
+  await handler!({ type: "device_presence" });
+  await handler!({ type: "device_presence" });
+
+  assert.equal(probes, 1, "venvReady is probed once, then the confirmed-ready result is memoized");
+  assert.equal(scanned, 3, "every tick still scans for presence");
 });
 
 test("device tools are refused with device_busy while a session run owns the port (spec §41)", async () => {

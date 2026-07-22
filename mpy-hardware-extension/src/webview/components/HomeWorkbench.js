@@ -204,7 +204,19 @@
         if (balance <= 0) q.classList.add("exhausted");
         else if (balance <= Math.max(1, Math.round(max * 0.2))) q.classList.add("low");
         quotaExhausted = balance <= 0;
+        setQuotaWarn(quotaExhausted);
         updateGenerateEnabled();
+      }
+
+      // #qWarn is one node shared by both warning states; the CSS only recolored it,
+      // so a fully-consumed quota still read "nearly exhausted". Swap the i18n key
+      // (attribute + text) so the copy matches the real balance and re-renders on a
+      // later locale lock. Called from setCredits and the out_of_credits path.
+      function setQuotaWarn(exhausted) {
+        const w = $("qWarn"); if (!w) return;
+        const key = exhausted ? "creditsExhausted" : "lowCredits";
+        w.setAttribute("data-i18n", key);
+        w.textContent = tr(key);
       }
 
       // Show the STUB badge only when the backend reports stub mode; live/unknown

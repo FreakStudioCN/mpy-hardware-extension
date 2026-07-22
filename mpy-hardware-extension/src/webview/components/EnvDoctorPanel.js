@@ -6,7 +6,7 @@
         en: {
           python_not_found: "Install Python 3.10+ and reopen VS Code.",
           shim_dependency_install_failed: "If it keeps failing, set a pip mirror in mpyhw.pipIndexUrl.",
-          device_unavailable: "Check the USB cable and the serial driver (CP210x/CH340).",
+          device_unavailable: "Check the USB cable and the serial driver (CP210x/CH340). If the board is new, flash MicroPython firmware first.",
           device_selection_required: "Unplug the extra boards, or pick one to use.",
           device_scan_failed: "Replug the board and click Re-check.",
           no_micropython: "Flash MicroPython with the link below, then re-check.",
@@ -14,7 +14,7 @@
         zh: {
           python_not_found: "安装 Python 3.10+ 后重开 VS Code。",
           shim_dependency_install_failed: "若反复失败，可在 mpyhw.pipIndexUrl 设置 pip 镜像。",
-          device_unavailable: "检查 USB 线和串口驱动（CP210x/CH340）。",
+          device_unavailable: "检查 USB 线和串口驱动（CP210x/CH340）。若是新板，请先刷入 MicroPython 固件。",
           device_selection_required: "拔掉多余开发板，或选择一块使用。",
           device_scan_failed: "重新插拔开发板后点「重新检测」。",
           no_micropython: "用下面的链接刷好 MicroPython，然后重新检测。",
