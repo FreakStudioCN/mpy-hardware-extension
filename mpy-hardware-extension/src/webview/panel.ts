@@ -227,6 +227,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // only removes the file when the webview echoes that exact nonce back for the same path
   // in time; the nonce is consumed on use, so a replay cannot delete again.
   let pendingDelete: { path: string; nonce: string; expiresAt: number } | null = null;
+  // Uninstall is a recursive `rm -r :/lib/<name>` -- host-enforce the same one-shot nonce as
+  // delete so a stale/duplicated/crafted bare message can't wipe a package dir (the webview
+  // two-click alone is not a security boundary). Keyed by package name.
+  let pendingUninstall: { name: string; nonce: string; expiresAt: number } | null = null;
   const auth = createGithubAuth({ vscode, apiBaseUrl, fetchImpl, log: deps.log });
   const workspaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
   // Project output goes into a dedicated subfolder (see PROJECT_SUBDIR); session
@@ -1070,7 +1074,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       await runDeviceTool("mip_install", { url: message.url, version }, async () => { await shim.installPackage(message.url, version); return { url: message.url }; });
     }
     if (message.type === "device_tool_uninstall" && typeof message.name === "string") {
-      await runDeviceTool("uninstall", { name: message.name }, async () => { const removed = await shim.uninstallPackage(message.name); return { name: message.name, removed }; });
+      const now = Date.now();
+      const armed = pendingUninstall;
+      if (armed && armed.name === message.name && armed.nonce === message.nonce && now < armed.expiresAt) {
+        pendingUninstall = null; // one-shot: consume the nonce so a duplicate confirm can't re-run
+        await runDeviceTool("uninstall", { name: message.name }, async () => { const removed = await shim.uninstallPackage(message.name); return { name: message.name, removed }; });
+      } else {
+        // First click, or a stale/expired/mismatched nonce: arm and wait for the webview to echo
+        // the nonce. Nothing is removed, so a duplicated bare message is harmless.
+        const nonce = randomUUID();
+        pendingUninstall = { name: message.name, nonce, expiresAt: now + DELETE_ARM_TTL_MS };
+        webview.postMessage({ type: "device_tool_uninstall_armed", name: message.name, nonce });
+      }
     }
     if (message.type === "package_search") {
       await handlePackageSearch(

@@ -2818,13 +2818,17 @@ test("package browser: a card installs, shows Installed, then uninstalls", async
   assert.match(status.textContent || "", /Installed/i, "the card shows Installed");
   assert.equal(btn.dataset.installed, "1", "the button is now in the installed state");
 
-  // Uninstall needs a confirm: the first click only arms ("Confirm?"), a second runs it.
+  // Uninstall needs a HOST-enforced confirm: the first click posts a bare arm request (no nonce,
+  // nothing removed yet); the host replies with a one-shot nonce; the confirm click echoes it.
   btn.click();
-  assert.equal(posted.filter((m) => m.type === "device_tool_uninstall").length, 0, "first Uninstall click only arms");
+  const arm = posted.filter((m) => m.type === "device_tool_uninstall");
+  assert.equal(arm.length, 1, "first Uninstall click posts one arm request");
+  assert.equal(arm[0].nonce, undefined, "the arm request carries NO nonce (nothing is removed on it)");
   assert.match(btn.textContent || "", /Confirm/i, "the button shows a confirm prompt");
+  post(dom, { type: "device_tool_uninstall_armed", name: "aioble", nonce: "n-123" }); // host arms
   btn.click();
-  const un = posted.find((m) => m.type === "device_tool_uninstall");
-  assert.ok(un && un.name === "aioble", "the confirm click posts device_tool_uninstall with the package name");
+  const confirm = posted.filter((m) => m.type === "device_tool_uninstall").find((m) => m.nonce);
+  assert.ok(confirm && confirm.name === "aioble" && confirm.nonce === "n-123", "the confirm click echoes the host nonce");
   post(dom, { type: "device_tool_result", command: "uninstall", result: { name: "aioble", removed: true } });
   assert.match(status.textContent || "", /Removed/i, "the card shows Removed");
   assert.equal(btn.dataset.installed, "", "the button is back to the install state");

@@ -37,6 +37,8 @@
       // the host to arm; the host replies with a nonce here; the confirm click echoes it so
       // the host can prove the two-step happened (a stale message carries no valid nonce).
       var dtDeleteNonces = {};
+      // Same one-shot host nonce for uninstall (a recursive /lib delete), keyed by package name.
+      var dtUninstallNonces = {};
       // How often to re-check the device is still plugged in while the tab is open.
       var DT_POLL_MS = 2500;
       // Start "no device" (unknown) until a scan confirms one; the tab shows "plug in a
@@ -221,6 +223,8 @@
       }
       // Host armed a delete: keep its one-shot nonce so the confirm click can echo it back.
       function onDeviceDeleteArmed(path, nonce) { dtDeleteNonces[path] = nonce; }
+      // Host armed an uninstall: keep its one-shot nonce so the confirm click can echo it back.
+      function onDeviceUninstallArmed(name, nonce) { dtUninstallNonces[name] = nonce; }
 
       // ----- Package browser: search standard sources + install onto the board -----
       // Auto = live micropython-lib + uPyPI merged (host-side), uPyPI = live search (name+url,
@@ -342,7 +346,7 @@
         const btn = dtActionButton(tr("dt_pkg_uninstall"), () => {
           if (dtNoDevice) { status.className = "dt-pkg-cardstatus"; status.textContent = tr("dt_nodev_h"); return; }
           if (dtInstallInFlight) return;
-          dtConfirmUninstall(btn, () => dtRunUninstall(name, btn, status));
+          dtConfirmUninstall(btn, name, status);
         });
         btn.classList.add("dt-del");
         row.append(label, status, btn);
@@ -476,22 +480,27 @@
       function dtDoInstall(pkg, btn, status, url) {
         if (dtNoDevice) { status.className = "dt-pkg-cardstatus"; status.textContent = tr("dt_nodev_h"); return; }
         if (dtInstallInFlight) return;
-        if (btn.dataset.installed === "1") { dtConfirmUninstall(btn, () => dtRunUninstall(pkg.name, btn, status)); return; }
+        if (btn.dataset.installed === "1") { dtConfirmUninstall(btn, pkg.name, status); return; }
         dtInstallInFlight = true; dtActiveInstall = { status: status, btn: btn };
         status.className = "dt-pkg-cardstatus installing"; status.textContent = tr("dt_installing");
         vscode.postMessage({ type: "device_tool_mip", url: url, version: "" });
       }
-      // Uninstall is a destructive /lib delete -> two-click confirm (mirrors the file-delete button):
-      // the first click arms ("Confirm?"), a second within DT_CONFIRM_MS runs it; else it disarms.
-      function dtConfirmUninstall(btn, run) {
-        if (btn.dataset.armed) { delete btn.dataset.armed; run(); return; }
+      // Uninstall is a destructive recursive /lib delete -> two-click confirm that the HOST
+      // enforces (mirrors the file-delete button, not a webview-only gate): the first click asks
+      // the host to ARM (it issues a one-shot nonce; nothing is removed yet); the confirm click
+      // within DT_CONFIRM_MS echoes that nonce so the host can prove the two-step happened. Auto-
+      // disarms and drops the nonce after DT_CONFIRM_MS.
+      function dtConfirmUninstall(btn, name, status) {
+        if (btn.dataset.armed && dtUninstallNonces[name]) {
+          const nonce = dtUninstallNonces[name]; delete dtUninstallNonces[name]; delete btn.dataset.armed;
+          dtInstallInFlight = true; dtActiveInstall = { status: status, btn: btn };
+          status.className = "dt-pkg-cardstatus installing"; status.textContent = tr("dt_pkg_uninstalling");
+          vscode.postMessage({ type: "device_tool_uninstall", name: name, nonce: nonce });
+          return;
+        }
         btn.dataset.armed = "1"; const orig = btn.textContent; btn.textContent = tr("dt_confirm_del");
-        setTimeout(() => { if (btn.isConnected && btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = orig; } }, DT_CONFIRM_MS);
-      }
-      function dtRunUninstall(name, btn, status) {
-        dtInstallInFlight = true; dtActiveInstall = { status: status, btn: btn };
-        status.className = "dt-pkg-cardstatus installing"; status.textContent = tr("dt_pkg_uninstalling");
-        vscode.postMessage({ type: "device_tool_uninstall", name: name });
+        vscode.postMessage({ type: "device_tool_uninstall", name: name }); // bare = arm request
+        setTimeout(() => { if (btn.isConnected && btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = orig; } delete dtUninstallNonces[name]; }, DT_CONFIRM_MS);
       }
 
       // Controls live in the DOM at load (the tool-view is hidden, not removed).

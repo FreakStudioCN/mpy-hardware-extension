@@ -66,6 +66,15 @@ def test_resolve_normalizes_package_json(monkeypatch):
     assert record["cached"] is False
 
 
+def test_resolve_coerces_non_string_name_and_version(monkeypatch):
+    # Same non-string-upstream class as search(): a numeric name/version must normalize to str,
+    # not propagate as a raw int (mirrors test_search_coerces_non_string_name).
+    monkeypatch.setattr(upypi_client, "_fetch_json", lambda url: {"name": 42, "version": 1})
+    record = upypi_client.resolve("https://upypi.net/pkgs/x/1.0.0")
+    assert record["name"] == "42" and record["package_name"] == "42" and record["version"] == "1"
+    assert isinstance(record["name"], str) and isinstance(record["version"], str)
+
+
 def test_resolve_rejects_non_upypi_url(monkeypatch):
     # SSRF guard: a caller-supplied url must be on upypi.net over https. A bad url is a CALLER
     # error (UpypiBadRequest -> 400), not an upstream outage (UpypiUnavailable -> 502).

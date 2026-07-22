@@ -18,6 +18,7 @@
         if (msg.type === "device_tool_result") { onDeviceToolResult(msg.command, msg.result); }
         if (msg.type === "device_tool_error") { onDeviceToolError(msg.command, msg.error); }
         if (msg.type === "device_tool_delete_armed") { onDeviceDeleteArmed(msg.path, msg.nonce); }
+        if (msg.type === "device_tool_uninstall_armed") { onDeviceUninstallArmed(msg.name, msg.nonce); }
         if (msg.type === "package_search_result") { onPackageSearchResult(msg.source, msg.results, msg.query); }
         if (msg.type === "package_search_error") { onPackageSearchError(msg.source, msg.query); }
         if (msg.type === "package_resolve_result") { onPackageResolveResult(msg.record, msg.url); }
