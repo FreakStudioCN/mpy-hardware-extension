@@ -10,10 +10,17 @@
       // Fallback group headers when a card carries no authored label (real scaffold
       // cards do carry one). Keys resolve via tr() (shared.js en+zh).
       const GROUP_LABEL_KEYS = { scheduler_mode: "group_scheduler_mode", extra_modules: "group_extra_modules" };
-      // The ESP32 flash-confirm card gets a live serial-port + baud picker.
+      // The ESP32 flash-confirm card gets a live serial-port picker (the baud picker is disabled
+      // below -- see the note there).
       const FLASH_CONFIRM_ID = "esp32_flash_confirm";
       const FLASH_ACTION = "flash_now";
-      const FLASH_BAUDS = ["460800", "115200", "230400", "921600"];
+      // BAUD PICKER GATED ON RUILI: the flash plugin does not yet honor a user-chosen baud -- its
+      // flasher (third_party/MicroPython_Skills .../esp32_flash.py) reads baud only from
+      // install.baud (built from the download page), and nothing threads approval_response.baud
+      // into it. Shipping the dropdown would let the user pick a baud the flash silently ignores.
+      // Re-enable this const + the picker block + the msg.baud send below once ruili's plugin
+      // consumes approval_response.baud (or esp32_flash.py gains a --baud override).
+      // const FLASH_BAUDS = ["460800", "115200", "230400", "921600"];
 
       // A scalar summary/detail value: render an http(s) URL as a real clickable link
       // (http/https only — never an arbitrary scheme, so no javascript:/data: href),
@@ -167,7 +174,7 @@
         // so the body render alone still fixes the "only three buttons" symptom.
         const isFlashConfirm = card.approval_id === FLASH_CONFIRM_ID;
         let selectedPort = null;
-        let selectedBaud = FLASH_BAUDS[0];
+        // let selectedBaud = FLASH_BAUDS[0]; // baud picker gated on ruili (see FLASH_BAUDS note)
         let flashBtn = null;
         let flashPortsEl = null, flashStatusEl = null;
         const setFlashPorts = (ports) => {
@@ -189,11 +196,14 @@
           const pick = document.createElement("div"); pick.className = "flash-pick";
           flashStatusEl = document.createElement("div"); flashStatusEl.className = "flash-status"; flashStatusEl.textContent = tr("detecting_board"); pick.appendChild(flashStatusEl);
           flashPortsEl = document.createElement("div"); flashPortsEl.className = "flash-ports"; pick.appendChild(flashPortsEl);
-          const baudRow = document.createElement("label"); baudRow.className = "flash-baud"; baudRow.textContent = tr("flash_baud") + " ";
-          const sel = document.createElement("select");
-          FLASH_BAUDS.forEach((rate) => { const o = document.createElement("option"); o.value = rate; o.textContent = rate; sel.appendChild(o); });
-          sel.addEventListener("change", () => { selectedBaud = sel.value; });
-          baudRow.appendChild(sel); pick.appendChild(baudRow);
+          // BAUD PICKER GATED ON RUILI (see FLASH_BAUDS note above): the flash ignores a chosen
+          // baud today, so the dropdown is disabled rather than misleading the user. Restore this
+          // block once the plugin consumes approval_response.baud.
+          // const baudRow = document.createElement("label"); baudRow.className = "flash-baud"; baudRow.textContent = tr("flash_baud") + " ";
+          // const sel = document.createElement("select");
+          // FLASH_BAUDS.forEach((rate) => { const o = document.createElement("option"); o.value = rate; o.textContent = rate; sel.appendChild(o); });
+          // sel.addEventListener("change", () => { selectedBaud = sel.value; });
+          // baudRow.appendChild(sel); pick.appendChild(baudRow);
           const rescan = document.createElement("button"); rescan.className = "ask-opt flash-rescan"; rescan.type = "button"; rescan.textContent = tr("rescan");
           rescan.addEventListener("click", () => { flashStatusEl.textContent = tr("detecting_board"); vscode.postMessage({ type: "deploy_rescan" }); });
           pick.appendChild(rescan);
@@ -207,9 +217,11 @@
           const selected_ids = checks.filter((c) => c.checked).map((c) => c.dataset.id).filter(Boolean);
           const text_values = {}; Object.keys(textEls).forEach((k) => { text_values[k] = textEls[k].value; });
           const msg = { type: "ui_prompt_response", promptId, answer: action, selected_ids, text_values };
-          // Ride the chosen port + baud so the host sets the port before the agent's flash
-          // tool runs (same no-race rationale as the deploy card's port passthrough).
-          if (isFlashConfirm && action === FLASH_ACTION && selectedPort) { msg.serial_port = selectedPort; msg.baud = Number(selectedBaud); }
+          // Ride the chosen port so the host sets it before the agent's flash tool runs (same
+          // no-race rationale as the deploy card's port passthrough). Baud is NOT sent: the picker
+          // is gated on ruili (see FLASH_BAUDS note); restore `msg.baud = Number(selectedBaud)`
+          // here when the plugin consumes it.
+          if (isFlashConfirm && action === FLASH_ACTION && selectedPort) { msg.serial_port = selectedPort; }
           vscode.postMessage(msg);
           // Disable every button in the card (actions + the flash picker's rescan/port
           // buttons), not just the action row, so nothing stays clickable after answering.

@@ -369,6 +369,10 @@ test("approval: headless auto-confirm picks ONE id from a single-choice group, a
   assert.ok(ids.includes("module_logger") && ids.includes("module_flash"), "all multi-select modules kept");
 });
 
+// The serial_port passthrough is live; the baud passthrough is DORMANT plumbing kept ready for
+// re-enable — the webview baud picker is commented (gated on ruili consuming approval_response.baud),
+// so no live decision supplies baud today. This test pins that the plumbing still carries it when
+// a decision does, so restoring the picker is a webview-only change.
 test("approval: a confirmApproval decision carries serial_port + baud into the result", async () => {
   const res = await executeProtocolTool(
     tu("fl", "approval_request", { approval_id: "esp32_flash_confirm", actions: [{ value: "flash_now", primary: true }] }) as any,

@@ -2088,7 +2088,7 @@ test("a keyless item_groups entry does not double-render ungrouped items", async
   assert.deepStrictEqual(ids, ["u1", "u2"], "each id is posted exactly once, no duplicates");
 });
 
-test("esp32_flash_confirm renders its body and a port+baud picker; Start Flashing is gated on a port", async () => {
+test("esp32_flash_confirm renders its body and a port picker; Start Flashing is gated on a port", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
@@ -2124,7 +2124,10 @@ test("esp32_flash_confirm renders its body and a port+baud picker; Start Flashin
   assert.equal(flashBtn.disabled, true, "still gated before a port is picked");
   portBtns[0].click();
   assert.equal(flashBtn.disabled, false, "picking a port enables Start Flashing");
-  assert.ok(card.querySelector(".flash-baud select"), "a baud selector is rendered");
+  // Baud picker is GATED ON RUILI (the flash ignores a chosen baud until her plugin consumes
+  // approval_response.baud): the dropdown must NOT render and baud must NOT ride. Re-enabling the
+  // picker without that change should fail here, prompting a matching test update.
+  assert.equal(card.querySelector(".flash-baud select"), null, "no baud selector while the picker is gated");
 
   posted.length = 0;
   flashBtn.click();
@@ -2132,7 +2135,7 @@ test("esp32_flash_confirm renders its body and a port+baud picker; Start Flashin
   assert.equal(resp.length, 1, "exactly one response posted");
   assert.equal(resp[0].answer, "flash_now");
   assert.equal(resp[0].serial_port, "COM3", "the chosen port rides on the response");
-  assert.strictEqual(resp[0].baud, 460800, "baud rides as a number, matching the plugin contract sample");
+  assert.equal(resp[0].baud, undefined, "baud is NOT sent while the picker is gated on ruili");
 });
 
 test("a single detected port auto-selects and enables Start Flashing", async () => {
