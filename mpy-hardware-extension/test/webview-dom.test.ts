@@ -1894,7 +1894,7 @@ test("Save Version panel: the summary shows all 7 details — session state, art
     type: "save_version_data", canCommit: true, proposed: "blockless: led blink (generate)", stage: "phase: generate", note: "",
     files: [{ id: "chg-0", name: "main.py", status: "modified", badge: "M" }],
     session: { intent: "make the onboard led blink", phase: "generate", board: "ESP32-C6-DevKitC-1", mode: "beginner" },
-    artifacts: [{ path: "firmware/main.py", kind: "code", phase: "generate" }, { path: "project-manifest.json", kind: "manifest", phase: "generate" }],
+    artifacts: [{ path: "firmware/main.py", kind: "code", phase: "generate" }, { path: "project-manifest.json", kind: "manifest", phase: "generate" }, { path: "boot.py", kind: "code", phase: "" }],
     artifactTotal: 5,
     diagnostics: { activity: "generate_code", errors: "flake8 timed out", session_id: "session-abc" },
   });
@@ -1905,9 +1905,10 @@ test("Save Version panel: the summary shows all 7 details — session state, art
   assert.ok(sessText.includes("make the onboard led blink") && sessText.includes("generate") && sessText.includes("ESP32-C6-DevKitC-1"), "session shows intent, phase, board");
   // Key artifacts — an actual LIST, plus the true total in the summary (not just a count).
   const arts = [...document.querySelectorAll("#svArtifacts .sv-art")];
-  assert.equal(arts.length, 2, "each supplied artifact is a row");
+  assert.equal(arts.length, 3, "each supplied artifact is a row");
   assert.equal(arts[0].querySelector(".sv-art-path")!.textContent, "firmware/main.py", "artifact path shown");
   assert.equal(arts[0].querySelector(".sv-art-phase")!.textContent, "generate", "artifact's producing phase shown (phase-associated per §3.6.3)");
+  assert.equal(arts[2].querySelector(".sv-art-phase"), null, "an artifact with an empty phase renders no phase span (the if(ph) guard)");
   assert.ok((document.getElementById("svArtifactsSum")!.textContent || "").includes("5"), "summary carries the true total (5), not just the shown 2");
   assert.ok(document.querySelector("#svArtifacts .sv-art-more"), "a '+N more' row when the total exceeds the shown rows");
   // Diagnostics — key errors / recent activity / session id.
