@@ -34,6 +34,15 @@
         // not replayed (it isn't durable), so no live-run guard is touched.
         if (msg.type === "restore_reset") { clearConversation(); }
         if (msg.type === "restore_note") { addActivity({ text: String(msg.text || "") }, "note"); }
+        // Rich feed replay (Stage 1): the host maps DURABLE transcript events to these ungated messages, so
+        // the past run's narration re-renders on restore without touching the live-run gates. A user request
+        // renders as its own card; a mapped line renders as a trace line, or an error line (kind:"error").
+        // Restore never arms the spinner (the run is idle) — addActivity here must not setPending.
+        if (msg.type === "restore_user") { addUserMessage(String(msg.text || "")); }
+        if (msg.type === "restore_line") {
+          if (msg.kind === "error") addActivity({ text: String(msg.text || "") }, "error");
+          else addActivity({ type: "trace", text: String(msg.text || "") });
+        }
         if (msg.type === "restore_done") {
           const t = String(msg.terminal || "");
           if (t) { const label = tr("term_" + t); addActivity({ text: tr("session_ended", { t: label === "term_" + t ? t : label }) }); }

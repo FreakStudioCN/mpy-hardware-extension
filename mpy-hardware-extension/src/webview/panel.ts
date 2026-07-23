@@ -768,10 +768,41 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   }
   const RESTORE_PROMPT_TYPES = new Set(["ui_prompt", "plan_proposed", "deploy_proposed", "components_proposed", "approval_requested", "file_op_proposed"]);
 
-  // Replay the DURABLE activity feed from the restored session's transcript (session.jsonl): the AI's
-  // summaries + one INERT "asked -> answered" line per past prompt (never a live prompt). Transient
-  // trace/spinner events are not durable, so they are not replayed (and no live-run guard is touched).
-  // The caller clears the feed first (restore_reset).
+  // The newest N feed lines to replay on restore. A long session's transcript holds roughly one line per
+  // token, so an unbounded replay would flood the DOM; keep the tail (the most recent, most relevant
+  // activity). ponytail: fixed cap; a "load older" affordance is the upgrade path if the full history is
+  // ever needed.
+  const RESTORE_FEED_MAX = 400;
+
+  // Map ONE durable transcript event to the restore webview message(s) that re-render it, pushing into `out`.
+  // Only durable, self-contained content is mapped: the user's request, the model's status narration, phase
+  // summaries (+ inline markdown artifacts), device serial output, real tool-failure reasons, and one inert
+  // "asked -> answered" line per past prompt. Transient spinner labels and localized terminal/error lines are
+  // NOT mapped here (the spinner isn't durable; the terminal is the restore_done line).
+  function mapRestoreEvent(e: any, answers: Map<string, unknown>, out: any[]): void {
+    if (e?.type === "user_message" && e.intent) { out.push({ type: "restore_user", text: String(e.intent) }); return; }
+    if (e?.type === "status_update" && e.payload?.message) { out.push({ type: "restore_line", kind: "trace", text: String(e.payload.message) }); return; }
+    if (e?.type === "summary" && e.text) { out.push({ type: "summary", text: String(e.text) }); return; }
+    if (e?.type === "phase_complete") {
+      if (e.payload?.summary) out.push({ type: "summary", text: String(e.payload.summary) });
+      for (const art of Array.isArray(e.payload?.artifacts) ? e.payload.artifacts : []) {
+        if (art?.type === "markdown" && art.content) out.push({ type: "summary", text: String(art.content) });
+      }
+      return;
+    }
+    if (e?.type === "serial_output" && Array.isArray(e.lines)) { out.push({ type: "serial_output", lines: e.lines }); return; }
+    if (e?.type === "trace_event" && e.event?.isError && e.event?.text) { out.push({ type: "restore_line", kind: "error", text: String(e.event.text) }); return; }
+    if (RESTORE_PROMPT_TYPES.has(e?.type)) {
+      const a = answers.get(String(e.promptId));
+      const answer = a == null ? "" : (typeof a === "string" ? a : JSON.stringify(a));
+      out.push({ type: "restore_note", text: `${restorePromptLabel(e)}${answer ? ` → ${answer}` : ""}` });
+    }
+  }
+
+  // Replay the DURABLE activity feed from the restored session's transcript (session.jsonl) in file order:
+  // the user's request, the model's status narration, phase summaries, serial output, tool-failure reasons,
+  // and one inert prompt-history line each (never a live prompt). No live-run guard is touched — every
+  // replayed message is ungated on the webview side. The caller clears the feed first (restore_reset).
   function replaySessionFeed(sessionDir: string): void {
     let text: string;
     try { text = readFileSync(join(sessionDir, "session.jsonl"), "utf-8"); }
@@ -781,17 +812,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       return;
     }
     const events = text.split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) as any[];
-    // The answer is recorded AFTER the prompt — collect answers by promptId first.
+    // The answer is recorded AFTER the prompt — collect answers by promptId across ALL events first.
     const answers = new Map<string, unknown>();
     for (const e of events) { if (e?.type === "ui_prompt_answer" && e.promptId != null) answers.set(String(e.promptId), e.answer); }
-    for (const e of events) {
-      if (e?.type === "summary") { webview.postMessage({ type: "summary", text: String(e.text ?? "") }); continue; }
-      if (RESTORE_PROMPT_TYPES.has(e?.type)) {
-        const a = answers.get(String(e.promptId));
-        const answer = a == null ? "" : (typeof a === "string" ? a : JSON.stringify(a));
-        webview.postMessage({ type: "restore_note", text: `${restorePromptLabel(e)}${answer ? ` → ${answer}` : ""}` });
-      }
-    }
+    const out: any[] = [];
+    for (const e of events) mapRestoreEvent(e, answers, out);
+    for (const msg of out.slice(-RESTORE_FEED_MAX)) webview.postMessage(msg); // keep the newest tail
   }
 
   // Session restore (the consumer of the snapshot Save Version writes): read a saved snapshot and

@@ -2197,6 +2197,59 @@ test("restore_session replays the durable activity feed: summaries + INERT promp
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
+test("restore_session replays the RICH narration in file order via ungated messages (Stage 1)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-rich-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    // A transcript covering every durable narration type the rich replay maps.
+    const jsonl = [
+      { type: "session_started", intent: "blink", boardId: "esp32" },
+      { type: "user_message", intent: "blink an LED", boardId: "esp32" },
+      { type: "status_update", payload: { message: "Generating code…" } },
+      { type: "phase_complete", payload: { summary: "Generated main.py", artifacts: [{ type: "markdown", content: "### Wiring notes" }] } },
+      { type: "ui_prompt", promptId: "p1", question: "Which board?" },
+      { type: "ui_prompt_answer", promptId: "p1", answer: "ESP32-C6" },
+      { type: "serial_output", lines: ["LED on", "LED off"] },
+      { type: "trace_event", event: { isError: true, text: "I2C read failed" } },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-24T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: {}, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(sessionDir, snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    // Each durable event mapped to its restore message, with content preserved.
+    assert.ok(posted.some((m) => m.type === "restore_user" && /blink an LED/.test(m.text)), "the user's request replays as a user card");
+    assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "trace" && /Generating code/.test(m.text)), "a status update replays as a trace line");
+    assert.ok(posted.some((m) => m.type === "summary" && /main\.py/.test(m.text)), "the phase_complete summary replays");
+    assert.ok(posted.some((m) => m.type === "summary" && /Wiring notes/.test(m.text)), "an inline markdown artifact replays as a summary");
+    assert.ok(posted.some((m) => m.type === "restore_note" && /Which board\?/.test(m.text) && /ESP32-C6/.test(m.text)), "a past prompt is an inert asked -> answered line");
+    assert.ok(posted.some((m) => m.type === "serial_output" && Array.isArray(m.lines) && m.lines.includes("LED on")), "serial output replays");
+    assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "error" && /I2C read failed/.test(m.text)), "a real tool-failure reason replays as an error line");
+    assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line is posted");
+    // The whole point of Stage 1: NO raw/gated live messages are ever posted (they would render as dead UI or
+    // be swallowed by the running-gate). Mutation-sensitive: mapping to any live type fails one of these.
+    for (const live of ["user_message", "status_update", "trace_event", "phase_complete", "ui_prompt_needed", "plan_needed"]) {
+      assert.ok(!posted.some((m) => m.type === live), `no live ${live} is posted (rich replay is ungated restore messages only)`);
+    }
+    // File order is preserved: request -> status -> summary -> prompt -> serial -> error.
+    const at = (pred: (m: any) => boolean) => posted.findIndex(pred);
+    const userAt = at((m) => m.type === "restore_user");
+    const traceAt = at((m) => m.type === "restore_line" && m.kind === "trace");
+    const sumAt = at((m) => m.type === "summary" && /main\.py/.test(m.text));
+    const serialAt = at((m) => m.type === "serial_output");
+    const errAt = at((m) => m.type === "restore_line" && m.kind === "error");
+    assert.ok(userAt < traceAt && traceAt < sumAt && sumAt < serialAt && serialAt < errAt, "replays in transcript file order");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 test("restore_session rejects a malformed session id (no path join, no restore)", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
   try {

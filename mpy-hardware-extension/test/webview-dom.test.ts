@@ -492,6 +492,25 @@ test("session-restore feed rehydration: restore_note adds an inert line, restore
   assert.equal(feed().children.length, 0, "restore_reset clears the feed");
 });
 
+test("session-restore rich feed (Stage 1): restore_user is a user card, restore_line error is .is-error, no spinner, live gate intact", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  post(dom, { type: "restore_user", text: "blink an LED" });
+  assert.match(feed().textContent || "", /blink an LED/, "the user's request renders in the feed");
+  post(dom, { type: "restore_line", kind: "trace", text: "Generating code" });
+  assert.match(feed().textContent || "", /Generating code/, "a trace line renders");
+  post(dom, { type: "restore_line", kind: "error", text: "I2C read failed" });
+  assert.ok(feed().querySelector(".is-error"), "an error line renders with the .is-error class");
+  // The run is idle during restore — a replayed line must NEVER arm the working spinner (trap #15 inverse).
+  assert.equal(feed().querySelector(".feed-pending"), null, "no working spinner is armed by the replay");
+  // The live gate is untouched: a status_update while NOT running still renders nothing (proves rich replay
+  // did not un-gate the live path — it uses separate ungated restore_* messages).
+  const before = feed().children.length;
+  post(dom, { type: "status_update", payload: { message: "should be gated" } });
+  assert.equal(feed().children.length, before, "a live status_update is still gated on running (no regression)");
+});
+
 test("Recent Sessions shows the empty state when the host returns none", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;
