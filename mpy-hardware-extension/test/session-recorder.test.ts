@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { CloudTelemetryRecorder, JsonlSessionRecorder, listRecentSessions, selectRecentSessionIds } from "../src/extension/session-recorder.ts";
+import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder, listRecentSessions, selectRecentSessionIds, withTimeout } from "../src/extension/session-recorder.ts";
 
 test("JSONL session recorder writes complete ordered events under the session trace id", async () => {
   const root = await mkdtemp(join(tmpdir(), "mpyhw-sessions-"));
@@ -179,4 +179,175 @@ test("cloud telemetry recorder ignores post failures", async () => {
 
   await recorder.record({ type: "session_finished", terminal: "generated" });
   await recorder.flush();
+});
+
+test("cloud telemetry recorder stamps client attribution on every event", async () => {
+  const requests: any[] = [];
+  const recorder = new CloudTelemetryRecorder({
+    traceId: "trace-1",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (_url: string, init?: RequestInit) => { requests.push(init); return { ok: true, status: 204 } as Response; },
+    clientMeta: { extension_version: "0.4.1", vscode_version: "1.99.0", platform: "win32 x64" },
+  });
+
+  await recorder.record({ type: "session_started", intent: "x", boardId: "esp32" });
+  await recorder.flush();
+
+  const ev = JSON.parse(String(requests[0].body)).events[0];
+  assert.equal(ev.extension_version, "0.4.1");
+  assert.equal(ev.vscode_version, "1.99.0");
+  assert.equal(ev.platform, "win32 x64");
+});
+
+test("cloud telemetry recorder buffers a transient failure and a later session drains it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-outbox-"));
+  const outboxPath = join(root, "telemetry-outbox.jsonl");
+
+  // First session: backend unreachable (network error) -> event buffered, not lost.
+  const down = new CloudTelemetryRecorder({
+    traceId: "trace-1",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async () => { throw new Error("offline"); },
+    outboxPath,
+  });
+  await down.record({ type: "session_finished", terminal: "generated" });
+  await down.flush();
+  assert.match(await readFile(outboxPath, "utf-8"), /session_finished/, "transient failure is buffered");
+
+  // Next session: backend up -> the constructor drain redelivers it and empties the outbox.
+  const requests: any[] = [];
+  const up = new CloudTelemetryRecorder({
+    traceId: "trace-2",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (_url: string, init?: RequestInit) => { requests.push(init); return { ok: true, status: 204 } as Response; },
+    outboxPath,
+  });
+  await up.flush();
+
+  assert.equal(requests.length, 1, "buffered event redelivered on next session");
+  assert.equal(JSON.parse(String(requests[0].body)).events[0].event_type, "session_finished");
+  await assert.rejects(readFile(outboxPath, "utf-8"), /ENOENT/, "outbox emptied after a successful drain");
+});
+
+test("cloud telemetry recorder drops a permanent 4xx instead of buffering it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-outbox-4xx-"));
+  const outboxPath = join(root, "telemetry-outbox.jsonl");
+  const recorder = new CloudTelemetryRecorder({
+    traceId: "trace-1",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async () => ({ ok: false, status: 422 } as Response),
+    outboxPath,
+  });
+
+  await recorder.record({ type: "session_finished", terminal: "generated" });
+  await recorder.flush();
+
+  await assert.rejects(readFile(outboxPath, "utf-8"), /ENOENT/, "a 422 is permanent — never buffered, so no retry loop");
+});
+
+test("composite recorder flush fans out to both children", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-composite-"));
+  const requests: any[] = [];
+  const cloud = new CloudTelemetryRecorder({
+    traceId: "trace-1",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (_url: string, init?: RequestInit) => { requests.push(init); return { ok: true, status: 204 } as Response; },
+  });
+  const jsonl = new JsonlSessionRecorder({ workspaceFolder: root, traceId: "trace-1" });
+  const composite = new CompositeSessionRecorder([jsonl, cloud]);
+
+  await composite.record({ type: "session_started", intent: "x", boardId: "esp32" });
+  await composite.flush();
+
+  assert.equal(requests.length, 1, "cloud child posted");
+  assert.match(await readFile(join(root, ".mpyhw", "sessions", "trace-1", "session.jsonl"), "utf-8"), /session_started/, "jsonl child wrote");
+});
+
+test("concurrent drains of a shared outbox deliver each buffered event exactly once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-outbox-race-"));
+  const outboxPath = join(root, "telemetry-outbox.jsonl");
+
+  // Buffer three events while the backend is down.
+  const down = new CloudTelemetryRecorder({
+    traceId: "trace-down",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async () => { throw new Error("offline"); },
+    outboxPath,
+  });
+  await down.record({ type: "session_started", intent: "a", boardId: "esp32" });
+  await down.record({ type: "tool_result", name: "read_serial_until", observation: { ok: false, error_kind: "runtime_error", error: "boom" } });
+  await down.record({ type: "session_finished", terminal: "generated" });
+  await down.flush();
+
+  // Two recorders share the SAME outbox and drain it at the same time. Each post yields a
+  // macrotask first, so without serialization both drains would read the same file and
+  // re-post every buffered event (the server has no dedup key). withOutboxLock must make the
+  // second drain see an already-emptied file, so each event is delivered exactly once.
+  const posted: string[] = [];
+  const slowOk = async (_url: string, init?: RequestInit) => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    posted.push(JSON.parse(String(init!.body)).events[0].event_type);
+    return { ok: true, status: 204 } as Response;
+  };
+  const a = new CloudTelemetryRecorder({ traceId: "trace-a", apiBaseUrl: "http://api.test", fetchImpl: slowOk, outboxPath });
+  const b = new CloudTelemetryRecorder({ traceId: "trace-b", apiBaseUrl: "http://api.test", fetchImpl: slowOk, outboxPath });
+  await Promise.all([a.flush(), b.flush()]);
+
+  assert.deepEqual(posted.sort(), ["runtime_error", "session_finished", "session_started"], "each buffered event delivered exactly once");
+  await assert.rejects(readFile(outboxPath, "utf-8"), /ENOENT/, "outbox emptied after the concurrent drains");
+});
+
+test("withTimeout rejects a slow await so a hung auth-token fetch can't stall flush", async () => {
+  // post() wraps getAuthToken() in withTimeout: a token exchange that responds too late (here,
+  // never within the window) must not hang post() -> flush() -> run()'s finally. The rejection
+  // has no `status`, so isTransient() buffers the event for a later retry.
+  // The keepalive timer is REF'd on purpose: withTimeout's own timer is unref'd (production
+  // hygiene — it must not hold the extension host open at shutdown), so without a ref'd handle
+  // the event loop would drain before the 5ms deadline fires. Cleared after the assertion.
+  let keepalive: any;
+  const slow = new Promise((resolve) => { keepalive = setTimeout(resolve, 2000); });
+  await assert.rejects(withTimeout(slow, 5), /telemetry_timeout/);
+  clearTimeout(keepalive);
+});
+
+test("withTimeout passes a value through unchanged when it settles in time", async () => {
+  assert.equal(await withTimeout(Promise.resolve("jwt-abc"), 1000), "jwt-abc");
+  await assert.rejects(withTimeout(Promise.reject(new Error("auth_down")), 1000), /auth_down/);
+});
+
+test("flush resolves even when the outbox path is unusable (never throws out of run's finally)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-outbox-bad-"));
+  // The outbox "file" is actually a directory, so every outbox read/write fails. flush() is
+  // awaited in run()'s finally; a throw there would mask the run's real result, so a drain
+  // failure must be swallowed and flush() must still resolve.
+  const outboxPath = join(root, "outbox-is-a-dir");
+  await mkdir(outboxPath, { recursive: true });
+  const recorder = new CloudTelemetryRecorder({
+    traceId: "trace-1",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async () => { throw new Error("offline"); },
+    outboxPath,
+  });
+
+  await recorder.record({ type: "session_finished", terminal: "generated" });
+  await recorder.flush(); // resolves — the assertion is simply that this line does not throw
+});
+
+test("cloud telemetry recorder emits a telemetry_dropped histogram on flush", async () => {
+  const requests: any[] = [];
+  const recorder = new CloudTelemetryRecorder({
+    traceId: "trace-1",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (_url: string, init?: RequestInit) => { requests.push(init); return { ok: true, status: 204 } as Response; },
+  });
+
+  // assistant_text maps to null (local-only) -> counted, not posted.
+  await recorder.record({ type: "assistant_text", text: "hi" });
+  await recorder.record({ type: "assistant_text", text: "again" });
+  assert.deepEqual(recorder.getDroppedCounts(), { assistant_text: 2 });
+
+  await recorder.flush();
+  const dropped = requests.map((r) => JSON.parse(String(r.body)).events[0]).find((e) => e.event_type === "telemetry_dropped");
+  assert.ok(dropped, "a telemetry_dropped event is posted on flush");
+  assert.deepEqual(dropped.payload.dropped, { assistant_text: 2 });
 });

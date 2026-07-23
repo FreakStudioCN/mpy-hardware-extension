@@ -216,3 +216,31 @@ test("maps phase_stalled so a stuck phase is visible in the DB (not a silent awa
   assert.equal(t?.payload.phase, "select-hw");
   assert.equal(t?.payload.reason, "no_tool_call");
 });
+
+test("createTelemetryEvent stamps client meta at the top level when provided", () => {
+  const event = createTelemetryEvent("trace-1", "session_started", { a: 1 }, { extension_version: "0.4.1", vscode_version: "1.99.0", platform: "win32 x64" });
+  assert.equal(event.extension_version, "0.4.1");
+  assert.equal(event.vscode_version, "1.99.0");
+  assert.equal(event.platform, "win32 x64");
+});
+
+test("createTelemetryEvent omits client meta entirely when absent (backward compatible)", () => {
+  const event = createTelemetryEvent("trace-1", "session_started", { a: 1 });
+  assert.equal("extension_version" in event, false);
+  assert.equal("platform" in event, false);
+});
+
+test("maps client self-observability events (error / abandoned / dropped)", () => {
+  const err = sessionEventToTelemetry("trace-1", { type: "extension_error", message: "boom", stack: "at x", origin: "onDidReceiveMessage" });
+  assert.equal(err?.event_type, "extension_error");
+  assert.equal(err?.payload.message, "boom");
+
+  const abandoned = sessionEventToTelemetry("trace-1", { type: "session_abandoned", lastPhase: "generate" });
+  assert.equal(abandoned?.event_type, "session_abandoned");
+  assert.equal(abandoned?.payload.terminal, "abandoned");
+  assert.equal(abandoned?.payload.last_phase, "generate");
+
+  const dropped = sessionEventToTelemetry("trace-1", { type: "telemetry_dropped", dropped: { summary: 3 } });
+  assert.equal(dropped?.event_type, "telemetry_dropped");
+  assert.deepEqual(dropped?.payload.dropped, { summary: 3 });
+});

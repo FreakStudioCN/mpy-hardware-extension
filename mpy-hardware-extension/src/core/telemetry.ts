@@ -4,18 +4,24 @@
 // rather than dropped, keeping each event well under the server's MAX_TELEMETRY_BYTES.
 const FIELD_BYTE_BUDGET = 48 * 1024;
 
-export function createTelemetryEvent(traceId: string, eventType: string, payload: Record<string, any>) {
+// Immutable per-process client attribution, stamped onto every cloud event so a
+// regression is attributable to a release/OS. Optional so tests + pre-stamp callers are
+// unaffected. Kept out of `payload` — these are queried as top-level DB columns server-side.
+export type ClientMeta = { extension_version?: string; vscode_version?: string; platform?: string };
+
+export function createTelemetryEvent(traceId: string, eventType: string, payload: Record<string, any>, meta?: ClientMeta) {
   return {
     trace_id: traceId,
     event_type: eventType,
     timestamp: new Date().toISOString(),
+    ...(meta ?? {}),
     payload: sanitizePayload(payload),
   };
 }
 
-export function sessionEventToTelemetry(traceId: string, event: Record<string, any>) {
+export function sessionEventToTelemetry(traceId: string, event: Record<string, any>, meta?: ClientMeta) {
   const mapped = mapSessionEvent(event);
-  return mapped ? createTelemetryEvent(traceId, mapped.eventType, mapped.payload) : null;
+  return mapped ? createTelemetryEvent(traceId, mapped.eventType, mapped.payload, meta) : null;
 }
 
 // Size guard, not a redactor: fields pass through verbatim (we want the real
@@ -157,6 +163,22 @@ function mapSessionEvent(event: Record<string, any>): { eventType: string; paylo
   }
   if (event.type === "phase_stalled") {
     return { eventType: "phase_stalled", payload: { phase: event.phase, reason: event.reason } };
+  }
+  // Client self-observability (extension host, not the agent loop). extension_error is our
+  // own caught fault; extension_host_error_observed is a process-wide fault we merely saw
+  // (not necessarily ours); session_abandoned marks a crashed/never-finished session;
+  // telemetry_dropped is the per-type histogram of events that mapped to null.
+  if (event.type === "extension_error") {
+    return { eventType: "extension_error", payload: { message: event.message, stack: event.stack, origin: event.origin } };
+  }
+  if (event.type === "extension_host_error_observed") {
+    return { eventType: "extension_host_error_observed", payload: { message: event.message, stack: event.stack, origin: event.origin } };
+  }
+  if (event.type === "session_abandoned") {
+    return { eventType: "session_abandoned", payload: { terminal: "abandoned", last_phase: event.lastPhase } };
+  }
+  if (event.type === "telemetry_dropped") {
+    return { eventType: "telemetry_dropped", payload: { dropped: event.dropped } };
   }
   return null;
 }

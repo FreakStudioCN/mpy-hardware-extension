@@ -180,6 +180,12 @@ export class SessionController {
     return this.run({ intent: "", boardId: this.boardId ?? "auto", availableBoards: this.availableBoards });
   }
 
+  // Deliver any buffered/in-flight telemetry for this session. No-op with no recorder
+  // (headless) or a recorder without a durable outbox; wired to run-end + deactivate.
+  async flush() {
+    await this.recorder?.flush?.();
+  }
+
   // Dispatch an on-demand phase run (gen-driver / wiring / diagram optional flows) through the SAME
   // loop as start(), so Stop / safe-point / recorder / artifacts all work. The caller builds the
   // start_phase `envelope` (it becomes the first user message). run() is called with preserveManifest
@@ -281,6 +287,16 @@ export class SessionController {
       if (current()) {
         this.cancelPrompts();
         this.abort = null;
+        // Deliver (or durably buffer) this session's tail — session_finished and any failed
+        // posts — before the run resolves, instead of leaving them fire-and-forget. Guarded:
+        // a flush failure (e.g. a JSONL write error propagating out of the recorder) must never
+        // throw out of finally and mask the run's real result/error. The cloud tail is already
+        // durable in the outbox and retries on next start; the cloud recorder logs its own errors.
+        try {
+          await this.flush();
+        } catch {
+          /* run-boundary telemetry flush is best-effort; never let it replace the run's outcome */
+        }
       }
     }
   }

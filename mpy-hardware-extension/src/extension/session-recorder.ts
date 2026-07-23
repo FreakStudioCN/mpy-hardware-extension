@@ -1,10 +1,14 @@
-import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import type { ClientMeta } from "../core/telemetry.ts";
 import { sessionEventToTelemetry } from "../core/telemetry.ts";
 
 export type SessionRecorder = {
   record(event: Record<string, any>): Promise<void>;
+  // Await any buffered/in-flight delivery. Optional: only the cloud recorder has a durable
+  // outbox; the JSONL recorder implements it as "await my write chain".
+  flush?(): Promise<void>;
 };
 
 export class CompositeSessionRecorder implements SessionRecorder {
@@ -16,6 +20,10 @@ export class CompositeSessionRecorder implements SessionRecorder {
 
   async record(event: Record<string, any>) {
     await Promise.all(this.recorders.map((recorder) => recorder.record(event)));
+  }
+
+  async flush() {
+    await Promise.all(this.recorders.map((recorder) => recorder.flush?.()));
   }
 }
 
@@ -44,6 +52,10 @@ export class JsonlSessionRecorder implements SessionRecorder {
     });
     return this.pending;
   }
+
+  async flush() {
+    await this.pending;
+  }
 }
 
 export class CloudTelemetryRecorder implements SessionRecorder {
@@ -53,41 +65,219 @@ export class CloudTelemetryRecorder implements SessionRecorder {
   private readonly fetchImpl: typeof fetch;
   private readonly getAuthToken?: () => Promise<string | undefined>;
   private readonly log?: (message: string) => void;
+  private readonly clientMeta?: ClientMeta;
+  private readonly outboxPath?: string;
+  // Per-type histogram of events that mapSessionEvent dropped (returned null for). Many
+  // types are local-only by design; a NEW controller type someone forgot to map shows up
+  // here as an unexpected key. Emitted as one telemetry_dropped on flush.
+  private readonly dropped: Record<string, number> = {};
 
-  constructor(input: { traceId: string; apiBaseUrl: string; fetchImpl: typeof fetch; getAuthToken?: () => Promise<string | undefined>; log?: (message: string) => void }) {
+  constructor(input: { traceId: string; apiBaseUrl: string; fetchImpl: typeof fetch; getAuthToken?: () => Promise<string | undefined>; log?: (message: string) => void; clientMeta?: ClientMeta; outboxPath?: string }) {
     this.traceId = input.traceId;
     this.apiBaseUrl = input.apiBaseUrl.replace(/\/$/, "");
     this.fetchImpl = input.fetchImpl;
     this.getAuthToken = input.getAuthToken;
     this.log = input.log;
+    this.clientMeta = input.clientMeta;
+    this.outboxPath = input.outboxPath;
+    // Replay whatever a prior session failed to deliver, oldest-first — the primary retry
+    // trigger (next session start), no timer. On the pending chain so it can't interleave
+    // with this session's posts. Best-effort: a drain failure must not break recording.
+    this.pending = this.pending.then(() => this.drainOutbox()).catch((error) => this.log?.(`[telemetry] outbox drain: ${formatError(error)}`));
   }
 
   record(event: Record<string, any>) {
-    const telemetry = sessionEventToTelemetry(this.traceId, event);
-    if (!telemetry) return Promise.resolve();
+    const telemetry = sessionEventToTelemetry(this.traceId, event, this.clientMeta);
+    if (!telemetry) {
+      const key = String(event?.type ?? "unknown");
+      this.dropped[key] = (this.dropped[key] ?? 0) + 1;
+      return Promise.resolve();
+    }
     this.pending = this.pending
       .then(() => this.post(telemetry))
-      .catch((error) => {
-        this.log?.(`[telemetry] ${formatError(error)}`);
-      });
+      .catch((error) => this.onPostFailure(telemetry, error));
     return Promise.resolve();
   }
 
+  // Snapshot of dropped-event counts, for local inspection / tests.
+  getDroppedCounts(): Record<string, number> {
+    return { ...this.dropped };
+  }
+
+  // Enqueue a single telemetry_dropped histogram (if any), then await the in-flight chain
+  // and re-attempt anything still buffered. Called on session end and on deactivate so the
+  // tail of a session actually delivers (or durably buffers).
   async flush() {
+    this.emitDropped();
     await this.pending;
+    // A drain failure (a filesystem error, not a post) must never reject flush(): flush is
+    // awaited in run()'s finally, and a throw there would reject the whole run. Log and move on.
+    try {
+      await this.drainOutbox();
+    } catch (error) {
+      this.log?.(`[telemetry] outbox drain on flush: ${formatError(error)}`);
+    }
+  }
+
+  private emitDropped() {
+    const keys = Object.keys(this.dropped);
+    if (keys.length === 0) return;
+    const snapshot = { ...this.dropped };
+    for (const key of keys) delete this.dropped[key];
+    // Goes through record() → maps to a real event → posts (and buffers on failure like
+    // any other). telemetry_dropped itself maps non-null, so it can't recount itself.
+    this.record({ type: "telemetry_dropped", dropped: snapshot });
+  }
+
+  private async onPostFailure(event: Record<string, any>, error: unknown) {
+    // Only transient failures (network / 5xx / 429 / 408) are worth retaining; a permanent
+    // 4xx (unknown event_type, too-large) would loop the outbox forever, so log + drop.
+    if (this.outboxPath && isTransient(error)) {
+      try {
+        await this.appendToOutbox(event);
+        return;
+      } catch (writeError) {
+        error = writeError;
+      }
+    }
+    this.log?.(`[telemetry] ${formatError(error)}`);
   }
 
   private async post(event: Record<string, any>) {
-    const token = this.getAuthToken ? await this.getAuthToken() : undefined;
+    // The token fetch does its own un-timed network POST (github-auth getToken), so bound it
+    // too — a hung token exchange would stall post() -> flush() -> run()'s finally, exactly the
+    // hang the fetch timeout below prevents. A timeout rejects with no `status`, so isTransient()
+    // buffers the event for a later retry rather than losing it.
+    const token = this.getAuthToken ? await withTimeout(this.getAuthToken(), POST_TIMEOUT_MS) : undefined;
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (token) headers.authorization = `Bearer ${token}`;
+    // Bounded: a backend that accepts the socket but never responds must not hang the
+    // pending chain forever — that would stall flush(), and via run()'s finally, the whole
+    // run. A timeout rejects with no `status`, so isTransient() buffers it for later retry.
     const response = await this.fetchImpl(`${this.apiBaseUrl}/v1/telemetry`, {
       method: "POST",
       headers,
       body: JSON.stringify({ events: [event] }),
+      signal: AbortSignal.timeout(POST_TIMEOUT_MS),
     });
-    if (!response.ok) throw new Error(`telemetry_post_failed:${response.status}`);
+    if (!response.ok) {
+      const error: any = new Error(`telemetry_post_failed:${response.status}`);
+      error.status = response.status; // read by isTransient — a 4xx must not be re-buffered
+      throw error;
+    }
   }
+
+  private async appendToOutbox(event: Record<string, any>) {
+    const path = this.outboxPath as string;
+    // Global lock: the outbox is shared across recorder instances, so an append must not
+    // interleave with another instance's drain (which could rm the file mid-append).
+    await withOutboxLock(path, async () => {
+      await mkdir(dirname(path), { recursive: true });
+      await appendFile(path, `${JSON.stringify(event)}\n`, "utf-8");
+    });
+  }
+
+  // Re-POST buffered failures oldest-first. Stops at the first still-transient failure
+  // (network likely still down) and keeps the remainder; drops a permanent-4xx or corrupt
+  // line and continues. Rewrites the file atomically (temp + rename), so a crash mid-drain
+  // can at worst re-send one already-delivered event — never lose or duplicate the queue.
+  // Serialized per outbox path (withOutboxLock) so two recorder instances can't drain the
+  // same file at once — which would double-deliver, or let one's rm delete the other's append.
+  async drainOutbox() {
+    if (!this.outboxPath) return;
+    const path = this.outboxPath;
+    await withOutboxLock(path, () => this.drainOutboxLocked(path));
+  }
+
+  private async drainOutboxLocked(path: string) {
+    let content: string;
+    try {
+      content = await readFile(path, "utf-8");
+    } catch (error: any) {
+      if (error?.code === "ENOENT") return; // nothing buffered
+      throw error;
+    }
+    const lines = content.split("\n").filter((line) => line.trim() !== "");
+    if (lines.length === 0) {
+      await rm(path, { force: true });
+      return;
+    }
+    let keepFrom = lines.length;
+    for (let i = 0; i < lines.length; i++) {
+      let event: Record<string, any>;
+      try {
+        event = JSON.parse(lines[i]);
+      } catch {
+        continue; // drop a corrupt line
+      }
+      try {
+        await this.post(event);
+      } catch (error) {
+        if (isTransient(error)) {
+          keepFrom = i; // network still down — keep this and everything after
+          break;
+        }
+        this.log?.(`[telemetry] dropping un-postable buffered event: ${formatError(error)}`);
+      }
+    }
+    const remainder = lines.slice(keepFrom);
+    if (remainder.length === 0) {
+      await rm(path, { force: true });
+    } else if (remainder.length !== lines.length) {
+      // Per-process temp name: withOutboxLock serializes drains WITHIN a process, but two
+      // extension-host processes (two windows on one workspace) share this file. A per-pid tmp
+      // keeps their concurrent rewrites from corrupting each other's temp; the final rename
+      // stays last-writer-wins — at worst a re-delivered event, which the simple-outbox design
+      // already accepts, never a lost or corrupt queue.
+      const tmp = `${path}.${process.pid}.tmp`;
+      await writeFile(tmp, `${remainder.join("\n")}\n`, "utf-8");
+      await rename(tmp, path);
+    }
+  }
+}
+
+// Cap a single telemetry POST so a hung backend can't stall the pending chain (and thus
+// flush(), and via run()'s finally, the run itself).
+const POST_TIMEOUT_MS = 15_000;
+
+// Bound an await that carries no AbortSignal of its own (the auth-token exchange inside
+// getAuthToken does an un-timed network POST). On timeout, reject with no `status` so
+// isTransient() treats it as retryable and the event is buffered, not lost. The underlying
+// promise is left to settle on its own (harmless) — we just stop waiting on it.
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("telemetry_timeout")), ms);
+    timer.unref?.();
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+// Serialize every read/append/rewrite of a given outbox file through one chain. The outbox
+// is SHARED across recorder instances (session + host-error + abandoned-sweep), but each
+// instance only serializes its own `pending`; without a per-path lock two instances can
+// double-deliver a buffered event, or one instance's rm can delete an event another just
+// appended. Keyed by path, so unrelated outboxes never block each other.
+// Scope note: this Map is process-local, so it does NOT serialize two extension-host processes
+// (two windows on one workspace) sharing the file. That residual cross-process race can
+// re-deliver a buffered event — an accepted duplicate under the simple-outbox design (no
+// server dedup key); the per-pid temp name in drainOutboxLocked keeps it from corrupting.
+const outboxLocks = new Map<string, Promise<unknown>>();
+function withOutboxLock<T>(path: string, op: () => Promise<T>): Promise<T> {
+  const prev = outboxLocks.get(path) ?? Promise.resolve();
+  const result = prev.then(op, op); // run op once prev settles, either way
+  outboxLocks.set(path, result.then(() => undefined, () => undefined));
+  return result;
+}
+
+// A failure worth retrying: a network error (no response, so no `status`) or an overload/
+// server fault (5xx / 429 / 408). Any other 4xx is a permanent contract rejection.
+function isTransient(error: any): boolean {
+  const status = error?.status;
+  if (status === undefined || status === null) return true;
+  return status >= 500 || status === 429 || status === 408;
 }
 
 function formatError(error: unknown): string {
@@ -127,7 +317,9 @@ async function readSessionSummary(sessionsRoot: string, id: string): Promise<Rec
   }
   if (events.length === 0) return null;
   const started = events.find((e) => e.type === "session_started" || e.type === "user_message");
-  const finished = [...events].reverse().find((e) => e.type === "session_finished");
+  // session_abandoned counts as terminal too: the abandoned-session sweep appends one to
+  // flip finalPhase non-empty, so a crashed session is reported once and not re-swept.
+  const finished = [...events].reverse().find((e) => e.type === "session_finished" || e.type === "session_abandoned");
   return {
     id,
     date: events[0].ts ?? "",
