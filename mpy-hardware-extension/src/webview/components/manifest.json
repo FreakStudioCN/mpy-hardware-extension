@@ -12,6 +12,7 @@
   "GenDriverPanel.js",
   "SupportContactPanel.js",
   "DeviceToolsPanel.js",
+  "SaveVersionPanel.js",
   "HomeWorkbench.js",
   "bootstrap.js"
 ]

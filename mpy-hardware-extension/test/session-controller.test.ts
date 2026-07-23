@@ -136,6 +136,55 @@ test("a reset clears the artifact accumulators so a new session does not surface
   assert.ok(!controller.artifactSources().some((s) => s.absolute_path === "/abs/session-a/main.py"), "session B does not inherit session A's produced files");
 });
 
+test("reset() clears the Save Version accumulators (terminal/diagram/credits) so the next snapshot doesn't inherit them", async () => {
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "diagram_updated", diagram: { nodes: ["a"] } });
+      onEvent({ type: "credits", remaining: 42, dailyGrant: 100, resetsAt: "2026-07-07T00:00:00Z" });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "acc", boardId: "auto" });
+  let snap = controller.getSnapshotState();
+  assert.equal(snap.terminal, "complete", "terminal accumulated from the run");
+  assert.deepEqual(snap.diagram, { nodes: ["a"] }, "authored diagram accumulated");
+  assert.equal(snap.credits?.balance, 42, "credits accumulated");
+
+  // reset() must null ALL THREE. They are cleared on BOTH fresh-session paths (reset() and start()'s
+  // board-change block); reset() nulls boardId, so on a reset it is THIS clear that runs. The
+  // board-change path is covered by the "REPRO PR#47 blocker 1" test below.
+  controller.reset();
+  snap = controller.getSnapshotState();
+  assert.equal(snap.terminal, null, "reset clears terminal");
+  assert.equal(snap.diagram, undefined, "reset clears diagram");
+  assert.equal(snap.credits, null, "reset clears credits");
+});
+
+test("REPRO PR#47 blocker 1: a board-change fresh session must not inherit the previous session's Save Version accumulators", async () => {
+  let call = 0;
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      call++;
+      if (call === 1) {
+        onEvent({ type: "diagram_updated", diagram: { nodes: ["board-A-diagram"] } });
+        onEvent({ type: "credits", remaining: 42, dailyGrant: 100, resetsAt: "2026-07-07T00:00:00Z" });
+      }
+      return { terminal: "complete" }; // run 2 emits NO diagram/credits
+    },
+  });
+  await controller.start({ intent: "blink", boardId: "board-a" });
+  // Fresh session via BOARD CHANGE, not reset(): start()'s board-change branch clears state,
+  // keyErrors, phaseArtifacts, ... and must clear the three Save Version accumulators too, or
+  // board A's authored diagram/credits leak into board B's snapshot.json for session restore.
+  await controller.start({ intent: "unrelated project", boardId: "board-b" });
+  const snap = controller.getSnapshotState();
+  assert.equal(snap.diagram, undefined, "board B's snapshot must not carry board A's authored diagram");
+  assert.equal(snap.credits, null, "board B's snapshot must not carry board A's credits");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];
@@ -280,6 +329,29 @@ test("reset() supersedes the in-flight run: late messages are dropped and a new 
   const second = await controller.start({ intent: "b", boardId: "esp32-s3-devkitc-1" });
   assert.notEqual(second.terminal, "session_busy");
   assert.equal(messages.some((m) => m.type === "session_done"), true, "the new run posts its own session_done");
+});
+
+test("reset() supersedes a THROWING run: its catch records/accumulates nothing into the next session (#29)", async () => {
+  const recorded: any[] = [];
+  let release: () => void = () => { };
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async () => { await gate; throw new Error("boom"); }, // parks in flight, then throws after reset
+  });
+
+  const first = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  await Promise.resolve();          // let the loop reach `await gate`
+  controller.reset();               // supersede: current() is now false for the in-flight run
+  release();
+  await first;
+
+  // The superseded run's catch path is guarded by current(), so it records NOTHING and does not
+  // push into keyErrors -- else its "boom" leaks into the freshly-reset next session's log/snapshot.
+  assert.equal(recorded.some((e) => e.type === "session_error"), false, "superseded throw records no session_error");
+  assert.equal(recorded.some((e) => e.type === "session_finished"), false, "superseded throw records no session_finished");
+  assert.ok(!/boom/.test(controller.getDiagnostics().key_errors ?? ""), "the superseded error did not poison the next session's key_errors");
 });
 
 test("session controller writes generated files after code and manifest are available", async () => {

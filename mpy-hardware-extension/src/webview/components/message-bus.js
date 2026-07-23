@@ -98,6 +98,9 @@
         if (msg.type === "user_supplement_applied") { addActivity({ type: "trace", text: tr("supplement_applied", { d: msg.decision, r: msg.reason }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
         if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); vscode.postMessage({ type: "request_artifacts" }); addArtifactsLink(); }
         if (msg.type === "files_write_failed") { addActivity({ type: "trace", text: tr("files_write_failed", { e: msg.error }) }); }
+        // Save Version (#95) lives in its own tool surface (SaveVersionPanel), not the Activity feed.
+        if (msg.type === "save_version_data") { onSaveVersionData(msg); }
+        if (msg.type === "save_version_status") { onSaveVersionStatus(msg); }
         if (msg.type === "session_error") {
           const errKey = "err_" + msg.error;
           const text = (I18N[LOCALE] && I18N[LOCALE][errKey]) || I18N.en[errKey] || msg.error;

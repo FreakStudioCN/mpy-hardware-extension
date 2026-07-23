@@ -113,6 +113,13 @@ export class SessionController {
   // the after-phase_complete safe point. A queue (not a single slot) so a second note
   // added before the next safe point is not lost (§9 acceptance).
   private pendingSupplements: PendingSupplement[] = [];
+  // Save Version snapshot accumulators (#95 A). Each captures a value the live paths post
+  // but never RETAIN, so a later Save Version can read it. ALL cleared in reset() — the
+  // documented reset-not-start trap: reset() nulls boardId, so start()'s board-change clear
+  // is short-circuited and a leftover value would leak into the next session's snapshot.
+  private lastTerminal: string | null = null;   // last session_done terminal (:260/:275)
+  private latestDiagram: unknown = undefined;    // last authored diagram (:601 posts, never keeps)
+  private lastCredits: { balance?: number; dailyGrant?: number; resetsAt?: string; capturedAt?: string } | null = null; // last-seen credits (:709 normalizes, never keeps)
 
   constructor(deps: { postMessage: (message: any) => void; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any>; killDevice?: () => void }) {
     this.deps = deps;
@@ -145,6 +152,14 @@ export class SessionController {
       this.optionalNextPhases = [];
       this.driverReadyBlocks = [];
       this.latestGeneratePhaseComplete = undefined;
+      // The Save Version accumulators are cleared in reset(), but the board-change branch is ALSO a
+      // fresh-session path that never routes through reset() — clear them here too, or board A's
+      // authored diagram / credits leak into board B's snapshot.json and session restore replays the
+      // wrong board's data. (A field cleared in reset() only still leaks into the persisted snapshot
+      // via this non-reset fresh-start path.)
+      this.lastTerminal = null;
+      this.latestDiagram = undefined;
+      this.lastCredits = null;
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -255,6 +270,7 @@ export class SessionController {
       });
       if (current() && result.state) this.state = result.state;
       if (current()) {
+        this.lastTerminal = result.terminal; // retained for the Save Version snapshot (#95)
         await this.writeArtifactsIfReady();
         await this.record({ type: "session_finished", terminal: result.terminal, state: result.state });
         this.deps.postMessage({ type: "session_done", terminal: result.terminal });
@@ -266,11 +282,16 @@ export class SessionController {
       const causeDetail = error?.cause?.code ?? error?.cause?.message;
       const base = error?.message ?? "session_error";
       const message = causeDetail && !String(base).includes(causeDetail) ? `${base} (${causeDetail})` : base;
-      this.keyErrors.push(`session_error: ${message}`);
       const result = { terminal: "session_error", error: message };
-      await this.record({ type: "session_error", error: message });
-      await this.record({ type: "session_finished", terminal: result.terminal });
       if (current()) {
+        // Guard EVERYTHING a live run accumulates/records, matching the success path (:264): a
+        // reset()-SUPERSEDED run's late unwind must not push keyErrors, record session_error/
+        // _finished, OR stamp lastTerminal into the NEXT session's log + snapshot. Stop (cancel())
+        // keeps current() true, so the Stop-path error recording is unaffected.
+        this.keyErrors.push(`session_error: ${message}`);
+        await this.record({ type: "session_error", error: message });
+        await this.record({ type: "session_finished", terminal: result.terminal });
+        this.lastTerminal = result.terminal; // retained for the Save Version snapshot (#95)
         this.deps.postMessage({ type: "session_error", error: message });
         this.deps.postMessage({ type: "session_done", terminal: result.terminal });
       }
@@ -335,6 +356,13 @@ export class SessionController {
     this.stdoutTail = [];
     this.keyErrors = [];
     this.pendingSupplements = [];
+    // Save Version accumulators: cleared on EVERY fresh-session path — here in reset() (covers a
+    // reset/restart, which also nulls boardId so start()'s board-change block is skipped) AND in
+    // that board-change block itself (covers a board switch with no reset). A leftover on either
+    // path would leak the previous session's terminal/diagram/credits into the next snapshot.
+    this.lastTerminal = null;
+    this.latestDiagram = undefined;
+    this.lastCredits = null;
   }
 
   // The optional follow-on flows generate offered (empty until a generate offers them). The panel gates
@@ -598,6 +626,7 @@ export class SessionController {
       // The only place an authored (LLM/plugin) diagram arrives. Latch the guard so the
       // manifest chokepoint stops overwriting it with the derived view for this build.
       this.hasAuthoredDiagram = true;
+      this.latestDiagram = event.diagram; // retained for the Save Version snapshot (#95)
       this.record({ type: "artifact", kind: "diagram", diagram: event.diagram });
       this.deps.postMessage({ type: "diagram_updated", diagram: event.diagram });
       return;
@@ -707,6 +736,9 @@ export class SessionController {
       // both read — `{ kind: "credits", balance, ... }` — so the balance updates live
       // (and low/exhausted trip mid-build) instead of falling through to trace_event.
       const normalized = { kind: "credits", balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt };
+      // Retain the last-seen balance for the Save Version snapshot (#95). Advisory only —
+      // session restore re-fetches /v1/credits live because quota can't be restored as truth.
+      this.lastCredits = { balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt, capturedAt: new Date().toISOString() };
       this.record({ type: "session_event", event: normalized });
       this.deps.postMessage({ type: "session_event", event: normalized });
       return;
@@ -869,6 +901,40 @@ export class SessionController {
   // reset() so a Restart never shows a prior session's cold-driver items.
   getLatestManifest(): unknown {
     return this.latestManifest;
+  }
+
+  // The bundle the Save Version snapshot builder needs from the controller (#95 A). Groups
+  // the otherwise-private state/board/preferences/phase fields + the three new accumulators
+  // into one read-only view, so the panel builds a snapshot without reaching into internals.
+  getSnapshotState(): {
+    state: { manifest?: unknown; phase?: string; intent?: string } | undefined;
+    boardId: string | null;
+    preSelectedBoard: unknown;
+    boardSelectionMode: string | undefined;
+    preferences: { mode?: string; locale?: string; existing_hardware?: string } | undefined;
+    currentPhase: string | null;
+    traceId: string | null;
+    terminal: string | null;
+    diagram: unknown;
+    credits: { balance?: number; dailyGrant?: number; resetsAt?: string; capturedAt?: string } | null;
+  } {
+    return {
+      state: this.state,
+      boardId: this.boardId,
+      preSelectedBoard: this.preSelectedBoard,
+      boardSelectionMode: this.boardSelectionMode,
+      preferences: this.preferences,
+      currentPhase: this.currentPhase,
+      traceId: this.traceId,
+      terminal: this.lastTerminal,
+      diagram: this.latestDiagram,
+      credits: this.lastCredits,
+    };
+  }
+
+  // Whether this session has any restorable state to snapshot (drives the sv_nothing branch).
+  hasSnapshotState(): boolean {
+    return this.state !== undefined || this.latestManifest !== undefined || this.boardId !== null;
   }
 
   // The session-scoped half of the section-08 diagnostics snapshot. The panel merges

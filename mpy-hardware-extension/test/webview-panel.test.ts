@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createPanel, createViewProvider } from "../src/webview/panel.ts";
+import { createPanel, createViewProvider, isSnapshotSelfPath, parseGitStatusRow } from "../src/webview/panel.ts";
+import { gitCommit, gitHasStagedChanges } from "../src/extension/project-git.ts";
 
 test("webview start_session runs API-backed pipeline and renders generated outputs", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
@@ -1998,4 +2001,471 @@ test("start_optional_flow allowlist-maps the flow and host-gates on the generate
   posted.length = 0;
   await handler?.({ type: "start_optional_flow", flow: "wiring" });
   assert.ok(posted.some((m) => m.type === "optional_flow_status" && m.status === "failed" && /Run generate first/.test(m.detail)), "an unoffered flow is host-refused");
+});
+
+// ----- Save Version (#95) real-git panel tests -----
+// Drive a template-mode session so the controller has state + the project folder is a real
+// git repo (ensureProjectGitRepo runs on start_session). Reuses the file's jsonResponse/
+// aht20Context/board fixtures.
+async function startTemplateSession(ws: string) {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+    if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+    if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+    if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+    if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") return jsonResponse(board());
+    throw new Error(`unexpected URL ${url}`);
+  }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+  await handler!({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+  return { handler: handler!, posted, projectFolder: join(ws, "blockless-project") };
+}
+
+test("parseGitStatusRow maps every porcelain XY to a kind + letter, with the XY code stripped", () => {
+  const cases: Array<[string, string, string, string]> = [
+    ["?? .flake8", ".flake8", "new", "U"],
+    [" M main.py", "main.py", "modified", "M"],
+    ["M  staged.py", "staged.py", "modified", "M"],
+    ["MM both.py", "both.py", "modified", "M"],
+    ["A  added.py", "added.py", "added", "A"],
+    ["AM addmod.py", "addmod.py", "added", "A"],   // A checked before M
+    [" D gone.py", "gone.py", "deleted", "D"],
+    ["R  old.py -> new.py", "old.py -> new.py", "renamed", "R"],
+    ["T  typed.py", "typed.py", "changed", "•"], // typechange -> fallback bullet
+  ];
+  for (const [line, name, status, badge] of cases) {
+    const row = parseGitStatusRow(line, 0);
+    assert.equal(row.name, name, `path for "${line}"`);
+    assert.equal(row.status, status, `status for "${line}"`);
+    assert.equal(row.badge, badge, `badge for "${line}"`);
+    assert.ok(!/^[ ?ADMRTC]{2}\s/.test(row.name), `no XY code left in "${row.name}"`);
+  }
+});
+
+test("parseGitStatusRow flags STAGED rows by the index (first) column", () => {
+  assert.equal(parseGitStatusRow("M  staged.py", 0).staged, true, "index-column M = staged");
+  assert.equal(parseGitStatusRow("A  added.py", 0).staged, true, "index-column A = staged");
+  assert.equal(parseGitStatusRow("MM both.py", 0).staged, true, "staged + reworktree change is staged");
+  assert.equal(parseGitStatusRow(" M main.py", 0).staged, false, "worktree-only modification is not staged");
+  assert.equal(parseGitStatusRow("?? new.py", 0).staged, false, "untracked is not staged");
+});
+
+function findSnapshot(ws: string): any | null {
+  const base = join(ws, ".mpyhw", "sessions");
+  if (!existsSync(base)) return null;
+  for (const id of readdirSync(base)) {
+    const p = join(base, id, "checkpoints", "snapshot.json");
+    if (existsSync(p)) return JSON.parse(readFileSync(p, "utf-8"));
+  }
+  return null;
+}
+
+test("save_version_open posts the summary with parsed file rows (status kind + letter, clean path)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    const data = posted.find((m) => m.type === "save_version_data");
+    assert.ok(data, "opening posts save_version_data");
+    assert.equal(data.canCommit, true, "a git repo can commit");
+    const f = (data.files as any[]).find((it) => it.name === "extra.txt");
+    assert.ok(f && f.status === "new" && f.badge === "U", "an untracked file parses to status 'new' + badge 'U'");
+    assert.ok(!(data.files as any[]).some((it) => String(it.name).startsWith("?? ")), "no path carries the raw XY porcelain code");
+    // The card must cover more than files (§3.6.3): the host also sends the resume/session
+    // state, the phase-associated artifacts (list + true total), and the diagnostics — all local.
+    // Assert the exact subfield keys the webview reads, not just container shape — a host-side
+    // rename would otherwise render an empty row while both tests stay green (contract drift).
+    assert.ok(data.session && "intent" in data.session && "phase" in data.session && "board" in data.session && "mode" in data.session, "session carries the fields the panel renders");
+    assert.ok(Array.isArray(data.artifacts) && typeof data.artifactTotal === "number", "payload carries the artifact list + total");
+    assert.ok(data.diagnostics && "activity" in data.diagnostics && "errors" in data.diagnostics && "session_id" in data.diagnostics, "diagnostics carries the fields the panel renders");
+    // Opening alone writes nothing — no commit, no snapshot.
+    assert.equal(findSnapshot(ws), null, "opening the panel writes no snapshot");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_open: a CJK filename shows as raw UTF-8, not octal-escaped (core.quotepath=false)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "温度.py"), "x"); // untracked CJK-named file (the primary audience)
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    const names = ((posted.find((m) => m.type === "save_version_data")!.files) as any[]).map((f) => f.name);
+    assert.ok(names.includes("温度.py"), "the CJK filename is raw UTF-8, not git's octal-escaped form");
+    assert.ok(!names.some((n) => /\\\d{3}/.test(n)), "no path carries backslash-octal escapes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit commits in a git repo and posts the real new HEAD hash + user message", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "guaranteed change");
+    posted.length = 0;
+    await handler({ type: "save_version_commit", message: "test: save version" });
+    const head = execFileSync("git", ["-C", projectFolder, "rev-parse", "HEAD"], { windowsHide: true }).toString().trim();
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_commit");
+    assert.equal(status?.hash, head, "the posted hash is the real new HEAD (kills a fake/fixed-hash return)");
+    assert.equal(findSnapshot(ws)?.git?.commit_hash, head, "one save = one restorable point: the snapshot records the commit hash");
+    const subject = execFileSync("git", ["-C", projectFolder, "log", "-1", "--format=%s"], { windowsHide: true }).toString().trim();
+    assert.equal(subject, "test: save version", "git committed the user-edited message (kills dropping message)");
+    // Post-commit refresh: an add -A commit cleaned the tree, so the status carries an empty list
+    // (no longer showing the just-committed extra.txt as pending).
+    assert.deepEqual(status?.files, [], "the saved_commit status refreshes the file list to the clean post-commit tree");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version: two concurrent commit acts are serialized — only one commit lands (in-flight guard)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // Two acts fired together (e.g. a double-click that beat the webview's own disable): saveInFlight
+    // lets exactly one through; the second returns early with no commit.
+    await Promise.all([handler({ type: "save_version_commit", message: "one" }), handler({ type: "save_version_commit", message: "two" })]);
+    assert.equal(execFileSync("git", ["-C", projectFolder, "rev-list", "--count", "HEAD"], { windowsHide: true }).toString().trim(), "1", "only one commit landed despite two concurrent acts");
+    assert.equal(posted.filter((m) => m.type === "save_version_status" && m.status === "saved_commit").length, 1, "exactly one saved_commit status");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit: a build running at commit time aborts as busy, no commit (TOCTOU re-check)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+    let gate: (() => void) | null = null;
+    let holdBoard = false; // block the SECOND build at its per-build board fetch so it stays running
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+      if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+      if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+      if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") { if (holdBoard) await new Promise<void>((r) => { gate = r; }); return jsonResponse(board()); }
+      throw new Error(`unexpected URL ${url}`);
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    await handler!({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+    const projectFolder = join(ws, "blockless-project");
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+
+    holdBoard = true;
+    const build2 = handler!({ type: "start_session", intent: "second", boardId: "esp32-s3-devkitc-1" }); // starts a run that hangs at the board fetch
+    for (let i = 0; i < 200 && !gate; i++) await new Promise((r) => setTimeout(r, 5)); // wait until the run is blocked (isRunning true)
+    await handler!({ type: "save_version_commit", message: "should NOT commit" });
+
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "busy", "a run active at act time aborts the save as busy");
+    let log = "";
+    try { log = execFileSync("git", ["-C", projectFolder, "log", "--format=%s"], { windowsHide: true }).toString(); } catch { log = ""; }
+    assert.ok(!/should NOT commit/.test(log), "no commit landed while a build was running");
+
+    (gate as any)?.(); await build2.catch(() => {}); // unblock the held run
+    await new Promise((r) => setTimeout(r, 200)); // let build2's trailing recorder writes drain before rmSync
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit respects staging: commits only staged fileA, leaves fileB uncommitted", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
+    execFileSync("git", ["-C", projectFolder, "commit", "-m", "base"], { windowsHide: true });
+    writeFileSync(join(projectFolder, "fileA.txt"), "A");
+    writeFileSync(join(projectFolder, "fileB.txt"), "B");
+    execFileSync("git", ["-C", projectFolder, "add", "fileA.txt"], { windowsHide: true }); // stage A only
+    posted.length = 0;
+    await handler({ type: "save_version_commit", message: "test: staged only" });
+    const committed = execFileSync("git", ["-C", projectFolder, "show", "--name-only", "--pretty=format:", "HEAD"], { windowsHide: true }).toString();
+    assert.match(committed, /fileA\.txt/, "the staged file is committed");
+    assert.doesNotMatch(committed, /fileB\.txt/, "the unstaged file is NOT committed (kills an add -A mutation)");
+    assert.match(execFileSync("git", ["-C", projectFolder, "status", "--porcelain"], { windowsHide: true }).toString(), /fileB\.txt/, "fileB remains uncommitted");
+    // Post-commit refresh: a staged-only commit leaves fileB behind, so the refreshed list shows it
+    // (not an empty list, and not the committed fileA).
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.ok((status?.files as any[]).some((f) => f.name === "fileB.txt"), "the refreshed list shows the remaining unstaged file");
+    assert.ok(!(status?.files as any[]).some((f) => f.name === "fileA.txt"), "the committed file is gone from the list");
+    // The saved_commit refresh carries the FULL summary, not just rows: after the staged-only commit,
+    // fileB is now unstaged so the NEXT click would add -A — the mode note must flip and the total ride along.
+    assert.equal(status?.commitMode, "all", "post-commit mode reflects the remaining unstaged files (next click is add -A)");
+    assert.equal(status?.fileTotal, 1, "post-commit fileTotal is sent (the display cap needs the real count)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_snapshot in a non-git project writes a snapshot.json covering the session-restore schema", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // non-git project
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_snapshot");
+    const snap = findSnapshot(ws);
+    assert.ok(snap, "snapshot.json written");
+    for (const key of ["schema", "stage", "state", "board", "preferences", "manifest", "artifacts", "restore"]) {
+      assert.ok(key in snap, `snapshot has ${key} (a dropped field fails the session-restore contract)`);
+    }
+    assert.equal(snap.git, null, "no commit → git linkage null");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit on a clean git repo surfaces nothing_to_commit (auditable, no throw)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
+    execFileSync("git", ["-C", projectFolder, "commit", "-m", "commit everything"], { windowsHide: true }); // tree now clean
+    posted.length = 0;
+    await handler({ type: "save_version_commit", message: "nothing here" });
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "nothing_to_commit");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit with an empty message falls back to the deterministic blockless: template (sink test)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "guaranteed change");
+    posted.length = 0;
+    // The webview can post an empty box (the user cleared it). The host must fill in the §C
+    // template, never pass "" to `git commit -m` (which git rejects) or drop the message.
+    await handler({ type: "save_version_commit", message: "" });
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_commit", "an empty message still commits — the host fills in the template");
+    const subject = execFileSync("git", ["-C", projectFolder, "log", "-1", "--format=%s"], { windowsHide: true }).toString().trim();
+    assert.match(subject, /^blockless: /, "the empty message fell back to the deterministic blockless: template");
+    assert.notEqual(subject, "", "the fallback never lets git commit an empty subject");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("a build cannot start while a Save Version act is in flight (add -A must not race the build's writes)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // Fire the commit WITHOUT awaiting: doSaveVersionCommit sets saveInFlight synchronously, up to
+    // its first git await, so the act is genuinely in flight when start_session runs next.
+    const commitP = handler({ type: "save_version_commit", message: "in flight" });
+    await handler({ type: "start_session", intent: "second", boardId: "esp32-s3-devkitc-1" });
+    assert.ok(posted.some((m) => m.type === "session_busy"), "start_session is refused session_busy while a save is in flight");
+    await commitP;
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_commit", "the in-flight save itself still completes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_snapshot never lists its own checkpoints/snapshot.json in artifacts[] (no stale-sha self-reference for session restore)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // snapshot path (non-git)
+    await handler({ type: "save_version_snapshot" }); // save #1 writes checkpoints/snapshot.json + re-scans
+    await handler({ type: "save_version_snapshot" }); // save #2's index now contains the prior snapshot.json
+    const snap = findSnapshot(ws);
+    assert.ok(snap, "snapshot written");
+    assert.ok(
+      !(snap.artifacts as any[]).some((a) => String(a.relative_path).replace(/\\/g, "/").endsWith("checkpoints/snapshot.json")),
+      "the snapshot never references itself — else replay would verify the file against a sha it's about to overwrite",
+    );
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("gitHasStagedChanges throws on a real git failure instead of misreporting 'staged' (exit-code taxonomy)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-nogit-"));
+  try {
+    // Not a git repo: `git diff --cached --quiet` fails with a usage/repo error (exit != 1). The old
+    // catch-all returned true here → gitCommit would skip `add -A` and commit an empty index while
+    // the tree is dirty. Only exit 1 means "staged changes exist"; any other failure must surface.
+    await assert.rejects(gitHasStagedChanges(dir), "a non-repo git failure surfaces, is not misread as staged");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("retry_session is refused while a Save Version act is in flight (sibling entry point — fix the class, not just start_session)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // saveInFlight is set synchronously by the commit act; retry_session's sync guard must see it.
+    const commitP = handler({ type: "save_version_commit", message: "in flight" });
+    await handler({ type: "retry_session" });
+    assert.ok(posted.some((m) => m.type === "session_busy"), "retry_session is refused session_busy while a save is in flight");
+    await commitP;
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("beginRun refuses a parked build that finds a save in flight at dequeue (TOCTOU recheck after the queue is acquired)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+    // A gated device tool: listDir holds the run-ownership queue until we release it, so a build can
+    // be parked at beginRun's acquire (isRunning still false) — the exact window the recheck closes.
+    let reachedList: () => void = () => {};
+    const listReached = new Promise<void>((res) => { reachedList = res; });
+    let releaseList: () => void = () => {};
+    const listGate = new Promise<void>((res) => { releaseList = res; });
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {}, listDir: async () => { reachedList(); await listGate; return ["boot.py"]; } };
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+      if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+      if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+      if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") return jsonResponse(board());
+      throw new Error(`unexpected URL ${url}`);
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    await handler!({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" }); // completes: repo + state
+    const projectFolder = join(ws, "blockless-project");
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+
+    const deviceP = handler!({ type: "device_tool_list", path: "/" }); // occupy the queue
+    await listReached; // the device tool now HOLDS the queue
+    // retry_session has no pre-acquire subprocess, so it parks at beginRun's acquire via microtasks
+    // while saveInFlight is still false (passes the synchronous guard).
+    const build = handler!({ type: "retry_session" });
+    // Now a save begins: saveInFlight is set synchronously; its gitCommit is a subprocess (IO), so it
+    // cannot clear across the microtask hop that resolves the parked acquire.
+    const saveP = handler!({ type: "save_version_commit", message: "in flight" });
+    releaseList(); // free the queue -> the parked build's beginRun rechecks saveInFlight (still true) -> busy
+    await Promise.all([deviceP, build, saveP]);
+
+    assert.ok(posted.some((m) => m.type === "session_busy"), "the parked build is refused when a save is found in flight at dequeue");
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_commit", "the save that won the race still completes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("isSnapshotSelfPath matches only the session snapshot, segment-anchored (no false match on a lookalike user file)", () => {
+  assert.equal(isSnapshotSelfPath(".mpyhw/sessions/abc123/checkpoints/snapshot.json"), true, "the real session snapshot path matches");
+  assert.equal(isSnapshotSelfPath("checkpoints/snapshot.json"), true, "a bare root-relative snapshot path matches");
+  assert.equal(isSnapshotSelfPath(".mpyhw\\sessions\\abc\\checkpoints\\snapshot.json"), true, "a Windows-separator path matches after normalization");
+  assert.equal(isSnapshotSelfPath("mycheckpoints/snapshot.json"), false, "a lookalike segment is NOT dropped (segment-anchored, not bare endsWith)");
+  assert.equal(isSnapshotSelfPath("checkpoints/snapshot.json.bak"), false, "a different filename is not matched");
+  assert.equal(isSnapshotSelfPath("src/checkpoints/snapshot.jsonl"), false, "a different extension is not matched");
+});
+
+test("REPRO PR#47 blocker 2: snapshot artifacts[] reflects confirm time, not panel-open time", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // snapshot path (non-git)
+    await handler({ type: "save_version_open" }); // artifactIndex refreshed HERE (panel-open)
+    // An artifact appears while the confirmation panel sits open:
+    const sessionsBase = join(ws, ".mpyhw", "sessions");
+    const sid = readdirSync(sessionsBase)[0];
+    writeFileSync(join(sessionsBase, sid, "post-open.py"), "# created between open and confirm");
+    await handler({ type: "save_version_snapshot" });
+    const snap = findSnapshot(ws);
+    assert.ok(snap, "snapshot written");
+    assert.ok(
+      (snap.artifacts as any[]).some((a) => String(a.relative_path).includes("post-open.py")),
+      "artifacts[] must reflect the tree at CONFIRM time (refreshArtifacts at act time), not the stale panel-open index",
+    );
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("REPRO PR#47 blocker 3: a >4MiB artifact (firmware .bin) carries a real 64-char sha256 in the integrity-checked artifacts[]", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // snapshot path (non-git)
+    const sessionsBase = join(ws, ".mpyhw", "sessions");
+    const sid = readdirSync(sessionsBase)[0];
+    const bytes = Buffer.alloc(5 * 1024 * 1024, 1); // over the display 4MiB hash cap
+    writeFileSync(join(sessionsBase, sid, "firmware.bin"), bytes);
+    await handler({ type: "save_version_snapshot" });
+    const snap = findSnapshot(ws);
+    const fw = (snap.artifacts as any[]).find((a) => String(a.relative_path).includes("firmware.bin"));
+    assert.ok(fw, "firmware artifact listed");
+    // Assert the digest VALUE, not just its length: it must be the real sha256 of the file CONTENT
+    // (computed fresh at snapshot time), so hashing the wrong file or the display-only cap's "" both fail.
+    assert.equal(fw.sha256, createHash("sha256").update(bytes).digest("hex"), "the persisted digest is the sha256 of the firmware content, not the display-only empty string or a stale/wrong value");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_open reports commit mode + per-file staged flags: staged-only when the index has staged changes", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
+    execFileSync("git", ["-C", projectFolder, "commit", "-m", "base"], { windowsHide: true });
+    writeFileSync(join(projectFolder, "fileA.txt"), "A");
+    writeFileSync(join(projectFolder, "fileB.txt"), "B");
+    execFileSync("git", ["-C", projectFolder, "add", "fileA.txt"], { windowsHide: true }); // stage A only
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    const data = posted.find((m) => m.type === "save_version_data");
+    assert.equal(data.commitMode, "staged", "a staged file present -> the commit takes staged only");
+    assert.equal((data.files as any[]).find((f) => f.name === "fileA.txt")?.staged, true, "fileA is flagged staged");
+    assert.equal((data.files as any[]).find((f) => f.name === "fileB.txt")?.staged, false, "fileB (untracked) is not staged");
+    assert.equal(data.fileTotal, (data.files as any[]).length, "fileTotal matches the count when under the display cap");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_open reports commit mode 'all' when nothing is staged (add -A path)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "x"); // untracked, unstaged
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    assert.equal(posted.find((m) => m.type === "save_version_data")?.commitMode, "all", "no staged changes -> commit is add -A (all)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("gitCommit surfaces an actionable error when .git/index.lock is stranded (not the raw git message)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-lock-"));
+  try {
+    execFileSync("git", ["-C", dir, "init"], { windowsHide: true });
+    writeFileSync(join(dir, "f.txt"), "x");
+    writeFileSync(join(dir, ".git", "index.lock"), ""); // an interrupted git left this behind
+    await assert.rejects(gitCommit(dir, "test: save"), /index is locked/i, "a stranded index.lock yields an actionable, self-explaining error");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("save_version: a second act while one is in flight reports in_flight (not a silent drop)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // Two acts fired together (e.g. a re-opened panel re-enabled the buttons and the user double-clicked):
+    // saveInFlight lets one through; the second must post in_flight so the click isn't dropped silently.
+    await Promise.all([handler({ type: "save_version_commit", message: "one" }), handler({ type: "save_version_commit", message: "two" })]);
+    assert.equal(posted.filter((m) => m.type === "save_version_status" && m.status === "saved_commit").length, 1, "exactly one commit lands");
+    assert.ok(posted.some((m) => m.type === "save_version_status" && m.status === "in_flight"), "the dropped second act reports in_flight");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("start_gen_driver refused while a save is in flight posts its OWN status (button un-sticks), not bare session_busy", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // saveInFlight is set synchronously by the commit act; the gen-driver entry must refuse with a
+    // gen_driver_status (message-bus restores the "Generating…" button only on that, never on
+    // session_busy) — else the trigger button stays stuck.
+    const commitP = handler({ type: "save_version_commit", message: "in flight" });
+    await handler({ type: "start_gen_driver", sources: [{ type: "chip_model", metadata: { chip_model: "SHT30" } }] });
+    assert.ok(posted.some((m) => m.type === "gen_driver_status" && m.status === "failed"), "gen-driver refused with its own status so the button restores");
+    assert.ok(!posted.some((m) => m.type === "session_busy"), "no bare session_busy for a gen-driver refusal (would leave the button stuck)");
+    await commitP;
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_commit", "the in-flight save still completes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
 });

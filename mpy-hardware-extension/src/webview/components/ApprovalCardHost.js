@@ -208,6 +208,9 @@
           const row = document.createElement("div"); row.className = "ask-row";
           const inp = document.createElement("input"); inp.className = "ask-input"; inp.type = "text";
           if (ti.placeholder) inp.placeholder = String(ti.placeholder);
+          // Prefilled-but-editable value (e.g. Save Version's proposed commit message):
+          // without this, a card can only offer ghost placeholder text, never a real default.
+          if (ti.value != null) inp.value = String(ti.value);
           textEls[ti.id == null ? "" : String(ti.id)] = inp; row.appendChild(inp); main.appendChild(row);
         });
         // esp32_flash_confirm: a live serial-port + baud picker. The Skill card carries the

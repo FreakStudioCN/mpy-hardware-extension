@@ -98,7 +98,7 @@ function stripLoneSurrogates(s: string): string {
 
 // Slice by whole code points, so a UTF-16 surrogate pair (e.g. an emoji) at the boundary is never
 // split into a lone surrogate — which would make encodeURIComponent throw URIError (PR #35 review).
-function sliceCodePoints(s: string, maxCodePoints: number): string {
+export function sliceCodePoints(s: string, maxCodePoints: number): string {
   return [...s].slice(0, maxCodePoints).join("");
 }
 

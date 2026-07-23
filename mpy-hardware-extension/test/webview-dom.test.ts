@@ -191,12 +191,14 @@ test("the last-used preference mode persists across panel reopens", async () => 
 test("preference and board groups expose localized accessible names", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;
-  assert.equal(document.querySelector(".mode-toggle")!.getAttribute("aria-label"), "Experience level");
+  // Scope to the Experience-level toggle (the Save Version panel reuses .mode-toggle for its own
+  // save-method segmented control, so a bare .mode-toggle now matches two).
+  assert.equal(document.querySelector(".mode-toggle:not(.sv-mode)")!.getAttribute("aria-label"), "Experience level");
   assert.equal(document.querySelector(".board-toggle")!.getAttribute("aria-label"), "Board selection");
 
   (document.getElementById("intent") as HTMLTextAreaElement).value = "\u6e29\u5ea6\u62a5\u8b66";
   (document.getElementById("generate") as HTMLButtonElement).click();
-  assert.equal(document.querySelector(".mode-toggle")!.getAttribute("aria-label"), "\u4f53\u9a8c\u7ea7\u522b");
+  assert.equal(document.querySelector(".mode-toggle:not(.sv-mode)")!.getAttribute("aria-label"), "\u4f53\u9a8c\u7ea7\u522b");
   assert.equal(document.querySelector(".board-toggle")!.getAttribute("aria-label"), "\u5f00\u53d1\u677f\u9009\u62e9");
 });
 
@@ -1858,6 +1860,109 @@ test("rapid double-click on an approval action posts exactly one ui_prompt_respo
   assert.equal(responses.length, 1, "only one ui_prompt_response posted despite the double-click");
 });
 
+test("Save Version panel renders save_version_data as color-coded letter badges + clean paths", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "save_version_data",
+    canCommit: true,
+    proposed: "blockless: temp logger (generate)",
+    stage: "phase: generate  |  1 artifact(s)",
+    note: "",
+    files: [
+      { id: "chg-0", name: ".flake8", status: "new", badge: "U" },
+      { id: "chg-1", name: "main.py", status: "modified", badge: "M" },
+      { id: "chg-2", name: "old.py", status: "deleted", badge: "D" },
+    ],
+  });
+  const host = document.getElementById("svFiles")!;
+  const rows = [...host.querySelectorAll(".ask-file")];
+  assert.equal(rows.length, 3, "one file row per change");
+  assert.ok(host.querySelector(".ask-file-badge-new") && host.querySelector(".ask-file-badge-modified") && host.querySelector(".ask-file-badge-deleted"), "a color class per status kind");
+  assert.equal(rows[0].querySelector(".ask-file-path")!.textContent, ".flake8", "path shows clean (no ?? code)");
+  assert.equal(rows[0].querySelector(".ask-file-badge")!.textContent, "U", "the badge shows the compact letter (U), not the raw ?? code");
+  assert.equal(host.querySelectorAll("input").length, 0, "file rows are display-only (no checkbox)");
+  // The proposed message prefills, and Commit shows because canCommit.
+  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "blockless: temp logger (generate)", "proposed message prefilled");
+  assert.equal(document.getElementById("svCommit")!.classList.contains("hidden"), false, "Commit button shown when a git commit is possible");
+});
+
+test("Save Version panel: the summary shows all 7 details — session state, artifact list, and diagnostics, not just files", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "save_version_data", canCommit: true, proposed: "blockless: led blink (generate)", stage: "phase: generate", note: "",
+    files: [{ id: "chg-0", name: "main.py", status: "modified", badge: "M" }],
+    session: { intent: "make the onboard led blink", phase: "generate", board: "ESP32-C6-DevKitC-1", mode: "beginner" },
+    artifacts: [{ path: "firmware/main.py", kind: "code", phase: "generate" }, { path: "project-manifest.json", kind: "manifest", phase: "generate" }, { path: "boot.py", kind: "code", phase: "" }],
+    artifactTotal: 5,
+    diagnostics: { activity: "generate_code", errors: "flake8 timed out", session_id: "session-abc" },
+  });
+  // Session/manifest state — the resume context, as key-value rows (not just the one-line stage).
+  const sess = document.getElementById("svSession")!;
+  assert.ok(!sess.classList.contains("hidden"), "session section shown");
+  const sessText = sess.textContent || "";
+  assert.ok(sessText.includes("make the onboard led blink") && sessText.includes("generate") && sessText.includes("ESP32-C6-DevKitC-1"), "session shows intent, phase, board");
+  // Key artifacts — an actual LIST, plus the true total in the summary (not just a count).
+  const arts = [...document.querySelectorAll("#svArtifacts .sv-art")];
+  assert.equal(arts.length, 3, "each supplied artifact is a row");
+  assert.equal(arts[0].querySelector(".sv-art-path")!.textContent, "firmware/main.py", "artifact path shown");
+  assert.equal(arts[0].querySelector(".sv-art-phase")!.textContent, "generate", "artifact's producing phase shown (phase-associated per §3.6.3)");
+  assert.equal(arts[2].querySelector(".sv-art-phase"), null, "an artifact with an empty phase renders no phase span (the if(ph) guard)");
+  assert.ok((document.getElementById("svArtifactsSum")!.textContent || "").includes("5"), "summary carries the true total (5), not just the shown 2");
+  assert.ok(document.querySelector("#svArtifacts .sv-art-more"), "a '+N more' row when the total exceeds the shown rows");
+  // Diagnostics — key errors / recent activity / session id.
+  const diag = document.getElementById("svDiag")!;
+  assert.ok(!document.getElementById("svDiagWrap")!.classList.contains("hidden"), "diagnostics section shown");
+  assert.ok((diag.textContent || "").includes("flake8 timed out") && (diag.textContent || "").includes("generate_code"), "diagnostics shows errors + recent activity");
+});
+
+test("Save Version panel: summary sections stay hidden when the host sends no session/artifacts/diagnostics", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [{ id: "c0", name: "a.py", status: "modified", badge: "M" }] });
+  assert.ok(document.getElementById("svSession")!.classList.contains("hidden"), "empty session section hides itself");
+  assert.ok(document.getElementById("svDiagWrap")!.classList.contains("hidden"), "empty diagnostics section hides itself");
+  assert.ok(document.getElementById("svArtifactsWrap")!.classList.contains("hidden"), "zero-artifact section hides itself");
+});
+
+test("Save Version panel: a non-git summary disables Commit + forces the Snapshot pane", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: false, proposed: "", stage: "phase: generate", note: "Not a git repo — a session snapshot will be saved instead.", files: [] });
+  assert.equal((document.getElementById("svModeCommit") as HTMLButtonElement).disabled, true, "the Commit method is disabled without a git repo");
+  assert.equal(document.getElementById("svCommitPane")!.classList.contains("hidden"), true, "the commit pane (message box + Commit button) is hidden");
+  assert.equal(document.getElementById("svSnapshotPane")!.classList.contains("hidden"), false, "the Snapshot pane (Save button) is shown");
+  assert.equal(document.getElementById("svModeSnapshot")!.classList.contains("active"), true, "Save Snapshot is the active method");
+  assert.match(document.getElementById("svNote")!.textContent || "", /Not a git repo/, "the fallback note shows");
+});
+
+test("Save Version panel: the method toggle switches between the Commit box and the Snapshot save", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "blockless: x", stage: "s", note: "", files: [] });
+  // Default: Commit method — the message box + Commit button pane is shown, snapshot pane hidden.
+  assert.equal(document.getElementById("svModeCommit")!.classList.contains("active"), true, "Commit is the default method in a git repo");
+  assert.equal(document.getElementById("svCommitPane")!.classList.contains("hidden"), false, "commit pane visible");
+  assert.equal(document.getElementById("svSnapshotPane")!.classList.contains("hidden"), true, "snapshot pane hidden");
+  // Toggle to Snapshot: the panes swap (either/or).
+  (document.getElementById("svModeSnapshot") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("svSnapshotPane")!.classList.contains("hidden"), false, "snapshot pane shown after toggle");
+  assert.equal(document.getElementById("svCommitPane")!.classList.contains("hidden"), true, "commit box hidden after toggle");
+  assert.equal(document.getElementById("svModeCommit")!.classList.contains("active"), false, "Commit no longer active");
+});
+
+test("Save Version chips are not clobbered by the experience-level toggle (shared .mode-chip class)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  assert.equal(document.getElementById("svModeCommit")!.classList.contains("active"), true, "SV Commit chip starts active");
+  // The experience-level toggle reuses the same .mode-chip class; its setMode must NOT sweep the
+  // Save Version chips (they carry data-svmode, not data-mode) and strip their active/aria state.
+  (document.getElementById("modeCustom") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("svModeCommit")!.classList.contains("active"), true, "SV Commit chip stays active after a preferences setMode");
+  assert.equal(document.getElementById("svModeCommit")!.getAttribute("aria-pressed"), "true", "SV chip aria-pressed preserved");
+});
+
 test("a duplicate approval_request for an already-rendered promptId does not render a second card", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
@@ -2568,6 +2673,140 @@ test("wiring/diagram rows jump to their rendered tab instead of opening raw JSON
   row.click();
   assert.ok(!posted.some((m) => m.type === "open_artifact"), "wiring row does not post open_artifact");
   assert.ok(!(document.querySelector('.view[data-view="wiring"]') as HTMLElement).classList.contains("hidden"), "Wiring tab activated by the row");
+});
+
+test("Save Version gtool button opens its own tool surface and requests the summary", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("saveVersionOpen") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "save_version_open"), "clicking Save Version requests the summary (not an Activity-feed card)");
+  assert.equal(document.getElementById("toolSaveVersion")!.classList.contains("hidden"), false, "the Save Version tool surface opens");
+});
+
+test("an approval card prefills a text_input value (not just placeholder)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "approval_request", promptId: "p-sv",
+    card: {
+      kind: "save_version", header: "Save Version", question: "phase: generate",
+      text_inputs: [{ id: "commit_message", placeholder: "Commit message", value: "blockless: temp logger (generate)" }],
+      actions: [{ label: "Save Snapshot", value: "snapshot", primary: true }, { label: "Cancel", value: "cancel" }],
+    },
+  });
+  const input = document.querySelector('[data-prompt-id="p-sv"] input.ask-input') as HTMLInputElement;
+  assert.equal(input.value, "blockless: temp logger (generate)", "the proposed message is prefilled and editable");
+  assert.equal(input.placeholder, "Commit message", "placeholder still set");
+});
+
+test("Save Version panel: commit/snapshot buttons post their acts, and save_version_status renders in the panel (not the Activity feed)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // Render a git summary, then click Commit -> posts save_version_commit with the message.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "blockless: x", stage: "phase: generate", note: "", files: [] });
+  (document.getElementById("svMsg") as HTMLInputElement).value = "my message";
+  (document.getElementById("svCommit") as HTMLButtonElement).click();
+  const commit = posted.find((m) => m.type === "save_version_commit");
+  assert.ok(commit && commit.message === "my message", "Commit posts save_version_commit with the edited message");
+  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "my message", "the box is NOT cleared on click — only on a successful commit, so a failed act keeps it for retry");
+  // The result renders in the panel's own status line, and NOT in the Activity feed.
+  post(dom, { type: "save_version_status", status: "saved_commit", hash: "abcdef1234", files: [] });
+  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "", "a successful commit clears the box");
+  assert.match(document.getElementById("svStatus")!.textContent || "", /abcdef12/, "the commit result shows in the panel status");
+  assert.doesNotMatch(document.getElementById("activity")!.textContent || "", /abcdef12/, "the save result does NOT land in the build/Activity feed");
+  // Toggle to the Snapshot method, then its Save button posts the snapshot act.
+  posted.length = 0;
+  (document.getElementById("svModeSnapshot") as HTMLButtonElement).click();
+  (document.getElementById("svSnapshot") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "save_version_snapshot"), "Save Snapshot posts save_version_snapshot");
+});
+
+test("Save Version panel: staged marker, commit-mode note, and a '+N more' row when the file list is capped", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", commitMode: "staged", fileTotal: 53, files: [
+    { id: "chg-0", name: "a.py", status: "modified", badge: "M", staged: true },
+    { id: "chg-1", name: "b.py", status: "new", badge: "U", staged: false },
+  ] });
+  const rows = [...document.querySelectorAll("#svFiles .ask-file")];
+  assert.equal(rows.length, 2, "the two shown rows render");
+  assert.ok(rows[0].querySelector(".sv-file-staged-tag"), "the staged file carries a staged marker");
+  assert.equal(rows[1].querySelector(".sv-file-staged-tag"), null, "the unstaged file has no marker");
+  const more = document.querySelector("#svFiles .sv-art-more");
+  assert.ok(more && /51/.test(more.textContent || ""), "a '+N more' row surfaces the 51 files beyond the shown 2 (add -A commits them all)");
+  const mode = document.getElementById("svCommitMode")!;
+  assert.equal(mode.classList.contains("hidden"), false, "the commit-mode note is shown");
+  assert.ok((mode.textContent || "").length > 0, "and names the mode (staged-only)");
+});
+
+test("Save Version panel: an in_flight status keeps buttons disabled + an inline notice, not a full-view block", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [] });
+  post(dom, { type: "save_version_status", status: "in_flight" });
+  assert.equal((document.getElementById("svCommit") as HTMLButtonElement).disabled, true, "commit stays disabled while a save is already in flight");
+  assert.equal(document.getElementById("svBlocked")!.classList.contains("hidden"), true, "it does NOT take over the whole view (it isn't a build-busy block)");
+  assert.ok((document.getElementById("svStatus")!.textContent || "").length > 0, "an inline notice is shown instead of dropping the click");
+});
+
+test("Save Version panel: a FAILED commit retains the typed message for retry (cleared only on success)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "blockless: x", stage: "s", note: "", files: [] });
+  const box = document.getElementById("svMsg") as HTMLInputElement;
+  box.value = "test: a message I do not want to lose";
+  (document.getElementById("svCommit") as HTMLButtonElement).click();
+  // The host reports the commit failed (index.lock contention / a gpgsign hang). The typed message
+  // MUST survive: a retry has to re-send it, not silently commit the generic fallback template.
+  post(dom, { type: "save_version_status", status: "git_commit_failed", error: "index.lock" });
+  assert.equal(box.value, "test: a message I do not want to lose", "a failed commit keeps the message for retry");
+  assert.ok((document.getElementById("svStatus")!.textContent || "").length > 0, "the failure is shown inline");
+  assert.equal((document.getElementById("svCommit") as HTMLButtonElement).disabled, false, "the Commit button is re-enabled so the retry is possible");
+  // The retry finally succeeds → only now is the box cleared.
+  post(dom, { type: "save_version_status", status: "saved_commit", hash: "abc1234", files: [] });
+  assert.equal(box.value, "", "the box clears once the commit actually succeeds");
+});
+
+test("Save Version panel: a saved_commit status refreshes the file list to the post-commit truth", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // Start with 3 pending changes.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [
+    { id: "chg-0", name: "a.py", status: "new", badge: "U" },
+    { id: "chg-1", name: "b.py", status: "modified", badge: "M" },
+    { id: "chg-2", name: "c.py", status: "new", badge: "U" },
+  ] });
+  assert.equal(document.querySelectorAll("#svFiles .ask-file").length, 3, "three pending changes shown");
+  // A staged-only commit leaves one behind: the refresh shows exactly that remaining file.
+  post(dom, { type: "save_version_status", status: "saved_commit", hash: "abc1234", files: [{ id: "chg-0", name: "b.py", status: "modified", badge: "M" }] });
+  const rows = [...document.querySelectorAll("#svFiles .ask-file")];
+  assert.equal(rows.length, 1, "the list refreshed to the single remaining file");
+  assert.equal(rows[0].querySelector(".ask-file-path")!.textContent, "b.py", "it's the remaining unstaged file, not the committed ones");
+  // An add -A commit cleans the tree: an empty refresh shows the 'no changes' line, not stale rows.
+  post(dom, { type: "save_version_status", status: "saved_commit", hash: "def5678", files: [] });
+  assert.equal(document.querySelectorAll("#svFiles .ask-file").length, 0, "no file rows after a clean commit");
+  assert.ok(!document.getElementById("svNoChanges")!.classList.contains("hidden"), "the centered 'no changes' empty state is shown");
+  assert.ok(document.getElementById("svFiles")!.classList.contains("hidden"), "the empty file list is hidden so the icon empty state stands alone");
+});
+
+test("Save Version panel: a build-running (busy) status blocks the whole view, not just a status line", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // The form is shown once data arrives.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [] });
+  assert.equal(document.getElementById("svBody")!.classList.contains("hidden"), false, "the save form is visible with data");
+  // A busy status (a build is running) takes over the WHOLE view: form hidden, full message shown.
+  post(dom, { type: "save_version_status", status: "busy" });
+  assert.equal(document.getElementById("svBody")!.classList.contains("hidden"), true, "the save form is hidden while a build runs");
+  assert.equal(document.getElementById("svBlocked")!.classList.contains("hidden"), false, "the full-view blocked state shows instead");
+  assert.match(document.getElementById("svBlockedH")!.textContent || "", /Build in progress/i, "the blocked state explains why (heading)");
+  assert.ok((document.getElementById("svBlockedP")!.textContent || "").length > 0, "and a subtext line, like the no-device empty state");
+  // Fresh data (build finished / reopened) restores the form.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [] });
+  assert.equal(document.getElementById("svBody")!.classList.contains("hidden"), false, "the form is restored on fresh data");
+  assert.equal(document.getElementById("svBlocked")!.classList.contains("hidden"), true, "the blocked state is hidden again");
 });
 
 test("artifact rows show role + created_at, and an 'on disk' tag for disk-origin files", async () => {

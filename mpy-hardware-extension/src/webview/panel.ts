@@ -14,7 +14,7 @@ import { runPipeline } from "../core/pipeline.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
 import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
-import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale } from "../core/support-config.ts";
+import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale, sliceCodePoints } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
@@ -29,6 +29,9 @@ import { canonicalPathKey, deleteProjectPath, isRealContained, snapshotExistingP
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
+import { GitUnavailableError, gitBranch, gitCommit, gitStatusPorcelain, isGitRepo } from "../extension/project-git.ts";
+import { buildSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
+import type { SnapshotArtifact } from "../extension/session-snapshot.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
 
@@ -49,10 +52,15 @@ async function ensureProjectGitRepo(projectFolder?: string, log?: (message: stri
 }
 
 async function ensureGitConfig(projectFolder: string, key: string, value: string) {
+  // Pin the repo search to projectFolder: `git config` walks UP to find the repo, so if .git
+  // vanished between the caller's existsSync check and this write, the value would land in a
+  // PARENT repo's .git/config. GIT_CEILING_DIRECTORIES stops the walk at the parent (mirrors the
+  // pin in project-git.ts's git()).
+  const opts = { windowsHide: true, env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(projectFolder) } };
   try {
-    await execFileAsync("git", ["-C", projectFolder, "config", "--get", key], { windowsHide: true });
+    await execFileAsync("git", ["-C", projectFolder, "config", "--get", key], opts);
   } catch {
-    await execFileAsync("git", ["-C", projectFolder, "config", key, value], { windowsHide: true });
+    await execFileAsync("git", ["-C", projectFolder, "config", key, value], opts);
   }
 }
 
@@ -68,6 +76,29 @@ const MAX_DOWNLOAD_DEDUP = 1000;
 // (spec §4). Longer than the webview's 3s UI arm so the confirm click is never rejected
 // by a host/webview clock race; short enough that a leaked nonce is not reusable later.
 const DELETE_ARM_TTL_MS = 10_000;
+
+// Save Version (#95): its own global-tool surface (toolSaveVersion), driven by save_version_open /
+// _commit / _snapshot messages. Failure/outcome taxonomy (§D). Named so no code is a bare string.
+const SAVE_VERSION_STATUS = {
+  savedCommit: "saved_commit",
+  savedSnapshot: "saved_snapshot",
+  nothing: "nothing_to_save",
+  busy: "busy",
+  gitUnavailable: "git_unavailable",
+  nothingToCommit: "nothing_to_commit",
+  commitFailed: "git_commit_failed",
+  snapshotWriteFailed: "snapshot_write_failed",
+  workspaceUnavailable: "workspace_unavailable",
+  inFlight: "in_flight", // a second act arrived while one is already saving (e.g. a re-opened panel)
+} as const;
+// Keep the proposed commit summary to a readable one-liner (§C deterministic template).
+const SAVE_VERSION_INTENT_MAX = 60;
+const SAVE_VERSION_FILE_ITEMS_MAX = 50; // display-only file rows shown on the card
+const SAVE_VERSION_ARTIFACT_ITEMS_MAX = 20; // display-only artifact rows shown on the card
+// Detail shown when a flow run (gen-driver / optional-flow) is refused because a run or a save is
+// active. Posted via the flow-specific status so the trigger button restores (message-bus.js
+// restores those buttons only on their own status, never on bare session_busy).
+const RUN_BUSY_DETAIL = "A build is already running — try again once it finishes.";
 
 // Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
 // timeout, never throws — a headless/missing tool yields "unknown".
@@ -184,6 +215,98 @@ function scanArtifactTree(root: string, origin: "session" | "disk"): ArtifactSou
     }
   }
   return out;
+}
+
+// Deterministic proposed commit message (§C, no LLM): "blockless: <intent> (<phase>, <board>)".
+// P0-deterministic so the same state always proposes the same message; the user edits it on
+// the card (the prefilled text_input). Missing pieces are dropped, never rendered as "()".
+function buildCommitMessage(intent: string | undefined, phase: string | null, boardId: string | null): string {
+  // Slice by whole code points so a CJK/emoji intent isn't cut mid-surrogate into a U+FFFD.
+  const head = sliceCodePoints((intent ?? "").trim(), SAVE_VERSION_INTENT_MAX) || "save version";
+  const context = [phase, boardId && boardId !== "auto" ? boardId : null].filter(Boolean).join(", ");
+  return context ? `blockless: ${head} (${context})` : `blockless: ${head}`;
+}
+
+// Parse one `git status --porcelain` line ("XY path") into a display row for the Save Version card:
+// a friendly status kind (drives the color-coded badge in the webview) + the clean path with the
+// XY code stripped. Checks the most specific code first; XY is index+worktree, so a mixed code like
+// "MM"/"AM" maps to its most salient action.
+export function parseGitStatusRow(line: string, index: number): { id: string; name: string; status: string; badge: string; staged: boolean } {
+  const code = line.slice(0, 2);
+  const path = line.slice(3).trim() || line.trim();
+  // The index (first) column is set for a STAGED change; " " means worktree-only (unstaged) and "?" is
+  // untracked. Drives the staged marker so the card can show which files the commit will actually take.
+  const staged = code[0] !== " " && code[0] !== "?";
+  // status = color-class kind; badge = the compact VS Code SCM letter (U/A/M/D/R).
+  const [status, badge] = code.includes("?") ? ["new", "U"]
+    : code.includes("D") ? ["deleted", "D"]
+    : code.includes("R") ? ["renamed", "R"]
+    : code.includes("A") ? ["added", "A"]
+    : code.includes("M") ? ["modified", "M"]
+    : ["changed", "•"];
+  return { id: `chg-${index}`, name: path, status, badge, staged };
+}
+
+// One source of truth for the Save Version file summary — used by BOTH the open summary and the
+// post-commit refresh, so the two never drift (the post-commit path was the un-fixed sibling of the
+// display cap). Capped display rows, the true total (the commit spans all of them), and the mode the
+// commit will use: staged-only when the index has staged changes, else add -A.
+function summarizeGitStatus(porcelain: string[]): { files: ReturnType<typeof parseGitStatusRow>[]; fileTotal: number; commitMode: "staged" | "all" } {
+  const rows = porcelain.map((line, i) => parseGitStatusRow(line, i));
+  return {
+    files: rows.slice(0, SAVE_VERSION_FILE_ITEMS_MAX),
+    fileTotal: rows.length,
+    commitMode: rows.some((r) => r.staged) ? "staged" : "all",
+  };
+}
+
+// The session snapshot is written to checkpoints/snapshot.json, which the session-tree scan then
+// indexes. Left in, the NEXT save's artifacts[] would list the PREVIOUS snapshot.json with the
+// sha of the file this write is about to replace — a guaranteed sha256 mismatch for session restore's
+// replay-verify. Exclude the snapshot's own path so it never self-references. (It stays browsable
+// in the display index — this only shapes the persisted, integrity-checked artifacts[].)
+const SNAPSHOT_SELF_PATH_SUFFIX = "checkpoints/snapshot.json";
+
+// Segment-anchored: matches the session snapshot ".mpyhw/sessions/<id>/checkpoints/snapshot.json"
+// (always preceded by "/") and a bare "checkpoints/snapshot.json", but NOT a lookalike segment like
+// "mycheckpoints/snapshot.json". Residual: a user file at "<project>/checkpoints/snapshot.json"
+// would also match and be dropped from the persisted artifacts[] — an accepted ceiling (the display
+// index is unaffected, and that exact path under a generated project is not a real artifact).
+export function isSnapshotSelfPath(relativePath: string): boolean {
+  const norm = relativePath.replace(/\\/g, "/");
+  return norm === SNAPSHOT_SELF_PATH_SUFFIX || norm.endsWith("/" + SNAPSHOT_SELF_PATH_SUFFIX);
+}
+
+// Session-restore replay-verify needs a REAL digest — NOT the Artifact index's display-only sha (which is ""
+// over a 4 MiB cap, so firmware .bin/.uf2 land unverified, and is memoized on path:size:mtime, so a
+// same-size rewrite within one mtime tick serves a stale digest). Re-hash fresh from disk here at
+// snapshot-write time, no memo and a far higher bound. Over the bound or unreadable -> null (an
+// honest "not verified"), never "" (which the consumer would read as a match).
+const SNAPSHOT_MAX_HASH_BYTES = 64 * 1024 * 1024;
+// ponytail: per-file bound only, no aggregate budget across the (≤500) indexed artifacts. A real
+// project tree is a handful of small code files + one firmware image, so a save hashes sub-second;
+// the unbounded-total case (hundreds of large files) can't arise from the generators. Upgrade path
+// if that changes: track a running byte total here and return null past an aggregate cap.
+function snapshotSha256(absolutePath: string): string | null {
+  try {
+    if (statSync(absolutePath).size > SNAPSHOT_MAX_HASH_BYTES) return null;
+    return createHash("sha256").update(readFileSync(absolutePath)).digest("hex");
+  } catch { return null; }
+}
+
+// Project the host artifact index into the portable snapshot rows (§4.2): relative_path only,
+// NO absolute_path. sha256 recomputed fresh from disk (see snapshotSha256) — the integrity hash session restore
+// verifies against before replaying code, not the display-only index value.
+function toSnapshotArtifacts(index: Artifact[]): SnapshotArtifact[] {
+  return index.filter((a) => !isSnapshotSelfPath(a.relative_path)).map((a) => ({
+    relative_path: a.relative_path,
+    kind: a.kind,
+    role: a.role,
+    phase: a.phase,
+    size: a.size,
+    sha256: snapshotSha256(a.absolute_path),
+    created_at: a.created_at,
+  }));
 }
 
 // Open the UI as an editor-area tab. Kept for the mpyhw.openPanel command and
@@ -450,6 +573,165 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     webview.postMessage({ type: "artifacts_index", artifacts: forWebview });
   }
 
+  // Save Version (#95 §D): host-initiated confirm → git commit OR session snapshot. Never
+  // mid-run. Detect-only git (never init, §3.6.3). The card offers only the actions the
+  // current state supports, so commit/snapshot/cancel always mean exactly what they say.
+  // Save Version is its OWN global-tool surface (the toolSaveVersion view), not an Activity-feed
+  // card — a user utility with no agent/LLM involvement, so it doesn't belong in the build feed.
+  // The panel opens (save_version_open -> save_version_data), the user confirms in the view
+  // (save_version_commit / save_version_snapshot). saveInFlight serializes the two acts, and each
+  // act re-checks isRunning() at act time (a busy gate is not a lock — a build may have started
+  // while the panel was open).
+  let saveInFlight = false;
+  // True from the moment beginRun() commits a build to running until that run releases. isRunning()
+  // alone is not enough: start_gen_driver/start_optional_flow do async work (source staging /
+  // phase-complete write) between beginRun() and controller.startPhase() flipping isRunning(), so a
+  // save arriving in that window would pass the isRunning() gate and race the starting run's writes.
+  // saveVersionContext refuses on runPending, closing that window for every entry point.
+  let runPending = false;
+
+  // Gather the save summary the panel renders (changed files parsed to friendly status, the
+  // proposed commit message, whether a git commit is possible, a stage line). Posts a status
+  // instead when a run is active / no workspace / nothing to save.
+  async function computeSaveVersionData(): Promise<void> {
+    if (controller.isRunning() || runPending) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.busy }); return; }
+    if (!projectFolder && !sessionRoot) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.workspaceUnavailable }); return; }
+    // Detect-only git probe: a .git present AND git on PATH enables the commit action.
+    const repoPresent = !!projectFolder && isGitRepo(projectFolder);
+    let gitFiles: string[] = [];
+    let canCommit = false;
+    if (repoPresent && projectFolder) {
+      try { gitFiles = await gitStatusPorcelain(projectFolder); canCommit = true; }
+      catch (error: any) { if (!(error instanceof GitUnavailableError)) deps.log?.(`save_version: git status failed: ${error?.message ?? error}`); }
+    }
+    if (!canCommit && !controller.hasSnapshotState()) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.nothing }); return; }
+    refreshArtifacts();
+    const snap = controller.getSnapshotState();
+    const diag = controller.getDiagnostics();
+    // Capped rows + the true total (the commit spans all of them) + the mode the commit will use.
+    const summary = summarizeGitStatus(gitFiles);
+    webview.postMessage({
+      type: "save_version_data",
+      canCommit,
+      proposed: buildCommitMessage(snap.state?.intent, snap.currentPhase, snap.boardId),
+      files: summary.files,
+      fileTotal: summary.fileTotal,
+      commitMode: canCommit ? summary.commitMode : "", // no commit mode when there's no repo (snapshot path)
+      stage: [diag.current_phase && `phase: ${diag.current_phase}`, diag.selected_board && `board: ${diag.selected_board}`, `${artifactIndex.length} artifact(s)`].filter(Boolean).join("  |  "),
+      // repoPresent-but-!canCommit covers BOTH a missing git binary AND a git status that failed
+      // (e.g. a corrupt repo) — so the note names the outcome ("commit unavailable"), not a cause
+      // it can't distinguish here.
+      note: canCommit ? "" : (repoPresent ? "Git commit is unavailable — a session snapshot will be saved instead." : "Not a git repo — a session snapshot will be saved instead."),
+      // The rest of the §3.6.3 summary the card must cover: the resume/session state, the
+      // phase-associated artifacts (listed, not just counted), and the diagnostics — all
+      // read locally from the controller; nothing is sourced from the plugin.
+      session: {
+        intent: snap.state?.intent ?? "",
+        phase: (snap.state?.phase ?? snap.currentPhase) || "",
+        board: diag.selected_board || (snap.boardId && snap.boardId !== "auto" ? snap.boardId : ""),
+        mode: snap.preferences?.mode ?? "",
+      },
+      artifacts: artifactIndex.slice(0, SAVE_VERSION_ARTIFACT_ITEMS_MAX).map((a) => ({ path: a.relative_path, kind: a.kind, phase: a.phase })),
+      artifactTotal: artifactIndex.length,
+      diagnostics: { activity: diag.recent_activity || diag.last_command || "", errors: diag.key_errors || "", session_id: diag.session_id || "" },
+    });
+  }
+
+  // Fresh-state gate shared by the two acts: re-checks isRunning() at act time and re-reads the
+  // controller state + session dir. Returns null (and posts busy) when a run is active.
+  function saveVersionContext(): { snap: ReturnType<typeof controller.getSnapshotState>; diag: Record<string, string>; sessionDir?: string } | null {
+    // runPending as well as isRunning(): a build that has acquired the run but not yet flipped
+    // isRunning() (mid staging / phase-complete write) must still block the save, or its add -A
+    // races the build's writes.
+    if (controller.isRunning() || runPending) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.busy }); return null; }
+    const diag = controller.getDiagnostics();
+    const sessionId = diag.session_id;
+    return { snap: controller.getSnapshotState(), diag, sessionDir: sessionRoot && sessionId ? join(sessionRoot, ".mpyhw", "sessions", sessionId) : undefined };
+  }
+
+  async function doSaveVersionCommit(rawMessage: unknown): Promise<void> {
+    if (saveInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
+    saveInFlight = true;
+    try {
+      const ctx = saveVersionContext(); if (!ctx) return;
+      if (!(projectFolder && isGitRepo(projectFolder))) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.gitUnavailable }); return; }
+      const message = String(rawMessage ?? "").trim() || buildCommitMessage(ctx.snap.state?.intent, ctx.snap.currentPhase, ctx.snap.boardId);
+      let hash: string;
+      try { hash = await gitCommit(projectFolder, message); }
+      catch (error: any) {
+        if (error instanceof GitUnavailableError) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.gitUnavailable }); return; }
+        const detail = String(error?.message ?? error);
+        const status = /nothing to commit/i.test(detail) ? SAVE_VERSION_STATUS.nothingToCommit : SAVE_VERSION_STATUS.commitFailed;
+        webview.postMessage({ type: "save_version_status", status, error: detail }); return;
+      }
+      // Rebuild the artifact index at CONFIRM time (not the stale panel-open build): writeSaveSnapshot
+      // projects the closure artifactIndex, so a file created/changed while the confirmation sat open
+      // would otherwise persist a stale path/size/digest into the session-restore contract (CWE-367 capture timing).
+      refreshArtifacts();
+      // One save = one restorable point: also snapshot with the commit hash. A snapshot miss must
+      // NOT undo the commit.
+      if (controller.hasSnapshotState() && ctx.sessionDir) {
+        try { await writeSaveSnapshot(ctx.sessionDir, ctx.snap, ctx.diag, { commit_hash: hash, branch: await gitBranch(projectFolder) }); }
+        catch (error: any) { deps.log?.(`save_version: post-commit snapshot failed: ${error?.message ?? error}`); }
+      }
+      refreshArtifacts();
+      // Re-read the tree so the panel's file list reflects the POST-commit truth: empty after an
+      // add -A ("save everything"), or the remaining unstaged files after a staged-only commit --
+      // not the just-committed files as if they were still pending. Best-effort; the commit stands
+      // regardless.
+      // Same summary as the open path (fileTotal + commitMode too, not just the rows) so the post-commit
+      // refresh doesn't drift from it: a staged-only commit can leave >50 unstaged files (needs "+N more")
+      // and flips the next click's mode to add -A (the note must update).
+      let summary: ReturnType<typeof summarizeGitStatus> | undefined;
+      try { summary = summarizeGitStatus(await gitStatusPorcelain(projectFolder)); }
+      catch (error: any) { deps.log?.(`save_version: post-commit status refresh failed: ${error?.message ?? error}`); } // leave undefined -> panel keeps its list, not a false "no changes"
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.savedCommit, hash, files: summary?.files, fileTotal: summary?.fileTotal, commitMode: summary?.commitMode });
+    } finally { saveInFlight = false; }
+  }
+
+  async function doSaveVersionSnapshot(): Promise<void> {
+    if (saveInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
+    saveInFlight = true;
+    try {
+      const ctx = saveVersionContext(); if (!ctx) return;
+      if (!controller.hasSnapshotState() || !ctx.sessionDir) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.nothing }); return; }
+      // Rebuild the artifact index at CONFIRM time so the snapshot captures the tree as it is NOW,
+      // not the stale panel-open build (CWE-367 capture timing — blocker 2).
+      refreshArtifacts();
+      try { await writeSaveSnapshot(ctx.sessionDir, ctx.snap, ctx.diag, null); }
+      catch (error: any) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.snapshotWriteFailed, error: String(error?.code ?? error?.message ?? error) }); return; }
+      refreshArtifacts();
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.savedSnapshot });
+    } finally { saveInFlight = false; }
+  }
+
+  // Build + write the session snapshot from the controller state bundle + diagnostics (§A).
+  async function writeSaveSnapshot(sessionDir: string, snap: ReturnType<typeof controller.getSnapshotState>, diag: Record<string, string>, git: { commit_hash: string; branch: string } | null) {
+    const snapshot = buildSessionSnapshot({
+      traceId: snap.traceId,
+      savedAt: new Date().toISOString(),
+      currentPhase: snap.currentPhase,
+      terminal: snap.terminal,
+      state: snap.state,
+      boardId: snap.boardId,
+      preSelectedBoard: snap.preSelectedBoard,
+      boardSelectionMode: snap.boardSelectionMode,
+      preferences: snap.preferences,
+      manifest: controller.getLatestManifest() ?? null,
+      diagram: snap.diagram ?? null,
+      credits: snap.credits,
+      diagnostics: {
+        selected_board: diag.selected_board ?? "",
+        key_errors: diag.key_errors ?? "",
+        recent_activity: diag.recent_activity ?? "",
+        last_command: diag.last_command ?? "",
+      },
+      artifacts: toSnapshotArtifacts(artifactIndex),
+      git,
+    });
+    await writeSessionSnapshot(sessionDir, snapshot);
+  }
+
   // Device Tools (#54): run a user-initiated device command. Refuse while a session
   // run owns the port (device_busy — never silently compete with flash/deploy/
   // gen-driver, spec §41); otherwise serialize on deviceQueue, log it, and post the
@@ -560,6 +842,25 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // enforced only in start() lets a retry flash over a tool (e.g. a slow mip install) that
   // still holds the port.
   const acquireRunOwnership = () => deviceQueue.acquire();
+
+  // Every build entry point (start_session / retry_session / start_gen_driver / start_optional_flow)
+  // acquires the run through here. Besides the entry's synchronous saveInFlight fast-fail, re-check
+  // AFTER the queue is held: a Save Version act can begin during the entry's pre-run awaits
+  // (checkProtocolVersion / auth.getToken / ensureProjectGitRepo), and its `add -A` would then race
+  // the run about to start. saveInFlight is set synchronously by the save acts, and controller.run()
+  // flips isRunning() synchronously before its first await, so this post-acquire point is the
+  // airtight barrier — a build that finds a save in flight releases the queue and bails as busy.
+  async function beginRun(): Promise<(() => void) | null> {
+    const release = await acquireRunOwnership();
+    // A Save Version act may have started during the entry's pre-run awaits (protocol / auth /
+    // ensureGitRepo) — refuse the run so its add -A can't race the save. The caller posts the
+    // entry-appropriate busy status (session_busy vs the flow-specific status) on this null.
+    if (saveInFlight) { release(); return null; }
+    // Commit this run: block saves until it releases (covers the post-acquire async gap before
+    // isRunning() flips). The wrapped release clears the flag in the caller's finally.
+    runPending = true;
+    return () => { runPending = false; release(); };
+  }
 
   // Upload: pick a local file, write it to the current device dir under its basename.
   // The read + write run INSIDE runDeviceTool so a read failure surfaces as device_tool_error
@@ -754,9 +1055,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         webview.postMessage({ type: "gen_driver_status", status: "failed", detail: "Open a workspace folder to generate a driver." });
         return;
       }
-      // Reject a re-entrant run at the entry point (register #1/#16), then gate protocol + auth exactly
-      // like start_session before taking the port.
-      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      // Reject a re-entrant run OR a run during a save (register #1/#16), posting the flow-specific
+      // status so the gen-driver button un-sticks; then gate protocol + auth like start_session.
+      if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "gen_driver_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; }
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
@@ -776,7 +1077,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // see the cold-driver devices even if the run streams a thin manifest_content (preserveManifest
       // keeps latestManifest from being clobbered by that thin manifest during the excursion).
       const manifestSnapshot = controller.getLatestManifest();
-      const releaseRun = await acquireRunOwnership();
+      const releaseRun = await beginRun();
+      if (!releaseRun) { webview.postMessage({ type: "gen_driver_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; } // a save slipped in during the pre-run awaits
       try {
         snapshotExistingPaths(projectFolder, preExistingPaths);
         // Stage picked files under projectFolder (containment-reachable), sha256-verified.
@@ -825,7 +1127,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: "Open a workspace folder to run this flow." });
         return;
       }
-      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      // Post the flow-specific status (not bare session_busy) so the optional-flow button un-sticks.
+      if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: RUN_BUSY_DETAIL }); return; }
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
@@ -841,7 +1144,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
       }
       await ensureProjectGitRepo(projectFolder, deps.log);
-      const releaseRun = await acquireRunOwnership();
+      const releaseRun = await beginRun();
+      if (!releaseRun) { webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: RUN_BUSY_DETAIL }); return; } // a save slipped in during the pre-run awaits
       try {
         snapshotExistingPaths(projectFolder, preExistingPaths);
         const sessionId = randomUUID();
@@ -978,6 +1282,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // finally clears controller.abort — the reject-while-busy guard in controller.start() would be
       // dead by then. The queue lock only orders legitimate owners.
       if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      // A Save Version act (commit/snapshot) is a sub-second host round-trip that does `add -A`.
+      // Refuse to start a build while one is in flight so the commit can't capture half-written
+      // build output, and the build can't race the index — the save clears saveInFlight in finally.
+      if (saveInFlight) { webview.postMessage({ type: "session_busy" }); return; }
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
@@ -1012,7 +1320,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Serial-port lock (spec §41), other direction: wait for any in-flight device-tool
       // command (e.g. a slow mip install) to finish before the run takes the port, so a
       // flash/deploy never competes with a user device command.
-      const releaseRun = await acquireRunOwnership();
+      const releaseRun = await beginRun();
+      if (!releaseRun) { webview.postMessage({ type: "session_busy" }); return; } // a save slipped in during the pre-run awaits
       try {
         // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
         // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
@@ -1032,6 +1341,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Same re-entrancy guard as start_session: a stale retry must not queue behind the held run
       // and then re-issue the last turn after it finishes (register #1). retry() re-enters run().
       if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      if (saveInFlight) { webview.postMessage({ type: "session_busy" }); return; } // a save's add -A must not race this run
       // Manual retry after a transport failure (the webview's Retry button).
       // Re-run the auth gate with a forced refresh first: an expired token is
       // itself one of the failure modes a long session can die on.
@@ -1045,7 +1355,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Same acquire step as start_session: retry() re-enters run() which takes the port,
       // so it must also drain the device queue first (otherwise the lock is one-directional).
-      const releaseRun = await acquireRunOwnership();
+      const releaseRun = await beginRun();
+      if (!releaseRun) { webview.postMessage({ type: "session_busy" }); return; } // a save slipped in during the pre-run awaits
       try { await controller.retry(); }
       finally { releaseRun(); } // hold the port for the retried run, release at its terminal
     }
@@ -1263,6 +1574,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
       }
     }
+    if (message.type === "save_version_open") { await computeSaveVersionData(); return; }
+    if (message.type === "save_version_commit") { await doSaveVersionCommit(message.message); return; }
+    if (message.type === "save_version_snapshot") { await doSaveVersionSnapshot(); return; }
     if (message.type === "ui_prompt_response") {
       // Set the deploy port (if the response carries one) before resolving, so the
       // agent's first device tool always sees the chosen port — no select_device race.
