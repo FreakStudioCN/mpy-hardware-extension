@@ -269,7 +269,15 @@
           const when = s.date ? new Date(s.date).toLocaleString() : "";
           meta.textContent = s.finalPhase ? (when + " · " + s.finalPhase) : when;
           card.appendChild(title); card.appendChild(meta);
-          card.addEventListener("click", () => vscode.postMessage({ type: "restore_session", id: s.id }));
+          // A session with a saved snapshot RESTORES on click; a pre-Save-Version one has no snapshot,
+          // so it is view-only (mark it + open its log instead of a restore that would just fail).
+          if (s.restorable) {
+            card.addEventListener("click", () => vscode.postMessage({ type: "restore_session", id: s.id }));
+          } else {
+            const tag = document.createElement("span"); tag.className = "recent-viewonly"; tag.textContent = tr("recent_view_only");
+            card.appendChild(tag);
+            card.addEventListener("click", () => vscode.postMessage({ type: "open_path", path: s.path }));
+          }
           box.appendChild(card);
         }
       }

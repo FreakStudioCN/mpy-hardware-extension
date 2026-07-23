@@ -453,20 +453,28 @@ test("Recent Sessions opens the surface, lists host-served summaries, RESTORES t
   post(dom, {
     type: "recent_sessions",
     sessions: [
-      { id: "trace-a", date: "2026-07-07T10:00:00.000Z", intent: "blink an LED", finalPhase: "done", path: "/w/.mpyhw/sessions/trace-a/session.jsonl" },
-      { id: "trace-b", date: "2026-07-06T09:00:00.000Z", intent: "read a sensor", finalPhase: "cancelled", path: "/w/.mpyhw/sessions/trace-b/session.jsonl" },
+      { id: "trace-a", date: "2026-07-07T10:00:00.000Z", intent: "blink an LED", finalPhase: "done", path: "/w/.mpyhw/sessions/trace-a/session.jsonl", restorable: true },
+      { id: "trace-b", date: "2026-07-06T09:00:00.000Z", intent: "read a sensor", finalPhase: "cancelled", path: "/w/.mpyhw/sessions/trace-b/session.jsonl", restorable: false },
     ],
   });
   const cards = document.querySelectorAll("#recent .recent-card");
   assert.equal(cards.length, 2, "one card per session");
   assert.match((cards[0] as HTMLElement).textContent!, /blink an LED/, "shows the session intent");
   assert.equal(document.getElementById("recentEmpty")!.classList.contains("hidden"), true, "empty state hidden when sessions exist");
+  // A restorable session has no view-only marker; a pre-Save-Version one is marked view-only.
+  assert.equal(cards[0].querySelector(".recent-viewonly"), null, "a restorable session is not marked view-only");
+  assert.ok(cards[1].querySelector(".recent-viewonly"), "a snapshot-less session is marked view-only");
 
   posted.length = 0;
   (cards[0] as HTMLButtonElement).click();
   const restore = posted.find((m) => m.type === "restore_session");
-  assert.ok(restore, "clicking a session posts restore_session (restore-on-select, not view-log)");
-  assert.equal(restore.id, "trace-a", "restores that session by id");
+  assert.ok(restore && restore.id === "trace-a", "a restorable session restores on click (restore_session by id)");
+
+  posted.length = 0;
+  (cards[1] as HTMLButtonElement).click();
+  const view = posted.find((m) => m.type === "open_path");
+  assert.ok(view && /trace-b\/session\.jsonl$/.test(view.path), "a view-only session opens its log instead (no failed restore)");
+  assert.ok(!posted.some((m) => m.type === "restore_session"), "a view-only session does not attempt a restore");
 });
 
 test("Recent Sessions shows the empty state when the host returns none", async () => {

@@ -1,4 +1,5 @@
 import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { sessionEventToTelemetry } from "../core/telemetry.ts";
@@ -101,6 +102,7 @@ export type RecentSession = {
   intent: string;
   finalPhase: string; // session_finished terminal/state, or "" if still open/crashed
   path: string; // absolute path to the session.jsonl
+  restorable: boolean; // true when a checkpoints/snapshot.json exists — a pre-Save-Version session is view-only
 };
 
 function parseLine(line: string): Record<string, any> | null {
@@ -134,6 +136,7 @@ async function readSessionSummary(sessionsRoot: string, id: string): Promise<Rec
     intent: started?.intent ?? "",
     finalPhase: finished?.terminal ?? finished?.state ?? "",
     path,
+    restorable: existsSync(join(sessionsRoot, id, "checkpoints", "snapshot.json")),
   };
 }
 

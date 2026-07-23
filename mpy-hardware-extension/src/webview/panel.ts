@@ -741,7 +741,14 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     let snap: SessionSnapshot | null;
     try { snap = await readSessionSnapshot(sessionDir); }
     catch (error: any) { vscode.window?.showErrorMessage?.(`Restore failed: ${String(error?.message ?? error)}`); return; }
-    if (!snap) { vscode.window?.showInformationMessage?.("This session has no saved snapshot to restore (it predates Save Version)."); return; }
+    if (!snap) {
+      // No snapshot (a pre-Save-Version session, or one deleted since the list was built). Degrade to
+      // view-log: reveal the session.jsonl if it's there, so an old session isn't a dead end.
+      const log = join(sessionDir, "session.jsonl");
+      if (existsSync(log)) { try { await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(log)); } catch { /* headless host — ignore */ } }
+      vscode.window?.showInformationMessage?.("This session has no saved snapshot to restore (it predates Save Version) — showing its log instead.");
+      return;
+    }
     // Controller-side: seed state/board/preferences so a later save()/retry() operates on the restored
     // session. No run is started — this only loads the state.
     controller.seedFromSnapshot({
