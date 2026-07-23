@@ -1887,6 +1887,43 @@ test("Save Version panel renders save_version_data as color-coded letter badges 
   assert.equal(document.getElementById("svCommit")!.classList.contains("hidden"), false, "Commit button shown when a git commit is possible");
 });
 
+test("Save Version panel: the summary shows all 7 details — session state, artifact list, and diagnostics, not just files", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "save_version_data", canCommit: true, proposed: "blockless: led blink (generate)", stage: "phase: generate", note: "",
+    files: [{ id: "chg-0", name: "main.py", status: "modified", badge: "M" }],
+    session: { intent: "make the onboard led blink", phase: "generate", board: "ESP32-C6-DevKitC-1", mode: "beginner" },
+    artifacts: [{ path: "firmware/main.py", kind: "code", phase: "generate" }, { path: "project-manifest.json", kind: "manifest", phase: "generate" }],
+    artifactTotal: 5,
+    diagnostics: { activity: "generate_code", errors: "flake8 timed out", session_id: "session-abc" },
+  });
+  // Session/manifest state — the resume context, as key-value rows (not just the one-line stage).
+  const sess = document.getElementById("svSession")!;
+  assert.ok(!sess.classList.contains("hidden"), "session section shown");
+  const sessText = sess.textContent || "";
+  assert.ok(sessText.includes("make the onboard led blink") && sessText.includes("generate") && sessText.includes("ESP32-C6-DevKitC-1"), "session shows intent, phase, board");
+  // Key artifacts — an actual LIST, plus the true total in the summary (not just a count).
+  const arts = [...document.querySelectorAll("#svArtifacts .sv-art")];
+  assert.equal(arts.length, 2, "each supplied artifact is a row");
+  assert.equal(arts[0].querySelector(".sv-art-path")!.textContent, "firmware/main.py", "artifact path shown");
+  assert.ok((document.getElementById("svArtifactsSum")!.textContent || "").includes("5"), "summary carries the true total (5), not just the shown 2");
+  assert.ok(document.querySelector("#svArtifacts .sv-art-more"), "a '+N more' row when the total exceeds the shown rows");
+  // Diagnostics — key errors / recent activity / session id.
+  const diag = document.getElementById("svDiag")!;
+  assert.ok(!document.getElementById("svDiagWrap")!.classList.contains("hidden"), "diagnostics section shown");
+  assert.ok((diag.textContent || "").includes("flake8 timed out") && (diag.textContent || "").includes("generate_code"), "diagnostics shows errors + recent activity");
+});
+
+test("Save Version panel: summary sections stay hidden when the host sends no session/artifacts/diagnostics", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [{ id: "c0", name: "a.py", status: "modified", badge: "M" }] });
+  assert.ok(document.getElementById("svSession")!.classList.contains("hidden"), "empty session section hides itself");
+  assert.ok(document.getElementById("svDiagWrap")!.classList.contains("hidden"), "empty diagnostics section hides itself");
+  assert.ok(document.getElementById("svArtifactsWrap")!.classList.contains("hidden"), "zero-artifact section hides itself");
+});
+
 test("Save Version panel: a non-git summary disables Commit + forces the Snapshot pane", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

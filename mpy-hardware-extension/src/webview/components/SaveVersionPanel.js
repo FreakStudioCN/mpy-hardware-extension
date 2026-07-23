@@ -65,6 +65,51 @@
         vscode.postMessage({ type: "save_version_open" });
       }
 
+      // The rest of the §3.6.3 summary the card must cover, all from host-local data. A short
+      // always-shown session block + collapsible artifact/diagnostics sections. Every value goes
+      // in via textContent (host/plugin strings are never HTML); empty sections hide themselves.
+      function svKvRow(host, label, value) {
+        if (!value) return;
+        const row = document.createElement("div"); row.className = "sv-kv-row";
+        const k = document.createElement("span"); k.className = "sv-kv-k"; k.textContent = label;
+        const v = document.createElement("span"); v.className = "sv-kv-v"; v.textContent = String(value);
+        row.appendChild(k); row.appendChild(v); host.appendChild(row);
+      }
+      function svRenderSession(d) {
+        const s = (d && d.session) || {}; const host = $("svSession"); if (!host) return;
+        host.innerHTML = "";
+        svKvRow(host, tr("sv_kv_project"), s.intent);
+        svKvRow(host, tr("sv_kv_phase"), s.phase);
+        svKvRow(host, tr("sv_kv_board"), s.board);
+        svKvRow(host, tr("sv_kv_mode"), s.mode);
+        host.classList.toggle("hidden", host.childElementCount === 0);
+      }
+      function svRenderArtifacts(d) {
+        const arts = Array.isArray(d && d.artifacts) ? d.artifacts : [];
+        const total = (d && typeof d.artifactTotal === "number") ? d.artifactTotal : arts.length;
+        const wrap = $("svArtifactsWrap"); const sum = $("svArtifactsSum"); const list = $("svArtifacts");
+        if (!wrap || !sum || !list) return;
+        wrap.classList.toggle("hidden", total === 0);
+        sum.textContent = tr("sv_artifacts_n", { n: String(total) });
+        list.innerHTML = "";
+        for (const a of arts) {
+          const row = document.createElement("div"); row.className = "sv-art";
+          const kind = document.createElement("span"); kind.className = "sv-art-kind"; kind.textContent = (a && a.kind) ? String(a.kind) : "file";
+          const path = document.createElement("span"); path.className = "sv-art-path"; path.textContent = (a && a.path != null) ? String(a.path) : "";
+          row.appendChild(kind); row.appendChild(path); list.appendChild(row);
+        }
+        if (total > arts.length) { const more = document.createElement("div"); more.className = "sv-art-more"; more.textContent = tr("sv_artifacts_more", { n: String(total - arts.length) }); list.appendChild(more); }
+      }
+      function svRenderDiag(d) {
+        const g = (d && d.diagnostics) || {}; const wrap = $("svDiagWrap"); const host = $("svDiag"); if (!wrap || !host) return;
+        host.innerHTML = "";
+        svKvRow(host, tr("sv_diag_activity"), g.activity);
+        svKvRow(host, tr("sv_diag_errors"), g.errors);
+        svKvRow(host, tr("sv_diag_session"), g.session_id);
+        wrap.classList.toggle("hidden", host.childElementCount === 0);
+      }
+      function svRenderSummary(d) { svRenderSession(d); svRenderArtifacts(d); svRenderDiag(d); }
+
       // Host reply with the summary: render the file list (color-coded letter badges), prefill the
       // proposed message, and gate the Commit method on a git repo (else force Snapshot). Device-
       // supplied paths go in via textContent (never HTML).
@@ -76,6 +121,7 @@
         const note = $("svNote"); if (note) { note.textContent = d.note || ""; note.classList.toggle("hidden", !d.note); }
         const msg = $("svMsg"); if (msg) msg.value = d.proposed || "";
         svRenderFiles(d.files);
+        svRenderSummary(d);
         // Commit needs a git repo: disable that method + force Snapshot when there's none.
         const commitChip = $("svModeCommit"); if (commitChip) commitChip.disabled = !d.canCommit;
         svSetMode(d.canCommit ? svMode : "snapshot");

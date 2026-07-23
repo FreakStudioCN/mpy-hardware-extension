@@ -269,6 +269,18 @@
               <h4 data-i18n="sv_no_changes">No file changes</h4>
               <p data-i18n="sv_no_changes_p">Everything here is already saved.</p>
             </div>
+            <!-- The rest of the §3.6.3 save summary: resume/session state (always shown, short),
+                 phase-associated artifacts and diagnostics (collapsible, can be long). All filled
+                 from host-local data in svRenderSummary; empty sections hide themselves. -->
+            <div class="sv-section sv-kv" id="svSession"></div>
+            <details class="sv-section sv-details" id="svArtifactsWrap">
+              <summary class="sv-sum" id="svArtifactsSum"></summary>
+              <div class="sv-artifacts" id="svArtifacts"></div>
+            </details>
+            <details class="sv-section sv-details" id="svDiagWrap">
+              <summary class="sv-sum" data-i18n="sv_diag">Diagnostics</summary>
+              <div class="sv-kv" id="svDiag"></div>
+            </details>
             <!-- Save method: a segmented either/or (like the Beginner/Custom mode toggle). Commit
                  reveals the message box + Commit button; Snapshot reveals just a Save button. -->
             <div class="mode-toggle sv-mode" id="svMode" role="group" data-i18n-aria="sv_mode_group" aria-label="Save method">

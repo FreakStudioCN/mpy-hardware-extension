@@ -88,6 +88,7 @@ const SAVE_VERSION_STATUS = {
 // Keep the proposed commit summary to a readable one-liner (§C deterministic template).
 const SAVE_VERSION_INTENT_MAX = 60;
 const SAVE_VERSION_FILE_ITEMS_MAX = 50; // display-only file rows shown on the card
+const SAVE_VERSION_ARTIFACT_ITEMS_MAX = 20; // display-only artifact rows shown on the card
 
 // Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
 // timeout, never throws — a headless/missing tool yields "unknown".
@@ -547,6 +548,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       files: gitFiles.slice(0, SAVE_VERSION_FILE_ITEMS_MAX).map((line, i) => parseGitStatusRow(line, i)),
       stage: [diag.current_phase && `phase: ${diag.current_phase}`, diag.selected_board && `board: ${diag.selected_board}`, `${artifactIndex.length} artifact(s)`].filter(Boolean).join("  |  "),
       note: canCommit ? "" : (repoPresent ? "Git is unavailable — a session snapshot will be saved instead." : "Not a git repo — a session snapshot will be saved instead."),
+      // The rest of the §3.6.3 summary the card must cover: the resume/session state, the
+      // phase-associated artifacts (listed, not just counted), and the diagnostics — all
+      // read locally from the controller; nothing is sourced from the plugin.
+      session: {
+        intent: snap.state?.intent ?? "",
+        phase: (snap.state?.phase ?? snap.currentPhase) || "",
+        board: diag.selected_board || (snap.boardId && snap.boardId !== "auto" ? snap.boardId : ""),
+        mode: snap.preferences?.mode ?? "",
+      },
+      artifacts: artifactIndex.slice(0, SAVE_VERSION_ARTIFACT_ITEMS_MAX).map((a) => ({ path: a.relative_path, kind: a.kind, phase: a.phase })),
+      artifactTotal: artifactIndex.length,
+      diagnostics: { activity: diag.last_command || "", errors: diag.key_errors || "", session_id: diag.session_id || "" },
     });
   }
 

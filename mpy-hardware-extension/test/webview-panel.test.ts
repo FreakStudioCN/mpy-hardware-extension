@@ -2071,6 +2071,11 @@ test("save_version_open posts the summary with parsed file rows (status kind + l
     const f = (data.files as any[]).find((it) => it.name === "extra.txt");
     assert.ok(f && f.status === "new" && f.badge === "U", "an untracked file parses to status 'new' + badge 'U'");
     assert.ok(!(data.files as any[]).some((it) => String(it.name).startsWith("?? ")), "no path carries the raw XY porcelain code");
+    // The card must cover more than files (§3.6.3): the host also sends the resume/session
+    // state, the phase-associated artifacts (list + true total), and the diagnostics — all local.
+    assert.ok(data.session && typeof data.session === "object", "payload carries session/manifest state");
+    assert.ok(Array.isArray(data.artifacts) && typeof data.artifactTotal === "number", "payload carries the artifact list + total");
+    assert.ok(data.diagnostics && "session_id" in data.diagnostics, "payload carries diagnostics");
     // Opening alone writes nothing — no commit, no snapshot.
     assert.equal(findSnapshot(ws), null, "opening the panel writes no snapshot");
   } finally { rmSync(ws, { recursive: true, force: true }); }
