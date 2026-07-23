@@ -511,6 +511,34 @@ test("session-restore rich feed (Stage 1): restore_user is a user card, restore_
   assert.equal(feed().children.length, before, "a live status_update is still gated on running (no regression)");
 });
 
+test("session-restore inert cards (Stage 2): restore_prompt renders the REAL card disabled + answer, no device scan, and live prompts stay interactive", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  // A past PLAN prompt replays as the real plan card (not a one-line note), fully inert.
+  post(dom, { type: "restore_prompt", kind: "plan_proposed", payload: { promptId: "p1", plan: { summary: "Blink an LED", boardId: "esp32" } }, answer: "confirm" });
+  const planGo = feed().querySelector(".plan-go") as HTMLButtonElement | null;
+  assert.ok(planGo, "the real plan card renders (not a flat note line)");
+  assert.match(feed().textContent || "", /Blink an LED/, "the plan's own content is shown");
+  assert.ok([...feed().querySelectorAll("button, input, select, textarea")].every((el: any) => el.disabled), "every control is disabled — the card is inert");
+  assert.match(feed().textContent || "", /•\s*confirm/, "the answer it received is shown on the card");
+  assert.equal(feed().querySelector(".feed-pending"), null, "rendering an inert card never arms the working spinner");
+  // A past DEPLOY prompt must NOT trigger a live device scan (the guarded render-time side effect).
+  posted.length = 0;
+  post(dom, { type: "restore_prompt", kind: "deploy_proposed", payload: { promptId: "p2", manifest: {} }, answer: "confirm" });
+  assert.ok(!posted.some((m) => m.type === "deploy_rescan"), "an inert deploy card does not scan for devices");
+  // No regression: a LIVE plan prompt rendered afterwards is still interactive (inert mode is confined to replay).
+  post(dom, { type: "plan_needed", promptId: "p3", plan: { summary: "Live plan", boardId: "esp32" } });
+  const liveGo = [...feed().querySelectorAll(".plan-go")].pop() as HTMLButtonElement;
+  assert.equal(liveGo.disabled, false, "a live plan card is still clickable — inert mode is confined to the replay");
+  // Tighter leak check: a LIVE deploy card DOES scan for devices — proving `replaying` was reset to false
+  // after the inert renders (a leaked flag would suppress this exactly like the inert card above).
+  posted.length = 0;
+  post(dom, { type: "deploy_needed", promptId: "p4", manifest: {} });
+  assert.ok(posted.some((m) => m.type === "deploy_rescan"), "a live deploy card still scans — the replaying flag did not leak");
+});
+
 test("Recent Sessions shows the empty state when the host returns none", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

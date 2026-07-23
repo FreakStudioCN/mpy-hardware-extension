@@ -43,6 +43,9 @@
           if (msg.kind === "error") addActivity({ text: String(msg.text || "") }, "error");
           else addActivity({ type: "trace", text: String(msg.text || "") });
         }
+        // A past prompt replays as its REAL card, rendered inert (Stage 2): the recorded prompt payload +
+        // the answer it received. renderInertPrompt reuses the live renderer, disabled and answer-stamped.
+        if (msg.type === "restore_prompt") { renderInertPrompt(msg.kind, msg.payload, msg.answer); }
         if (msg.type === "restore_done") {
           const t = String(msg.terminal || "");
           if (t) { const label = tr("term_" + t); addActivity({ text: tr("session_ended", { t: label === "term_" + t ? t : label }) }); }

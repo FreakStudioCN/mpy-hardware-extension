@@ -756,16 +756,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
   }
 
-  // A short label for a recorded prompt, for the inert "asked -> answered" history line.
-  function restorePromptLabel(e: any): string {
-    if (e?.type === "ui_prompt") return String(e.question ?? "Question");
-    if (e?.type === "approval_requested") return String(e.card?.question ?? e.card?.header ?? "Approval");
-    if (e?.type === "plan_proposed") return "Plan proposed";
-    if (e?.type === "deploy_proposed") return "Deploy proposed";
-    if (e?.type === "components_proposed") return "Components proposed";
-    if (e?.type === "file_op_proposed") return `${String(e.op ?? "file op")} ${String(e.path ?? "")}`.trim();
-    return "Prompt";
-  }
+  // The recorded prompt event types that replay as inert cards on restore (Stage 2). Each maps to a live
+  // renderer in the webview (INERT_RENDERERS); the payload is the recorded event, the answer its ui_prompt_answer.
   const RESTORE_PROMPT_TYPES = new Set(["ui_prompt", "plan_proposed", "deploy_proposed", "components_proposed", "approval_requested", "file_op_proposed"]);
 
   // The newest N feed lines to replay on restore. A long session's transcript holds roughly one line per
@@ -795,7 +787,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (RESTORE_PROMPT_TYPES.has(e?.type)) {
       const a = answers.get(String(e.promptId));
       const answer = a == null ? "" : (typeof a === "string" ? a : JSON.stringify(a));
-      out.push({ type: "restore_note", text: `${restorePromptLabel(e)}${answer ? ` → ${answer}` : ""}` });
+      // Stage 2: replay the prompt as its REAL inert card (the recorded payload + the answer it got), not a
+      // one-line note. The webview reconstructs the card from the recorded event via the live renderer.
+      out.push({ type: "restore_prompt", kind: e.type, payload: e, answer });
     }
   }
 

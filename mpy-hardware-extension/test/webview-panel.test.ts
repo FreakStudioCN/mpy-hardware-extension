@@ -2180,8 +2180,8 @@ test("restore_session replays the durable activity feed: summaries + INERT promp
     await handler({ type: "restore_session", id: sid });
     assert.ok(posted.some((m) => m.type === "restore_reset"), "clears the view before replay");
     assert.ok(posted.some((m) => m.type === "summary" && /pin 4/.test(m.text)), "the AI summary is replayed");
-    const note = posted.find((m) => m.type === "restore_note");
-    assert.ok(note && /Which board\?/.test(note.text) && /ESP32-C6/.test(note.text), "a past prompt renders as an INERT asked -> answered line");
+    const prompt = posted.find((m) => m.type === "restore_prompt");
+    assert.ok(prompt && prompt.kind === "ui_prompt" && /Which board\?/.test(prompt.payload.question) && /ESP32-C6/.test(prompt.answer), "a past prompt replays as its INERT card carrying the answer it got");
     assert.ok(!posted.some((m) => m.type === "ui_prompt_needed" || m.type === "plan_needed" || m.type === "deploy_needed"), "no LIVE (clickable) prompt is re-created");
     assert.ok(!posted.some((m) => m.type === "trace_event"), "transient trace events are not replayed (not durable)");
     assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line is posted");
@@ -2189,9 +2189,9 @@ test("restore_session replays the durable activity feed: summaries + INERT promp
     // every replayed message or it erases the restore. Assert it precedes the feed AND the tab replays.
     const resetAt = posted.findIndex((m) => m.type === "restore_reset");
     const summaryAt = posted.findIndex((m) => m.type === "summary");
-    const noteAt = posted.findIndex((m) => m.type === "restore_note");
+    const promptAt = posted.findIndex((m) => m.type === "restore_prompt");
     const manifestAt = posted.findIndex((m) => m.type === "manifest_updated");
-    for (const [label, at] of [["summary", summaryAt], ["restore_note", noteAt], ["manifest_updated", manifestAt]] as const) {
+    for (const [label, at] of [["summary", summaryAt], ["restore_prompt", promptAt], ["manifest_updated", manifestAt]] as const) {
       assert.ok(at > resetAt, `restore_reset precedes ${label} (else it wipes the just-replayed content)`);
     }
   } finally { rmSync(ws, { recursive: true, force: true }); }
@@ -2230,7 +2230,7 @@ test("restore_session replays the RICH narration in file order via ungated messa
     assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "trace" && /Generating code/.test(m.text)), "a status update replays as a trace line");
     assert.ok(posted.some((m) => m.type === "summary" && /main\.py/.test(m.text)), "the phase_complete summary replays");
     assert.ok(posted.some((m) => m.type === "summary" && /Wiring notes/.test(m.text)), "an inline markdown artifact replays as a summary");
-    assert.ok(posted.some((m) => m.type === "restore_note" && /Which board\?/.test(m.text) && /ESP32-C6/.test(m.text)), "a past prompt is an inert asked -> answered line");
+    assert.ok(posted.some((m) => m.type === "restore_prompt" && m.kind === "ui_prompt" && /Which board\?/.test(m.payload.question) && /ESP32-C6/.test(m.answer)), "a past prompt replays as its inert card with the answer it got");
     assert.ok(posted.some((m) => m.type === "serial_output" && Array.isArray(m.lines) && m.lines.includes("LED on")), "serial output replays");
     assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "error" && /I2C read failed/.test(m.text)), "a real tool-failure reason replays as an error line");
     assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line is posted");

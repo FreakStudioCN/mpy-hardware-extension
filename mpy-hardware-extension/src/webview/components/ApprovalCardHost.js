@@ -154,6 +154,13 @@
         main.appendChild(section);
       }
 
+      // True only while a restored session's past prompts are being re-rendered as INERT cards (Stage 2).
+      // The renderers are reused verbatim so the cards look exactly like they did live; this flag suppresses
+      // ONLY their render-time host side effects (device rescans / owning currentDeployCard), which must not
+      // fire for a historical, non-interactive card. It is false during every live run, so live behavior is
+      // provably unchanged. finalizeInertCard then disables the card and shows the answer it got.
+      let replaying = false;
+
       function addApprovalPrompt(promptId, card) {
         finalizeThinking();
         clearPending();
@@ -254,7 +261,7 @@
           rescan.addEventListener("click", () => { flashStatusEl.textContent = tr("detecting_board"); vscode.postMessage({ type: "deploy_rescan" }); });
           pick.appendChild(rescan);
           main.appendChild(pick);
-          currentDeployCard = { setPorts: setFlashPorts };
+          if (!replaying) currentDeployCard = { setPorts: setFlashPorts }; // an inert historical card never owns port updates
         }
         const btnRow = document.createElement("div"); btnRow.className = "ask-options";
         let answered = false;
@@ -291,8 +298,9 @@
         });
         main.appendChild(btnRow); head.appendChild(main); wrap.appendChild(head); el.appendChild(wrap);
         $("activity").appendChild(el);
-        // Kick off the initial port scan for the flash picker (mirrors addDeployPrompt).
-        if (isFlashConfirm) vscode.postMessage({ type: "deploy_rescan" });
+        // Kick off the initial port scan for the flash picker (mirrors addDeployPrompt). Skipped on replay:
+        // a restored historical card must not trigger a live device scan.
+        if (isFlashConfirm && !replaying) vscode.postMessage({ type: "deploy_rescan" });
       }
 
       // status_update -> a timeline trace line.
@@ -604,7 +612,7 @@
         card.querySelector(".deploy-rescan").addEventListener("click", () => { statusEl.textContent = tr("detecting_board"); vscode.postMessage({ type: "deploy_rescan" }); });
         // Updated by deploy_ports_updated: no board -> Deploy stays disabled; one
         // board -> auto-selected; several -> the user picks one before deploying.
-        currentDeployCard = {
+        const deployController = {
           setPorts: (ports) => {
             ports = Array.isArray(ports) ? ports : [];
             portsEl.innerHTML = "";
@@ -632,6 +640,39 @@
             goBtn.disabled = selectedPort == null;
           },
         };
+        if (!replaying) currentDeployCard = deployController; // an inert historical card never owns port updates
         $("activity").appendChild(card);
-        vscode.postMessage({ type: "deploy_rescan" });
+        if (!replaying) vscode.postMessage({ type: "deploy_rescan" }); // no live device scan for a restored card
+      }
+
+      // ----- Stage 2: replay a past prompt as its REAL card, rendered INERT -----
+      // Reuse the exact live renderer (so the historical card looks identical), then disable every control and
+      // show the answer it received. `replaying` suppresses the renderers' device-scan side effects above.
+      const INERT_RENDERERS = {
+        ui_prompt: (p) => addAskPrompt(p.promptId, p.question, p.options, p.optionsRequiringText, p.textPlaceholder),
+        plan_proposed: (p) => addPlanPrompt(p.promptId, p.plan),
+        deploy_proposed: (p) => addDeployPrompt(p.promptId, p.manifest),
+        components_proposed: (p) => addComponentPrompt(p.promptId, p.devices),
+        approval_requested: (p) => addApprovalPrompt(p.promptId, p.card),
+        file_op_proposed: (p) => addFileOpPrompt(p.promptId, p.op, p.path),
+      };
+      // Neutralize the card the renderer just appended: disable every input/button and append the recorded
+      // answer as a "• answer" line (matching the live lock() style), so it reads as answered, not clickable.
+      function finalizeInertCard(answer) {
+        const card = $("activity").lastElementChild;
+        if (!card) return;
+        card.classList.add("restore-inert");
+        card.querySelectorAll("input, button, select, textarea").forEach((el) => { el.disabled = true; });
+        if (answer) {
+          const a = document.createElement("div"); a.className = "ask-answer restore-answer";
+          a.textContent = "• " + String(answer);
+          (card.querySelector(".ev-main") || card).appendChild(a);
+        }
+      }
+      function renderInertPrompt(kind, payload, answer) {
+        const render = Object.prototype.hasOwnProperty.call(INERT_RENDERERS, kind) ? INERT_RENDERERS[kind] : null;
+        if (!render) { addActivity({ text: String(answer || "") }, "note"); return; } // unknown type: fall back to a note line
+        replaying = true;
+        try { render(payload || {}); finalizeInertCard(answer); }
+        finally { replaying = false; }
       }
