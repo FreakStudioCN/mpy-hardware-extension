@@ -44,6 +44,8 @@ export interface SnapshotInput {
   preferences: { mode?: string; locale?: string; existing_hardware?: string } | undefined;
   manifest: unknown;                     // enriched wiring-bearing manifest
   diagram: unknown;                      // authored diagram, or null (session restore derives a fallback)
+  optionalNextPhases: Array<{ phase?: string; reason?: string }>; // wiring/diagram flows a successful generate offered
+  generatePhaseComplete: unknown;        // the upstream generate phase_complete an optional-flow re-run needs, or null
   credits: { balance?: number; dailyGrant?: number; resetsAt?: string; capturedAt?: string } | null;
   diagnostics: Record<string, string>;
   artifacts: SnapshotArtifact[];
@@ -61,6 +63,7 @@ export interface SessionSnapshot {
   preferences: { mode: string; locale: string; existing_hardware: string };
   manifest: unknown;
   diagram: unknown;
+  optional_flows: { offered: Array<{ phase?: string; reason?: string }>; generate_phase_complete: unknown };
   artifacts: SnapshotArtifact[];
   credits: { balance: number; daily_grant: number; resets_at: string; captured_at: string } | null;
   diagnostics: { selected_board: string; key_errors: string; recent_activity: string; last_command: string };
@@ -109,6 +112,10 @@ export function buildSessionSnapshot(input: SnapshotInput): SessionSnapshot {
     },
     manifest: input.manifest ?? null,
     diagram: input.diagram ?? null,
+    optional_flows: {
+      offered: Array.isArray(input.optionalNextPhases) ? input.optionalNextPhases : [],
+      generate_phase_complete: input.generatePhaseComplete ?? null,
+    },
     artifacts: input.artifacts,
     credits: input.credits
       ? {

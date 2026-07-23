@@ -192,6 +192,8 @@ test("seedFromSnapshot restores state/board/preferences without running, and ref
     boardId: "esp32", preSelectedBoard: { id: "esp32" }, boardSelectionMode: "recommend",
     preferences: { mode: "beginner", locale: "en" }, currentPhase: "generate",
     manifest: { m: 1 }, diagram: { nodes: ["a"] },
+    optionalNextPhases: [{ phase: "upy-diagram-plugin" }],
+    generatePhaseComplete: { type: "phase_complete", payload: { result: "success" } },
   });
   assert.equal(ok, true, "seed succeeds when idle");
   const snap = controller.getSnapshotState();
@@ -199,6 +201,10 @@ test("seedFromSnapshot restores state/board/preferences without running, and ref
   assert.equal(snap.boardId, "esp32", "board restored");
   assert.equal(snap.currentPhase, "generate", "phase restored");
   assert.deepEqual(snap.diagram, { nodes: ["a"] }, "diagram carried for a re-save");
+  // The optional-flow offers + upstream generate result are restored, so a restored session can re-run
+  // wiring/diagram: the host gate reads getOptionalNextPhases + the wrapped upstream generate result.
+  assert.deepEqual(controller.getOptionalNextPhases(), [{ phase: "upy-diagram-plugin" }], "optional-flow offers restored");
+  assert.deepEqual(controller.getLatestGeneratePhaseComplete(), { type: "phase_complete", payload: { result: "success" } }, "upstream generate restored so a re-run has a valid source");
   assert.equal(controller.hasSnapshotState(), true, "a restored session is itself re-savable");
 
   // The restored session adopts ITS OWN id + terminal, so a post-restore Save Version writes into that

@@ -27,6 +27,8 @@ function fullInput(): SnapshotInput {
     preferences: { mode: "beginner", locale: "en", existing_hardware: "none" },
     manifest: { devices: [{ id: "dht22", wiring: { pin: 4 } }] },
     diagram: { nodes: 3 },
+    optionalNextPhases: [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }],
+    generatePhaseComplete: { type: "phase_complete", payload: { phase: "generate", result: "success" } },
     credits: { balance: 42, dailyGrant: 100, resetsAt: "2026-07-23T00:00:00Z", capturedAt: "2026-07-22T01:59:00Z" },
     diagnostics: { selected_board: "ESP32-C6-DevKitC-1", key_errors: "", recent_activity: "generate; deploy", last_command: "deploy" },
     artifacts: [
@@ -47,6 +49,9 @@ test("buildSessionSnapshot: every session-restore field is present and carries t
   assert.deepEqual(snap.preferences, { mode: "beginner", locale: "en", existing_hardware: "none" });
   assert.equal(snap.credits?.balance, 42, "credits captured (advisory)");
   assert.equal(snap.artifacts[0].relative_path, "blockless-project/main.py", "code captured by reference");
+  // Optional flows: the offered set + the upstream generate result a restored session re-runs against.
+  assert.deepEqual(snap.optional_flows.offered, [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }]);
+  assert.equal((snap.optional_flows.generate_phase_complete as any)?.payload?.result, "success", "upstream generate persisted");
   // Restore entry (the acceptance field session restore invokes).
   assert.deepEqual(snap.restore, { mechanism: "startPhase", phase: "generate", board_id: "ESP32_GENERIC_C6" });
 });
@@ -56,10 +61,11 @@ test("buildSessionSnapshot: missing pieces are explicit nulls/empties, never dro
     traceId: null, savedAt: "2026-07-22T02:00:00.000Z", currentPhase: null, terminal: null,
     state: undefined, boardId: null, preSelectedBoard: undefined, boardSelectionMode: undefined,
     preferences: undefined, manifest: undefined, diagram: undefined, credits: null,
+    optionalNextPhases: [], generatePhaseComplete: null,
     diagnostics: {}, artifacts: [], git: null,
   });
   // Keys exist with explicit empty/null so session restore can rely on the shape.
-  for (const key of ["stage", "state", "board", "preferences", "manifest", "diagram", "credits", "diagnostics", "artifacts", "git", "restore"]) {
+  for (const key of ["stage", "state", "board", "preferences", "manifest", "diagram", "optional_flows", "credits", "diagnostics", "artifacts", "git", "restore"]) {
     assert.ok(key in snap, `key ${key} present`);
   }
   assert.equal(snap.credits, null);
@@ -80,6 +86,7 @@ test("buildSessionSnapshot: JSON round-trips losslessly over a sweep of inputs â
     traceId: null, savedAt: "2026-07-22T02:00:00.000Z", currentPhase: null, terminal: null,
     state: undefined, boardId: null, preSelectedBoard: undefined, boardSelectionMode: undefined,
     preferences: undefined, manifest: undefined, diagram: undefined, credits: null,
+    optionalNextPhases: [], generatePhaseComplete: null,
     diagnostics: {}, artifacts: [], git: null,
   };
   const inputs: SnapshotInput[] = [

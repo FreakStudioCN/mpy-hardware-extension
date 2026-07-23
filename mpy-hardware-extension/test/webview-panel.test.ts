@@ -2074,6 +2074,8 @@ test("restore_session rehydrates the tabs from a saved snapshot (wiring/diagram/
       boardId: "esp32", preSelectedBoard: { id: "esp32", display_name: "ESP32" }, boardSelectionMode: "recommend",
       preferences: { mode: "beginner", locale: "en", existing_hardware: "none" },
       manifest: { devices: [{ pin: 1 }] }, diagram: { nodes: ["led"] }, credits: null, diagnostics: {},
+      optionalNextPhases: [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }],
+      generatePhaseComplete: { type: "phase_complete", payload: { phase: "generate", result: "success" } },
       artifacts: [{ relative_path: "blockless-project/main.py", kind: "code", role: "", phase: "generate", size: codeBytes.length, sha256: createHash("sha256").update(codeBytes).digest("hex"), created_at: "2026-07-23T00:00:00.000Z" }],
       git: null,
     });
@@ -2082,11 +2084,36 @@ test("restore_session rehydrates the tabs from a saved snapshot (wiring/diagram/
     await handler({ type: "restore_session", id: sid });
     assert.ok(posted.some((m) => m.type === "manifest_updated"), "wiring/manifest replayed");
     assert.ok(posted.some((m) => m.type === "diagram_updated"), "diagram replayed");
+    // The Wiring tab's optional-flow buttons come back: restore re-offers the flows a successful generate exposed.
+    const flows = posted.find((m) => m.type === "optional_flows");
+    assert.ok(flows && flows.phases.some((p: any) => p.phase === "upy-diagram-plugin"), "the Generate diagram/wiring buttons are re-offered on restore");
     const code = posted.find((m) => m.type === "code_updated");
     assert.ok(code && /restored/.test(code.code), "code content replayed from disk after sha256 verify");
     // D1: the artifacts tab is rehydrated from the restored session's tree (the file on disk).
     assert.ok(posted.some((m) => m.type === "artifacts_index" && (m.artifacts || []).some((a: any) => /main\.py/.test(a.relative_path))), "artifacts tab rehydrated for the restored session");
     assert.ok(infos.some((m) => /Restored/.test(m)), "a restore confirmation is shown");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session derives the Diagram tab from the manifest when the snapshot has no authored diagram", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-derive-1";
+    // A saved session with a device-bearing manifest but NO authored diagram (the common case: the
+    // authored diagram is almost always null). Live derives the diagram from the manifest; restore must too.
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: {}, phase: "generate", intent: "read temp" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { mcu: { board_name: "ESP32" }, devices: [{ id: "aht20", interface: "I2C" }] },
+      diagram: null, optionalNextPhases: [], generatePhaseComplete: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    const diagram = posted.find((m) => m.type === "diagram_updated");
+    assert.ok(diagram, "the Diagram tab is populated even without an authored diagram");
+    assert.ok(diagram.diagram?.architecture?.layers?.length > 0, "the diagram is derived from the manifest's devices (not empty)");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
@@ -2100,7 +2127,7 @@ test("restore_session skips a code file whose on-disk sha256 no longer matches t
     const snap = buildSessionSnapshot({
       traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: null,
       state: { manifest: {}, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
-      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {},
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null,
       artifacts: [{ relative_path: "blockless-project/main.py", kind: "code", role: "", phase: "generate", size: 10, sha256: "0".repeat(64), created_at: "2026-07-23T00:00:00.000Z" }],
       git: null,
     });
@@ -2141,7 +2168,7 @@ test("restore_session refetches the LIVE credit balance (the snapshot's credits 
     const snap = buildSessionSnapshot({
       traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: null, terminal: null,
       state: { manifest: {}, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
-      preferences: undefined, manifest: {}, diagram: null,
+      preferences: undefined, manifest: {}, diagram: null, optionalNextPhases: [], generatePhaseComplete: null,
       credits: { balance: 1, dailyGrant: 1, resetsAt: "stale", capturedAt: "stale" }, diagnostics: {}, artifacts: [], git: null,
     });
     await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
@@ -2173,7 +2200,7 @@ test("restore_session replays the durable activity feed: summaries + INERT promp
     const snap = buildSessionSnapshot({
       traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
       state: { manifest: {}, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
-      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
     });
     await writeSessionSnapshot(sessionDir, snap);
     posted.length = 0;
@@ -2220,7 +2247,7 @@ test("restore_session replays the RICH narration in file order via ungated messa
     const snap = buildSessionSnapshot({
       traceId: sid, savedAt: "2026-07-24T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
       state: { manifest: {}, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
-      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
     });
     await writeSessionSnapshot(sessionDir, snap);
     posted.length = 0;
@@ -2270,7 +2297,7 @@ test("Save Version after a restore targets the RESTORED session's dir (adopts it
     const snap = buildSessionSnapshot({
       traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
       state: { manifest: { m: 1 }, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
-      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
     });
     await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
     await handler({ type: "restore_session", id: sid });
@@ -2296,7 +2323,7 @@ test("restore ignores a traversal trace_id in the snapshot content (a later Save
     const snap = buildSessionSnapshot({
       traceId: evilTraceId, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
       state: { manifest: { m: 1 }, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
-      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
     });
     await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), snap);
     await handler({ type: "restore_session", id: dirId });
@@ -2318,7 +2345,7 @@ test("restore ignores a NON-STRING trace_id in the snapshot content (no path.joi
     const snap: any = buildSessionSnapshot({
       traceId: "session-ok-1", savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
       state: { manifest: { m: 1 }, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
-      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
     });
     snap.trace_id = ["session-abc-def"]; // an array whose String() coercion would pass the id regex, then throw in path.join
     await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), snap);

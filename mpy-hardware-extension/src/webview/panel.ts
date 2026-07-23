@@ -11,6 +11,7 @@ import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
+import { deriveDiagram } from "../core/diagram-derive.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
 import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
@@ -727,6 +728,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       preferences: snap.preferences,
       manifest: controller.getLatestManifest() ?? null,
       diagram: snap.diagram ?? null,
+      optionalNextPhases: snap.optionalNextPhases,
+      generatePhaseComplete: snap.generatePhaseComplete,
       credits: snap.credits,
       diagnostics: {
         selected_board: diag.selected_board ?? "",
@@ -857,6 +860,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         terminal: snap.stage?.terminal || null,
         manifest: snap.manifest ?? undefined,
         diagram: snap.diagram ?? undefined,
+        optionalNextPhases: Array.isArray(snap.optional_flows?.offered) ? snap.optional_flows.offered : undefined,
+        generatePhaseComplete: snap.optional_flows?.generate_phase_complete ?? undefined,
       });
       if (!seeded) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
       // Clear the current view, then replay the durable activity feed from the transcript (D4). Done
@@ -865,7 +870,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       replaySessionFeed(sessionDir);
       // Webview-side: replay the tabs (the inverse of clearConversation) — wiring, diagram, code.
       if (snap.manifest) webview.postMessage({ type: "manifest_updated", manifest: snap.manifest });
+      // Diagram tab: an authored diagram wins; otherwise derive it from the manifest exactly as a live
+      // session does (postEvent's manifest_updated branch), so a saved session with a manifest never
+      // restores to an empty Diagram tab (the snapshot's authored diagram is almost always null).
       if (snap.diagram) webview.postMessage({ type: "diagram_updated", diagram: snap.diagram });
+      else if (snap.manifest) webview.postMessage({ type: "diagram_updated", diagram: deriveDiagram(snap.manifest) });
+      // Wiring tab: re-offer the wiring/diagram optional flows a successful generate exposed, so the
+      // "Generate diagram" buttons come back. seedFromSnapshot already restored the offers + upstream
+      // generate result these flows run against, so the buttons are functional, not just visible.
+      const offeredFlows = Array.isArray(snap.optional_flows?.offered) ? snap.optional_flows.offered : [];
+      if (offeredFlows.length) webview.postMessage({ type: "optional_flows", phases: offeredFlows });
       // Code cards: replay each code artifact's on-disk content, but VERIFY its digest against the snapshot
       // first — never replay a file whose sha256 no longer matches (the snapshot's integrity guarantee).
       for (const a of Array.isArray(snap.artifacts) ? snap.artifacts : []) {

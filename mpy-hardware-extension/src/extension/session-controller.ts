@@ -925,6 +925,8 @@ export class SessionController {
     traceId: string | null;
     terminal: string | null;
     diagram: unknown;
+    optionalNextPhases: Array<{ phase?: string; reason?: string }>;
+    generatePhaseComplete: unknown;
     credits: { balance?: number; dailyGrant?: number; resetsAt?: string; capturedAt?: string } | null;
   } {
     return {
@@ -937,6 +939,8 @@ export class SessionController {
       traceId: this.traceId,
       terminal: this.lastTerminal,
       diagram: this.latestDiagram,
+      optionalNextPhases: this.optionalNextPhases,
+      generatePhaseComplete: this.latestGeneratePhaseComplete,
       credits: this.lastCredits,
     };
   }
@@ -961,6 +965,8 @@ export class SessionController {
     terminal?: string | null;
     manifest?: unknown;
     diagram?: unknown;
+    optionalNextPhases?: Array<{ phase?: string; reason?: string }>;
+    generatePhaseComplete?: unknown;
   }): boolean {
     if (this.abort) return false; // a run owns the state — never clobber a live session
     this.clearSessionState(); // start from a clean session — no residue from a prior run/restore (#28)
@@ -974,6 +980,10 @@ export class SessionController {
     this.lastTerminal = seed.terminal ?? null; // so a re-save carries the restored terminal, not null
     if (seed.manifest !== undefined) this.latestManifest = seed.manifest;
     if (seed.diagram !== undefined) this.latestDiagram = seed.diagram;
+    // Restore the optional-flow offers + the upstream generate result they run against, so a restored
+    // session can re-run wiring/diagram (the host gate reads getOptionalNextPhases + the wrapped upstream).
+    if (Array.isArray(seed.optionalNextPhases)) this.optionalNextPhases = seed.optionalNextPhases;
+    if (seed.generatePhaseComplete !== undefined) this.latestGeneratePhaseComplete = seed.generatePhaseComplete;
     return true;
   }
 
