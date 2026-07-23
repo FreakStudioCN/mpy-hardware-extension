@@ -522,7 +522,8 @@ test("session-restore inert cards (Stage 2): restore_prompt renders the REAL car
   assert.ok(planGo, "the real plan card renders (not a flat note line)");
   assert.match(feed().textContent || "", /Blink an LED/, "the plan's own content is shown");
   assert.ok([...feed().querySelectorAll("button, input, select, textarea")].every((el: any) => el.disabled), "every control is disabled — the card is inert");
-  assert.match(feed().textContent || "", /•\s*confirm/, "the answer it received is shown on the card");
+  assert.ok(planGo!.classList.contains("chosen"), "the chosen button (Confirm) is highlighted to show what was selected");
+  assert.equal((feed().querySelector(".plan-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked button is not highlighted");
   assert.equal(feed().querySelector(".feed-pending"), null, "rendering an inert card never arms the working spinner");
   // A past DEPLOY prompt must NOT trigger a live device scan (the guarded render-time side effect).
   posted.length = 0;

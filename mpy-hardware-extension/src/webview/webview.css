@@ -277,6 +277,9 @@
       .ask-opt:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); }
       .ask-opt.chosen { background: var(--accent); color: #fff; border-color: var(--accent); }
       .ask-opt:disabled { opacity: .5; cursor: default; }
+      /* On a restored (inert) card, keep the chosen button bright while the unpicked ones dim — so the card
+         reads at a glance as "this is what was selected", without a separate answer line. */
+      .restore-inert .ask-opt.chosen:disabled { opacity: 1; }
       /* Approval-card body (summary/steps/guidance/links) + grouped item sections. */
       .ask-kv { margin-top: 8px; font-size: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 7px 9px; }
       .ask-kv-row { margin-top: 3px; line-height: 1.45; overflow-wrap: anywhere; }

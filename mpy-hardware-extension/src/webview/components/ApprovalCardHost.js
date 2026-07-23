@@ -291,6 +291,7 @@
           const answer = (a && a.value != null) ? String(a.value) : (a && a.id != null) ? String(a.id) : "confirm";
           const b = document.createElement("button"); b.className = "ask-opt" + (a && a.primary ? " primary" : "");
           b.textContent = (a && a.label != null) ? String(a.label) : answer;
+          b.dataset.answer = answer; // so an inert restore can highlight the button that was chosen
           // Gate Start Flashing on a chosen port; setFlashPorts enables it once one is picked.
           if (isFlashConfirm && answer === FLASH_ACTION) { flashBtn = b; b.disabled = true; }
           b.addEventListener("click", () => respond(answer));
@@ -347,8 +348,8 @@
           '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_confirm") + '</span></div>' +
           '<div class="ev-sum fileop-q"></div>' +
           '<div class="ask-options">' +
-            '<button class="ask-opt fileop-proceed" type="button"></button>' +
-            '<button class="ask-opt fileop-ignore" type="button"></button>' +
+            '<button class="ask-opt fileop-proceed" type="button" data-answer="proceed"></button>' +
+            '<button class="ask-opt fileop-ignore" type="button" data-answer="ignore"></button>' +
           '</div></div></div></div>';
         // textContent for the question (carries the file path) and the labels — never innerHTML.
         card.querySelector(".fileop-q").textContent = question;
@@ -438,6 +439,7 @@
         for (const opt of opts) {
           const b = document.createElement("button");
           b.className = "ask-opt"; b.type = "button"; b.textContent = String(opt);
+          b.dataset.answer = String(opt); // so an inert restore can highlight the chosen option
           b.addEventListener("click", () => pickOption(opt));
           optHost.appendChild(b);
         }
@@ -465,7 +467,7 @@
           '<div class="ev-sum">' + tr("comp_intro") + '</div>' +
           '<div class="ask-options comp-options"></div>' +
           '<div class="ask-row"><input class="ask-input comp-add" type="text" placeholder="' + tr("comp_add_ph") + '"></div>' +
-          '<div class="ask-options"><button class="ask-opt comp-go" type="button">' + tr("comp_confirm") + '</button><button class="ask-opt comp-cancel" type="button">' + tr("cancel") + '</button></div>' +
+          '<div class="ask-options"><button class="ask-opt comp-go" type="button" data-answer="confirm">' + tr("comp_confirm") + '</button><button class="ask-opt comp-cancel" type="button" data-answer="cancel">' + tr("cancel") + '</button></div>' +
           "</div></div></div>";
         const optHost = card.querySelector(".comp-options");
         const selected = new Set();
@@ -514,8 +516,8 @@
           '<div class="ev-sum plan-summary"></div>' +
           '<ul class="plan-list"></ul>' +
           '<div class="plan-cost"></div>' +
-          '<div class="ask-row"><input class="ask-input plan-revise" type="text" placeholder="' + tr("plan_revise_ph") + '"><button class="ask-send plan-edit" type="button">' + tr("revise") + '</button></div>' +
-          '<div class="ask-options"><button class="ask-opt plan-go" type="button">' + tr("confirm_generate") + '</button><button class="ask-opt plan-cancel" type="button">' + tr("cancel") + '</button></div>' +
+          '<div class="ask-row"><input class="ask-input plan-revise" type="text" placeholder="' + tr("plan_revise_ph") + '"><button class="ask-send plan-edit" type="button" data-answer="revise">' + tr("revise") + '</button></div>' +
+          '<div class="ask-options"><button class="ask-opt plan-go" type="button" data-answer="confirm">' + tr("confirm_generate") + '</button><button class="ask-opt plan-cancel" type="button" data-answer="cancel">' + tr("cancel") + '</button></div>' +
           "</div></div></div>";
         // Model-written narrative (optional), rendered above the structured rows.
         const summaryEl = card.querySelector(".plan-summary");
@@ -586,8 +588,8 @@
           '<div class="deploy-wiring"></div>' +
           '<div class="deploy-status">' + tr("detecting_board") + '</div>' +
           '<div class="deploy-ports"></div>' +
-          '<div class="deploy-actions"><button class="ask-opt deploy-go" type="button" disabled>' + tr("deploy") + '</button>' +
-          '<div class="deploy-secondary"><button class="ask-opt deploy-rescan" type="button">' + tr("rescan") + '</button><button class="ask-opt deploy-cancel" type="button">' + tr("cancel") + '</button></div></div>' +
+          '<div class="deploy-actions"><button class="ask-opt deploy-go" type="button" data-answer="confirm" disabled>' + tr("deploy") + '</button>' +
+          '<div class="deploy-secondary"><button class="ask-opt deploy-rescan" type="button">' + tr("rescan") + '</button><button class="ask-opt deploy-cancel" type="button" data-answer="cancel">' + tr("cancel") + '</button></div></div>' +
           "</div></div></div>";
         const wiring = wiringMarkup(manifest);
         if (wiring) card.querySelector(".deploy-wiring").innerHTML = wiring;
@@ -656,18 +658,26 @@
         approval_requested: (p) => addApprovalPrompt(p.promptId, p.card),
         file_op_proposed: (p) => addFileOpPrompt(p.promptId, p.op, p.path),
       };
-      // Neutralize the card the renderer just appended: disable every input/button and append the recorded
-      // answer as a "• answer" line (matching the live lock() style), so it reads as answered, not clickable.
+      // Neutralize the card the renderer just appended: disable every input/button, then SHOW what was chosen
+      // by highlighting the button that was clicked (accent .chosen, kept bright while the rest dim). A button
+      // carries its answer value in data-answer; an option button also matches by its own label. Only when no
+      // button matches (a free-text answer) do we fall back to a "• answer" line.
       function finalizeInertCard(answer) {
         const card = $("activity").lastElementChild;
         if (!card) return;
         card.classList.add("restore-inert");
         card.querySelectorAll("input, button, select, textarea").forEach((el) => { el.disabled = true; });
-        if (answer) {
-          const a = document.createElement("div"); a.className = "ask-answer restore-answer";
-          a.textContent = "• " + String(answer);
-          (card.querySelector(".ev-main") || card).appendChild(a);
-        }
+        const ans = answer == null ? "" : String(answer);
+        if (!ans) return;
+        let chosen = null;
+        card.querySelectorAll("button").forEach((b) => {
+          if (chosen) return;
+          if (b.dataset.answer === ans || (b.textContent || "").trim() === ans) chosen = b;
+        });
+        if (chosen) { chosen.classList.add("chosen"); return; }
+        const a = document.createElement("div"); a.className = "ask-answer restore-answer";
+        a.textContent = "• " + ans; // free-text (or otherwise unmatched) answer: show it as a line
+        (card.querySelector(".ev-main") || card).appendChild(a);
       }
       function renderInertPrompt(kind, payload, answer) {
         const render = Object.prototype.hasOwnProperty.call(INERT_RENDERERS, kind) ? INERT_RENDERERS[kind] : null;
