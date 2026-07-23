@@ -14,7 +14,7 @@
 
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -53,7 +53,11 @@ async function git(projectFolder: string, args: string[]): Promise<{ stdout: str
     return await execFileAsync("git", ["-C", projectFolder, "-c", "core.quotepath=false", ...args], {
       windowsHide: true,
       timeout: GIT_TIMEOUT_MS,
-      env: { ...process.env, LC_ALL: "C" },
+      // GIT_CEILING_DIRECTORIES pins the repo search to projectFolder: git stops its upward walk
+      // at the parent, so if .git vanishes mid-sequence (between isGitRepo and a later add/commit)
+      // git resolves to "not a repository" instead of climbing to the user's OWN workspace repo
+      // and committing there — the exact escape the detect-only design exists to prevent.
+      env: { ...process.env, LC_ALL: "C", GIT_CEILING_DIRECTORIES: dirname(projectFolder) },
     });
   } catch (error: any) {
     if (error?.code === "ENOENT") {
@@ -64,7 +68,12 @@ async function git(projectFolder: string, args: string[]): Promise<{ stdout: str
     // stdout must be included or the caller can't tell nothing-to-commit from a real failure.
     const stderr = typeof error?.stderr === "string" ? error.stderr.trim() : "";
     const stdout = typeof error?.stdout === "string" ? error.stdout.trim() : "";
-    throw new Error(stderr || stdout || error?.message || "git command failed");
+    const wrapped: any = new Error(stderr || stdout || error?.message || "git command failed");
+    // Preserve git's numeric exit code so a caller can tell an EXPECTED nonzero (e.g. `diff
+    // --cached --quiet` exit 1 = "staged changes exist") from a real failure (exit >=2, or a
+    // timeout kill where code is null). Without this the taxonomy misreads every failure as "1".
+    wrapped.exitCode = typeof error?.code === "number" ? error.code : null;
+    throw wrapped;
   }
 }
 
@@ -84,7 +93,11 @@ export async function gitHasStagedChanges(projectFolder: string): Promise<boolea
     return false; // exit 0 => index clean
   } catch (error: any) {
     if (error instanceof GitUnavailableError) throw error;
-    return true; // exit 1 => staged changes exist
+    // ONLY exit 1 means "staged changes exist". Any other failure (exit >=2, a timeout kill with
+    // exitCode null) is a real error — surface it, or gitCommit would skip `add -A` on a false
+    // "already staged" and then commit an empty index while the tree is still dirty.
+    if (error?.exitCode === 1) return true;
+    throw error;
   }
 }
 

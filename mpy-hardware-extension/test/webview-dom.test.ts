@@ -2710,9 +2710,10 @@ test("Save Version panel: commit/snapshot buttons post their acts, and save_vers
   (document.getElementById("svCommit") as HTMLButtonElement).click();
   const commit = posted.find((m) => m.type === "save_version_commit");
   assert.ok(commit && commit.message === "my message", "Commit posts save_version_commit with the edited message");
-  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "", "the message box is cleared on Commit click");
+  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "my message", "the box is NOT cleared on click — only on a successful commit, so a failed act keeps it for retry");
   // The result renders in the panel's own status line, and NOT in the Activity feed.
   post(dom, { type: "save_version_status", status: "saved_commit", hash: "abcdef1234", files: [] });
+  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "", "a successful commit clears the box");
   assert.match(document.getElementById("svStatus")!.textContent || "", /abcdef12/, "the commit result shows in the panel status");
   assert.doesNotMatch(document.getElementById("activity")!.textContent || "", /abcdef12/, "the save result does NOT land in the build/Activity feed");
   // Toggle to the Snapshot method, then its Save button posts the snapshot act.
@@ -2720,6 +2721,24 @@ test("Save Version panel: commit/snapshot buttons post their acts, and save_vers
   (document.getElementById("svModeSnapshot") as HTMLButtonElement).click();
   (document.getElementById("svSnapshot") as HTMLButtonElement).click();
   assert.ok(posted.some((m) => m.type === "save_version_snapshot"), "Save Snapshot posts save_version_snapshot");
+});
+
+test("Save Version panel: a FAILED commit retains the typed message for retry (cleared only on success)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "blockless: x", stage: "s", note: "", files: [] });
+  const box = document.getElementById("svMsg") as HTMLInputElement;
+  box.value = "test: a message I do not want to lose";
+  (document.getElementById("svCommit") as HTMLButtonElement).click();
+  // The host reports the commit failed (index.lock contention / a gpgsign hang). The typed message
+  // MUST survive: a retry has to re-send it, not silently commit the generic fallback template.
+  post(dom, { type: "save_version_status", status: "git_commit_failed", error: "index.lock" });
+  assert.equal(box.value, "test: a message I do not want to lose", "a failed commit keeps the message for retry");
+  assert.ok((document.getElementById("svStatus")!.textContent || "").length > 0, "the failure is shown inline");
+  assert.equal((document.getElementById("svCommit") as HTMLButtonElement).disabled, false, "the Commit button is re-enabled so the retry is possible");
+  // The retry finally succeeds → only now is the box cleared.
+  post(dom, { type: "save_version_status", status: "saved_commit", hash: "abc1234", files: [] });
+  assert.equal(box.value, "", "the box clears once the commit actually succeeds");
 });
 
 test("Save Version panel: a saved_commit status refreshes the file list to the post-commit truth", async () => {

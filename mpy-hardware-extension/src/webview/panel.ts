@@ -52,10 +52,15 @@ async function ensureProjectGitRepo(projectFolder?: string, log?: (message: stri
 }
 
 async function ensureGitConfig(projectFolder: string, key: string, value: string) {
+  // Pin the repo search to projectFolder: `git config` walks UP to find the repo, so if .git
+  // vanished between the caller's existsSync check and this write, the value would land in a
+  // PARENT repo's .git/config. GIT_CEILING_DIRECTORIES stops the walk at the parent (mirrors the
+  // pin in project-git.ts's git()).
+  const opts = { windowsHide: true, env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(projectFolder) } };
   try {
-    await execFileAsync("git", ["-C", projectFolder, "config", "--get", key], { windowsHide: true });
+    await execFileAsync("git", ["-C", projectFolder, "config", "--get", key], opts);
   } catch {
-    await execFileAsync("git", ["-C", projectFolder, "config", key, value], { windowsHide: true });
+    await execFileAsync("git", ["-C", projectFolder, "config", key, value], opts);
   }
 }
 
@@ -89,6 +94,10 @@ const SAVE_VERSION_STATUS = {
 const SAVE_VERSION_INTENT_MAX = 60;
 const SAVE_VERSION_FILE_ITEMS_MAX = 50; // display-only file rows shown on the card
 const SAVE_VERSION_ARTIFACT_ITEMS_MAX = 20; // display-only artifact rows shown on the card
+// Detail shown when a flow run (gen-driver / optional-flow) is refused because a run or a save is
+// active. Posted via the flow-specific status so the trigger button restores (message-bus.js
+// restores those buttons only on their own status, never on bare session_busy).
+const RUN_BUSY_DETAIL = "A build is already running — try again once it finishes.";
 
 // Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
 // timeout, never throws — a headless/missing tool yields "unknown".
@@ -234,10 +243,27 @@ export function parseGitStatusRow(line: string, index: number): { id: string; na
   return { id: `chg-${index}`, name: path, status, badge };
 }
 
+// The session snapshot is written to checkpoints/snapshot.json, which the session-tree scan then
+// indexes. Left in, the NEXT save's artifacts[] would list the PREVIOUS snapshot.json with the
+// sha of the file this write is about to replace — a guaranteed sha256 mismatch for #88's
+// replay-verify. Exclude the snapshot's own path so it never self-references. (It stays browsable
+// in the display index — this only shapes the persisted, integrity-checked artifacts[].)
+const SNAPSHOT_SELF_PATH_SUFFIX = "checkpoints/snapshot.json";
+
+// Segment-anchored: matches the session snapshot ".mpyhw/sessions/<id>/checkpoints/snapshot.json"
+// (always preceded by "/") and a bare "checkpoints/snapshot.json", but NOT a lookalike segment like
+// "mycheckpoints/snapshot.json". Residual: a user file at "<project>/checkpoints/snapshot.json"
+// would also match and be dropped from the persisted artifacts[] — an accepted ceiling (the display
+// index is unaffected, and that exact path under a generated project is not a real artifact).
+export function isSnapshotSelfPath(relativePath: string): boolean {
+  const norm = relativePath.replace(/\\/g, "/");
+  return norm === SNAPSHOT_SELF_PATH_SUFFIX || norm.endsWith("/" + SNAPSHOT_SELF_PATH_SUFFIX);
+}
+
 // Project the host artifact index into the portable snapshot rows (§4.2): relative_path only,
 // NO absolute_path. sha256 lets #88 verify integrity before replaying code from disk.
 function toSnapshotArtifacts(index: Artifact[]): SnapshotArtifact[] {
-  return index.map((a) => ({
+  return index.filter((a) => !isSnapshotSelfPath(a.relative_path)).map((a) => ({
     relative_path: a.relative_path,
     kind: a.kind,
     role: a.role,
@@ -522,12 +548,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // act re-checks isRunning() at act time (a busy gate is not a lock — a build may have started
   // while the panel was open).
   let saveInFlight = false;
+  // True from the moment beginRun() commits a build to running until that run releases. isRunning()
+  // alone is not enough: start_gen_driver/start_optional_flow do async work (source staging /
+  // phase-complete write) between beginRun() and controller.startPhase() flipping isRunning(), so a
+  // save arriving in that window would pass the isRunning() gate and race the starting run's writes.
+  // saveVersionContext refuses on runPending, closing that window for every entry point.
+  let runPending = false;
 
   // Gather the save summary the panel renders (changed files parsed to friendly status, the
   // proposed commit message, whether a git commit is possible, a stage line). Posts a status
   // instead when a run is active / no workspace / nothing to save.
   async function computeSaveVersionData(): Promise<void> {
-    if (controller.isRunning()) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.busy }); return; }
+    if (controller.isRunning() || runPending) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.busy }); return; }
     if (!projectFolder && !sessionRoot) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.workspaceUnavailable }); return; }
     // Detect-only git probe: a .git present AND git on PATH enables the commit action.
     const repoPresent = !!projectFolder && isGitRepo(projectFolder);
@@ -547,7 +579,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       proposed: buildCommitMessage(snap.state?.intent, snap.currentPhase, snap.boardId),
       files: gitFiles.slice(0, SAVE_VERSION_FILE_ITEMS_MAX).map((line, i) => parseGitStatusRow(line, i)),
       stage: [diag.current_phase && `phase: ${diag.current_phase}`, diag.selected_board && `board: ${diag.selected_board}`, `${artifactIndex.length} artifact(s)`].filter(Boolean).join("  |  "),
-      note: canCommit ? "" : (repoPresent ? "Git is unavailable — a session snapshot will be saved instead." : "Not a git repo — a session snapshot will be saved instead."),
+      // repoPresent-but-!canCommit covers BOTH a missing git binary AND a git status that failed
+      // (e.g. a corrupt repo) — so the note names the outcome ("commit unavailable"), not a cause
+      // it can't distinguish here.
+      note: canCommit ? "" : (repoPresent ? "Git commit is unavailable — a session snapshot will be saved instead." : "Not a git repo — a session snapshot will be saved instead."),
       // The rest of the §3.6.3 summary the card must cover: the resume/session state, the
       // phase-associated artifacts (listed, not just counted), and the diagnostics — all
       // read locally from the controller; nothing is sourced from the plugin.
@@ -566,7 +601,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Fresh-state gate shared by the two acts: re-checks isRunning() at act time and re-reads the
   // controller state + session dir. Returns null (and posts busy) when a run is active.
   function saveVersionContext(): { snap: ReturnType<typeof controller.getSnapshotState>; diag: Record<string, string>; sessionDir?: string } | null {
-    if (controller.isRunning()) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.busy }); return null; }
+    // runPending as well as isRunning(): a build that has acquired the run but not yet flipped
+    // isRunning() (mid staging / phase-complete write) must still block the save, or its add -A
+    // races the build's writes.
+    if (controller.isRunning() || runPending) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.busy }); return null; }
     const diag = controller.getDiagnostics();
     const sessionId = diag.session_id;
     return { snap: controller.getSnapshotState(), diag, sessionDir: sessionRoot && sessionId ? join(sessionRoot, ".mpyhw", "sessions", sessionId) : undefined };
@@ -755,6 +793,25 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // enforced only in start() lets a retry flash over a tool (e.g. a slow mip install) that
   // still holds the port.
   const acquireRunOwnership = () => deviceQueue.acquire();
+
+  // Every build entry point (start_session / retry_session / start_gen_driver / start_optional_flow)
+  // acquires the run through here. Besides the entry's synchronous saveInFlight fast-fail, re-check
+  // AFTER the queue is held: a Save Version act can begin during the entry's pre-run awaits
+  // (checkProtocolVersion / auth.getToken / ensureProjectGitRepo), and its `add -A` would then race
+  // the run about to start. saveInFlight is set synchronously by the save acts, and controller.run()
+  // flips isRunning() synchronously before its first await, so this post-acquire point is the
+  // airtight barrier — a build that finds a save in flight releases the queue and bails as busy.
+  async function beginRun(): Promise<(() => void) | null> {
+    const release = await acquireRunOwnership();
+    // A Save Version act may have started during the entry's pre-run awaits (protocol / auth /
+    // ensureGitRepo) — refuse the run so its add -A can't race the save. The caller posts the
+    // entry-appropriate busy status (session_busy vs the flow-specific status) on this null.
+    if (saveInFlight) { release(); return null; }
+    // Commit this run: block saves until it releases (covers the post-acquire async gap before
+    // isRunning() flips). The wrapped release clears the flag in the caller's finally.
+    runPending = true;
+    return () => { runPending = false; release(); };
+  }
 
   // Upload: pick a local file, write it to the current device dir under its basename.
   // The read + write run INSIDE runDeviceTool so a read failure surfaces as device_tool_error
@@ -949,9 +1006,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         webview.postMessage({ type: "gen_driver_status", status: "failed", detail: "Open a workspace folder to generate a driver." });
         return;
       }
-      // Reject a re-entrant run at the entry point (register #1/#16), then gate protocol + auth exactly
-      // like start_session before taking the port.
-      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      // Reject a re-entrant run OR a run during a save (register #1/#16), posting the flow-specific
+      // status so the gen-driver button un-sticks; then gate protocol + auth like start_session.
+      if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "gen_driver_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; }
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
@@ -971,7 +1028,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // see the cold-driver devices even if the run streams a thin manifest_content (preserveManifest
       // keeps latestManifest from being clobbered by that thin manifest during the excursion).
       const manifestSnapshot = controller.getLatestManifest();
-      const releaseRun = await acquireRunOwnership();
+      const releaseRun = await beginRun();
+      if (!releaseRun) { webview.postMessage({ type: "gen_driver_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; } // a save slipped in during the pre-run awaits
       try {
         snapshotExistingPaths(projectFolder, preExistingPaths);
         // Stage picked files under projectFolder (containment-reachable), sha256-verified.
@@ -1020,7 +1078,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: "Open a workspace folder to run this flow." });
         return;
       }
-      if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      // Post the flow-specific status (not bare session_busy) so the optional-flow button un-sticks.
+      if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: RUN_BUSY_DETAIL }); return; }
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
@@ -1036,7 +1095,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
       }
       await ensureProjectGitRepo(projectFolder, deps.log);
-      const releaseRun = await acquireRunOwnership();
+      const releaseRun = await beginRun();
+      if (!releaseRun) { webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: RUN_BUSY_DETAIL }); return; } // a save slipped in during the pre-run awaits
       try {
         snapshotExistingPaths(projectFolder, preExistingPaths);
         const sessionId = randomUUID();
@@ -1173,6 +1233,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // finally clears controller.abort — the reject-while-busy guard in controller.start() would be
       // dead by then. The queue lock only orders legitimate owners.
       if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      // A Save Version act (commit/snapshot) is a sub-second host round-trip that does `add -A`.
+      // Refuse to start a build while one is in flight so the commit can't capture half-written
+      // build output, and the build can't race the index — the save clears saveInFlight in finally.
+      if (saveInFlight) { webview.postMessage({ type: "session_busy" }); return; }
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
@@ -1207,7 +1271,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Serial-port lock (spec §41), other direction: wait for any in-flight device-tool
       // command (e.g. a slow mip install) to finish before the run takes the port, so a
       // flash/deploy never competes with a user device command.
-      const releaseRun = await acquireRunOwnership();
+      const releaseRun = await beginRun();
+      if (!releaseRun) { webview.postMessage({ type: "session_busy" }); return; } // a save slipped in during the pre-run awaits
       try {
         // Snapshot the user's pre-build files BEFORE the loop writes anything, so the
         // overwrite/delete gate (deliverables 07 §4) only prompts for these — never for the
@@ -1227,6 +1292,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Same re-entrancy guard as start_session: a stale retry must not queue behind the held run
       // and then re-issue the last turn after it finishes (register #1). retry() re-enters run().
       if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }
+      if (saveInFlight) { webview.postMessage({ type: "session_busy" }); return; } // a save's add -A must not race this run
       // Manual retry after a transport failure (the webview's Retry button).
       // Re-run the auth gate with a forced refresh first: an expired token is
       // itself one of the failure modes a long session can die on.
@@ -1240,7 +1306,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Same acquire step as start_session: retry() re-enters run() which takes the port,
       // so it must also drain the device queue first (otherwise the lock is one-directional).
-      const releaseRun = await acquireRunOwnership();
+      const releaseRun = await beginRun();
+      if (!releaseRun) { webview.postMessage({ type: "session_busy" }); return; } // a save slipped in during the pre-run awaits
       try { await controller.retry(); }
       finally { releaseRun(); } // hold the port for the retried run, release at its terminal
     }

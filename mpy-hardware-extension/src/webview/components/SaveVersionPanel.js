@@ -144,7 +144,10 @@
         // Act results: keep the form and show an inline status. A commit refreshes the file list to
         // the post-commit truth the host re-read; snapshot leaves git untouched, so its list stays.
         svUnblock();
-        if (status === "saved_commit" && s && s.files) svRenderFiles(s.files);
+        if (status === "saved_commit") {
+          const msg = $("svMsg"); if (msg) msg.value = ""; // clear ONLY on a successful commit; a failed act keeps the typed message for retry
+          if (s && s.files) svRenderFiles(s.files);
+        }
         const text = status === "saved_commit" ? tr("sv_saved_commit", { hash: String((s && s.hash) || "").slice(0, 8) })
           : status === "saved_snapshot" ? tr("sv_saved_snapshot")
           : status === "nothing_to_commit" ? tr("sv_nothing_to_commit")
@@ -161,7 +164,9 @@
           svBusy = true; svSetButtons(true); svStatusMsg(tr("sv_saving"));
           const msg = $("svMsg");
           vscode.postMessage({ type: "save_version_commit", message: msg ? msg.value : "" });
-          if (msg) msg.value = ""; // clear the box on commit (the host falls back to the proposed message)
+          // Do NOT clear the box here: if the commit FAILS (index.lock contention, gpgsign hang),
+          // the user's typed message must survive for a retry. It's cleared in onSaveVersionStatus
+          // only on saved_commit — otherwise a retry silently commits the generic template instead.
         });
         $("svSnapshot").addEventListener("click", () => {
           if (svBusy) return;
