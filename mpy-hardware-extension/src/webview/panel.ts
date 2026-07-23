@@ -824,8 +824,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // becomes a path segment in the Save Version write dir + the artifact walk. Shape-guard it HERE, at
         // the point it enters controller state, so a malicious `"../../evil"` can't escape the sessions root
         // downstream (#11: guard a value before it's joined into a path — the trusted producer is createTraceId,
-        // this is the untrusted second one). Invalid -> null: the restored session just isn't re-savable.
-        traceId: isSessionId(String(snap.trace_id ?? "")) ? snap.trace_id : null,
+        // this is the untrusted second one). Check the TYPE first and adopt the SAME value: coercing to a
+        // string to validate but adopting the raw one would let `["session-x-1"]` pass the regex and then throw
+        // in path.join mid-restore. Non-string or non-conforming -> null: the restored session isn't re-savable.
+        traceId: typeof snap.trace_id === "string" && isSessionId(snap.trace_id) ? snap.trace_id : null,
         state: snap.state,
         boardId: snap.board?.board_id || null,
         preSelectedBoard: snap.board?.pre_selected_board ?? undefined,

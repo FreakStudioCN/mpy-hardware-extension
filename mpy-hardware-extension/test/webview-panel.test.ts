@@ -2257,6 +2257,29 @@ test("restore ignores a traversal trace_id in the snapshot content (a later Save
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
+test("restore ignores a NON-STRING trace_id in the snapshot content (no path.join crash mid-restore)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    const dirId = "session-nonstr-1";
+    const snap: any = buildSessionSnapshot({
+      traceId: "session-ok-1", savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    snap.trace_id = ["session-abc-def"]; // an array whose String() coercion would pass the id regex, then throw in path.join
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), snap);
+    // The restore must COMPLETE, not throw: a raw non-string adopted into traceId would TypeError in the
+    // artifact walk AFTER the feed was already cleared. No rejection here == no mid-restore crash.
+    await handler({ type: "restore_session", id: dirId });
+    assert.ok(infos.some((m) => /Restored/.test(m)), "the restore completes (does not crash on a non-string trace_id)");
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "nothing_to_save", "the non-string trace_id is rejected (not adopted), so the session is not re-savable");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 // ----- Save Version (#95) real-git panel tests -----
 // Drive a template-mode session so the controller has state + the project folder is a real
 // git repo (ensureProjectGitRepo runs on start_session). Reuses the file's jsonResponse/
