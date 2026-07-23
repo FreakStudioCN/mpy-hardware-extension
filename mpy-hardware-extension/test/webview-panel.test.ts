@@ -2073,9 +2073,11 @@ test("save_version_open posts the summary with parsed file rows (status kind + l
     assert.ok(!(data.files as any[]).some((it) => String(it.name).startsWith("?? ")), "no path carries the raw XY porcelain code");
     // The card must cover more than files (§3.6.3): the host also sends the resume/session
     // state, the phase-associated artifacts (list + true total), and the diagnostics — all local.
-    assert.ok(data.session && typeof data.session === "object", "payload carries session/manifest state");
+    // Assert the exact subfield keys the webview reads, not just container shape — a host-side
+    // rename would otherwise render an empty row while both tests stay green (contract drift).
+    assert.ok(data.session && "intent" in data.session && "phase" in data.session && "board" in data.session && "mode" in data.session, "session carries the fields the panel renders");
     assert.ok(Array.isArray(data.artifacts) && typeof data.artifactTotal === "number", "payload carries the artifact list + total");
-    assert.ok(data.diagnostics && "session_id" in data.diagnostics, "payload carries diagnostics");
+    assert.ok(data.diagnostics && "activity" in data.diagnostics && "errors" in data.diagnostics && "session_id" in data.diagnostics, "diagnostics carries the fields the panel renders");
     // Opening alone writes nothing — no commit, no snapshot.
     assert.equal(findSnapshot(ws), null, "opening the panel writes no snapshot");
   } finally { rmSync(ws, { recursive: true, force: true }); }

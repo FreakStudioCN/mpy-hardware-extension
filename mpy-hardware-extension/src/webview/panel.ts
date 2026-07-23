@@ -559,7 +559,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       },
       artifacts: artifactIndex.slice(0, SAVE_VERSION_ARTIFACT_ITEMS_MAX).map((a) => ({ path: a.relative_path, kind: a.kind, phase: a.phase })),
       artifactTotal: artifactIndex.length,
-      diagnostics: { activity: diag.last_command || "", errors: diag.key_errors || "", session_id: diag.session_id || "" },
+      diagnostics: { activity: diag.recent_activity || diag.last_command || "", errors: diag.key_errors || "", session_id: diag.session_id || "" },
     });
   }
 

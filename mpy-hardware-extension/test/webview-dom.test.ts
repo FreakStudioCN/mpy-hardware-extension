@@ -1907,6 +1907,7 @@ test("Save Version panel: the summary shows all 7 details — session state, art
   const arts = [...document.querySelectorAll("#svArtifacts .sv-art")];
   assert.equal(arts.length, 2, "each supplied artifact is a row");
   assert.equal(arts[0].querySelector(".sv-art-path")!.textContent, "firmware/main.py", "artifact path shown");
+  assert.equal(arts[0].querySelector(".sv-art-phase")!.textContent, "generate", "artifact's producing phase shown (phase-associated per §3.6.3)");
   assert.ok((document.getElementById("svArtifactsSum")!.textContent || "").includes("5"), "summary carries the true total (5), not just the shown 2");
   assert.ok(document.querySelector("#svArtifacts .sv-art-more"), "a '+N more' row when the total exceeds the shown rows");
   // Diagnostics — key errors / recent activity / session id.

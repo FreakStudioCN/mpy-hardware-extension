@@ -96,7 +96,10 @@
           const row = document.createElement("div"); row.className = "sv-art";
           const kind = document.createElement("span"); kind.className = "sv-art-kind"; kind.textContent = (a && a.kind) ? String(a.kind) : "file";
           const path = document.createElement("span"); path.className = "sv-art-path"; path.textContent = (a && a.path != null) ? String(a.path) : "";
-          row.appendChild(kind); row.appendChild(path); list.appendChild(row);
+          row.appendChild(kind); row.appendChild(path);
+          const ph = (a && a.phase) ? String(a.phase) : "";
+          if (ph) { const p = document.createElement("span"); p.className = "sv-art-phase"; p.textContent = ph; row.appendChild(p); }
+          list.appendChild(row);
         }
         if (total > arts.length) { const more = document.createElement("div"); more.className = "sv-art-more"; more.textContent = tr("sv_artifacts_more", { n: String(total - arts.length) }); list.appendChild(more); }
       }

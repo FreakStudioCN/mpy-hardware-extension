@@ -326,6 +326,7 @@
       .sv-art { display: flex; gap: 8px; font-size: 12px; padding: 1px 0; }
       .sv-art-kind { flex: none; color: var(--vscode-descriptionForeground, #8b949e); }
       .sv-art-path { font-family: var(--vscode-editor-font-family, monospace); overflow-wrap: anywhere; }
+      .sv-art-phase { flex: none; margin-left: auto; font-size: 11px; opacity: .6; }
       .sv-art-more { font-size: 11px; opacity: .7; margin-top: 2px; }
       /* Deploy checkpoint: device-pick chips above a divider, then a primary Deploy
          (full-width) over a secondary Rescan/Cancel row — keeps selection and actions
