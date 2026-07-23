@@ -2723,6 +2723,34 @@ test("Save Version panel: commit/snapshot buttons post their acts, and save_vers
   assert.ok(posted.some((m) => m.type === "save_version_snapshot"), "Save Snapshot posts save_version_snapshot");
 });
 
+test("Save Version panel: staged marker, commit-mode note, and a '+N more' row when the file list is capped", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", commitMode: "staged", fileTotal: 53, files: [
+    { id: "chg-0", name: "a.py", status: "modified", badge: "M", staged: true },
+    { id: "chg-1", name: "b.py", status: "new", badge: "U", staged: false },
+  ] });
+  const rows = [...document.querySelectorAll("#svFiles .ask-file")];
+  assert.equal(rows.length, 2, "the two shown rows render");
+  assert.ok(rows[0].querySelector(".sv-file-staged-tag"), "the staged file carries a staged marker");
+  assert.equal(rows[1].querySelector(".sv-file-staged-tag"), null, "the unstaged file has no marker");
+  const more = document.querySelector("#svFiles .sv-art-more");
+  assert.ok(more && /51/.test(more.textContent || ""), "a '+N more' row surfaces the 51 files beyond the shown 2 (add -A commits them all)");
+  const mode = document.getElementById("svCommitMode")!;
+  assert.equal(mode.classList.contains("hidden"), false, "the commit-mode note is shown");
+  assert.ok((mode.textContent || "").length > 0, "and names the mode (staged-only)");
+});
+
+test("Save Version panel: an in_flight status keeps buttons disabled + an inline notice, not a full-view block", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [] });
+  post(dom, { type: "save_version_status", status: "in_flight" });
+  assert.equal((document.getElementById("svCommit") as HTMLButtonElement).disabled, true, "commit stays disabled while a save is already in flight");
+  assert.equal(document.getElementById("svBlocked")!.classList.contains("hidden"), true, "it does NOT take over the whole view (it isn't a build-busy block)");
+  assert.ok((document.getElementById("svStatus")!.textContent || "").length > 0, "an inline notice is shown instead of dropping the click");
+});
+
 test("Save Version panel: a FAILED commit retains the typed message for retry (cleared only on success)", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

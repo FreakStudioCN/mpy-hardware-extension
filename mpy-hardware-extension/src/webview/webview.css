@@ -300,6 +300,7 @@
       .ask-file { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-size: 12px; }
       .ask-file-badge { flex: none; width: 16px; text-align: center; border: 1px solid currentColor; border-radius: 3px; padding: 1px 0; font-size: 10px; font-weight: 600; text-transform: uppercase; opacity: .95; }
       .ask-file-path { font-family: var(--vscode-editor-font-family, monospace); word-break: break-all; }
+      .sv-file-staged-tag { flex: none; margin-left: auto; font-size: 10px; opacity: .6; text-transform: uppercase; letter-spacing: .04em; }
       .ask-file-badge-new, .ask-file-badge-added { color: var(--vscode-gitDecoration-untrackedResourceForeground, #3fb950); }
       .ask-file-badge-modified { color: var(--vscode-gitDecoration-modifiedResourceForeground, #d29922); }
       .ask-file-badge-deleted { color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149); }

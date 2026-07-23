@@ -105,10 +105,21 @@ export async function gitHasStagedChanges(projectFolder: string): Promise<boolea
 // user's staging intent is preserved, unstaged files stay untouched). When the index is clean,
 // `add -A` first (the "save everything" product action). Returns the new HEAD hash.
 export async function gitCommit(projectFolder: string, message: string): Promise<string> {
-  if (!(await gitHasStagedChanges(projectFolder))) {
-    await git(projectFolder, ["add", "-A"]);
+  try {
+    if (!(await gitHasStagedChanges(projectFolder))) {
+      await git(projectFolder, ["add", "-A"]);
+    }
+    await git(projectFolder, ["commit", "-m", message]);
+  } catch (error: any) {
+    if (error instanceof GitUnavailableError) throw error;
+    // A timed-out / killed git (GIT_TIMEOUT_MS) can strand .git/index.lock; every later commit then
+    // fails with an opaque "Unable to create '.../index.lock'". Surface an actionable message (don't
+    // auto-delete the lock — a genuinely concurrent git may hold it) instead of the raw error.
+    if (existsSync(join(projectFolder, ".git", "index.lock"))) {
+      throw new Error(`git index is locked (.git/index.lock exists, likely from an interrupted git command) — remove that file and retry. Original error: ${String(error?.message ?? error)}`);
+    }
+    throw error;
   }
-  await git(projectFolder, ["commit", "-m", message]);
   return gitHeadHash(projectFolder);
 }
 

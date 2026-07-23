@@ -89,6 +89,7 @@ const SAVE_VERSION_STATUS = {
   commitFailed: "git_commit_failed",
   snapshotWriteFailed: "snapshot_write_failed",
   workspaceUnavailable: "workspace_unavailable",
+  inFlight: "in_flight", // a second act arrived while one is already saving (e.g. a re-opened panel)
 } as const;
 // Keep the proposed commit summary to a readable one-liner (§C deterministic template).
 const SAVE_VERSION_INTENT_MAX = 60;
@@ -230,9 +231,12 @@ function buildCommitMessage(intent: string | undefined, phase: string | null, bo
 // a friendly status kind (drives the color-coded badge in the webview) + the clean path with the
 // XY code stripped. Checks the most specific code first; XY is index+worktree, so a mixed code like
 // "MM"/"AM" maps to its most salient action.
-export function parseGitStatusRow(line: string, index: number): { id: string; name: string; status: string; badge: string } {
+export function parseGitStatusRow(line: string, index: number): { id: string; name: string; status: string; badge: string; staged: boolean } {
   const code = line.slice(0, 2);
   const path = line.slice(3).trim() || line.trim();
+  // The index (first) column is set for a STAGED change; " " means worktree-only (unstaged) and "?" is
+  // untracked. Drives the staged marker so the card can show which files the commit will actually take.
+  const staged = code[0] !== " " && code[0] !== "?";
   // status = color-class kind; badge = the compact VS Code SCM letter (U/A/M/D/R).
   const [status, badge] = code.includes("?") ? ["new", "U"]
     : code.includes("D") ? ["deleted", "D"]
@@ -240,7 +244,20 @@ export function parseGitStatusRow(line: string, index: number): { id: string; na
     : code.includes("A") ? ["added", "A"]
     : code.includes("M") ? ["modified", "M"]
     : ["changed", "•"];
-  return { id: `chg-${index}`, name: path, status, badge };
+  return { id: `chg-${index}`, name: path, status, badge, staged };
+}
+
+// One source of truth for the Save Version file summary — used by BOTH the open summary and the
+// post-commit refresh, so the two never drift (the post-commit path was the un-fixed sibling of the
+// display cap). Capped display rows, the true total (the commit spans all of them), and the mode the
+// commit will use: staged-only when the index has staged changes, else add -A.
+function summarizeGitStatus(porcelain: string[]): { files: ReturnType<typeof parseGitStatusRow>[]; fileTotal: number; commitMode: "staged" | "all" } {
+  const rows = porcelain.map((line, i) => parseGitStatusRow(line, i));
+  return {
+    files: rows.slice(0, SAVE_VERSION_FILE_ITEMS_MAX),
+    fileTotal: rows.length,
+    commitMode: rows.some((r) => r.staged) ? "staged" : "all",
+  };
 }
 
 // The session snapshot is written to checkpoints/snapshot.json, which the session-tree scan then
@@ -591,11 +608,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     refreshArtifacts();
     const snap = controller.getSnapshotState();
     const diag = controller.getDiagnostics();
+    // Capped rows + the true total (the commit spans all of them) + the mode the commit will use.
+    const summary = summarizeGitStatus(gitFiles);
     webview.postMessage({
       type: "save_version_data",
       canCommit,
       proposed: buildCommitMessage(snap.state?.intent, snap.currentPhase, snap.boardId),
-      files: gitFiles.slice(0, SAVE_VERSION_FILE_ITEMS_MAX).map((line, i) => parseGitStatusRow(line, i)),
+      files: summary.files,
+      fileTotal: summary.fileTotal,
+      commitMode: canCommit ? summary.commitMode : "", // no commit mode when there's no repo (snapshot path)
       stage: [diag.current_phase && `phase: ${diag.current_phase}`, diag.selected_board && `board: ${diag.selected_board}`, `${artifactIndex.length} artifact(s)`].filter(Boolean).join("  |  "),
       // repoPresent-but-!canCommit covers BOTH a missing git binary AND a git status that failed
       // (e.g. a corrupt repo) — so the note names the outcome ("commit unavailable"), not a cause
@@ -629,7 +650,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   }
 
   async function doSaveVersionCommit(rawMessage: unknown): Promise<void> {
-    if (saveInFlight) return;
+    if (saveInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
     saveInFlight = true;
     try {
       const ctx = saveVersionContext(); if (!ctx) return;
@@ -658,15 +679,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // add -A ("save everything"), or the remaining unstaged files after a staged-only commit --
       // not the just-committed files as if they were still pending. Best-effort; the commit stands
       // regardless.
-      let files: Array<{ id: string; name: string; status: string; badge: string }> | undefined;
-      try { files = (await gitStatusPorcelain(projectFolder)).slice(0, SAVE_VERSION_FILE_ITEMS_MAX).map((line, i) => parseGitStatusRow(line, i)); }
-      catch (error: any) { deps.log?.(`save_version: post-commit status refresh failed: ${error?.message ?? error}`); } // leave files undefined -> panel keeps its list, not a false "no changes"
-      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.savedCommit, hash, files });
+      // Same summary as the open path (fileTotal + commitMode too, not just the rows) so the post-commit
+      // refresh doesn't drift from it: a staged-only commit can leave >50 unstaged files (needs "+N more")
+      // and flips the next click's mode to add -A (the note must update).
+      let summary: ReturnType<typeof summarizeGitStatus> | undefined;
+      try { summary = summarizeGitStatus(await gitStatusPorcelain(projectFolder)); }
+      catch (error: any) { deps.log?.(`save_version: post-commit status refresh failed: ${error?.message ?? error}`); } // leave undefined -> panel keeps its list, not a false "no changes"
+      webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.savedCommit, hash, files: summary?.files, fileTotal: summary?.fileTotal, commitMode: summary?.commitMode });
     } finally { saveInFlight = false; }
   }
 
   async function doSaveVersionSnapshot(): Promise<void> {
-    if (saveInFlight) return;
+    if (saveInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
     saveInFlight = true;
     try {
       const ctx = saveVersionContext(); if (!ctx) return;

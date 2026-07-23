@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createPanel, createViewProvider, isSnapshotSelfPath, parseGitStatusRow } from "../src/webview/panel.ts";
-import { gitHasStagedChanges } from "../src/extension/project-git.ts";
+import { gitCommit, gitHasStagedChanges } from "../src/extension/project-git.ts";
 
 test("webview start_session runs API-backed pipeline and renders generated outputs", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
@@ -2050,6 +2050,14 @@ test("parseGitStatusRow maps every porcelain XY to a kind + letter, with the XY 
   }
 });
 
+test("parseGitStatusRow flags STAGED rows by the index (first) column", () => {
+  assert.equal(parseGitStatusRow("M  staged.py", 0).staged, true, "index-column M = staged");
+  assert.equal(parseGitStatusRow("A  added.py", 0).staged, true, "index-column A = staged");
+  assert.equal(parseGitStatusRow("MM both.py", 0).staged, true, "staged + reworktree change is staged");
+  assert.equal(parseGitStatusRow(" M main.py", 0).staged, false, "worktree-only modification is not staged");
+  assert.equal(parseGitStatusRow("?? new.py", 0).staged, false, "untracked is not staged");
+});
+
 function findSnapshot(ws: string): any | null {
   const base = join(ws, ".mpyhw", "sessions");
   if (!existsSync(base)) return null;
@@ -2190,6 +2198,10 @@ test("save_version_commit respects staging: commits only staged fileA, leaves fi
     const status = posted.find((m) => m.type === "save_version_status");
     assert.ok((status?.files as any[]).some((f) => f.name === "fileB.txt"), "the refreshed list shows the remaining unstaged file");
     assert.ok(!(status?.files as any[]).some((f) => f.name === "fileA.txt"), "the committed file is gone from the list");
+    // The saved_commit refresh carries the FULL summary, not just rows: after the staged-only commit,
+    // fileB is now unstaged so the NEXT click would add -A — the mode note must flip and the total ride along.
+    assert.equal(status?.commitMode, "all", "post-commit mode reflects the remaining unstaged files (next click is add -A)");
+    assert.equal(status?.fileTotal, 1, "post-commit fileTotal is sent (the display cap needs the real count)");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
@@ -2383,6 +2395,60 @@ test("REPRO PR#47 blocker 3: a >4MiB artifact (firmware .bin) carries a real 64-
     // Assert the digest VALUE, not just its length: it must be the real sha256 of the file CONTENT
     // (computed fresh at snapshot time), so hashing the wrong file or the display-only cap's "" both fail.
     assert.equal(fw.sha256, createHash("sha256").update(bytes).digest("hex"), "the persisted digest is the sha256 of the firmware content, not the display-only empty string or a stale/wrong value");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_open reports commit mode + per-file staged flags: staged-only when the index has staged changes", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
+    execFileSync("git", ["-C", projectFolder, "commit", "-m", "base"], { windowsHide: true });
+    writeFileSync(join(projectFolder, "fileA.txt"), "A");
+    writeFileSync(join(projectFolder, "fileB.txt"), "B");
+    execFileSync("git", ["-C", projectFolder, "add", "fileA.txt"], { windowsHide: true }); // stage A only
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    const data = posted.find((m) => m.type === "save_version_data");
+    assert.equal(data.commitMode, "staged", "a staged file present -> the commit takes staged only");
+    assert.equal((data.files as any[]).find((f) => f.name === "fileA.txt")?.staged, true, "fileA is flagged staged");
+    assert.equal((data.files as any[]).find((f) => f.name === "fileB.txt")?.staged, false, "fileB (untracked) is not staged");
+    assert.equal(data.fileTotal, (data.files as any[]).length, "fileTotal matches the count when under the display cap");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_open reports commit mode 'all' when nothing is staged (add -A path)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "x"); // untracked, unstaged
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    assert.equal(posted.find((m) => m.type === "save_version_data")?.commitMode, "all", "no staged changes -> commit is add -A (all)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("gitCommit surfaces an actionable error when .git/index.lock is stranded (not the raw git message)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-lock-"));
+  try {
+    execFileSync("git", ["-C", dir, "init"], { windowsHide: true });
+    writeFileSync(join(dir, "f.txt"), "x");
+    writeFileSync(join(dir, ".git", "index.lock"), ""); // an interrupted git left this behind
+    await assert.rejects(gitCommit(dir, "test: save"), /index is locked/i, "a stranded index.lock yields an actionable, self-explaining error");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("save_version: a second act while one is in flight reports in_flight (not a silent drop)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // Two acts fired together (e.g. a re-opened panel re-enabled the buttons and the user double-clicked):
+    // saveInFlight lets one through; the second must post in_flight so the click isn't dropped silently.
+    await Promise.all([handler({ type: "save_version_commit", message: "one" }), handler({ type: "save_version_commit", message: "two" })]);
+    assert.equal(posted.filter((m) => m.type === "save_version_status" && m.status === "saved_commit").length, 1, "exactly one commit lands");
+    assert.ok(posted.some((m) => m.type === "save_version_status" && m.status === "in_flight"), "the dropped second act reports in_flight");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

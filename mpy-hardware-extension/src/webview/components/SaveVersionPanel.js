@@ -28,21 +28,28 @@
 
       // Render the change list: a color-coded letter badge + the path. Device-supplied paths go in
       // via textContent (never HTML). Empty -> a centered icon empty state (svNoChanges), not a row.
-      function svRenderFiles(files) {
+      function svRenderFiles(files, total) {
         const host = $("svFiles"); if (!host) return;
         host.innerHTML = "";
         files = Array.isArray(files) ? files : [];
+        const n = (typeof total === "number") ? total : files.length; // true count (list is display-capped)
         const none = $("svNoChanges");
-        if (none) none.classList.toggle("hidden", files.length > 0);
-        host.classList.toggle("hidden", files.length === 0);
+        if (none) none.classList.toggle("hidden", n > 0);
+        host.classList.toggle("hidden", n === 0);
         if (!files.length) return;
         for (const f of files) {
           const row = document.createElement("div"); row.className = "ask-file";
           const badge = document.createElement("span"); badge.className = "ask-file-badge ask-file-badge-" + String(f && f.status);
           badge.textContent = f && f.badge ? String(f.badge) : "•";
           const path = document.createElement("span"); path.className = "ask-file-path"; path.textContent = (f && f.name != null) ? String(f.name) : "";
-          row.appendChild(badge); row.appendChild(path); host.appendChild(row);
+          row.appendChild(badge); row.appendChild(path);
+          // Staged marker: which files the commit will actually take (see commit-mode note above the list).
+          if (f && f.staged) { const st = document.createElement("span"); st.className = "sv-file-staged-tag"; st.textContent = tr("sv_staged"); row.appendChild(st); }
+          host.appendChild(row);
         }
+        // The list is capped for display but the commit spans the full set — surface the remainder so a
+        // >cap change never looks like just the shown rows.
+        if (n > files.length) { const more = document.createElement("div"); more.className = "sv-art-more"; more.textContent = tr("sv_artifacts_more", { n: String(n - files.length) }); host.appendChild(more); }
       }
 
       // Segmented either/or (like Beginner/Custom): pick the save method and reveal its pane —
@@ -113,6 +120,15 @@
       }
       function svRenderSummary(d) { svRenderSession(d); svRenderArtifacts(d); svRenderDiag(d); }
 
+      // Commit-mode note: name which files the Commit click will take (staged-only vs all changes).
+      // Shared by the open summary AND the post-commit refresh so the note never goes stale (after a
+      // staged-only commit the next click is add -A, so the mode flips).
+      function svSetCommitMode(mode) {
+        const cmode = $("svCommitMode"); if (!cmode) return;
+        const t = mode === "staged" ? tr("sv_mode_staged") : mode === "all" ? tr("sv_mode_all") : "";
+        cmode.textContent = t; cmode.classList.toggle("hidden", !t);
+      }
+
       // Host reply with the summary: render the file list (color-coded letter badges), prefill the
       // proposed message, and gate the Commit method on a git repo (else force Snapshot). Device-
       // supplied paths go in via textContent (never HTML).
@@ -122,8 +138,9 @@
         svStatusMsg("");
         const stage = $("svStage"); if (stage) stage.textContent = d.stage || "";
         const note = $("svNote"); if (note) { note.textContent = d.note || ""; note.classList.toggle("hidden", !d.note); }
+        svSetCommitMode((d.fileTotal || 0) > 0 ? d.commitMode : ""); // no note on a clean tree ("commit all" over "no changes" reads oddly)
         const msg = $("svMsg"); if (msg) msg.value = d.proposed || "";
-        svRenderFiles(d.files);
+        svRenderFiles(d.files, d.fileTotal);
         svRenderSummary(d);
         // Commit needs a git repo: disable that method + force Snapshot when there's none.
         const commitChip = $("svModeCommit"); if (commitChip) commitChip.disabled = !d.canCommit;
@@ -134,8 +151,11 @@
       // Host reply after an act (or a pre-flight rejection): show the outcome. A success stays on
       // screen — the tool does NOT auto-close, so the user sees the commit hash / snapshot confirmation.
       function onSaveVersionStatus(s) {
-        svBusy = false; svSetButtons(false);
         const status = s && s.status;
+        // A second act arrived while one is still saving (a re-opened panel re-enabled the buttons):
+        // keep the buttons disabled and reassure the user instead of dropping the click silently.
+        if (status === "in_flight") { svBusy = true; svSetButtons(true); svStatusMsg(tr("sv_in_flight")); return; }
+        svBusy = false; svSetButtons(false);
         // Can't-proceed states (from open, or a build that started mid-panel): no interactive form
         // makes sense, so take over the whole view with a full-view message.
         if (status === "busy") { svBlock(tr("sv_busy_h"), tr("sv_busy_p")); return; }
@@ -146,7 +166,8 @@
         svUnblock();
         if (status === "saved_commit") {
           const msg = $("svMsg"); if (msg) msg.value = ""; // clear ONLY on a successful commit; a failed act keeps the typed message for retry
-          if (s && s.files) svRenderFiles(s.files);
+          if (s && s.files) svRenderFiles(s.files, s.fileTotal);
+          svSetCommitMode((s && s.fileTotal) ? s.commitMode : ""); // refresh the mode note (after a staged-only commit the next click is add -A); hide it on a now-clean tree
         }
         const text = status === "saved_commit" ? tr("sv_saved_commit", { hash: String((s && s.hash) || "").slice(0, 8) })
           : status === "saved_snapshot" ? tr("sv_saved_snapshot")

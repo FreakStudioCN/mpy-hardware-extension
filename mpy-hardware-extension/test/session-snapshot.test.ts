@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -107,6 +107,21 @@ test("writeSessionSnapshot: writes checkpoints/snapshot.json round-trippable", a
     assert.equal(written, snapshotPath(dir));
     const back = JSON.parse(readFileSync(written, "utf-8"));
     assert.deepEqual(back, snap, "the file round-trips the snapshot verbatim");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeSessionSnapshot: a failed rename unlinks the .tmp and rethrows (no orphaned tmp, original error surfaced)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-snap-"));
+  try {
+    // Make the target a NON-EMPTY directory so rename(tmp, snapshot.json) fails on every platform
+    // (ENOTEMPTY/EISDIR on POSIX, EPERM on Windows).
+    mkdirSync(join(dir, "checkpoints", "snapshot.json", "blocker"), { recursive: true });
+    // Match the error CLASS (not just "rejects with something") so a mutation that surfaced the rm's
+    // error instead of the rename's would fail: the rename-over-a-dir fails with one of these codes.
+    await assert.rejects(writeSessionSnapshot(dir, buildSessionSnapshot(fullInput())), /EISDIR|ENOTEMPTY|EPERM|ENOTDIR/);
+    assert.equal(existsSync(join(dir, "checkpoints", "snapshot.json.tmp")), false, "the orphaned .tmp is cleaned up on failure");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

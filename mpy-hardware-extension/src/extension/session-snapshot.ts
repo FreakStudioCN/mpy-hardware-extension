@@ -8,7 +8,7 @@
 // injected savedAt); writeSessionSnapshot does the mkdir + writeFile and surfaces any
 // non-ENOENT fs error verbatim (never blanket-swallows — recurring reviewer finding).
 
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const SNAPSHOT_SCHEMA = "blockless-session-snapshot";
@@ -149,6 +149,14 @@ export async function writeSessionSnapshot(sessionDir: string, snapshot: Session
   // it to a half-written, unparseable file. rename() is atomic on the same filesystem.
   const tmp = target + ".tmp";
   await writeFile(tmp, JSON.stringify(snapshot, null, 2), "utf-8");
-  await rename(tmp, target);
+  try {
+    await rename(tmp, target);
+  } catch (error) {
+    // A failed rename would otherwise leave snapshot.json.tmp orphaned under checkpoints/. Remove it
+    // best-effort — the cleanup's OWN failure (EACCES/EBUSY on rm) must never mask the rename error we
+    // are about to rethrow (force:true only suppresses ENOENT).
+    await rm(tmp, { force: true }).catch(() => {});
+    throw error;
+  }
   return target;
 }
