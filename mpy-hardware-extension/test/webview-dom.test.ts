@@ -470,6 +470,7 @@ test("Recent Sessions opens the surface, lists host-served summaries, RESTORES t
   (cards[0] as HTMLButtonElement).click();
   const restore = posted.find((m) => m.type === "restore_session");
   assert.ok(restore && restore.id === "trace-a", "a restorable session restores on click (restore_session by id)");
+  assert.equal(document.getElementById("toolRecent")!.classList.contains("hidden"), true, "restoring closes the Recent surface so the rehydrated feed is visible");
 
   posted.length = 0;
   (cards[1] as HTMLButtonElement).click();

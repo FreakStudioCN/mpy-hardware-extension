@@ -2234,6 +2234,29 @@ test("Save Version after a restore targets the RESTORED session's dir (adopts it
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
+test("restore ignores a traversal trace_id in the snapshot content (a later Save Version cannot escape the sessions root)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const dirId = "session-evil-1";          // the DIR id is well-formed (restore_session gates on it)...
+    const evilTraceId = "../evil-sibling";    // ...but the snapshot CONTENT (foreign/imported) carries a traversal id
+    const snap = buildSessionSnapshot({
+      traceId: evilTraceId, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), snap);
+    await handler({ type: "restore_session", id: dirId });
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    // The traversal trace_id is shape-rejected on seed -> controller traceId = null -> no session dir to write.
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "nothing_to_save", "a non-conforming trace_id is not adopted, so the session is not re-savable");
+    // ...and crucially, nothing was written at the escaped location `.mpyhw/sessions/../evil-sibling`.
+    assert.ok(!existsSync(join(ws, ".mpyhw", "evil-sibling", "checkpoints", "snapshot.json")), "no snapshot write escapes the sessions root");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 // ----- Save Version (#95) real-git panel tests -----
 // Drive a template-mode session so the controller has state + the project folder is a real
 // git repo (ensureProjectGitRepo runs on start_session). Reuses the file's jsonResponse/

@@ -948,7 +948,8 @@ export class SessionController {
   // controller-side half. Wipes ALL prior-session state first (a restore is a fresh session — it must not
   // inherit the session that ran before it, or a later Save Version would write a chimera snapshot into the
   // WRONG session's dir). traceId is set to the RESTORED session's id, so a post-restore Save Version
-  // targets that session's own dir and a retry() appends to its own transcript.
+  // targets that session's own dir and a subsequent start()/startPhase() records into its own transcript
+  // (they mint the appending recorder; retry() reuses whatever recorder exists).
   seedFromSnapshot(seed: {
     traceId?: string | null;
     state?: { manifest?: unknown; phase?: string; intent?: string };

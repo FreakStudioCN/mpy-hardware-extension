@@ -556,8 +556,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (sessionRoot && sessionId) {
       sources.push(...scanArtifactTree(join(sessionRoot, ".mpyhw", "sessions", sessionId), "session"));
     }
-    // Restore: also index the RESTORED session's tree (a different id from the current one) so its
-    // artifacts populate the tab — the live session_id above is empty right after a restore.
+    // Restore: also index the passed session dir. For a Recent-list restore this is the same id-scoped
+    // path the session_id scan above already covered (dedup absorbs the overlap); for an imported session
+    // it's a user-picked folder OUTSIDE the sessions root, which the session_id scan can't reach.
     if (extraSessionDir) sources.push(...scanArtifactTree(extraSessionDir, "session"));
     artifactIndex = buildArtifactIndex(sources, artifactRoot, artifactIo);
     // The host keeps the full index (with absolute_path) to resolve opens; the webview
@@ -819,7 +820,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // honor seedFromSnapshot's false (it re-checks its own abort) rather than wiping a live run's feed.
       if (controller.isRunning() || runPending) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
       const seeded = controller.seedFromSnapshot({
-        traceId: snap.trace_id || null,
+        // trace_id is raw snapshot content (an imported snapshot may come from another machine), and it later
+        // becomes a path segment in the Save Version write dir + the artifact walk. Shape-guard it HERE, at
+        // the point it enters controller state, so a malicious `"../../evil"` can't escape the sessions root
+        // downstream (#11: guard a value before it's joined into a path — the trusted producer is createTraceId,
+        // this is the untrusted second one). Invalid -> null: the restored session just isn't re-savable.
+        traceId: isSessionId(String(snap.trace_id ?? "")) ? snap.trace_id : null,
         state: snap.state,
         boardId: snap.board?.board_id || null,
         preSelectedBoard: snap.board?.pre_selected_board ?? undefined,
@@ -841,6 +847,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Code cards: replay each code artifact's on-disk content, but VERIFY its digest against the snapshot
       // first — never replay a file whose sha256 no longer matches (the snapshot's integrity guarantee).
       for (const a of Array.isArray(snap.artifacts) ? snap.artifacts : []) {
+        if (!a || typeof a.relative_path !== "string") continue; // a hand-edited/foreign snapshot may hold a null/misshapen row
         if (a.kind !== "code") continue;
         const abs = resolvePhaseArtifactPath(a.relative_path);
         if (!abs) continue;
