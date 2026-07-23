@@ -2084,6 +2084,8 @@ test("restore_session rehydrates the tabs from a saved snapshot (wiring/diagram/
     assert.ok(posted.some((m) => m.type === "diagram_updated"), "diagram replayed");
     const code = posted.find((m) => m.type === "code_updated");
     assert.ok(code && /restored/.test(code.code), "code content replayed from disk after sha256 verify");
+    // D1: the artifacts tab is rehydrated from the restored session's tree (the file on disk).
+    assert.ok(posted.some((m) => m.type === "artifacts_index" && (m.artifacts || []).some((a: any) => /main\.py/.test(a.relative_path))), "artifacts tab rehydrated for the restored session");
     assert.ok(infos.some((m) => /Restored/.test(m)), "a restore confirmation is shown");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
@@ -2116,6 +2118,38 @@ test("restore_session on a session with NO snapshot degrades (informs, no rehydr
     await handler({ type: "restore_session", id: "never-saved" });
     assert.ok(infos.some((m) => /no saved snapshot|predates/i.test(m)), "informs there is nothing to restore");
     assert.ok(!posted.some((m) => m.type === "manifest_updated" || m.type === "code_updated"), "no rehydration for a snapshot-less session");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session refetches the LIVE credit balance (the snapshot's credits are advisory)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const posted: any[] = []; let handler: any;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showInformationMessage: async () => {}, showErrorMessage: async () => {} },
+      authentication: { getSession: async () => ({ accessToken: "gho-token" }) },
+    };
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123" });
+      if (url === "http://api.test/v1/credits") return jsonResponse({ balance: 42, daily_grant: 100, resets_at: "2026-07-08T00:00:00.000Z" });
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+    const sid = "sess-cred";
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: null, terminal: null,
+      state: { manifest: {}, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null,
+      credits: { balance: 1, dailyGrant: 1, resetsAt: "stale", capturedAt: "stale" }, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    const credits = posted.find((m) => m.type === "session_event" && m.event?.kind === "credits");
+    assert.ok(credits, "restore refetches credits");
+    assert.equal(credits.event.balance, 42, "shows the LIVE balance (42), not the snapshot's advisory 1");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

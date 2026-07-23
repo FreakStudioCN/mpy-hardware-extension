@@ -426,6 +426,7 @@ test("the three project-entry buttons post their OWN distinct messages (session 
   const recentBtn = document.getElementById("recentSessions") as HTMLButtonElement;
   for (const [name, btn] of [["importSession", importBtn], ["openFolder", openBtn], ["recentSessions", recentBtn]] as const) {
     assert.ok(btn && startZone.contains(btn), `${name} is a launch entry`);
+    assert.ok(btn.querySelector("svg"), `${name} has a distinct icon`);
   }
 
   posted.length = 0;

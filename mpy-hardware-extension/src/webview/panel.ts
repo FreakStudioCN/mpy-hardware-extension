@@ -532,7 +532,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     return resolveContainedArtifactPath(bases, relativePath, existsSync);
   }
 
-  function refreshArtifacts() {
+  function refreshArtifacts(extraSessionDir?: string) {
     // Phase-declared artifacts FIRST so their real role (Skill `type`) and producing phase
     // win the dedup over the same file found via file_written or the disk walk. These cover
     // pre-generate outputs (analyze manifest, select-hw plan) that host scripts write directly.
@@ -556,6 +556,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (sessionRoot && sessionId) {
       sources.push(...scanArtifactTree(join(sessionRoot, ".mpyhw", "sessions", sessionId), "session"));
     }
+    // Restore: also index the RESTORED session's tree (a different id from the current one) so its
+    // artifacts populate the tab — the live session_id above is empty right after a restore.
+    if (extraSessionDir) sources.push(...scanArtifactTree(extraSessionDir, "session"));
     artifactIndex = buildArtifactIndex(sources, artifactRoot, artifactIo);
     // The host keeps the full index (with absolute_path) to resolve opens; the webview
     // gets a projection WITHOUT absolute_path — it only needs the relative path (which it
@@ -732,6 +735,22 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     await writeSessionSnapshot(sessionDir, snapshot);
   }
 
+  // Live credit balance for the quota bar (signed-in only; silent auth never prompts). Shared by
+  // session start, request_boards, and restore — the snapshot's credits are advisory, so a restored
+  // session refetches the truth. Best-effort: any failure leaves the bar as it was.
+  async function refreshCredits(): Promise<void> {
+    if (!vscode.authentication) return;
+    try {
+      const jwt = await auth.getToken(false);
+      if (!jwt) return;
+      const cr = await fetchImpl(`${apiBaseUrl}/v1/credits`, { headers: { authorization: `Bearer ${jwt}` } });
+      const c: any = await cr.json();
+      webview.postMessage({ type: "session_event", event: { kind: "credits", balance: c.balance, dailyGrant: c.daily_grant, resetsAt: c.resets_at } });
+    } catch {
+      // credits unavailable — webview leaves the bar hidden
+    }
+  }
+
   // Session restore (the consumer of the snapshot Save Version writes): read a saved snapshot and
   // rehydrate the session + the webview tabs from it. Refuses while a run is active (a live session owns
   // the state). A session with NO snapshot (a pre-Save-Version session) is not an error — it just can't
@@ -776,6 +795,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         webview.postMessage({ type: "code_updated", code: bytes.toString("utf-8"), path: a.relative_path });
       } catch { /* unreadable — skip this file, restore the rest */ }
     }
+    refreshArtifacts(sessionDir); // populate the Artifacts tab from the restored session's tree (D1)
+    await refreshCredits(); // the snapshot's credits are advisory — refetch the live quota (D2)
     vscode.window?.showInformationMessage?.(`Restored session${snap.state?.intent ? `: ${snap.state.intent}` : ""}.`);
   }
 
@@ -1309,18 +1330,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Credit balance for the bar. Only meaningful once signed in; silent auth
       // never prompts, so a signed-out user just leaves the bar hidden.
-      if (vscode.authentication) {
-        try {
-          const jwt = await auth.getToken(false);
-          if (jwt) {
-            const cr = await fetchImpl(`${apiBaseUrl}/v1/credits`, { headers: { authorization: `Bearer ${jwt}` } });
-            const c: any = await cr.json();
-            webview.postMessage({ type: "session_event", event: { kind: "credits", balance: c.balance, dailyGrant: c.daily_grant, resetsAt: c.resets_at } });
-          }
-        } catch {
-          // credits unavailable — webview leaves the bar hidden
-        }
-      }
+      await refreshCredits();
     }
     if (message.type === "start_session") {
       // Reject a re-entrant run at the entry point (register #1: the webview is not the trust
