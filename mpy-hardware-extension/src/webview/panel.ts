@@ -30,8 +30,8 @@ import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveAr
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 import { GitUnavailableError, gitBranch, gitCommit, gitStatusPorcelain, isGitRepo } from "../extension/project-git.ts";
-import { buildSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
-import type { SnapshotArtifact } from "../extension/session-snapshot.ts";
+import { buildSessionSnapshot, readSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
+import type { SessionSnapshot, SnapshotArtifact } from "../extension/session-snapshot.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
 
@@ -730,6 +730,46 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       git,
     });
     await writeSessionSnapshot(sessionDir, snapshot);
+  }
+
+  // Session restore (the consumer of the snapshot Save Version writes): read a saved snapshot and
+  // rehydrate the session + the webview tabs from it. Refuses while a run is active (a live session owns
+  // the state). A session with NO snapshot (a pre-Save-Version session) is not an error — it just can't
+  // be restored, so the caller is told and degrades (view its log) rather than showing a broken restore.
+  async function doRestoreFromDir(sessionDir: string, sessionId: string): Promise<void> {
+    if (controller.isRunning() || runPending) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
+    let snap: SessionSnapshot | null;
+    try { snap = await readSessionSnapshot(sessionDir); }
+    catch (error: any) { vscode.window?.showErrorMessage?.(`Restore failed: ${String(error?.message ?? error)}`); return; }
+    if (!snap) { vscode.window?.showInformationMessage?.("This session has no saved snapshot to restore (it predates Save Version)."); return; }
+    // Controller-side: seed state/board/preferences so a later save()/retry() operates on the restored
+    // session. No run is started — this only loads the state.
+    controller.seedFromSnapshot({
+      state: snap.state,
+      boardId: snap.board?.board_id || null,
+      preSelectedBoard: snap.board?.pre_selected_board ?? undefined,
+      boardSelectionMode: snap.board?.board_selection_mode || undefined,
+      preferences: snap.preferences,
+      currentPhase: snap.stage?.current_phase || null,
+      manifest: snap.manifest ?? undefined,
+      diagram: snap.diagram ?? undefined,
+    });
+    // Webview-side: replay the tabs (the inverse of clearConversation) — wiring, diagram, code.
+    if (snap.manifest) webview.postMessage({ type: "manifest_updated", manifest: snap.manifest });
+    if (snap.diagram) webview.postMessage({ type: "diagram_updated", diagram: snap.diagram });
+    // Code cards: replay each code artifact's on-disk content, but VERIFY its digest against the snapshot
+    // first — never replay a file whose sha256 no longer matches (the snapshot's integrity guarantee).
+    for (const a of snap.artifacts ?? []) {
+      if (a.kind !== "code") continue;
+      const abs = resolvePhaseArtifactPath(a.relative_path);
+      if (!abs) continue;
+      try {
+        const bytes = readFileSync(abs);
+        if (a.sha256 && createHash("sha256").update(bytes).digest("hex") !== a.sha256) continue; // changed on disk — skip, don't replay stale
+        webview.postMessage({ type: "code_updated", code: bytes.toString("utf-8"), path: a.relative_path });
+      } catch { /* unreadable — skip this file, restore the rest */ }
+    }
+    vscode.window?.showInformationMessage?.(`Restored session${snap.state?.intent ? `: ${snap.state.intent}` : ""}.`);
   }
 
   // Device Tools (#54): run a user-initiated device command. Refuse while a session
@@ -1511,11 +1551,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
     }
     if (message.type === "import_session") {
-      // Restore a saved Blockless session from its snapshot (board/code/wiring/diagnostics). The restore
-      // ENGINE (session-snapshot reader + rehydration driver) lands in the next slice; until then point
-      // the user at Recent Sessions, which already lists their saved sessions.
-      // ponytail: slice-1 placeholder — replaced by the real restore driver in the session-restore engine slice.
-      vscode.window?.showInformationMessage?.("Session restore is coming in the next update. Use Recent Sessions to view your saved sessions.");
+      // Restore a saved session: pick its session FOLDER (portable — a snapshot copied from another
+      // machine works too), then rehydrate from its checkpoints/snapshot.json.
+      let picked: any;
+      try { picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Import Session" }); }
+      catch { picked = undefined; } // dialog unavailable (headless) — nothing to do
+      if (picked && picked[0]) { const dir = String(picked[0].fsPath); await doRestoreFromDir(dir, basename(dir)); }
+    }
+    if (message.type === "restore_session" && typeof message.id === "string" && message.id) {
+      // Restore one of THIS project's recent sessions (selected in the Recent Sessions list). The id
+      // resolves to its dir under the session root; a session with no snapshot degrades in doRestoreFromDir.
+      if (sessionRoot) await doRestoreFromDir(join(sessionRoot, ".mpyhw", "sessions", message.id), message.id);
+      else vscode.window?.showInformationMessage?.("No session storage available to restore from.");
     }
     if (message.type === "request_recent_sessions") {
       // List past session summaries (read-only) from <sessionRoot>/.mpyhw/sessions — the same

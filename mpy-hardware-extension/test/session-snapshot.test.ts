@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildSessionSnapshot,
   writeSessionSnapshot,
+  readSessionSnapshot,
   snapshotPath,
   SNAPSHOT_SCHEMA,
   SNAPSHOT_VERSION,
@@ -110,6 +111,33 @@ test("writeSessionSnapshot: writes checkpoints/snapshot.json round-trippable", a
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("readSessionSnapshot round-trips a written snapshot", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-snap-"));
+  try {
+    const snap = buildSessionSnapshot(fullInput());
+    await writeSessionSnapshot(dir, snap);
+    assert.deepEqual(await readSessionSnapshot(dir), snap, "reader returns the exact written snapshot");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("readSessionSnapshot returns null when there is no snapshot (ENOENT), throws on a real read/parse/schema failure", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-snap-"));
+  try {
+    // No snapshot for this session -> null (caller degrades: view-log / disabled), NOT an error.
+    assert.equal(await readSessionSnapshot(dir), null, "missing snapshot is null, not a throw");
+    // Corrupt JSON -> throws (never a silent null that would look like "no snapshot").
+    mkdirSync(join(dir, "checkpoints"), { recursive: true });
+    writeFileSync(snapshotPath(dir), "{ not json", "utf-8");
+    await assert.rejects(readSessionSnapshot(dir), /not valid JSON/, "corrupt snapshot surfaces, not swallowed");
+    // Wrong schema -> throws (don't replay an unknown shape).
+    writeFileSync(snapshotPath(dir), JSON.stringify({ schema: "something-else", version: SNAPSHOT_VERSION }), "utf-8");
+    await assert.rejects(readSessionSnapshot(dir), /schema/, "a foreign schema is rejected");
+    // Future/unsupported version -> throws.
+    writeFileSync(snapshotPath(dir), JSON.stringify({ schema: SNAPSHOT_SCHEMA, version: SNAPSHOT_VERSION + 1 }), "utf-8");
+    await assert.rejects(readSessionSnapshot(dir), /version/, "an unsupported version is rejected");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("writeSessionSnapshot: a failed rename unlinks the .tmp and rethrows (no orphaned tmp, original error surfaced)", async () => {

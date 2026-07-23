@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { createPanel, createViewProvider, isSnapshotSelfPath, parseGitStatusRow } from "../src/webview/panel.ts";
 import { gitCommit, gitHasStagedChanges } from "../src/extension/project-git.ts";
+import { buildSessionSnapshot, writeSessionSnapshot } from "../src/extension/session-snapshot.ts";
 
 test("webview start_session runs API-backed pipeline and renders generated outputs", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
@@ -2023,21 +2024,98 @@ test("open_project_folder opens a FOLDER picker then vscode.openFolder (the fold
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
-test("import_session does NOT open a folder (the reported bug) — it routes to session restore", async () => {
+test("import_session picks a session folder and RESTORES from it, but never vscode.openFolder (the reported bug)", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
   try {
-    let handler: any; const folderOps: any[] = []; let infoShown = false;
+    let handler: any; let dialogOpts: any; const commands: string[] = []; const infos: string[] = [];
     const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
     const vscode = {
       ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
-      window: { createWebviewPanel: () => panel, showOpenDialog: async () => { folderOps.push("dialog"); return undefined; }, showInformationMessage: async () => { infoShown = true; return undefined; } },
-      commands: { executeCommand: async () => { folderOps.push("cmd"); } },
+      window: {
+        createWebviewPanel: () => panel,
+        showOpenDialog: async (o: any) => { dialogOpts = o; return [{ fsPath: ws }]; }, // pick a folder that has no snapshot
+        showInformationMessage: async (m: string) => { infos.push(m); }, showErrorMessage: async () => {},
+      },
+      commands: { executeCommand: async (cmd: string) => { commands.push(cmd); } },
     };
     createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
     await handler({ type: "import_session" });
-    // The core of the fix: Import must never open a folder. (The restore engine replaces the placeholder in slice 2.)
-    assert.equal(folderOps.length, 0, "import_session opens no folder dialog / openFolder");
-    assert.ok(infoShown, "slice-1 placeholder tells the user restore is coming");
+    assert.equal(dialogOpts?.canSelectFolders, true, "prompts for a session FOLDER");
+    // The core of the fix: Import restores; it must NOT open the folder as the workspace (that was the bug).
+    assert.ok(!commands.includes("vscode.openFolder"), "import_session does NOT vscode.openFolder");
+    // The picked folder has no snapshot -> it routes to restore, which degrades with an informative notice.
+    assert.ok(infos.some((m) => /no saved snapshot|predates/i.test(m)), "routes to restore (no snapshot here -> informs), not folder-open");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+function restorePanel(ws: string) {
+  const posted: any[] = []; const infos: string[] = []; const errors: string[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, showInformationMessage: async (m: string) => { infos.push(m); }, showErrorMessage: async (m: string) => { errors.push(m); } },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
+  return { handler: handler!, posted, infos, errors };
+}
+
+test("restore_session rehydrates the tabs from a saved snapshot (wiring/diagram/sha-verified code) and confirms", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    const sid = "sess-1";
+    mkdirSync(join(ws, "blockless-project"), { recursive: true });
+    const codeBytes = Buffer.from("print('restored')\n");
+    writeFileSync(join(ws, "blockless-project", "main.py"), codeBytes);
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { devices: [] }, phase: "generate", intent: "blink red" },
+      boardId: "esp32", preSelectedBoard: { id: "esp32", display_name: "ESP32" }, boardSelectionMode: "recommend",
+      preferences: { mode: "beginner", locale: "en", existing_hardware: "none" },
+      manifest: { devices: [{ pin: 1 }] }, diagram: { nodes: ["led"] }, credits: null, diagnostics: {},
+      artifacts: [{ relative_path: "blockless-project/main.py", kind: "code", role: "", phase: "generate", size: codeBytes.length, sha256: createHash("sha256").update(codeBytes).digest("hex"), created_at: "2026-07-23T00:00:00.000Z" }],
+      git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0; infos.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(posted.some((m) => m.type === "manifest_updated"), "wiring/manifest replayed");
+    assert.ok(posted.some((m) => m.type === "diagram_updated"), "diagram replayed");
+    const code = posted.find((m) => m.type === "code_updated");
+    assert.ok(code && /restored/.test(code.code), "code content replayed from disk after sha256 verify");
+    assert.ok(infos.some((m) => /Restored/.test(m)), "a restore confirmation is shown");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session skips a code file whose on-disk sha256 no longer matches the snapshot (no stale replay)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "sess-2";
+    mkdirSync(join(ws, "blockless-project"), { recursive: true });
+    writeFileSync(join(ws, "blockless-project", "main.py"), "print('CHANGED since save')\n"); // on-disk content differs
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: null,
+      state: { manifest: {}, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {},
+      artifacts: [{ relative_path: "blockless-project/main.py", kind: "code", role: "", phase: "generate", size: 10, sha256: "0".repeat(64), created_at: "2026-07-23T00:00:00.000Z" }],
+      git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(!posted.some((m) => m.type === "code_updated"), "a changed-on-disk file is NOT replayed (sha mismatch)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session on a session with NO snapshot degrades (informs, no rehydration)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    await handler({ type: "restore_session", id: "never-saved" });
+    assert.ok(infos.some((m) => /no saved snapshot|predates/i.test(m)), "informs there is nothing to restore");
+    assert.ok(!posted.some((m) => m.type === "manifest_updated" || m.type === "code_updated"), "no rehydration for a snapshot-less session");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

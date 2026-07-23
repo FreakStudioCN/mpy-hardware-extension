@@ -440,7 +440,7 @@ test("the three project-entry buttons post their OWN distinct messages (session 
   assert.ok(!posted.some((m) => m.type === "import_session"), "Open Folder is not session import");
 });
 
-test("Recent Sessions opens the surface, lists host-served summaries, opens the jsonl on click", async () => {
+test("Recent Sessions opens the surface, lists host-served summaries, RESTORES the session on click", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
@@ -464,9 +464,9 @@ test("Recent Sessions opens the surface, lists host-served summaries, opens the 
 
   posted.length = 0;
   (cards[0] as HTMLButtonElement).click();
-  const open = posted.find((m) => m.type === "open_path");
-  assert.ok(open, "clicking a session posts open_path");
-  assert.match(open.path, /trace-a\/session\.jsonl$/, "opens that session's jsonl");
+  const restore = posted.find((m) => m.type === "restore_session");
+  assert.ok(restore, "clicking a session posts restore_session (restore-on-select, not view-log)");
+  assert.equal(restore.id, "trace-a", "restores that session by id");
 });
 
 test("Recent Sessions shows the empty state when the host returns none", async () => {

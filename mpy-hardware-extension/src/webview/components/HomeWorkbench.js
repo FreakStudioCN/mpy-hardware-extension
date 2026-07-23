@@ -254,8 +254,8 @@
         }
         root.appendChild(h); root.appendChild(row);
       }
-      // Read-only list of past session summaries (host-served from .mpyhw/sessions).
-      // Clicking a card reveals its session.jsonl via the host's open_path handler.
+      // List of past session summaries (host-served from .mpyhw/sessions). Clicking a card RESTORES that
+      // session (board/wiring/diagram/code) via the host; a session with no snapshot degrades gracefully.
       function renderRecent(sessions) {
         const box = $("recent"); if (!box) return;
         box.innerHTML = "";
@@ -269,7 +269,7 @@
           const when = s.date ? new Date(s.date).toLocaleString() : "";
           meta.textContent = s.finalPhase ? (when + " · " + s.finalPhase) : when;
           card.appendChild(title); card.appendChild(meta);
-          card.addEventListener("click", () => vscode.postMessage({ type: "open_path", path: s.path }));
+          card.addEventListener("click", () => vscode.postMessage({ type: "restore_session", id: s.id }));
           box.appendChild(card);
         }
       }

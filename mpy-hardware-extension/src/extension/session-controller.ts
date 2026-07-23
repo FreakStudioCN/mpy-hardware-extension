@@ -932,6 +932,33 @@ export class SessionController {
     };
   }
 
+  // Restore session state from a saved snapshot WITHOUT running — so an imported/recent session has the
+  // board, preferences, resume state (manifest/phase/intent) and current phase the saved session had, and
+  // a later retry() or save() operates on it. Refuses while a run is active (a live run owns this state).
+  // The webview tabs (wiring/diagram/code/artifacts) are rehydrated separately by the panel; this is the
+  // controller-side half. traceId is deliberately NOT overwritten — a resumed build runs under a fresh id.
+  seedFromSnapshot(seed: {
+    state?: { manifest?: unknown; phase?: string; intent?: string };
+    boardId?: string | null;
+    preSelectedBoard?: unknown;
+    boardSelectionMode?: string;
+    preferences?: { mode?: string; locale?: string; existing_hardware?: string };
+    currentPhase?: string | null;
+    manifest?: unknown;
+    diagram?: unknown;
+  }): boolean {
+    if (this.abort) return false; // a run owns the state — never clobber a live session
+    this.state = seed.state;
+    this.boardId = seed.boardId ?? null;
+    this.preSelectedBoard = seed.preSelectedBoard;
+    this.boardSelectionMode = seed.boardSelectionMode;
+    this.preferences = seed.preferences;
+    this.currentPhase = seed.currentPhase ?? null;
+    if (seed.manifest !== undefined) this.latestManifest = seed.manifest;
+    if (seed.diagram !== undefined) this.latestDiagram = seed.diagram;
+    return true;
+  }
+
   // Whether this session has any restorable state to snapshot (drives the sv_nothing branch).
   hasSnapshotState(): boolean {
     return this.state !== undefined || this.latestManifest !== undefined || this.boardId !== null;

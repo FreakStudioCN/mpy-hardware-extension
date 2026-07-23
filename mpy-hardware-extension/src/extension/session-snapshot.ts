@@ -8,7 +8,7 @@
 // injected savedAt); writeSessionSnapshot does the mkdir + writeFile and surfaces any
 // non-ENOENT fs error verbatim (never blanket-swallows — recurring reviewer finding).
 
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const SNAPSHOT_SCHEMA = "blockless-session-snapshot";
@@ -159,4 +159,34 @@ export async function writeSessionSnapshot(sessionDir: string, snapshot: Session
     throw error;
   }
   return target;
+}
+
+// Read + validate the session snapshot for restore. Returns the parsed snapshot, or null when there
+// is simply none for this session (ENOENT — a pre-Save-Version session, or one never saved). Any OTHER
+// read failure (EACCES/EROFS), invalid JSON, or a schema/version mismatch THROWS — a real failure must
+// never masquerade as "no snapshot" (recurring finding: fs reads swallow only ENOENT), and restore must
+// not replay a shape it doesn't understand.
+export async function readSessionSnapshot(sessionDir: string): Promise<SessionSnapshot | null> {
+  const target = snapshotPath(sessionDir);
+  let raw: string;
+  try {
+    raw = await readFile(target, "utf-8");
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return null; // no snapshot for this session — caller degrades (view-log / disabled)
+    throw error; // EACCES / EROFS / … — surface, never swallow
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error: any) {
+    throw new Error(`session snapshot at ${target} is not valid JSON: ${error?.message ?? error}`);
+  }
+  const snap = parsed as Partial<SessionSnapshot>;
+  if (snap?.schema !== SNAPSHOT_SCHEMA) {
+    throw new Error(`session snapshot at ${target} has schema "${snap?.schema}", expected "${SNAPSHOT_SCHEMA}"`);
+  }
+  if (snap?.version !== SNAPSHOT_VERSION) {
+    throw new Error(`session snapshot at ${target} is version ${snap?.version}, unsupported (expected ${SNAPSHOT_VERSION})`);
+  }
+  return snap as SessionSnapshot;
 }

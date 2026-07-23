@@ -185,6 +185,31 @@ test("REPRO PR#47 blocker 1: a board-change fresh session must not inherit the p
   assert.equal(snap.credits, null, "board B's snapshot must not carry board A's credits");
 });
 
+test("seedFromSnapshot restores state/board/preferences without running, and refuses while a run is active", async () => {
+  const controller = new SessionController({ postMessage: () => { }, loop: async () => ({ terminal: "complete" }) });
+  const ok = controller.seedFromSnapshot({
+    state: { manifest: { m: 1 }, phase: "generate", intent: "blink" },
+    boardId: "esp32", preSelectedBoard: { id: "esp32" }, boardSelectionMode: "recommend",
+    preferences: { mode: "beginner", locale: "en" }, currentPhase: "generate",
+    manifest: { m: 1 }, diagram: { nodes: ["a"] },
+  });
+  assert.equal(ok, true, "seed succeeds when idle");
+  const snap = controller.getSnapshotState();
+  assert.deepEqual(snap.state, { manifest: { m: 1 }, phase: "generate", intent: "blink" }, "resume state restored");
+  assert.equal(snap.boardId, "esp32", "board restored");
+  assert.equal(snap.currentPhase, "generate", "phase restored");
+  assert.deepEqual(snap.diagram, { nodes: ["a"] }, "diagram carried for a re-save");
+  assert.equal(controller.hasSnapshotState(), true, "a restored session is itself re-savable");
+
+  // Must NOT clobber a live run's state: with a run in flight (abort set), seeding is refused.
+  let release: () => void = () => { };
+  const gate = new Promise<void>((r) => { release = r; });
+  const c2 = new SessionController({ postMessage: () => { }, loop: async () => { await gate; return { terminal: "complete" }; } });
+  const running = c2.start({ intent: "x", boardId: "auto" });
+  assert.equal(c2.seedFromSnapshot({ boardId: "b" }), false, "seed refuses while a run owns the state");
+  release(); await running;
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];
