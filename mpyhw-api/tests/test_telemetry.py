@@ -307,5 +307,67 @@ def test_admin_metrics_averages_credits_by_user_day(monkeypatch):
     assert response.json()["credits_per_user_day"] == 3
 
 
+def test_telemetry_accepts_and_stores_client_attribution():
+    # Version/platform ride as top-level columns (not payload) so a regression can be
+    # attributed to a release/OS with a plain WHERE, no JSON extraction.
+    response = client.post("/v1/telemetry", json={"events": [{
+        "trace_id": "trace-1", "event_type": "session_started", "timestamp": "2026-07-23T00:00:00Z",
+        "payload": {}, "extension_version": "0.4.1", "vscode_version": "1.99.0", "platform": "win32 x64",
+    }]})
+
+    assert response.status_code == 204
+    with db.connect() as conn:
+        row = db.fetchone(conn, "SELECT extension_version, vscode_version, platform FROM telemetry_events WHERE trace_id=?", ("trace-1",))
+    assert (row["extension_version"], row["vscode_version"], row["platform"]) == ("0.4.1", "1.99.0", "win32 x64")
+
+
+def test_telemetry_client_attribution_is_optional():
+    # A pre-stamp client omits the fields entirely; the event still ingests, columns NULL.
+    response = client.post("/v1/telemetry", json={"events": [event("session_started", {})]})
+
+    assert response.status_code == 204
+    with db.connect() as conn:
+        row = db.fetchone(conn, "SELECT extension_version, platform FROM telemetry_events WHERE trace_id=?", ("trace-1",))
+    assert row["extension_version"] is None and row["platform"] is None
+
+
+def test_telemetry_accepts_previously_swallowed_retry_events():
+    # connect_retry/session_retry were mapped + unit-tested client-side but missing from the
+    # allowlist, so the route 422'd them and the client swallowed the loss. Now they persist.
+    response = client.post("/v1/telemetry", json={"events": [event("connect_retry", {"attempt": 1}), event("session_retry", {})]})
+
+    assert response.status_code == 204
+    assert [r["event_type"] for r in analytics.telemetry_events(trace_id="trace-1")] == ["connect_retry", "session_retry"]
+
+
+def test_telemetry_accepts_client_self_observability_events():
+    response = client.post("/v1/telemetry", json={"events": [
+        event("extension_error", {"message": "boom"}),
+        event("extension_host_error_observed", {"message": "other-ext"}),
+        event("telemetry_dropped", {"dropped": {"summary": 3}}),
+    ]})
+
+    assert response.status_code == 204
+    assert len(analytics.telemetry_events(trace_id="trace-1")) == 3
+
+
+def test_session_abandoned_sets_terminal(monkeypatch):
+    monkeypatch.setenv("MPYHW_ADMIN_TOKEN", "s3cret")
+    client.post("/v1/telemetry", json={"events": [
+        event("session_started", {}, timestamp="2026-07-23T10:00:00.000Z"),
+        event("session_abandoned", {"terminal": "abandoned"}, timestamp="2026-07-23T10:05:00.000Z"),
+    ]})
+
+    body = client.get("/v1/admin/sessions/trace-1", headers={"X-Admin-Token": "s3cret"}).json()
+    assert body["session"]["terminal"] == "abandoned"
+
+
+def test_client_observability_events_are_ingest_only():
+    # extension_error / telemetry_dropped must NOT create a phantom session row or set terminal.
+    client.post("/v1/telemetry", json={"events": [event("extension_error", {"message": "x"}), event("telemetry_dropped", {"dropped": {}})]})
+
+    assert analytics.session_for(trace_id="trace-1") is None
+
+
 def event(event_type, payload, timestamp="2026-06-01T00:00:00Z"):
     return {"trace_id": "trace-1", "event_type": event_type, "timestamp": timestamp, "payload": payload}

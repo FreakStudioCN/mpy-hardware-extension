@@ -181,6 +181,9 @@ def _schema() -> list[str]:
             event_type TEXT NOT NULL,
             timestamp TEXT NOT NULL,
             payload_json JSONB NOT NULL,
+            extension_version TEXT,
+            vscode_version TEXT,
+            platform TEXT,
             created_at TEXT NOT NULL
         )
         """,
@@ -269,6 +272,12 @@ def _schema() -> list[str]:
         "CREATE INDEX IF NOT EXISTS idx_web_events_type ON web_events(event_type)",
         "CREATE INDEX IF NOT EXISTS idx_web_recipe_uploads_email ON web_recipe_uploads(email)",
         "CREATE INDEX IF NOT EXISTS idx_web_quote_requests_email ON web_quote_requests(email)",
+        # Client attribution columns. The CREATE TABLE above only covers a fresh DB; an
+        # existing prod telemetry_events needs these added idempotently on boot (additive,
+        # matching the CREATE-IF-NOT-EXISTS posture — see DEPLOY.md).
+        "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS extension_version TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS vscode_version TEXT",
+        "ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS platform TEXT",
     ]
 
 

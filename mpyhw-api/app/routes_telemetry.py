@@ -20,6 +20,11 @@ class TelemetryEvent(BaseModel):
     event_type: str
     timestamp: str
     payload: dict[str, Any] = Field(default_factory=dict)
+    # Client attribution (optional so pre-stamp clients still validate). Length-bounded:
+    # these are short constants (a semver, "win32 x64", VS Code's version), never free text.
+    extension_version: str | None = Field(default=None, max_length=64)
+    vscode_version: str | None = Field(default=None, max_length=64)
+    platform: str | None = Field(default=None, max_length=64)
 
     @field_validator("event_type")
     @classmethod
