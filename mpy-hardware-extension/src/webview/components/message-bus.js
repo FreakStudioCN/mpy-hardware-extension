@@ -28,6 +28,16 @@
         if (msg.type === "logs_status") { const n = $("scDiag"); if (n) n.textContent = msg.text; }
         if (msg.type === "partners_config") { renderPartners(msg.partners); }
         if (msg.type === "recent_sessions") { renderRecent(msg.sessions); }
+        // Session restore rehydrates the feed (the inverse of clearConversation): clear, then replay the
+        // DURABLE content from the transcript — the AI's summaries + an INERT "asked -> answered" line per
+        // past prompt (never a live, clickable prompt) — then a terminal line. Transient trace/spinner is
+        // not replayed (it isn't durable), so no live-run guard is touched.
+        if (msg.type === "restore_reset") { clearConversation(); }
+        if (msg.type === "restore_note") { addActivity({ text: String(msg.text || "") }, "note"); }
+        if (msg.type === "restore_done") {
+          const t = String(msg.terminal || "");
+          if (t) { const label = tr("term_" + t); addActivity({ text: tr("session_ended", { t: label === "term_" + t ? t : label }) }); }
+        }
         if (msg.type === "diagnostics") {
           vscode.postMessage({ type: "copy_code", text: msg.text });
           const n = $("scDiag"); if (n) n.textContent = "Diagnostics copied to clipboard.";

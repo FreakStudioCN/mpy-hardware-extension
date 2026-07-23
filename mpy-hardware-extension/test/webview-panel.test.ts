@@ -2064,7 +2064,7 @@ test("restore_session rehydrates the tabs from a saved snapshot (wiring/diagram/
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
   try {
     const { handler, posted, infos } = restorePanel(ws);
-    const sid = "sess-1";
+    const sid = "session-s1-1";
     mkdirSync(join(ws, "blockless-project"), { recursive: true });
     const codeBytes = Buffer.from("print('restored')\n");
     writeFileSync(join(ws, "blockless-project", "main.py"), codeBytes);
@@ -2094,7 +2094,7 @@ test("restore_session skips a code file whose on-disk sha256 no longer matches t
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
   try {
     const { handler, posted } = restorePanel(ws);
-    const sid = "sess-2";
+    const sid = "session-s2-1";
     mkdirSync(join(ws, "blockless-project"), { recursive: true });
     writeFileSync(join(ws, "blockless-project", "main.py"), "print('CHANGED since save')\n"); // on-disk content differs
     const snap = buildSessionSnapshot({
@@ -2115,7 +2115,7 @@ test("restore_session on a session with NO snapshot degrades (informs, no rehydr
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
   try {
     const { handler, posted, infos } = restorePanel(ws);
-    await handler({ type: "restore_session", id: "never-saved" });
+    await handler({ type: "restore_session", id: "session-neversaved-1" });
     assert.ok(infos.some((m) => /no saved snapshot|predates/i.test(m)), "informs there is nothing to restore");
     assert.ok(!posted.some((m) => m.type === "manifest_updated" || m.type === "code_updated"), "no rehydration for a snapshot-less session");
   } finally { rmSync(ws, { recursive: true, force: true }); }
@@ -2137,7 +2137,7 @@ test("restore_session refetches the LIVE credit balance (the snapshot's credits 
       return jsonResponse({});
     }) as unknown as typeof fetch;
     createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
-    const sid = "sess-cred";
+    const sid = "session-cred-1";
     const snap = buildSessionSnapshot({
       traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: null, terminal: null,
       state: { manifest: {}, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
@@ -2150,6 +2150,87 @@ test("restore_session refetches the LIVE credit balance (the snapshot's credits 
     const credits = posted.find((m) => m.type === "session_event" && m.event?.kind === "credits");
     assert.ok(credits, "restore refetches credits");
     assert.equal(credits.event.balance, 42, "shows the LIVE balance (42), not the snapshot's advisory 1");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session replays the durable activity feed: summaries + INERT prompt history + terminal (D4)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-feed-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    // A transcript: a summary, a prompt + its answer, and a transient trace event (should NOT replay).
+    const jsonl = [
+      { type: "session_started", intent: "blink", boardId: "esp32" },
+      { type: "summary", text: "Wired the LED to pin 4." },
+      { type: "ui_prompt", promptId: "p1", question: "Which board?" },
+      { type: "ui_prompt_answer", promptId: "p1", answer: "ESP32-C6" },
+      { type: "trace_event", event: { text: "transient step" } },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: {}, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(sessionDir, snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(posted.some((m) => m.type === "restore_reset"), "clears the view before replay");
+    assert.ok(posted.some((m) => m.type === "summary" && /pin 4/.test(m.text)), "the AI summary is replayed");
+    const note = posted.find((m) => m.type === "restore_note");
+    assert.ok(note && /Which board\?/.test(note.text) && /ESP32-C6/.test(note.text), "a past prompt renders as an INERT asked -> answered line");
+    assert.ok(!posted.some((m) => m.type === "ui_prompt_needed" || m.type === "plan_needed" || m.type === "deploy_needed"), "no LIVE (clickable) prompt is re-created");
+    assert.ok(!posted.some((m) => m.type === "trace_event"), "transient trace events are not replayed (not durable)");
+    assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line is posted");
+    // ORDERING is load-bearing: restore_reset (clearConversation) wipes tabs+feed, so it MUST land before
+    // every replayed message or it erases the restore. Assert it precedes the feed AND the tab replays.
+    const resetAt = posted.findIndex((m) => m.type === "restore_reset");
+    const summaryAt = posted.findIndex((m) => m.type === "summary");
+    const noteAt = posted.findIndex((m) => m.type === "restore_note");
+    const manifestAt = posted.findIndex((m) => m.type === "manifest_updated");
+    for (const [label, at] of [["summary", summaryAt], ["restore_note", noteAt], ["manifest_updated", manifestAt]] as const) {
+      assert.ok(at > resetAt, `restore_reset precedes ${label} (else it wipes the just-replayed content)`);
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session rejects a malformed session id (no path join, no restore)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos, errors } = restorePanel(ws);
+    for (const id of ["../../etc", "sess-1", "session-ok-1/../../evil", ""]) {
+      posted.length = 0; infos.length = 0; errors.length = 0;
+      await handler({ type: "restore_session", id });
+      assert.equal(posted.length + infos.length + errors.length, 0, `a malformed id (${JSON.stringify(id)}) is ignored — no restore, no path join`);
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("Save Version after a restore targets the RESTORED session's dir (adopts its trace id), not the prior session's", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-restore-1";
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    await handler({ type: "restore_session", id: sid });
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    // Old bug: restore left the controller's traceId null (and residual prior-session state), so a re-save
+    // had NO session dir and reported nothing_to_save. Fixed: restore adopts the snapshot's trace id, so a
+    // re-save writes into THAT session's own dir carrying the restored terminal (not null/stale).
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_snapshot", "a post-restore save has a dir to write (not nothing_to_save)");
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", sid, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, sid, "the re-saved snapshot lands in the restored session's own dir");
+    assert.equal(written.stage.terminal, "complete", "and carries the restored terminal (seeded), not an empty/stale one");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

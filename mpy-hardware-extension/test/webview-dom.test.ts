@@ -478,6 +478,19 @@ test("Recent Sessions opens the surface, lists host-served summaries, RESTORES t
   assert.ok(!posted.some((m) => m.type === "restore_session"), "a view-only session does not attempt a restore");
 });
 
+test("session-restore feed rehydration: restore_note adds an inert line, restore_done a terminal line, restore_reset clears", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  post(dom, { type: "restore_note", text: "Which board? → ESP32-C6" });
+  assert.match(feed().textContent || "", /ESP32-C6/, "an inert prompt-history line renders in the feed");
+  const afterNote = feed().children.length;
+  post(dom, { type: "restore_done", terminal: "complete" });
+  assert.ok(feed().children.length > afterNote, "restore_done appends a terminal line");
+  post(dom, { type: "restore_reset" });
+  assert.equal(feed().children.length, 0, "restore_reset clears the feed");
+});
+
 test("Recent Sessions shows the empty state when the host returns none", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

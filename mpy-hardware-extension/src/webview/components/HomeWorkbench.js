@@ -272,7 +272,9 @@
           // A session with a saved snapshot RESTORES on click; a pre-Save-Version one has no snapshot,
           // so it is view-only (mark it + open its log instead of a restore that would just fail).
           if (s.restorable) {
-            card.addEventListener("click", () => vscode.postMessage({ type: "restore_session", id: s.id }));
+            // Close the Recent surface so the restored feed/tabs (which render on the home workbench
+            // beneath it) are actually visible — otherwise the click looks like it did nothing until Back.
+            card.addEventListener("click", () => { closeGlobalTool(); vscode.postMessage({ type: "restore_session", id: s.id }); });
           } else {
             const tag = document.createElement("span"); tag.className = "recent-viewonly"; tag.textContent = tr("recent_view_only");
             card.appendChild(tag);

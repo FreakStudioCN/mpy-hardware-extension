@@ -329,6 +329,15 @@ export class SessionController {
     this.generation++;
     this.cancel();
     this.abort = null;
+    this.clearSessionState();
+  }
+
+  // Every per-session field, wiped on EVERY fresh-session entry: reset()/Restart above AND
+  // seedFromSnapshot below (a restore is a fresh session — it must not inherit the run that
+  // preceded it). Kept in ONE place so a newly added accumulator can't leak across sessions by
+  // being cleared on only one path (the reset-not-start trap, #28): a snapshot written after a
+  // restore must carry ONLY the restored session's data, never residue from the prior session.
+  private clearSessionState() {
     this.state = undefined;
     this.boardId = null;
     this.traceId = null;
@@ -341,9 +350,9 @@ export class SessionController {
     this.hasAuthoredDiagram = false;
     this.latestFiles = {};
     this.persistedPaths = [];
-    // Artifact accumulators (#28 F6): reset sets boardId=null, so the next start()'s
+    // Artifact accumulators (#28 F6): a fresh-session path sets boardId=null, so the next start()'s
     // board-change clear is skipped (same trap as boardSelectionMode). Clear them here or
-    // a Restart would surface the previous session's files with stale phase attribution.
+    // a Restart/restore would surface the previous session's files with stale phase attribution.
     this.producedPaths = [];
     this.producedPhase.clear();
     this.phaseArtifacts = [];
@@ -356,8 +365,8 @@ export class SessionController {
     this.stdoutTail = [];
     this.keyErrors = [];
     this.pendingSupplements = [];
-    // Save Version accumulators: cleared on EVERY fresh-session path — here in reset() (covers a
-    // reset/restart, which also nulls boardId so start()'s board-change block is skipped) AND in
+    // Save Version accumulators: cleared on EVERY fresh-session path — here (covers reset/restart,
+    // which also nulls boardId so start()'s board-change block is skipped, AND restore) AND in
     // that board-change block itself (covers a board switch with no reset). A leftover on either
     // path would leak the previous session's terminal/diagram/credits into the next snapshot.
     this.lastTerminal = null;
@@ -936,24 +945,32 @@ export class SessionController {
   // board, preferences, resume state (manifest/phase/intent) and current phase the saved session had, and
   // a later retry() or save() operates on it. Refuses while a run is active (a live run owns this state).
   // The webview tabs (wiring/diagram/code/artifacts) are rehydrated separately by the panel; this is the
-  // controller-side half. traceId is deliberately NOT overwritten — a resumed build runs under a fresh id.
+  // controller-side half. Wipes ALL prior-session state first (a restore is a fresh session — it must not
+  // inherit the session that ran before it, or a later Save Version would write a chimera snapshot into the
+  // WRONG session's dir). traceId is set to the RESTORED session's id, so a post-restore Save Version
+  // targets that session's own dir and a retry() appends to its own transcript.
   seedFromSnapshot(seed: {
+    traceId?: string | null;
     state?: { manifest?: unknown; phase?: string; intent?: string };
     boardId?: string | null;
     preSelectedBoard?: unknown;
     boardSelectionMode?: string;
     preferences?: { mode?: string; locale?: string; existing_hardware?: string };
     currentPhase?: string | null;
+    terminal?: string | null;
     manifest?: unknown;
     diagram?: unknown;
   }): boolean {
     if (this.abort) return false; // a run owns the state — never clobber a live session
+    this.clearSessionState(); // start from a clean session — no residue from a prior run/restore (#28)
     this.state = seed.state;
     this.boardId = seed.boardId ?? null;
+    this.traceId = seed.traceId || null;
     this.preSelectedBoard = seed.preSelectedBoard;
     this.boardSelectionMode = seed.boardSelectionMode;
     this.preferences = seed.preferences;
     this.currentPhase = seed.currentPhase ?? null;
+    this.lastTerminal = seed.terminal ?? null; // so a re-save carries the restored terminal, not null
     if (seed.manifest !== undefined) this.latestManifest = seed.manifest;
     if (seed.diagram !== undefined) this.latestDiagram = seed.diagram;
     return true;

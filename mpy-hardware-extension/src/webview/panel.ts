@@ -6,7 +6,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { SessionController } from "../extension/session-controller.ts";
-import { listRecentSessions, sessionsDir } from "../extension/session-recorder.ts";
+import { isSessionId, listRecentSessions, sessionsDir } from "../extension/session-recorder.ts";
 import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
@@ -586,6 +586,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // act re-checks isRunning() at act time (a busy gate is not a lock — a build may have started
   // while the panel was open).
   let saveInFlight = false;
+  // Serializes doRestoreFromDir: a restore posts restore_reset (which clears the feed) then replays
+  // asynchronously, so a second concurrent restore (double-clicked card) would wipe the first mid-replay
+  // and leave the tabs a mix of two sessions. Mirrors saveInFlight.
+  let restoreInFlight = false;
   // True from the moment beginRun() commits a build to running until that run releases. isRunning()
   // alone is not enough: start_gen_driver/start_optional_flow do async work (source staging /
   // phase-complete write) between beginRun() and controller.startPhase() flipping isRunning(), so a
@@ -751,53 +755,106 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
   }
 
+  // A short label for a recorded prompt, for the inert "asked -> answered" history line.
+  function restorePromptLabel(e: any): string {
+    if (e?.type === "ui_prompt") return String(e.question ?? "Question");
+    if (e?.type === "approval_requested") return String(e.card?.question ?? e.card?.header ?? "Approval");
+    if (e?.type === "plan_proposed") return "Plan proposed";
+    if (e?.type === "deploy_proposed") return "Deploy proposed";
+    if (e?.type === "components_proposed") return "Components proposed";
+    if (e?.type === "file_op_proposed") return `${String(e.op ?? "file op")} ${String(e.path ?? "")}`.trim();
+    return "Prompt";
+  }
+  const RESTORE_PROMPT_TYPES = new Set(["ui_prompt", "plan_proposed", "deploy_proposed", "components_proposed", "approval_requested", "file_op_proposed"]);
+
+  // Replay the DURABLE activity feed from the restored session's transcript (session.jsonl): the AI's
+  // summaries + one INERT "asked -> answered" line per past prompt (never a live prompt). Transient
+  // trace/spinner events are not durable, so they are not replayed (and no live-run guard is touched).
+  // The caller clears the feed first (restore_reset).
+  function replaySessionFeed(sessionDir: string): void {
+    let text: string;
+    try { text = readFileSync(join(sessionDir, "session.jsonl"), "utf-8"); }
+    catch (error: any) {
+      if (error?.code === "ENOENT") return; // no transcript — the tabs still restore; nothing to replay
+      deps.log?.(`restore: could not read session transcript: ${error?.message ?? error}`); // EACCES etc — surface, don't silently blank the feed
+      return;
+    }
+    const events = text.split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) as any[];
+    // The answer is recorded AFTER the prompt — collect answers by promptId first.
+    const answers = new Map<string, unknown>();
+    for (const e of events) { if (e?.type === "ui_prompt_answer" && e.promptId != null) answers.set(String(e.promptId), e.answer); }
+    for (const e of events) {
+      if (e?.type === "summary") { webview.postMessage({ type: "summary", text: String(e.text ?? "") }); continue; }
+      if (RESTORE_PROMPT_TYPES.has(e?.type)) {
+        const a = answers.get(String(e.promptId));
+        const answer = a == null ? "" : (typeof a === "string" ? a : JSON.stringify(a));
+        webview.postMessage({ type: "restore_note", text: `${restorePromptLabel(e)}${answer ? ` → ${answer}` : ""}` });
+      }
+    }
+  }
+
   // Session restore (the consumer of the snapshot Save Version writes): read a saved snapshot and
   // rehydrate the session + the webview tabs from it. Refuses while a run is active (a live session owns
   // the state). A session with NO snapshot (a pre-Save-Version session) is not an error — it just can't
   // be restored, so the caller is told and degrades (view its log) rather than showing a broken restore.
   async function doRestoreFromDir(sessionDir: string, sessionId: string): Promise<void> {
     if (controller.isRunning() || runPending) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
-    let snap: SessionSnapshot | null;
-    try { snap = await readSessionSnapshot(sessionDir); }
-    catch (error: any) { vscode.window?.showErrorMessage?.(`Restore failed: ${String(error?.message ?? error)}`); return; }
-    if (!snap) {
-      // No snapshot (a pre-Save-Version session, or one deleted since the list was built). Degrade to
-      // view-log: reveal the session.jsonl if it's there, so an old session isn't a dead end.
-      const log = join(sessionDir, "session.jsonl");
-      if (existsSync(log)) { try { await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(log)); } catch { /* headless host — ignore */ } }
-      vscode.window?.showInformationMessage?.("This session has no saved snapshot to restore (it predates Save Version) — showing its log instead.");
-      return;
-    }
-    // Controller-side: seed state/board/preferences so a later save()/retry() operates on the restored
-    // session. No run is started — this only loads the state.
-    controller.seedFromSnapshot({
-      state: snap.state,
-      boardId: snap.board?.board_id || null,
-      preSelectedBoard: snap.board?.pre_selected_board ?? undefined,
-      boardSelectionMode: snap.board?.board_selection_mode || undefined,
-      preferences: snap.preferences,
-      currentPhase: snap.stage?.current_phase || null,
-      manifest: snap.manifest ?? undefined,
-      diagram: snap.diagram ?? undefined,
-    });
-    // Webview-side: replay the tabs (the inverse of clearConversation) — wiring, diagram, code.
-    if (snap.manifest) webview.postMessage({ type: "manifest_updated", manifest: snap.manifest });
-    if (snap.diagram) webview.postMessage({ type: "diagram_updated", diagram: snap.diagram });
-    // Code cards: replay each code artifact's on-disk content, but VERIFY its digest against the snapshot
-    // first — never replay a file whose sha256 no longer matches (the snapshot's integrity guarantee).
-    for (const a of snap.artifacts ?? []) {
-      if (a.kind !== "code") continue;
-      const abs = resolvePhaseArtifactPath(a.relative_path);
-      if (!abs) continue;
-      try {
-        const bytes = readFileSync(abs);
-        if (a.sha256 && createHash("sha256").update(bytes).digest("hex") !== a.sha256) continue; // changed on disk — skip, don't replay stale
-        webview.postMessage({ type: "code_updated", code: bytes.toString("utf-8"), path: a.relative_path });
-      } catch { /* unreadable — skip this file, restore the rest */ }
-    }
-    refreshArtifacts(sessionDir); // populate the Artifacts tab from the restored session's tree (D1)
-    await refreshCredits(); // the snapshot's credits are advisory — refetch the live quota (D2)
-    vscode.window?.showInformationMessage?.(`Restored session${snap.state?.intent ? `: ${snap.state.intent}` : ""}.`);
+    if (restoreInFlight) return; // a restore is already replaying — ignore a double-clicked card
+    restoreInFlight = true;
+    try {
+      let snap: SessionSnapshot | null;
+      try { snap = await readSessionSnapshot(sessionDir); }
+      catch (error: any) { vscode.window?.showErrorMessage?.(`Restore failed: ${String(error?.message ?? error)}`); return; }
+      if (!snap) {
+        // No snapshot (a pre-Save-Version session, or one deleted since the list was built). Degrade to
+        // view-log: reveal the session.jsonl if it's there, so an old session isn't a dead end.
+        const log = join(sessionDir, "session.jsonl");
+        if (existsSync(log)) { try { await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(log)); } catch { /* headless host — ignore */ } }
+        vscode.window?.showInformationMessage?.("This session has no saved snapshot to restore (it predates Save Version) — showing its log instead.");
+        return;
+      }
+      // Controller-side: seed state/board/preferences so a later save()/retry() operates on the restored
+      // session. No run is started — this only loads the state. The entry gate above is not a lock: a run
+      // could have started during the await, so re-check (runPending too — the controller can't see it) and
+      // honor seedFromSnapshot's false (it re-checks its own abort) rather than wiping a live run's feed.
+      if (controller.isRunning() || runPending) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
+      const seeded = controller.seedFromSnapshot({
+        traceId: snap.trace_id || null,
+        state: snap.state,
+        boardId: snap.board?.board_id || null,
+        preSelectedBoard: snap.board?.pre_selected_board ?? undefined,
+        boardSelectionMode: snap.board?.board_selection_mode || undefined,
+        preferences: snap.preferences,
+        currentPhase: snap.stage?.current_phase || null,
+        terminal: snap.stage?.terminal || null,
+        manifest: snap.manifest ?? undefined,
+        diagram: snap.diagram ?? undefined,
+      });
+      if (!seeded) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
+      // Clear the current view, then replay the durable activity feed from the transcript (D4). Done
+      // BEFORE the tab replays below, because restore_reset (clearConversation) wipes the tabs too.
+      webview.postMessage({ type: "restore_reset" });
+      replaySessionFeed(sessionDir);
+      // Webview-side: replay the tabs (the inverse of clearConversation) — wiring, diagram, code.
+      if (snap.manifest) webview.postMessage({ type: "manifest_updated", manifest: snap.manifest });
+      if (snap.diagram) webview.postMessage({ type: "diagram_updated", diagram: snap.diagram });
+      // Code cards: replay each code artifact's on-disk content, but VERIFY its digest against the snapshot
+      // first — never replay a file whose sha256 no longer matches (the snapshot's integrity guarantee).
+      for (const a of Array.isArray(snap.artifacts) ? snap.artifacts : []) {
+        if (a.kind !== "code") continue;
+        const abs = resolvePhaseArtifactPath(a.relative_path);
+        if (!abs) continue;
+        try {
+          const bytes = readFileSync(abs);
+          if (a.sha256 && createHash("sha256").update(bytes).digest("hex") !== a.sha256) continue; // changed on disk — skip, don't replay stale
+          webview.postMessage({ type: "code_updated", code: bytes.toString("utf-8"), path: a.relative_path });
+        } catch { /* unreadable — skip this file, restore the rest */ }
+      }
+      refreshArtifacts(sessionDir); // populate the Artifacts tab from the restored session's tree (D1)
+      await refreshCredits(); // the snapshot's credits are advisory — refetch the live quota (D2)
+      if (snap.stage?.terminal) webview.postMessage({ type: "restore_done", terminal: snap.stage.terminal }); // terminal line (D4a)
+      vscode.window?.showInformationMessage?.(`Restored session${snap.state?.intent ? `: ${snap.state.intent}` : ""}.`);
+    } finally { restoreInFlight = false; }
   }
 
   // Device Tools (#54): run a user-initiated device command. Refuse while a session
@@ -1575,9 +1632,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       catch { picked = undefined; } // dialog unavailable (headless) — nothing to do
       if (picked && picked[0]) { const dir = String(picked[0].fsPath); await doRestoreFromDir(dir, basename(dir)); }
     }
-    if (message.type === "restore_session" && typeof message.id === "string" && message.id) {
-      // Restore one of THIS project's recent sessions (selected in the Recent Sessions list). The id
-      // resolves to its dir under the session root; a session with no snapshot degrades in doRestoreFromDir.
+    if (message.type === "restore_session" && typeof message.id === "string" && isSessionId(message.id)) {
+      // Restore one of THIS project's recent sessions (selected in the Recent Sessions list). The id is
+      // shape-validated (isSessionId) before it's joined into a path — it comes over the webview channel, so
+      // it's a trust boundary even though the surface is our own (#11). A session with no snapshot degrades.
       if (sessionRoot) await doRestoreFromDir(join(sessionRoot, ".mpyhw", "sessions", message.id), message.id);
       else vscode.window?.showInformationMessage?.("No session storage available to restore from.");
     }

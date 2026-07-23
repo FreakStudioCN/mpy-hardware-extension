@@ -201,6 +201,21 @@ test("seedFromSnapshot restores state/board/preferences without running, and ref
   assert.deepEqual(snap.diagram, { nodes: ["a"] }, "diagram carried for a re-save");
   assert.equal(controller.hasSnapshotState(), true, "a restored session is itself re-savable");
 
+  // The restored session adopts ITS OWN id + terminal, so a post-restore Save Version writes into that
+  // session's dir (not the session that ran before it) and carries the real terminal, not null.
+  assert.equal(controller.seedFromSnapshot({ boardId: "b", traceId: "session-xyz-1", terminal: "complete" }), true, "re-seed succeeds when idle");
+  const s2 = controller.getSnapshotState();
+  assert.equal(s2.traceId, "session-xyz-1", "restore adopts the snapshot's trace id");
+  assert.equal(s2.terminal, "complete", "the restored terminal is carried for a re-save");
+
+  // Residual wipe (#28/#33): re-seeding a DIFFERENT session must NOT inherit the prior seed's
+  // diagram/terminal — a snapshot written after this restore must carry only this session's data.
+  assert.equal(controller.seedFromSnapshot({ boardId: "c" }), true, "third seed succeeds when idle");
+  const s3 = controller.getSnapshotState();
+  assert.equal(s3.diagram, undefined, "a fresh restore does not inherit the previous restore's diagram");
+  assert.equal(s3.terminal, null, "a fresh restore does not inherit the previous restore's terminal");
+  assert.equal(s3.traceId, null, "a fresh restore without an id does not inherit the previous id");
+
   // Must NOT clobber a live run's state: with a run in flight (abort set), seeding is refused.
   let release: () => void = () => { };
   const gate = new Promise<void>((r) => { release = r; });
