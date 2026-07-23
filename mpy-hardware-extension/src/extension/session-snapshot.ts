@@ -1,4 +1,4 @@
-// The session snapshot (#95 Save Version / #88 restore contract). One fixed-name
+// The session snapshot: written by Save Version, read by welcome-page session restore. One fixed-name
 // snapshot.json per session under <sessionDir>/checkpoints/, overwritten on re-save
 // (git commits are the history mechanism; the latest snapshot wins). The file is
 // PORTABLE (§4.2): it carries NO absolute paths — every file reference is relative to
@@ -15,20 +15,23 @@ export const SNAPSHOT_SCHEMA = "blockless-session-snapshot";
 export const SNAPSHOT_VERSION = 1;
 
 // One artifact row projected from the Artifact Browser index, MINUS absolute_path
-// (portability). sha256 lets #88 verify integrity before replaying code_updated from disk.
+// (portability). sha256 is a REAL digest computed fresh at snapshot-write time so session restore can verify
+// integrity before replaying code_updated from disk. It is `null` (never "") when no digest could
+// be produced — the file was unreadable or over the hash bound — so the consumer can distinguish
+// "not verified" from a valid digest instead of treating an empty string as a match.
 export interface SnapshotArtifact {
   relative_path: string;
   kind: string;
   role: string;
   phase: string;
   size: number;
-  sha256: string;
+  sha256: string | null;
   created_at: string;
 }
 
 // The controller state a snapshot captures (getSnapshotState()), plus the panel-supplied
 // context (artifacts, diagnostics, git linkage). Every field is present-or-explicit-null so
-// #88 can rely on the schema shape rather than probing for missing keys.
+// session restore can rely on the schema shape rather than probing for missing keys.
 export interface SnapshotInput {
   traceId: string | null;
   savedAt: string;                       // ISO, injected (pure function stays deterministic)
@@ -40,7 +43,7 @@ export interface SnapshotInput {
   boardSelectionMode: string | undefined;
   preferences: { mode?: string; locale?: string; existing_hardware?: string } | undefined;
   manifest: unknown;                     // enriched wiring-bearing manifest
-  diagram: unknown;                      // authored diagram, or null (derive fallback in #88)
+  diagram: unknown;                      // authored diagram, or null (session restore derives a fallback)
   credits: { balance?: number; dailyGrant?: number; resetsAt?: string; capturedAt?: string } | null;
   diagnostics: Record<string, string>;
   artifacts: SnapshotArtifact[];
@@ -68,7 +71,7 @@ export interface SessionSnapshot {
 const RESTORE_MECHANISM = "startPhase";
 
 // Coerce a nullable string into an empty-string default so every stage/board key is a
-// present string (the #88 contract keys on presence, not on the key existing).
+// present string (the restore contract keys on presence, not on the key existing).
 function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }

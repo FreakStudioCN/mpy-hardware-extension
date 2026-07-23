@@ -245,7 +245,7 @@ export function parseGitStatusRow(line: string, index: number): { id: string; na
 
 // The session snapshot is written to checkpoints/snapshot.json, which the session-tree scan then
 // indexes. Left in, the NEXT save's artifacts[] would list the PREVIOUS snapshot.json with the
-// sha of the file this write is about to replace — a guaranteed sha256 mismatch for #88's
+// sha of the file this write is about to replace — a guaranteed sha256 mismatch for session restore's
 // replay-verify. Exclude the snapshot's own path so it never self-references. (It stays browsable
 // in the display index — this only shapes the persisted, integrity-checked artifacts[].)
 const SNAPSHOT_SELF_PATH_SUFFIX = "checkpoints/snapshot.json";
@@ -260,8 +260,26 @@ export function isSnapshotSelfPath(relativePath: string): boolean {
   return norm === SNAPSHOT_SELF_PATH_SUFFIX || norm.endsWith("/" + SNAPSHOT_SELF_PATH_SUFFIX);
 }
 
+// Session-restore replay-verify needs a REAL digest — NOT the Artifact index's display-only sha (which is ""
+// over a 4 MiB cap, so firmware .bin/.uf2 land unverified, and is memoized on path:size:mtime, so a
+// same-size rewrite within one mtime tick serves a stale digest). Re-hash fresh from disk here at
+// snapshot-write time, no memo and a far higher bound. Over the bound or unreadable -> null (an
+// honest "not verified"), never "" (which the consumer would read as a match).
+const SNAPSHOT_MAX_HASH_BYTES = 64 * 1024 * 1024;
+// ponytail: per-file bound only, no aggregate budget across the (≤500) indexed artifacts. A real
+// project tree is a handful of small code files + one firmware image, so a save hashes sub-second;
+// the unbounded-total case (hundreds of large files) can't arise from the generators. Upgrade path
+// if that changes: track a running byte total here and return null past an aggregate cap.
+function snapshotSha256(absolutePath: string): string | null {
+  try {
+    if (statSync(absolutePath).size > SNAPSHOT_MAX_HASH_BYTES) return null;
+    return createHash("sha256").update(readFileSync(absolutePath)).digest("hex");
+  } catch { return null; }
+}
+
 // Project the host artifact index into the portable snapshot rows (§4.2): relative_path only,
-// NO absolute_path. sha256 lets #88 verify integrity before replaying code from disk.
+// NO absolute_path. sha256 recomputed fresh from disk (see snapshotSha256) — the integrity hash session restore
+// verifies against before replaying code, not the display-only index value.
 function toSnapshotArtifacts(index: Artifact[]): SnapshotArtifact[] {
   return index.filter((a) => !isSnapshotSelfPath(a.relative_path)).map((a) => ({
     relative_path: a.relative_path,
@@ -269,7 +287,7 @@ function toSnapshotArtifacts(index: Artifact[]): SnapshotArtifact[] {
     role: a.role,
     phase: a.phase,
     size: a.size,
-    sha256: a.sha256,
+    sha256: snapshotSha256(a.absolute_path),
     created_at: a.created_at,
   }));
 }
@@ -625,6 +643,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         const status = /nothing to commit/i.test(detail) ? SAVE_VERSION_STATUS.nothingToCommit : SAVE_VERSION_STATUS.commitFailed;
         webview.postMessage({ type: "save_version_status", status, error: detail }); return;
       }
+      // Rebuild the artifact index at CONFIRM time (not the stale panel-open build): writeSaveSnapshot
+      // projects the closure artifactIndex, so a file created/changed while the confirmation sat open
+      // would otherwise persist a stale path/size/digest into the session-restore contract (CWE-367 capture timing).
+      refreshArtifacts();
       // One save = one restorable point: also snapshot with the commit hash. A snapshot miss must
       // NOT undo the commit.
       if (controller.hasSnapshotState() && ctx.sessionDir) {
@@ -649,6 +671,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     try {
       const ctx = saveVersionContext(); if (!ctx) return;
       if (!controller.hasSnapshotState() || !ctx.sessionDir) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.nothing }); return; }
+      // Rebuild the artifact index at CONFIRM time so the snapshot captures the tree as it is NOW,
+      // not the stale panel-open build (CWE-367 capture timing — blocker 2).
+      refreshArtifacts();
       try { await writeSaveSnapshot(ctx.sessionDir, ctx.snap, ctx.diag, null); }
       catch (error: any) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.snapshotWriteFailed, error: String(error?.code ?? error?.message ?? error) }); return; }
       refreshArtifacts();

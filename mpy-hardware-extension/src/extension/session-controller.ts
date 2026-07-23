@@ -152,6 +152,14 @@ export class SessionController {
       this.optionalNextPhases = [];
       this.driverReadyBlocks = [];
       this.latestGeneratePhaseComplete = undefined;
+      // The Save Version accumulators are cleared in reset(), but the board-change branch is ALSO a
+      // fresh-session path that never routes through reset() — clear them here too, or board A's
+      // authored diagram / credits leak into board B's snapshot.json and session restore replays the
+      // wrong board's data. (A field cleared in reset() only still leaks into the persisted snapshot
+      // via this non-reset fresh-start path.)
+      this.lastTerminal = null;
+      this.latestDiagram = undefined;
+      this.lastCredits = null;
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -348,9 +356,10 @@ export class SessionController {
     this.stdoutTail = [];
     this.keyErrors = [];
     this.pendingSupplements = [];
-    // Save Version accumulators (#95): cleared here, NOT in start()'s board-change block —
-    // reset() nulls boardId, so that block is short-circuited and a leftover value would
-    // leak the previous session's terminal/diagram/credits into the next snapshot.
+    // Save Version accumulators: cleared on EVERY fresh-session path — here in reset() (covers a
+    // reset/restart, which also nulls boardId so start()'s board-change block is skipped) AND in
+    // that board-change block itself (covers a board switch with no reset). A leftover on either
+    // path would leak the previous session's terminal/diagram/credits into the next snapshot.
     this.lastTerminal = null;
     this.latestDiagram = undefined;
     this.lastCredits = null;
@@ -728,7 +737,7 @@ export class SessionController {
       // (and low/exhausted trip mid-build) instead of falling through to trace_event.
       const normalized = { kind: "credits", balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt };
       // Retain the last-seen balance for the Save Version snapshot (#95). Advisory only —
-      // #88 re-fetches /v1/credits live because quota can't be restored as truth.
+      // session restore re-fetches /v1/credits live because quota can't be restored as truth.
       this.lastCredits = { balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt, capturedAt: new Date().toISOString() };
       this.record({ type: "session_event", event: normalized });
       this.deps.postMessage({ type: "session_event", event: normalized });

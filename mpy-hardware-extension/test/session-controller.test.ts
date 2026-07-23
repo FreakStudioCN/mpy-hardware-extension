@@ -152,13 +152,37 @@ test("reset() clears the Save Version accumulators (terminal/diagram/credits) so
   assert.deepEqual(snap.diagram, { nodes: ["a"] }, "authored diagram accumulated");
   assert.equal(snap.credits?.balance, 42, "credits accumulated");
 
-  // reset() must null ALL THREE (they're cleared in reset(), not start()'s board-change block —
-  // reset() nulls boardId, short-circuiting that block; a leftover would leak into the next snapshot).
+  // reset() must null ALL THREE. They are cleared on BOTH fresh-session paths (reset() and start()'s
+  // board-change block); reset() nulls boardId, so on a reset it is THIS clear that runs. The
+  // board-change path is covered by the "REPRO PR#47 blocker 1" test below.
   controller.reset();
   snap = controller.getSnapshotState();
   assert.equal(snap.terminal, null, "reset clears terminal");
   assert.equal(snap.diagram, undefined, "reset clears diagram");
   assert.equal(snap.credits, null, "reset clears credits");
+});
+
+test("REPRO PR#47 blocker 1: a board-change fresh session must not inherit the previous session's Save Version accumulators", async () => {
+  let call = 0;
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      call++;
+      if (call === 1) {
+        onEvent({ type: "diagram_updated", diagram: { nodes: ["board-A-diagram"] } });
+        onEvent({ type: "credits", remaining: 42, dailyGrant: 100, resetsAt: "2026-07-07T00:00:00Z" });
+      }
+      return { terminal: "complete" }; // run 2 emits NO diagram/credits
+    },
+  });
+  await controller.start({ intent: "blink", boardId: "board-a" });
+  // Fresh session via BOARD CHANGE, not reset(): start()'s board-change branch clears state,
+  // keyErrors, phaseArtifacts, ... and must clear the three Save Version accumulators too, or
+  // board A's authored diagram/credits leak into board B's snapshot.json for session restore.
+  await controller.start({ intent: "unrelated project", boardId: "board-b" });
+  const snap = controller.getSnapshotState();
+  assert.equal(snap.diagram, undefined, "board B's snapshot must not carry board A's authored diagram");
+  assert.equal(snap.credits, null, "board B's snapshot must not carry board A's credits");
 });
 
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {

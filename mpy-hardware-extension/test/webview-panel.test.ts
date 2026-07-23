@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -2192,7 +2193,7 @@ test("save_version_commit respects staging: commits only staged fileA, leaves fi
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
-test("save_version_snapshot in a non-git project writes a snapshot.json covering the #88 schema", async () => {
+test("save_version_snapshot in a non-git project writes a snapshot.json covering the session-restore schema", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
   try {
     const { handler, posted, projectFolder } = await startTemplateSession(ws);
@@ -2203,7 +2204,7 @@ test("save_version_snapshot in a non-git project writes a snapshot.json covering
     const snap = findSnapshot(ws);
     assert.ok(snap, "snapshot.json written");
     for (const key of ["schema", "stage", "state", "board", "preferences", "manifest", "artifacts", "restore"]) {
-      assert.ok(key in snap, `snapshot has ${key} (a dropped field fails the #88 contract)`);
+      assert.ok(key in snap, `snapshot has ${key} (a dropped field fails the session-restore contract)`);
     }
     assert.equal(snap.git, null, "no commit → git linkage null");
   } finally { rmSync(ws, { recursive: true, force: true }); }
@@ -2253,7 +2254,7 @@ test("a build cannot start while a Save Version act is in flight (add -A must no
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
-test("save_version_snapshot never lists its own checkpoints/snapshot.json in artifacts[] (no stale-sha self-reference for #88)", async () => {
+test("save_version_snapshot never lists its own checkpoints/snapshot.json in artifacts[] (no stale-sha self-reference for session restore)", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
   try {
     const { handler, projectFolder } = await startTemplateSession(ws);
@@ -2344,6 +2345,45 @@ test("isSnapshotSelfPath matches only the session snapshot, segment-anchored (no
   assert.equal(isSnapshotSelfPath("mycheckpoints/snapshot.json"), false, "a lookalike segment is NOT dropped (segment-anchored, not bare endsWith)");
   assert.equal(isSnapshotSelfPath("checkpoints/snapshot.json.bak"), false, "a different filename is not matched");
   assert.equal(isSnapshotSelfPath("src/checkpoints/snapshot.jsonl"), false, "a different extension is not matched");
+});
+
+test("REPRO PR#47 blocker 2: snapshot artifacts[] reflects confirm time, not panel-open time", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // snapshot path (non-git)
+    await handler({ type: "save_version_open" }); // artifactIndex refreshed HERE (panel-open)
+    // An artifact appears while the confirmation panel sits open:
+    const sessionsBase = join(ws, ".mpyhw", "sessions");
+    const sid = readdirSync(sessionsBase)[0];
+    writeFileSync(join(sessionsBase, sid, "post-open.py"), "# created between open and confirm");
+    await handler({ type: "save_version_snapshot" });
+    const snap = findSnapshot(ws);
+    assert.ok(snap, "snapshot written");
+    assert.ok(
+      (snap.artifacts as any[]).some((a) => String(a.relative_path).includes("post-open.py")),
+      "artifacts[] must reflect the tree at CONFIRM time (refreshArtifacts at act time), not the stale panel-open index",
+    );
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("REPRO PR#47 blocker 3: a >4MiB artifact (firmware .bin) carries a real 64-char sha256 in the integrity-checked artifacts[]", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // snapshot path (non-git)
+    const sessionsBase = join(ws, ".mpyhw", "sessions");
+    const sid = readdirSync(sessionsBase)[0];
+    const bytes = Buffer.alloc(5 * 1024 * 1024, 1); // over the display 4MiB hash cap
+    writeFileSync(join(sessionsBase, sid, "firmware.bin"), bytes);
+    await handler({ type: "save_version_snapshot" });
+    const snap = findSnapshot(ws);
+    const fw = (snap.artifacts as any[]).find((a) => String(a.relative_path).includes("firmware.bin"));
+    assert.ok(fw, "firmware artifact listed");
+    // Assert the digest VALUE, not just its length: it must be the real sha256 of the file CONTENT
+    // (computed fresh at snapshot time), so hashing the wrong file or the display-only cap's "" both fail.
+    assert.equal(fw.sha256, createHash("sha256").update(bytes).digest("hex"), "the persisted digest is the sha256 of the firmware content, not the display-only empty string or a stale/wrong value");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
 test("start_gen_driver refused while a save is in flight posts its OWN status (button un-sticks), not bare session_busy", async () => {
