@@ -1499,15 +1499,23 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // command/Uri unavailable (e.g. headless host) — ignore
       }
     }
-    if (message.type === "import_project") {
-      // Open an existing MicroPython project folder as the workspace root so
-      // generate/deploy target it. Native folder picker, then vscode.openFolder.
+    if (message.type === "open_project_folder") {
+      // Open a LOCAL project folder as the workspace root so generate/deploy target it. Its own entry,
+      // distinct from Import (which restores a saved SESSION) — this is the old "import_project" body,
+      // now honestly labeled. Native folder picker, then vscode.openFolder.
       try {
-        const picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Open Project" });
+        const picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Open Folder" });
         if (picked && picked[0]) await vscode.commands?.executeCommand?.("vscode.openFolder", picked[0]);
       } catch {
         // dialog/command unavailable (e.g. headless host) — ignore
       }
+    }
+    if (message.type === "import_session") {
+      // Restore a saved Blockless session from its snapshot (board/code/wiring/diagnostics). The restore
+      // ENGINE (session-snapshot reader + rehydration driver) lands in the next slice; until then point
+      // the user at Recent Sessions, which already lists their saved sessions.
+      // ponytail: slice-1 placeholder — replaced by the real restore driver in the session-restore engine slice.
+      vscode.window?.showInformationMessage?.("Session restore is coming in the next update. Use Recent Sessions to view your saved sessions.");
     }
     if (message.type === "request_recent_sessions") {
       // List past session summaries (read-only) from <sessionRoot>/.mpyhw/sessions — the same

@@ -101,10 +101,12 @@
       // ponytail: Git History (spec 3.8) is still a stubbed global tool pending #94.
       // Save Version (#95) is wired above (saveVersionOpen -> its own toolSaveVersion surface).
       $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); setBoardBodyExpanded(true); $("intent").focus(); });
-      // Import Existing Project: host opens a folder picker then reloads on that
-      // folder (no webview surface). Recent Sessions: read-only list of past session
-      // summaries in a global-tool surface; the host serves them from .mpyhw/sessions.
-      $("importProject").addEventListener("click", () => vscode.postMessage({ type: "import_project" }));
+      // Three distinct project-entry actions (a session is Blockless runtime state; a folder is just
+      // local source files): Import Existing Project restores a saved SESSION; Open Folder opens a local
+      // FOLDER as the workspace (the old "import" behavior, now honestly labeled); Recent Sessions is a
+      // read-only list served from .mpyhw/sessions.
+      $("importSession").addEventListener("click", () => vscode.postMessage({ type: "import_session" }));
+      $("openFolder").addEventListener("click", () => vscode.postMessage({ type: "open_project_folder" }));
       $("recentSessions").addEventListener("click", () => { openGlobalTool("toolRecent"); vscode.postMessage({ type: "request_recent_sessions" }); });
       $("recentBack").addEventListener("click", closeGlobalTool);
       $("boardMore").addEventListener("click", () => setBoardBodyExpanded($("boardPickerBody").hidden));

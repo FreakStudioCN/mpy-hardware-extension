@@ -2003,6 +2003,44 @@ test("start_optional_flow allowlist-maps the flow and host-gates on the generate
   assert.ok(posted.some((m) => m.type === "optional_flow_status" && m.status === "failed" && /Run generate first/.test(m.detail)), "an unoffered flow is host-refused");
 });
 
+// ----- Welcome-page project entry: session import vs folder open (#88 slice 1) -----
+
+test("open_project_folder opens a FOLDER picker then vscode.openFolder (the folder-open action, now its own entry)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    let handler: any; const opened: any[] = []; let dialogOpts: any;
+    const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showOpenDialog: async (o: any) => { dialogOpts = o; return [{ fsPath: join(ws, "picked") }]; } },
+      commands: { executeCommand: async (cmd: string, arg: any) => { opened.push({ cmd, path: arg?.fsPath }); } },
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
+    await handler({ type: "open_project_folder" });
+    assert.equal(dialogOpts?.canSelectFolders, true, "picks a FOLDER");
+    assert.equal(dialogOpts?.canSelectFiles, false, "not a file picker");
+    assert.deepEqual(opened, [{ cmd: "vscode.openFolder", path: join(ws, "picked") }], "opens the picked folder as the workspace");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("import_session does NOT open a folder (the reported bug) — it routes to session restore", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    let handler: any; const folderOps: any[] = []; let infoShown = false;
+    const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showOpenDialog: async () => { folderOps.push("dialog"); return undefined; }, showInformationMessage: async () => { infoShown = true; return undefined; } },
+      commands: { executeCommand: async () => { folderOps.push("cmd"); } },
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
+    await handler({ type: "import_session" });
+    // The core of the fix: Import must never open a folder. (The restore engine replaces the placeholder in slice 2.)
+    assert.equal(folderOps.length, 0, "import_session opens no folder dialog / openFolder");
+    assert.ok(infoShown, "slice-1 placeholder tells the user restore is coming");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
 // ----- Save Version (#95) real-git panel tests -----
 // Drive a template-mode session so the controller has state + the project folder is a real
 // git repo (ensureProjectGitRepo runs on start_session). Reuses the file's jsonResponse/

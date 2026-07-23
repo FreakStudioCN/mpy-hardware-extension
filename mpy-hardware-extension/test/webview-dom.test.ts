@@ -415,18 +415,29 @@ test("partner with no resolved logo renders its name and still opens the site", 
   assert.ok(ext && /wiznet\.io/.test(ext.url), "clicking the text fallback still opens the site");
 });
 
-test("Import Existing Project posts import_project to the host", async () => {
+test("the three project-entry buttons post their OWN distinct messages (session import vs folder open vs recent)", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
-
-  const btn = document.getElementById("importProject") as HTMLButtonElement;
   const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
-  assert.ok(startZone.contains(btn), "Import Existing Project is in the start zone");
+
+  const importBtn = document.getElementById("importSession") as HTMLButtonElement;
+  const openBtn = document.getElementById("openFolder") as HTMLButtonElement;
+  const recentBtn = document.getElementById("recentSessions") as HTMLButtonElement;
+  for (const [name, btn] of [["importSession", importBtn], ["openFolder", openBtn], ["recentSessions", recentBtn]] as const) {
+    assert.ok(btn && startZone.contains(btn), `${name} is a launch entry`);
+  }
 
   posted.length = 0;
-  btn.click();
-  assert.ok(posted.some((m) => m.type === "import_project"), "clicking posts import_project");
+  importBtn.click();
+  // Import restores a SESSION — it must NOT post import_project / trigger the folder-open flow (the bug).
+  assert.ok(posted.some((m) => m.type === "import_session"), "Import Existing Project posts import_session");
+  assert.ok(!posted.some((m) => m.type === "import_project" || m.type === "open_project_folder"), "Import does not open a folder");
+
+  posted.length = 0;
+  openBtn.click();
+  assert.ok(posted.some((m) => m.type === "open_project_folder"), "Open Folder posts open_project_folder (the folder-open action, now its own entry)");
+  assert.ok(!posted.some((m) => m.type === "import_session"), "Open Folder is not session import");
 });
 
 test("Recent Sessions opens the surface, lists host-served summaries, opens the jsonl on click", async () => {
