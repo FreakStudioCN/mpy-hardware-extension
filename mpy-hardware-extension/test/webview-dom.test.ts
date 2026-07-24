@@ -540,6 +540,42 @@ test("session-restore inert cards (Stage 2): restore_prompt renders the REAL car
   assert.ok(posted.some((m) => m.type === "deploy_rescan"), "a live deploy card still scans — the replaying flag did not leak");
 });
 
+test("a restored inert approval card does not block a live approval_request reusing the same promptId", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  // Replay a past approval card as inert. It carries the ORIGINAL session's promptId "approval-1".
+  post(dom, { type: "restore_prompt", kind: "approval_requested", payload: { promptId: "approval-1", card: { question: "Historical approval", actions: [{ label: "OK", value: "confirm", primary: true }] } }, answer: "confirm" });
+  assert.match(feed().textContent || "", /Historical approval/, "the inert approval card rendered");
+  // A NEW session mints the SAME id (promptSeq restarts at 0 per window). The live approval MUST render — it
+  // must not be dropped by the message-bus dup-guard matching the stale inert card's data-prompt-id.
+  post(dom, { type: "approval_request", promptId: "approval-1", card: { question: "Live approval", actions: [{ label: "Go", value: "confirm", primary: true }] } });
+  assert.match(feed().textContent || "", /Live approval/, "the live approval card is NOT dropped as a duplicate of the inert one");
+  const liveCard = feed().querySelector('[data-prompt-id="approval-1"]');
+  assert.ok(liveCard && !liveCard.classList.contains("restore-inert"), "the card carrying the live promptId is the live one, not the stale inert card");
+  assert.ok([...liveCard!.querySelectorAll("button")].some((b: any) => !b.disabled), "the live approval card has an enabled button to answer");
+});
+
+test("a restored inert approval card's selected radio is not unchecked by a live card reusing the id", async () => {
+  const dom = await loadWebview([]);
+  const { document, Event } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  // A single-select group renders radios whose `name` embeds the promptId — same collision class as the id.
+  const radioCard = (q: string) => ({ question: q, item_groups: [{ group_id: "band", multi_select: false, items: [{ id: "a", label: "A", selected: true }, { id: "b", label: "B" }] }], actions: [{ label: "Go", value: "confirm", primary: true }] });
+  post(dom, { type: "restore_prompt", kind: "approval_requested", payload: { promptId: "approval-1", card: radioCard("Historical") }, answer: "confirm" });
+  const inertRadios = [...feed().querySelectorAll('input[type="radio"]')] as any[];
+  assert.equal(inertRadios.length, 2, "the inert approval card rendered its radio group");
+  const inertChecked = inertRadios.find((r) => r.checked);
+  assert.ok(inertChecked, "the inert card shows its historical radio selection");
+  // The live card reuses the id. Choosing a radio in it must not disturb the inert card's (renamed) group.
+  post(dom, { type: "approval_request", promptId: "approval-1", card: radioCard("Live") });
+  const liveRadios = ([...feed().querySelectorAll('input[type="radio"]')] as any[]).filter((r) => !inertRadios.includes(r));
+  assert.equal(liveRadios.length, 2, "the live card rendered its own radio group (was not dropped as a duplicate)");
+  liveRadios[1].checked = true; liveRadios[1].dispatchEvent(new Event("change", { bubbles: true }));
+  assert.equal(inertChecked.checked, true, "the inert card's historical selection survives choosing a radio in the live card");
+});
+
 test("Recent Sessions shows the empty state when the host returns none", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

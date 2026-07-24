@@ -666,6 +666,17 @@
         const card = $("activity").lastElementChild;
         if (!card) return;
         card.classList.add("restore-inert");
+        // An inert card is HISTORICAL: strip the data-prompt-id the live renderers stamped (ApprovalCardHost
+        // approval/file_op cards). promptSeq restarts at 0 each window, so a NEW session's live prompt gets the
+        // SAME id — the message-bus approval dup-guard queries [data-prompt-id] globally and would drop the live
+        // card as a "duplicate" of this stale replayed one, hanging the run. A disabled card needs no id.
+        if (card.hasAttribute("data-prompt-id")) card.removeAttribute("data-prompt-id");
+        card.querySelectorAll("[data-prompt-id]").forEach((el) => { el.removeAttribute("data-prompt-id"); });
+        // Same class: a single-select group's radio `name` embeds the promptId ("apr-<id>-<gid>"), and radio
+        // groups are document-scoped, so a live card reusing the id would share the group — clicking a live
+        // radio unchecks this inert card's shown selection. Namespace inert radios out of the live group
+        // (renaming a checked radio keeps it checked).
+        card.querySelectorAll('input[type="radio"][name]').forEach((el) => { el.name = "inert-" + el.name; });
         card.querySelectorAll("input, button, select, textarea").forEach((el) => { el.disabled = true; });
         const ans = answer == null ? "" : String(answer);
         if (!ans) return;
