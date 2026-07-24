@@ -415,21 +415,33 @@ test("partner with no resolved logo renders its name and still opens the site", 
   assert.ok(ext && /wiznet\.io/.test(ext.url), "clicking the text fallback still opens the site");
 });
 
-test("Import Existing Project posts import_project to the host", async () => {
+test("the three project-entry buttons post their OWN distinct messages (session import vs folder open vs recent)", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
-
-  const btn = document.getElementById("importProject") as HTMLButtonElement;
   const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
-  assert.ok(startZone.contains(btn), "Import Existing Project is in the start zone");
+
+  const importBtn = document.getElementById("importSession") as HTMLButtonElement;
+  const openBtn = document.getElementById("openFolder") as HTMLButtonElement;
+  const recentBtn = document.getElementById("recentSessions") as HTMLButtonElement;
+  for (const [name, btn] of [["importSession", importBtn], ["openFolder", openBtn], ["recentSessions", recentBtn]] as const) {
+    assert.ok(btn && startZone.contains(btn), `${name} is a launch entry`);
+    assert.ok(btn.querySelector("svg"), `${name} has a distinct icon`);
+  }
 
   posted.length = 0;
-  btn.click();
-  assert.ok(posted.some((m) => m.type === "import_project"), "clicking posts import_project");
+  importBtn.click();
+  // Import restores a SESSION — it must NOT post import_project / trigger the folder-open flow (the bug).
+  assert.ok(posted.some((m) => m.type === "import_session"), "Import Existing Project posts import_session");
+  assert.ok(!posted.some((m) => m.type === "import_project" || m.type === "open_project_folder"), "Import does not open a folder");
+
+  posted.length = 0;
+  openBtn.click();
+  assert.ok(posted.some((m) => m.type === "open_project_folder"), "Open Folder posts open_project_folder (the folder-open action, now its own entry)");
+  assert.ok(!posted.some((m) => m.type === "import_session"), "Open Folder is not session import");
 });
 
-test("Recent Sessions opens the surface, lists host-served summaries, opens the jsonl on click", async () => {
+test("Recent Sessions opens the surface, lists host-served summaries, RESTORES the session on click", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
@@ -442,20 +454,123 @@ test("Recent Sessions opens the surface, lists host-served summaries, opens the 
   post(dom, {
     type: "recent_sessions",
     sessions: [
-      { id: "trace-a", date: "2026-07-07T10:00:00.000Z", intent: "blink an LED", finalPhase: "done", path: "/w/.mpyhw/sessions/trace-a/session.jsonl" },
-      { id: "trace-b", date: "2026-07-06T09:00:00.000Z", intent: "read a sensor", finalPhase: "cancelled", path: "/w/.mpyhw/sessions/trace-b/session.jsonl" },
+      { id: "trace-a", date: "2026-07-07T10:00:00.000Z", intent: "blink an LED", finalPhase: "done", path: "/w/.mpyhw/sessions/trace-a/session.jsonl", restorable: true },
+      { id: "trace-b", date: "2026-07-06T09:00:00.000Z", intent: "read a sensor", finalPhase: "cancelled", path: "/w/.mpyhw/sessions/trace-b/session.jsonl", restorable: false },
     ],
   });
   const cards = document.querySelectorAll("#recent .recent-card");
   assert.equal(cards.length, 2, "one card per session");
   assert.match((cards[0] as HTMLElement).textContent!, /blink an LED/, "shows the session intent");
   assert.equal(document.getElementById("recentEmpty")!.classList.contains("hidden"), true, "empty state hidden when sessions exist");
+  // A restorable session has no view-only marker; a pre-Save-Version one is marked view-only.
+  assert.equal(cards[0].querySelector(".recent-viewonly"), null, "a restorable session is not marked view-only");
+  assert.ok(cards[1].querySelector(".recent-viewonly"), "a snapshot-less session is marked view-only");
 
   posted.length = 0;
   (cards[0] as HTMLButtonElement).click();
-  const open = posted.find((m) => m.type === "open_path");
-  assert.ok(open, "clicking a session posts open_path");
-  assert.match(open.path, /trace-a\/session\.jsonl$/, "opens that session's jsonl");
+  const restore = posted.find((m) => m.type === "restore_session");
+  assert.ok(restore && restore.id === "trace-a", "a restorable session restores on click (restore_session by id)");
+  assert.equal(document.getElementById("toolRecent")!.classList.contains("hidden"), true, "restoring closes the Recent surface so the rehydrated feed is visible");
+
+  posted.length = 0;
+  (cards[1] as HTMLButtonElement).click();
+  const view = posted.find((m) => m.type === "open_path");
+  assert.ok(view && /trace-b\/session\.jsonl$/.test(view.path), "a view-only session opens its log instead (no failed restore)");
+  assert.ok(!posted.some((m) => m.type === "restore_session"), "a view-only session does not attempt a restore");
+});
+
+test("session-restore feed rehydration: restore_done appends a terminal line, restore_reset clears", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  post(dom, { type: "restore_done", terminal: "complete" });
+  assert.ok(feed().children.length > 0, "restore_done appends a terminal line");
+  post(dom, { type: "restore_reset" });
+  assert.equal(feed().children.length, 0, "restore_reset clears the feed");
+});
+
+test("session-restore rich feed (Stage 1): restore_user is a user card, restore_line error is .is-error, no spinner, live gate intact", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  post(dom, { type: "restore_user", text: "blink an LED" });
+  assert.match(feed().textContent || "", /blink an LED/, "the user's request renders in the feed");
+  post(dom, { type: "restore_line", kind: "trace", text: "Generating code" });
+  assert.match(feed().textContent || "", /Generating code/, "a trace line renders");
+  post(dom, { type: "restore_line", kind: "error", text: "I2C read failed" });
+  assert.ok(feed().querySelector(".is-error"), "an error line renders with the .is-error class");
+  // The run is idle during restore — a replayed line must NEVER arm the working spinner (trap #15 inverse).
+  assert.equal(feed().querySelector(".feed-pending"), null, "no working spinner is armed by the replay");
+  // The live gate is untouched: a status_update while NOT running still renders nothing (proves rich replay
+  // did not un-gate the live path — it uses separate ungated restore_* messages).
+  const before = feed().children.length;
+  post(dom, { type: "status_update", payload: { message: "should be gated" } });
+  assert.equal(feed().children.length, before, "a live status_update is still gated on running (no regression)");
+});
+
+test("session-restore inert cards (Stage 2): restore_prompt renders the REAL card disabled + answer, no device scan, and live prompts stay interactive", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  // A past PLAN prompt replays as the real plan card (not a one-line note), fully inert.
+  post(dom, { type: "restore_prompt", kind: "plan_proposed", payload: { promptId: "p1", plan: { summary: "Blink an LED", boardId: "esp32" } }, answer: "confirm" });
+  const planGo = feed().querySelector(".plan-go") as HTMLButtonElement | null;
+  assert.ok(planGo, "the real plan card renders (not a flat note line)");
+  assert.match(feed().textContent || "", /Blink an LED/, "the plan's own content is shown");
+  assert.ok([...feed().querySelectorAll("button, input, select, textarea")].every((el: any) => el.disabled), "every control is disabled — the card is inert");
+  assert.ok(planGo!.classList.contains("chosen"), "the chosen button (Confirm) is highlighted to show what was selected");
+  assert.equal((feed().querySelector(".plan-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked button is not highlighted");
+  assert.equal(feed().querySelector(".feed-pending"), null, "rendering an inert card never arms the working spinner");
+  // A past DEPLOY prompt must NOT trigger a live device scan (the guarded render-time side effect).
+  posted.length = 0;
+  post(dom, { type: "restore_prompt", kind: "deploy_proposed", payload: { promptId: "p2", manifest: {} }, answer: "confirm" });
+  assert.ok(!posted.some((m) => m.type === "deploy_rescan"), "an inert deploy card does not scan for devices");
+  // No regression: a LIVE plan prompt rendered afterwards is still interactive (inert mode is confined to replay).
+  post(dom, { type: "plan_needed", promptId: "p3", plan: { summary: "Live plan", boardId: "esp32" } });
+  const liveGo = [...feed().querySelectorAll(".plan-go")].pop() as HTMLButtonElement;
+  assert.equal(liveGo.disabled, false, "a live plan card is still clickable — inert mode is confined to the replay");
+  // Tighter leak check: a LIVE deploy card DOES scan for devices — proving `replaying` was reset to false
+  // after the inert renders (a leaked flag would suppress this exactly like the inert card above).
+  posted.length = 0;
+  post(dom, { type: "deploy_needed", promptId: "p4", manifest: {} });
+  assert.ok(posted.some((m) => m.type === "deploy_rescan"), "a live deploy card still scans — the replaying flag did not leak");
+});
+
+test("a restored inert approval card does not block a live approval_request reusing the same promptId", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  // Replay a past approval card as inert. It carries the ORIGINAL session's promptId "approval-1".
+  post(dom, { type: "restore_prompt", kind: "approval_requested", payload: { promptId: "approval-1", card: { question: "Historical approval", actions: [{ label: "OK", value: "confirm", primary: true }] } }, answer: "confirm" });
+  assert.match(feed().textContent || "", /Historical approval/, "the inert approval card rendered");
+  // A NEW session mints the SAME id (promptSeq restarts at 0 per window). The live approval MUST render — it
+  // must not be dropped by the message-bus dup-guard matching the stale inert card's data-prompt-id.
+  post(dom, { type: "approval_request", promptId: "approval-1", card: { question: "Live approval", actions: [{ label: "Go", value: "confirm", primary: true }] } });
+  assert.match(feed().textContent || "", /Live approval/, "the live approval card is NOT dropped as a duplicate of the inert one");
+  const liveCard = feed().querySelector('[data-prompt-id="approval-1"]');
+  assert.ok(liveCard && !liveCard.classList.contains("restore-inert"), "the card carrying the live promptId is the live one, not the stale inert card");
+  assert.ok([...liveCard!.querySelectorAll("button")].some((b: any) => !b.disabled), "the live approval card has an enabled button to answer");
+});
+
+test("a restored inert approval card's selected radio is not unchecked by a live card reusing the id", async () => {
+  const dom = await loadWebview([]);
+  const { document, Event } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  // A single-select group renders radios whose `name` embeds the promptId — same collision class as the id.
+  const radioCard = (q: string) => ({ question: q, item_groups: [{ group_id: "band", multi_select: false, items: [{ id: "a", label: "A", selected: true }, { id: "b", label: "B" }] }], actions: [{ label: "Go", value: "confirm", primary: true }] });
+  post(dom, { type: "restore_prompt", kind: "approval_requested", payload: { promptId: "approval-1", card: radioCard("Historical") }, answer: "confirm" });
+  const inertRadios = [...feed().querySelectorAll('input[type="radio"]')] as any[];
+  assert.equal(inertRadios.length, 2, "the inert approval card rendered its radio group");
+  const inertChecked = inertRadios.find((r) => r.checked);
+  assert.ok(inertChecked, "the inert card shows its historical radio selection");
+  // The live card reuses the id. Choosing a radio in it must not disturb the inert card's (renamed) group.
+  post(dom, { type: "approval_request", promptId: "approval-1", card: radioCard("Live") });
+  const liveRadios = ([...feed().querySelectorAll('input[type="radio"]')] as any[]).filter((r) => !inertRadios.includes(r));
+  assert.equal(liveRadios.length, 2, "the live card rendered its own radio group (was not dropped as a duplicate)");
+  liveRadios[1].checked = true; liveRadios[1].dispatchEvent(new Event("change", { bubbles: true }));
+  assert.equal(inertChecked.checked, true, "the inert card's historical selection survives choosing a radio in the live card");
 });
 
 test("Recent Sessions shows the empty state when the host returns none", async () => {
@@ -689,6 +804,11 @@ test("multi-device deploy card groups device chips above the actions and gates D
   (chips[0] as HTMLButtonElement).click();
   assert.ok((chips[0] as HTMLElement).classList.contains("chosen"), "picked chip is marked chosen");
   assert.equal(deployBtn.disabled, false, "Deploy enabled once a device is picked");
+
+  // Confirming marks the Deploy action chosen (bordered) — same live/restore selection cue; Cancel stays unmarked.
+  deployBtn.click();
+  assert.ok((deployBtn as HTMLElement).classList.contains("chosen"), "the confirmed Deploy action is marked chosen live, like a restored card");
+  assert.equal((activity.querySelector(".deploy-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked action is not marked");
 });
 
 test("manifest_updated renders wiring from the flat [{role,pin}] shape", async () => {
@@ -1599,6 +1719,9 @@ test("confirming the build plan shows an immediate in-feed spinner that clears w
   });
   (activity.querySelector(".plan-go") as HTMLButtonElement).click();
   assert.ok(activity.querySelector(".feed-pending"), "a pending spinner appears right after Confirm & generate");
+  // The answered action is marked chosen (bordered), matching a restored inert card; the other is not.
+  assert.ok((activity.querySelector(".plan-go") as HTMLElement).classList.contains("chosen"), "the confirmed action is marked chosen live, like a restored card");
+  assert.equal((activity.querySelector(".plan-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked action is not marked");
 
   post(dom, { type: "code_delta", text: "import time\n", path: "main.py" });
   assert.equal(activity.querySelector(".feed-pending"), null, "pending spinner cleared once code streams");
@@ -1677,6 +1800,9 @@ test("component card renders devices as pre-ticked toggle chips; unticking one a
   // Array.prototype differs, so a direct deepStrictEqual would fail on prototype.
   assert.deepEqual([...confirm.devices], ["SSD1306 OLED 128x64"], "only the kept device names are sent");
   assert.equal(confirm.feedback, "加一个 DHT22 温湿度传感器");
+  // The confirmed action is marked chosen (bordered) live, matching a restored card; Cancel is not.
+  assert.ok((activity.querySelector(".comp-go") as HTMLElement).classList.contains("chosen"), "the confirmed action is marked chosen live");
+  assert.equal((activity.querySelector(".comp-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked action is not marked");
 });
 
 test("an ask_user option that needs follow-up text focuses the input instead of ending the turn", async () => {
@@ -1858,6 +1984,8 @@ test("rapid double-click on an approval action posts exactly one ui_prompt_respo
 
   const responses = posted.filter((m) => m.type === "ui_prompt_response" && m.promptId === "appr-race");
   assert.equal(responses.length, 1, "only one ui_prompt_response posted despite the double-click");
+  // The answered action is marked chosen (bordered), matching a restored inert card — the primary live gate.
+  assert.ok(btn.classList.contains("chosen"), "the clicked approval action is marked chosen live");
 });
 
 test("Save Version panel renders save_version_data as color-coded letter badges + clean paths", async () => {

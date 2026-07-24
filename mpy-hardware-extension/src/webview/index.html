@@ -84,8 +84,18 @@
               <p class="welcome-sub" data-i18n="welcome_sub">Hi, welcome to Blockless. Describe the hardware you want in a sentence — I'll pick the board, wire it up, write the code, and flash it to run.</p>
               <button class="start-workflow" id="startWorkflow" data-i18n="start_workflow" title="Start a new hardware build — jump to the prompt below">Start Workflow</button>
               <div class="launch-actions">
-                <button class="launch-btn" id="importProject" data-i18n="import_project" data-i18n-title="import_project_tip" title="Open an existing MicroPython project folder as the workspace">Import Existing Project</button>
-                <button class="launch-btn" id="recentSessions" data-i18n="recent_sessions" data-i18n-title="recent_sessions_tip" title="Browse your recent Blockless sessions in this project">Recent Sessions</button>
+                <button class="launch-btn" id="importSession" data-i18n-title="import_session_tip" title="Restore a saved Blockless session (board, code, wiring, diagnostics)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span data-i18n="import_session">Import Existing Project</span>
+                </button>
+                <button class="launch-btn" id="recentSessions" data-i18n-title="recent_sessions_tip" title="Browse your recent Blockless sessions in this project">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span data-i18n="recent_sessions">Recent Sessions</span>
+                </button>
+                <button class="launch-btn" id="openFolder" data-i18n-title="open_folder_entry_tip" title="Open a local project folder as the workspace">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 012-2h3.5l2 2H19a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+                  <span data-i18n="open_folder_entry">Open Folder</span>
+                </button>
               </div>
             </div>
             <div class="partners home-zone" id="partners" data-zone="partners"></div>

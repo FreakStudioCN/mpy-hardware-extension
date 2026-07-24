@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildSessionSnapshot,
   writeSessionSnapshot,
+  readSessionSnapshot,
   snapshotPath,
   SNAPSHOT_SCHEMA,
   SNAPSHOT_VERSION,
@@ -26,6 +27,8 @@ function fullInput(): SnapshotInput {
     preferences: { mode: "beginner", locale: "en", existing_hardware: "none" },
     manifest: { devices: [{ id: "dht22", wiring: { pin: 4 } }] },
     diagram: { nodes: 3 },
+    optionalNextPhases: [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }],
+    generatePhaseComplete: { type: "phase_complete", payload: { phase: "generate", result: "success" } },
     credits: { balance: 42, dailyGrant: 100, resetsAt: "2026-07-23T00:00:00Z", capturedAt: "2026-07-22T01:59:00Z" },
     diagnostics: { selected_board: "ESP32-C6-DevKitC-1", key_errors: "", recent_activity: "generate; deploy", last_command: "deploy" },
     artifacts: [
@@ -46,6 +49,9 @@ test("buildSessionSnapshot: every session-restore field is present and carries t
   assert.deepEqual(snap.preferences, { mode: "beginner", locale: "en", existing_hardware: "none" });
   assert.equal(snap.credits?.balance, 42, "credits captured (advisory)");
   assert.equal(snap.artifacts[0].relative_path, "blockless-project/main.py", "code captured by reference");
+  // Optional flows: the offered set + the upstream generate result a restored session re-runs against.
+  assert.deepEqual(snap.optional_flows.offered, [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }]);
+  assert.equal((snap.optional_flows.generate_phase_complete as any)?.payload?.result, "success", "upstream generate persisted");
   // Restore entry (the acceptance field session restore invokes).
   assert.deepEqual(snap.restore, { mechanism: "startPhase", phase: "generate", board_id: "ESP32_GENERIC_C6" });
 });
@@ -55,10 +61,11 @@ test("buildSessionSnapshot: missing pieces are explicit nulls/empties, never dro
     traceId: null, savedAt: "2026-07-22T02:00:00.000Z", currentPhase: null, terminal: null,
     state: undefined, boardId: null, preSelectedBoard: undefined, boardSelectionMode: undefined,
     preferences: undefined, manifest: undefined, diagram: undefined, credits: null,
+    optionalNextPhases: [], generatePhaseComplete: null,
     diagnostics: {}, artifacts: [], git: null,
   });
   // Keys exist with explicit empty/null so session restore can rely on the shape.
-  for (const key of ["stage", "state", "board", "preferences", "manifest", "diagram", "credits", "diagnostics", "artifacts", "git", "restore"]) {
+  for (const key of ["stage", "state", "board", "preferences", "manifest", "diagram", "optional_flows", "credits", "diagnostics", "artifacts", "git", "restore"]) {
     assert.ok(key in snap, `key ${key} present`);
   }
   assert.equal(snap.credits, null);
@@ -79,6 +86,7 @@ test("buildSessionSnapshot: JSON round-trips losslessly over a sweep of inputs â
     traceId: null, savedAt: "2026-07-22T02:00:00.000Z", currentPhase: null, terminal: null,
     state: undefined, boardId: null, preSelectedBoard: undefined, boardSelectionMode: undefined,
     preferences: undefined, manifest: undefined, diagram: undefined, credits: null,
+    optionalNextPhases: [], generatePhaseComplete: null,
     diagnostics: {}, artifacts: [], git: null,
   };
   const inputs: SnapshotInput[] = [
@@ -110,6 +118,33 @@ test("writeSessionSnapshot: writes checkpoints/snapshot.json round-trippable", a
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("readSessionSnapshot round-trips a written snapshot", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-snap-"));
+  try {
+    const snap = buildSessionSnapshot(fullInput());
+    await writeSessionSnapshot(dir, snap);
+    assert.deepEqual(await readSessionSnapshot(dir), snap, "reader returns the exact written snapshot");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("readSessionSnapshot returns null when there is no snapshot (ENOENT), throws on a real read/parse/schema failure", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-snap-"));
+  try {
+    // No snapshot for this session -> null (caller degrades: view-log / disabled), NOT an error.
+    assert.equal(await readSessionSnapshot(dir), null, "missing snapshot is null, not a throw");
+    // Corrupt JSON -> throws (never a silent null that would look like "no snapshot").
+    mkdirSync(join(dir, "checkpoints"), { recursive: true });
+    writeFileSync(snapshotPath(dir), "{ not json", "utf-8");
+    await assert.rejects(readSessionSnapshot(dir), /not valid JSON/, "corrupt snapshot surfaces, not swallowed");
+    // Wrong schema -> throws (don't replay an unknown shape).
+    writeFileSync(snapshotPath(dir), JSON.stringify({ schema: "something-else", version: SNAPSHOT_VERSION }), "utf-8");
+    await assert.rejects(readSessionSnapshot(dir), /schema/, "a foreign schema is rejected");
+    // Future/unsupported version -> throws.
+    writeFileSync(snapshotPath(dir), JSON.stringify({ schema: SNAPSHOT_SCHEMA, version: SNAPSHOT_VERSION + 1 }), "utf-8");
+    await assert.rejects(readSessionSnapshot(dir), /version/, "an unsupported version is rejected");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("writeSessionSnapshot: a failed rename unlinks the .tmp and rethrows (no orphaned tmp, original error surfaced)", async () => {

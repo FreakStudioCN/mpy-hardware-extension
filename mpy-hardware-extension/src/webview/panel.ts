@@ -6,11 +6,12 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { SessionController } from "../extension/session-controller.ts";
-import { listRecentSessions, sessionsDir } from "../extension/session-recorder.ts";
+import { isSessionId, listRecentSessions, sessionsDir } from "../extension/session-recorder.ts";
 import { BoardClient } from "../core/board-client.ts";
 import { PackageClient } from "../core/package-client.ts";
 import { ApiClient } from "../core/api-client.ts";
 import { runPipeline } from "../core/pipeline.ts";
+import { deriveDiagram } from "../core/diagram-derive.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
 import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
@@ -24,14 +25,15 @@ import { DeviceCommandQueue } from "../extension/device-lock.ts";
 import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
+import { postWelcomeEvent } from "../extension/web-telemetry.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { canonicalPathKey, deleteProjectPath, isRealContained, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 import { GitUnavailableError, gitBranch, gitCommit, gitStatusPorcelain, isGitRepo } from "../extension/project-git.ts";
-import { buildSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
-import type { SnapshotArtifact } from "../extension/session-snapshot.ts";
+import { buildSessionSnapshot, readSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
+import type { SessionSnapshot, SnapshotArtifact } from "../extension/session-snapshot.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
 
@@ -532,7 +534,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     return resolveContainedArtifactPath(bases, relativePath, existsSync);
   }
 
-  function refreshArtifacts() {
+  function refreshArtifacts(extraSessionDir?: string) {
     // Phase-declared artifacts FIRST so their real role (Skill `type`) and producing phase
     // win the dedup over the same file found via file_written or the disk walk. These cover
     // pre-generate outputs (analyze manifest, select-hw plan) that host scripts write directly.
@@ -556,6 +558,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (sessionRoot && sessionId) {
       sources.push(...scanArtifactTree(join(sessionRoot, ".mpyhw", "sessions", sessionId), "session"));
     }
+    // Restore: also index the passed session dir. For a Recent-list restore this is the same id-scoped
+    // path the session_id scan above already covered (dedup absorbs the overlap); for an imported session
+    // it's a user-picked folder OUTSIDE the sessions root, which the session_id scan can't reach.
+    if (extraSessionDir) sources.push(...scanArtifactTree(extraSessionDir, "session"));
     artifactIndex = buildArtifactIndex(sources, artifactRoot, artifactIo);
     // The host keeps the full index (with absolute_path) to resolve opens; the webview
     // gets a projection WITHOUT absolute_path — it only needs the relative path (which it
@@ -583,6 +589,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // act re-checks isRunning() at act time (a busy gate is not a lock — a build may have started
   // while the panel was open).
   let saveInFlight = false;
+  // Serializes doRestoreFromDir: a restore posts restore_reset (which clears the feed) then replays
+  // asynchronously, so a second concurrent restore (double-clicked card) would wipe the first mid-replay
+  // and leave the tabs a mix of two sessions. Mirrors saveInFlight.
+  let restoreInFlight = false;
   // True from the moment beginRun() commits a build to running until that run releases. isRunning()
   // alone is not enough: start_gen_driver/start_optional_flow do async work (source staging /
   // phase-complete write) between beginRun() and controller.startPhase() flipping isRunning(), so a
@@ -650,7 +660,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   }
 
   async function doSaveVersionCommit(rawMessage: unknown): Promise<void> {
-    if (saveInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
+    if (saveInFlight || restoreInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
     saveInFlight = true;
     try {
       const ctx = saveVersionContext(); if (!ctx) return;
@@ -690,7 +700,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   }
 
   async function doSaveVersionSnapshot(): Promise<void> {
-    if (saveInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
+    if (saveInFlight || restoreInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
     saveInFlight = true;
     try {
       const ctx = saveVersionContext(); if (!ctx) return;
@@ -719,6 +729,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       preferences: snap.preferences,
       manifest: controller.getLatestManifest() ?? null,
       diagram: snap.diagram ?? null,
+      optionalNextPhases: snap.optionalNextPhases,
+      generatePhaseComplete: snap.generatePhaseComplete,
       credits: snap.credits,
       diagnostics: {
         selected_board: diag.selected_board ?? "",
@@ -730,6 +742,166 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       git,
     });
     await writeSessionSnapshot(sessionDir, snapshot);
+  }
+
+  // Live credit balance for the quota bar (signed-in only; silent auth never prompts). Shared by
+  // session start, request_boards, and restore — the snapshot's credits are advisory, so a restored
+  // session refetches the truth. Best-effort: any failure leaves the bar as it was.
+  async function refreshCredits(): Promise<void> {
+    if (!vscode.authentication) return;
+    try {
+      const jwt = await auth.getToken(false);
+      if (!jwt) return;
+      const cr = await fetchImpl(`${apiBaseUrl}/v1/credits`, { headers: { authorization: `Bearer ${jwt}` } });
+      const c: any = await cr.json();
+      webview.postMessage({ type: "session_event", event: { kind: "credits", balance: c.balance, dailyGrant: c.daily_grant, resetsAt: c.resets_at } });
+    } catch {
+      // credits unavailable — webview leaves the bar hidden
+    }
+  }
+
+  // The recorded prompt event types that replay as inert cards on restore (Stage 2). Each maps to a live
+  // renderer in the webview (INERT_RENDERERS); the payload is the recorded event, the answer its ui_prompt_answer.
+  const RESTORE_PROMPT_TYPES = new Set(["ui_prompt", "plan_proposed", "deploy_proposed", "components_proposed", "approval_requested", "file_op_proposed"]);
+
+  // The newest N feed lines to replay on restore. A long session's transcript holds roughly one line per
+  // token, so an unbounded replay would flood the DOM; keep the tail (the most recent, most relevant
+  // activity). ponytail: fixed cap; a "load older" affordance is the upgrade path if the full history is
+  // ever needed.
+  const RESTORE_FEED_MAX = 400;
+
+  // Map ONE durable transcript event to the restore webview message(s) that re-render it, pushing into `out`.
+  // Only durable, self-contained content is mapped: the user's request, the model's status narration, phase
+  // summaries (+ inline markdown artifacts), device serial output, real tool-failure reasons, and one inert
+  // "asked -> answered" line per past prompt. Transient spinner labels and localized terminal/error lines are
+  // NOT mapped here (the spinner isn't durable; the terminal is the restore_done line).
+  function mapRestoreEvent(e: any, answers: Map<string, unknown>, out: any[]): void {
+    if (e?.type === "user_message" && e.intent) { out.push({ type: "restore_user", text: String(e.intent) }); return; }
+    if (e?.type === "status_update" && e.payload?.message) { out.push({ type: "restore_line", kind: "trace", text: String(e.payload.message) }); return; }
+    if (e?.type === "summary" && e.text) { out.push({ type: "summary", text: String(e.text) }); return; }
+    if (e?.type === "phase_complete") {
+      if (e.payload?.summary) out.push({ type: "summary", text: String(e.payload.summary) });
+      for (const art of Array.isArray(e.payload?.artifacts) ? e.payload.artifacts : []) {
+        if (art?.type === "markdown" && art.content) out.push({ type: "summary", text: String(art.content) });
+      }
+      return;
+    }
+    if (e?.type === "serial_output" && Array.isArray(e.lines)) { out.push({ type: "serial_output", lines: e.lines }); return; }
+    if (e?.type === "trace_event" && e.event?.isError && e.event?.text) { out.push({ type: "restore_line", kind: "error", text: String(e.event.text) }); return; }
+    if (RESTORE_PROMPT_TYPES.has(e?.type)) {
+      const a = answers.get(String(e.promptId));
+      const answer = a == null ? "" : (typeof a === "string" ? a : JSON.stringify(a));
+      // Stage 2: replay the prompt as its REAL inert card (the recorded payload + the answer it got), not a
+      // one-line note. The webview reconstructs the card from the recorded event via the live renderer.
+      out.push({ type: "restore_prompt", kind: e.type, payload: e, answer });
+    }
+  }
+
+  // Replay the DURABLE activity feed from the restored session's transcript (session.jsonl) in file order:
+  // the user's request, the model's status narration, phase summaries, serial output, tool-failure reasons,
+  // and one inert prompt-history line each (never a live prompt). No live-run guard is touched — every
+  // replayed message is ungated on the webview side. The caller clears the feed first (restore_reset).
+  function replaySessionFeed(sessionDir: string): void {
+    let text: string;
+    try { text = readFileSync(join(sessionDir, "session.jsonl"), "utf-8"); }
+    catch (error: any) {
+      if (error?.code === "ENOENT") return; // no transcript — the tabs still restore; nothing to replay
+      deps.log?.(`restore: could not read session transcript: ${error?.message ?? error}`); // EACCES etc — surface, don't silently blank the feed
+      return;
+    }
+    const events = text.split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) as any[];
+    // The answer is recorded AFTER the prompt — collect answers by promptId across ALL events first.
+    const answers = new Map<string, unknown>();
+    for (const e of events) { if (e?.type === "ui_prompt_answer" && e.promptId != null) answers.set(String(e.promptId), e.answer); }
+    const out: any[] = [];
+    for (const e of events) mapRestoreEvent(e, answers, out);
+    for (const msg of out.slice(-RESTORE_FEED_MAX)) webview.postMessage(msg); // keep the newest tail
+  }
+
+  // Session restore (the consumer of the snapshot Save Version writes): read a saved snapshot and
+  // rehydrate the session + the webview tabs from it. Refuses while a run is active (a live session owns
+  // the state). A session with NO snapshot (a pre-Save-Version session) is not an error — it just can't
+  // be restored, so the caller is told and degrades (view its log) rather than showing a broken restore.
+  async function doRestoreFromDir(sessionDir: string, knownId?: string): Promise<void> {
+    if (controller.isRunning() || runPending || saveInFlight) { vscode.window?.showInformationMessage?.("Finish the current build or Save Version before restoring a session."); return; }
+    if (restoreInFlight) return; // a restore is already replaying — ignore a double-clicked card
+    restoreInFlight = true;
+    try {
+      let snap: SessionSnapshot | null;
+      try { snap = await readSessionSnapshot(sessionDir); }
+      catch (error: any) { vscode.window?.showErrorMessage?.(`Restore failed: ${String(error?.message ?? error)}`); return; }
+      if (!snap) {
+        // No snapshot (a pre-Save-Version session, or one deleted since the list was built). Degrade to
+        // view-log: reveal the session.jsonl if it's there, so an old session isn't a dead end.
+        const log = join(sessionDir, "session.jsonl");
+        if (existsSync(log)) { try { await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(log)); } catch { /* headless host — ignore */ } }
+        vscode.window?.showInformationMessage?.("This session has no saved snapshot to restore (it predates Save Version) — showing its log instead.");
+        return;
+      }
+      // Controller-side: seed state/board/preferences so a later save()/retry() operates on the restored
+      // session. No run is started — this only loads the state. The entry gate above is not a lock: a run
+      // could have started during the await, so re-check (runPending too — the controller can't see it) and
+      // honor seedFromSnapshot's false (it re-checks its own abort) rather than wiping a live run's feed.
+      if (controller.isRunning() || runPending || saveInFlight) { vscode.window?.showInformationMessage?.("Finish the current build or Save Version before restoring a session."); return; }
+      const seeded = controller.seedFromSnapshot({
+        // The restored session's id must come from the RESTORE SOURCE (the directory being restored), NEVER
+        // from snapshot CONTENT (#49-6): a snapshot can carry ANOTHER session's valid-shaped trace_id (an
+        // imported snapshot, or a hand-copied one), and this id becomes the Save Version write dir — so
+        // trusting snap.trace_id would let a later save silently OVERWRITE that other session. Recent-list
+        // restore passes the known dir id; import falls back to the picked folder's own name. Still shape-
+        // guarded before it's joined into a path (#11); non-conforming -> null (the restored session isn't
+        // re-savable) rather than escaping the sessions root.
+        traceId: knownId && isSessionId(knownId) ? knownId : (isSessionId(basename(sessionDir)) ? basename(sessionDir) : null),
+        state: snap.state,
+        boardId: snap.board?.board_id || null,
+        preSelectedBoard: snap.board?.pre_selected_board ?? undefined,
+        boardSelectionMode: snap.board?.board_selection_mode || undefined,
+        preferences: snap.preferences,
+        currentPhase: snap.stage?.current_phase || null,
+        terminal: snap.stage?.terminal || null,
+        manifest: snap.manifest ?? undefined,
+        diagram: snap.diagram ?? undefined,
+        optionalNextPhases: Array.isArray(snap.optional_flows?.offered) ? snap.optional_flows.offered : undefined,
+        generatePhaseComplete: snap.optional_flows?.generate_phase_complete ?? undefined,
+      });
+      if (!seeded) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
+      // Clear the current view, then replay the durable activity feed from the transcript (D4). Done
+      // BEFORE the tab replays below, because restore_reset (clearConversation) wipes the tabs too.
+      webview.postMessage({ type: "restore_reset" });
+      replaySessionFeed(sessionDir);
+      // Webview-side: replay the tabs (the inverse of clearConversation) — wiring, diagram, code.
+      if (snap.manifest) webview.postMessage({ type: "manifest_updated", manifest: snap.manifest });
+      // Diagram tab: an authored diagram wins; otherwise derive it from the manifest exactly as a live
+      // session does (postEvent's manifest_updated branch), so a saved session with a manifest never
+      // restores to an empty Diagram tab (the snapshot's authored diagram is almost always null).
+      if (snap.diagram) webview.postMessage({ type: "diagram_updated", diagram: snap.diagram });
+      else if (snap.manifest) webview.postMessage({ type: "diagram_updated", diagram: deriveDiagram(snap.manifest) });
+      // Wiring tab: re-offer the wiring/diagram optional flows a successful generate exposed, so the
+      // "Generate diagram" buttons come back. seedFromSnapshot already restored the offers + upstream
+      // generate result these flows run against, so the buttons are functional, not just visible. Post
+      // UNCONDITIONALLY (even []): the flow entries are SIBLINGS of the tab panes, so restore_reset does not
+      // clear them — a no-offers snapshot must post [] to HIDE a prior session's stale buttons (matches live,
+      // which posts phases:[] on a non-success generate).
+      const offeredFlows = Array.isArray(snap.optional_flows?.offered) ? snap.optional_flows.offered : [];
+      webview.postMessage({ type: "optional_flows", phases: offeredFlows });
+      // Code cards: replay each code artifact's on-disk content, but VERIFY its digest against the snapshot
+      // first — never replay a file whose sha256 no longer matches (the snapshot's integrity guarantee).
+      for (const a of Array.isArray(snap.artifacts) ? snap.artifacts : []) {
+        if (!a || typeof a.relative_path !== "string") continue; // a hand-edited/foreign snapshot may hold a null/misshapen row
+        if (a.kind !== "code") continue;
+        const abs = resolvePhaseArtifactPath(a.relative_path);
+        if (!abs) continue;
+        try {
+          const bytes = readFileSync(abs);
+          if (a.sha256 && createHash("sha256").update(bytes).digest("hex") !== a.sha256) continue; // changed on disk — skip, don't replay stale
+          webview.postMessage({ type: "code_updated", code: bytes.toString("utf-8"), path: a.relative_path });
+        } catch { /* unreadable — skip this file, restore the rest */ }
+      }
+      refreshArtifacts(sessionDir); // populate the Artifacts tab from the restored session's tree (D1)
+      await refreshCredits(); // the snapshot's credits are advisory — refetch the live quota (D2)
+      if (snap.stage?.terminal) webview.postMessage({ type: "restore_done", terminal: snap.stage.terminal }); // terminal line (D4a)
+      vscode.window?.showInformationMessage?.(`Restored session${snap.state?.intent ? `: ${snap.state.intent}` : ""}.`);
+    } finally { restoreInFlight = false; }
   }
 
   // Device Tools (#54): run a user-initiated device command. Refuse while a session
@@ -1262,18 +1434,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Credit balance for the bar. Only meaningful once signed in; silent auth
       // never prompts, so a signed-out user just leaves the bar hidden.
-      if (vscode.authentication) {
-        try {
-          const jwt = await auth.getToken(false);
-          if (jwt) {
-            const cr = await fetchImpl(`${apiBaseUrl}/v1/credits`, { headers: { authorization: `Bearer ${jwt}` } });
-            const c: any = await cr.json();
-            webview.postMessage({ type: "session_event", event: { kind: "credits", balance: c.balance, dailyGrant: c.daily_grant, resetsAt: c.resets_at } });
-          }
-        } catch {
-          // credits unavailable — webview leaves the bar hidden
-        }
-      }
+      await refreshCredits();
     }
     if (message.type === "start_session") {
       // Reject a re-entrant run at the entry point (register #1: the webview is not the trust
@@ -1499,15 +1660,35 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // command/Uri unavailable (e.g. headless host) — ignore
       }
     }
-    if (message.type === "import_project") {
-      // Open an existing MicroPython project folder as the workspace root so
-      // generate/deploy target it. Native folder picker, then vscode.openFolder.
+    if (message.type === "open_project_folder") {
+      // Open a LOCAL project folder as the workspace root so generate/deploy target it. Its own entry,
+      // distinct from Import (which restores a saved SESSION) — this is the old "import_project" body,
+      // now honestly labeled. Native folder picker, then vscode.openFolder.
+      postWelcomeEvent({ apiBaseUrl, fetchImpl, entry: "open_project_folder", hasWorkspace: !!vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath, log: deps.log });
       try {
-        const picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Open Project" });
+        const picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Open Folder" });
         if (picked && picked[0]) await vscode.commands?.executeCommand?.("vscode.openFolder", picked[0]);
       } catch {
         // dialog/command unavailable (e.g. headless host) — ignore
       }
+    }
+    if (message.type === "import_session") {
+      // Restore a saved session: pick its session FOLDER (portable — a snapshot copied from another
+      // machine works too), then rehydrate from its checkpoints/snapshot.json.
+      postWelcomeEvent({ apiBaseUrl, fetchImpl, entry: "import_session", hasWorkspace: !!vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath, log: deps.log });
+      let picked: any;
+      try { picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Import Session" }); }
+      catch { picked = undefined; } // dialog unavailable (headless) — nothing to do
+      if (picked && picked[0]) { const dir = String(picked[0].fsPath); await doRestoreFromDir(dir); }
+    }
+    if (message.type === "restore_session" && typeof message.id === "string" && isSessionId(message.id)) {
+      // Restore one of THIS project's recent sessions (selected in the Recent Sessions list). The id is
+      // shape-validated (isSessionId) before it's joined into a path — it comes over the webview channel, so
+      // it's a trust boundary even though the surface is our own (#11). A session with no snapshot degrades.
+      // Telemetry sits INSIDE the id guard: an invalid/absent id emits nothing (and the id never rides the payload).
+      postWelcomeEvent({ apiBaseUrl, fetchImpl, entry: "recent_session_restore", hasWorkspace: !!vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath, log: deps.log });
+      if (sessionRoot) await doRestoreFromDir(join(sessionRoot, ".mpyhw", "sessions", message.id), message.id);
+      else vscode.window?.showInformationMessage?.("No session storage available to restore from.");
     }
     if (message.type === "request_recent_sessions") {
       // List past session summaries (read-only) from <sessionRoot>/.mpyhw/sessions — the same

@@ -8,6 +8,8 @@ import test from "node:test";
 
 import { createPanel, createViewProvider, isSnapshotSelfPath, parseGitStatusRow } from "../src/webview/panel.ts";
 import { gitCommit, gitHasStagedChanges } from "../src/extension/project-git.ts";
+import { buildSessionSnapshot, writeSessionSnapshot } from "../src/extension/session-snapshot.ts";
+import { EXTENSION_VERSION } from "../src/core/toolchain-version.ts";
 
 test("webview start_session runs API-backed pipeline and renders generated outputs", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
@@ -2001,6 +2003,529 @@ test("start_optional_flow allowlist-maps the flow and host-gates on the generate
   posted.length = 0;
   await handler?.({ type: "start_optional_flow", flow: "wiring" });
   assert.ok(posted.some((m) => m.type === "optional_flow_status" && m.status === "failed" && /Run generate first/.test(m.detail)), "an unoffered flow is host-refused");
+});
+
+// ----- Welcome-page project entry: session import vs folder open (#88 slice 1) -----
+
+test("open_project_folder opens a FOLDER picker then vscode.openFolder (the folder-open action, now its own entry)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    let handler: any; const opened: any[] = []; let dialogOpts: any;
+    const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showOpenDialog: async (o: any) => { dialogOpts = o; return [{ fsPath: join(ws, "picked") }]; } },
+      commands: { executeCommand: async (cmd: string, arg: any) => { opened.push({ cmd, path: arg?.fsPath }); } },
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
+    await handler({ type: "open_project_folder" });
+    assert.equal(dialogOpts?.canSelectFolders, true, "picks a FOLDER");
+    assert.equal(dialogOpts?.canSelectFiles, false, "not a file picker");
+    assert.deepEqual(opened, [{ cmd: "vscode.openFolder", path: join(ws, "picked") }], "opens the picked folder as the workspace");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("import_session picks a session folder and RESTORES from it, but never vscode.openFolder (the reported bug)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    let handler: any; let dialogOpts: any; const commands: string[] = []; const infos: string[] = [];
+    const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: {
+        createWebviewPanel: () => panel,
+        showOpenDialog: async (o: any) => { dialogOpts = o; return [{ fsPath: ws }]; }, // pick a folder that has no snapshot
+        showInformationMessage: async (m: string) => { infos.push(m); }, showErrorMessage: async () => {},
+      },
+      commands: { executeCommand: async (cmd: string) => { commands.push(cmd); } },
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
+    await handler({ type: "import_session" });
+    assert.equal(dialogOpts?.canSelectFolders, true, "prompts for a session FOLDER");
+    // The core of the fix: Import restores; it must NOT open the folder as the workspace (that was the bug).
+    assert.ok(!commands.includes("vscode.openFolder"), "import_session does NOT vscode.openFolder");
+    // The picked folder has no snapshot -> it routes to restore, which degrades with an informative notice.
+    assert.ok(infos.some((m) => /no saved snapshot|predates/i.test(m)), "routes to restore (no snapshot here -> informs), not folder-open");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+// ----- Welcome-page entry telemetry: session-independent /v1/web/events emit -----
+
+// A panel whose fetchImpl records every request, so a welcome click's telemetry POST is
+// captured. hasWorkspace toggles the workspace so has_workspace can be asserted both ways.
+function welcomePanel(hasWorkspace: boolean, fetchImpl?: (url: any, init: any) => Promise<any>) {
+  const calls: Array<{ url: string; init: any }> = [];
+  const opened: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    workspace: { workspaceFolders: hasWorkspace ? [{ uri: { fsPath: "/ws" } }] : undefined },
+    window: { createWebviewPanel: () => panel, showOpenDialog: async () => [{ fsPath: "/ws/picked" }], showInformationMessage: async () => {}, showErrorMessage: async () => {} },
+    commands: { executeCommand: async (cmd: string, arg: any) => { opened.push({ cmd, path: arg?.fsPath }); } },
+  };
+  const captured = fetchImpl ?? (async () => jsonResponse({}, 204) as any);
+  const recording = async (url: any, init: any) => { calls.push({ url: String(url), init }); return captured(url, init); };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: recording as any });
+  return { handler: handler!, calls, opened };
+}
+
+function webEvents(calls: Array<{ url: string; init: any }>) {
+  return calls.filter((c) => c.url === "http://api.test/v1/web/events");
+}
+
+for (const c of [
+  { type: "open_project_folder", eventType: "welcome_open_project_folder_clicked", entry: "open_project_folder", message: { type: "open_project_folder" } },
+  { type: "import_session", eventType: "welcome_import_session_clicked", entry: "import_session", message: { type: "import_session" } },
+  { type: "restore_session", eventType: "welcome_recent_session_restore_clicked", entry: "recent_session_restore", message: { type: "restore_session", id: "session-abc-1" } },
+]) {
+  test(`${c.type} emits ${c.eventType} to /v1/web/events with a non-sensitive payload, no auth header`, async () => {
+    const { handler, calls } = welcomePanel(true);
+    await handler(c.message);
+    const events = webEvents(calls);
+    assert.equal(events.length, 1, "exactly one web-event per click");
+    const init = events[0].init;
+    assert.equal(init.method, "POST");
+    // Anonymous endpoint — the GitHub JWT must never ride it.
+    assert.ok(!("authorization" in (init.headers ?? {})), "no authorization header");
+    // Deep-equal the whole body so a wrong event name, a dropped `source` (server would
+    // default it to website-home), or a leaked trace_id each fails this one assertion.
+    assert.deepEqual(JSON.parse(init.body), {
+      event_type: c.eventType,
+      payload: { surface: "welcome_page", entry: c.entry, extension_version: EXTENSION_VERSION, has_workspace: true },
+      source: "vscode_extension",
+    });
+  });
+}
+
+test("welcome telemetry: has_workspace reflects the live workspace state, false when none is open", async () => {
+  const { handler, calls } = welcomePanel(false);
+  await handler({ type: "open_project_folder" });
+  assert.equal(JSON.parse(webEvents(calls)[0].init.body).payload.has_workspace, false, "no workspace -> has_workspace:false");
+});
+
+test("welcome telemetry: an invalid restore id emits NOTHING (the emit sits inside the id guard)", async () => {
+  const { handler, calls } = welcomePanel(true);
+  await handler({ type: "restore_session", id: "../../etc/passwd" });
+  assert.equal(webEvents(calls).length, 0, "a non-session-id restore never emits");
+});
+
+test("welcome telemetry: the restore session id never rides the payload (non-sensitive)", async () => {
+  const { handler, calls } = welcomePanel(true);
+  await handler({ type: "restore_session", id: "session-secret-9" });
+  assert.ok(!webEvents(calls)[0].init.body.includes("session-secret-9"), "the id is not carried in the event body");
+});
+
+test("welcome telemetry: a rejected POST is swallowed — the click's primary action still runs", async () => {
+  const { handler, opened } = welcomePanel(true, async () => { throw new Error("network down"); });
+  await handler({ type: "open_project_folder" }); // must not reject even though the telemetry fetch throws
+  assert.ok(opened.some((o) => o.cmd === "vscode.openFolder"), "the folder still opens; telemetry failure is silent");
+});
+
+function restorePanel(ws: string) {
+  const posted: any[] = []; const infos: string[] = []; const errors: string[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, showInformationMessage: async (m: string) => { infos.push(m); }, showErrorMessage: async (m: string) => { errors.push(m); } },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
+  return { handler: handler!, posted, infos, errors };
+}
+
+test("restore_session rehydrates the tabs from a saved snapshot (wiring/diagram/sha-verified code) and confirms", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    const sid = "session-s1-1";
+    mkdirSync(join(ws, "blockless-project"), { recursive: true });
+    const codeBytes = Buffer.from("print('restored')\n");
+    writeFileSync(join(ws, "blockless-project", "main.py"), codeBytes);
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { devices: [] }, phase: "generate", intent: "blink red" },
+      boardId: "esp32", preSelectedBoard: { id: "esp32", display_name: "ESP32" }, boardSelectionMode: "recommend",
+      preferences: { mode: "beginner", locale: "en", existing_hardware: "none" },
+      manifest: { devices: [{ pin: 1 }] }, diagram: { nodes: ["led"] }, credits: null, diagnostics: {},
+      optionalNextPhases: [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }],
+      generatePhaseComplete: { type: "phase_complete", payload: { phase: "generate", result: "success" } },
+      artifacts: [{ relative_path: "blockless-project/main.py", kind: "code", role: "", phase: "generate", size: codeBytes.length, sha256: createHash("sha256").update(codeBytes).digest("hex"), created_at: "2026-07-23T00:00:00.000Z" }],
+      git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0; infos.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(posted.some((m) => m.type === "manifest_updated"), "wiring/manifest replayed");
+    assert.ok(posted.some((m) => m.type === "diagram_updated"), "diagram replayed");
+    // The Wiring tab's optional-flow buttons come back: restore re-offers the flows a successful generate exposed.
+    const flows = posted.find((m) => m.type === "optional_flows");
+    assert.ok(flows && flows.phases.some((p: any) => p.phase === "upy-diagram-plugin"), "the Generate diagram/wiring buttons are re-offered on restore");
+    const code = posted.find((m) => m.type === "code_updated");
+    assert.ok(code && /restored/.test(code.code), "code content replayed from disk after sha256 verify");
+    // D1: the artifacts tab is rehydrated from the restored session's tree (the file on disk).
+    assert.ok(posted.some((m) => m.type === "artifacts_index" && (m.artifacts || []).some((a: any) => /main\.py/.test(a.relative_path))), "artifacts tab rehydrated for the restored session");
+    assert.ok(infos.some((m) => /Restored/.test(m)), "a restore confirmation is shown");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session derives the Diagram tab from the manifest when the snapshot has no authored diagram", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-derive-1";
+    // A saved session with a device-bearing manifest but NO authored diagram (the common case: the
+    // authored diagram is almost always null). Live derives the diagram from the manifest; restore must too.
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: {}, phase: "generate", intent: "read temp" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { mcu: { board_name: "ESP32" }, devices: [{ id: "aht20", interface: "I2C" }] },
+      diagram: null, optionalNextPhases: [], generatePhaseComplete: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    const diagram = posted.find((m) => m.type === "diagram_updated");
+    assert.ok(diagram, "the Diagram tab is populated even without an authored diagram");
+    assert.ok(diagram.diagram?.architecture?.layers?.length > 0, "the diagram is derived from the manifest's devices (not empty)");
+    // A no-offers snapshot posts optional_flows:[] so a prior session's stale Generate buttons are HIDDEN
+    // (the flow entries are siblings of the tab panes, so restore_reset does not clear them).
+    const flows = posted.find((m) => m.type === "optional_flows");
+    assert.ok(flows && flows.phases.length === 0, "restore posts optional_flows:[] to hide stale flow buttons when the snapshot offered none");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("start_optional_flow after a restore passes the host gate (the restored offers satisfy it, no 'Run generate first' bounce)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-flowrun-1";
+    // A saved session that offered the flows AND carries the upstream generate result — the two pieces the
+    // host gate (getOptionalNextPhases + wrapped getLatestGeneratePhaseComplete) needs to run the flow.
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null,
+      optionalNextPhases: [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }],
+      generatePhaseComplete: { type: "phase_complete", payload: { phase: "generate", result: "success" } },
+      credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    await handler({ type: "restore_session", id: sid });
+    posted.length = 0;
+    await handler({ type: "start_optional_flow", flow: "diagram" });
+    // The gate at start_optional_flow rejects an unoffered flow with this exact detail. The restored offers
+    // must clear it; the flow then runs (against the {}-stub backend) and stalls, which is fine.
+    const bounced = posted.find((m) => m.type === "optional_flow_status" && /Run generate first/.test(m.detail || ""));
+    assert.ok(!bounced, "the restored offer + upstream satisfy the host gate — no 'Run generate first' bounce");
+    // ...and the flow PROGRESSED past the gate into the actual run (phase_start is emitted only after the
+    // offered-set gate passes), proving it didn't just no-op before the gate for an unrelated reason.
+    assert.ok(posted.some((m) => m.type === "phase_start"), "the flow ran past the gate into the phase run");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session skips a code file whose on-disk sha256 no longer matches the snapshot (no stale replay)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-s2-1";
+    mkdirSync(join(ws, "blockless-project"), { recursive: true });
+    writeFileSync(join(ws, "blockless-project", "main.py"), "print('CHANGED since save')\n"); // on-disk content differs
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: null,
+      state: { manifest: {}, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null,
+      artifacts: [{ relative_path: "blockless-project/main.py", kind: "code", role: "", phase: "generate", size: 10, sha256: "0".repeat(64), created_at: "2026-07-23T00:00:00.000Z" }],
+      git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(!posted.some((m) => m.type === "code_updated"), "a changed-on-disk file is NOT replayed (sha mismatch)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session on a session with NO snapshot degrades (informs, no rehydration)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    await handler({ type: "restore_session", id: "session-neversaved-1" });
+    assert.ok(infos.some((m) => /no saved snapshot|predates/i.test(m)), "informs there is nothing to restore");
+    assert.ok(!posted.some((m) => m.type === "manifest_updated" || m.type === "code_updated"), "no rehydration for a snapshot-less session");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session refetches the LIVE credit balance (the snapshot's credits are advisory)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const posted: any[] = []; let handler: any;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showInformationMessage: async () => {}, showErrorMessage: async () => {} },
+      authentication: { getSession: async () => ({ accessToken: "gho-token" }) },
+    };
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123" });
+      if (url === "http://api.test/v1/credits") return jsonResponse({ balance: 42, daily_grant: 100, resets_at: "2026-07-08T00:00:00.000Z" });
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+    const sid = "session-cred-1";
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: null, terminal: null,
+      state: { manifest: {}, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, optionalNextPhases: [], generatePhaseComplete: null,
+      credits: { balance: 1, dailyGrant: 1, resetsAt: "stale", capturedAt: "stale" }, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    const credits = posted.find((m) => m.type === "session_event" && m.event?.kind === "credits");
+    assert.ok(credits, "restore refetches credits");
+    assert.equal(credits.event.balance, 42, "shows the LIVE balance (42), not the snapshot's advisory 1");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session replays the durable activity feed: summaries + INERT prompt history + terminal (D4)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-feed-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    // A transcript: a summary, a prompt + its answer, and a transient trace event (should NOT replay).
+    const jsonl = [
+      { type: "session_started", intent: "blink", boardId: "esp32" },
+      { type: "summary", text: "Wired the LED to pin 4." },
+      { type: "ui_prompt", promptId: "p1", question: "Which board?" },
+      { type: "ui_prompt_answer", promptId: "p1", answer: "ESP32-C6" },
+      { type: "trace_event", event: { text: "transient step" } },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: {}, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(sessionDir, snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(posted.some((m) => m.type === "restore_reset"), "clears the view before replay");
+    assert.ok(posted.some((m) => m.type === "summary" && /pin 4/.test(m.text)), "the AI summary is replayed");
+    const prompt = posted.find((m) => m.type === "restore_prompt");
+    assert.ok(prompt && prompt.kind === "ui_prompt" && /Which board\?/.test(prompt.payload.question) && /ESP32-C6/.test(prompt.answer), "a past prompt replays as its INERT card carrying the answer it got");
+    assert.ok(!posted.some((m) => m.type === "ui_prompt_needed" || m.type === "plan_needed" || m.type === "deploy_needed"), "no LIVE (clickable) prompt is re-created");
+    assert.ok(!posted.some((m) => m.type === "trace_event"), "transient trace events are not replayed (not durable)");
+    assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line is posted");
+    // ORDERING is load-bearing: restore_reset (clearConversation) wipes tabs+feed, so it MUST land before
+    // every replayed message or it erases the restore. Assert it precedes the feed AND the tab replays.
+    const resetAt = posted.findIndex((m) => m.type === "restore_reset");
+    const summaryAt = posted.findIndex((m) => m.type === "summary");
+    const promptAt = posted.findIndex((m) => m.type === "restore_prompt");
+    const manifestAt = posted.findIndex((m) => m.type === "manifest_updated");
+    for (const [label, at] of [["summary", summaryAt], ["restore_prompt", promptAt], ["manifest_updated", manifestAt]] as const) {
+      assert.ok(at > resetAt, `restore_reset precedes ${label} (else it wipes the just-replayed content)`);
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session replays the RICH narration in file order via ungated messages (Stage 1)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-rich-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    // A transcript covering every durable narration type the rich replay maps.
+    const jsonl = [
+      { type: "session_started", intent: "blink", boardId: "esp32" },
+      { type: "user_message", intent: "blink an LED", boardId: "esp32" },
+      { type: "status_update", payload: { message: "Generating code…" } },
+      { type: "phase_complete", payload: { summary: "Generated main.py", artifacts: [{ type: "markdown", content: "### Wiring notes" }] } },
+      { type: "ui_prompt", promptId: "p1", question: "Which board?" },
+      { type: "ui_prompt_answer", promptId: "p1", answer: "ESP32-C6" },
+      { type: "serial_output", lines: ["LED on", "LED off"] },
+      { type: "trace_event", event: { isError: true, text: "I2C read failed" } },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-24T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: {}, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(sessionDir, snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    // Each durable event mapped to its restore message, with content preserved.
+    assert.ok(posted.some((m) => m.type === "restore_user" && /blink an LED/.test(m.text)), "the user's request replays as a user card");
+    assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "trace" && /Generating code/.test(m.text)), "a status update replays as a trace line");
+    assert.ok(posted.some((m) => m.type === "summary" && /main\.py/.test(m.text)), "the phase_complete summary replays");
+    assert.ok(posted.some((m) => m.type === "summary" && /Wiring notes/.test(m.text)), "an inline markdown artifact replays as a summary");
+    assert.ok(posted.some((m) => m.type === "restore_prompt" && m.kind === "ui_prompt" && /Which board\?/.test(m.payload.question) && /ESP32-C6/.test(m.answer)), "a past prompt replays as its inert card with the answer it got");
+    assert.ok(posted.some((m) => m.type === "serial_output" && Array.isArray(m.lines) && m.lines.includes("LED on")), "serial output replays");
+    assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "error" && /I2C read failed/.test(m.text)), "a real tool-failure reason replays as an error line");
+    assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line is posted");
+    // The whole point of Stage 1: NO raw/gated live messages are ever posted (they would render as dead UI or
+    // be swallowed by the running-gate). Mutation-sensitive: mapping to any live type fails one of these.
+    for (const live of ["user_message", "status_update", "trace_event", "phase_complete", "ui_prompt_needed", "plan_needed"]) {
+      assert.ok(!posted.some((m) => m.type === live), `no live ${live} is posted (rich replay is ungated restore messages only)`);
+    }
+    // File order is preserved: request -> status -> summary -> prompt -> serial -> error.
+    const at = (pred: (m: any) => boolean) => posted.findIndex(pred);
+    const userAt = at((m) => m.type === "restore_user");
+    const traceAt = at((m) => m.type === "restore_line" && m.kind === "trace");
+    const sumAt = at((m) => m.type === "summary" && /main\.py/.test(m.text));
+    const serialAt = at((m) => m.type === "serial_output");
+    const errAt = at((m) => m.type === "restore_line" && m.kind === "error");
+    assert.ok(userAt < traceAt && traceAt < sumAt && sumAt < serialAt && serialAt < errAt, "replays in transcript file order");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session rejects a malformed session id (no path join, no restore)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos, errors } = restorePanel(ws);
+    for (const id of ["../../etc", "sess-1", "session-ok-1/../../evil", ""]) {
+      posted.length = 0; infos.length = 0; errors.length = 0;
+      await handler({ type: "restore_session", id });
+      assert.equal(posted.length + infos.length + errors.length, 0, `a malformed id (${JSON.stringify(id)}) is ignored — no restore, no path join`);
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("Save Version after a restore targets the RESTORED session's dir (adopts its trace id), not the prior session's", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-restore-1";
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    await handler({ type: "restore_session", id: sid });
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    // Old bug: restore left the controller's traceId null (and residual prior-session state), so a re-save
+    // had NO session dir and reported nothing_to_save. Fixed: restore adopts the snapshot's trace id, so a
+    // re-save writes into THAT session's own dir carrying the restored terminal (not null/stale).
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_snapshot", "a post-restore save has a dir to write (not nothing_to_save)");
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", sid, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, sid, "the re-saved snapshot lands in the restored session's own dir");
+    assert.equal(written.stage.terminal, "complete", "and carries the restored terminal (seeded), not an empty/stale one");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore ignores a traversal trace_id in the snapshot content (a later Save Version cannot escape the sessions root)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const dirId = "session-evil-1";          // the DIR id is well-formed (restore_session gates on it)...
+    const evilTraceId = "../evil-sibling";    // ...but the snapshot CONTENT (foreign/imported) carries a traversal id
+    const snap = buildSessionSnapshot({
+      traceId: evilTraceId, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), snap);
+    await handler({ type: "restore_session", id: dirId });
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    // #49-6: the id comes from the RESTORE-SOURCE dir (session-evil-1); the snapshot's traversal trace_id is
+    // never consulted for the path. So the re-save lands in the restored session's OWN dir and the traversal
+    // string cannot steer the write anywhere — nothing at `.mpyhw/sessions/../evil-sibling`.
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_snapshot", "re-savable via the safe dir id, not the snapshot's foreign id");
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", dirId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, dirId, "the re-save lands in the restored session's own dir, ignoring the snapshot's traversal id");
+    assert.ok(!existsSync(join(ws, ".mpyhw", "evil-sibling", "checkpoints", "snapshot.json")), "no snapshot write escapes the sessions root");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore ignores a NON-STRING trace_id in the snapshot content (no path.join crash mid-restore)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    const dirId = "session-nonstr-1";
+    const snap: any = buildSessionSnapshot({
+      traceId: "session-ok-1", savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    snap.trace_id = ["session-abc-def"]; // a non-string id that a coerce-then-adopt would have crashed path.join with
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), snap);
+    // #49-6: snap.trace_id is never consulted — the id comes from the restore-source dir — so a non-string
+    // value can't reach path.join at all. The restore COMPLETES and is re-savable into its own dir.
+    await handler({ type: "restore_session", id: dirId });
+    assert.ok(infos.some((m) => /Restored/.test(m)), "the restore completes (a non-string snapshot trace_id is simply ignored)");
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_snapshot", "re-savable via the safe dir id");
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", dirId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, dirId, "the re-save lands in the restored session's own dir");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore does NOT adopt a VALID-but-foreign trace_id from snapshot content — a later save can't overwrite another session (#49-6)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const dirId = "session-aaaa-1";        // the session actually being restored (the recent-list card)
+    const foreignId = "session-bbbb-2";    // a DIFFERENT, syntactically valid id embedded in the snapshot content
+    // A pre-existing OTHER session B on disk, with its own saved snapshot we must not clobber.
+    const bSnap = buildSessionSnapshot({
+      traceId: foreignId, savedAt: "2026-07-20T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { b: 1 }, phase: "generate", intent: "session B" }, boardId: "pico", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { b: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", foreignId), bSnap);
+    // Session A's snapshot carries session B's valid id in its CONTENT (an imported / mis-copied snapshot).
+    const aSnap = buildSessionSnapshot({
+      traceId: foreignId, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { a: 1 }, phase: "generate", intent: "session A" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { a: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), aSnap);
+    await handler({ type: "restore_session", id: dirId });
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    // The re-save must land in A's OWN dir (the restore source), never B's — the snapshot's foreign id is ignored.
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", dirId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, dirId, "the re-save targets the restored dir, not the snapshot's foreign id");
+    // B's saved snapshot on disk is UNTOUCHED (the old snap.trace_id adoption would have overwritten it with A's data).
+    const bStill = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", foreignId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.deepEqual(bStill.manifest, { b: 1 }, "session B's saved snapshot is NOT overwritten by A's restored state");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore is refused while a Save Version is in flight — no mixed-session snapshot (#49-2)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    const sid = "session-inflight-1";
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "seed" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    await handler({ type: "restore_session", id: sid }); // seed a restorable session so the save has state to write
+    posted.length = 0; infos.length = 0;
+    // Kick off a save (sets saveInFlight synchronously, then awaits the fs write) WITHOUT awaiting, then fire a
+    // restore in the SAME tick: doRestoreFromDir's entry guard must see saveInFlight and refuse — otherwise the
+    // save would capture the restore's mid-applied state into the wrong dir (the session-A/session-B chimera).
+    const saving = handler({ type: "save_version_snapshot" });
+    const restoring = handler({ type: "restore_session", id: sid });
+    await Promise.all([saving, restoring]);
+    assert.ok(infos.some((m) => /Save Version before restoring/.test(m)), "the concurrent restore is refused while a save is in flight");
+    assert.ok(!posted.some((m) => m.type === "restore_reset"), "the refused restore never cleared the feed (no half-applied restore)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
 // ----- Save Version (#95) real-git panel tests -----

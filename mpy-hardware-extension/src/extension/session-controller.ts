@@ -231,11 +231,17 @@ export class SessionController {
   }
 
   private async run(input: { intent: string; boardId: string; availableBoards?: any[]; preserveManifest?: boolean }) {
-    // A startPhase excursion (gen-driver/wiring/diagram) keeps the main-flow manifest, so the diagram
-    // run's thin manifest_content can't clobber the devices-bearing one (the manifest_updated guard reads
-    // latestManifest, which this clear would otherwise blank for the whole excursion run).
-    if (!input.preserveManifest) this.latestManifest = undefined;
-    this.hasAuthoredDiagram = false;
+    // A startPhase excursion (gen-driver/wiring/diagram) keeps the main-flow manifest AND the authored-diagram
+    // guard: the excursion's thin manifest_content must not clobber the devices-bearing manifest (the
+    // manifest_updated branch reads latestManifest), nor overwrite an authored diagram with the derived view
+    // (that branch reads hasAuthoredDiagram). Both are per-run state this clear would otherwise blank for the
+    // whole excursion — including a restored session, which enters a wiring/diagram run with an authored diagram
+    // exactly like a live one. A fresh start() (preserveManifest falsy) still clears both, so a new session
+    // re-derives from scratch.
+    if (!input.preserveManifest) {
+      this.latestManifest = undefined;
+      this.hasAuthoredDiagram = false;
+    }
     this.lastPhaseComplete = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
@@ -329,6 +335,15 @@ export class SessionController {
     this.generation++;
     this.cancel();
     this.abort = null;
+    this.clearSessionState();
+  }
+
+  // Every per-session field, wiped on EVERY fresh-session entry: reset()/Restart above AND
+  // seedFromSnapshot below (a restore is a fresh session — it must not inherit the run that
+  // preceded it). Kept in ONE place so a newly added accumulator can't leak across sessions by
+  // being cleared on only one path (the reset-not-start trap, #28): a snapshot written after a
+  // restore must carry ONLY the restored session's data, never residue from the prior session.
+  private clearSessionState() {
     this.state = undefined;
     this.boardId = null;
     this.traceId = null;
@@ -341,9 +356,9 @@ export class SessionController {
     this.hasAuthoredDiagram = false;
     this.latestFiles = {};
     this.persistedPaths = [];
-    // Artifact accumulators (#28 F6): reset sets boardId=null, so the next start()'s
+    // Artifact accumulators (#28 F6): a fresh-session path sets boardId=null, so the next start()'s
     // board-change clear is skipped (same trap as boardSelectionMode). Clear them here or
-    // a Restart would surface the previous session's files with stale phase attribution.
+    // a Restart/restore would surface the previous session's files with stale phase attribution.
     this.producedPaths = [];
     this.producedPhase.clear();
     this.phaseArtifacts = [];
@@ -356,8 +371,8 @@ export class SessionController {
     this.stdoutTail = [];
     this.keyErrors = [];
     this.pendingSupplements = [];
-    // Save Version accumulators: cleared on EVERY fresh-session path — here in reset() (covers a
-    // reset/restart, which also nulls boardId so start()'s board-change block is skipped) AND in
+    // Save Version accumulators: cleared on EVERY fresh-session path — here (covers reset/restart,
+    // which also nulls boardId so start()'s board-change block is skipped, AND restore) AND in
     // that board-change block itself (covers a board switch with no reset). A leftover on either
     // path would leak the previous session's terminal/diagram/credits into the next snapshot.
     this.lastTerminal = null;
@@ -916,6 +931,8 @@ export class SessionController {
     traceId: string | null;
     terminal: string | null;
     diagram: unknown;
+    optionalNextPhases: Array<{ phase?: string; reason?: string }>;
+    generatePhaseComplete: unknown;
     credits: { balance?: number; dailyGrant?: number; resetsAt?: string; capturedAt?: string } | null;
   } {
     return {
@@ -928,8 +945,57 @@ export class SessionController {
       traceId: this.traceId,
       terminal: this.lastTerminal,
       diagram: this.latestDiagram,
+      optionalNextPhases: this.optionalNextPhases,
+      generatePhaseComplete: this.latestGeneratePhaseComplete,
       credits: this.lastCredits,
     };
+  }
+
+  // Restore session state from a saved snapshot WITHOUT running — so an imported/recent session has the
+  // board, preferences, resume state (manifest/phase/intent) and current phase the saved session had, and
+  // a later retry() or save() operates on it. Refuses while a run is active (a live run owns this state).
+  // The webview tabs (wiring/diagram/code/artifacts) are rehydrated separately by the panel; this is the
+  // controller-side half. Wipes ALL prior-session state first (a restore is a fresh session — it must not
+  // inherit the session that ran before it, or a later Save Version would write a chimera snapshot into the
+  // WRONG session's dir). traceId is set to the RESTORED session's id, so a post-restore Save Version
+  // targets that session's own dir and a subsequent start()/startPhase() records into its own transcript
+  // (they mint the appending recorder; retry() reuses whatever recorder exists).
+  seedFromSnapshot(seed: {
+    traceId?: string | null;
+    state?: { manifest?: unknown; phase?: string; intent?: string };
+    boardId?: string | null;
+    preSelectedBoard?: unknown;
+    boardSelectionMode?: string;
+    preferences?: { mode?: string; locale?: string; existing_hardware?: string };
+    currentPhase?: string | null;
+    terminal?: string | null;
+    manifest?: unknown;
+    diagram?: unknown;
+    optionalNextPhases?: Array<{ phase?: string; reason?: string }>;
+    generatePhaseComplete?: unknown;
+  }): boolean {
+    if (this.abort) return false; // a run owns the state — never clobber a live session
+    this.clearSessionState(); // start from a clean session — no residue from a prior run/restore (#28)
+    this.state = seed.state;
+    this.boardId = seed.boardId ?? null;
+    this.traceId = seed.traceId || null;
+    this.preSelectedBoard = seed.preSelectedBoard;
+    this.boardSelectionMode = seed.boardSelectionMode;
+    this.preferences = seed.preferences;
+    this.currentPhase = seed.currentPhase ?? null;
+    this.lastTerminal = seed.terminal ?? null; // so a re-save carries the restored terminal, not null
+    if (seed.manifest !== undefined) this.latestManifest = seed.manifest;
+    if (seed.diagram !== undefined) {
+      this.latestDiagram = seed.diagram;
+      // Re-latch the authored-diagram guard: a restored authored diagram wins, same as live. Without this a
+      // post-restore wiring/diagram run streams a manifest_updated that would clobber it with the derived view.
+      this.hasAuthoredDiagram = true;
+    }
+    // Restore the optional-flow offers + the upstream generate result they run against, so a restored
+    // session can re-run wiring/diagram (the host gate reads getOptionalNextPhases + the wrapped upstream).
+    if (Array.isArray(seed.optionalNextPhases)) this.optionalNextPhases = seed.optionalNextPhases;
+    if (seed.generatePhaseComplete !== undefined) this.latestGeneratePhaseComplete = seed.generatePhaseComplete;
+    return true;
   }
 
   // Whether this session has any restorable state to snapshot (drives the sv_nothing branch).

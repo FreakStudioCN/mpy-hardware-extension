@@ -185,6 +185,75 @@ test("REPRO PR#47 blocker 1: a board-change fresh session must not inherit the p
   assert.equal(snap.credits, null, "board B's snapshot must not carry board A's credits");
 });
 
+test("seedFromSnapshot restores state/board/preferences without running, and refuses while a run is active", async () => {
+  const controller = new SessionController({ postMessage: () => { }, loop: async () => ({ terminal: "complete" }) });
+  const ok = controller.seedFromSnapshot({
+    state: { manifest: { m: 1 }, phase: "generate", intent: "blink" },
+    boardId: "esp32", preSelectedBoard: { id: "esp32" }, boardSelectionMode: "recommend",
+    preferences: { mode: "beginner", locale: "en" }, currentPhase: "generate",
+    manifest: { m: 1 }, diagram: { nodes: ["a"] },
+    optionalNextPhases: [{ phase: "upy-diagram-plugin" }],
+    generatePhaseComplete: { type: "phase_complete", payload: { result: "success" } },
+  });
+  assert.equal(ok, true, "seed succeeds when idle");
+  const snap = controller.getSnapshotState();
+  assert.deepEqual(snap.state, { manifest: { m: 1 }, phase: "generate", intent: "blink" }, "resume state restored");
+  assert.equal(snap.boardId, "esp32", "board restored");
+  assert.equal(snap.currentPhase, "generate", "phase restored");
+  assert.deepEqual(snap.diagram, { nodes: ["a"] }, "diagram carried for a re-save");
+  // The optional-flow offers + upstream generate result are restored, so a restored session can re-run
+  // wiring/diagram: the host gate reads getOptionalNextPhases + the wrapped upstream generate result.
+  assert.deepEqual(controller.getOptionalNextPhases(), [{ phase: "upy-diagram-plugin" }], "optional-flow offers restored");
+  assert.deepEqual(controller.getLatestGeneratePhaseComplete(), { type: "phase_complete", payload: { result: "success" } }, "upstream generate restored so a re-run has a valid source");
+  assert.equal(controller.hasSnapshotState(), true, "a restored session is itself re-savable");
+
+  // The restored session adopts ITS OWN id + terminal, so a post-restore Save Version writes into that
+  // session's dir (not the session that ran before it) and carries the real terminal, not null.
+  assert.equal(controller.seedFromSnapshot({ boardId: "b", traceId: "session-xyz-1", terminal: "complete" }), true, "re-seed succeeds when idle");
+  const s2 = controller.getSnapshotState();
+  assert.equal(s2.traceId, "session-xyz-1", "restore adopts the snapshot's trace id");
+  assert.equal(s2.terminal, "complete", "the restored terminal is carried for a re-save");
+
+  // Residual wipe (#28/#33): re-seeding a DIFFERENT session must NOT inherit the prior seed's
+  // diagram/terminal — a snapshot written after this restore must carry only this session's data.
+  assert.equal(controller.seedFromSnapshot({ boardId: "c" }), true, "third seed succeeds when idle");
+  const s3 = controller.getSnapshotState();
+  assert.equal(s3.diagram, undefined, "a fresh restore does not inherit the previous restore's diagram");
+  assert.equal(s3.terminal, null, "a fresh restore does not inherit the previous restore's terminal");
+  assert.equal(s3.traceId, null, "a fresh restore without an id does not inherit the previous id");
+
+  // Must NOT clobber a live run's state: with a run in flight (abort set), seeding is refused.
+  let release: () => void = () => { };
+  const gate = new Promise<void>((r) => { release = r; });
+  const c2 = new SessionController({ postMessage: () => { }, loop: async () => { await gate; return { terminal: "complete" }; } });
+  const running = c2.start({ intent: "x", boardId: "auto" });
+  assert.equal(c2.seedFromSnapshot({ boardId: "b" }), false, "seed refuses while a run owns the state");
+  release(); await running;
+});
+
+test("a restored authored diagram survives a later wiring optional-flow run (guard held across the startPhase excursion)", async () => {
+  const posts: any[] = [];
+  // The loop streams a devices-bearing manifest_updated (what a wiring/diagram run emits) then completes —
+  // exactly the production path: start_optional_flow -> startPhase -> run() -> loop onEvent. Driving the real
+  // run() entry is the point: run() clears per-run state at entry, so a bare postEvent would miss the bug.
+  const controller = new SessionController({
+    postMessage: (m) => posts.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "manifest_updated", manifest: { devices: [{ id: "aht20", interface: "I2C" }] } });
+      return { terminal: "complete" };
+    },
+  });
+  // Restore a session whose snapshot HAD an authored diagram + a device-bearing manifest.
+  controller.seedFromSnapshot({ manifest: { devices: [{ id: "aht20" }] }, diagram: { authored: true, nodes: ["led"] } });
+  posts.length = 0;
+  // Run the wiring optional flow the way the panel does. preserveManifest is set inside startPhase; the
+  // authored-diagram guard must survive the run-entry clear (class fix at run():238), so NO derived
+  // diagram_updated is posted to clobber the restored authored one.
+  await controller.startPhase({ phase: "upy-wiring-plugin", envelope: "{}" });
+  assert.ok(posts.some((m) => m.type === "manifest_updated"), "the wiring tab refreshes from the run's manifest");
+  assert.ok(!posts.some((m) => m.type === "diagram_updated"), "the restored authored diagram is NOT clobbered by the excursion's derived view");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];
