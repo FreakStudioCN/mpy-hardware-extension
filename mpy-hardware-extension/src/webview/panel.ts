@@ -25,6 +25,7 @@ import { DeviceCommandQueue } from "../extension/device-lock.ts";
 import { runDoctor } from "../extension/doctor.ts";
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { createGithubAuth } from "../extension/github-auth.ts";
+import { postWelcomeEvent } from "../extension/web-telemetry.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
 import { canonicalPathKey, deleteProjectPath, isRealContained, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
@@ -1663,6 +1664,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Open a LOCAL project folder as the workspace root so generate/deploy target it. Its own entry,
       // distinct from Import (which restores a saved SESSION) — this is the old "import_project" body,
       // now honestly labeled. Native folder picker, then vscode.openFolder.
+      postWelcomeEvent({ apiBaseUrl, fetchImpl, entry: "open_project_folder", hasWorkspace: !!vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath, log: deps.log });
       try {
         const picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Open Folder" });
         if (picked && picked[0]) await vscode.commands?.executeCommand?.("vscode.openFolder", picked[0]);
@@ -1673,6 +1675,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "import_session") {
       // Restore a saved session: pick its session FOLDER (portable — a snapshot copied from another
       // machine works too), then rehydrate from its checkpoints/snapshot.json.
+      postWelcomeEvent({ apiBaseUrl, fetchImpl, entry: "import_session", hasWorkspace: !!vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath, log: deps.log });
       let picked: any;
       try { picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Import Session" }); }
       catch { picked = undefined; } // dialog unavailable (headless) — nothing to do
@@ -1682,6 +1685,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Restore one of THIS project's recent sessions (selected in the Recent Sessions list). The id is
       // shape-validated (isSessionId) before it's joined into a path — it comes over the webview channel, so
       // it's a trust boundary even though the surface is our own (#11). A session with no snapshot degrades.
+      // Telemetry sits INSIDE the id guard: an invalid/absent id emits nothing (and the id never rides the payload).
+      postWelcomeEvent({ apiBaseUrl, fetchImpl, entry: "recent_session_restore", hasWorkspace: !!vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath, log: deps.log });
       if (sessionRoot) await doRestoreFromDir(join(sessionRoot, ".mpyhw", "sessions", message.id));
       else vscode.window?.showInformationMessage?.("No session storage available to restore from.");
     }

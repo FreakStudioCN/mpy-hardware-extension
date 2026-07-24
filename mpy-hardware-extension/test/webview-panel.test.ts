@@ -9,6 +9,7 @@ import test from "node:test";
 import { createPanel, createViewProvider, isSnapshotSelfPath, parseGitStatusRow } from "../src/webview/panel.ts";
 import { gitCommit, gitHasStagedChanges } from "../src/extension/project-git.ts";
 import { buildSessionSnapshot, writeSessionSnapshot } from "../src/extension/session-snapshot.ts";
+import { EXTENSION_VERSION } from "../src/core/toolchain-version.ts";
 
 test("webview start_session runs API-backed pipeline and renders generated outputs", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
@@ -2046,6 +2047,79 @@ test("import_session picks a session folder and RESTORES from it, but never vsco
     // The picked folder has no snapshot -> it routes to restore, which degrades with an informative notice.
     assert.ok(infos.some((m) => /no saved snapshot|predates/i.test(m)), "routes to restore (no snapshot here -> informs), not folder-open");
   } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+// ----- Welcome-page entry telemetry: session-independent /v1/web/events emit -----
+
+// A panel whose fetchImpl records every request, so a welcome click's telemetry POST is
+// captured. hasWorkspace toggles the workspace so has_workspace can be asserted both ways.
+function welcomePanel(hasWorkspace: boolean, fetchImpl?: (url: any, init: any) => Promise<any>) {
+  const calls: Array<{ url: string; init: any }> = [];
+  const opened: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    workspace: { workspaceFolders: hasWorkspace ? [{ uri: { fsPath: "/ws" } }] : undefined },
+    window: { createWebviewPanel: () => panel, showOpenDialog: async () => [{ fsPath: "/ws/picked" }], showInformationMessage: async () => {}, showErrorMessage: async () => {} },
+    commands: { executeCommand: async (cmd: string, arg: any) => { opened.push({ cmd, path: arg?.fsPath }); } },
+  };
+  const captured = fetchImpl ?? (async () => jsonResponse({}, 204) as any);
+  const recording = async (url: any, init: any) => { calls.push({ url: String(url), init }); return captured(url, init); };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: recording as any });
+  return { handler: handler!, calls, opened };
+}
+
+function webEvents(calls: Array<{ url: string; init: any }>) {
+  return calls.filter((c) => c.url === "http://api.test/v1/web/events");
+}
+
+for (const c of [
+  { type: "open_project_folder", eventType: "welcome_open_project_folder_clicked", entry: "open_project_folder", message: { type: "open_project_folder" } },
+  { type: "import_session", eventType: "welcome_import_session_clicked", entry: "import_session", message: { type: "import_session" } },
+  { type: "restore_session", eventType: "welcome_recent_session_restore_clicked", entry: "recent_session_restore", message: { type: "restore_session", id: "session-abc-1" } },
+]) {
+  test(`${c.type} emits ${c.eventType} to /v1/web/events with a non-sensitive payload, no auth header`, async () => {
+    const { handler, calls } = welcomePanel(true);
+    await handler(c.message);
+    const events = webEvents(calls);
+    assert.equal(events.length, 1, "exactly one web-event per click");
+    const init = events[0].init;
+    assert.equal(init.method, "POST");
+    // Anonymous endpoint — the GitHub JWT must never ride it.
+    assert.ok(!("authorization" in (init.headers ?? {})), "no authorization header");
+    // Deep-equal the whole body so a wrong event name, a dropped `source` (server would
+    // default it to website-home), or a leaked trace_id each fails this one assertion.
+    assert.deepEqual(JSON.parse(init.body), {
+      event_type: c.eventType,
+      payload: { surface: "welcome_page", entry: c.entry, extension_version: EXTENSION_VERSION, has_workspace: true },
+      source: "vscode_extension",
+    });
+  });
+}
+
+test("welcome telemetry: has_workspace reflects the live workspace state, false when none is open", async () => {
+  const { handler, calls } = welcomePanel(false);
+  await handler({ type: "open_project_folder" });
+  assert.equal(JSON.parse(webEvents(calls)[0].init.body).payload.has_workspace, false, "no workspace -> has_workspace:false");
+});
+
+test("welcome telemetry: an invalid restore id emits NOTHING (the emit sits inside the id guard)", async () => {
+  const { handler, calls } = welcomePanel(true);
+  await handler({ type: "restore_session", id: "../../etc/passwd" });
+  assert.equal(webEvents(calls).length, 0, "a non-session-id restore never emits");
+});
+
+test("welcome telemetry: the restore session id never rides the payload (non-sensitive)", async () => {
+  const { handler, calls } = welcomePanel(true);
+  await handler({ type: "restore_session", id: "session-secret-9" });
+  assert.ok(!webEvents(calls)[0].init.body.includes("session-secret-9"), "the id is not carried in the event body");
+});
+
+test("welcome telemetry: a rejected POST is swallowed — the click's primary action still runs", async () => {
+  const { handler, opened } = welcomePanel(true, async () => { throw new Error("network down"); });
+  await handler({ type: "open_project_folder" }); // must not reject even though the telemetry fetch throws
+  assert.ok(opened.some((o) => o.cmd === "vscode.openFolder"), "the folder still opens; telemetry failure is silent");
 });
 
 function restorePanel(ws: string) {
