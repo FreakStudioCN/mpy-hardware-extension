@@ -2114,6 +2114,39 @@ test("restore_session derives the Diagram tab from the manifest when the snapsho
     const diagram = posted.find((m) => m.type === "diagram_updated");
     assert.ok(diagram, "the Diagram tab is populated even without an authored diagram");
     assert.ok(diagram.diagram?.architecture?.layers?.length > 0, "the diagram is derived from the manifest's devices (not empty)");
+    // A no-offers snapshot posts optional_flows:[] so a prior session's stale Generate buttons are HIDDEN
+    // (the flow entries are siblings of the tab panes, so restore_reset does not clear them).
+    const flows = posted.find((m) => m.type === "optional_flows");
+    assert.ok(flows && flows.phases.length === 0, "restore posts optional_flows:[] to hide stale flow buttons when the snapshot offered none");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("start_optional_flow after a restore passes the host gate (the restored offers satisfy it, no 'Run generate first' bounce)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-flowrun-1";
+    // A saved session that offered the flows AND carries the upstream generate result — the two pieces the
+    // host gate (getOptionalNextPhases + wrapped getLatestGeneratePhaseComplete) needs to run the flow.
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null,
+      optionalNextPhases: [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }],
+      generatePhaseComplete: { type: "phase_complete", payload: { phase: "generate", result: "success" } },
+      credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    await handler({ type: "restore_session", id: sid });
+    posted.length = 0;
+    await handler({ type: "start_optional_flow", flow: "diagram" });
+    // The gate at start_optional_flow rejects an unoffered flow with this exact detail. The restored offers
+    // must clear it; the flow then runs (against the {}-stub backend) and stalls, which is fine.
+    const bounced = posted.find((m) => m.type === "optional_flow_status" && /Run generate first/.test(m.detail || ""));
+    assert.ok(!bounced, "the restored offer + upstream satisfy the host gate — no 'Run generate first' bounce");
+    // ...and the flow PROGRESSED past the gate into the actual run (phase_start is emitted only after the
+    // offered-set gate passes), proving it didn't just no-op before the gate for an unrelated reason.
+    assert.ok(posted.some((m) => m.type === "phase_start"), "the flow ran past the gate into the phase run");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

@@ -231,11 +231,17 @@ export class SessionController {
   }
 
   private async run(input: { intent: string; boardId: string; availableBoards?: any[]; preserveManifest?: boolean }) {
-    // A startPhase excursion (gen-driver/wiring/diagram) keeps the main-flow manifest, so the diagram
-    // run's thin manifest_content can't clobber the devices-bearing one (the manifest_updated guard reads
-    // latestManifest, which this clear would otherwise blank for the whole excursion run).
-    if (!input.preserveManifest) this.latestManifest = undefined;
-    this.hasAuthoredDiagram = false;
+    // A startPhase excursion (gen-driver/wiring/diagram) keeps the main-flow manifest AND the authored-diagram
+    // guard: the excursion's thin manifest_content must not clobber the devices-bearing manifest (the
+    // manifest_updated branch reads latestManifest), nor overwrite an authored diagram with the derived view
+    // (that branch reads hasAuthoredDiagram). Both are per-run state this clear would otherwise blank for the
+    // whole excursion — including a restored session, which enters a wiring/diagram run with an authored diagram
+    // exactly like a live one. A fresh start() (preserveManifest falsy) still clears both, so a new session
+    // re-derives from scratch.
+    if (!input.preserveManifest) {
+      this.latestManifest = undefined;
+      this.hasAuthoredDiagram = false;
+    }
     this.lastPhaseComplete = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
@@ -979,7 +985,12 @@ export class SessionController {
     this.currentPhase = seed.currentPhase ?? null;
     this.lastTerminal = seed.terminal ?? null; // so a re-save carries the restored terminal, not null
     if (seed.manifest !== undefined) this.latestManifest = seed.manifest;
-    if (seed.diagram !== undefined) this.latestDiagram = seed.diagram;
+    if (seed.diagram !== undefined) {
+      this.latestDiagram = seed.diagram;
+      // Re-latch the authored-diagram guard: a restored authored diagram wins, same as live. Without this a
+      // post-restore wiring/diagram run streams a manifest_updated that would clobber it with the derived view.
+      this.hasAuthoredDiagram = true;
+    }
     // Restore the optional-flow offers + the upstream generate result they run against, so a restored
     // session can re-run wiring/diagram (the host gate reads getOptionalNextPhases + the wrapped upstream).
     if (Array.isArray(seed.optionalNextPhases)) this.optionalNextPhases = seed.optionalNextPhases;

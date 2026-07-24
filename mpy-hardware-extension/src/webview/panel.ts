@@ -877,9 +877,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       else if (snap.manifest) webview.postMessage({ type: "diagram_updated", diagram: deriveDiagram(snap.manifest) });
       // Wiring tab: re-offer the wiring/diagram optional flows a successful generate exposed, so the
       // "Generate diagram" buttons come back. seedFromSnapshot already restored the offers + upstream
-      // generate result these flows run against, so the buttons are functional, not just visible.
+      // generate result these flows run against, so the buttons are functional, not just visible. Post
+      // UNCONDITIONALLY (even []): the flow entries are SIBLINGS of the tab panes, so restore_reset does not
+      // clear them — a no-offers snapshot must post [] to HIDE a prior session's stale buttons (matches live,
+      // which posts phases:[] on a non-success generate).
       const offeredFlows = Array.isArray(snap.optional_flows?.offered) ? snap.optional_flows.offered : [];
-      if (offeredFlows.length) webview.postMessage({ type: "optional_flows", phases: offeredFlows });
+      webview.postMessage({ type: "optional_flows", phases: offeredFlows });
       // Code cards: replay each code artifact's on-disk content, but VERIFY its digest against the snapshot
       // first — never replay a file whose sha256 no longer matches (the snapshot's integrity guarantee).
       for (const a of Array.isArray(snap.artifacts) ? snap.artifacts : []) {

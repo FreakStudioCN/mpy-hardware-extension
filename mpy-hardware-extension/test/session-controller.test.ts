@@ -231,6 +231,29 @@ test("seedFromSnapshot restores state/board/preferences without running, and ref
   release(); await running;
 });
 
+test("a restored authored diagram survives a later wiring optional-flow run (guard held across the startPhase excursion)", async () => {
+  const posts: any[] = [];
+  // The loop streams a devices-bearing manifest_updated (what a wiring/diagram run emits) then completes —
+  // exactly the production path: start_optional_flow -> startPhase -> run() -> loop onEvent. Driving the real
+  // run() entry is the point: run() clears per-run state at entry, so a bare postEvent would miss the bug.
+  const controller = new SessionController({
+    postMessage: (m) => posts.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "manifest_updated", manifest: { devices: [{ id: "aht20", interface: "I2C" }] } });
+      return { terminal: "complete" };
+    },
+  });
+  // Restore a session whose snapshot HAD an authored diagram + a device-bearing manifest.
+  controller.seedFromSnapshot({ manifest: { devices: [{ id: "aht20" }] }, diagram: { authored: true, nodes: ["led"] } });
+  posts.length = 0;
+  // Run the wiring optional flow the way the panel does. preserveManifest is set inside startPhase; the
+  // authored-diagram guard must survive the run-entry clear (class fix at run():238), so NO derived
+  // diagram_updated is posted to clobber the restored authored one.
+  await controller.startPhase({ phase: "upy-wiring-plugin", envelope: "{}" });
+  assert.ok(posts.some((m) => m.type === "manifest_updated"), "the wiring tab refreshes from the run's manifest");
+  assert.ok(!posts.some((m) => m.type === "diagram_updated"), "the restored authored diagram is NOT clobbered by the excursion's derived view");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];
