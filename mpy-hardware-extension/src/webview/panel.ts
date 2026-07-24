@@ -821,7 +821,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // rehydrate the session + the webview tabs from it. Refuses while a run is active (a live session owns
   // the state). A session with NO snapshot (a pre-Save-Version session) is not an error — it just can't
   // be restored, so the caller is told and degrades (view its log) rather than showing a broken restore.
-  async function doRestoreFromDir(sessionDir: string, sessionId: string): Promise<void> {
+  async function doRestoreFromDir(sessionDir: string): Promise<void> {
     if (controller.isRunning() || runPending) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
     if (restoreInFlight) return; // a restore is already replaying — ignore a double-clicked card
     restoreInFlight = true;
@@ -1676,13 +1676,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       let picked: any;
       try { picked = await vscode.window?.showOpenDialog?.({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Import Session" }); }
       catch { picked = undefined; } // dialog unavailable (headless) — nothing to do
-      if (picked && picked[0]) { const dir = String(picked[0].fsPath); await doRestoreFromDir(dir, basename(dir)); }
+      if (picked && picked[0]) { const dir = String(picked[0].fsPath); await doRestoreFromDir(dir); }
     }
     if (message.type === "restore_session" && typeof message.id === "string" && isSessionId(message.id)) {
       // Restore one of THIS project's recent sessions (selected in the Recent Sessions list). The id is
       // shape-validated (isSessionId) before it's joined into a path — it comes over the webview channel, so
       // it's a trust boundary even though the surface is our own (#11). A session with no snapshot degrades.
-      if (sessionRoot) await doRestoreFromDir(join(sessionRoot, ".mpyhw", "sessions", message.id), message.id);
+      if (sessionRoot) await doRestoreFromDir(join(sessionRoot, ".mpyhw", "sessions", message.id));
       else vscode.window?.showInformationMessage?.("No session storage available to restore from.");
     }
     if (message.type === "request_recent_sessions") {
