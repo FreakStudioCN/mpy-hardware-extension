@@ -659,7 +659,7 @@
         file_op_proposed: (p) => addFileOpPrompt(p.promptId, p.op, p.path),
       };
       // Neutralize the card the renderer just appended: disable every input/button, then SHOW what was chosen
-      // by highlighting the button that was clicked (accent .chosen, kept bright while the rest dim). A button
+      // by highlighting the button that was clicked (.chosen = accent border, kept bright while the rest dim). A button
       // carries its answer value in data-answer; an option button also matches by its own label. Only when no
       // button matches (a free-text answer) do we fall back to a "• answer" line.
       function finalizeInertCard(answer) {
