@@ -277,8 +277,10 @@
           if (isFlashConfirm && action === FLASH_ACTION && selectedPort) { msg.serial_port = selectedPort; }
           vscode.postMessage(msg);
           // Disable every button in the card (actions + the flash picker's rescan/port
-          // buttons), not just the action row, so nothing stays clickable after answering.
-          wrap.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+          // buttons), not just the action row, so nothing stays clickable after answering. Mark the
+          // action the user picked (matched by data-answer) so the answered card shows the same bordered
+          // "chosen" button a restored inert card does — the picker/rescan buttons carry no data-answer.
+          wrap.querySelectorAll("button").forEach((b) => { b.disabled = true; if (b.dataset.answer === action) b.classList.add("chosen"); });
           checks.forEach((c) => { c.disabled = true; });
           currentDeployCard = null;
           setPending(tr("working"));
@@ -489,7 +491,9 @@
           if (answered) return;
           answered = true;
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer, devices: Array.from(selected), feedback: addInput.value.trim() });
-          card.querySelectorAll(".ask-opt").forEach((x) => { x.disabled = true; });
+          // Mark the picked action (data-answer) so a live-answered components card shows the same bordered
+          // "chosen" button a restored one does. Device chips carry no data-answer, so their selection .chosen is untouched.
+          card.querySelectorAll(".ask-opt").forEach((x) => { x.disabled = true; if (x.dataset.answer === answer) x.classList.add("chosen"); });
           addInput.disabled = true;
           if (answer === "confirm") setPending(tr("working"));
         };
@@ -552,7 +556,9 @@
           if (answered) return;
           answered = true;
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer, feedback });
-          card.querySelectorAll(".ask-opt, .ask-send").forEach((b) => { b.disabled = true; });
+          // Mark the action the user picked (matched by data-answer) so the answered card shows the same
+          // bordered "chosen" button a restored inert card does — consistent live/restore selection cue.
+          card.querySelectorAll(".ask-opt, .ask-send").forEach((b) => { b.disabled = true; if (b.dataset.answer === answer) b.classList.add("chosen"); });
           reviseInput.disabled = true;
           if (answer === "cancel") return; // session_done renders the terminal
           // Revise re-runs the agent to re-plan; confirm proceeds to codegen.
@@ -605,7 +611,10 @@
           // before unblocking the agent — a separate select_device message races the
           // resolve and the first device tool can fire before the port lands.
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer, port: answer === "confirm" ? selectedPort : null });
-          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; });
+          // Mark the picked action (data-answer) so a live-answered deploy card shows the same bordered
+          // "chosen" button a restored inert one does. Port buttons carry no data-answer, so their own
+          // selection-time .chosen is untouched.
+          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; if (b.dataset.answer === answer) b.classList.add("chosen"); });
           currentDeployCard = null;
           if (answer === "confirm") setPending(tr("deploying")); // cancel: session_done renders the terminal
         };

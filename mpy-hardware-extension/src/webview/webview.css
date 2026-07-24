@@ -280,9 +280,10 @@
          chips, answered options) and on restored inert cards alike. */
       .ask-opt.chosen { background: var(--vsc-input); color: var(--fg); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
       .ask-opt:disabled { opacity: .5; cursor: default; }
-      /* On a restored (inert) card, keep the chosen button bright while the unpicked ones dim — so its accent
-         border reads at a glance as "this is what was selected", without a separate answer line. */
-      .restore-inert .ask-opt.chosen:disabled { opacity: 1; }
+      /* A disabled card dims its buttons, but keep the CHOSEN one bright so its accent border still reads as
+         "this is what was selected" — on a live answered card and a restored inert card alike. Without this the
+         answered button greys out with the rest and the selection cue is lost. */
+      .ask-opt.chosen:disabled { opacity: 1; }
       /* Approval-card body (summary/steps/guidance/links) + grouped item sections. */
       .ask-kv { margin-top: 8px; font-size: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 7px 9px; }
       .ask-kv-row { margin-top: 3px; line-height: 1.45; overflow-wrap: anywhere; }

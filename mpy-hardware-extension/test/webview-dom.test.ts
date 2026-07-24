@@ -804,6 +804,11 @@ test("multi-device deploy card groups device chips above the actions and gates D
   (chips[0] as HTMLButtonElement).click();
   assert.ok((chips[0] as HTMLElement).classList.contains("chosen"), "picked chip is marked chosen");
   assert.equal(deployBtn.disabled, false, "Deploy enabled once a device is picked");
+
+  // Confirming marks the Deploy action chosen (bordered) — same live/restore selection cue; Cancel stays unmarked.
+  deployBtn.click();
+  assert.ok((deployBtn as HTMLElement).classList.contains("chosen"), "the confirmed Deploy action is marked chosen live, like a restored card");
+  assert.equal((activity.querySelector(".deploy-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked action is not marked");
 });
 
 test("manifest_updated renders wiring from the flat [{role,pin}] shape", async () => {
@@ -1714,6 +1719,9 @@ test("confirming the build plan shows an immediate in-feed spinner that clears w
   });
   (activity.querySelector(".plan-go") as HTMLButtonElement).click();
   assert.ok(activity.querySelector(".feed-pending"), "a pending spinner appears right after Confirm & generate");
+  // The answered action is marked chosen (bordered), matching a restored inert card; the other is not.
+  assert.ok((activity.querySelector(".plan-go") as HTMLElement).classList.contains("chosen"), "the confirmed action is marked chosen live, like a restored card");
+  assert.equal((activity.querySelector(".plan-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked action is not marked");
 
   post(dom, { type: "code_delta", text: "import time\n", path: "main.py" });
   assert.equal(activity.querySelector(".feed-pending"), null, "pending spinner cleared once code streams");
@@ -1792,6 +1800,9 @@ test("component card renders devices as pre-ticked toggle chips; unticking one a
   // Array.prototype differs, so a direct deepStrictEqual would fail on prototype.
   assert.deepEqual([...confirm.devices], ["SSD1306 OLED 128x64"], "only the kept device names are sent");
   assert.equal(confirm.feedback, "加一个 DHT22 温湿度传感器");
+  // The confirmed action is marked chosen (bordered) live, matching a restored card; Cancel is not.
+  assert.ok((activity.querySelector(".comp-go") as HTMLElement).classList.contains("chosen"), "the confirmed action is marked chosen live");
+  assert.equal((activity.querySelector(".comp-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked action is not marked");
 });
 
 test("an ask_user option that needs follow-up text focuses the input instead of ending the turn", async () => {
@@ -1973,6 +1984,8 @@ test("rapid double-click on an approval action posts exactly one ui_prompt_respo
 
   const responses = posted.filter((m) => m.type === "ui_prompt_response" && m.promptId === "appr-race");
   assert.equal(responses.length, 1, "only one ui_prompt_response posted despite the double-click");
+  // The answered action is marked chosen (bordered), matching a restored inert card — the primary live gate.
+  assert.ok(btn.classList.contains("chosen"), "the clicked approval action is marked chosen live");
 });
 
 test("Save Version panel renders save_version_data as color-coded letter badges + clean paths", async () => {
