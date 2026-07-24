@@ -171,6 +171,40 @@ def test_web_best_effort_endpoints_accept_frontend_events():
     assert newsletter_response.status_code == 204
 
 
+def test_web_events_accepts_welcome_extension_telemetry(monkeypatch):
+    """Pin the VS Code extension's welcome-page telemetry contract. The welcome page has no
+    Blockless session yet, so its entry clicks post session-independent events HERE (not the
+    trace_id-bound /v1/telemetry). Assert /v1/web/events accepts the three welcome event names
+    with source=vscode_extension and hands event_type/payload/source to the store verbatim —
+    no allow-list rejection, no trace_id required, and source NOT defaulted to website-home."""
+    captured = []
+
+    def _record(event_type, payload, locale, source):
+        captured.append({"event_type": event_type, "payload": payload, "locale": locale, "source": source})
+
+    from app import web_store
+
+    monkeypatch.setattr(web_store, "record_web_event", _record)
+
+    welcome = [
+        ("welcome_import_session_clicked", "import_session"),
+        ("welcome_recent_session_restore_clicked", "recent_session_restore"),
+        ("welcome_open_project_folder_clicked", "open_project_folder"),
+    ]
+    for event_type, entry in welcome:
+        payload = {"surface": "welcome_page", "entry": entry, "extension_version": "0.4.0", "has_workspace": True}
+        response = client.post(
+            "/v1/web/events",
+            json={"event_type": event_type, "payload": payload, "source": "vscode_extension"},
+        )
+        assert response.status_code == 204
+
+    assert [c["event_type"] for c in captured] == [name for name, _ in welcome]
+    # source stored, never defaulted to the website funnel; payload preserved verbatim.
+    assert all(c["source"] == "vscode_extension" for c in captured)
+    assert captured[0]["payload"] == {"surface": "welcome_page", "entry": "import_session", "extension_version": "0.4.0", "has_workspace": True}
+
+
 def test_web_upload_and_quote_endpoints_accept_frontend_submissions(monkeypatch):
     captured = {}
 
