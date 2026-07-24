@@ -2436,10 +2436,13 @@ test("restore ignores a traversal trace_id in the snapshot content (a later Save
     await handler({ type: "restore_session", id: dirId });
     posted.length = 0;
     await handler({ type: "save_version_snapshot" });
-    // The traversal trace_id is shape-rejected on seed -> controller traceId = null -> no session dir to write.
+    // #49-6: the id comes from the RESTORE-SOURCE dir (session-evil-1); the snapshot's traversal trace_id is
+    // never consulted for the path. So the re-save lands in the restored session's OWN dir and the traversal
+    // string cannot steer the write anywhere — nothing at `.mpyhw/sessions/../evil-sibling`.
     const status = posted.find((m) => m.type === "save_version_status");
-    assert.equal(status?.status, "nothing_to_save", "a non-conforming trace_id is not adopted, so the session is not re-savable");
-    // ...and crucially, nothing was written at the escaped location `.mpyhw/sessions/../evil-sibling`.
+    assert.equal(status?.status, "saved_snapshot", "re-savable via the safe dir id, not the snapshot's foreign id");
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", dirId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, dirId, "the re-save lands in the restored session's own dir, ignoring the snapshot's traversal id");
     assert.ok(!existsSync(join(ws, ".mpyhw", "evil-sibling", "checkpoints", "snapshot.json")), "no snapshot write escapes the sessions root");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
@@ -2454,16 +2457,74 @@ test("restore ignores a NON-STRING trace_id in the snapshot content (no path.joi
       state: { manifest: { m: 1 }, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
       preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
     });
-    snap.trace_id = ["session-abc-def"]; // an array whose String() coercion would pass the id regex, then throw in path.join
+    snap.trace_id = ["session-abc-def"]; // a non-string id that a coerce-then-adopt would have crashed path.join with
     await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), snap);
-    // The restore must COMPLETE, not throw: a raw non-string adopted into traceId would TypeError in the
-    // artifact walk AFTER the feed was already cleared. No rejection here == no mid-restore crash.
+    // #49-6: snap.trace_id is never consulted — the id comes from the restore-source dir — so a non-string
+    // value can't reach path.join at all. The restore COMPLETES and is re-savable into its own dir.
     await handler({ type: "restore_session", id: dirId });
-    assert.ok(infos.some((m) => /Restored/.test(m)), "the restore completes (does not crash on a non-string trace_id)");
+    assert.ok(infos.some((m) => /Restored/.test(m)), "the restore completes (a non-string snapshot trace_id is simply ignored)");
     posted.length = 0;
     await handler({ type: "save_version_snapshot" });
     const status = posted.find((m) => m.type === "save_version_status");
-    assert.equal(status?.status, "nothing_to_save", "the non-string trace_id is rejected (not adopted), so the session is not re-savable");
+    assert.equal(status?.status, "saved_snapshot", "re-savable via the safe dir id");
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", dirId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, dirId, "the re-save lands in the restored session's own dir");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore does NOT adopt a VALID-but-foreign trace_id from snapshot content — a later save can't overwrite another session (#49-6)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const dirId = "session-aaaa-1";        // the session actually being restored (the recent-list card)
+    const foreignId = "session-bbbb-2";    // a DIFFERENT, syntactically valid id embedded in the snapshot content
+    // A pre-existing OTHER session B on disk, with its own saved snapshot we must not clobber.
+    const bSnap = buildSessionSnapshot({
+      traceId: foreignId, savedAt: "2026-07-20T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { b: 1 }, phase: "generate", intent: "session B" }, boardId: "pico", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { b: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", foreignId), bSnap);
+    // Session A's snapshot carries session B's valid id in its CONTENT (an imported / mis-copied snapshot).
+    const aSnap = buildSessionSnapshot({
+      traceId: foreignId, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { a: 1 }, phase: "generate", intent: "session A" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { a: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), aSnap);
+    await handler({ type: "restore_session", id: dirId });
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    // The re-save must land in A's OWN dir (the restore source), never B's — the snapshot's foreign id is ignored.
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", dirId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, dirId, "the re-save targets the restored dir, not the snapshot's foreign id");
+    // B's saved snapshot on disk is UNTOUCHED (the old snap.trace_id adoption would have overwritten it with A's data).
+    const bStill = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", foreignId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.deepEqual(bStill.manifest, { b: 1 }, "session B's saved snapshot is NOT overwritten by A's restored state");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore is refused while a Save Version is in flight — no mixed-session snapshot (#49-2)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    const sid = "session-inflight-1";
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "seed" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    await handler({ type: "restore_session", id: sid }); // seed a restorable session so the save has state to write
+    posted.length = 0; infos.length = 0;
+    // Kick off a save (sets saveInFlight synchronously, then awaits the fs write) WITHOUT awaiting, then fire a
+    // restore in the SAME tick: doRestoreFromDir's entry guard must see saveInFlight and refuse — otherwise the
+    // save would capture the restore's mid-applied state into the wrong dir (the session-A/session-B chimera).
+    const saving = handler({ type: "save_version_snapshot" });
+    const restoring = handler({ type: "restore_session", id: sid });
+    await Promise.all([saving, restoring]);
+    assert.ok(infos.some((m) => /Save Version before restoring/.test(m)), "the concurrent restore is refused while a save is in flight");
+    assert.ok(!posted.some((m) => m.type === "restore_reset"), "the refused restore never cleared the feed (no half-applied restore)");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

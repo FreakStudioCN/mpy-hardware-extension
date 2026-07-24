@@ -660,7 +660,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   }
 
   async function doSaveVersionCommit(rawMessage: unknown): Promise<void> {
-    if (saveInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
+    if (saveInFlight || restoreInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
     saveInFlight = true;
     try {
       const ctx = saveVersionContext(); if (!ctx) return;
@@ -700,7 +700,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   }
 
   async function doSaveVersionSnapshot(): Promise<void> {
-    if (saveInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
+    if (saveInFlight || restoreInFlight) { webview.postMessage({ type: "save_version_status", status: SAVE_VERSION_STATUS.inFlight }); return; }
     saveInFlight = true;
     try {
       const ctx = saveVersionContext(); if (!ctx) return;
@@ -822,8 +822,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // rehydrate the session + the webview tabs from it. Refuses while a run is active (a live session owns
   // the state). A session with NO snapshot (a pre-Save-Version session) is not an error — it just can't
   // be restored, so the caller is told and degrades (view its log) rather than showing a broken restore.
-  async function doRestoreFromDir(sessionDir: string): Promise<void> {
-    if (controller.isRunning() || runPending) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
+  async function doRestoreFromDir(sessionDir: string, knownId?: string): Promise<void> {
+    if (controller.isRunning() || runPending || saveInFlight) { vscode.window?.showInformationMessage?.("Finish the current build or Save Version before restoring a session."); return; }
     if (restoreInFlight) return; // a restore is already replaying — ignore a double-clicked card
     restoreInFlight = true;
     try {
@@ -842,16 +842,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // session. No run is started — this only loads the state. The entry gate above is not a lock: a run
       // could have started during the await, so re-check (runPending too — the controller can't see it) and
       // honor seedFromSnapshot's false (it re-checks its own abort) rather than wiping a live run's feed.
-      if (controller.isRunning() || runPending) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
+      if (controller.isRunning() || runPending || saveInFlight) { vscode.window?.showInformationMessage?.("Finish the current build or Save Version before restoring a session."); return; }
       const seeded = controller.seedFromSnapshot({
-        // trace_id is raw snapshot content (an imported snapshot may come from another machine), and it later
-        // becomes a path segment in the Save Version write dir + the artifact walk. Shape-guard it HERE, at
-        // the point it enters controller state, so a malicious `"../../evil"` can't escape the sessions root
-        // downstream (#11: guard a value before it's joined into a path — the trusted producer is createTraceId,
-        // this is the untrusted second one). Check the TYPE first and adopt the SAME value: coercing to a
-        // string to validate but adopting the raw one would let `["session-x-1"]` pass the regex and then throw
-        // in path.join mid-restore. Non-string or non-conforming -> null: the restored session isn't re-savable.
-        traceId: typeof snap.trace_id === "string" && isSessionId(snap.trace_id) ? snap.trace_id : null,
+        // The restored session's id must come from the RESTORE SOURCE (the directory being restored), NEVER
+        // from snapshot CONTENT (#49-6): a snapshot can carry ANOTHER session's valid-shaped trace_id (an
+        // imported snapshot, or a hand-copied one), and this id becomes the Save Version write dir — so
+        // trusting snap.trace_id would let a later save silently OVERWRITE that other session. Recent-list
+        // restore passes the known dir id; import falls back to the picked folder's own name. Still shape-
+        // guarded before it's joined into a path (#11); non-conforming -> null (the restored session isn't
+        // re-savable) rather than escaping the sessions root.
+        traceId: knownId && isSessionId(knownId) ? knownId : (isSessionId(basename(sessionDir)) ? basename(sessionDir) : null),
         state: snap.state,
         boardId: snap.board?.board_id || null,
         preSelectedBoard: snap.board?.pre_selected_board ?? undefined,
@@ -1687,7 +1687,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // it's a trust boundary even though the surface is our own (#11). A session with no snapshot degrades.
       // Telemetry sits INSIDE the id guard: an invalid/absent id emits nothing (and the id never rides the payload).
       postWelcomeEvent({ apiBaseUrl, fetchImpl, entry: "recent_session_restore", hasWorkspace: !!vscode.workspace?.workspaceFolders?.[0]?.uri?.fsPath, log: deps.log });
-      if (sessionRoot) await doRestoreFromDir(join(sessionRoot, ".mpyhw", "sessions", message.id));
+      if (sessionRoot) await doRestoreFromDir(join(sessionRoot, ".mpyhw", "sessions", message.id), message.id);
       else vscode.window?.showInformationMessage?.("No session storage available to restore from.");
     }
     if (message.type === "request_recent_sessions") {
