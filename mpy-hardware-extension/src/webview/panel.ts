@@ -1273,7 +1273,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           envelope: JSON.stringify(envelope),
           manifest: manifestSnapshot,
           boardId: message.boardId,
-          label: "gen-driver run",
+          label: "gen-driver run", locale: vscode.env?.language,
         });
       } catch (error: any) {
         // Staging integrity/copy failure (register #8: surface, never proceed as if staged).
@@ -1335,7 +1335,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
         const envelope = buildOptionalFlowDispatch(flow, { sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), sourcePhaseCompletePath });
         const runStartMs = Date.now();
-        await controller.startPhase({ phase: token, envelope: JSON.stringify(envelope), boardId: message.boardId, label: `${flow} run` });
+        await controller.startPhase({ phase: token, envelope: JSON.stringify(envelope), boardId: message.boardId, label: `${flow} run`, locale: vscode.env?.language });
         // The plugin can't render in its sandbox, so it reports the run "partial" even when the diagram
         // JSON is complete — that partial is EXACTLY why the host renders, so accept success OR partial.
         // But require THIS run to have freshly written docs/<kind>.json (mtime at/after run start), so a

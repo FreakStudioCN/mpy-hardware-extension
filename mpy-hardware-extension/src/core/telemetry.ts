@@ -65,7 +65,9 @@ function guardValue(value: any, state: { truncated: boolean }): any {
 
 function mapSessionEvent(event: Record<string, any>): { eventType: string; payload: Record<string, any> } | null {
   if (event.type === "session_started") {
-    return { eventType: "session_started", payload: { intent: event.intent, board_id: event.boardId } };
+    // locale is the host UI language (vscode.env.language, e.g. "zh-cn"/"en"), captured once
+    // per session so the cloud DB can bucket users by preferred language — not a country signal.
+    return { eventType: "session_started", payload: { intent: event.intent, board_id: event.boardId, locale: event.locale } };
   }
   if (event.type === "user_message") {
     return { eventType: "intent_submitted", payload: { intent: event.intent, board_id: event.boardId } };

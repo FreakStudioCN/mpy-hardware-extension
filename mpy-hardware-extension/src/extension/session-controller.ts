@@ -173,7 +173,7 @@ export class SessionController {
     }
     if (!this.recordedStart) {
       this.recordedStart = true;
-      this.record({ type: "session_started", intent: input.intent, boardId: input.boardId, availableBoards: input.availableBoards ?? [] });
+      this.record({ type: "session_started", intent: input.intent, boardId: input.boardId, availableBoards: input.availableBoards ?? [], locale: input.preferences?.locale });
     }
     this.record({ type: "user_message", intent: input.intent, boardId: input.boardId });
     this.availableBoards = input.availableBoards;
@@ -203,7 +203,7 @@ export class SessionController {
   // is a transparent excursion: snapshot the prior main-flow state, run, and restore it UNLESS the run
   // chained into a canonical phase (pipeline continuation), detected by the run ending on a DIFFERENT
   // phase than the one dispatched.
-  async startPhase(input: { phase: string; envelope: string; manifest?: any; boardId?: string; label?: string; availableBoards?: any[] }) {
+  async startPhase(input: { phase: string; envelope: string; manifest?: any; boardId?: string; label?: string; availableBoards?: any[]; locale?: string }) {
     if (this.abort) {
       this.deps.postMessage({ type: "session_busy" });
       return { terminal: "session_busy" };
@@ -214,7 +214,7 @@ export class SessionController {
     if (!this.recorder && this.deps.recorderFactory) this.recorder = this.deps.recorderFactory(this.traceId);
     if (!this.recordedStart) {
       this.recordedStart = true;
-      this.record({ type: "session_started", intent: label, boardId, availableBoards: input.availableBoards ?? [] });
+      this.record({ type: "session_started", intent: label, boardId, availableBoards: input.availableBoards ?? [], locale: input.locale });
     }
     this.record({ type: "user_message", intent: label, boardId });
     const priorState = this.state;
