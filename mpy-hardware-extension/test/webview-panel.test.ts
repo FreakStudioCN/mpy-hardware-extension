@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createPanel, createViewProvider, isSnapshotSelfPath, parseGitStatusRow } from "../src/webview/panel.ts";
-import { gitCommit, gitHasStagedChanges } from "../src/extension/project-git.ts";
+import { gitCommit, gitHasStagedChanges, gitLog, gitCurrentBranch, gitShowNameStatus, gitDiffText } from "../src/extension/project-git.ts";
 import { buildSessionSnapshot, writeSessionSnapshot } from "../src/extension/session-snapshot.ts";
 import { EXTENSION_VERSION } from "../src/core/toolchain-version.ts";
 
@@ -2992,5 +2992,234 @@ test("start_gen_driver refused while a save is in flight posts its OWN status (b
     assert.ok(!posted.some((m) => m.type === "session_busy"), "no bare session_busy for a gen-driver refusal (would leave the button stuck)");
     await commitP;
     assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_commit", "the in-flight save still completes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+// ----- WI-1: read-only Git History helpers (real temp repos) -----
+
+function initTestRepo(dir: string) {
+  execFileSync("git", ["-C", dir, "init", "-q"], { windowsHide: true });
+  execFileSync("git", ["-C", dir, "config", "user.email", "t@t.dev"], { windowsHide: true });
+  execFileSync("git", ["-C", dir, "config", "user.name", "Tester"], { windowsHide: true });
+}
+function commitAll(dir: string, message: string) {
+  execFileSync("git", ["-C", dir, "add", "-A"], { windowsHide: true });
+  execFileSync("git", ["-C", dir, "commit", "-q", "-m", message], { windowsHide: true });
+}
+function revParse(dir: string, rev: string): string {
+  return execFileSync("git", ["-C", dir, "rev-parse", rev], { windowsHide: true }).toString().trim();
+}
+
+test("gitLog: newest-first entries with real hashes, honors -n, empty repo yields [] not a throw", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-glog-"));
+  try {
+    initTestRepo(dir);
+    assert.deepEqual(await gitLog(dir, 50), [], "no HEAD yet -> [] (empty repo is a normal state, exit 128 swallowed)");
+    writeFileSync(join(dir, "a.py"), "1"); commitAll(dir, "first");
+    writeFileSync(join(dir, "b.py"), "2"); commitAll(dir, "second");
+    const log = await gitLog(dir, 50);
+    assert.equal(log.length, 2);
+    assert.equal(log[0].subject, "second", "newest first");
+    assert.equal(log[0].hash, revParse(dir, "HEAD"), "entry 0 hash == rev-parse HEAD");
+    assert.equal(log[1].hash, revParse(dir, "HEAD~1"), "entry 1 hash == rev-parse HEAD~1");
+    assert.ok(log[0].hash.startsWith(log[0].shortHash), "shortHash is a prefix of the full hash");
+    assert.ok(/^\d{4}-\d{2}-\d{2}T/.test(log[0].date), "date is ISO-8601 (%aI)");
+    assert.equal((await gitLog(dir, 1)).length, 1, "-n cap honored (kills a dropped -n arg)");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("gitCurrentBranch: returns the branch name even on an empty repo (pre-first-commit)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-gcb-"));
+  try {
+    initTestRepo(dir);
+    // The whole point: rev-parse --abbrev-ref HEAD throws here, but branch --show-current works.
+    assert.ok((await gitCurrentBranch(dir)).length > 0, "unborn branch name is returned pre-commit");
+    writeFileSync(join(dir, "a.py"), "1"); commitAll(dir, "first");
+    assert.ok((await gitCurrentBranch(dir)).length > 0, "branch name still returned after a commit");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("gitShowNameStatus: parses A/M/D/R (new path for rename) and works on a root commit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-gns-"));
+  try {
+    initTestRepo(dir);
+    writeFileSync(join(dir, "keep.py"), "1");
+    writeFileSync(join(dir, "gone.py"), "2");
+    writeFileSync(join(dir, "old.py"), "same-content-for-rename-detection\n");
+    commitAll(dir, "root");
+    const root = await gitShowNameStatus(dir, revParse(dir, "HEAD"));
+    assert.deepEqual(root.map((c) => c.status).sort(), ["A", "A", "A"], "root commit adds via show (not diff hash^ hash)");
+    writeFileSync(join(dir, "keep.py"), "2");                                  // modify
+    writeFileSync(join(dir, "fresh.py"), "3");                                 // add
+    execFileSync("git", ["-C", dir, "rm", "-q", "gone.py"], { windowsHide: true }); // delete
+    execFileSync("git", ["-C", dir, "mv", "old.py", "new.py"], { windowsHide: true }); // rename
+    commitAll(dir, "changes");
+    const changes = await gitShowNameStatus(dir, revParse(dir, "HEAD"));
+    const byPath = Object.fromEntries(changes.map((c) => [c.path, c.status]));
+    assert.equal(byPath["keep.py"], "M");
+    assert.equal(byPath["fresh.py"], "A");
+    assert.equal(byPath["gone.py"], "D");
+    assert.equal(byPath["new.py"], "R", "rename keeps the NEW path with status R");
+    assert.ok(!("old.py" in byPath), "the old rename path is not emitted as its own row");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("gitDiffText: commit patch via show, uncommitted change via diff HEAD", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-gdt-"));
+  try {
+    initTestRepo(dir);
+    writeFileSync(join(dir, "a.py"), "line one\n"); commitAll(dir, "first");
+    writeFileSync(join(dir, "a.py"), "line one\nline two\n"); commitAll(dir, "second");
+    const committed = await gitDiffText(dir, "a.py", revParse(dir, "HEAD"));
+    assert.match(committed, /\+line two/, "commit diff (show <hash> -- path) shows the added line");
+    writeFileSync(join(dir, "a.py"), "line one\nline two\nline three\n");     // uncommitted
+    const working = await gitDiffText(dir, "a.py");
+    assert.match(working, /\+line three/, "diff HEAD -- path shows the uncommitted change");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ----- WI-2: Git History host handlers (real temp repos, projectFolder = ws/blockless-project) -----
+
+function gitHistoryPanel(ws: string) {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, showInformationMessage: async () => {}, showErrorMessage: async () => {} },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: (async () => jsonResponse({})) as any });
+  return { handler: handler!, posted, projectFolder: join(ws, "blockless-project") };
+}
+function ghData(posted: any[]) { return posted.find((m) => m.type === "git_history_data"); }
+function ghStatus(posted: any[]) { return posted.find((m) => m.type === "git_history_status")?.status; }
+
+test("git_history_open: repo with commits -> newest-first timeline + branch + uncommitted", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "first");
+    writeFileSync(join(projectFolder, "b.py"), "2"); commitAll(projectFolder, "second");
+    writeFileSync(join(projectFolder, "dirty.py"), "x"); // uncommitted untracked
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    const data = ghData(posted);
+    assert.equal(data.repoPresent, true);
+    assert.equal(data.commits.length, 2);
+    assert.equal(data.commits[0].subject, "second", "newest first");
+    assert.equal(data.commits[0].hash, revParse(projectFolder, "HEAD"), "real HEAD hash");
+    assert.ok(data.branch.length > 0, "branch reported");
+    assert.ok(data.uncommitted.files.some((f: any) => f.name === "dirty.py"), "untracked shown in uncommitted");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_open: empty repo -> repoPresent, commits [], branch + uncommitted still shown", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "new.py"), "x"); // untracked, pre-first-commit
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    const data = ghData(posted);
+    assert.equal(data.repoPresent, true);
+    assert.deepEqual(data.commits, [], "no commits yet (gitLog swallows exit 128)");
+    assert.ok(data.branch.length > 0, "branch works pre-first-commit (branch --show-current)");
+    assert.ok(data.uncommitted.files.some((f: any) => f.name === "new.py"), "untracked shown pre-commit");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_open: no .git -> repoPresent:false and NEVER forces a git init (spec :343)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true }); // dir exists but is not a repo
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    assert.equal(ghData(posted).repoPresent, false);
+    assert.equal(existsSync(join(projectFolder, ".git")), false, "open must not create a .git");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history handlers are READ-ONLY: HEAD + porcelain byte-identical after open/commit/diff", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "one\n"); commitAll(projectFolder, "first");
+    writeFileSync(join(projectFolder, "a.py"), "one\ntwo\n"); commitAll(projectFolder, "second");
+    writeFileSync(join(projectFolder, "dirty.py"), "z"); // leave the tree dirty
+    const head0 = revParse(projectFolder, "HEAD");
+    const porcelain0 = execFileSync("git", ["-C", projectFolder, "status", "--porcelain"], { windowsHide: true }).toString();
+    await handler({ type: "git_history_open" });
+    await handler({ type: "git_history_commit", hash: head0 });
+    await handler({ type: "git_history_diff", hash: head0, path: "a.py" });
+    await handler({ type: "git_history_diff", path: "dirty.py" }); // uncommitted diff
+    assert.equal(revParse(projectFolder, "HEAD"), head0, "HEAD unchanged (no commit/checkout/revert)");
+    assert.equal(execFileSync("git", ["-C", projectFolder, "status", "--porcelain"], { windowsHide: true }).toString(), porcelain0, "index + worktree unchanged");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_diff: a flag-shaped hash is rejected at the host boundary and writes NO file", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "first");
+    const pwned = join(ws, "pwned.txt");
+    posted.length = 0;
+    await handler({ type: "git_history_diff", hash: `--output=${pwned}`, path: "a.py" });
+    assert.equal(ghStatus(posted), "invalid_request", "flag-shaped hash rejected before git");
+    assert.ok(!posted.some((m) => m.type === "git_history_diff_data"), "no diff produced");
+    assert.equal(existsSync(pwned), false, "the injection wrote no file (the whole point of the guard)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_commit/diff: non-hex hash, traversal, and absolute paths all rejected pre-git", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "first");
+    for (const msg of [
+      { type: "git_history_commit", hash: "HEAD" },              // non-hex revision
+      { type: "git_history_diff", hash: revParse(projectFolder, "HEAD"), path: "../escape" }, // traversal
+      { type: "git_history_diff", path: "/etc/passwd" },         // absolute
+      { type: "git_history_diff", path: "a\0.py" },              // NUL
+    ]) {
+      posted.length = 0;
+      await handler(msg);
+      assert.equal(ghStatus(posted), "invalid_request", `rejected: ${JSON.stringify(msg)}`);
+      assert.ok(!posted.some((m) => m.type?.endsWith("_data")), "no data produced on a rejected request");
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_commit returns file rows (root via show), git_history_diff returns patch text", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "one\n"); commitAll(projectFolder, "root");
+    const root = revParse(projectFolder, "HEAD");
+    posted.length = 0;
+    await handler({ type: "git_history_commit", hash: root });
+    const cd = posted.find((m) => m.type === "git_history_commit_data");
+    assert.equal(cd.hash, root);
+    assert.ok(cd.files.some((f: any) => f.path === "a.py" && f.status === "A"), "root commit's A row via show");
+    writeFileSync(join(projectFolder, "a.py"), "one\ntwo\n"); commitAll(projectFolder, "second");
+    const head = revParse(projectFolder, "HEAD");
+    posted.length = 0;
+    await handler({ type: "git_history_diff", hash: head, path: "a.py" });
+    const dd = posted.find((m) => m.type === "git_history_diff_data");
+    assert.equal(dd.hash, head); assert.equal(dd.path, "a.py");
+    assert.match(dd.diff, /\+two/, "commit diff patch text present");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });

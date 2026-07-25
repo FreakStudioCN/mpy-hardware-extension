@@ -31,7 +31,7 @@ import { canonicalPathKey, deleteProjectPath, isRealContained, snapshotExistingP
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
-import { GitUnavailableError, gitBranch, gitCommit, gitStatusPorcelain, isGitRepo } from "../extension/project-git.ts";
+import { GitUnavailableError, gitBranch, gitCommit, gitCurrentBranch, gitDiffText, gitLog, gitShowNameStatus, gitStatusPorcelain, isGitRepo } from "../extension/project-git.ts";
 import { buildSessionSnapshot, readSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
 import type { SessionSnapshot, SnapshotArtifact } from "../extension/session-snapshot.ts";
 
@@ -97,6 +97,16 @@ const SAVE_VERSION_STATUS = {
 const SAVE_VERSION_INTENT_MAX = 60;
 const SAVE_VERSION_FILE_ITEMS_MAX = 50; // display-only file rows shown on the card
 const SAVE_VERSION_ARTIFACT_ITEMS_MAX = 20; // display-only artifact rows shown on the card
+
+// Git History (read-only, §3.6.3) taxonomy + caps. Distinct from SAVE_VERSION_STATUS because
+// history never mutates: no busy/nothing/commit-failed states, but an invalid_request for a
+// webview-echoed hash/path that fails host validation (the trust boundary — see the validators).
+const GIT_HISTORY_STATUS = {
+  workspaceUnavailable: "workspace_unavailable",
+  gitUnavailable: "git_unavailable",
+  invalidRequest: "invalid_request",
+} as const;
+const GIT_HISTORY_COMMITS_MAX = 50; // newest-first timeline cap; commitTotal carries the shown count
 // Detail shown when a flow run (gen-driver / optional-flow) is refused because a run or a save is
 // active. Posted via the flow-specific status so the trigger button restores (message-bus.js
 // restores those buttons only on their own status, never on bare session_busy).
@@ -277,6 +287,22 @@ const SNAPSHOT_SELF_PATH_SUFFIX = "checkpoints/snapshot.json";
 export function isSnapshotSelfPath(relativePath: string): boolean {
   const norm = relativePath.replace(/\\/g, "/");
   return norm === SNAPSHOT_SELF_PATH_SUFFIX || norm.endsWith("/" + SNAPSHOT_SELF_PATH_SUFFIX);
+}
+
+// Git History trust boundary. A commit hash echoed back by the webview reaches git as a REVISION
+// arg (before `--`); a value like "--output=<file>" makes `git show` WRITE that file to disk even
+// when git then errors. So a hash must be exactly hex (7-64), and a diff path must be relative,
+// NUL-free, non-traversing, non-absolute BEFORE any git call — a webview-side check is not the
+// boundary. exported for direct unit testing.
+const COMMIT_HASH_RE = /^[0-9a-f]{7,64}$/;
+export function isValidCommitHash(hash: unknown): hash is string {
+  return typeof hash === "string" && COMMIT_HASH_RE.test(hash);
+}
+export function isSafeGitPath(path: unknown): path is string {
+  if (typeof path !== "string" || path.length === 0 || path.includes("\0")) return false;
+  const norm = path.replace(/\\/g, "/"); // fold win32 separators before the checks
+  if (norm.startsWith("/") || /^[a-zA-Z]:/.test(norm)) return false; // absolute / drive-rooted
+  return !norm.split("/").some((seg) => seg === ".."); // no parent-dir traversal
 }
 
 // Session-restore replay-verify needs a REAL digest — NOT the Artifact index's display-only sha (which is ""
@@ -645,6 +671,41 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       artifactTotal: artifactIndex.length,
       diagnostics: { activity: diag.recent_activity || diag.last_command || "", errors: diag.key_errors || "", session_id: diag.session_id || "" },
     });
+  }
+
+  // Read-only Git History (§3.6.3). Assembles the timeline + uncommitted view for the panel.
+  // NOT gated on isRunning() (Save Version gates because it mutates; history is read-only, so a
+  // mid-run open shows the worktree truth of that moment). Never git-inits: no repo -> the panel
+  // gets repoPresent:false and falls back to the session-snapshot list (spec :343).
+  async function computeGitHistoryData(): Promise<void> {
+    if (!projectFolder && !sessionRoot) { webview.postMessage({ type: "git_history_status", status: GIT_HISTORY_STATUS.workspaceUnavailable }); return; }
+    const repoPresent = !!projectFolder && isGitRepo(projectFolder);
+    if (!repoPresent || !projectFolder) {
+      webview.postMessage({ type: "git_history_data", repoPresent: false, branch: "", commits: [], commitTotal: 0, uncommitted: { files: [], fileTotal: 0 }, note: "Not a git repo — showing saved session snapshots instead." });
+      return;
+    }
+    try {
+      // branch --show-current (not rev-parse) so an empty repo still reports its branch; gitLog
+      // returns [] pre-first-commit; porcelain works pre-commit too — all read-only.
+      const [branch, commits, porcelain] = await Promise.all([
+        gitCurrentBranch(projectFolder),
+        gitLog(projectFolder, GIT_HISTORY_COMMITS_MAX),
+        gitStatusPorcelain(projectFolder),
+      ]);
+      const summary = summarizeGitStatus(porcelain);
+      webview.postMessage({
+        type: "git_history_data",
+        repoPresent: true,
+        branch,
+        commits: commits.map((c) => ({ hash: c.hash, shortHash: c.shortHash, author: c.author, date: c.date, subject: c.subject })),
+        commitTotal: commits.length,
+        uncommitted: { files: summary.files, fileTotal: summary.fileTotal },
+        note: "",
+      });
+    } catch (error: any) {
+      if (!(error instanceof GitUnavailableError)) deps.log?.(`git_history: ${error?.message ?? error}`);
+      webview.postMessage({ type: "git_history_status", status: GIT_HISTORY_STATUS.gitUnavailable });
+    }
   }
 
   // Fresh-state gate shared by the two acts: re-checks isRunning() at act time and re-reads the
@@ -1757,6 +1818,39 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
     if (message.type === "save_version_open") { await computeSaveVersionData(); return; }
     if (message.type === "save_version_commit") { await doSaveVersionCommit(message.message); return; }
+    if (message.type === "git_history_open") { await computeGitHistoryData(); return; }
+    if (message.type === "git_history_commit") {
+      // Trust boundary: the hash is echoed from the webview -> validate to hex BEFORE it reaches
+      // git as a revision arg (an unvalidated flag-shaped value writes files, see isValidCommitHash).
+      if (!isValidCommitHash(message.hash)) { webview.postMessage({ type: "git_history_status", status: GIT_HISTORY_STATUS.invalidRequest }); return; }
+      if (!(projectFolder && isGitRepo(projectFolder))) { webview.postMessage({ type: "git_history_status", status: GIT_HISTORY_STATUS.gitUnavailable }); return; }
+      try {
+        const files = await gitShowNameStatus(projectFolder, message.hash);
+        webview.postMessage({ type: "git_history_commit_data", hash: message.hash, files });
+      } catch (error: any) {
+        if (!(error instanceof GitUnavailableError)) deps.log?.(`git_history_commit: ${error?.message ?? error}`);
+        webview.postMessage({ type: "git_history_status", status: GIT_HISTORY_STATUS.gitUnavailable });
+      }
+      return;
+    }
+    if (message.type === "git_history_diff") {
+      // hash absent => uncommitted diff (diff HEAD -- path); present => commit diff. Validate both
+      // the (optional) hash and the path at the host boundary; path always rides after `--` in git.
+      const hasHash = message.hash !== undefined && message.hash !== null;
+      if ((hasHash && !isValidCommitHash(message.hash)) || !isSafeGitPath(message.path)) {
+        webview.postMessage({ type: "git_history_status", status: GIT_HISTORY_STATUS.invalidRequest });
+        return;
+      }
+      if (!(projectFolder && isGitRepo(projectFolder))) { webview.postMessage({ type: "git_history_status", status: GIT_HISTORY_STATUS.gitUnavailable }); return; }
+      try {
+        const diff = await gitDiffText(projectFolder, message.path, hasHash ? message.hash : undefined);
+        webview.postMessage({ type: "git_history_diff_data", hash: hasHash ? message.hash : null, path: message.path, diff });
+      } catch (error: any) {
+        if (!(error instanceof GitUnavailableError)) deps.log?.(`git_history_diff: ${error?.message ?? error}`);
+        webview.postMessage({ type: "git_history_status", status: GIT_HISTORY_STATUS.gitUnavailable });
+      }
+      return;
+    }
     if (message.type === "save_version_snapshot") { await doSaveVersionSnapshot(); return; }
     if (message.type === "ui_prompt_response") {
       // Set the deploy port (if the response carries one) before resolving, so the
