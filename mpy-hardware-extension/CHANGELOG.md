@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+- Session restore: reopening VS Code replays your previous build — narration, answered cards (inert, with the chosen option marked), diagram tab, and activity feed — instead of a blank panel.
+- Restore hardening: restore is refused while a save is in progress; malformed or path-traversal trace ids are rejected.
+- Approval cards now highlight the chosen option on live cards too.
+- Marketplace listing: searchable display name ("Blockless — MicroPython Hardware Builder") and expanded keywords.
+
 ## 0.4.1
 
 - Point the default backend at the new hosted address (`blockless.upypi.net`); the previous default host was retired.

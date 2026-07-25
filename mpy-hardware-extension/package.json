@@ -1,8 +1,8 @@
 {
   "name": "mpy-hardware-extension",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "blockless",
-  "displayName": "Blockless",
+  "displayName": "Blockless — MicroPython Hardware Builder",
   "description": "Turn a sentence into a wired, deployable MicroPython hardware project.",
   "license": "SEE LICENSE IN LICENSE.txt",
   "icon": "media/icon.png",
@@ -13,11 +13,21 @@
     "Other"
   ],
   "keywords": [
-    "MicroPython",
-    "hardware",
+    "micropython",
+    "esp32",
+    "raspberry pi pico",
+    "pico w",
+    "esp8266",
+    "esp32-s3",
+    "esp32-c3",
+    "nodemcu",
+    "wiring",
+    "flash firmware",
+    "serial",
+    "iot",
     "embedded",
-    "IoT",
-    "ESP32"
+    "hardware",
+    "ai"
   ],
   "repository": {
     "type": "git",
