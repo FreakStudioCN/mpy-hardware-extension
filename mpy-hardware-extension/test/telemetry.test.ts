@@ -244,3 +244,43 @@ test("maps client self-observability events (error / abandoned / dropped)", () =
   assert.equal(dropped?.event_type, "telemetry_dropped");
   assert.deepEqual(dropped?.payload.dropped, { summary: 3 });
 });
+
+test("credits_charged carries the per-phase credit-usage record, not just the balance", () => {
+  // Card #87: balance-only told the DB that a credit was spent but nothing about what it was
+  // spent on, so the free-quota decision had no per-phase or complexity dimension to read.
+  // Mutation: drop the usage spread -> the payload is balance/grant/resets only and this fails.
+  const usage = { operation: "generate", phase: "upy-generate-plugin", device_count: 3, code_line_count: 210, credits_consumed: 2, remaining_quota: 46, retry_count: 1, cold_driver: true };
+  const event = sessionEventToTelemetry("trace-9", {
+    type: "session_event",
+    event: { kind: "credits", balance: 46, dailyGrant: 50, resetsAt: "2026-07-26T00:00:00Z", usage },
+  });
+
+  assert.equal(event?.event_type, "credits_charged");
+  assert.equal(event?.payload.balance, 46);
+  assert.equal(event?.payload.daily_grant, 50);
+  assert.equal(event?.payload.resets_at, "2026-07-26T00:00:00Z");
+  assert.equal(event?.payload.operation, "generate");
+  assert.equal(event?.payload.phase, "upy-generate-plugin");
+  assert.equal(event?.payload.device_count, 3);
+  assert.equal(event?.payload.code_line_count, 210);
+  assert.equal(event?.payload.credits_consumed, 2);
+  assert.equal(event?.payload.cold_driver, true);
+});
+
+test("a credits event without a usage record still maps (older recorded sessions)", () => {
+  const event = sessionEventToTelemetry("trace-9", {
+    type: "session_event",
+    event: { kind: "credits", balance: 46, dailyGrant: 50, resetsAt: "2026-07-26T00:00:00Z" },
+  });
+
+  assert.equal(event?.event_type, "credits_charged");
+  assert.deepEqual(event?.payload, { balance: 46, daily_grant: 50, resets_at: "2026-07-26T00:00:00Z" });
+});
+
+test("credit_usage is local-only — it never becomes a second cloud event", () => {
+  // Its numbers already ride on credits_charged; posting them again would double-count every
+  // turn in the aggregate the free quota is sized from. Mutation: map it -> a second event.
+  const event = sessionEventToTelemetry("trace-9", { type: "credit_usage", usage: { operation: "generate", credits_consumed: 2 } });
+
+  assert.equal(event, null);
+});

@@ -8,6 +8,8 @@ import { deriveWiring } from "../core/wiring-derive.ts";
 import { deriveDiagram } from "../core/diagram-derive.ts";
 import { deriveDriverStatus, detectDriverReadyBlock, GEN_DRIVER_DOMAIN_PHASE, type DriverReadyBlockEntry } from "../core/gen-driver-schema.ts";
 import { WIRING_PHASE, DIAGRAM_PHASE } from "../core/optional-flow-schema.ts";
+import { buildCreditUsage, deriveCreditOperation, type CreditUsageRecord } from "../core/credit-usage.ts";
+import { PHASE_ALIASES } from "../core/protocol-loop.ts";
 
 export class SessionController {
   deps: {
@@ -20,6 +22,9 @@ export class SessionController {
     // flash/upload keeps going until it finishes. killDevice kills the shim subprocess
     // now and releases the serial lock. Idempotent — a no-op when nothing is in flight.
     killDevice?: () => void;
+    // Stable per-install anonymous id (vscode.env.machineId), stamped on every credit-usage
+    // record so consumption can be grouped per install without identifying the user.
+    anonId?: string;
   };
 
   // Pending ask_user prompts: promptId -> resolve fn. The loop awaits askUser();
@@ -113,8 +118,33 @@ export class SessionController {
   // the after-phase_complete safe point. A queue (not a single slot) so a second note
   // added before the next safe point is not lost (§9 acceptance).
   private pendingSupplements: PendingSupplement[] = [];
+  // ---- credit-usage accumulators (card #87) ----
+  // Every per-phase credit record this session, in arrival order. Read by the diagnostics
+  // snapshot + session-log export; bounded so a long build can't grow it without limit.
+  private creditUsage: CreditUsageRecord[] = [];
+  private static readonly CREDIT_USAGE_CAP = 100;
+  // The balance the previous credits event reported. The delta against the next one is the
+  // best-effort per-turn consumption until the server sends its authoritative charge.
+  private lastCreditBalance: number | null = null;
+  // When the turn being metered started, so each record carries its own duration. Set at
+  // run() launch (so the FIRST turn has one too) and re-stamped after every credits event.
+  private turnStartedAt: number | null = null;
+  // Transport retries seen this session (connect_retry) plus manual retry() calls.
+  private retryCount = 0;
+  // The optional flows this session actually ran — a project needing a wiring/architecture
+  // diagram is a complexity dimension, distinct from the manifest-derived Wiring tab which
+  // is always populated.
+  private ranWiring = false;
+  private ranDiagram = false;
+  // The NEXT metered turn is a re-issue / a supplement absorption. Both outrank the phase in
+  // the record's operation, and both are one-shot — cleared by the credits event they label.
+  private retryTurnPending = false;
+  private supplementTurnPending = false;
+  // The last phase-level failure code, attached to the next record so a costly failing turn
+  // is attributable. Code tokens only (error_kind / stall reason) — never a message.
+  private lastErrorCode: string | undefined = undefined;
 
-  constructor(deps: { postMessage: (message: any) => void; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any>; killDevice?: () => void }) {
+  constructor(deps: { postMessage: (message: any) => void; loop: (input: any) => Promise<any>; recorderFactory?: (traceId: string) => SessionRecorder; writeFiles?: (files: Record<string, string>) => Promise<any>; killDevice?: () => void; anonId?: string }) {
     this.deps = deps;
   }
 
@@ -145,6 +175,7 @@ export class SessionController {
       this.optionalNextPhases = [];
       this.driverReadyBlocks = [];
       this.latestGeneratePhaseComplete = undefined;
+      this.clearCreditUsage();
     }
     this.boardId = input.boardId;
     if (input.preSelectedBoard !== undefined) this.preSelectedBoard = input.preSelectedBoard;
@@ -177,6 +208,10 @@ export class SessionController {
       return { terminal: "nothing_to_retry" };
     }
     this.record({ type: "session_retry" });
+    // The re-issued turn is its own cost line: label the next metered turn "retry" so a
+    // retried phase is never counted as a first-try one.
+    this.retryCount++;
+    this.retryTurnPending = true;
     return this.run({ intent: "", boardId: this.boardId ?? "auto", availableBoards: this.availableBoards });
   }
 
@@ -230,6 +265,9 @@ export class SessionController {
     this.lastPhaseComplete = undefined;
     this.latestFiles = {};
     this.persistedPaths = [];
+    // Start the turn clock here, not at the first credits event, or the first turn of a run
+    // would be the one turn with no duration — usually the most expensive one.
+    this.turnStartedAt = Date.now();
     this.abort = new AbortController();
     const myGen = this.generation;
     // True only while this run is still the current one. reset() bumps the
@@ -351,6 +389,30 @@ export class SessionController {
     this.stdoutTail = [];
     this.keyErrors = [];
     this.pendingSupplements = [];
+    // Same trap as the artifact accumulators above: reset() nulls boardId, so the next
+    // start()'s board-change clear never fires and a Restart would otherwise carry the
+    // previous session's credit records — and its balance baseline — into the new one.
+    this.clearCreditUsage();
+  }
+
+  // Wipe every credit-usage accumulator. Called from BOTH clear sites (board change and
+  // reset) so no per-session credit state can bleed across sessions.
+  private clearCreditUsage() {
+    this.creditUsage = [];
+    this.lastCreditBalance = null;
+    this.turnStartedAt = null;
+    this.retryCount = 0;
+    this.ranWiring = false;
+    this.ranDiagram = false;
+    this.retryTurnPending = false;
+    this.supplementTurnPending = false;
+    this.lastErrorCode = undefined;
+  }
+
+  // The per-phase credit records this session, oldest first. Feeds the diagnostics snapshot
+  // and the session-log export; read-only view of the accumulator.
+  getCreditUsage(): readonly CreditUsageRecord[] {
+    return this.creditUsage;
   }
 
   // The optional follow-on flows generate offered (empty until a generate offers them). The panel gates
@@ -567,6 +629,9 @@ export class SessionController {
       }
       this.emitSupplementApplied(route.target ?? this.currentPhase ?? completedPhase, decision, reason);
     }
+    // An absorbed note is folded into the NEXT phase's context, so the turn that pays for it
+    // is the next metered one — label that turn "supplement" rather than the phase it runs in.
+    if (absorbed.length > 0) this.supplementTurnPending = true;
     return absorbed.length > 0 ? absorbed.join("\n") : null;
   }
 
@@ -655,6 +720,11 @@ export class SessionController {
     }
     if (event.type === "phase_start") {
       this.currentPhase = event.phase;
+      // Latch the optional flows this project actually needed (a complexity dimension).
+      // Resolved through the alias table so "wiring" and "upy-wiring-plugin" both latch.
+      const canonical = PHASE_ALIASES[String(event.phase ?? "").trim()] ?? event.phase;
+      if (canonical === WIRING_PHASE) this.ranWiring = true;
+      if (canonical === DIAGRAM_PHASE) this.ranDiagram = true;
       this.pushActivity(`phase_start: ${event.phase}`);
       this.record({ type: "phase_start", phase: event.phase });
       this.deps.postMessage({ type: "phase_start", phase: event.phase });
@@ -722,7 +792,15 @@ export class SessionController {
       // dailyGrant, resetsAt }`; normalize it to the shape the quota bar and telemetry
       // both read — `{ kind: "credits", balance, ... }` — so the balance updates live
       // (and low/exhausted trip mid-build) instead of falling through to trace_event.
-      const normalized = { kind: "credits", balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt };
+      // This event is the ONE place per-turn consumption arrives, so the record is stamped
+      // HERE (at arrival, with the phase/manifest state that produced the turn) rather than
+      // rebuilt later from a flushed session — by then currentPhase has already moved on.
+      const usage = this.accumulateCreditUsage(event);
+      const normalized = { kind: "credits", balance: event.remaining, dailyGrant: event.dailyGrant, resetsAt: event.resetsAt, usage };
+      // Its own JSONL line: the per-phase record the diagnostics export and the card's
+      // "one end-to-end session log" evidence read. Local-only by design — the same numbers
+      // reach the cloud on the enriched credits_charged event below, not as a second post.
+      this.record({ type: "credit_usage", usage });
       this.record({ type: "session_event", event: normalized });
       this.deps.postMessage({ type: "session_event", event: normalized });
       return;
@@ -755,6 +833,7 @@ export class SessionController {
     if (event.type === "connect_retry") {
       // Forward only: the agent loop already recorded this via its own recorder,
       // so recording here again would double it in the telemetry.
+      this.retryCount++;
       this.deps.postMessage({ type: "connect_retry", attempt: event.attempt, maxAttempts: event.maxAttempts });
       return;
     }
@@ -763,6 +842,7 @@ export class SessionController {
       // Record + post it as itself so the cloud DB shows the stall and the webview can
       // render a stuck/retry state instead of a frozen step with no error.
       this.keyErrors.push(`stalled: ${event.phase} (${event.reason})`);
+      this.lastErrorCode = event.reason;
       this.record({ type: "phase_stalled", phase: event.phase, reason: event.reason });
       this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason });
       return;
@@ -775,6 +855,7 @@ export class SessionController {
       // reason vanished and the user saw a bare "Session ended: failed" with no cause.
       const detail = event.next_phase ? `${event.error_kind}: ${event.next_phase}` : String(event.error_kind);
       this.keyErrors.push(detail);
+      this.lastErrorCode = event.error_kind;
       this.record({ type: "phase_error", error_kind: event.error_kind, next_phase: event.next_phase });
       this.deps.postMessage({ type: "phase_error", error_kind: event.error_kind, next_phase: event.next_phase });
       return;
@@ -785,6 +866,67 @@ export class SessionController {
 
   private record(event: Record<string, any>) {
     return this.recorder?.record(event) ?? Promise.resolve();
+  }
+
+  // Build this turn's credit-usage record from the state that produced the turn, append it to
+  // the session accumulator, and advance the per-turn baselines. Every value handed to
+  // buildCreditUsage is a count, a boolean or a bare token — no prompt, file or path has a
+  // field to travel in (see credit-usage.ts).
+  private accumulateCreditUsage(event: any): CreditUsageRecord {
+    const now = Date.now();
+    const balance = typeof event.remaining === "number" ? event.remaining : undefined;
+    // Best-effort consumption until the server sends its authoritative charge. A refund makes
+    // the delta negative; the builder clamps it, so a refunded turn reads as 0 consumed,
+    // never as negative credits that would understate the aggregate.
+    const consumed = this.lastCreditBalance !== null && balance !== undefined ? this.lastCreditBalance - balance : undefined;
+    const manifest: any = this.latestManifest;
+    // Canonicalize the phase for the same reason the operation is canonicalized: "generate",
+    // "upy-generate" and "upy-generate-plugin" are one phase, and an aggregate split three
+    // ways by which token the model emitted answers no quota question.
+    const rawPhase = (this.currentPhase ?? "").trim();
+    const usage = buildCreditUsage({
+      session_id: this.traceId ?? undefined,
+      anon_id: this.deps.anonId,
+      phase: rawPhase ? (PHASE_ALIASES[rawPhase] ?? rawPhase) : undefined,
+      operation: deriveCreditOperation(this.currentPhase, PHASE_ALIASES, {
+        retry: this.retryTurnPending,
+        supplement: this.supplementTurnPending,
+      }),
+      device_count: Array.isArray(manifest?.devices) ? manifest.devices.length : undefined,
+      // Phase-2 manifest field: undefined until the Skill writes manifest.bom.
+      bom_count: Array.isArray(manifest?.bom) ? manifest.bom.length : undefined,
+      generated_file_count: this.artifactIndex().length,
+      code_line_count: this.codeLineCount(),
+      wiring: this.ranWiring,
+      diagram: this.ranDiagram,
+      cold_driver: this.driverReadyBlocks.length > 0,
+      retry_count: this.retryCount,
+      duration_ms: this.turnStartedAt === null ? undefined : now - this.turnStartedAt,
+      error_code: this.lastErrorCode,
+      // The SAME balance the quota bar renders, off the SAME event — one source of truth, so
+      // the recorded remaining quota can never disagree with what the user is looking at.
+      remaining_quota: balance,
+      credits_consumed: consumed,
+    });
+    this.creditUsage.push(usage);
+    if (this.creditUsage.length > SessionController.CREDIT_USAGE_CAP) this.creditUsage.shift();
+    // Advance the baselines AFTER building, and only on a usable balance: a malformed event
+    // must not reset the delta baseline, or the next turn's consumption would be wrong too.
+    if (balance !== undefined) this.lastCreditBalance = balance;
+    this.turnStartedAt = now;
+    this.retryTurnPending = false;
+    this.supplementTurnPending = false;
+    this.lastErrorCode = undefined;
+    return usage;
+  }
+
+  // Total lines across the code generated this run — a size dimension, never the code itself.
+  private codeLineCount(): number {
+    let lines = 0;
+    for (const code of Object.values(this.latestFiles)) {
+      if (typeof code === "string" && code.length > 0) lines += code.split("\n").length;
+    }
+    return lines;
   }
 
   // Append a short summary to the recent-activity ring, keeping only the newest N.

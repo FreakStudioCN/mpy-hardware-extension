@@ -110,10 +110,26 @@ function mapSessionEvent(event: Record<string, any>): { eventType: string; paylo
     return { eventType: "serial_output", payload: { lines: event.lines } };
   }
   if (event.type === "session_event" && event.event?.kind === "credits") {
+    // Enriched with the per-turn credit-usage record (card #87): balance-only told us a
+    // credit was spent but nothing about WHAT it was spent on, so the free-quota decision
+    // had no per-phase or per-complexity dimension to read. The usage record is already
+    // built by buildCreditUsage — counts, booleans and bare tokens only — so spreading it
+    // here cannot widen what leaves the machine.
     return {
       eventType: "credits_charged",
-      payload: { balance: event.event.balance, daily_grant: event.event.dailyGrant, resets_at: event.event.resetsAt },
+      payload: {
+        balance: event.event.balance,
+        daily_grant: event.event.dailyGrant,
+        resets_at: event.event.resetsAt,
+        ...(event.event.usage ?? {}),
+      },
     };
+  }
+  // credit_usage is deliberately local-only: it is the session JSONL's per-phase line for
+  // diagnostics export, and its numbers already reach the cloud on credits_charged above.
+  // Mapping it to null here (rather than falling through) says so at the decision point.
+  if (event.type === "credit_usage") {
+    return null;
   }
   if (event.type === "connect_retry") {
     // Auto-retry of a connect-level LLM request failure. Keeps the transport cause

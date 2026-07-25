@@ -329,6 +329,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     // (deliverables 07 §4). shim.kill() dies the blocked mpremote/script now and frees
     // the serial lock; idempotent, so a Stop with nothing in flight is a no-op.
     killDevice: () => shim.kill?.(),
+    // Stable per-install id, so credit usage can be grouped per install (how many builds a
+    // machine runs) without identifying the user. VS Code's own anonymous telemetry id.
+    anonId: vscode.env?.machineId,
     recorderFactory,
     writeFiles: async (files) => {
       if (!projectFolder) return { ok: false, error_kind: "workspace_unavailable" };
