@@ -453,14 +453,14 @@
       .composer-box.focused { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
       .composer-box.disabled { opacity: .55; }
       .composer textarea { width: 100%; border: 0; background: transparent; color: var(--fg); resize: none;
-        font-family: var(--ui); font-size: 13px; line-height: 1.5; outline: none; min-height: 38px; max-height: 120px; }
+        font-family: var(--ui); font-size: 13px; line-height: 1.5; outline: none; min-height: 38px; max-height: 120px; overflow-y: hidden; }
       .composer textarea::placeholder { color: var(--fg-dim); }
       .composer-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; row-gap: 6px; }
       /* Left tools live on the action bar (one line with Generate); wraps on a narrow panel. */
       /* Board chooser: a strip at the TOP inside .composer-box, bled to the box's inner edges
          (negative margins cancel the box padding), same background as the text box, separated only
          by a hairline divider below it. position:relative anchors the Browse popover (opens above). */
-      .composer-subbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      .composer-subbar { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
         margin: -10px -10px 8px -12px; padding: 8px 12px;
         border-bottom: 1px solid var(--vsc-border); border-radius: 13px 13px 0 0; }
       @keyframes spin { to { transform: rotate(360deg); } }
@@ -505,14 +505,11 @@
          sliding thumb provides the fill/shadow that marks the selection. */
       .mode-toggle .mode-chip.active, .board-toggle .board-seg.active, .dt-pkg-toggle .dt-pkg-seg.active { color: var(--fg-bright); }
       @media (prefers-reduced-motion: reduce) { .mode-toggle::before, .board-toggle::before, .dt-pkg-toggle::before { transition: none; } }
-      .board-selected { display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 8px; border: 1px solid var(--accent); border-radius: 6px; background: #0e7aff1a; font-size: 11px; color: var(--fg-bright); }
+      .board-selected { order: -1; display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 8px; border: 1px dashed var(--fg-muted); border-radius: 6px; background: var(--vsc-input); font-size: 11px; color: var(--fg-bright); }
       .board-selected-ic { color: var(--green); font-size: 11px; }
       .board-selected-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .board-selected-clear { border: 0; background: transparent; color: var(--fg-muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
       .board-selected-clear:hover { color: var(--fg-bright); background: #ffffff14; }
-      /* The Browse segment is a disclosure for the collapsed board picker; its caret flips when open. */
-      .board-toggle #boardMore::after { content: "\25be"; font-size: 9px; margin-left: 4px; transition: transform .15s; }
-      .board-toggle #boardMore[aria-expanded="true"]::after { transform: rotate(180deg); }
       /* Board browser: opens OVER the composer and tucks BEHIND its top edge (z-index:0 < the box's
          z-index:1), so the text box sits on top and the panel's bottom disappears behind it — one
          continuous unit. Anchored to .composer (padding: 10px top / 12px sides); bottom is pushed

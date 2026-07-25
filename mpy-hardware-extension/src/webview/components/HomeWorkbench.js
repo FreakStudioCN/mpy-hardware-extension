@@ -190,6 +190,7 @@
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
         setBoardPickerVisible(true);
+        clearBoardChoice();
         setTab("activity");
       }
       $("newSession").addEventListener("click", () => {
@@ -201,7 +202,7 @@
       const ta = $("intent");
       ta.addEventListener("focus", () => $("composerBox").classList.add("focused"));
       ta.addEventListener("blur", () => $("composerBox").classList.remove("focused"));
-      ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; });
+      ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; ta.style.overflowY = ta.scrollHeight > 120 ? "auto" : "hidden"; });
 
       // ----- credits -----
       let lastDailyGrant = 0;

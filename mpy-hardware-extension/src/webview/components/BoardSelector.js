@@ -128,6 +128,7 @@
         }).join("");
         list.querySelectorAll(".board-card").forEach((btn) => btn.addEventListener("click", () => {
           selectedOfficialBoard = officialBoards.find((b) => b.id === btn.dataset.boardId) || null;
+          setBoardBodyExpanded(false);
           renderBoardPicker();
           syncBoardChoice();
         }));
