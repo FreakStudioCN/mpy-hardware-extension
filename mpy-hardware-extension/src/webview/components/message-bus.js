@@ -27,7 +27,7 @@
         if (msg.type === "device_present") { onDevicePresent(msg.present, msg.ports, msg.needsEnvSetup); }
         if (msg.type === "logs_status") { const n = $("scDiag"); if (n) n.textContent = msg.text; }
         if (msg.type === "partners_config") { renderPartners(msg.partners); }
-        if (msg.type === "recent_sessions") { renderRecent(msg.sessions); }
+        if (msg.type === "recent_sessions") { renderRecent(msg); }
         // Session restore rehydrates the feed (the inverse of clearConversation): clear, then replay the
         // DURABLE content from the transcript — the AI's summaries + an INERT "asked -> answered" line per
         // past prompt (never a live, clickable prompt) — then a terminal line. Transient trace/spinner is

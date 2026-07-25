@@ -1699,7 +1699,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         // unreadable sessions dir — return an empty list, the panel shows its empty state
       }
-      webview.postMessage({ type: "recent_sessions", sessions });
+      // The list is scoped to the open folder (sessionRoot). Send the folder name + fallback flag so
+      // the panel can make that scope visible instead of an empty list reading as data loss.
+      const recentFolder = workspaceFolder ? (workspaceFolder.split(/[\\/]/).filter(Boolean).pop() || "") : "";
+      webview.postMessage({ type: "recent_sessions", sessions, folder: recentFolder, usingFallback });
     }
     if (message.type === "copy_code") {
       // Copy the code card's source to the clipboard via the host (reliable in the

@@ -415,30 +415,41 @@ test("partner with no resolved logo renders its name and still opens the site", 
   assert.ok(ext && /wiznet\.io/.test(ext.url), "clicking the text fallback still opens the site");
 });
 
-test("the three project-entry buttons post their OWN distinct messages (session import vs folder open vs recent)", async () => {
+test("launch entries: Open Folder and Recent Sessions are the top-level actions; folder-restore is demoted into the Recent panel", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
   const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
 
-  const importBtn = document.getElementById("importSession") as HTMLButtonElement;
+  // The mislabeled top-level "Import Existing Project" button is gone; the two axes are separated.
+  assert.equal(document.getElementById("importSession"), null, "no top-level Import Existing Project button");
   const openBtn = document.getElementById("openFolder") as HTMLButtonElement;
   const recentBtn = document.getElementById("recentSessions") as HTMLButtonElement;
-  for (const [name, btn] of [["importSession", importBtn], ["openFolder", openBtn], ["recentSessions", recentBtn]] as const) {
+  for (const [name, btn] of [["openFolder", openBtn], ["recentSessions", recentBtn]] as const) {
     assert.ok(btn && startZone.contains(btn), `${name} is a launch entry`);
     assert.ok(btn.querySelector("svg"), `${name} has a distinct icon`);
   }
 
   posted.length = 0;
-  importBtn.click();
-  // Import restores a SESSION — it must NOT post import_project / trigger the folder-open flow (the bug).
-  assert.ok(posted.some((m) => m.type === "import_session"), "Import Existing Project posts import_session");
-  assert.ok(!posted.some((m) => m.type === "import_project" || m.type === "open_project_folder"), "Import does not open a folder");
-
-  posted.length = 0;
   openBtn.click();
-  assert.ok(posted.some((m) => m.type === "open_project_folder"), "Open Folder posts open_project_folder (the folder-open action, now its own entry)");
-  assert.ok(!posted.some((m) => m.type === "import_session"), "Open Folder is not session import");
+  assert.ok(posted.some((m) => m.type === "open_project_folder"), "Open Folder posts open_project_folder (workspace selection)");
+  assert.ok(!posted.some((m) => m.type === "import_session"), "Open Folder is not session restore");
+
+  // The folder-picker restore now lives inside the Recent panel as "Restore from folder…".
+  posted.length = 0;
+  (document.getElementById("recentRestoreFolder") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "import_session"), "Restore from folder posts import_session (the demoted folder-restore)");
+  assert.ok(!posted.some((m) => m.type === "open_project_folder"), "restore-from-folder does not open a workspace");
+});
+
+test("Recent panel shows the per-folder scope line from the host (folder name / global fallback)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("recentSessions") as HTMLButtonElement).click();
+  post(dom, { type: "recent_sessions", sessions: [], folder: "my-project", usingFallback: false });
+  assert.ok(document.getElementById("recentScope")!.textContent!.includes("my-project"), "names the current folder so an empty list reads as scope");
+  post(dom, { type: "recent_sessions", sessions: [], folder: "", usingFallback: true });
+  assert.ok(document.getElementById("recentScope")!.textContent!.length > 0, "no-folder fallback still shows a scope line");
 });
 
 test("Recent Sessions opens the surface, lists host-served summaries, RESTORES the session on click", async () => {

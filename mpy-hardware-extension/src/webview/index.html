@@ -83,11 +83,12 @@
               <div class="welcome-title"><span data-i18n="welcome_t1">Where ideas</span><br><span data-i18n="welcome_t2">become hardware</span><svg class="welcome-sq" width="124" height="13" viewBox="0 0 124 13" fill="none" aria-hidden="true"><path d="M2 8 C20 2,40 11,60 6 S100 2,122 7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg></div>
               <p class="welcome-sub" data-i18n="welcome_sub">Hi, welcome to Blockless. Describe the hardware you want in a sentence — I'll pick the board, wire it up, write the code, and flash it to run.</p>
               <button class="start-workflow" id="startWorkflow" data-i18n="start_workflow" title="Start a new hardware build — jump to the prompt below">Start Workflow</button>
+              <!-- "Continue" zone: resume a past session (Recent Sessions is the primary entry; the
+                   folder-picker restore lives inside it) or open a local folder as the workspace.
+                   The old top-level "Import Existing Project" button was a session-restore mislabeled
+                   as a project import; it now lives in the Recent panel as "Restore from folder…". -->
+              <div class="launch-caption" data-i18n="continue_label">Continue</div>
               <div class="launch-actions">
-                <button class="launch-btn" id="importSession" data-i18n-title="import_session_tip" title="Restore a saved Blockless session (board, code, wiring, diagnostics)">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  <span data-i18n="import_session">Import Existing Project</span>
-                </button>
                 <button class="launch-btn" id="recentSessions" data-i18n-title="recent_sessions_tip" title="Browse your recent Blockless sessions in this project">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   <span data-i18n="recent_sessions">Recent Sessions</span>
@@ -176,8 +177,12 @@
           <span class="tool-title" data-i18n="recent_sessions">Recent Sessions</span>
         </div>
         <div class="tool-body">
+          <!-- Scope line: sessions are per opened folder, so name the folder here -- an empty list is
+               scope, not data loss. Set from the host's recent_sessions {folder, usingFallback}. -->
+          <div class="recent-scope" id="recentScope"></div>
           <div id="recent"></div>
-          <div class="empty" id="recentEmpty"><h4 data-i18n="recent_empty_h">No recent sessions</h4><p data-i18n="recent_empty_p">Past Blockless sessions in this project will appear here.</p></div>
+          <div class="empty" id="recentEmpty"><h4 data-i18n="recent_empty_h">No recent sessions</h4><p data-i18n="recent_empty_p">Sessions are saved with each folder. Open the folder you built in, or use Restore from folder below.</p></div>
+          <div class="recent-footer"><button class="dt-act recent-restore" id="recentRestoreFolder" data-i18n="recent_restore_folder">Restore from folder…</button></div>
         </div>
       </div>
 
