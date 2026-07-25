@@ -1,10 +1,12 @@
 // Host-scoped telemetry: things observed OUTSIDE a build session — uncaught extension-host
 // faults and sessions a previous host crashed mid-run. Reuses the same cloud+outbox delivery
 // as the session path (session-recorder.ts); the sender is built once in activate().
+import { hostname } from "node:os";
 import { join } from "node:path";
 
 import type { ClientMeta } from "../core/telemetry.ts";
-import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder, listRecentSessions, type SessionRecorder } from "./session-recorder.ts";
+import { CloudTelemetryRecorder, JsonlSessionRecorder, listRecentSessions, type RecentSession, type SessionRecorder } from "./session-recorder.ts";
+import { isProcessAlive } from "./telemetry-outbox.ts";
 
 export type HostTelemetryDeps = {
   apiBaseUrl: string;
@@ -52,6 +54,18 @@ export function buildFaultEvent(error: unknown, origin: string, extensionPath: s
   return { type: "extension_host_error_observed", origin };
 }
 
+// An unfinished session is only ABANDONED if nothing is still writing it. Two windows on one
+// workspace are two extension hosts sharing one sessions dir, so without this check the second
+// window reports the first window's in-progress build as a crash. The first JSONL line stamps
+// the recording host; a live owner on THIS machine means the session is alive. An owner on
+// another machine (a synced workspace) can't be probed — leave it alone rather than mislabel a
+// live build. No stamp at all is a session written before the stamp existed: sweep it, as before.
+export function isAbandonedSession(session: RecentSession): boolean {
+  if (!session.owner) return true;
+  if (session.owner.host !== hostname()) return false;
+  return !isProcessAlive(session.owner.pid);
+}
+
 // Report sessions with a session_started but no session_finished — a crashed/killed host.
 // Appending session_abandoned to that session's JSONL flips its finalPhase non-empty
 // (readSessionSummary treats it as terminal), so the NEXT activation won't re-report it —
@@ -68,15 +82,25 @@ export async function sweepAbandonedSessions(deps: HostTelemetryDeps, limit = 20
   const swept: string[] = [];
   for (const session of recent) {
     if (session.finalPhase !== "") continue; // finished/terminal — not abandoned
+    if (!isAbandonedSession(session)) continue; // a live host is still recording it
     try {
-      const recorder: SessionRecorder = new CompositeSessionRecorder([
-        new JsonlSessionRecorder({ workspaceFolder: deps.sessionRoot, traceId: session.id }),
-        cloudRecorder(deps, session.id),
-      ]);
+      // Cloud FIRST, local marker second. The marker is one-shot — it makes this session
+      // invisible to every later sweep — so it must not be spent on a report that was neither
+      // delivered nor buffered; that would lose the crash silently. A permanent rejection is a
+      // deliberate drop (the server refused it) and does not hold the marker back.
+      const cloud = cloudRecorder(deps, session.id);
       // `terminal` on the raw event is what readSessionSummary reads for the marker; the cloud
       // mapper (mapSessionEvent) re-derives "abandoned" for the DB independently.
-      await recorder.record({ type: "session_abandoned", terminal: "abandoned" });
-      await recorder.flush?.();
+      const event = { type: "session_abandoned", terminal: "abandoned" };
+      await cloud.record(event);
+      await cloud.flush();
+      if (cloud.hasUndelivered()) {
+        deps.log?.(`[telemetry] abandoned-session ${session.id} not delivered — leaving it for the next sweep`);
+        continue;
+      }
+      const local: SessionRecorder = new JsonlSessionRecorder({ workspaceFolder: deps.sessionRoot, traceId: session.id });
+      await local.record(event);
+      await local.flush?.();
       swept.push(session.id);
     } catch (error) {
       // One unwritable/undeliverable session must neither abort the sweep of the others nor
@@ -88,9 +112,13 @@ export async function sweepAbandonedSessions(deps: HostTelemetryDeps, limit = 20
   return swept;
 }
 
-// Observe process-wide faults WITHOUT changing Node's crash behavior. uncaughtExceptionMonitor
-// (not uncaughtException) fires but does not suppress the default crash; unhandledRejection is
-// only a warning by default. We never exit, swallow, or throw from here. Returns a disposer.
+// Observe process-wide faults WITHOUT changing the host's crash behavior. uncaughtExceptionMonitor
+// (not uncaughtException) fires but never suppresses the default crash. unhandledRejection has no
+// monitor variant, and on Node >= 15 the default IS fatal — a listener suppresses it. That is safe
+// here and only here: the VS Code extension host installs its own uncaughtException and
+// unhandledRejection listeners during startup, before any extension activates, so the default is
+// already replaced by the time we add ours; we are an additional observer, not the one deciding
+// the process's fate. We never exit, swallow, or throw from here. Returns a disposer.
 export function installHostErrorHandlers(deps: HostTelemetryDeps): () => void {
   let seq = 0;
   const emit = (error: unknown, origin: string) => {

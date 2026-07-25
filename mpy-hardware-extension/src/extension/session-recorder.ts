@@ -1,8 +1,10 @@
-import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { ClientMeta } from "../core/telemetry.ts";
 import { sessionEventToTelemetry } from "../core/telemetry.ts";
+import { TelemetryOutbox, formatError, isTransient } from "./telemetry-outbox.ts";
 
 export type SessionRecorder = {
   record(event: Record<string, any>): Promise<void>;
@@ -42,11 +44,19 @@ export class JsonlSessionRecorder implements SessionRecorder {
   async record(event: Record<string, any>) {
     this.pending = this.pending.then(async () => {
       await mkdir(dirname(this.filePath), { recursive: true });
+      const seq = ++this.seq;
+      // The first line this recorder writes also claims the session for this extension host.
+      // The abandoned-session sweep needs to know WHICH process is recording, or a second
+      // window on the same workspace reports the first window's live build as a crash. File
+      // ownership, not per-event data — hence only the first line, and local-only (the
+      // telemetry mapper whitelists payload fields, so pid/host are never uploaded).
+      const owner = seq === 1 ? { pid: process.pid, host: hostname() } : {};
       const line = JSON.stringify({
         ...event,
-        seq: ++this.seq,
+        seq,
         ts: new Date().toISOString(),
         traceId: this.traceId,
+        ...owner,
       });
       await appendFile(this.filePath, `${line}\n`, "utf-8");
     });
@@ -66,7 +76,10 @@ export class CloudTelemetryRecorder implements SessionRecorder {
   private readonly getAuthToken?: () => Promise<string | undefined>;
   private readonly log?: (message: string) => void;
   private readonly clientMeta?: ClientMeta;
-  private readonly outboxPath?: string;
+  private readonly outbox?: TelemetryOutbox;
+  // Set when an event was neither delivered nor durably buffered — it is gone. Read by the
+  // abandoned-session sweep, which must not burn its one-shot local marker on a lost report.
+  private undelivered = false;
   // Per-type histogram of events that mapSessionEvent dropped (returned null for). Many
   // types are local-only by design; a NEW controller type someone forgot to map shows up
   // here as an unexpected key. Emitted as one telemetry_dropped on flush.
@@ -79,7 +92,7 @@ export class CloudTelemetryRecorder implements SessionRecorder {
     this.getAuthToken = input.getAuthToken;
     this.log = input.log;
     this.clientMeta = input.clientMeta;
-    this.outboxPath = input.outboxPath;
+    this.outbox = input.outboxPath ? new TelemetryOutbox({ path: input.outboxPath, log: input.log }) : undefined;
     // Replay whatever a prior session failed to deliver, oldest-first — the primary retry
     // trigger (next session start), no timer. On the pending chain so it can't interleave
     // with this session's posts. Best-effort: a drain failure must not break recording.
@@ -102,6 +115,12 @@ export class CloudTelemetryRecorder implements SessionRecorder {
   // Snapshot of dropped-event counts, for local inspection / tests.
   getDroppedCounts(): Record<string, number> {
     return { ...this.dropped };
+  }
+
+  // True once an event was lost outright (transient failure, and the outbox could not take it).
+  // A caller whose retry depends on NOT writing a local "already reported" marker checks this.
+  hasUndelivered(): boolean {
+    return this.undelivered;
   }
 
   // Enqueue a single telemetry_dropped histogram (if any), then await the in-flight chain
@@ -132,13 +151,15 @@ export class CloudTelemetryRecorder implements SessionRecorder {
   private async onPostFailure(event: Record<string, any>, error: unknown) {
     // Only transient failures (network / 5xx / 429 / 408) are worth retaining; a permanent
     // 4xx (unknown event_type, too-large) would loop the outbox forever, so log + drop.
-    if (this.outboxPath && isTransient(error)) {
+    if (isTransient(error)) {
+      let buffered = false;
       try {
-        await this.appendToOutbox(event);
-        return;
+        buffered = this.outbox ? await this.outbox.append(event) : false;
       } catch (writeError) {
         error = writeError;
       }
+      if (buffered) return;
+      this.undelivered = true; // retryable, yet nothing durable holds it — this event is lost
     }
     this.log?.(`[telemetry] ${formatError(error)}`);
   }
@@ -167,72 +188,8 @@ export class CloudTelemetryRecorder implements SessionRecorder {
     }
   }
 
-  private async appendToOutbox(event: Record<string, any>) {
-    const path = this.outboxPath as string;
-    // Global lock: the outbox is shared across recorder instances, so an append must not
-    // interleave with another instance's drain (which could rm the file mid-append).
-    await withOutboxLock(path, async () => {
-      await mkdir(dirname(path), { recursive: true });
-      await appendFile(path, `${JSON.stringify(event)}\n`, "utf-8");
-    });
-  }
-
-  // Re-POST buffered failures oldest-first. Stops at the first still-transient failure
-  // (network likely still down) and keeps the remainder; drops a permanent-4xx or corrupt
-  // line and continues. Rewrites the file atomically (temp + rename), so a crash mid-drain
-  // can at worst re-send one already-delivered event — never lose or duplicate the queue.
-  // Serialized per outbox path (withOutboxLock) so two recorder instances can't drain the
-  // same file at once — which would double-deliver, or let one's rm delete the other's append.
-  async drainOutbox() {
-    if (!this.outboxPath) return;
-    const path = this.outboxPath;
-    await withOutboxLock(path, () => this.drainOutboxLocked(path));
-  }
-
-  private async drainOutboxLocked(path: string) {
-    let content: string;
-    try {
-      content = await readFile(path, "utf-8");
-    } catch (error: any) {
-      if (error?.code === "ENOENT") return; // nothing buffered
-      throw error;
-    }
-    const lines = content.split("\n").filter((line) => line.trim() !== "");
-    if (lines.length === 0) {
-      await rm(path, { force: true });
-      return;
-    }
-    let keepFrom = lines.length;
-    for (let i = 0; i < lines.length; i++) {
-      let event: Record<string, any>;
-      try {
-        event = JSON.parse(lines[i]);
-      } catch {
-        continue; // drop a corrupt line
-      }
-      try {
-        await this.post(event);
-      } catch (error) {
-        if (isTransient(error)) {
-          keepFrom = i; // network still down — keep this and everything after
-          break;
-        }
-        this.log?.(`[telemetry] dropping un-postable buffered event: ${formatError(error)}`);
-      }
-    }
-    const remainder = lines.slice(keepFrom);
-    if (remainder.length === 0) {
-      await rm(path, { force: true });
-    } else if (remainder.length !== lines.length) {
-      // Per-process temp name: withOutboxLock serializes drains WITHIN a process, but two
-      // extension-host processes (two windows on one workspace) share this file. A per-pid tmp
-      // keeps their concurrent rewrites from corrupting each other's temp; the final rename
-      // stays last-writer-wins — at worst a re-delivered event, which the simple-outbox design
-      // already accepts, never a lost or corrupt queue.
-      const tmp = `${path}.${process.pid}.tmp`;
-      await writeFile(tmp, `${remainder.join("\n")}\n`, "utf-8");
-      await rename(tmp, path);
-    }
+  private async drainOutbox() {
+    await this.outbox?.drain((event) => this.post(event));
   }
 }
 
@@ -255,35 +212,6 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-// Serialize every read/append/rewrite of a given outbox file through one chain. The outbox
-// is SHARED across recorder instances (session + host-error + abandoned-sweep), but each
-// instance only serializes its own `pending`; without a per-path lock two instances can
-// double-deliver a buffered event, or one instance's rm can delete an event another just
-// appended. Keyed by path, so unrelated outboxes never block each other.
-// Scope note: this Map is process-local, so it does NOT serialize two extension-host processes
-// (two windows on one workspace) sharing the file. That residual cross-process race can
-// re-deliver a buffered event — an accepted duplicate under the simple-outbox design (no
-// server dedup key); the per-pid temp name in drainOutboxLocked keeps it from corrupting.
-const outboxLocks = new Map<string, Promise<unknown>>();
-function withOutboxLock<T>(path: string, op: () => Promise<T>): Promise<T> {
-  const prev = outboxLocks.get(path) ?? Promise.resolve();
-  const result = prev.then(op, op); // run op once prev settles, either way
-  outboxLocks.set(path, result.then(() => undefined, () => undefined));
-  return result;
-}
-
-// A failure worth retrying: a network error (no response, so no `status`) or an overload/
-// server fault (5xx / 429 / 408). Any other 4xx is a permanent contract rejection.
-function isTransient(error: any): boolean {
-  const status = error?.status;
-  if (status === undefined || status === null) return true;
-  return status >= 500 || status === 429 || status === 408;
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 // A read-only summary of a past session, for the "View Recent Sessions" launch entry.
 export type RecentSession = {
   id: string;
@@ -291,6 +219,10 @@ export type RecentSession = {
   intent: string;
   finalPhase: string; // session_finished terminal/state, or "" if still open/crashed
   path: string; // absolute path to the session.jsonl
+  // The extension host that recorded it, stamped on the first line. Absent for a session
+  // written before the stamp existed. Lets the abandoned-session sweep tell "the host died
+  // mid-build" from "another window is building right now".
+  owner?: { pid: number; host: string };
 };
 
 function parseLine(line: string): Record<string, any> | null {
@@ -320,12 +252,16 @@ async function readSessionSummary(sessionsRoot: string, id: string): Promise<Rec
   // session_abandoned counts as terminal too: the abandoned-session sweep appends one to
   // flip finalPhase non-empty, so a crashed session is reported once and not re-swept.
   const finished = [...events].reverse().find((e) => e.type === "session_finished" || e.type === "session_abandoned");
+  // The FIRST stamped line is the recording host; later lines can carry another host's stamp
+  // (the sweep appends its marker through a recorder of its own).
+  const stamped = events.find((e) => typeof e.pid === "number");
   return {
     id,
     date: events[0].ts ?? "",
     intent: started?.intent ?? "",
     finalPhase: finished?.terminal ?? finished?.state ?? "",
     path,
+    owner: stamped ? { pid: stamped.pid, host: String(stamped.host ?? "") } : undefined,
   };
 }
 
