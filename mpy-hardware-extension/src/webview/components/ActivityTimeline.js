@@ -47,14 +47,12 @@
       function prefillImportedRecipe(payload) {
         const prompt = String((payload && (payload.prompt || payload.starter_prompt || payload.intent)) || "").trim();
         if (!prompt) return;
-        const input = $("intent");
-        input.value = prompt;
-        input.style.height = "auto";
-        input.style.height = Math.min(input.scrollHeight, 120) + "px";
+        $("intent").value = prompt;
+        autosizeIntent();
         setTab("activity");
         clearPending();
         addActivity({ text: "Recipe imported from website. Review the prompt, then Generate." });
-        input.focus();
+        $("intent").focus();
       }
       // Map a trace event to a working-spinner label: only a recognized tool name
       // yields a curated, localized phase string; anything else (including raw

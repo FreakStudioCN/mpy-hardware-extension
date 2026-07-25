@@ -657,17 +657,39 @@ test("board picker collapses during a generated session and returns on Restart",
   const { document } = dom.window;
 
   const picker = document.getElementById("boardPicker")!;
+  const body = document.getElementById("boardPickerBody") as HTMLElement;
+  const modeToggle = document.getElementById("modeToggle")!;
   assert.equal(picker.classList.contains("hidden"), false, "start controls are visible before a session starts");
+
+  // Open the Browse popover before generating: it's a sibling of the composer, not a descendant
+  // of #boardPicker, so hiding the subbar must not be the only thing that closes it.
+  (document.getElementById("boardMore") as HTMLButtonElement).click();
+  assert.equal(body.hidden, false, "browse popover open before Generate");
 
   (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
   (document.getElementById("generate") as HTMLButtonElement).click();
   assert.equal(picker.classList.contains("hidden"), true, "board picker should not occupy the active session UI");
+  assert.equal(body.hidden, true, "an open browse popover collapses when the run starts");
+  assert.equal(modeToggle.classList.contains("hidden"), true, "the Beginner/Custom toggle hides during a run");
 
   post(dom, { type: "session_done", terminal: "generated" });
   assert.equal(picker.classList.contains("hidden"), true, "finished sessions keep the focused composer until Restart");
 
   (document.getElementById("newSession") as HTMLButtonElement).click();
   assert.equal(picker.classList.contains("hidden"), false, "Restart restores the start controls for the next project");
+  assert.equal(modeToggle.classList.contains("hidden"), false, "Restart restores the Beginner/Custom toggle");
+});
+test("an imported recipe prefills the intent box and auto-sizes it", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "recipe_imported", payload: { prompt: "blink an led every second" } });
+  const intent = document.getElementById("intent") as HTMLTextAreaElement;
+  assert.equal(intent.value, "blink an led every second", "the recipe prompt fills the intent box");
+  // autosizeIntent ran: it sets height to min(scrollHeight, cap)px. jsdom reports scrollHeight 0,
+  // so the observable effect is "0px" — an absent call leaves height "" (mutation-sensitive).
+  assert.equal(intent.style.height, "0px", "the intent box is auto-sized after import");
 });
 test("picking a board collapses the browse panel and Restart clears the selection", async () => {
   const posted: any[] = [];

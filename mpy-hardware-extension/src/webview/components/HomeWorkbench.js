@@ -199,10 +199,20 @@
         clearConversation();
         $("intent").value = ""; $("intent").style.height = "auto";
       });
+      // Grow the intent box to fit its content up to a cap, and only show a scrollbar past the cap
+      // (the default is overflow:hidden so a wrapping placeholder never triggers one). Shared by the
+      // input handler and prefillImportedRecipe so both writers size the box the same way.
+      const INTENT_MAX_HEIGHT = 120;
+      function autosizeIntent() {
+        const el = $("intent");
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, INTENT_MAX_HEIGHT) + "px";
+        el.style.overflowY = el.scrollHeight > INTENT_MAX_HEIGHT ? "auto" : "hidden";
+      }
       const ta = $("intent");
       ta.addEventListener("focus", () => $("composerBox").classList.add("focused"));
       ta.addEventListener("blur", () => $("composerBox").classList.remove("focused"));
-      ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; ta.style.overflowY = ta.scrollHeight > 120 ? "auto" : "hidden"; });
+      ta.addEventListener("input", autosizeIntent);
 
       // ----- credits -----
       let lastDailyGrant = 0;

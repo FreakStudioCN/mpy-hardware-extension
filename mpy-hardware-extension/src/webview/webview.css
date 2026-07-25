@@ -459,7 +459,8 @@
       /* Left tools live on the action bar (one line with Generate); wraps on a narrow panel. */
       /* Board chooser: a strip at the TOP inside .composer-box, bled to the box's inner edges
          (negative margins cancel the box padding), same background as the text box, separated only
-         by a hairline divider below it. position:relative anchors the Browse popover (opens above). */
+         by a hairline divider below it. The Browse popover is anchored to .composer (a sibling), not
+         this strip. */
       .composer-subbar { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
         margin: -10px -10px 8px -12px; padding: 8px 12px;
         border-bottom: 1px solid var(--vsc-border); border-radius: 13px 13px 0 0; }
@@ -478,7 +479,7 @@
       /* minmax(0,1fr): clamp the single grid column to the panel width so a wide
          child (nowrap cache date, badge row, filter selects) can't force the whole
          composer — and the body — wider than a narrow VS Code side panel. */
-      .mode-row, .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
       .mode-chip, .board-chip, .board-page-btn, .board-refresh { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
       .mode-chip.active, .board-chip.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
       /* Segmented toggle (Claude-style filled track) — ONE definition shared by every connected
