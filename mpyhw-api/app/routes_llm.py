@@ -145,7 +145,20 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
     if os.getenv("MPYHW_LLM_STUB") == "1":
         return StreamingResponse(
             _release_after(
-                _stub_sse(lambda _tokens: {"remaining": state["balance"], "daily_grant": state["daily_grant"], "resets_at": state["resets_at"]}),
+                # The stub makes no upstream call, so the turn genuinely costs nothing and
+                # burns no tokens. Report that explicitly (rather than omitting the fields)
+                # so a MPYHW_LLM_STUB mock run exercises the SAME client recording path a
+                # live run does — that is what makes it usable as a workflow sample.
+                _stub_sse(lambda _tokens: {
+                    "remaining": state["balance"],
+                    "daily_grant": state["daily_grant"],
+                    "resets_at": state["resets_at"],
+                    "charged": 0,
+                    "model": "stub",
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cache_hit_tokens": 0,
+                }),
                 session_id,
             ),
             media_type="text/event-stream",
@@ -222,17 +235,32 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
                 remaining = credit_store.debit(user, charge - 1)
             else:
                 remaining = credit_store.debit(user, 0)
+            model = os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro")
+            tokens = _usage_fields(usage)
             analytics.record_llm_turn(
                 trace_id=body.get("trace_id"),
                 user_id=str(user["id"]),
                 kind="chat",
-                model=os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
+                model=model,
                 started_at=started_at,
                 total_tokens=total_tokens,
                 credits_charged=charge,
                 status="success",
+                input_tokens=tokens.get("input_tokens"),
+                output_tokens=tokens.get("output_tokens"),
             )
-            return {"remaining": remaining, "daily_grant": state["daily_grant"], "resets_at": state["resets_at"]}
+            # `charged` is the AUTHORITATIVE deduction for this turn. The client can only
+            # infer consumption from a balance delta, which misses the first turn of a
+            # session (no baseline) and any turn where a refund moves the balance the other
+            # way. Additive: an old client ignores the extra keys.
+            return {
+                "remaining": remaining,
+                "daily_grant": state["daily_grant"],
+                "resets_at": state["resets_at"],
+                "charged": charge,
+                "model": model,
+                **tokens,
+            }
 
         try:
             upstream = await to_thread(provider.open_stream, body)
@@ -283,6 +311,27 @@ def _daily_user_cap() -> int:
         return max(0, int(os.getenv("MPYHW_DAILY_USER_CAP", "0") or "0"))
     except ValueError:
         return 0
+
+
+def _usage_fields(usage: dict[str, Any]) -> dict[str, Any]:
+    """The turn's token breakdown, for the credits SSE event and the llm_turns row.
+
+    These four numbers exist only here (the client never sees the upstream usage chunk),
+    so without forwarding them the extension can record that a credit was spent but not
+    what it bought. A key whose value is absent or non-numeric is OMITTED rather than sent
+    as 0: an older model with no cache breakdown must read as "unknown" downstream, not as
+    a real zero that would skew the per-turn cost aggregate.
+    """
+    candidates = {
+        "input_tokens": usage.get("prompt_tokens"),
+        "output_tokens": usage.get("completion_tokens"),
+        "cache_hit_tokens": usage.get("prompt_cache_hit_tokens"),
+    }
+    return {
+        key: int(value)
+        for key, value in candidates.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
 
 
 def _billable_tokens(usage: dict[str, Any]) -> int:

@@ -174,6 +174,11 @@ def record_llm_turn(
     credits_charged: int | None,
     status: str,
     error_kind: str | None = None,
+    # The llm_turns columns existed from the start but were hard-coded to NULL, so the
+    # input/output split of a turn was never queryable — only the total. Optional so the
+    # error path (which has no usage chunk) keeps writing NULL, which is the truth there.
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
 ) -> None:
     ended_at = datetime.now(timezone.utc)
     duration_ms = int((ended_at - started_at).total_seconds() * 1000)
@@ -194,8 +199,8 @@ def record_llm_turn(
                 started_at.isoformat(),
                 ended_at.isoformat(),
                 duration_ms,
-                None,
-                None,
+                input_tokens,
+                output_tokens,
                 total_tokens,
                 credits_charged,
                 status,
