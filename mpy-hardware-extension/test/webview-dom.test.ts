@@ -99,8 +99,8 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   assert.ok(search, "board search input is present on the start screen");
   search.value = "esp32";
   search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  assert.match(document.getElementById("boardPicker")!.textContent!, /ESP32-S3/);
-  assert.doesNotMatch(document.getElementById("boardPicker")!.textContent!, /Pyboard D-series/);
+  assert.match(document.getElementById("boardList")!.textContent!, /ESP32-S3/);
+  assert.doesNotMatch(document.getElementById("boardList")!.textContent!, /Pyboard D-series/);
 
   (document.getElementById("modeCustom") as HTMLButtonElement).click();
   assert.equal(document.getElementById("modeBeginner")!.getAttribute("aria-pressed"), "false");
