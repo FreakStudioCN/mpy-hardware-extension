@@ -1882,6 +1882,55 @@ test("request_credits_email blocks and prompts sign-in with no GitHub session; o
   assert.ok(!posted.some((m) => m.type === "support_feedback_opened" && m.entry === "request_credits"), "no support action recorded when blocked");
 });
 
+test("request_credits_email still opens (blank amounts) when the credits fetch fails (#97)", async () => {
+  const posted: any[] = [];
+  const opened: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async (u: any) => { opened.push(u.toString()); return true; } },
+    authentication: { getSession: async () => ({ accessToken: "gho-token", account: { label: "octocat" } }) },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123", login: "octocat" });
+    // A non-ok credits response with a JSON error body: without the cr.ok guard, cr.json() parses it
+    // and the handler posts balance: undefined -> the quota bar renders the literal "undefined".
+    if (url === "http://api.test/v1/credits") return { ok: false, status: 401, json: async () => ({ error: "expired" }) };
+    return jsonResponse({});
+  }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+  await handler?.({ type: "request_credits_email" });
+  assert.equal(opened.length, 1, "a credits outage must not block reaching support — the mail still opens");
+  const body = decodeURIComponent(opened[0].slice(opened[0].indexOf("body=") + "body=".length));
+  assert.match(body, /Credit balance: \n/, "balance line is blank on a non-ok response, not 'undefined'");
+  assert.match(body, /GitHub login: octocat/, "identifiers the team needs are still present");
+  assert.ok(!posted.some((m) => m.type === "session_event" && m.event?.kind === "credits"), "no bad credits event posted on a non-ok response");
+});
+
+test("refreshCredits (via request_boards) ignores a non-ok /v1/credits — no 'undefined' credits event (#97 review)", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    authentication: { getSession: async () => ({ accessToken: "gho-token" }) },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123" });
+    if (url === "http://api.test/v1/credits") return { ok: false, status: 500, json: async () => ({ error: "boom" }) };
+    return jsonResponse({ builtin: [], community: [], boards: [], status: "ok" });
+  }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+
+  await handler?.({ type: "request_boards" });
+  assert.ok(!posted.some((m) => m.type === "session_event" && m.event?.kind === "credits"), "non-ok credits leaves the bar as-is instead of posting balance: undefined");
+});
+
 test("request_diagnostics records support_diagnostics_exported with plugin vs session scope", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;

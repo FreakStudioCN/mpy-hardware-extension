@@ -753,6 +753,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const jwt = await auth.getToken(false);
       if (!jwt) return;
       const cr = await fetchImpl(`${apiBaseUrl}/v1/credits`, { headers: { authorization: `Bearer ${jwt}` } });
+      if (!cr.ok) return; // a non-ok body would post balance: undefined and render "undefined" in the bar
       const c: any = await cr.json();
       webview.postMessage({ type: "session_event", event: { kind: "credits", balance: c.balance, dailyGrant: c.daily_grant, resetsAt: c.resets_at } });
     } catch {
@@ -1177,6 +1178,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       let balance = "", dailyGrant = "", resetsAt = "";
       try {
         const cr = await fetchImpl(`${apiBaseUrl}/v1/credits`, { headers: { authorization: `Bearer ${jwt}` } });
+        // A non-ok (e.g. 401 on an expired jwt) still has a JSON error body; parsing it would post
+        // balance: undefined and render the literal "undefined" in the quota bar. Bail to blanks.
+        if (!cr.ok) throw new Error(`credits ${cr.status}`);
         const c: any = await cr.json();
         balance = String(c.balance ?? "");
         dailyGrant = String(c.daily_grant ?? "");

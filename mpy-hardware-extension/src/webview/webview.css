@@ -67,9 +67,9 @@
       /* quota */
       .quota { margin-top: 10px; }
       .quota-top { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--fg-muted); }
-      .quota-top .num { font-family: var(--mono); color: var(--fg); margin-left: auto; }
+      .quota-top .num { font-family: var(--mono); color: var(--fg); }
       .quota-top .num b { color: var(--fg-bright); font-weight: 600; }
-      .request-credits-btn { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted);
+      .request-credits-btn { margin-left: auto; border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted);
         border-radius: 6px; padding: 2px 8px; font-size: 10.5px; cursor: pointer; font-family: var(--ui); white-space: nowrap; }
       .request-credits-btn:hover { color: var(--fg-bright); border-color: var(--accent); background: #ffffff0a; }
       .quota-bar { height: 4px; border-radius: 3px; background: #ffffff14; margin-top: 5px; overflow: hidden; }

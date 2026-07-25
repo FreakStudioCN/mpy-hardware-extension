@@ -39,7 +39,7 @@ export function createGithubAuth(deps: Deps) {
     }
     // Baseline login from VS Code's own account label; the exchange below upgrades it to the
     // backend's canonical `login` when present. Used only to prefill the credit-request email (#97).
-    if (session.account?.label) cachedLogin = session.account.label;
+    if (session.account?.label) cachedLogin = String(session.account.label);
     try {
       const response = await deps.fetchImpl(`${deps.apiBaseUrl}/v1/auth/github`, {
         method: "POST",
@@ -57,7 +57,7 @@ export function createGithubAuth(deps: Deps) {
         return undefined;
       }
       cachedJwt = body.token;
-      if (body.login) cachedLogin = body.login;
+      if (body.login) cachedLogin = String(body.login); // a non-string login would later throw in the mailto builder
       record(undefined, `GitHub sign-in completed${body.login ? ` for ${body.login}` : ""}`);
       return cachedJwt;
     } catch (error) {
