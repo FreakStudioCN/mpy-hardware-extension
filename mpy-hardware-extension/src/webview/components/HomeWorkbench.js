@@ -40,7 +40,7 @@
       // The global-tools bar stays visible when a tool opens (switch tools without
       // going Back); only the workflow surfaces below it hide.
       const GLOBAL_TOOL_HIDES = ["#tabs", ".tabwrap", ".composer"];
-      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent", "toolDeviceTools", "toolSaveVersion"];
+      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent", "toolDeviceTools", "toolSaveVersion", "toolGitHistory"];
       // Mark the bar circle whose data-tool matches the open surface as selected (a
       // tool opened from the home area, e.g. toolRecent, matches no circle — none active).
       function setActiveGtool(id) {
@@ -75,6 +75,9 @@
       // feed. Open the surface and ask the host for the save summary.
       $("saveVersionOpen").addEventListener("click", () => { openGlobalTool("toolSaveVersion"); svOnOpen(); });
       $("saveVersionBack").addEventListener("click", closeGlobalTool);
+      // Git History (#94): its own read-only surface — open it and ask the host for the timeline.
+      $("gitHistoryOpen").addEventListener("click", () => { openGlobalTool("toolGitHistory"); ghOnOpen(); });
+      $("gitHistoryBack").addEventListener("click", closeGlobalTool);
       // Global-tools overflow: any number of circle tools fit — the row scrolls and the
       // chevrons show only when it clips (recomputed on scroll/resize).
       const gtoolsTrack = $("globalTools");
@@ -98,8 +101,7 @@
       updateGtoolArrows();
       // Home hero action: begin a build. The composer is always mounted, so "start"
       // just reveals the board picker and focuses the prompt (no session yet).
-      // ponytail: Git History (spec 3.8) is still a stubbed global tool pending #94.
-      // Save Version (#95) is wired above (saveVersionOpen -> its own toolSaveVersion surface).
+      // Save Version (#95) and Git History (#94) are wired above as their own global-tool surfaces.
       $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); setBoardBodyExpanded(true); $("intent").focus(); });
       // Three distinct project-entry actions (a session is Blockless runtime state; a folder is just
       // local source files): Import Existing Project restores a saved SESSION; Open Folder opens a local

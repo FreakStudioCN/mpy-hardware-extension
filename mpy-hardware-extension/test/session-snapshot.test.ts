@@ -7,6 +7,7 @@ import {
   buildSessionSnapshot,
   writeSessionSnapshot,
   readSessionSnapshot,
+  listSessionSnapshots,
   snapshotPath,
   SNAPSHOT_SCHEMA,
   SNAPSHOT_VERSION,
@@ -145,6 +146,41 @@ test("readSessionSnapshot returns null when there is no snapshot (ENOENT), throw
     writeFileSync(snapshotPath(dir), JSON.stringify({ schema: SNAPSHOT_SCHEMA, version: SNAPSHOT_VERSION + 1 }), "utf-8");
     await assert.rejects(readSessionSnapshot(dir), /version/, "an unsupported version is rejected");
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("listSessionSnapshots: indexes commits by hash, newest session wins a shared hash, corrupt/no-git skipped", async () => {
+  const root = mkdtempSync(join(tmpdir(), "mpyhw-assoc-"));
+  const sdir = (id: string) => join(root, ".mpyhw", "sessions", id);
+  try {
+    // A and B both record commit "abc123"; B has the newer (higher) id, so it must win the hash.
+    await writeSessionSnapshot(sdir("session-aaa-1"), buildSessionSnapshot({ ...fullInput(), traceId: "session-aaa-1", currentPhase: "generate", git: { commit_hash: "abc123", branch: "main" } }));
+    await writeSessionSnapshot(sdir("session-bbb-1"), buildSessionSnapshot({ ...fullInput(), traceId: "session-bbb-1", currentPhase: "deploy", git: { commit_hash: "abc123", branch: "main" }, artifacts: [] }));
+    // C has no git linkage -> skipped; D is corrupt JSON -> skipped (never a throw).
+    await writeSessionSnapshot(sdir("session-ccc-1"), buildSessionSnapshot({ ...fullInput(), traceId: "session-ccc-1", git: null }));
+    mkdirSync(join(sdir("session-ddd-1"), "checkpoints"), { recursive: true });
+    writeFileSync(snapshotPath(sdir("session-ddd-1")), "{ corrupt", "utf-8");
+    const map = await listSessionSnapshots(root, 50);
+    assert.equal(map.size, 1, "only the git-linked hash is indexed (no-git + corrupt skipped, no throw)");
+    const assoc = map.get("abc123");
+    assert.equal(assoc?.phase, "deploy", "the newest session (bbb > aaa) wins the shared hash");
+    assert.equal(assoc?.session_id, "session-bbb-1");
+    assert.equal(assoc?.artifact_total, 0, "association projected from the winning snapshot");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("listSessionSnapshots: a matching snapshot carries phase + artifacts; missing sessions dir is empty (ENOENT), not a throw", async () => {
+  const root = mkdtempSync(join(tmpdir(), "mpyhw-assoc-"));
+  try {
+    assert.equal((await listSessionSnapshots(root, 50)).size, 0, "no sessions dir -> empty map");
+    await writeSessionSnapshot(join(root, ".mpyhw", "sessions", "session-zzz-1"), buildSessionSnapshot({
+      ...fullInput(), traceId: "session-zzz-1", currentPhase: "generate", git: { commit_hash: "deadbeef", branch: "main" },
+      artifacts: [{ relative_path: "main.py", kind: "code", role: "firmware", phase: "generate", size: 10, sha256: "aa", created_at: "2026-07-24T00:00:00Z" }],
+    }));
+    const assoc = (await listSessionSnapshots(root, 50)).get("deadbeef");
+    assert.equal(assoc?.phase, "generate");
+    assert.equal(assoc?.artifact_total, 1);
+    assert.deepEqual(assoc?.artifacts, [{ relative_path: "main.py", phase: "generate" }], "artifacts projected to relative_path + phase only");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("writeSessionSnapshot: a failed rename unlinks the .tmp and rethrows (no orphaned tmp, original error surfaced)", async () => {

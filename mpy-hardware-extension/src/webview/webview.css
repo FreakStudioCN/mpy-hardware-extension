@@ -339,6 +339,30 @@
       .sv-art-path { font-family: var(--vscode-editor-font-family, monospace); overflow-wrap: anywhere; }
       .sv-art-phase { flex: none; margin-left: auto; font-size: 11px; opacity: .6; }
       .sv-art-more { font-size: 11px; opacity: .7; margin-top: 2px; }
+
+      /* Git History (#94): read-only timeline + per-file diff renderer. Badge colors reuse the
+         shared .ask-file-badge-* classes; only the layout + diff-line coloring is new here. */
+      .gh-summary { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); margin: 2px 0 8px; }
+      .gh-section { margin-bottom: 12px; }
+      .gh-sec-title { font-size: 11px; font-weight: 650; color: var(--fg-bright); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+      .gh-clickable { cursor: pointer; }
+      .gh-file.gh-clickable:hover { background: var(--vsc-hover); }
+      .gh-commit { border: 1px solid var(--vsc-border); border-radius: 5px; margin-bottom: 4px; overflow: hidden; }
+      .gh-commit-head { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
+      .gh-commit-head:hover { background: var(--vsc-hover); }
+      .gh-commit-subject { font-size: 12px; color: var(--fg); }
+      .gh-commit-meta { font-family: var(--mono); font-size: 10.5px; color: var(--fg-muted); }
+      .gh-commit-assoc { font-size: 10.5px; color: var(--accent); }
+      .gh-commit-files { padding: 2px 8px 6px; border-top: 1px solid var(--vsc-border); }
+      .gh-diff-wrap { margin-top: 10px; border: 1px solid var(--vsc-border); border-radius: 5px; overflow: hidden; }
+      .gh-diff-head { font-family: var(--mono); font-size: 11px; color: var(--fg-bright); background: var(--vsc-hover); padding: 5px 8px; word-break: break-all; }
+      .gh-diff { font-family: var(--mono); font-size: 11.5px; line-height: 16px; overflow-x: auto; padding: 4px 0; }
+      .gh-diff-line { white-space: pre; padding: 0 8px; }
+      .gh-diff-add { color: var(--green); background: rgba(63,185,80,.08); }
+      .gh-diff-del { color: var(--red); background: rgba(241,76,76,.08); }
+      .gh-diff-hunk { color: var(--accent); }
+      .gh-diff-meta { color: var(--fg-muted); }
+      .gh-diff-ctx { color: var(--fg); }
       /* Deploy checkpoint: device-pick chips above a divider, then a primary Deploy
          (full-width) over a secondary Rescan/Cancel row — keeps selection and actions
          visually distinct and avoids the 3-button wrap. */

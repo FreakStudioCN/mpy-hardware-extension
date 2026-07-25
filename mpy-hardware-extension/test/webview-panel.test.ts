@@ -3223,3 +3223,34 @@ test("git_history_commit returns file rows (root via show), git_history_diff ret
     assert.match(dd.diff, /\+two/, "commit diff patch text present");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
+
+function ghSnapInput() {
+  return {
+    traceId: "session-zzz-1", savedAt: "2026-07-24T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+    state: { manifest: { devices: [] }, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: "recommend",
+    preferences: { mode: "beginner", locale: "en", existing_hardware: "none" }, manifest: { devices: [] }, diagram: null, credits: null, diagnostics: {},
+    optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+  } as any;
+}
+
+test("git_history_open: WI-3 associates a commit with the session snapshot saved at that hash (phase + artifacts)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "gen");
+    const head = revParse(projectFolder, "HEAD");
+    // sessionRoot is the workspace (ws); seed a snapshot under it linking `head` -> phase generate + 1 artifact.
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", "session-zzz-1"), buildSessionSnapshot({
+      ...ghSnapInput(), git: { commit_hash: head, branch: "main" },
+      artifacts: [{ relative_path: "a.py", kind: "code", role: "", phase: "generate", size: 1, sha256: "x", created_at: "2026-07-24T00:00:00Z" }],
+    }));
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    const commit = ghData(posted).commits.find((c: any) => c.hash === head);
+    assert.ok(commit.snapshot, "the commit carries its snapshot association");
+    assert.equal(commit.snapshot.phase, "generate");
+    assert.equal(commit.snapshot.artifact_total, 1);
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});

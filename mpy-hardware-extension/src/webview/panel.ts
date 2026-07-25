@@ -32,7 +32,7 @@ import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveAr
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
 import { GitUnavailableError, gitBranch, gitCommit, gitCurrentBranch, gitDiffText, gitLog, gitShowNameStatus, gitStatusPorcelain, isGitRepo } from "../extension/project-git.ts";
-import { buildSessionSnapshot, readSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
+import { buildSessionSnapshot, listSessionSnapshots, readSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
 import type { SessionSnapshot, SnapshotArtifact } from "../extension/session-snapshot.ts";
 
 type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
@@ -693,11 +693,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         gitStatusPorcelain(projectFolder),
       ]);
       const summary = summarizeGitStatus(porcelain);
+      // Enrich each commit with its saved phase/artifacts (latest-save-only). Best-effort: an
+      // association-scan failure must NOT fail the timeline (git is fine), so it degrades to no
+      // association rather than mapping to git_unavailable.
+      let associations = new Map();
+      try {
+        if (sessionRoot) associations = await listSessionSnapshots(sessionRoot, GIT_HISTORY_COMMITS_MAX, deps.log);
+      } catch (error: any) {
+        deps.log?.(`git_history association scan failed (timeline still shown): ${error?.message ?? error}`);
+      }
       webview.postMessage({
         type: "git_history_data",
         repoPresent: true,
         branch,
-        commits: commits.map((c) => ({ hash: c.hash, shortHash: c.shortHash, author: c.author, date: c.date, subject: c.subject })),
+        commits: commits.map((c) => ({ hash: c.hash, shortHash: c.shortHash, author: c.author, date: c.date, subject: c.subject, snapshot: associations.get(c.hash) || null })),
         commitTotal: commits.length,
         uncommitted: { files: summary.files, fileTotal: summary.fileTotal },
         note: "",

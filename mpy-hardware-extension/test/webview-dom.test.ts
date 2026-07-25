@@ -4002,3 +4002,110 @@ test("package browser: MicroPython-lib searches by name; GitHub is not a search 
   const sourceValues = [...(document.getElementById("dtPkgSource") as HTMLSelectElement).options].map((o) => o.value);
   assert.deepEqual(sourceValues, ["auto", "micropython_lib", "upypi"], "selector has no github option");
 });
+
+// ----- WI-4/WI-5: Git History surface (open, render, XSS-inert, diff, empty states) -----
+
+test("Git History gtool button opens its own surface (registered in GLOBAL_TOOL_SURFACES) and requests the timeline", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "git_history_open"), "clicking Git History requests the timeline");
+  // Silent-blank guard: opening only un-hides the surface if it is in GLOBAL_TOOL_SURFACES.
+  assert.equal(document.getElementById("toolGitHistory")!.classList.contains("hidden"), false, "the Git History surface opens (not left blank)");
+  assert.equal(document.getElementById("toolSaveVersion")!.classList.contains("hidden"), true, "a sibling tool surface is hidden");
+});
+
+test("git_history_data renders the timeline via textContent (XSS-inert), branch summary, and uncommitted rows", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, {
+    type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 2,
+    commits: [
+      { hash: "a".repeat(40), shortHash: "aaaaaaa", author: "T", date: "2026-07-24T10:00:00Z", subject: '<img src=x onerror=alert(1)> evil' },
+      { hash: "b".repeat(40), shortHash: "bbbbbbb", author: "T", date: "2026-07-23T10:00:00Z", subject: "second" },
+    ],
+    uncommitted: { files: [{ name: "dirty.py", status: "modified", badge: "M" }, { name: "new.py", status: "new", badge: "U" }], fileTotal: 2 },
+    note: "",
+  });
+  assert.equal(document.querySelectorAll("#ghCommits .gh-commit").length, 2, "both commits rendered");
+  assert.equal(document.querySelector("#ghCommits img"), null, "a crafted subject is inert (textContent, no <img> created)");
+  assert.ok(document.getElementById("ghCommits")!.textContent!.includes("evil"), "the subject shows as literal text");
+  assert.ok(document.getElementById("ghSummary")!.textContent!.includes("main"), "branch shown in the summary");
+  assert.equal(document.querySelectorAll("#ghUncommitted .gh-file").length, 2, "uncommitted files rendered");
+  const badges = [...document.querySelectorAll("#ghUncommitted .ask-file-badge")].map((b) => b.textContent);
+  assert.deepEqual(badges, ["M", "U"], "M and U badges shown");
+});
+
+test("git_history: clicking a commit posts git_history_commit; commit_data yields file rows; a file click posts git_history_diff", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const hash = "c".repeat(40);
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 1, commits: [{ hash, shortHash: "ccccccc", author: "T", date: "2026-07-24T10:00:00Z", subject: "only" }], uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  (document.querySelector("#ghCommits .gh-commit-head") as HTMLElement).click();
+  assert.ok(posted.some((m) => m.type === "git_history_commit" && m.hash === hash), "expanding a commit requests its files with that exact hash");
+  post(dom, { type: "git_history_commit_data", hash, files: [{ status: "M", path: "main.py" }, { status: "A", path: "new.py" }] });
+  const fileRows = document.querySelectorAll("#ghCommits .gh-commit-files .gh-file");
+  assert.equal(fileRows.length, 2, "file rows rendered under the commit");
+  (fileRows[0] as HTMLElement).click();
+  assert.ok(posted.some((m) => m.type === "git_history_diff" && m.hash === hash && m.path === "main.py"), "a file click requests its diff with hash + path");
+});
+
+test("git_history_diff_data renders line-classed diff (add/del/hunk), XSS-inert", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_diff_data", hash: "d".repeat(40), path: "a.py", diff: "@@ -1 +1 @@\n-old\n+<img src=x onerror=alert(1)>\n unchanged" });
+  assert.equal(document.querySelectorAll("#ghDiff .gh-diff-hunk").length, 1, "hunk line classed");
+  assert.equal(document.querySelectorAll("#ghDiff .gh-diff-del").length, 1, "deletion line classed");
+  assert.equal(document.querySelectorAll("#ghDiff .gh-diff-add").length, 1, "addition line classed");
+  assert.equal(document.querySelector("#ghDiff img"), null, "a crafted +line is inert (textContent)");
+  assert.ok(document.getElementById("ghDiff")!.textContent!.includes("onerror"), "the +line shows as literal text");
+});
+
+test("git_history empty states: no repo blocks the body; empty repo shows no-commits; clean tree shows clean", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  // No repo -> full-view blocked, body hidden, and never a git-init affordance.
+  post(dom, { type: "git_history_data", repoPresent: false, branch: "", commits: [], commitTotal: 0, uncommitted: { files: [], fileTotal: 0 }, note: "Not a git repo — showing saved session snapshots instead." });
+  assert.equal(document.getElementById("ghBlocked")!.classList.contains("hidden"), false, "no-repo blocks the view");
+  assert.equal(document.getElementById("ghBody")!.classList.contains("hidden"), true, "the interactive body is hidden with no repo");
+  // Empty repo (repo present, no commits) -> body shown, no-commits state, clean uncommitted.
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commits: [], commitTotal: 0, uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  assert.equal(document.getElementById("ghBody")!.classList.contains("hidden"), false, "body shown for a present repo");
+  assert.equal(document.getElementById("ghNoCommits")!.classList.contains("hidden"), false, "no-commits state shown");
+  assert.equal(document.getElementById("ghClean")!.classList.contains("hidden"), false, "clean-tree state shown for empty uncommitted");
+});
+
+test("git_history_data renders the WI-3 snapshot association chip (phase + artifact count) on a commit", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, {
+    type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 1,
+    commits: [{ hash: "f".repeat(40), shortHash: "fffffff", author: "T", date: "2026-07-24T10:00:00Z", subject: "gen", snapshot: { phase: "generate", artifact_total: 2, artifacts: [], session_id: "s", saved_at: "", intent: "" } }],
+    uncommitted: { files: [], fileTotal: 0 }, note: "",
+  });
+  const chip = document.querySelector("#ghCommits .gh-commit-assoc");
+  assert.ok(chip, "association chip rendered");
+  assert.ok(chip!.textContent!.includes("generate"), "shows the phase");
+  assert.ok(chip!.textContent!.includes("2"), "shows the artifact count");
+});
+
+test("git_history_status maps taxonomy to the blocked view (git unavailable) / inline (invalid request)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_status", status: "git_unavailable" });
+  assert.equal(document.getElementById("ghBlocked")!.classList.contains("hidden"), false, "git_unavailable blocks the view");
+  // Show a populated repo, then a rejected request only sets the inline status (does not blank the body).
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commits: [{ hash: "e".repeat(40), shortHash: "eeeeeee", author: "T", date: "2026-07-24T10:00:00Z", subject: "x" }], commitTotal: 1, uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  post(dom, { type: "git_history_status", status: "invalid_request" });
+  assert.equal(document.getElementById("ghBody")!.classList.contains("hidden"), false, "an invalid_request keeps the timeline visible");
+  assert.ok(document.getElementById("ghStatus")!.textContent!.length > 0, "invalid_request shows an inline message");
+});

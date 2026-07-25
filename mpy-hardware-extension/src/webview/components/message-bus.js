@@ -122,6 +122,11 @@
         // Save Version (#95) lives in its own tool surface (SaveVersionPanel), not the Activity feed.
         if (msg.type === "save_version_data") { onSaveVersionData(msg); }
         if (msg.type === "save_version_status") { onSaveVersionStatus(msg); }
+        // Git History (#94): its own read-only surface (GitHistoryPanel), not the Activity feed.
+        if (msg.type === "git_history_data") { onGitHistoryData(msg); }
+        if (msg.type === "git_history_commit_data") { onGitHistoryCommitData(msg); }
+        if (msg.type === "git_history_diff_data") { onGitHistoryDiffData(msg); }
+        if (msg.type === "git_history_status") { onGitHistoryStatus(msg); }
         if (msg.type === "session_error") {
           const errKey = "err_" + msg.error;
           const text = (I18N[LOCALE] && I18N[LOCALE][errKey]) || I18N.en[errKey] || msg.error;
