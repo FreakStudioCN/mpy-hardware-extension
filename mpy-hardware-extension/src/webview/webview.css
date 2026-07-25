@@ -342,6 +342,8 @@
 
       /* Git History (#94): read-only timeline + per-file diff renderer. Badge colors reuse the
          shared .ask-file-badge-* classes; only the layout + diff-line coloring is new here. */
+      /* Reserve the scrollbar gutter so the timeline doesn't shift when the scrollbar appears. */
+      #toolGitHistory .tool-body { scrollbar-gutter: stable; }
       .gh-summary { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); margin: 2px 0 10px; }
       .gh-section { margin-bottom: 14px; }
       .gh-sec-title { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; padding: 0 2px; }
