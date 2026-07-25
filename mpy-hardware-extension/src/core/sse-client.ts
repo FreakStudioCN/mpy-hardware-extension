@@ -85,7 +85,17 @@ class SseEventParser {
       return;
     }
     if (data.type === "credits") {
-      this.events.push({ type: "credits", remaining: data.remaining, dailyGrant: data.daily_grant, resetsAt: data.resets_at });
+      // The cost fields (server-only: the client never sees the upstream usage chunk) are
+      // attached ONLY when the server sent them, so a pre-enrichment backend still yields
+      // exactly { remaining, dailyGrant, resetsAt } and downstream reads them as unknown
+      // rather than as a real 0.
+      const event: any = { type: "credits", remaining: data.remaining, dailyGrant: data.daily_grant, resetsAt: data.resets_at };
+      if (data.charged != null) event.charged = data.charged;
+      if (data.model != null) event.model = data.model;
+      if (data.input_tokens != null) event.inputTokens = data.input_tokens;
+      if (data.output_tokens != null) event.outputTokens = data.output_tokens;
+      if (data.cache_hit_tokens != null) event.cacheHitTokens = data.cache_hit_tokens;
+      this.events.push(event);
       return;
     }
     if (data.type === "message_stop") {

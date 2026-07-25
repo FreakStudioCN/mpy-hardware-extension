@@ -907,6 +907,14 @@ export class SessionController {
       // the recorded remaining quota can never disagree with what the user is looking at.
       remaining_quota: balance,
       credits_consumed: consumed,
+      // Server-only fields, absent until the backend deploys the enriched credits event.
+      // `charged` is authoritative where credits_consumed is a balance-delta estimate;
+      // both are kept so a pre-enrichment session is still readable.
+      charged: event.charged,
+      model: event.model,
+      input_tokens: event.inputTokens,
+      output_tokens: event.outputTokens,
+      cache_hit_tokens: event.cacheHitTokens,
     });
     this.creditUsage.push(usage);
     if (this.creditUsage.length > SessionController.CREDIT_USAGE_CAP) this.creditUsage.shift();

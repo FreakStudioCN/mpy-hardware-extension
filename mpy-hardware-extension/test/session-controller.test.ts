@@ -1967,3 +1967,57 @@ test("a stalled phase attaches its error code to the turn that paid for it", asy
   assert.equal(usage[0].error_code, "no_tool_calls");
   assert.equal(usage[1].error_code, undefined, "one-shot: it labels the turn it happened in");
 });
+
+test("a credits event carrying the server fields records model, tokens and the real charge", async () => {
+  // Card #87 slice C: the four blocked fields land in the record once the backend sends
+  // them, and the authoritative charge coexists with the balance-delta estimate. Mutation:
+  // drop the mapping in accumulateCreditUsage -> the record is estimate-only forever.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "generate" });
+      onEvent({ type: "credits", remaining: 46, dailyGrant: 50, charged: 3, model: "deepseek-v4-pro", inputTokens: 1200, outputTokens: 180, cacheHitTokens: 1024 });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage)[0];
+  assert.equal(usage.charged, 3, "the authoritative deduction");
+  assert.equal(usage.model, "deepseek-v4-pro");
+  assert.equal(usage.input_tokens, 1200);
+  assert.equal(usage.output_tokens, 180);
+  assert.equal(usage.cache_hit_tokens, 1024);
+  assert.equal(usage.remaining_quota, 46);
+  // The very first turn of a session has no balance baseline, so only the server's charge
+  // can answer what it cost — which is exactly why the field is worth having.
+  assert.equal(usage.credits_consumed, undefined);
+});
+
+test("an old backend still produces a valid record with the server fields unset", async () => {
+  // The extension ships before the server deploys. Mutation: default the fields to 0 ->
+  // every pre-enrichment session reports free turns and a 0-token model.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "generate" });
+      onEvent({ type: "credits", remaining: 49, dailyGrant: 50 });
+      onEvent({ type: "credits", remaining: 46, dailyGrant: 50 });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  for (const key of ["charged", "model", "input_tokens", "output_tokens", "cache_hit_tokens"]) {
+    assert.equal(key in usage[1], false, `${key} must stay unset against an old backend`);
+  }
+  assert.equal(usage[1].operation, "generate", "and the record is otherwise complete");
+  assert.equal(usage[1].credits_consumed, 3, "the balance delta still carries the cost");
+});

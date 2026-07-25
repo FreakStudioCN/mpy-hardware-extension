@@ -86,3 +86,43 @@ test("streams events before the response body finishes", async () => {
   assert.deepEqual(await second, { done: false, value: { type: "message_stop" } });
   assert.deepEqual(await iterator.next(), { done: true, value: undefined });
 });
+
+test("a credits event carries the server's cost and token fields when it sends them", () => {
+  // Card #87 slice C: model, the token split and the authoritative charge exist only on the
+  // server. Mutation: keep the three-key mapping -> the client records that a credit was
+  // spent but never what it bought.
+  const [event] = parseSseEvents(
+    'data: {"type":"credits","remaining":46,"daily_grant":50,"resets_at":"2026-07-26T00:00:00Z","charged":3,"model":"deepseek-v4-pro","input_tokens":1200,"output_tokens":180,"cache_hit_tokens":1024}\n\n',
+  );
+
+  assert.deepEqual(event, {
+    type: "credits",
+    remaining: 46,
+    dailyGrant: 50,
+    resetsAt: "2026-07-26T00:00:00Z",
+    charged: 3,
+    model: "deepseek-v4-pro",
+    inputTokens: 1200,
+    outputTokens: 180,
+    cacheHitTokens: 1024,
+  });
+});
+
+test("a pre-enrichment credits event keeps exactly the old shape", () => {
+  // The server deploys first and old clients must be unaffected — but the reverse also has
+  // to hold: a new client against an old backend must leave the cost fields UNSET, not 0.
+  // Mutation: always attach the keys -> undefined/0 fields poison the cost aggregate.
+  const [event] = parseSseEvents('data: {"type":"credits","remaining":46,"daily_grant":50,"resets_at":"2026-07-26T00:00:00Z"}\n\n');
+
+  assert.deepEqual(event, { type: "credits", remaining: 46, dailyGrant: 50, resetsAt: "2026-07-26T00:00:00Z" });
+});
+
+test("a zero charge is recorded as zero, not treated as missing", () => {
+  // The stub backend (and a refunded turn) legitimately charge 0. A truthiness check here
+  // would drop it and make a free turn indistinguishable from an unreported one.
+  const [event] = parseSseEvents('data: {"type":"credits","remaining":50,"daily_grant":50,"charged":0,"input_tokens":0,"model":"stub"}\n\n');
+
+  assert.equal((event as any).charged, 0);
+  assert.equal((event as any).inputTokens, 0);
+  assert.equal((event as any).model, "stub");
+});
