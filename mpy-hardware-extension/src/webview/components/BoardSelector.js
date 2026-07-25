@@ -41,6 +41,8 @@
       }
       function clearBoardChoice() {
         selectedOfficialBoard = null;
+        const search = $("boardSearch");
+        if (search) search.value = "";
         setBoardBodyExpanded(false);
         renderBoardPicker();
       }
@@ -148,7 +150,11 @@
       $("boardAuto").addEventListener("click", clearBoardChoice);
       $("boardSelectedClear")?.addEventListener("click", clearBoardChoice);
       $("boardRefresh").addEventListener("click", () => vscode.postMessage({ type: "request_boards" }));
-      ["boardSearch", "boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { const el = $(id); el.addEventListener("input", () => { boardPage = 0; renderBoardPicker(); }); el.addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
+      // Search filters live: only "input". A "change" on the text box fires on BLUR — clicking a
+      // board card blurs the box, which would re-render the list and destroy the card mid-click
+      // (needing a second click). The selects use "change" (their natural event).
+      $("boardSearch").addEventListener("input", () => { boardPage = 0; renderBoardPicker(); });
+      ["boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { $(id).addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
       $("boardPrev").addEventListener("click", () => { boardPage = Math.max(0, boardPage - 1); renderBoardPicker(); });
       $("boardNext").addEventListener("click", () => { boardPage += 1; renderBoardPicker(); });
       renderBoardPicker();

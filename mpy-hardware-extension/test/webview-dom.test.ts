@@ -700,6 +700,9 @@ test("picking a board collapses the browse panel and Restart clears the selectio
     boards: [{ id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: [], firmware: { url: "u", board_name: "ESP32_GENERIC_S3" }, download_slug: "ESP32_GENERIC_S3", support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" }],
   });
   (document.getElementById("boardMore") as HTMLButtonElement).click();
+  const search = document.getElementById("boardSearch") as HTMLInputElement;
+  search.value = "esp";
+  search.dispatchEvent(new dom.window.Event("input"));
   (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
   assert.equal((document.getElementById("boardPickerBody") as HTMLElement).hidden, true, "browse panel collapses once a board is picked");
   assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), false, "chip shown after picking");
@@ -707,6 +710,7 @@ test("picking a board collapses the browse panel and Restart clears the selectio
   (document.getElementById("newSession") as HTMLButtonElement).click();
   assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), true, "Restart clears the board selection");
   assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), true, "Restart returns to the Recommend segment");
+  assert.equal(search.value, "", "Restart clears the board search box");
 });
 test("the Doctor tab requests a check on load and renders results as localized status cards", async () => {
   const posted: any[] = [];
