@@ -109,6 +109,10 @@
       $("openFolder").addEventListener("click", () => vscode.postMessage({ type: "open_project_folder" }));
       $("recentSessions").addEventListener("click", () => { openGlobalTool("toolRecent"); vscode.postMessage({ type: "request_recent_sessions" }); });
       $("recentBack").addEventListener("click", closeGlobalTool);
+      // Request credits (#97): a contact entry, not a payment portal. The host builds the prefilled
+      // mailto (gating on GitHub sign-in) and opens it via openExternal. The button lives inside the
+      // quota bar, so it's only visible once credits are shown.
+      $("requestCredits").addEventListener("click", () => vscode.postMessage({ type: "request_credits_email" }));
       $("boardMore").addEventListener("click", () => setBoardBodyExpanded($("boardPickerBody").hidden));
 
       // ----- composer / working indicator -----

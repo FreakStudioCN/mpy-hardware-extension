@@ -15,7 +15,7 @@ import { deriveDiagram } from "../core/diagram-derive.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
 import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
-import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale, sliceCodePoints } from "../core/support-config.ts";
+import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildCreditsRequestMailto, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale, sliceCodePoints } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
@@ -1160,6 +1160,45 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // malformed URL or headless host without openExternal — ignore
       }
       controller.recordSupportAction({ type: "support_feedback_opened", entry: "report_issue" });
+      return;
+    }
+    if (message.type === "request_credits_email") {
+      // Card #97: open a prefilled mailto so the user can ASK the team for more credits — a contact
+      // entry, NOT a payment portal. No admin token, no /v1/admin/credits, no credit mutation here.
+      // Sign-in is the gate AND the point: prompt interactively; the webview hides the button until
+      // credits are visible, but the host token check is the trust boundary — never skip it.
+      const jwt = vscode.authentication ? await auth.getToken(true) : undefined;
+      if (!jwt) {
+        webview.postMessage({ type: "session_error", error: auth.getLastError?.() ?? "sign_in_required" });
+        return;
+      }
+      // Fresh credit values for the body (and refresh the bar). Best-effort: if the fetch fails we
+      // still open the request with blank amounts so the user can always reach us.
+      let balance = "", dailyGrant = "", resetsAt = "";
+      try {
+        const cr = await fetchImpl(`${apiBaseUrl}/v1/credits`, { headers: { authorization: `Bearer ${jwt}` } });
+        const c: any = await cr.json();
+        balance = String(c.balance ?? "");
+        dailyGrant = String(c.daily_grant ?? "");
+        resetsAt = String(c.resets_at ?? "");
+        webview.postMessage({ type: "session_event", event: { kind: "credits", balance: c.balance, dailyGrant: c.daily_grant, resetsAt: c.resets_at } });
+      } catch {
+        // credits unavailable — open the request anyway with blank amounts
+      }
+      try {
+        const url = buildCreditsRequestMailto({
+          githubLogin: auth.getLogin?.() ?? "",
+          balance, dailyGrant, resetsAt,
+          extensionVersion: EXTENSION_VERSION,
+          pluginVersion: BUNDLED_TOOLCHAIN_VERSION,
+          sessionId: controller.getDiagnostics().session_id ?? "",
+        });
+        const uri = vscode.Uri.parse(url, true);
+        if (/^mailto$/.test(uri.scheme)) await vscode.env?.openExternal?.(uri);
+      } catch {
+        // malformed URL or headless host without openExternal — ignore
+      }
+      controller.recordSupportAction({ type: "support_feedback_opened", entry: "request_credits" });
       return;
     }
     if (message.type === "request_artifacts") {

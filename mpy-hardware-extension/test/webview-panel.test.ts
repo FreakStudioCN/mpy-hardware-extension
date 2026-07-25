@@ -1827,6 +1827,61 @@ test("submit_issue_report validates host-side and opens a prefilled issue url", 
   assert.equal(opened.length, 0, "empty description opens nothing");
 });
 
+test("request_credits_email opens a prefilled mailto for a signed-in user and never touches admin (#97)", async () => {
+  const posted: any[] = [];
+  const opened: string[] = [];
+  const fetched: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async (u: any) => { opened.push(u.toString()); return true; } },
+    authentication: { getSession: async () => ({ accessToken: "gho-token", account: { label: "octocat" } }) },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    fetched.push(url);
+    if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123", login: "octocat" });
+    if (url === "http://api.test/v1/credits") return jsonResponse({ balance: 42, daily_grant: 100, resets_at: "2026-07-08T00:00:00.000Z" });
+    return jsonResponse({});
+  }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+  await handler?.({ type: "request_credits_email" });
+  assert.equal(opened.length, 1, "opens the prefilled mailto");
+  assert.ok(opened[0].startsWith("mailto:1069653183@qq.com?"), "targets the support email over mailto:");
+  const body = decodeURIComponent(opened[0].slice(opened[0].indexOf("body=") + "body=".length));
+  assert.match(body, /GitHub login: octocat/, "login prefilled from the auth exchange");
+  assert.match(body, /Credit balance: 42/, "fresh balance from /v1/credits");
+  assert.match(body, /Daily grant: 100/);
+  assert.match(body, /Resets at: 2026-07-08/);
+  assert.match(body, /Contact email: please fill in your email/, "user-filled contact line");
+  assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "request_credits"), "records the §8.1 action");
+  assert.ok(posted.some((m) => m.type === "session_event" && m.event?.kind === "credits" && m.event.balance === 42), "refreshes the quota bar");
+  assert.ok(!fetched.some((u) => u.includes("/v1/admin")), "never calls any admin credits endpoint");
+});
+
+test("request_credits_email blocks and prompts sign-in with no GitHub session; opens nothing (#97)", async () => {
+  const posted: any[] = [];
+  const opened: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async (u: any) => { opened.push(u.toString()); return true; } },
+    authentication: { getSession: async () => undefined }, // user has no session / declined sign-in
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: pipelineFetch, loopMode: "template" });
+
+  await handler?.({ type: "request_credits_email" });
+  assert.equal(opened.length, 0, "no mailto opened without sign-in — the host gate, not the hidden button, is the boundary");
+  assert.ok(posted.some((m) => m.type === "session_error"), "posts a sign-in error");
+  assert.ok(!posted.some((m) => m.type === "support_feedback_opened" && m.entry === "request_credits"), "no support action recorded when blocked");
+});
+
 test("request_diagnostics records support_diagnostics_exported with plugin vs session scope", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;

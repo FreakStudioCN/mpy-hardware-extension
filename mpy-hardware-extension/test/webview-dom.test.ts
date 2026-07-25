@@ -1135,6 +1135,21 @@ test("credits message updates the quota label and gates Start", async () => {
   assert.equal(generate.disabled, true, "out of credits -> Start disabled");
 });
 
+test("request-credits button is gated on visible credits and posts request_credits_email (#97)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // The button lives inside #quota, which stays hidden until a credits event arrives.
+  assert.equal(document.getElementById("quota")!.classList.contains("hidden"), true, "quota bar (and its button) hidden before any credits");
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 47, dailyGrant: 50 } });
+  assert.equal(document.getElementById("quota")!.classList.contains("hidden"), false, "quota bar visible once credits arrive");
+
+  (document.getElementById("requestCredits") as HTMLButtonElement).click();
+  const reqs = posted.filter((m) => m.type === "request_credits_email");
+  assert.equal(reqs.length, 1, "click asks the host to open the prefilled email exactly once");
+});
+
 test("quota warning copy distinguishes nearly-exhausted (>0) from fully exhausted (==0)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
