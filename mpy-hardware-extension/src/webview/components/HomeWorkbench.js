@@ -128,6 +128,9 @@
         // composer placeholder flips to a note hint too, so it doesn't read as "start a
         // build" while running.
         $("addNote").classList.toggle("hidden", !on);
+        // Experience mode is start-time only; hide it during a run (the board chooser above
+        // already hides via setBoardPickerVisible). Textarea + Generate stay for notes.
+        $("modeToggle").classList.toggle("hidden", on);
         $("intent").placeholder = tr(on ? "note_ph" : "intent_ph");
         if (on) setPending(tr("working")); // immediate spinner; trace_event refines the label
         updateGenerateEnabled();

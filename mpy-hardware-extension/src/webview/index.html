@@ -320,42 +320,42 @@
       </div>
 
       <div class="composer">
-        <!-- Claude-style chat box: the textarea sits in a rounded container; the action bar below it
-             holds the experience-mode + board chooser pills on the left and Generate on the right
-             (one line). The board browser expands as a panel between the textarea and the bar. -->
-        <div class="composer-box" id="composerBox">
-          <textarea id="intent" data-i18n-ph="intent_ph" placeholder="I want to build… (e.g. light a red LED when the temperature goes above 30°C)" rows="1"></textarea>
-          <!-- Board browser: expanded by "Browse boards". Sibling of the tools row so its visibility
-               (setBoardBodyExpanded) is independent of the tools' run-time hide (setBoardPickerVisible). -->
-          <div class="board-picker-body" id="boardPickerBody" hidden>
-            <input class="board-search" id="boardSearch" data-i18n-ph="board_search_ph" placeholder="Search official MicroPython boards" />
-            <div class="board-cache-row"><button class="board-refresh" id="boardRefresh" type="button" data-i18n="board_refresh">Refresh</button><span class="board-cache-status" id="boardCacheStatus"></span></div>
-            <div class="board-filter-row">
-              <select class="board-filter" id="boardVendor" aria-label="Vendor"></select>
-              <select class="board-filter" id="boardPort" aria-label="Port"></select>
-              <select class="board-filter" id="boardMcu" aria-label="MCU"></select>
-              <select class="board-filter" id="boardFeature" aria-label="Feature"></select>
-            </div>
-            <div class="board-list" id="boardList"></div>
-            <div class="board-pager"><button class="board-page-btn" id="boardPrev" type="button">&lt;</button><span class="board-status" id="boardStatus"></span><button class="board-page-btn" id="boardNext" type="button">&gt;</button></div>
+        <!-- Browse list: opens OVER the composer and tucks BEHIND its top edge (composer-box is
+             z-above). Sibling of the box so it can sit behind it. Distinct bg from the text box. -->
+        <div class="board-picker-body" id="boardPickerBody" hidden>
+          <input class="board-search" id="boardSearch" data-i18n-ph="board_search_ph" placeholder="Search official MicroPython boards" />
+          <div class="board-cache-row"><button class="board-refresh" id="boardRefresh" type="button" data-i18n="board_refresh">Refresh</button><span class="board-cache-status" id="boardCacheStatus"></span></div>
+          <div class="board-filter-row">
+            <select class="board-filter" id="boardVendor" aria-label="Vendor"></select>
+            <select class="board-filter" id="boardPort" aria-label="Port"></select>
+            <select class="board-filter" id="boardMcu" aria-label="MCU"></select>
+            <select class="board-filter" id="boardFeature" aria-label="Feature"></select>
           </div>
+          <div class="board-list" id="boardList"></div>
+          <div class="board-pager"><button class="board-page-btn" id="boardPrev" type="button">&lt;</button><span class="board-status" id="boardStatus"></span><button class="board-page-btn" id="boardNext" type="button">&gt;</button></div>
+        </div>
+        <div class="composer-box" id="composerBox">
+          <!-- Board chooser: on top of the text box. #boardPicker hides during a run
+               (setBoardPickerVisible) and carries the board-cache dataset. The Browse list opens
+               OVER it (floats upward, over the content above). -->
+          <div class="composer-subbar" id="boardPicker">
+            <div class="board-toggle" role="group" data-i18n-aria="board_group" aria-label="Board selection">
+              <button class="board-seg active" id="boardAuto" type="button" aria-pressed="true" data-i18n="board_auto">Recommend</button>
+              <button class="board-seg" id="boardMore" type="button" aria-pressed="false" aria-expanded="false" aria-controls="boardPickerBody" data-i18n="board_browse" data-i18n-title="board_browse_tip" title="Browse and pick a specific board">Browse</button>
+            </div>
+            <span class="board-selected hidden" id="boardSelected">
+              <span class="board-selected-ic">✓</span>
+              <span class="board-selected-name" id="boardSelectedName"></span>
+              <button class="board-selected-clear" id="boardSelectedClear" type="button" data-i18n-title="board_use_recommend" data-i18n-aria="board_use_recommend" title="Use recommend instead" aria-label="Use recommend instead">✕</button>
+            </span>
+          </div>
+          <textarea id="intent" data-i18n-ph="intent_ph" placeholder="I want to build… (e.g. light a red LED when the temperature goes above 30°C)" rows="1"></textarea>
           <div class="composer-bar">
-            <!-- Left tools: experience mode + board chooser. #boardPicker is hidden during a run
-                 (setBoardPickerVisible); the textarea + Generate stay so notes can be added. -->
-            <div class="composer-tools" id="boardPicker">
-              <div class="mode-toggle" role="group" data-i18n-aria="mode_group" aria-label="Experience level">
-                <button class="mode-chip active" id="modeBeginner" type="button" data-mode="beginner" aria-pressed="true" data-i18n="mode_beginner">Beginner</button>
-                <button class="mode-chip" id="modeCustom" type="button" data-mode="custom" aria-pressed="false" data-i18n="mode_custom">Custom</button>
-              </div>
-              <div class="board-toggle" role="group" data-i18n-aria="board_group" aria-label="Board selection">
-                <button class="board-seg active" id="boardAuto" type="button" aria-pressed="true" data-i18n="board_auto">Recommend board</button>
-                <button class="board-seg" id="boardMore" type="button" aria-pressed="false" aria-expanded="false" aria-controls="boardPickerBody" data-i18n="board_browse" data-i18n-title="board_browse_tip" title="Browse and pick a specific board">Browse boards</button>
-              </div>
-              <span class="board-selected hidden" id="boardSelected">
-                <span class="board-selected-ic">✓</span>
-                <span class="board-selected-name" id="boardSelectedName"></span>
-                <button class="board-selected-clear" id="boardSelectedClear" type="button" data-i18n-title="board_use_recommend" data-i18n-aria="board_use_recommend" title="Use recommend instead" aria-label="Use recommend instead">✕</button>
-              </span>
+            <!-- Experience mode on the Generate line. Hidden during a run (setRunning toggles
+                 #modeToggle); textarea + Generate stay for notes. -->
+            <div class="mode-toggle" id="modeToggle" role="group" data-i18n-aria="mode_group" aria-label="Experience level">
+              <button class="mode-chip active" id="modeBeginner" type="button" data-mode="beginner" aria-pressed="true" data-i18n="mode_beginner">Beginner</button>
+              <button class="mode-chip" id="modeCustom" type="button" data-mode="custom" aria-pressed="false" data-i18n="mode_custom">Custom</button>
             </div>
             <span class="grow"></span>
             <button class="note-btn hidden" id="addNote" type="button" data-i18n="add_note" data-i18n-title="add_note_tip" title="Add a note to the running build (applied at the next safe point)">Add note</button>
