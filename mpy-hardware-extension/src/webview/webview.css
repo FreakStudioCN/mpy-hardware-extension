@@ -366,6 +366,7 @@
       .gh-commit::before { content: ""; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
       .gh-commit:first-child::before { top: 11px; }                    /* newest: rail only below the dot */
       .gh-commit:last-child::before { bottom: auto; height: 11px; }    /* oldest: rail only above the dot */
+      .gh-commit:only-child::before { content: none; }                 /* single commit (first save): a dot, no dangling rail */
       .gh-dot { position: absolute; left: 4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--vsc-sidebar); pointer-events: none; }
       .gh-commit-head { padding: 3px 6px 3px 20px; border-radius: 4px; }  /* left pad clears the rail; the box still spans it so the dot area is clickable + hovers */
       .gh-commit-head:hover { background: var(--vsc-hover); }

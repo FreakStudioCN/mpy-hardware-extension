@@ -10,7 +10,7 @@
       var ghCommitFileHosts = {};    // hash -> the <div> holding that commit's file rows (lazy fill)
       var ghCommitLoaded = {};       // hash -> true once its file list has been fetched
       var ghActiveFileRow = null;    // the file row whose diff is currently shown (for the active highlight)
-      var ghActiveDiffKey = null;    // "<hash>\0<path>" of the shown diff, so a re-click toggles it closed
+      var ghActiveDiffKey = null;    // "<hash>\0<path>" of the shown diff; re-click toggles closed, and a stale reply is dropped unless it matches
 
       function ghStatusMsg(text) { const n = $("ghStatus"); if (n) n.textContent = text || ""; }
       function ghBlock(heading, sub) {
@@ -50,7 +50,8 @@
       }
 
       // Uncommitted section: the working-tree changes (status --porcelain, parsed host-side). An
-      // untracked file (badge U) has no `diff HEAD` output, so it is shown but not diff-clickable.
+      // untracked file (U) has no `diff HEAD` output, and a rename (R) row's name is "old -> new"
+      // (not a single pathspec) — both would only yield an empty diff, so neither is diff-clickable.
       function ghRenderUncommitted(d) {
         const host = $("ghUncommitted"); if (!host) return;
         host.innerHTML = "";
@@ -60,8 +61,8 @@
         host.classList.toggle("hidden", total === 0);
         ghSetCount("ghUncommittedCount", total);
         for (const f of files) {
-          const untracked = f && f.badge === "U";
-          host.appendChild(ghFileRow(f && f.badge, f && f.name, untracked ? null : (row) => ghRequestDiff(undefined, f && f.name, row)));
+          const undiffable = f && (f.badge === "U" || f.badge === "R");
+          host.appendChild(ghFileRow(f && f.badge, f && f.name, undiffable ? null : (row) => ghRequestDiff(undefined, f && f.name, row)));
         }
         ghAppendMore(host, total, files.length);
       }
@@ -137,12 +138,15 @@
         for (const f of files) host.appendChild(ghFileRow(f && f.status, f && f.path, (row) => ghRequestDiff(hash, f && f.path, row)));
       }
 
+      // Diff-selection key: hash + path joined by NUL (cannot occur in a filename), so
+      // ghRequestDiff (set/toggle) and onGitHistoryDiffData (stale-reply guard) never drift.
+      function ghDiffKey(hash, path) { return (hash || "") + "\u0000" + String(path); }
       // Ask the host for one file's patch. hash present => that commit's diff; absent => the
       // uncommitted working-tree diff (git_history_diff with no hash). Marks the clicked row active;
       // re-clicking the SAME file toggles the diff closed (`row` is the clicked file element).
       function ghRequestDiff(hash, path, row) {
         if (!path) return;
-        const key = (hash || "") + " " + String(path);
+        const key = ghDiffKey(hash, path);
         if (ghActiveDiffKey === key) { ghCloseDiff(); return; } // same file again -> close
         ghActiveDiffKey = key;
         if (ghActiveFileRow) ghActiveFileRow.classList.remove("gh-file-active");
@@ -172,6 +176,11 @@
         return "gh-diff-ctx";
       }
       function onGitHistoryDiffData(m) {
+        // Drop a stale reply: the host message handler isn't awaited, so a slow diff for a
+        // since-changed (or closed) selection could land late and overwrite the current one under the
+        // wrong header. Only render the reply matching the active file (same key format as ghRequestDiff).
+        const key = ghDiffKey(m && m.hash, m && m.path);
+        if (key !== ghActiveDiffKey) return;
         const body = $("ghDiff"); if (!body) return;
         body.innerHTML = "";
         const text = (m && typeof m.diff === "string") ? m.diff : "";
@@ -196,11 +205,11 @@
         host.classList.toggle("hidden", parts.length === 0);
       }
 
-      // Host reply with the timeline. No repo -> never offer git init (spec :343): show the
-      // not-a-repo note (the saved-snapshot list is layered in by WI-3).
+      // Host reply with the timeline. No repo -> never offer git init (spec :343): show a localized
+      // not-a-repo note (always tr(), so zh users don't get the host's English string).
       function onGitHistoryData(d) {
         d = d || {};
-        if (!d.repoPresent) { ghBlock(tr("gh_no_repo_h"), d.note || tr("gh_no_repo_p")); return; }
+        if (!d.repoPresent) { ghBlock(tr("gh_no_repo_h"), tr("gh_no_repo_p")); return; }
         ghUnblock();
         ghStatusMsg("");
         ghCloseDiff(); // rows are about to be re-rendered — drop any stale active-row reference

@@ -4066,16 +4066,73 @@ test("git_history: clicking a commit posts git_history_commit; commit_data yield
   assert.ok(!(fileRows[0] as HTMLElement).classList.contains("gh-file-active"), "the active highlight is cleared on close");
 });
 
+// Establish an active diff selection (open -> commit -> expand -> click a file), so a matching
+// git_history_diff_data reply is accepted by the correlation guard. Returns the commit hash.
+function ghSelectFile(dom: JSDOM, path: string): string {
+  const { document } = dom.window;
+  const hash = "d".repeat(40);
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 1, commits: [{ hash, shortHash: "ddddddd", author: "T", date: "2026-07-24T10:00:00Z", subject: "x" }], uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  (document.querySelector("#ghCommits .gh-commit-head") as HTMLElement).click();
+  post(dom, { type: "git_history_commit_data", hash, files: [{ status: "M", path }] });
+  (document.querySelector("#ghCommits .gh-commit-files .gh-file") as HTMLElement).click();
+  return hash;
+}
+
 test("git_history_diff_data renders line-classed diff (add/del/hunk), XSS-inert", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;
-  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
-  post(dom, { type: "git_history_diff_data", hash: "d".repeat(40), path: "a.py", diff: "@@ -1 +1 @@\n-old\n+<img src=x onerror=alert(1)>\n unchanged" });
+  const hash = ghSelectFile(dom, "a.py");
+  post(dom, { type: "git_history_diff_data", hash, path: "a.py", diff: "@@ -1 +1 @@\n-old\n+<img src=x onerror=alert(1)>\n unchanged" });
   assert.equal(document.querySelectorAll("#ghDiff .gh-diff-hunk").length, 1, "hunk line classed");
   assert.equal(document.querySelectorAll("#ghDiff .gh-diff-del").length, 1, "deletion line classed");
   assert.equal(document.querySelectorAll("#ghDiff .gh-diff-add").length, 1, "addition line classed");
   assert.equal(document.querySelector("#ghDiff img"), null, "a crafted +line is inert (textContent)");
   assert.ok(document.getElementById("ghDiff")!.textContent!.includes("onerror"), "the +line shows as literal text");
+});
+
+test("git_history_diff_data drops a stale reply for a since-changed file (no cross-render)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const hash = "c".repeat(40);
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 1, commits: [{ hash, shortHash: "ccccccc", author: "T", date: "2026-07-24T10:00:00Z", subject: "only" }], uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  (document.querySelector("#ghCommits .gh-commit-head") as HTMLElement).click();
+  post(dom, { type: "git_history_commit_data", hash, files: [{ status: "M", path: "a.py" }, { status: "M", path: "b.py" }] });
+  const rows = document.querySelectorAll("#ghCommits .gh-commit-files .gh-file");
+  (rows[0] as HTMLElement).click();               // select a.py (slow diff)
+  (rows[1] as HTMLElement).click();               // switch to b.py before a.py's reply lands
+  // a.py's late reply must be ignored while b.py is the active selection.
+  post(dom, { type: "git_history_diff_data", hash, path: "a.py", diff: "@@\n+AAA_stale\n" });
+  assert.ok(!document.getElementById("ghDiff")!.textContent!.includes("AAA_stale"), "stale a.py reply does not overwrite the active b.py view");
+  // b.py's reply (the active file) renders.
+  post(dom, { type: "git_history_diff_data", hash, path: "b.py", diff: "@@\n+BBB_current\n" });
+  assert.ok(document.getElementById("ghDiff")!.textContent!.includes("BBB_current"), "the active file's reply renders");
+});
+
+test("git_history_diff_data: an uncommitted (hash-absent) diff still correlates and renders", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 0, commits: [], uncommitted: { files: [{ name: "dirty.py", status: "modified", badge: "M" }], fileTotal: 1 }, note: "" });
+  (document.querySelector("#ghUncommitted .gh-file") as HTMLElement).click();
+  const req = posted.find((m) => m.type === "git_history_diff" && m.path === "dirty.py");
+  assert.ok(req && req.hash === undefined, "uncommitted diff request carries no hash");
+  // The host echoes hash:null; the correlation key must treat null/undefined/'' identically, else
+  // this reply is dropped and the viewer strands on Loading. Asserts that null-normalization.
+  post(dom, { type: "git_history_diff_data", hash: null, path: "dirty.py", diff: "@@\n+NEWLINE\n" });
+  assert.ok(document.getElementById("ghDiff")!.textContent!.includes("NEWLINE"), "the uncommitted working-tree diff renders (null-hash key matches the undefined-hash request)");
+});
+
+test("git_history no-repo note is localized: a host English note does not override tr()", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  // Even if the host posts a stale English note, the panel must show the localized gh_no_repo_p.
+  post(dom, { type: "git_history_data", repoPresent: false, branch: "", commits: [], commitTotal: 0, uncommitted: { files: [], fileTotal: 0 }, note: "Not a git repo — showing saved session snapshots instead." });
+  assert.equal(document.getElementById("ghBlocked")!.classList.contains("hidden"), false, "no-repo blocks the view");
+  assert.equal(document.getElementById("ghBlockedP")!.textContent, "This folder has no git history yet.", "shows the localized gh_no_repo_p, not the host's English note");
 });
 
 test("git_history empty states: no repo blocks the body; empty repo shows no-commits; clean tree shows clean", async () => {

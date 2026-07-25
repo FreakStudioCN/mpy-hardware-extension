@@ -143,9 +143,10 @@ export async function gitBranch(projectFolder: string): Promise<string> {
 export type GitLogEntry = { hash: string; shortHash: string; author: string; date: string; subject: string };
 export type GitFileChange = { status: string; path: string };
 
-// Unit separator between fields, record separator between commits — control bytes that cannot
-// occur in a hash, author name, ISO-8601 date, or a git subject line, so parsing never splits
-// on real content. git emits them via the %x1f/%x1e format escapes.
+// Unit separator between fields, record separator between commits — control bytes that cannot occur
+// in a hash or ISO-8601 date. A deliberately crafted commit subject/author COULD embed them (git
+// bans only NUL/newline), which would split into a garbage extra row — display-only, and a clicked
+// garbage hash fails isValidCommitHash, so it's harmless. git emits them via %x1f/%x1e.
 const GIT_LOG_FIELD_SEP = "\x1f";
 const GIT_LOG_RECORD_SEP = "\x1e";
 const GIT_LOG_FORMAT = "%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1e";

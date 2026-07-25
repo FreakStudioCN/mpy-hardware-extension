@@ -675,13 +675,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
 
   // Read-only Git History (§3.6.3). Assembles the timeline + uncommitted view for the panel.
   // NOT gated on isRunning() (Save Version gates because it mutates; history is read-only, so a
-  // mid-run open shows the worktree truth of that moment). Never git-inits: no repo -> the panel
-  // gets repoPresent:false and falls back to the session-snapshot list (spec :343).
+  // mid-run open shows the worktree truth of that moment). Never git-inits: no repo -> repoPresent:
+  // false and the panel shows a localized not-a-repo note, never a git-init prompt (spec :343).
   async function computeGitHistoryData(): Promise<void> {
     if (!projectFolder && !sessionRoot) { webview.postMessage({ type: "git_history_status", status: GIT_HISTORY_STATUS.workspaceUnavailable }); return; }
     const repoPresent = !!projectFolder && isGitRepo(projectFolder);
     if (!repoPresent || !projectFolder) {
-      webview.postMessage({ type: "git_history_data", repoPresent: false, branch: "", commits: [], commitTotal: 0, uncommitted: { files: [], fileTotal: 0 }, note: "Not a git repo — showing saved session snapshots instead." });
+      webview.postMessage({ type: "git_history_data", repoPresent: false, branch: "", commits: [], commitTotal: 0, uncommitted: { files: [], fileTotal: 0 }, note: "" });
       return;
     }
     try {
