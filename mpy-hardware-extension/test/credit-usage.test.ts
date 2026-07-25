@@ -172,3 +172,13 @@ test("the diagnostics line prefers the authoritative charge over the balance del
   assert.equal(text, "upy-generate-plugin/generate credits=4");
   assert.equal(formatCreditUsage([]), "");
 });
+
+test("the diagnostics line omits the cost it does not know instead of printing 0", () => {
+  // A session's first turn has no balance baseline to diff and no server charge yet.
+  // Mutation: default it to 0 -> a support report reads a free turn where the number is
+  // simply missing, and the Activity line (which skips it) would disagree with the export.
+  const text = formatCreditUsage([buildCreditUsage({ operation: "phase", phase: "analyze", remaining_quota: 49 })]);
+
+  assert.equal(text, "analyze/phase remaining=49");
+  assert.equal(text.includes("credits="), false);
+});

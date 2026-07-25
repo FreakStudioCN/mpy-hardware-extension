@@ -351,3 +351,23 @@ test("cloud telemetry recorder emits a telemetry_dropped histogram on flush", as
   assert.ok(dropped, "a telemetry_dropped event is posted on flush");
   assert.deepEqual(dropped.payload.dropped, { assistant_text: 2 });
 });
+
+test("credit_usage records land in the session JSONL the log export ships", async () => {
+  // Card #87 evidence: the exported session log is the end-to-end per-phase credit trace.
+  // The export copies this file verbatim, so recording the line here is what puts it in the
+  // export. Mutation: stop recording credit_usage -> the exported log has no cost trace.
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-credit-"));
+  const recorder = new JsonlSessionRecorder({ workspaceFolder: root, traceId: "trace-credit" });
+
+  await recorder.record({ type: "credit_usage", usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 3, remaining_quota: 46, device_count: 2 } });
+  await recorder.flush();
+
+  const text = await readFile(join(root, ".mpyhw", "sessions", "trace-credit", "session.jsonl"), "utf-8");
+  const line = JSON.parse(text.trim().split("\n")[0]);
+  assert.equal(line.type, "credit_usage");
+  assert.equal(line.usage.operation, "generate");
+  assert.equal(line.usage.credits_consumed, 3);
+  assert.equal(line.usage.remaining_quota, 46);
+  assert.equal(line.usage.device_count, 2);
+  assert.ok(line.ts && line.traceId === "trace-credit", "stamped like every other session line");
+});

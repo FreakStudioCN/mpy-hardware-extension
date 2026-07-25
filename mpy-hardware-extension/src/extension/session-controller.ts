@@ -8,7 +8,7 @@ import { deriveWiring } from "../core/wiring-derive.ts";
 import { deriveDiagram } from "../core/diagram-derive.ts";
 import { deriveDriverStatus, detectDriverReadyBlock, GEN_DRIVER_DOMAIN_PHASE, type DriverReadyBlockEntry } from "../core/gen-driver-schema.ts";
 import { WIRING_PHASE, DIAGRAM_PHASE } from "../core/optional-flow-schema.ts";
-import { buildCreditUsage, deriveCreditOperation, type CreditUsageRecord } from "../core/credit-usage.ts";
+import { buildCreditUsage, deriveCreditOperation, formatCreditUsage, type CreditUsageRecord } from "../core/credit-usage.ts";
 import { PHASE_ALIASES } from "../core/protocol-loop.ts";
 
 export class SessionController {
@@ -1047,6 +1047,9 @@ export class SessionController {
       // Keep the NEWEST STDOUT_SUMMARY_MAX chars (slice(-n)), not the oldest: for a crash
       // diagnostic the traceback/error is at the end, and slice(0, n) would drop exactly that.
       stdout_stderr_summary: this.stdoutTail.join(" | ").slice(-SessionController.STDOUT_SUMMARY_MAX),
+      // Per-phase cost and the balance left after each phase, from the SAME records the
+      // JSONL log and the Activity line carry — one source of truth for every surface.
+      credit_usage: formatCreditUsage(this.creditUsage),
     };
   }
 

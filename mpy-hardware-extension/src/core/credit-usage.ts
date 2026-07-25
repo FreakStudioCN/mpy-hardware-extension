@@ -151,7 +151,12 @@ export function deriveCreditOperation(
 export function formatCreditUsage(records: readonly CreditUsageRecord[]): string {
   return records
     .map((r) => {
-      const parts = [`${r.phase ?? "-"}/${r.operation}`, `credits=${r.charged ?? r.credits_consumed ?? 0}`];
+      const parts = [`${r.phase ?? "-"}/${r.operation}`];
+      // Omitted, never printed as 0, when the cost isn't known yet (a session's first turn has
+      // no balance baseline to diff and no server charge): a support report must not read a
+      // free turn where the real number is simply missing.
+      const spent = r.charged ?? r.credits_consumed;
+      if (spent !== undefined) parts.push(`credits=${spent}`);
       if (r.remaining_quota !== undefined) parts.push(`remaining=${r.remaining_quota}`);
       return parts.join(" ");
     })

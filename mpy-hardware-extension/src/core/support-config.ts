@@ -54,12 +54,15 @@ export const SUPPORT_DIAGNOSTICS_FIELDS = [
   "serial_port",
   "last_command",
   "stdout_stderr_summary",
+  // Per-phase credit consumption + the remaining quota after each phase (card #87), so a
+  // support report answers "what did this build cost, and where" without a cloud lookup.
+  "credit_usage",
 ] as const;
 export type SupportDiagnosticsField = (typeof SUPPORT_DIAGNOSTICS_FIELDS)[number];
 
 // Assemble the diagnostics snapshot from a merged field bag (session + host values):
 // every declared field in canonical order, any missing value as "", plus the joined
-// text form for one-click copy. Keeps the 17-field contract and its ordering in one
+// text form for one-click copy. Keeps the 18-field contract and its ordering in one
 // place — callers can only over-supply; unknown keys are dropped, absent keys are blank.
 export function buildDiagnosticsFields(merged: Record<string, string>): { text: string; fields: Record<string, string> } {
   const fields: Record<string, string> = {};

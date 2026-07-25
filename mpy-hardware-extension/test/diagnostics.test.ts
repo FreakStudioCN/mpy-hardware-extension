@@ -13,7 +13,7 @@ test("buildDiagnosticsFields emits every declared field in order, fills gaps, dr
     os: "darwin arm64",
     toolchain_version: "1", // stray legacy key: must NOT appear (the old key mismatch)
   });
-  // all 17 keys, in canonical order
+  // all 18 keys, in canonical order
   assert.deepEqual(Object.keys(fields), [...SUPPORT_DIAGNOSTICS_FIELDS]);
   assert.equal(fields.plugin_version, "1");
   assert.equal(fields.os, "darwin arm64");
@@ -78,4 +78,30 @@ test("SessionController.getDiagnostics records a session error in key_errors", a
   });
   await controller.start({ intent: "x", boardId: "pico" });
   assert.match(controller.getDiagnostics().key_errors, /session_error: boom/);
+});
+
+test("the diagnostics export carries per-phase credit usage and the remaining quota", async () => {
+  // Card #87 acceptance: an exported diagnostics snapshot must show per-phase credit usage
+  // and remaining-quota changes. Mutation: drop credit_usage from getDiagnostics() ->
+  // the field is blank and a support report cannot answer what the build cost.
+  const controller = new SessionController({ postMessage: () => {}, loop: async () => ({ terminal: "session_done" }) });
+  controller.postEvent({ type: "phase_start", phase: "analyze" });
+  controller.postEvent({ type: "credits", remaining: 49, dailyGrant: 50 });
+  controller.postEvent({ type: "phase_start", phase: "generate" });
+  controller.postEvent({ type: "credits", remaining: 46, dailyGrant: 50 });
+
+  const d = controller.getDiagnostics();
+  assert.equal(d.credit_usage, "analyze/phase remaining=49; upy-generate-plugin/generate credits=3 remaining=46");
+  // And it lands in the assembled snapshot, in the declared order, like every other field.
+  const { fields, text } = buildDiagnosticsFields(d);
+  assert.equal(fields.credit_usage, d.credit_usage);
+  assert.equal(Object.keys(fields).at(-1), "credit_usage");
+  assert.ok(text.includes("credit_usage: analyze/phase"), "the copyable text carries it too");
+});
+
+test("a session with no metered turn exports a blank credit_usage, not a fake zero", async () => {
+  const controller = new SessionController({ postMessage: () => {}, loop: async () => ({ terminal: "session_done" }) });
+  controller.postEvent({ type: "phase_start", phase: "analyze" });
+
+  assert.equal(controller.getDiagnostics().credit_usage, "");
 });
