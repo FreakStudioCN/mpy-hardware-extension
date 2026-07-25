@@ -3635,3 +3635,89 @@ test("package browser: MicroPython-lib searches by name; GitHub is not a search 
   const sourceValues = [...(document.getElementById("dtPkgSource") as HTMLSelectElement).options].map((o) => o.value);
   assert.deepEqual(sourceValues, ["auto", "micropython_lib", "upypi"], "selector has no github option");
 });
+
+test("a credits event renders a per-phase credit line in the Activity feed", async () => {
+  // Card #87: the feed must show what each phase cost, off the SAME session_event the quota
+  // bar reads. Mutation: render from a separate message -> two sources of truth for one number.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  post(dom, {
+    type: "session_event",
+    event: {
+      kind: "credits",
+      balance: 46,
+      dailyGrant: 50,
+      usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 3, remaining_quota: 46 },
+    },
+  });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("generate: 3 credits used, 46 left"), `credit line missing from the feed: ${feed}`);
+  // The quota bar moved off the very same event.
+  assert.equal(document.getElementById("qUsed")!.textContent, "46", "the bar and the line agree");
+  // A note card, not a text-classified one, so its wording can't fold it into the thinking stream.
+  assert.ok(document.querySelector(".ev-ico.note"), "the credit line is its own note card");
+});
+
+test("the credit line keeps the working spinner armed while the build runs", async () => {
+  // addActivity() clears the pending spinner; a mid-build annotation must re-arm it or the
+  // feed goes silent for the rest of the phase. Mutation: drop the re-arm -> no .feed-pending.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.ok(document.querySelector(".feed-pending"), "the working spinner is armed while running");
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", credits_consumed: 3, remaining_quota: 46 } } });
+
+  assert.ok(document.querySelector(".feed-pending"), "the working spinner survives the credit line");
+});
+
+test("the authoritative server charge wins over the balance delta in the feed", async () => {
+  // Once the server reports what it actually deducted, that is the number the user sees.
+  // Mutation: read credits_consumed first -> the feed shows the estimate, not the real charge.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 42, dailyGrant: 50, usage: { operation: "generate", credits_consumed: 1, charged: 4, remaining_quota: 42 } } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("generate: 4 credits used, 42 left"), `expected the authoritative charge: ${feed}`);
+});
+
+test("a credits event with no usage (or unknown cost) renders no credit line", async () => {
+  // The first turn of a session has no balance baseline and no server charge yet; a "0 credits"
+  // line would be a lie. Mutation: default spent to 0 -> a bogus line appears.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 49, dailyGrant: 50 } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 49, dailyGrant: 50, usage: { operation: "phase", remaining_quota: 49 } } });
+
+  assert.equal(document.querySelector(".ev-ico.note"), null, "no credit line without a known cost");
+  assert.equal(document.getElementById("qUsed")!.textContent, "49", "the quota bar still updates");
+});
+
+test("the credit line is localized (zh)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Flip the UI language the same way a real session does: submit a Chinese intent.
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "用 OLED 显示温度";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", credits_consumed: 3, remaining_quota: 46 } } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("消耗 3 点，剩余 46"), `expected the zh credit line: ${feed}`);
+});

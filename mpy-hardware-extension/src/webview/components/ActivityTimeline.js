@@ -250,6 +250,20 @@
         $("activity").appendChild(card);
       }
 
+      // Per-phase credit line (card #87). Rendered from the SAME session_event the quota bar
+      // consumes, so the feed and the bar can never disagree about what a turn cost. A "note"
+      // card, not a text-classified one: it is an annotation on the build, and its wording
+      // must not decide whether it coalesces into the open thinking stream.
+      // Skipped when the cost is not yet known (the first turn of a session has no balance
+      // baseline to diff against and no server charge yet) — a "0 credits" line would be a lie.
+      function addCreditUsage(usage, balance) {
+        if (!usage) return;
+        const spent = usage.charged != null ? usage.charged : usage.credits_consumed;
+        if (spent == null) return;
+        const remaining = usage.remaining_quota != null ? usage.remaining_quota : balance;
+        addActivity({ text: tr("credit_line", { o: usage.operation, c: spent, r: remaining }) }, "note");
+      }
+
       // Fallback-save notice: no workspace was open, so the project went to the
       // extension's globalStorage dir. Show where, with a button that asks the host
       // to reveal it in the OS file manager (button → host action, like the doctor).

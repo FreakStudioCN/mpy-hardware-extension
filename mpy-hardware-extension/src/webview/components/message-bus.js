@@ -36,6 +36,11 @@
         if (msg.type === "micropython_boards") { loadOfficialBoards(msg); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
           setCredits(msg.event.balance, msg.event.dailyGrant);
+          // The per-phase credit line comes off this same event — one source of truth for the
+          // bar and the feed. Like a supplement line it is an annotation, not a step, and
+          // addActivity() clears the working spinner, so re-arm it while the build runs.
+          addCreditUsage(msg.event.usage, msg.event.balance);
+          if (running && pendingLabel) setPending(pendingLabel);
         }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "saved_location") {
           addSavedLocation(msg.event.path);
