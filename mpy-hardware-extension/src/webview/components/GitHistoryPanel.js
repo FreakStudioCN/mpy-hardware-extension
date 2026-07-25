@@ -9,6 +9,8 @@
       var GH_DIFF_LINE_MAX = 2000;   // cap a huge patch so it can't lock the webview; show "+N more"
       var ghCommitFileHosts = {};    // hash -> the <div> holding that commit's file rows (lazy fill)
       var ghCommitLoaded = {};       // hash -> true once its file list has been fetched
+      var ghActiveFileRow = null;    // the file row whose diff is currently shown (for the active highlight)
+      var ghActiveDiffKey = null;    // "<hash>\0<path>" of the shown diff, so a re-click toggles it closed
 
       function ghStatusMsg(text) { const n = $("ghStatus"); if (n) n.textContent = text || ""; }
       function ghBlock(heading, sub) {
@@ -26,7 +28,7 @@
       // Opened from the global-tools bar: reset the render and ask the host for the timeline.
       function ghOnOpen() {
         ghCommitFileHosts = {}; ghCommitLoaded = {};
-        const diff = $("ghDiffWrap"); if (diff) diff.classList.add("hidden");
+        ghCloseDiff();
         ghBlock(tr("gh_loading"), "");
         vscode.postMessage({ type: "git_history_open" });
       }
@@ -43,7 +45,7 @@
         badge.textContent = status || "•";
         const name = document.createElement("span"); name.className = "ask-file-path"; name.textContent = path == null ? "" : String(path);
         row.appendChild(badge); row.appendChild(name);
-        if (onClick) { row.classList.add("gh-clickable"); row.addEventListener("click", onClick); }
+        if (onClick) { row.classList.add("gh-clickable"); row.addEventListener("click", () => onClick(row)); }
         return row;
       }
 
@@ -56,12 +58,15 @@
         const total = (d && d.uncommitted && typeof d.uncommitted.fileTotal === "number") ? d.uncommitted.fileTotal : files.length;
         const clean = $("ghClean"); if (clean) clean.classList.toggle("hidden", total > 0);
         host.classList.toggle("hidden", total === 0);
+        ghSetCount("ghUncommittedCount", total);
         for (const f of files) {
           const untracked = f && f.badge === "U";
-          host.appendChild(ghFileRow(f && f.badge, f && f.name, untracked ? null : () => ghRequestDiff(undefined, f && f.name)));
+          host.appendChild(ghFileRow(f && f.badge, f && f.name, untracked ? null : (row) => ghRequestDiff(undefined, f && f.name, row)));
         }
         ghAppendMore(host, total, files.length);
       }
+      // SCM-style group-header count, e.g. "Commits (12)". Hidden when zero.
+      function ghSetCount(id, n) { const el = $(id); if (el) el.textContent = n > 0 ? "(" + n + ")" : ""; }
       function ghAppendMore(host, total, shown) {
         if (total > shown) { const more = document.createElement("div"); more.className = "sv-art-more"; more.textContent = tr("sv_artifacts_more", { n: String(total - shown) }); host.appendChild(more); }
       }
@@ -78,35 +83,47 @@
         const total = (d && typeof d.commitTotal === "number") ? d.commitTotal : commits.length;
         const none = $("ghNoCommits"); if (none) none.classList.toggle("hidden", total > 0);
         host.classList.toggle("hidden", total === 0);
+        ghSetCount("ghCommitsCount", total);
         for (const c of commits) host.appendChild(ghCommitRow(c));
       }
+      // A GitHub/GitLens-style graph row: a colored dot on a connecting rail, then the commit
+      // SUBJECT only (truncated to one line). Collapsed shows nothing but the message; expanding
+      // reveals the full (wrapped) message, the hash/author/date, the phase association, and the
+      // file list. All host/git strings via textContent, never innerHTML.
       function ghCommitRow(c) {
         const hash = (c && c.hash) ? String(c.hash) : "";
         const wrap = document.createElement("div"); wrap.className = "gh-commit";
+        // Dot + connecting line are decorative overlays (pointer-events:none in CSS) so a click
+        // anywhere on the row -- dot included -- hits the one clickable header line beneath them.
+        const dot = document.createElement("span"); dot.className = "gh-dot"; wrap.appendChild(dot);
         const head = document.createElement("div"); head.className = "gh-commit-head gh-clickable";
-        const subject = document.createElement("span"); subject.className = "gh-commit-subject"; subject.textContent = (c && c.subject) || "";
-        const meta = document.createElement("span"); meta.className = "gh-commit-meta";
+        const subject = document.createElement("div"); subject.className = "gh-commit-subject"; subject.textContent = (c && c.subject) || "";
+        head.appendChild(subject);
+        // Everything below the message is detail: hidden until the row is expanded.
+        const detail = document.createElement("div"); detail.className = "gh-commit-detail";
+        const meta = document.createElement("div"); meta.className = "gh-commit-meta";
         meta.textContent = [(c && c.shortHash) || "", (c && c.author) || "", ghShortDate(c && c.date)].filter(Boolean).join("  ·  ");
-        head.appendChild(subject); head.appendChild(meta);
-        // Phase/artifact association from the session snapshot saved at this commit (latest-save-only).
+        detail.appendChild(meta);
         const assoc = c && c.snapshot;
         if (assoc) {
           const parts = [];
           if (assoc.phase) parts.push(tr("gh_assoc_phase", { p: String(assoc.phase) }));
           if (typeof assoc.artifact_total === "number" && assoc.artifact_total > 0) parts.push(tr("gh_assoc_artifacts", { n: String(assoc.artifact_total) }));
-          if (parts.length) { const chip = document.createElement("span"); chip.className = "gh-commit-assoc"; chip.textContent = parts.join("  ·  "); head.appendChild(chip); }
+          if (parts.length) { const chip = document.createElement("div"); chip.className = "gh-commit-assoc"; chip.textContent = parts.join("  ·  "); detail.appendChild(chip); }
         }
-        const files = document.createElement("div"); files.className = "gh-commit-files hidden";
+        const files = document.createElement("div"); files.className = "gh-commit-files";
+        detail.appendChild(files);
         ghCommitFileHosts[hash] = files;
-        head.addEventListener("click", () => ghToggleCommit(hash, files));
-        wrap.appendChild(head); wrap.appendChild(files);
+        head.addEventListener("click", () => ghToggleCommit(hash, head));
+        wrap.appendChild(head); wrap.appendChild(detail);
         return wrap;
       }
-      function ghToggleCommit(hash, filesEl) {
-        const willShow = filesEl.classList.contains("hidden");
-        filesEl.classList.toggle("hidden", !willShow);
+      function ghToggleCommit(hash, head) {
+        const willShow = !head.classList.contains("expanded");
+        head.classList.toggle("expanded", willShow); // CSS reveals the detail block + unwraps the subject
         if (willShow && !ghCommitLoaded[hash]) {
-          filesEl.textContent = tr("gh_loading");
+          const filesEl = ghCommitFileHosts[hash];
+          if (filesEl) filesEl.textContent = tr("gh_loading");
           vscode.postMessage({ type: "git_history_commit", hash });
         }
       }
@@ -117,19 +134,32 @@
         host.innerHTML = "";
         const files = (m && Array.isArray(m.files)) ? m.files : [];
         if (!files.length) { host.textContent = tr("gh_no_files"); return; }
-        for (const f of files) host.appendChild(ghFileRow(f && f.status, f && f.path, () => ghRequestDiff(hash, f && f.path)));
+        for (const f of files) host.appendChild(ghFileRow(f && f.status, f && f.path, (row) => ghRequestDiff(hash, f && f.path, row)));
       }
 
       // Ask the host for one file's patch. hash present => that commit's diff; absent => the
-      // uncommitted working-tree diff (git_history_diff with no hash).
-      function ghRequestDiff(hash, path) {
+      // uncommitted working-tree diff (git_history_diff with no hash). Marks the clicked row active;
+      // re-clicking the SAME file toggles the diff closed (`row` is the clicked file element).
+      function ghRequestDiff(hash, path, row) {
         if (!path) return;
+        const key = (hash || "") + " " + String(path);
+        if (ghActiveDiffKey === key) { ghCloseDiff(); return; } // same file again -> close
+        ghActiveDiffKey = key;
+        if (ghActiveFileRow) ghActiveFileRow.classList.remove("gh-file-active");
+        ghActiveFileRow = row || null;
+        if (ghActiveFileRow) ghActiveFileRow.classList.add("gh-file-active");
         const wrap = $("ghDiffWrap"); if (wrap) wrap.classList.remove("hidden");
         const head = $("ghDiffHead"); if (head) head.textContent = (hash ? String(hash).slice(0, 8) : tr("gh_working")) + "  " + String(path);
         const body = $("ghDiff"); if (body) body.textContent = tr("gh_loading");
         const msg = { type: "git_history_diff", path: String(path) };
         if (hash) msg.hash = hash;
         vscode.postMessage(msg);
+      }
+      // Hide the diff viewer and clear the active-file highlight.
+      function ghCloseDiff() {
+        const wrap = $("ghDiffWrap"); if (wrap) wrap.classList.add("hidden");
+        if (ghActiveFileRow) ghActiveFileRow.classList.remove("gh-file-active");
+        ghActiveFileRow = null; ghActiveDiffKey = null;
       }
 
       // WI-5 diff renderer: classify each patch line by its leading char, one div per line via
@@ -173,7 +203,7 @@
         if (!d.repoPresent) { ghBlock(tr("gh_no_repo_h"), d.note || tr("gh_no_repo_p")); return; }
         ghUnblock();
         ghStatusMsg("");
-        const diff = $("ghDiffWrap"); if (diff) diff.classList.add("hidden");
+        ghCloseDiff(); // rows are about to be re-rendered — drop any stale active-row reference
         ghRenderSummary(d);
         ghRenderUncommitted(d);
         ghRenderCommits(d);

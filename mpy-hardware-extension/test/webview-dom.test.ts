@@ -4046,13 +4046,24 @@ test("git_history: clicking a commit posts git_history_commit; commit_data yield
   const hash = "c".repeat(40);
   (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
   post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 1, commits: [{ hash, shortHash: "ccccccc", author: "T", date: "2026-07-24T10:00:00Z", subject: "only" }], uncommitted: { files: [], fileTotal: 0 }, note: "" });
-  (document.querySelector("#ghCommits .gh-commit-head") as HTMLElement).click();
+  assert.ok(document.querySelector("#ghCommits .gh-commit > .gh-dot"), "each commit row has a graph dot on the rail");
+  assert.ok(document.querySelector("#ghCommits .gh-commit-detail"), "detail block exists (CSS-hidden until expand)");
+  const commitHead = document.querySelector("#ghCommits .gh-commit-head") as HTMLElement;
+  commitHead.click();
+  assert.ok(commitHead.classList.contains("expanded"), "clicking the row expands it (reveals detail + unwraps the message)");
   assert.ok(posted.some((m) => m.type === "git_history_commit" && m.hash === hash), "expanding a commit requests its files with that exact hash");
   post(dom, { type: "git_history_commit_data", hash, files: [{ status: "M", path: "main.py" }, { status: "A", path: "new.py" }] });
   const fileRows = document.querySelectorAll("#ghCommits .gh-commit-files .gh-file");
   assert.equal(fileRows.length, 2, "file rows rendered under the commit");
   (fileRows[0] as HTMLElement).click();
   assert.ok(posted.some((m) => m.type === "git_history_diff" && m.hash === hash && m.path === "main.py"), "a file click requests its diff with hash + path");
+  // The clicked file is marked active and the diff viewer is revealed.
+  assert.ok((fileRows[0] as HTMLElement).classList.contains("gh-file-active"), "the shown file gets the active highlight");
+  assert.equal(document.getElementById("ghDiffWrap")!.classList.contains("hidden"), false, "the diff viewer is shown");
+  // Re-clicking the SAME file toggles the diff closed and drops the active highlight.
+  (fileRows[0] as HTMLElement).click();
+  assert.equal(document.getElementById("ghDiffWrap")!.classList.contains("hidden"), true, "re-clicking the same file hides the diff");
+  assert.ok(!(fileRows[0] as HTMLElement).classList.contains("gh-file-active"), "the active highlight is cleared on close");
 });
 
 test("git_history_diff_data renders line-classed diff (add/del/hunk), XSS-inert", async () => {

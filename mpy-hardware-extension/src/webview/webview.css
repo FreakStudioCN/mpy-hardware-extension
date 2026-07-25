@@ -342,18 +342,38 @@
 
       /* Git History (#94): read-only timeline + per-file diff renderer. Badge colors reuse the
          shared .ask-file-badge-* classes; only the layout + diff-line coloring is new here. */
-      .gh-summary { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); margin: 2px 0 8px; }
-      .gh-section { margin-bottom: 12px; }
-      .gh-sec-title { font-size: 11px; font-weight: 650; color: var(--fg-bright); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+      .gh-summary { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); margin: 2px 0 10px; }
+      .gh-section { margin-bottom: 14px; }
+      .gh-sec-title { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; padding: 0 2px; }
+      .gh-sec-count { font-weight: 600; color: var(--fg-dim); }
       .gh-clickable { cursor: pointer; }
+      .gh-file { padding: 2px 6px; border-radius: 4px; }
       .gh-file.gh-clickable:hover { background: var(--vsc-hover); }
-      .gh-commit { border: 1px solid var(--vsc-border); border-radius: 5px; margin-bottom: 4px; overflow: hidden; }
-      .gh-commit-head { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
+      /* The file whose diff is currently shown: persistent highlight + an accent bar, distinct from hover. */
+      .gh-file.gh-file-active { background: var(--vsc-hover); box-shadow: inset 2px 0 0 var(--accent); }
+      /* GitHub/GitLens-style commit graph: a colored dot on a connecting rail, then the message.
+         Collapsed shows only the (truncated) subject; expanding unwraps the full message and reveals
+         the hash/author/date, association, and files. */
+      /* Single-lane rail: history is linear (git log, no --graph/branch topology), so ONE color for
+         both dot and line is the honest rendering -- per-commit colors would imply branches that
+         don't exist. Rail is decorative overlay (pointer-events:none) so the whole row -- dot area
+         included -- is one clickable/hover line via the padded header beneath. Dot left:4 width:10
+         => center x=9; line left:8 width:2 => center x=9: dead-centered under the dots. Dot top:6
+         height:10 => center y=11, aligned to the 12px message line's vertical centre. */
+      .gh-commit { position: relative; }
+      .gh-commit::before { content: ""; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
+      .gh-commit:first-child::before { top: 11px; }                    /* newest: rail only below the dot */
+      .gh-commit:last-child::before { bottom: auto; height: 11px; }    /* oldest: rail only above the dot */
+      .gh-dot { position: absolute; left: 4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--vsc-sidebar); pointer-events: none; }
+      .gh-commit-head { padding: 3px 6px 3px 20px; border-radius: 4px; }  /* left pad clears the rail; the box still spans it so the dot area is clickable + hovers */
       .gh-commit-head:hover { background: var(--vsc-hover); }
-      .gh-commit-subject { font-size: 12px; color: var(--fg); }
-      .gh-commit-meta { font-family: var(--mono); font-size: 10.5px; color: var(--fg-muted); }
-      .gh-commit-assoc { font-size: 10.5px; color: var(--accent); }
-      .gh-commit-files { padding: 2px 8px 6px; border-top: 1px solid var(--vsc-border); }
+      .gh-commit-subject { font-size: 12px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gh-commit-head.expanded .gh-commit-subject { white-space: pre-wrap; overflow: visible; text-overflow: clip; font-weight: 600; }
+      .gh-commit-detail { display: none; padding: 3px 6px 6px 20px; }
+      .gh-commit-head.expanded + .gh-commit-detail { display: block; }
+      .gh-commit-meta { font-family: var(--mono); font-size: 10.5px; color: var(--fg-muted); margin-bottom: 5px; }
+      .gh-commit-assoc { font-size: 10.5px; color: var(--accent); margin-bottom: 5px; }
+      .gh-commit-files { padding-left: 6px; border-left: 1px solid var(--vsc-border); }
       .gh-diff-wrap { margin-top: 10px; border: 1px solid var(--vsc-border); border-radius: 5px; overflow: hidden; }
       .gh-diff-head { font-family: var(--mono); font-size: 11px; color: var(--fg-bright); background: var(--vsc-hover); padding: 5px 8px; word-break: break-all; }
       .gh-diff { font-family: var(--mono); font-size: 11.5px; line-height: 16px; overflow-x: auto; padding: 4px 0; }
