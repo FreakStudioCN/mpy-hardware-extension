@@ -308,7 +308,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     ? (traceId: string) => {
       const recorders = [];
       if (sessionRoot) recorders.push(new JsonlSessionRecorder({ workspaceFolder: sessionRoot, traceId }));
-      if (vscode.authentication) recorders.push(new CloudTelemetryRecorder({ traceId, apiBaseUrl, fetchImpl, getAuthToken: () => auth.getToken(false), log: deps.log, clientMeta: { extension_version: deps.extensionVersion, vscode_version: vscode.version, platform: `${process.platform} ${process.arch}` }, outboxPath: sessionRoot ? join(sessionRoot, ".mpyhw", "telemetry-outbox.jsonl") : undefined }));
+      // The local JSONL recorder is UNCONDITIONAL (it is the user's own diagnostics file);
+      // only the cloud recorder is consent-gated, and it reads the setting live per event
+      // so a mid-session opt-out stops the next post.
+      if (vscode.authentication) recorders.push(new CloudTelemetryRecorder({ traceId, apiBaseUrl, fetchImpl, getAuthToken: () => auth.getToken(false), log: deps.log, clientMeta: { extension_version: deps.extensionVersion, vscode_version: vscode.version, platform: `${process.platform} ${process.arch}` }, outboxPath: sessionRoot ? join(sessionRoot, ".mpyhw", "telemetry-outbox.jsonl") : undefined, isTelemetryEnabled: () => vscode.env?.isTelemetryEnabled !== false }));
       return recorders.length === 1 ? recorders[0] : new CompositeSessionRecorder(recorders);
     }
     : undefined;

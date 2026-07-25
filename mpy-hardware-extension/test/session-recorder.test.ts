@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -370,4 +370,123 @@ test("credit_usage records land in the session JSONL the log export ships", asyn
   assert.equal(line.usage.remaining_quota, 46);
   assert.equal(line.usage.device_count, 2);
   assert.ok(line.ts && line.traceId === "trace-credit", "stamped like every other session line");
+});
+
+// ---- telemetry consent gate (card #87 slice B) ----
+
+const creditsEvent = {
+  type: "session_event",
+  event: { kind: "credits", balance: 46, dailyGrant: 50, resetsAt: "2026-07-26T00:00:00Z", usage: { operation: "generate", phase: "upy-generate-plugin", device_count: 2, credits_consumed: 3, remaining_quota: 46 } },
+};
+
+test("consent off: nothing is POSTed and nothing is buffered, but the local JSONL still records", async () => {
+  // The gate is at the HOST cloud recorder — the one place every outbound path funnels
+  // through. Local diagnostics are the user's own data and stay unconditional. Mutation:
+  // gate the JSONL recorder too -> the local session log goes empty for an opted-out user.
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-consent-"));
+  const requests: any[] = [];
+  const outboxPath = join(root, ".mpyhw", "telemetry-outbox.jsonl");
+  const recorder = new CompositeSessionRecorder([
+    new JsonlSessionRecorder({ workspaceFolder: root, traceId: "trace-off" }),
+    new CloudTelemetryRecorder({
+      traceId: "trace-off",
+      apiBaseUrl: "http://api.test",
+      fetchImpl: async (url: string, init?: RequestInit) => { requests.push({ url, init }); return { ok: true, status: 204 } as Response; },
+      outboxPath,
+      isTelemetryEnabled: () => false,
+    }),
+  ]);
+
+  await recorder.record(creditsEvent);
+  await recorder.record({ type: "session_finished", terminal: "complete" });
+  await recorder.flush();
+
+  assert.equal(requests.length, 0, "consent off must produce zero POSTs");
+  await assert.rejects(readFile(outboxPath, "utf-8"), /ENOENT/, "and nothing durably queued for a later post");
+  const local = await readFile(join(root, ".mpyhw", "sessions", "trace-off", "session.jsonl"), "utf-8");
+  assert.equal(local.trim().split("\n").length, 2, "the local JSONL recorded both events");
+  assert.ok(local.includes("upy-generate-plugin"), "including the credit usage");
+});
+
+test("consent on: the POST body carries the enriched credit payload", async () => {
+  const requests: any[] = [];
+  const recorder = new CloudTelemetryRecorder({
+    traceId: "trace-on",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (url: string, init?: RequestInit) => { requests.push({ url, init }); return { ok: true, status: 204 } as Response; },
+    isTelemetryEnabled: () => true,
+  });
+
+  await recorder.record(creditsEvent);
+  await recorder.flush();
+
+  assert.equal(requests.length, 1);
+  const posted = JSON.parse(String(requests[0].init.body)).events[0];
+  assert.equal(posted.event_type, "credits_charged");
+  assert.equal(posted.payload.balance, 46);
+  assert.equal(posted.payload.operation, "generate");
+  assert.equal(posted.payload.phase, "upy-generate-plugin");
+  assert.equal(posted.payload.device_count, 2);
+  assert.equal(posted.payload.credits_consumed, 3);
+});
+
+test("consent is read live: revoking it mid-session stops the very next event", async () => {
+  // Mutation: capture the flag once in the constructor -> the opt-out only takes effect on
+  // the next session, and the rest of the running build is still uploaded.
+  const requests: any[] = [];
+  let enabled = true;
+  const recorder = new CloudTelemetryRecorder({
+    traceId: "trace-flip",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (url: string, init?: RequestInit) => { requests.push({ url, init }); return { ok: true, status: 204 } as Response; },
+    isTelemetryEnabled: () => enabled,
+  });
+
+  await recorder.record(creditsEvent);
+  await recorder.flush();
+  assert.equal(requests.length, 1, "posted while consent was on");
+
+  enabled = false;
+  await recorder.record({ type: "session_finished", terminal: "complete" });
+  await recorder.flush();
+
+  assert.equal(requests.length, 1, "no further posts after the opt-out");
+});
+
+test("a backlog buffered while consent was on is not replayed after it is revoked", async () => {
+  // Otherwise opting out would still leak the queue on the next start. The events stay on
+  // disk (the user's own file) and drain only if consent returns.
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-consent-drain-"));
+  const outboxPath = join(root, ".mpyhw", "telemetry-outbox.jsonl");
+  await mkdir(join(root, ".mpyhw"), { recursive: true });
+  await writeFile(outboxPath, `${JSON.stringify({ trace_id: "old", event_type: "credits_charged", payload: { balance: 1 } })}\n`, "utf-8");
+
+  const requests: any[] = [];
+  let enabled = false;
+  const fetchImpl = async (url: string, init?: RequestInit) => { requests.push({ url, init }); return { ok: true, status: 204 } as Response; };
+
+  const blocked = new CloudTelemetryRecorder({ traceId: "t1", apiBaseUrl: "http://api.test", fetchImpl, outboxPath, isTelemetryEnabled: () => enabled });
+  await blocked.flush();
+  assert.equal(requests.length, 0, "the backlog is not drained while consent is off");
+  assert.ok((await readFile(outboxPath, "utf-8")).includes("credits_charged"), "and it is not discarded either");
+
+  enabled = true;
+  const allowed = new CloudTelemetryRecorder({ traceId: "t2", apiBaseUrl: "http://api.test", fetchImpl, outboxPath, isTelemetryEnabled: () => enabled });
+  await allowed.flush();
+  assert.equal(requests.length, 1, "consent back on drains the kept backlog");
+});
+
+test("with no consent probe at all the recorder behaves exactly as before", async () => {
+  // Headless / test callers pass no probe; they must not be silenced by the new gate.
+  const requests: any[] = [];
+  const recorder = new CloudTelemetryRecorder({
+    traceId: "trace-none",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (url: string, init?: RequestInit) => { requests.push({ url, init }); return { ok: true, status: 204 } as Response; },
+  });
+
+  await recorder.record(creditsEvent);
+  await recorder.flush();
+
+  assert.equal(requests.length, 1);
 });

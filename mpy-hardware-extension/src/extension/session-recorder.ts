@@ -77,6 +77,10 @@ export class CloudTelemetryRecorder implements SessionRecorder {
   private readonly log?: (message: string) => void;
   private readonly clientMeta?: ClientMeta;
   private readonly outbox?: TelemetryOutbox;
+  // The user's telemetry consent, read LIVE on every event (not captured once at
+  // construction) so revoking consent mid-session stops the very next post. Absent means
+  // "no host to ask" — headless and test callers keep today's behavior.
+  private readonly isTelemetryEnabled?: () => boolean;
   // Set when an event was neither delivered nor durably buffered — it is gone. Read by the
   // abandoned-session sweep, which must not burn its one-shot local marker on a lost report.
   private undelivered = false;
@@ -85,13 +89,14 @@ export class CloudTelemetryRecorder implements SessionRecorder {
   // here as an unexpected key. Emitted as one telemetry_dropped on flush.
   private readonly dropped: Record<string, number> = {};
 
-  constructor(input: { traceId: string; apiBaseUrl: string; fetchImpl: typeof fetch; getAuthToken?: () => Promise<string | undefined>; log?: (message: string) => void; clientMeta?: ClientMeta; outboxPath?: string }) {
+  constructor(input: { traceId: string; apiBaseUrl: string; fetchImpl: typeof fetch; getAuthToken?: () => Promise<string | undefined>; log?: (message: string) => void; clientMeta?: ClientMeta; outboxPath?: string; isTelemetryEnabled?: () => boolean }) {
     this.traceId = input.traceId;
     this.apiBaseUrl = input.apiBaseUrl.replace(/\/$/, "");
     this.fetchImpl = input.fetchImpl;
     this.getAuthToken = input.getAuthToken;
     this.log = input.log;
     this.clientMeta = input.clientMeta;
+    this.isTelemetryEnabled = input.isTelemetryEnabled;
     this.outbox = input.outboxPath ? new TelemetryOutbox({ path: input.outboxPath, log: input.log }) : undefined;
     // Replay whatever a prior session failed to deliver, oldest-first — the primary retry
     // trigger (next session start), no timer. On the pending chain so it can't interleave
@@ -99,7 +104,18 @@ export class CloudTelemetryRecorder implements SessionRecorder {
     this.pending = this.pending.then(() => this.drainOutbox()).catch((error) => this.log?.(`[telemetry] outbox drain: ${formatError(error)}`));
   }
 
+  // Whether anything may leave the machine right now. Gated at the HOST — the one place
+  // every cloud path (session record, host faults, the abandoned sweep, the outbox drain)
+  // funnels through — rather than in the webview, which cannot enforce anything.
+  private consented(): boolean {
+    return this.isTelemetryEnabled ? this.isTelemetryEnabled() : true;
+  }
+
   record(event: Record<string, any>) {
+    // Consent off: nothing is posted AND nothing is buffered for a later post — an event
+    // durably queued now would be delivered the moment consent flipped back on. The local
+    // JSONL recorder is untouched: local diagnostics are the user's own data.
+    if (!this.consented()) return Promise.resolve();
     const telemetry = sessionEventToTelemetry(this.traceId, event, this.clientMeta);
     if (!telemetry) {
       const key = String(event?.type ?? "unknown");
@@ -189,6 +205,10 @@ export class CloudTelemetryRecorder implements SessionRecorder {
   }
 
   private async drainOutbox() {
+    // A backlog buffered while consent was ON must not be replayed after it is revoked.
+    // The events stay on disk (they are the user's own local file) and drain if consent
+    // returns; nothing is sent in the meantime.
+    if (!this.consented()) return;
     await this.outbox?.drain((event) => this.post(event));
   }
 }

@@ -16,6 +16,7 @@ export type HostTelemetryDeps = {
   clientMeta?: ClientMeta;
   sessionRoot?: string; // enables the durable outbox + the abandoned-session scan
   extensionPath?: string; // to tell OUR uncaught errors from another extension's
+  isTelemetryEnabled?: () => boolean; // live consent probe; absent means "no host to ask"
 };
 
 function outboxFor(sessionRoot?: string): string | undefined {
@@ -31,6 +32,7 @@ function cloudRecorder(deps: HostTelemetryDeps, traceId: string): CloudTelemetry
     log: deps.log,
     clientMeta: deps.clientMeta,
     outboxPath: outboxFor(deps.sessionRoot),
+    isTelemetryEnabled: deps.isTelemetryEnabled,
   });
 }
 
@@ -72,6 +74,10 @@ export function isAbandonedSession(session: RecentSession): boolean {
 // a marker-via-own-log with no extra bookkeeping file. Returns the swept trace ids.
 export async function sweepAbandonedSessions(deps: HostTelemetryDeps, limit = 20): Promise<string[]> {
   if (!deps.sessionRoot) return [];
+  // Consent off: skip the sweep entirely rather than run it and find nothing delivered. The
+  // local marker is ONE-SHOT — writing it now would make these crashes invisible to every
+  // later sweep, including one run after the user opts back in.
+  if (deps.isTelemetryEnabled && !deps.isTelemetryEnabled()) return [];
   let recent: Awaited<ReturnType<typeof listRecentSessions>>;
   try {
     recent = await listRecentSessions(deps.sessionRoot, limit);

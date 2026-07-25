@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { JsonlSessionRecorder } from "../src/extension/session-recorder.ts";
-import { buildFaultEvent, isOwnError, sweepAbandonedSessions } from "../src/extension/host-telemetry.ts";
+import { buildFaultEvent, installHostErrorHandlers, isOwnError, sweepAbandonedSessions } from "../src/extension/host-telemetry.ts";
 
 // A pid that is certainly gone: run a process to completion and take its id. The sweep must
 // distinguish a session whose recording host DIED from one a live host is still writing, and
@@ -151,4 +151,46 @@ test("sweepAbandonedSessions holds the local marker back when the report is neit
   assert.deepEqual(await sweepAbandonedSessions(up), ["session-dddd0001-dead"], "reported once the report can actually land");
   assert.ok(requests.some((r) => JSON.parse(String(r.body)).events[0].event_type === "session_abandoned"));
   assert.match(await readFile(jsonl, "utf-8"), /session_abandoned/, "marker written now that the report is durable");
+});
+
+test("consent off: the abandoned-session sweep does not run and does not burn its one-shot marker", async () => {
+  // The local marker makes a session invisible to EVERY later sweep. Running the sweep with
+  // telemetry off would report nothing and still spend the marker, so a crash could never be
+  // reported after the user opts back in. Mutation: drop the consent check -> the session is
+  // marked swept and the second (consenting) sweep finds nothing to report.
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-consent-sweep-"));
+  await writeSession(root, "session-bbbb0001-dead", { pid: deadPid(), host: hostname() }, [
+    { type: "session_started", intent: "y", boardId: "pico" },
+  ]);
+
+  const requests: any[] = [];
+  const fetchImpl = async (url: string, init?: RequestInit) => { requests.push({ url, init }); return { ok: true, status: 204 } as Response; };
+
+  const skipped = await sweepAbandonedSessions({ apiBaseUrl: "http://api.test", fetchImpl, sessionRoot: root, isTelemetryEnabled: () => false });
+  assert.deepEqual(skipped, [], "nothing swept while consent is off");
+  assert.equal(requests.length, 0, "and nothing posted");
+
+  const swept = await sweepAbandonedSessions({ apiBaseUrl: "http://api.test", fetchImpl, sessionRoot: root, isTelemetryEnabled: () => true });
+  assert.deepEqual(swept, ["session-bbbb0001-dead"], "the crash is still reportable once consent returns");
+  assert.equal(requests.length, 1);
+});
+
+test("consent off: an uncaught host fault is not uploaded", async () => {
+  const requests: any[] = [];
+  const dispose = installHostErrorHandlers({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (url: string, init?: RequestInit) => { requests.push({ url, init }); return { ok: true, status: 204 } as Response; },
+    extensionPath: "/ext/mpy-hardware-extension",
+    isTelemetryEnabled: () => false,
+  });
+  try {
+    // uncaughtExceptionMonitor, not unhandledRejection: a monitor emit runs the listeners
+    // without node's default handler also deciding the process's fate (which would rethrow here).
+    process.emit("uncaughtExceptionMonitor" as any, new Error("boom") as any);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  } finally {
+    dispose();
+  }
+
+  assert.equal(requests.length, 0, "host faults are cloud telemetry too — gated the same way");
 });

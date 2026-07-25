@@ -80,7 +80,16 @@ function installHostTelemetry(context: any, api: any, log?: (message: string) =>
       clientMeta: { extension_version: context.extension?.packageJSON?.version, vscode_version: api.version, platform: `${process.platform} ${process.arch}` },
       sessionRoot: workspaceFolder ?? context.globalStorageUri?.fsPath,
       extensionPath: context.extension?.extensionPath ?? context.extensionUri?.fsPath,
+      // Read live on every cloud event, so revoking consent stops the next post — no
+      // recorder is rebuilt and no cached flag can go stale.
+      isTelemetryEnabled: () => api.env?.isTelemetryEnabled !== false,
     };
+    // The setting change itself is worth a log line: without it a user who opts out sees
+    // the extension go quiet with no confirmation that it was the setting that did it.
+    if (api.env?.onDidChangeTelemetryEnabled) {
+      context.subscriptions.push(api.env.onDidChangeTelemetryEnabled((enabled: boolean) =>
+        log?.(`[telemetry] cloud telemetry ${enabled ? "enabled" : "disabled"} by the user's VS Code telemetry setting`)));
+    }
     context.subscriptions.push({ dispose: installHostErrorHandlers(hostDeps) });
     // Fire-and-forget best-effort. Guard the rejection: with the host error handlers already
     // installed above, an unhandled rejection here would be re-observed and reported as a fault.
