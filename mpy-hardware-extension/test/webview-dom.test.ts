@@ -3777,6 +3777,69 @@ test("Restart drops the running tally instead of billing it to the next session"
   assert.equal(document.querySelectorAll(".ev-ico.note").length, 1, "exactly one line, session 2's");
 });
 
+test("a credits frame in flight at Restart is dropped, not folded into the next session", async () => {
+  // Host->webview frames are async, so a credits frame already posted for session 1 can
+  // land AFTER Restart's clearConversation() and repopulate the fresh accumulator. On
+  // Restart the webview DRAINS stamped frames until the host echoes the reset
+  // (session_reset); FIFO puts the stale frame before that echo, so it is dropped.
+  // Mutation: skip the drain -> session 2 reads "6 credits over 2 turns" for 1 credit.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Session 1 (generation 4): one generate turn costs 5.
+  post(dom, { type: "session_event", generation: 4, event: { kind: "credits", balance: 45, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 5, remaining_quota: 45 } } });
+
+  // Restart: the webview starts draining stamped frames.
+  (document.getElementById("newSession") as HTMLButtonElement).click();
+
+  // The in-flight session-1 frame (still generation 4) lands AFTER the click — drained.
+  post(dom, { type: "session_event", generation: 4, event: { kind: "credits", balance: 45, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 5, remaining_quota: 45 } } });
+
+  // The host echoes the reset (generation now 5): the drain ends, gen<=4 is stale.
+  post(dom, { type: "session_reset", generation: 5 });
+
+  // Session 2 (generation 5): a brand-new build, one generate turn costing 1.
+  post(dom, { type: "phase_start", phase: "upy-generate-plugin" });
+  post(dom, { type: "session_event", generation: 5, event: { kind: "credits", balance: 49, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, remaining_quota: 49 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 1 credit over 1 turn, 49 left"), `session 2 must stand alone: ${feed}`);
+  assert.ok(!feed.includes("2 turns"), `the stale in-flight frame added a turn: ${feed}`);
+  assert.ok(!feed.includes("6 credits"), `the stale frame's 5 credits leaked: ${feed}`);
+});
+
+test("the very first credits frame of an abandoned session is dropped too (never-seen generation)", async () => {
+  // The hard case: the frame in flight at Restart is the session's FIRST credits frame, so
+  // its generation was never seen. A seen-generations guard can't mark it stale — but the
+  // drain-until-session_reset does, because FIFO puts that first frame before the echo.
+  // Mutation: end the drain on Restart instead of on session_reset -> the 9-credit first
+  // frame folds into session 2, which reads "11 credits over 2 turns" for a 2-credit build.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // The user restarts before session 1 has delivered any credits frame at all.
+  (document.getElementById("newSession") as HTMLButtonElement).click();
+
+  // Session 1's FIRST credits frame (generation 3, never seen) arrives in flight — drained.
+  post(dom, { type: "session_event", generation: 3, event: { kind: "credits", balance: 41, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 9, remaining_quota: 41 } } });
+
+  // Host confirms the reset (generation now 4): the drain ends.
+  post(dom, { type: "session_reset", generation: 4 });
+
+  // Session 2 (generation 4): one generate turn costing 2.
+  post(dom, { type: "phase_start", phase: "upy-generate-plugin" });
+  post(dom, { type: "session_event", generation: 4, event: { kind: "credits", balance: 48, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 2, remaining_quota: 48 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 2 credits over 1 turn, 48 left"), `session 2 must stand alone: ${feed}`);
+  assert.ok(!feed.includes("2 turns"), `the never-seen first frame added a turn: ${feed}`);
+  assert.ok(!feed.includes("11 credits"), `the never-seen first frame's 9 credits leaked: ${feed}`);
+});
+
 test("the generic bucket never renders a plugin id, in either language", async () => {
   // The host stamps `phase` canonicalized through PHASE_ALIASES, and for scaffold/flash that
   // canonical form IS a plugin id. Mutation: label straight from the token -> the feed shows

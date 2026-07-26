@@ -34,6 +34,8 @@
         }
         if (msg.type === "server_mode") { setServerMode(msg.mode); }
         if (msg.type === "micropython_boards") { loadOfficialBoards(msg); }
+        if (msg.type === "session_reset") { onSessionReset(msg.generation); } // host confirmed a reset — stop draining, set the boundary
+        if (msg.type === "session_event" && sessionEventIsStale(msg)) return; // late frame from a session the user left (Restart)
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
           setCredits(msg.event.balance, msg.event.dailyGrant);
           // Fold this frame into the current phase's credit tally off the SAME event the quota

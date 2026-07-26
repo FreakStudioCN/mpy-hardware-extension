@@ -370,6 +370,12 @@ export class SessionController {
     // then abort it and clear state. Null abort so the next start() is a fresh run
     // (not rejected as session_busy while the aborted run is still unwinding).
     this.generation++;
+    // Tell the webview the reset happened and the new generation. It drains stamped
+    // credits frames from the user's Restart click until this arrives; FIFO guarantees
+    // this lands AFTER every old-generation frame (a superseded run can't post — the
+    // onEvent current() guard) and BEFORE any new-generation frame (the next run starts
+    // later), so the drain brackets exactly the in-flight stragglers.
+    this.deps.postMessage({ type: "session_reset", generation: this.generation });
     this.cancel();
     this.abort = null;
     this.state = undefined;
@@ -813,7 +819,10 @@ export class SessionController {
       // reach the cloud on the enriched credits_charged event below, not as a second post.
       this.record({ type: "credit_usage", usage });
       this.record({ type: "session_event", event: normalized });
-      this.deps.postMessage({ type: "session_event", event: normalized });
+      // Stamp the run generation so the webview can drop a credits frame that was
+      // already in flight when the user hit Restart. postEvent runs only under
+      // current() (the onEvent guard), so this.generation is THIS run's generation.
+      this.deps.postMessage({ type: "session_event", event: normalized, generation: this.generation });
       return;
     }
     if (event.type === "summary_delta") {

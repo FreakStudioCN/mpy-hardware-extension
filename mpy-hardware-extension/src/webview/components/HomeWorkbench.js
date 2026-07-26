@@ -178,6 +178,10 @@
         // the host's generation guard. Dropped, not flushed — the tally belongs to the
         // conversation being wiped, so emitting it into the fresh feed would be wrong too.
         discardCreditUsage();
+        // Same bleed, protocol level: a stamped session_event still in flight for the
+        // session being wiped must not repopulate a fresh accumulator. Start draining
+        // stamped frames now; the host's session_reset echo ends the drain.
+        markSessionEventsStale();
         finalizeThinking(); currentCode = null; currentSummary = null;
         currentDeployCard = null; pendingCard = null; pendingLabel = "";
         localeLocked = false; // next project re-detects its language (LOCALE left as-is until then)

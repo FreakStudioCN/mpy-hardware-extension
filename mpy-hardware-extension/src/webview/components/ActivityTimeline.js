@@ -261,6 +261,25 @@
       // stamps the phase canonicalized (PHASE_ALIASES), and for scaffold/flash that canonical
       // form IS a plugin id (upy-scaffold-plugin), which must never reach the feed.
       // Cleared by clearConversation() on Restart — see the accumulator note there.
+      // Host->webview frames are async: a stamped session_event already in flight when
+      // the user hits Restart lands AFTER clearConversation() and would repopulate the
+      // just-cleared credit accumulator. Each session_event carries the host run
+      // `generation`; on Restart the webview DRAINS every stamped frame until the host
+      // echoes the reset (session_reset), which by FIFO arrives after the last old-gen
+      // frame and before the first new-gen one — so even the first frame of a session
+      // whose generation the webview never saw is dropped, not folded in.
+      let acceptGen = -1;         // stamped session_events with generation <= acceptGen are stale stragglers
+      let drainingFrames = false; // Restart issued; drop stamped frames until the host confirms the reset
+      function sessionEventIsStale(msg) {
+        if (typeof msg.generation !== "number") return false; // unstamped (old host / balance fetch): unchanged
+        if (drainingFrames) return true;                       // between Restart and the host's session_reset
+        return msg.generation <= acceptGen;                    // a straggler from an already-closed session
+      }
+      function markSessionEventsStale() { drainingFrames = true; }
+      function onSessionReset(generation) {
+        if (typeof generation === "number") acceptGen = generation - 1;
+        drainingFrames = false;
+      }
       let creditAccum = null;
       function creditToken(usage) {
         return usage.operation && usage.operation !== "phase" ? usage.operation : (usage.phase || usage.operation);
