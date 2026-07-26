@@ -134,3 +134,91 @@ export async function gitBranch(projectFolder: string): Promise<string> {
   const { stdout } = await git(projectFolder, ["rev-parse", "--abbrev-ref", "HEAD"]);
   return stdout.trim();
 }
+
+// ---- Read-only history helpers (Git History tool, §3.6.3). No write verbs, EVER. ----
+// These pass `hash` to git as a REVISION (before `--`), so the caller MUST pre-validate it
+// (^[0-9a-f]{7,64}$) at the host trust boundary: an unvalidated "--output=<file>" reaching
+// `git show` writes a file to disk even when git then errors. `path` always rides after `--`.
+
+export type GitLogEntry = { hash: string; shortHash: string; author: string; date: string; subject: string };
+export type GitFileChange = { status: string; path: string };
+
+// Unit separator between fields, record separator between commits — control bytes that cannot occur
+// in a hash or ISO-8601 date. A deliberately crafted commit subject/author COULD embed them (git
+// bans only NUL/newline), which would split into a garbage extra row — display-only, and a clicked
+// garbage hash fails isValidCommitHash, so it's harmless. git emits them via %x1f/%x1e.
+const GIT_LOG_FIELD_SEP = "\x1f";
+const GIT_LOG_RECORD_SEP = "\x1e";
+const GIT_LOG_FORMAT = "%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1e";
+
+// Newest-first commit list, capped at `limit`. An empty repo (no HEAD) exits 128 — return []
+// rather than surface it, since "no commits yet" is a normal state the panel renders. (The
+// caller only reaches here for a present repo, so 128 means no-HEAD, not not-a-repo.)
+export async function gitLog(projectFolder: string, limit: number): Promise<GitLogEntry[]> {
+  let stdout: string;
+  try {
+    ({ stdout } = await git(projectFolder, ["log", "-n", String(limit), "--format=" + GIT_LOG_FORMAT]));
+  } catch (error: any) {
+    if (error instanceof GitUnavailableError) throw error;
+    if (error?.exitCode === 128) return [];
+    throw error;
+  }
+  return stdout
+    .split(GIT_LOG_RECORD_SEP)
+    .map((record) => record.replace(/^\r?\n/, "").trim())
+    .filter((record) => record.length > 0)
+    .map((record) => {
+      const [hash, shortHash, author, date, subject] = record.split(GIT_LOG_FIELD_SEP);
+      return { hash, shortHash, author, date, subject: subject ?? "" };
+    });
+}
+
+// How many commits the branch ACTUALLY has, independent of the timeline's display cap. The panel
+// renders the newest N; without this it would report N as the repo's commit count and silently
+// hide the rest. Mirrors gitLog's empty-repo handling: no HEAD exits 128 and means 0 commits.
+export async function gitCommitCount(projectFolder: string): Promise<number> {
+  let stdout: string;
+  try {
+    ({ stdout } = await git(projectFolder, ["rev-list", "--count", "HEAD"]));
+  } catch (error: any) {
+    if (error instanceof GitUnavailableError) throw error;
+    if (error?.exitCode === 128) return 0;
+    throw error;
+  }
+  const count = Number.parseInt(stdout.trim(), 10);
+  return Number.isFinite(count) ? count : 0;
+}
+
+// Current branch via `branch --show-current`. Unlike `rev-parse --abbrev-ref HEAD` (which exits
+// 128 before the first commit), this exits 0 and returns the (unborn) branch name even on an empty
+// repo, and prints "" on a detached HEAD — exactly what the read-only history view needs to show
+// the branch in the "no commits yet" state.
+export async function gitCurrentBranch(projectFolder: string): Promise<string> {
+  const { stdout } = await git(projectFolder, ["branch", "--show-current"]);
+  return stdout.trim();
+}
+
+// The file changes in ONE commit via `git show --name-status` (works on a root commit, unlike
+// `diff hash^ hash` which has no parent to diff). Status is normalized to its leading letter
+// (M/A/D/R/C/T); a rename/copy row keeps its NEW path (git's last tab-separated field).
+export async function gitShowNameStatus(projectFolder: string, hash: string): Promise<GitFileChange[]> {
+  const { stdout } = await git(projectFolder, ["show", "--format=", "--name-status", hash]);
+  return stdout
+    .split("\n")
+    .map((line) => line.replace(/\r$/, ""))
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const fields = line.split("\t");
+      return { status: fields[0].charAt(0), path: fields[fields.length - 1] };
+    })
+    .filter((change) => change.path.length > 0);
+}
+
+// The patch text for one file: within a commit (`show <hash> -- <path>`) or the uncommitted
+// working-tree change (`diff HEAD -- <path>`). `path` always AFTER `--`. Untracked files are
+// invisible to both — the caller renders those from `status --porcelain`, never via this.
+export async function gitDiffText(projectFolder: string, path: string, hash?: string): Promise<string> {
+  const args = hash ? ["show", "--format=", hash, "--", path] : ["diff", "HEAD", "--", path];
+  const { stdout } = await git(projectFolder, args);
+  return stdout;
+}

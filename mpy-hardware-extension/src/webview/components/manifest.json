@@ -13,6 +13,7 @@
   "SupportContactPanel.js",
   "DeviceToolsPanel.js",
   "SaveVersionPanel.js",
+  "GitHistoryPanel.js",
   "HomeWorkbench.js",
   "bootstrap.js"
 ]

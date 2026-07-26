@@ -8,8 +8,10 @@
 // injected savedAt); writeSessionSnapshot does the mkdir + writeFile and surfaces any
 // non-ENOENT fs error verbatim (never blanket-swallows — recurring reviewer finding).
 
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+
+import { selectRecentSessionIds, sessionsDir } from "./session-recorder.ts";
 
 export const SNAPSHOT_SCHEMA = "blockless-session-snapshot";
 export const SNAPSHOT_VERSION = 1;
@@ -143,6 +145,61 @@ export function buildSessionSnapshot(input: SnapshotInput): SessionSnapshot {
 // The single-source path for the snapshot (checkpoints/snapshot.json under the session dir).
 export function snapshotPath(sessionDir: string): string {
   return join(sessionDir, "checkpoints", "snapshot.json");
+}
+
+// One commit's phase/artifact association, projected from the session snapshot that recorded it.
+export interface SnapshotAssociation {
+  phase: string;
+  saved_at: string;
+  intent: string;
+  session_id: string;
+  artifact_total: number;
+  artifacts: Array<{ relative_path: string; phase: string }>;
+}
+
+const ASSOCIATION_ARTIFACTS_MAX = 20; // display-capped artifact rows per commit (total carried separately)
+
+// Index each session's LATEST snapshot by its git commit_hash, so the Git History view can
+// associate a commit with the phase + artifacts saved at that commit. Read-only and bounded to the
+// newest `cap` sessions. Association is latest-save-ONLY by design: snapshot.json is one fixed-name
+// file overwritten per re-save (see the header), so an earlier same-session commit has no snapshot
+// and the caller falls back to the commit subject. Error policy (recurring finding — swallow only
+// ENOENT): a missing sessions dir or a session with no snapshot -> skip; a REAL fs read error
+// (EACCES/EROFS) surfaces; corrupt JSON / foreign schema skips that ONE file (logged) so a single
+// bad session never crashes the scan.
+export async function listSessionSnapshots(sessionRoot: string, cap: number, log?: (message: string) => void): Promise<Map<string, SnapshotAssociation>> {
+  const out = new Map<string, SnapshotAssociation>();
+  let ids: string[];
+  try {
+    ids = await readdir(sessionsDir(sessionRoot));
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return out; // no sessions dir yet
+    throw error;                              // EACCES/… on the dir surfaces, never read as "empty"
+  }
+  for (const id of selectRecentSessionIds(ids).slice(0, Math.max(0, cap))) {
+    let raw: string;
+    try {
+      raw = await readFile(snapshotPath(join(sessionsDir(sessionRoot), id)), "utf-8");
+    } catch (error: any) {
+      if (error?.code === "ENOENT") continue; // this session predates Save Version / was never saved
+      throw error;                            // a real read error surfaces (recurring finding)
+    }
+    let snap: any;
+    try { snap = JSON.parse(raw); } catch (error: any) { log?.(`git_history association: skipping ${id} (corrupt snapshot): ${error?.message ?? error}`); continue; }
+    if (snap?.schema !== SNAPSHOT_SCHEMA || snap?.version !== SNAPSHOT_VERSION) continue; // foreign shape
+    const hash = snap?.git?.commit_hash;
+    if (typeof hash !== "string" || !hash || out.has(hash)) continue; // no linkage, or newer save already won
+    const artifacts = Array.isArray(snap.artifacts) ? snap.artifacts : [];
+    out.set(hash, {
+      phase: (snap.stage?.current_phase || snap.state?.phase || ""),
+      saved_at: snap.saved_at || "",
+      intent: (snap.stage?.intent || snap.state?.intent || ""),
+      session_id: snap.trace_id || id,
+      artifact_total: artifacts.length,
+      artifacts: artifacts.slice(0, ASSOCIATION_ARTIFACTS_MAX).map((a: any) => ({ relative_path: a?.relative_path || "", phase: a?.phase || "" })),
+    });
+  }
+  return out;
 }
 
 // mkdir -p checkpoints/ then write snapshot.json. A missing parent is created (never an
