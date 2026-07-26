@@ -196,3 +196,21 @@ test("the diagnostics rollup omits the cost it does not know instead of printing
   assert.equal(text, "analyze/phase: 1 turn, remaining 49");
   assert.equal(text.includes("credit"), false);
 });
+
+test("the rollup states how many turns the caller's ring discarded", () => {
+  // A bounded ring makes the rollup a partial view; saying so is what stops a support report
+  // reading a truncated summary as the build's whole cost. Mutation: ignore the count ->
+  // the text is indistinguishable from a complete 2-turn session.
+  const records = [
+    buildCreditUsage({ operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, remaining_quota: 40 }),
+    buildCreditUsage({ operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, remaining_quota: 39 }),
+  ];
+
+  assert.equal(formatCreditUsage(records, 30), "(oldest 30 turns dropped) upy-generate-plugin/generate: 2 credits over 2 turns, remaining 39");
+  assert.equal(formatCreditUsage(records, 1), "(oldest 1 turn dropped) upy-generate-plugin/generate: 2 credits over 2 turns, remaining 39");
+  // Nothing dropped reads exactly as before — the marker is not a permanent prefix.
+  assert.equal(formatCreditUsage(records, 0), "upy-generate-plugin/generate: 2 credits over 2 turns, remaining 39");
+  assert.equal(formatCreditUsage(records), "upy-generate-plugin/generate: 2 credits over 2 turns, remaining 39");
+  // An empty session stays a blank field, never a lone truncation note.
+  assert.equal(formatCreditUsage([], 5), "");
+});

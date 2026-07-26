@@ -256,18 +256,31 @@
       // diagnostics export uses ("generate: 4 credits over 3 turns, N left"), off the SAME
       // events the quota bar consumes, so feed / bar / diagnostics never disagree.
       // Label: the specific operation (generate/deploy/gen_driver/...) when it has its own cost
-      // family, else the phase name (analyze/select-hw) instead of the generic "phase" bucket token.
+      // family, else the canonical phase instead of the generic "phase" bucket token. Both are
+      // WIRE tokens, so they go through the cl_* display table before being shown — the host
+      // stamps the phase canonicalized (PHASE_ALIASES), and for scaffold/flash that canonical
+      // form IS a plugin id (upy-scaffold-plugin), which must never reach the feed.
+      // Cleared by clearConversation() on Restart — see the accumulator note there.
       let creditAccum = null;
-      function creditLabel(usage) {
+      function creditToken(usage) {
         return usage.operation && usage.operation !== "phase" ? usage.operation : (usage.phase || usage.operation);
+      }
+      // Same idiom as phaseLabel(): a curated, localized name when we have one, else the raw
+      // token — a phase we have not named yet degrades to its identifier rather than to "".
+      function creditLabel(token) {
+        const key = "cl_" + token;
+        return tr(key) !== key ? tr(key) : token;
       }
       // Fold one credits frame into the current phase's tally. A label change (a new phase, or a
       // retry/supplement turn that is its own cost line) flushes the prior tally first.
       function accumulateCreditUsage(usage, balance) {
         if (!usage) return;
-        const label = creditLabel(usage);
-        if (creditAccum && creditAccum.label !== label) flushCreditUsage();
-        if (!creditAccum) creditAccum = { label, turns: 0, credits: 0, known: 0, remaining: undefined };
+        // Group by the WIRE token, not the display name: two tokens could share a display
+        // string, and the name is resolved at flush so a locale switch mid-phase still renders
+        // the line in the language the user is now reading.
+        const token = creditToken(usage);
+        if (creditAccum && creditAccum.token !== token) flushCreditUsage();
+        if (!creditAccum) creditAccum = { token, turns: 0, credits: 0, known: 0, remaining: undefined };
         creditAccum.turns += 1;
         // Sum only known costs; a pre-baseline turn (no balance diff, no server charge) counts as
         // a turn but not as 0 credits.
@@ -284,7 +297,19 @@
         creditAccum = null;
         if (!g || g.known === 0) return;
         const u = tr(g.turns === 1 ? "credit_turns_one" : "credit_turns_many");
-        addActivity({ text: tr("credit_line", { o: g.label, c: g.credits, t: g.turns, u, r: g.remaining }) }, "note");
+        const cu = tr(g.credits === 1 ? "credit_one" : "credit_many");
+        const line = tr("credit_line", { o: creditLabel(g.token), c: g.credits, t: g.turns, u, cu });
+        // Append the balance clause ONLY when we have one: tr() substitutes with
+        // String.split().join(), and join(undefined) falls back to "," — an absent {r}
+        // would render a stray comma rather than nothing.
+        const tail = g.remaining != null ? tr("credit_remaining", { r: g.remaining }) : "";
+        addActivity({ text: line + tail }, "note");
+      }
+      // Drop the in-flight tally WITHOUT emitting it. Restart wipes the conversation this
+      // tally belongs to, and the accumulator outlives the feed DOM — leaving it populated
+      // folds the discarded session's credits into the next session's first line.
+      function discardCreditUsage() {
+        creditAccum = null;
       }
 
       // Fallback-save notice: no workspace was open, so the project went to the

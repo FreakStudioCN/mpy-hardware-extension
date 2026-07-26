@@ -151,7 +151,10 @@ export function deriveCreditOperation(
 // mostly-free turns reads as "2 credits over 12 turns" rather than a wall of "credits=0".
 // The JSONL/telemetry keep the full per-turn detail; this is the human summary. Same token
 // discipline as the record — only already-guarded values are formatted.
-export function formatCreditUsage(records: readonly CreditUsageRecord[]): string {
+// `droppedTurns` is how many of the oldest records the caller's ring already discarded. It is
+// stated in the output rather than left implicit: a truncated rollup otherwise reads as the
+// session's complete cost, and a support report would silently understate a long build.
+export function formatCreditUsage(records: readonly CreditUsageRecord[], droppedTurns = 0): string {
   const groups = new Map<string, { turns: number; credits: number; known: number; remaining: number | undefined }>();
   for (const r of records) {
     const key = `${r.phase ?? "-"}/${r.operation}`;
@@ -167,7 +170,8 @@ export function formatCreditUsage(records: readonly CreditUsageRecord[]): string
     if (r.remaining_quota !== undefined) g.remaining = r.remaining_quota;
     groups.set(key, g);
   }
-  return Array.from(groups.entries())
+  const prefix = droppedTurns > 0 ? `(oldest ${droppedTurns} turn${droppedTurns === 1 ? "" : "s"} dropped) ` : "";
+  const body = Array.from(groups.entries())
     .map(([key, g]) => {
       const turns = `${g.turns} turn${g.turns === 1 ? "" : "s"}`;
       // Omit the credits figure when no turn in the group had a known cost — a support report
@@ -177,4 +181,6 @@ export function formatCreditUsage(records: readonly CreditUsageRecord[]): string
       return `${key}: ${cost}${tail}`;
     })
     .join("; ");
+  // No records at all stays exactly "" — a blank field, not a lone truncation note.
+  return body ? `${prefix}${body}` : body;
 }

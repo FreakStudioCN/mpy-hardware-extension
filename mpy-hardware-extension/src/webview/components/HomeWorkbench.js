@@ -173,6 +173,11 @@
         $("diagram").innerHTML = "";
         $("diagramEmpty").classList.remove("hidden");
         ARTIFACTS = []; artifactPhase = ""; artifactsLinkShown = false; drawArtifacts();
+        // Restart reaches neither of the credit accumulator's flush points: reset_session
+        // posts no session_done back, and an aborted run's own session_done is dropped by
+        // the host's generation guard. Dropped, not flushed — the tally belongs to the
+        // conversation being wiped, so emitting it into the fresh feed would be wrong too.
+        discardCreditUsage();
         finalizeThinking(); currentCode = null; currentSummary = null;
         currentDeployCard = null; pendingCard = null; pendingLabel = "";
         localeLocked = false; // next project re-detects its language (LOCALE left as-is until then)

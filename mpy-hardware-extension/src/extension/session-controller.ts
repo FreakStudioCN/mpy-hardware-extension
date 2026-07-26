@@ -123,6 +123,9 @@ export class SessionController {
   // snapshot + session-log export; bounded so a long build can't grow it without limit.
   private creditUsage: CreditUsageRecord[] = [];
   private static readonly CREDIT_USAGE_CAP = 100;
+  // How many of the oldest records the cap has discarded this session. Reported in the
+  // diagnostics rollup so a truncated summary can't be read as the whole build's cost.
+  private creditUsageDropped = 0;
   // The balance the previous credits event reported. The delta against the next one is the
   // best-effort per-turn consumption until the server sends its authoritative charge.
   private lastCreditBalance: number | null = null;
@@ -268,6 +271,13 @@ export class SessionController {
     // Start the turn clock here, not at the first credits event, or the first turn of a run
     // would be the one turn with no duration — usually the most expensive one.
     this.turnStartedAt = Date.now();
+    // The error code is one-shot: it labels the turn it happened in. A run that ends with no
+    // further credits event (a terminal phase_error, or a Stop) never gets to clear it, and a
+    // same-board continuation start() skips the board-change clear — so without this the next
+    // run's FIRST metered turn is stamped with the previous run's failure.
+    // Deliberately NOT retryTurnPending: retry() sets it immediately before calling run(),
+    // and clearing it here would erase the very label that call exists to apply.
+    this.lastErrorCode = undefined;
     this.abort = new AbortController();
     const myGen = this.generation;
     // True only while this run is still the current one. reset() bumps the
@@ -399,6 +409,7 @@ export class SessionController {
   // reset) so no per-session credit state can bleed across sessions.
   private clearCreditUsage() {
     this.creditUsage = [];
+    this.creditUsageDropped = 0;
     this.lastCreditBalance = null;
     this.turnStartedAt = null;
     this.retryCount = 0;
@@ -917,7 +928,10 @@ export class SessionController {
       cache_hit_tokens: event.cacheHitTokens,
     });
     this.creditUsage.push(usage);
-    if (this.creditUsage.length > SessionController.CREDIT_USAGE_CAP) this.creditUsage.shift();
+    if (this.creditUsage.length > SessionController.CREDIT_USAGE_CAP) {
+      this.creditUsage.shift();
+      this.creditUsageDropped++;
+    }
     // Advance the baselines AFTER building, and only on a usable balance: a malformed event
     // must not reset the delta baseline, or the next turn's consumption would be wrong too.
     if (balance !== undefined) this.lastCreditBalance = balance;
@@ -1057,7 +1071,7 @@ export class SessionController {
       stdout_stderr_summary: this.stdoutTail.join(" | ").slice(-SessionController.STDOUT_SUMMARY_MAX),
       // Per-phase cost and the balance left after each phase, from the SAME records the
       // JSONL log and the Activity line carry — one source of truth for every surface.
-      credit_usage: formatCreditUsage(this.creditUsage),
+      credit_usage: formatCreditUsage(this.creditUsage, this.creditUsageDropped),
     };
   }
 
