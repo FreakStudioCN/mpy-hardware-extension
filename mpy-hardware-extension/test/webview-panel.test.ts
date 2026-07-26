@@ -1911,6 +1911,36 @@ test("request_credits_email still opens (blank amounts) when the credits fetch f
   assert.ok(!posted.some((m) => m.type === "session_event" && m.event?.kind === "credits"), "no bad credits event posted on a non-ok response");
 });
 
+test("request_credits_email records the support action ONLY when the mail client actually opened (#97 review)", async () => {
+  // openExternal resolves false when the OS has no mailto handler or the user dismisses the
+  // picker; a headless host has no openExternal at all. Neither is a request that reached us,
+  // so neither may be counted. Mutation: record unconditionally -> both asserts below fail.
+  const attempt = async (env: any) => {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+      env,
+      authentication: { getSession: async () => ({ accessToken: "gho-token", account: { label: "octocat" } }) },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+    };
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123", login: "octocat" });
+      if (url === "http://api.test/v1/credits") return jsonResponse({ balance: 42, daily_grant: 100, resets_at: "2026-07-08T00:00:00.000Z" });
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    await handler?.({ type: "request_credits_email" });
+    return posted.some((m) => m.type === "support_feedback_opened" && m.entry === "request_credits");
+  };
+
+  assert.equal(await attempt({ openExternal: async () => false }), false, "no mailto handler / user cancelled -> not counted as opened");
+  assert.equal(await attempt({}), false, "headless host without openExternal -> not counted as opened");
+  assert.equal(await attempt({ openExternal: async () => true }), true, "a real open still records the action");
+});
+
 test("refreshCredits (via request_boards) ignores a non-ok /v1/credits — no 'undefined' credits event (#97 review)", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;

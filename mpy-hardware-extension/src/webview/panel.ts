@@ -1189,6 +1189,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         // credits unavailable — open the request anyway with blank amounts
       }
+      // Record the §8.1 action ONLY when the mail client actually opened. openExternal resolves
+      // false when the OS has no mailto handler or the user dismisses the picker, and it is absent
+      // on a headless host — recording regardless would report requests that never reached us.
+      let opened = false;
       try {
         const url = buildCreditsRequestMailto({
           githubLogin: auth.getLogin?.() ?? "",
@@ -1198,11 +1202,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           sessionId: controller.getDiagnostics().session_id ?? "",
         });
         const uri = vscode.Uri.parse(url, true);
-        if (/^mailto$/.test(uri.scheme)) await vscode.env?.openExternal?.(uri);
+        if (/^mailto$/.test(uri.scheme)) opened = (await vscode.env?.openExternal?.(uri)) === true;
       } catch {
         // malformed URL or headless host without openExternal — ignore
       }
-      controller.recordSupportAction({ type: "support_feedback_opened", entry: "request_credits" });
+      if (opened) controller.recordSupportAction({ type: "support_feedback_opened", entry: "request_credits" });
       return;
     }
     if (message.type === "request_artifacts") {
