@@ -36,11 +36,10 @@
         if (msg.type === "micropython_boards") { loadOfficialBoards(msg); }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "credits") {
           setCredits(msg.event.balance, msg.event.dailyGrant);
-          // The per-phase credit line comes off this same event — one source of truth for the
-          // bar and the feed. Like a supplement line it is an annotation, not a step, and
-          // addActivity() clears the working spinner, so re-arm it while the build runs.
-          addCreditUsage(msg.event.usage, msg.event.balance);
-          if (running && pendingLabel) setPending(pendingLabel);
+          // Fold this frame into the current phase's credit tally off the SAME event the quota
+          // bar consumes (one source of truth). The rolled-up line is emitted at the phase
+          // boundary (phase_complete / session_done), not per frame — see flushCreditUsage.
+          accumulateCreditUsage(msg.event.usage, msg.event.balance);
         }
         if (msg.type === "session_event" && msg.event && msg.event.kind === "saved_location") {
           addSavedLocation(msg.event.path);
@@ -84,7 +83,7 @@
         }
         if (msg.type === "status_update" && running) { addStatusUpdate(msg.payload); }
         if (msg.type === "phase_start") { setPending(tr("working")); }
-        if (msg.type === "phase_complete") { addPhaseComplete(msg.payload); vscode.postMessage({ type: "request_artifacts" }); }
+        if (msg.type === "phase_complete") { flushCreditUsage(); addPhaseComplete(msg.payload); vscode.postMessage({ type: "request_artifacts" }); }
         if (msg.type === "deploy_ports_updated") { if (currentDeployCard) currentDeployCard.setPorts(msg.ports); }
         if (msg.type === "code_delta") { streamCodeDelta(msg.text, msg.path); }
         if (msg.type === "code_updated") { finalizeCode(msg.code, msg.path); }
@@ -117,6 +116,9 @@
           addActivity({ text });
         }
         if (msg.type === "session_done") {
+          // Flush the final phase's credit rollup before the terminal line (idempotent — a cancel
+          // posts session_done twice, and flushCreditUsage no-ops once the tally is empty).
+          flushCreditUsage();
           setRunning(false);
           finalizeThinking();
           currentCode = null;

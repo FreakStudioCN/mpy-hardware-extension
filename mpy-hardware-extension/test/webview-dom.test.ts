@@ -3636,78 +3636,104 @@ test("package browser: MicroPython-lib searches by name; GitHub is not a search 
   assert.deepEqual(sourceValues, ["auto", "micropython_lib", "upypi"], "selector has no github option");
 });
 
-test("a credits event renders a per-phase credit line in the Activity feed", async () => {
-  // Card #87: the feed must show what each phase cost, off the SAME session_event the quota
-  // bar reads. Mutation: render from a separate message -> two sources of truth for one number.
+test("a phase's credits roll up into one line at the phase boundary", async () => {
+  // Card #87: the feed shows what each phase cost, off the SAME session_events the quota bar
+  // reads. The backend streams a frame per turn; we fold them and emit ONE line at the phase
+  // boundary, like the diagnostics export. Mutation: emit per frame -> a line per turn.
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
-  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
-  (document.getElementById("generate") as HTMLButtonElement).click();
+  // Three generate turns (two free, one costing 3). No line yet — the phase has not ended.
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 49, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 0, remaining_quota: 49 } } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 3, remaining_quota: 46 } } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 0, remaining_quota: 46 } } });
+  assert.equal(document.querySelector(".ev-ico.note"), null, "no line until the phase boundary");
 
-  post(dom, {
-    type: "session_event",
-    event: {
-      kind: "credits",
-      balance: 46,
-      dailyGrant: 50,
-      usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 3, remaining_quota: 46 },
-    },
-  });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
 
   const feed = document.getElementById("activity")!.textContent!;
-  assert.ok(feed.includes("generate: 3 credits used, 46 left"), `credit line missing from the feed: ${feed}`);
-  // The quota bar moved off the very same event.
+  assert.ok(feed.includes("generate: 3 credits over 3 turns, 46 left"), `rolled-up line missing: ${feed}`);
+  assert.equal(document.querySelectorAll(".ev-ico.note").length, 1, "one rolled-up line, not one per frame");
   assert.equal(document.getElementById("qUsed")!.textContent, "46", "the bar and the line agree");
-  // A note card, not a text-classified one, so its wording can't fold it into the thinking stream.
-  assert.ok(document.querySelector(".ev-ico.note"), "the credit line is its own note card");
 });
 
-test("the credit line keeps the working spinner armed while the build runs", async () => {
-  // addActivity() clears the pending spinner; a mid-build annotation must re-arm it or the
-  // feed goes silent for the rest of the phase. Mutation: drop the re-arm -> no .feed-pending.
+test("the last phase's credits flush at session_done", async () => {
+  // A run can end without a trailing phase_complete; the final tally must still surface.
+  // Mutation: drop the session_done flush -> the last phase's cost is silently lost.
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
-  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
-  (document.getElementById("generate") as HTMLButtonElement).click();
-  assert.ok(document.querySelector(".feed-pending"), "the working spinner is armed while running");
-
-  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", credits_consumed: 3, remaining_quota: 46 } } });
-
-  assert.ok(document.querySelector(".feed-pending"), "the working spinner survives the credit line");
-});
-
-test("the authoritative server charge wins over the balance delta in the feed", async () => {
-  // Once the server reports what it actually deducted, that is the number the user sees.
-  // Mutation: read credits_consumed first -> the feed shows the estimate, not the real charge.
-  const posted: any[] = [];
-  const dom = await loadWebview(posted);
-  const { document } = dom.window;
-
-  post(dom, { type: "session_event", event: { kind: "credits", balance: 42, dailyGrant: 50, usage: { operation: "generate", credits_consumed: 1, charged: 4, remaining_quota: 42 } } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 40, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 6, remaining_quota: 40 } } });
+  post(dom, { type: "session_done", terminal: "complete" });
 
   const feed = document.getElementById("activity")!.textContent!;
-  assert.ok(feed.includes("generate: 4 credits used, 42 left"), `expected the authoritative charge: ${feed}`);
+  assert.ok(feed.includes("generate: 6 credits over 1 turn, 40 left"), `final phase not flushed: ${feed}`);
 });
 
-test("a credits event with no usage (or unknown cost) renders no credit line", async () => {
-  // The first turn of a session has no balance baseline and no server charge yet; a "0 credits"
-  // line would be a lie. Mutation: default spent to 0 -> a bogus line appears.
+test("a fully-free phase rolls up to one 0-credit line", async () => {
+  // The 0-cost turns are real (kept in JSONL/telemetry); the feed folds them into a single
+  // "0 credits over N turns" summary rather than one note per free frame. Mutation: suppress
+  // known-zero groups -> a free phase vanishes from the feed entirely.
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
 
-  post(dom, { type: "session_event", event: { kind: "credits", balance: 49, dailyGrant: 50 } });
-  post(dom, { type: "session_event", event: { kind: "credits", balance: 49, dailyGrant: 50, usage: { operation: "phase", remaining_quota: 49 } } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 1000000, dailyGrant: 50, usage: { operation: "phase", phase: "select-hw", credits_consumed: 0, remaining_quota: 1000000 } } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 1000000, dailyGrant: 50, usage: { operation: "phase", phase: "select-hw", credits_consumed: 0, remaining_quota: 1000000 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-select-hw-plugin", result: "ok" } });
 
-  assert.equal(document.querySelector(".ev-ico.note"), null, "no credit line without a known cost");
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("select-hw: 0 credits over 2 turns, 1000000 left"), `free-phase rollup missing: ${feed}`);
+  assert.equal(document.querySelectorAll(".ev-ico.note").length, 1, "one summary line, not one per free frame");
+});
+
+test("a phase with only unknown-cost turns renders no line", async () => {
+  // A session's first frames have no balance baseline and no server charge; the summary must not
+  // read a free phase where every number was simply missing. Mutation: emit at known===0 ->
+  // a bogus 0-credit line appears.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 49, dailyGrant: 50, usage: { operation: "phase", phase: "analyze", remaining_quota: 49 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "analyze", result: "ok" } });
+
+  assert.equal(document.querySelector(".ev-ico.note"), null, "no line when no turn had a known cost");
   assert.equal(document.getElementById("qUsed")!.textContent, "49", "the quota bar still updates");
 });
 
-test("the credit line is localized (zh)", async () => {
+test("the authoritative server charge wins over the balance delta in the rollup", async () => {
+  // Once the server reports what it actually deducted, that is the number the user sees.
+  // Mutation: sum credits_consumed first -> the feed shows the estimate, not the real charge.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 42, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, charged: 4, remaining_quota: 42 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("generate: 4 credits over 1 turn, 42 left"), `expected the authoritative charge: ${feed}`);
+});
+
+test("the credit rollup uses the phase name for the generic bucket", async () => {
+  // analyze / select-hw / scaffold / flash share the catch-all "phase" operation; the line must
+  // show the actual phase, not the bucket token. Mutation: label from operation only -> "phase".
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 48, dailyGrant: 50, usage: { operation: "phase", phase: "analyze", credits_consumed: 2, remaining_quota: 48 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "analyze", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("analyze: 2 credits over 1 turn, 48 left"), `expected the phase name, not the bucket: ${feed}`);
+  assert.ok(!feed.includes("phase: 2 credits"), `must not show the generic bucket token: ${feed}`);
+});
+
+test("the credit rollup is localized (zh)", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
@@ -3716,8 +3742,9 @@ test("the credit line is localized (zh)", async () => {
   (document.getElementById("intent") as HTMLTextAreaElement).value = "用 OLED 显示温度";
   (document.getElementById("generate") as HTMLButtonElement).click();
 
-  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", credits_consumed: 3, remaining_quota: 46 } } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 3, remaining_quota: 46 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
 
   const feed = document.getElementById("activity")!.textContent!;
-  assert.ok(feed.includes("消耗 3 点，剩余 46"), `expected the zh credit line: ${feed}`);
+  assert.ok(feed.includes("1 次共消耗 3 点，剩余 46"), `expected the zh rollup line: ${feed}`);
 });

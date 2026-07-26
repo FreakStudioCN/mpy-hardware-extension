@@ -91,7 +91,7 @@ test("the diagnostics export carries per-phase credit usage and the remaining qu
   controller.postEvent({ type: "credits", remaining: 46, dailyGrant: 50 });
 
   const d = controller.getDiagnostics();
-  assert.equal(d.credit_usage, "analyze/phase remaining=49; upy-generate-plugin/generate credits=3 remaining=46");
+  assert.equal(d.credit_usage, "analyze/phase: 1 turn, remaining 49; upy-generate-plugin/generate: 3 credits over 1 turn, remaining 46");
   // And it lands in the assembled snapshot, in the declared order, like every other field.
   const { fields, text } = buildDiagnosticsFields(d);
   assert.equal(fields.credit_usage, d.credit_usage);

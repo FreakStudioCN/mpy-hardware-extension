@@ -145,20 +145,36 @@ export function deriveCreditOperation(
   return OPERATION_BY_PHASE[canonical] ?? "phase";
 }
 
-// One line per record for the diagnostics export / support snapshot: phase, operation, what
-// it cost, and the balance left after it. Same token discipline as the record itself — this
-// only ever formats already-guarded values.
+// Roll up per phase/operation for the diagnostics export / support snapshot: total credits,
+// how many turns produced them, and the balance left after the last one. One line per
+// (phase, operation) instead of one per credits frame, so a phase that streamed a dozen
+// mostly-free turns reads as "2 credits over 12 turns" rather than a wall of "credits=0".
+// The JSONL/telemetry keep the full per-turn detail; this is the human summary. Same token
+// discipline as the record — only already-guarded values are formatted.
 export function formatCreditUsage(records: readonly CreditUsageRecord[]): string {
-  return records
-    .map((r) => {
-      const parts = [`${r.phase ?? "-"}/${r.operation}`];
-      // Omitted, never printed as 0, when the cost isn't known yet (a session's first turn has
-      // no balance baseline to diff and no server charge): a support report must not read a
-      // free turn where the real number is simply missing.
-      const spent = r.charged ?? r.credits_consumed;
-      if (spent !== undefined) parts.push(`credits=${spent}`);
-      if (r.remaining_quota !== undefined) parts.push(`remaining=${r.remaining_quota}`);
-      return parts.join(" ");
+  const groups = new Map<string, { turns: number; credits: number; known: number; remaining: number | undefined }>();
+  for (const r of records) {
+    const key = `${r.phase ?? "-"}/${r.operation}`;
+    const g = groups.get(key) ?? { turns: 0, credits: 0, known: 0, remaining: undefined };
+    g.turns += 1;
+    // Sum only known costs; a turn whose cost is unknown (a session's first turn has no
+    // balance baseline and no server charge) counts as a turn but not as 0 credits.
+    const spent = r.charged ?? r.credits_consumed;
+    if (spent !== undefined) {
+      g.credits += spent;
+      g.known += 1;
+    }
+    if (r.remaining_quota !== undefined) g.remaining = r.remaining_quota;
+    groups.set(key, g);
+  }
+  return Array.from(groups.entries())
+    .map(([key, g]) => {
+      const turns = `${g.turns} turn${g.turns === 1 ? "" : "s"}`;
+      // Omit the credits figure when no turn in the group had a known cost — a support report
+      // must not read a free group where every number was simply missing.
+      const cost = g.known > 0 ? `${g.credits} credit${g.credits === 1 ? "" : "s"} over ${turns}` : turns;
+      const tail = g.remaining !== undefined ? `, remaining ${g.remaining}` : "";
+      return `${key}: ${cost}${tail}`;
     })
     .join("; ");
 }

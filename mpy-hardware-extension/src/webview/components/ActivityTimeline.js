@@ -250,18 +250,41 @@
         $("activity").appendChild(card);
       }
 
-      // Per-phase credit line (card #87). Rendered from the SAME session_event the quota bar
-      // consumes, so the feed and the bar can never disagree about what a turn cost. A "note"
-      // card, not a text-classified one: it is an annotation on the build, and its wording
-      // must not decide whether it coalesces into the open thinking stream.
-      // Skipped when the cost is not yet known (the first turn of a session has no balance
-      // baseline to diff against and no server charge yet) — a "0 credits" line would be a lie.
-      function addCreditUsage(usage, balance) {
+      // Per-phase credit line (card #87). The backend streams a credits frame per turn, most
+      // of them free, so a line per frame floods the feed. Instead we accumulate the frames of
+      // one phase and emit ONE rolled-up line at the phase boundary — the same shape the
+      // diagnostics export uses ("generate: 4 credits over 3 turns, N left"), off the SAME
+      // events the quota bar consumes, so feed / bar / diagnostics never disagree.
+      // Label: the specific operation (generate/deploy/gen_driver/...) when it has its own cost
+      // family, else the phase name (analyze/select-hw) instead of the generic "phase" bucket token.
+      let creditAccum = null;
+      function creditLabel(usage) {
+        return usage.operation && usage.operation !== "phase" ? usage.operation : (usage.phase || usage.operation);
+      }
+      // Fold one credits frame into the current phase's tally. A label change (a new phase, or a
+      // retry/supplement turn that is its own cost line) flushes the prior tally first.
+      function accumulateCreditUsage(usage, balance) {
         if (!usage) return;
+        const label = creditLabel(usage);
+        if (creditAccum && creditAccum.label !== label) flushCreditUsage();
+        if (!creditAccum) creditAccum = { label, turns: 0, credits: 0, known: 0, remaining: undefined };
+        creditAccum.turns += 1;
+        // Sum only known costs; a pre-baseline turn (no balance diff, no server charge) counts as
+        // a turn but not as 0 credits.
         const spent = usage.charged != null ? usage.charged : usage.credits_consumed;
-        if (spent == null) return;
+        if (spent != null) { creditAccum.credits += spent; creditAccum.known += 1; }
         const remaining = usage.remaining_quota != null ? usage.remaining_quota : balance;
-        addActivity({ text: tr("credit_line", { o: usage.operation, c: spent, r: remaining }) }, "note");
+        if (remaining != null) creditAccum.remaining = remaining;
+      }
+      // Emit the rolled-up line and reset. Idempotent: a second call (session_done posts twice on
+      // cancel) is a no-op. Skipped when no turn had a known cost — a summary must not read a free
+      // phase where every number was simply missing.
+      function flushCreditUsage() {
+        const g = creditAccum;
+        creditAccum = null;
+        if (!g || g.known === 0) return;
+        const u = tr(g.turns === 1 ? "credit_turns_one" : "credit_turns_many");
+        addActivity({ text: tr("credit_line", { o: g.label, c: g.credits, t: g.turns, u, r: g.remaining }) }, "note");
       }
 
       // Fallback-save notice: no workspace was open, so the project went to the

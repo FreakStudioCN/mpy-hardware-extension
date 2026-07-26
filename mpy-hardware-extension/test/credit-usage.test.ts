@@ -155,30 +155,44 @@ test("retry and supplement outrank the phase they run in", () => {
   assert.equal(deriveCreditOperation("generate", PHASE_ALIASES, { retry: false, supplement: false }), "generate");
 });
 
-test("the diagnostics line shows per-phase cost and the balance left after it", () => {
+test("the diagnostics rollup shows per-phase cost and the balance left after it", () => {
   const text = formatCreditUsage([
     buildCreditUsage({ operation: "phase", phase: "analyze", credits_consumed: 1, remaining_quota: 49 }),
     buildCreditUsage({ operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, charged: 3, remaining_quota: 46 }),
   ]);
 
-  assert.equal(text, "analyze/phase credits=1 remaining=49; upy-generate-plugin/generate credits=3 remaining=46");
+  assert.equal(text, "analyze/phase: 1 credit over 1 turn, remaining 49; upy-generate-plugin/generate: 3 credits over 1 turn, remaining 46");
 });
 
-test("the diagnostics line prefers the authoritative charge over the balance delta", () => {
+test("the diagnostics rollup folds a phase's turns into one line", () => {
+  // A phase streams many mostly-free credits frames; the export must fold them into one
+  // "N credits over M turns" line, not one per frame. Mutation: format per record -> eleven
+  // lines and a "credits=0" wall reappear.
+  const records = [];
+  for (let i = 0; i < 9; i++) records.push(buildCreditUsage({ operation: "phase", phase: "analyze", credits_consumed: 0, remaining_quota: 1000 }));
+  records.push(buildCreditUsage({ operation: "phase", phase: "analyze", credits_consumed: 1, remaining_quota: 999 }));
+  records.push(buildCreditUsage({ operation: "phase", phase: "analyze", credits_consumed: 1, remaining_quota: 998 }));
+
+  const text = formatCreditUsage(records);
+  assert.equal(text, "analyze/phase: 2 credits over 11 turns, remaining 998");
+  assert.equal(text.split(";").length, 1, "one rolled-up line, not one per frame");
+});
+
+test("the diagnostics rollup prefers the authoritative charge over the balance delta", () => {
   // The balance delta is a best-effort estimate; once the server reports what it actually
   // deducted, that is the number the quota decision must be made on.
   const text = formatCreditUsage([buildCreditUsage({ operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, charged: 4 })]);
 
-  assert.equal(text, "upy-generate-plugin/generate credits=4");
+  assert.equal(text, "upy-generate-plugin/generate: 4 credits over 1 turn");
   assert.equal(formatCreditUsage([]), "");
 });
 
-test("the diagnostics line omits the cost it does not know instead of printing 0", () => {
+test("the diagnostics rollup omits the cost it does not know instead of printing 0", () => {
   // A session's first turn has no balance baseline to diff and no server charge yet.
   // Mutation: default it to 0 -> a support report reads a free turn where the number is
   // simply missing, and the Activity line (which skips it) would disagree with the export.
   const text = formatCreditUsage([buildCreditUsage({ operation: "phase", phase: "analyze", remaining_quota: 49 })]);
 
-  assert.equal(text, "analyze/phase remaining=49");
-  assert.equal(text.includes("credits="), false);
+  assert.equal(text, "analyze/phase: 1 turn, remaining 49");
+  assert.equal(text.includes("credit"), false);
 });
