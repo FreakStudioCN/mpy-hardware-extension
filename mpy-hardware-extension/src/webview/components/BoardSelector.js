@@ -7,6 +7,10 @@
 
       function setBoardPickerVisible(visible) {
         $("boardPicker").classList.toggle("hidden", !visible);
+        // The browse body is a sibling of .composer (a floating popover), not a descendant of
+        // #boardPicker, so hiding the subbar no longer hides an open body. Collapse it here so
+        // every hider (Generate, run start) closes the popover, not just Restart.
+        if (!visible) setBoardBodyExpanded(false);
       }
       // The board picker body (search + filters + list) is collapsed by default so
       // it doesn't bury the welcome; Start Workflow and the disclosure open it.
@@ -37,6 +41,8 @@
       }
       function clearBoardChoice() {
         selectedOfficialBoard = null;
+        const search = $("boardSearch");
+        if (search) search.value = "";
         setBoardBodyExpanded(false);
         renderBoardPicker();
       }
@@ -128,8 +134,8 @@
         }).join("");
         list.querySelectorAll(".board-card").forEach((btn) => btn.addEventListener("click", () => {
           selectedOfficialBoard = officialBoards.find((b) => b.id === btn.dataset.boardId) || null;
+          setBoardBodyExpanded(false); // also collapses + syncs the chooser
           renderBoardPicker();
-          syncBoardChoice();
         }));
         // Open the official download page; stop the click so it doesn't also select the card.
         list.querySelectorAll(".board-detail").forEach((a) => a.addEventListener("click", (e) => {
@@ -144,7 +150,11 @@
       $("boardAuto").addEventListener("click", clearBoardChoice);
       $("boardSelectedClear")?.addEventListener("click", clearBoardChoice);
       $("boardRefresh").addEventListener("click", () => vscode.postMessage({ type: "request_boards" }));
-      ["boardSearch", "boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { const el = $(id); el.addEventListener("input", () => { boardPage = 0; renderBoardPicker(); }); el.addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
+      // Search filters live: only "input". A "change" on the text box fires on BLUR — clicking a
+      // board card blurs the box, which would re-render the list and destroy the card mid-click
+      // (needing a second click). The selects use "change" (their natural event).
+      $("boardSearch").addEventListener("input", () => { boardPage = 0; renderBoardPicker(); });
+      ["boardVendor", "boardPort", "boardMcu", "boardFeature"].forEach((id) => { $(id).addEventListener("change", () => { boardPage = 0; renderBoardPicker(); }); });
       $("boardPrev").addEventListener("click", () => { boardPage = Math.max(0, boardPage - 1); renderBoardPicker(); });
       $("boardNext").addEventListener("click", () => { boardPage += 1; renderBoardPicker(); });
       renderBoardPicker();

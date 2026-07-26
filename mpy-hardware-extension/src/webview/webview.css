@@ -211,7 +211,8 @@
         background: var(--accent); color: #fff; font-size: 12.5px; font-weight: 650; cursor: pointer; }
       .start-workflow:hover { filter: brightness(1.08); }
       /* secondary launch entries under the hero (Import Project, Recent Sessions) */
-      .launch-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+      .launch-caption { margin-top: 14px; font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .5px; color: var(--fg-dim); }
+      .launch-actions { margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
       .launch-btn { font: inherit; font-size: 11.5px; padding: 5px 12px; cursor: pointer; color: var(--fg-dim);
         background: transparent; border: 1px solid var(--vsc-border-soft); border-radius: 6px;
         display: inline-flex; align-items: center; gap: 6px; }
@@ -225,6 +226,10 @@
       .recent-intent { font-size: 12.5px; color: var(--fg-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .recent-meta { font-size: 10.5px; color: var(--fg-dim); }
       .recent-viewonly { align-self: flex-start; margin-top: 2px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; opacity: .55; }
+      /* per-folder scope line + the folder-picker restore footer (the demoted "import" action) */
+      .recent-scope { padding: 8px 12px 0; font-size: 10.5px; color: var(--fg-muted); }
+      .recent-footer { padding: 10px 12px; border-top: 1px solid var(--vsc-border); margin-top: 6px; }
+      .recent-restore { width: 100%; }
 
       /* activity (card style) */
       .activity { padding: 10px 12px 18px; }
@@ -489,14 +494,23 @@
       .diagram-edge-node { font-family: var(--mono); color: var(--fg-bright); }
 
       /* composer */
-      .composer { flex: 0 0 auto; border-top: 1px solid var(--vsc-border); padding: 10px 12px 12px; }
-      .composer-box { border: 1px solid var(--vsc-input-border); background: var(--vsc-input); border-radius: 9px; padding: 9px 10px 8px; transition: border-color .15s, box-shadow .15s; }
+      .composer { position: relative; flex: 0 0 auto; border-top: 1px solid var(--vsc-border); padding: 10px 12px 12px; }
+      /* z-index:1 so the text box paints OVER the Browse panel that tucks behind its top edge. */
+      .composer-box { position: relative; z-index: 1; border: 1px solid var(--vsc-input-border); background: var(--vsc-input); border-radius: 14px; padding: 10px 10px 8px 12px; transition: border-color .15s, box-shadow .15s; }
       .composer-box.focused { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
       .composer-box.disabled { opacity: .55; }
       .composer textarea { width: 100%; border: 0; background: transparent; color: var(--fg); resize: none;
-        font-family: var(--ui); font-size: 13px; line-height: 1.5; outline: none; min-height: 38px; max-height: 120px; }
+        font-family: var(--ui); font-size: 13px; line-height: 1.5; outline: none; min-height: 38px; max-height: 120px; overflow-y: hidden; }
       .composer textarea::placeholder { color: var(--fg-dim); }
-      .composer-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+      .composer-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; row-gap: 6px; }
+      /* Left tools live on the action bar (one line with Generate); wraps on a narrow panel. */
+      /* Board chooser: a strip at the TOP inside .composer-box, bled to the box's inner edges
+         (negative margins cancel the box padding), same background as the text box, separated only
+         by a hairline divider below it. The Browse popover is anchored to .composer (a sibling), not
+         this strip. */
+      .composer-subbar { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+        margin: -10px -10px 8px -12px; padding: 8px 12px;
+        border-bottom: 1px solid var(--vsc-border); border-radius: 13px 13px 0 0; }
       @keyframes spin { to { transform: rotate(360deg); } }
       .composer-bar .grow { flex: 1; }
       .gen-btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 13px;
@@ -512,41 +526,54 @@
       /* minmax(0,1fr): clamp the single grid column to the panel width so a wide
          child (nowrap cache date, badge row, filter selects) can't force the whole
          composer — and the body — wider than a narrow VS Code side panel. */
-      .start-controls { border-bottom: 1px solid var(--vsc-card-border); padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-      .mode-row, .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
       .mode-chip, .board-chip, .board-page-btn, .board-refresh { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
       .mode-chip.active, .board-chip.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
-      /* Experience-level segmented toggle: Beginner/Custom are ONE connected control (the mode axis),
-         visually distinct from the separate board-choice buttons (Recommend board / Browse boards). */
-      .mode-toggle { display: inline-flex; }
-      /* --vsc-card-border is near-invisible on the dark sidebar; use a clearly visible gray so BOTH
-         segments read as bordered buttons (the active one overrides to accent below). */
-      .mode-toggle .mode-chip { border: 1px solid var(--fg-dim); border-radius: 0; }
-      .mode-toggle .mode-chip:first-child { border-radius: 6px 0 0 6px; }
-      .mode-toggle .mode-chip:last-child { border-radius: 0 6px 6px 0; }
-      /* Overlap the touching borders into a single line (both chips keep a full border, no double edge),
-         and lift the active chip so its accent border wraps the whole segment, including the shared edge. */
-      .mode-toggle .mode-chip + .mode-chip { margin-left: -1px; }
-      .mode-toggle .mode-chip.active { border-color: var(--accent); color: var(--fg-bright); background: #0e7aff26; position: relative; z-index: 1; }
-      /* Board-choice segmented toggle (Recommend vs Browse) — same segmented pattern as the mode toggle,
-         with an always-visible selected-board chip so the current choice is never hidden in a collapsed list. */
-      .board-toggle { display: inline-flex; }
-      .board-toggle .board-seg { border: 1px solid var(--fg-dim); border-radius: 0; background: transparent; color: var(--fg-muted); padding: 5px 8px; font-size: 11px; cursor: pointer; }
-      .board-toggle .board-seg:first-child { border-radius: 6px 0 0 6px; }
-      .board-toggle .board-seg:last-child { border-radius: 0 6px 6px 0; }
-      .board-toggle .board-seg + .board-seg { margin-left: -1px; }
-      .board-toggle .board-seg.active { border-color: var(--accent); color: var(--fg-bright); background: #0e7aff26; position: relative; z-index: 1; }
-      .board-selected { display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 8px; border: 1px solid var(--accent); border-radius: 6px; background: #0e7aff1a; font-size: 11px; color: var(--fg-bright); }
+      /* Segmented toggle (Claude-style filled track) — ONE definition shared by every connected
+         multi-segment control: experience level (Beginner/Custom), board choice (Recommend/Browse),
+         the Save Version save-method toggle (Commit/Snapshot, reusing .mode-chip), and Device Tools'
+         Search/Installed. The control is a subtle inset track; the .active segment is a solid raised
+         pill with NO per-segment borders — matching claude.ai's Chat/Cowork/Code segmented control. */
+      /* inline-GRID with equal auto-columns so every segment is truly the same width (inline-flex
+         sizes to content, which made "Recommend board" and "Browse boards ▾" unequal and mis-padded,
+         and mis-aligned the half-width thumb). */
+      .mode-toggle, .board-toggle, .dt-pkg-toggle { position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; min-width: 0; max-width: 100%; padding: 2px; background: rgba(0, 0, 0, .22); border: 1px solid var(--vsc-input-border); border-radius: 8px; }
+      /* Sliding "thumb": one moving pill behind the segments (a real slide, not a per-segment
+         crossfade). Segments are equal width, so the thumb is one half and :has() slides it to the
+         active segment. All current toggles are 2-segment, so translateX(100%) lands on segment two. */
+      .mode-toggle::before, .board-toggle::before, .dt-pkg-toggle::before { content: ""; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / 2); border-radius: 6px; background: rgba(255, 255, 255, .16); box-shadow: 0 1px 3px rgba(0, 0, 0, .45); transition: transform .18s cubic-bezier(.4, 0, .2, 1); z-index: 0; pointer-events: none; }
+      .mode-toggle:has(.mode-chip:last-child.active)::before, .board-toggle:has(.board-seg:last-child.active)::before, .dt-pkg-toggle:has(.dt-pkg-seg:last-child.active)::before { transform: translateX(100%); }
+      .mode-toggle .mode-chip, .board-toggle .board-seg, .dt-pkg-toggle .dt-pkg-seg {
+        position: relative; z-index: 1; min-width: 0; text-align: center; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+        border: 0; border-radius: 6px; background: transparent; color: var(--fg-muted);
+        padding: 5px 12px; font-size: 11px; cursor: pointer; transition: color .15s; }
+      .mode-toggle .mode-chip:hover, .board-toggle .board-seg:hover, .dt-pkg-toggle .dt-pkg-seg:hover { color: var(--fg-bright); }
+      /* Active segment: brighten the text only — NO weight change (bold reflows the text wider). The
+         sliding thumb provides the fill/shadow that marks the selection. */
+      .mode-toggle .mode-chip.active, .board-toggle .board-seg.active, .dt-pkg-toggle .dt-pkg-seg.active { color: var(--fg-bright); }
+      @media (prefers-reduced-motion: reduce) { .mode-toggle::before, .board-toggle::before, .dt-pkg-toggle::before { transition: none; } }
+      .board-selected { order: -1; display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 8px; border: 1px dashed var(--fg-muted); border-radius: 6px; background: var(--vsc-input); font-size: 11px; color: var(--fg-bright); }
       .board-selected-ic { color: var(--green); font-size: 11px; }
       .board-selected-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .board-selected-clear { border: 0; background: transparent; color: var(--fg-muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
       .board-selected-clear:hover { color: var(--fg-bright); background: #ffffff14; }
-      /* The Browse segment is a disclosure for the collapsed board picker; its caret flips when open. */
-      .board-toggle #boardMore::after { content: "\25be"; font-size: 9px; margin-left: 4px; transition: transform .15s; }
-      .board-toggle #boardMore[aria-expanded="true"]::after { transform: rotate(180deg); }
-      .board-picker-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-      /* explicit display defeats the [hidden] attribute; restore it so collapse works */
-      .board-picker-body[hidden] { display: none; }
+      /* Board browser: opens OVER the composer and tucks BEHIND its top edge (z-index:0 < the box's
+         z-index:1), so the text box sits on top and the panel's bottom disappears behind it — one
+         continuous unit. Anchored to .composer (padding: 10px top / 12px sides); bottom is pushed
+         ~20px past the box's top edge for the tuck. Distinct background from the text box. */
+      .board-picker-body {
+        position: absolute; left: 12px; right: 12px; bottom: calc(100% - 30px); z-index: 0;
+        display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px;
+        padding: 10px 10px 30px; border-radius: 12px 12px 0 0;
+        background: var(--vsc-sidebar); border: 1px solid var(--vsc-border); border-bottom: none;
+        opacity: 1; transform: translateY(0);
+        transition: opacity .16s ease, transform .16s ease, display .16s allow-discrete; }
+      /* Open/close = slide-up + fade. @starting-style is the entry keyframe; [hidden] is the exit;
+         display is discrete-animated so it participates in the transition instead of snapping. */
+      @starting-style { .board-picker-body { opacity: 0; transform: translateY(6px); } }
+      .board-picker-body[hidden] { display: none; opacity: 0; transform: translateY(6px); }
+      @media (prefers-reduced-motion: reduce) { .board-picker-body { transition: none; } }
       .board-search, .board-filter { min-width: 0; border: 1px solid var(--vsc-card-border); background: #101012; color: var(--fg); border-radius: 6px; padding: 6px 8px; font-size: 11px; }
       .board-search { width: 100%; }
       .board-filter { flex: 1 1 92px; }
@@ -567,6 +594,11 @@
       .board-meta { margin-top: 4px; color: var(--fg-muted); font-size: 10.5px; line-height: 1.35; }
       .board-badge { flex: 0 0 auto; color: var(--accent); font-size: 10px; border: 1px solid #0e7aff55; border-radius: 999px; padding: 1px 6px; }
       .board-status { color: var(--fg-dim); font-size: 10.5px; min-height: 14px; }
+      /* Pagination: prev/next flanking a centered status, on one line, divided from the list above. */
+      .board-pager { justify-content: space-between; flex-wrap: nowrap; margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--vsc-border); }
+      .board-pager .board-status { flex: 1; text-align: center; }
+      .board-page-btn { min-width: 30px; text-align: center; border-radius: 8px; }
+      .board-page-btn:not(:disabled):hover { border-color: var(--accent); color: var(--fg-bright); background: #ffffff0a; }
       .board-page-btn:disabled { opacity: .45; cursor: default; }
       .fade-in { animation: fadeIn .28s ease both; }
       @keyframes fadeIn { from { transform: translateY(5px); } to { transform: none; } }
@@ -636,13 +668,9 @@
       .dt-name { flex: 1; font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .dt-mip { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); flex-wrap: wrap; }
       .dt-pkg-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 2px 2px; }
-      /* Search | Installed segmented toggle (mirrors the board picker's .board-toggle). */
-      .dt-pkg-toggle { display: inline-flex; align-self: flex-start; }
-      .dt-pkg-seg { border: 1px solid var(--fg-dim); border-radius: 0; background: transparent; color: var(--fg-muted); padding: 5px 10px; font-size: 11px; cursor: pointer; }
-      .dt-pkg-seg:first-child { border-radius: 6px 0 0 6px; }
-      .dt-pkg-seg:last-child { border-radius: 0 6px 6px 0; }
-      .dt-pkg-seg + .dt-pkg-seg { margin-left: -1px; }
-      .dt-pkg-seg.active { border-color: var(--accent); color: var(--fg-bright); background: #0e7aff26; position: relative; z-index: 1; }
+      /* Search | Installed toggle: segmented style is the shared rule above; only the column
+         left-alignment is specific to Device Tools. */
+      .dt-pkg-toggle { align-self: flex-start; }
       .dt-pkg-results { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--fg-dim); }
       /* Each result is an accordion card: header (row) + inline detail body. */
       .dt-pkg-item { background: var(--vsc-card); border: 1px solid var(--vsc-border); border-radius: 6px; overflow: hidden; }

@@ -99,8 +99,8 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   assert.ok(search, "board search input is present on the start screen");
   search.value = "esp32";
   search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  assert.match(document.getElementById("boardPicker")!.textContent!, /ESP32-S3/);
-  assert.doesNotMatch(document.getElementById("boardPicker")!.textContent!, /Pyboard D-series/);
+  assert.match(document.getElementById("boardList")!.textContent!, /ESP32-S3/);
+  assert.doesNotMatch(document.getElementById("boardList")!.textContent!, /Pyboard D-series/);
 
   (document.getElementById("modeCustom") as HTMLButtonElement).click();
   assert.equal(document.getElementById("modeBeginner")!.getAttribute("aria-pressed"), "false");
@@ -415,30 +415,41 @@ test("partner with no resolved logo renders its name and still opens the site", 
   assert.ok(ext && /wiznet\.io/.test(ext.url), "clicking the text fallback still opens the site");
 });
 
-test("the three project-entry buttons post their OWN distinct messages (session import vs folder open vs recent)", async () => {
+test("launch entries: Open Folder and Recent Sessions are the top-level actions; folder-restore is demoted into the Recent panel", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
   const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
 
-  const importBtn = document.getElementById("importSession") as HTMLButtonElement;
+  // The mislabeled top-level "Import Existing Project" button is gone; the two axes are separated.
+  assert.equal(document.getElementById("importSession"), null, "no top-level Import Existing Project button");
   const openBtn = document.getElementById("openFolder") as HTMLButtonElement;
   const recentBtn = document.getElementById("recentSessions") as HTMLButtonElement;
-  for (const [name, btn] of [["importSession", importBtn], ["openFolder", openBtn], ["recentSessions", recentBtn]] as const) {
+  for (const [name, btn] of [["openFolder", openBtn], ["recentSessions", recentBtn]] as const) {
     assert.ok(btn && startZone.contains(btn), `${name} is a launch entry`);
     assert.ok(btn.querySelector("svg"), `${name} has a distinct icon`);
   }
 
   posted.length = 0;
-  importBtn.click();
-  // Import restores a SESSION — it must NOT post import_project / trigger the folder-open flow (the bug).
-  assert.ok(posted.some((m) => m.type === "import_session"), "Import Existing Project posts import_session");
-  assert.ok(!posted.some((m) => m.type === "import_project" || m.type === "open_project_folder"), "Import does not open a folder");
-
-  posted.length = 0;
   openBtn.click();
-  assert.ok(posted.some((m) => m.type === "open_project_folder"), "Open Folder posts open_project_folder (the folder-open action, now its own entry)");
-  assert.ok(!posted.some((m) => m.type === "import_session"), "Open Folder is not session import");
+  assert.ok(posted.some((m) => m.type === "open_project_folder"), "Open Folder posts open_project_folder (workspace selection)");
+  assert.ok(!posted.some((m) => m.type === "import_session"), "Open Folder is not session restore");
+
+  // The folder-picker restore now lives inside the Recent panel as "Restore from folder…".
+  posted.length = 0;
+  (document.getElementById("recentRestoreFolder") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "import_session"), "Restore from folder posts import_session (the demoted folder-restore)");
+  assert.ok(!posted.some((m) => m.type === "open_project_folder"), "restore-from-folder does not open a workspace");
+});
+
+test("Recent panel shows the per-folder scope line from the host (folder name / global fallback)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("recentSessions") as HTMLButtonElement).click();
+  post(dom, { type: "recent_sessions", sessions: [], folder: "my-project", usingFallback: false });
+  assert.ok(document.getElementById("recentScope")!.textContent!.includes("my-project"), "names the current folder so an empty list reads as scope");
+  post(dom, { type: "recent_sessions", sessions: [], folder: "", usingFallback: true });
+  assert.ok(document.getElementById("recentScope")!.textContent!.length > 0, "no-folder fallback still shows a scope line");
 });
 
 test("Recent Sessions opens the surface, lists host-served summaries, RESTORES the session on click", async () => {
@@ -646,17 +657,60 @@ test("board picker collapses during a generated session and returns on Restart",
   const { document } = dom.window;
 
   const picker = document.getElementById("boardPicker")!;
+  const body = document.getElementById("boardPickerBody") as HTMLElement;
+  const modeToggle = document.getElementById("modeToggle")!;
   assert.equal(picker.classList.contains("hidden"), false, "start controls are visible before a session starts");
+
+  // Open the Browse popover before generating: it's a sibling of the composer, not a descendant
+  // of #boardPicker, so hiding the subbar must not be the only thing that closes it.
+  (document.getElementById("boardMore") as HTMLButtonElement).click();
+  assert.equal(body.hidden, false, "browse popover open before Generate");
 
   (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
   (document.getElementById("generate") as HTMLButtonElement).click();
   assert.equal(picker.classList.contains("hidden"), true, "board picker should not occupy the active session UI");
+  assert.equal(body.hidden, true, "an open browse popover collapses when the run starts");
+  assert.equal(modeToggle.classList.contains("hidden"), true, "the Beginner/Custom toggle hides during a run");
 
   post(dom, { type: "session_done", terminal: "generated" });
   assert.equal(picker.classList.contains("hidden"), true, "finished sessions keep the focused composer until Restart");
 
   (document.getElementById("newSession") as HTMLButtonElement).click();
   assert.equal(picker.classList.contains("hidden"), false, "Restart restores the start controls for the next project");
+  assert.equal(modeToggle.classList.contains("hidden"), false, "Restart restores the Beginner/Custom toggle");
+});
+test("an imported recipe prefills the intent box and auto-sizes it", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "recipe_imported", payload: { prompt: "blink an led every second" } });
+  const intent = document.getElementById("intent") as HTMLTextAreaElement;
+  assert.equal(intent.value, "blink an led every second", "the recipe prompt fills the intent box");
+  // autosizeIntent ran: it sets height to min(scrollHeight, cap)px. jsdom reports scrollHeight 0,
+  // so the observable effect is "0px" — an absent call leaves height "" (mutation-sensitive).
+  assert.equal(intent.style.height, "0px", "the intent box is auto-sized after import");
+});
+test("picking a board collapses the browse panel and Restart clears the selection", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    boards: [{ id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: [], firmware: { url: "u", board_name: "ESP32_GENERIC_S3" }, download_slug: "ESP32_GENERIC_S3", support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" }],
+  });
+  (document.getElementById("boardMore") as HTMLButtonElement).click();
+  const search = document.getElementById("boardSearch") as HTMLInputElement;
+  search.value = "esp";
+  search.dispatchEvent(new dom.window.Event("input"));
+  (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+  assert.equal((document.getElementById("boardPickerBody") as HTMLElement).hidden, true, "browse panel collapses once a board is picked");
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), false, "chip shown after picking");
+
+  (document.getElementById("newSession") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), true, "Restart clears the board selection");
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), true, "Restart returns to the Recommend segment");
+  assert.equal(search.value, "", "Restart clears the board search box");
 });
 test("the Doctor tab requests a check on load and renders results as localized status cards", async () => {
   const posted: any[] = [];

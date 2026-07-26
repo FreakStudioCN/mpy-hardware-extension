@@ -103,13 +103,14 @@
       // just reveals the board picker and focuses the prompt (no session yet).
       // Save Version (#95) and Git History (#94) are wired above as their own global-tool surfaces.
       $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); setBoardBodyExpanded(true); $("intent").focus(); });
-      // Three distinct project-entry actions (a session is Blockless runtime state; a folder is just
-      // local source files): Import Existing Project restores a saved SESSION; Open Folder opens a local
-      // FOLDER as the workspace (the old "import" behavior, now honestly labeled); Recent Sessions is a
-      // read-only list served from .mpyhw/sessions.
-      $("importSession").addEventListener("click", () => vscode.postMessage({ type: "import_session" }));
+      // Two axes, no longer conflated in one flat row: Open Folder is workspace selection (opens a
+      // local FOLDER as the workspace); Recent Sessions is the session-lifecycle entry (a read-only
+      // per-folder list from .mpyhw/sessions). The folder-picker restore (import_session) is NOT a
+      // top-level button anymore -- it lives inside the Recent panel as "Restore from folder…", since
+      // it and a Recent card both just restore a saved session.
       $("openFolder").addEventListener("click", () => vscode.postMessage({ type: "open_project_folder" }));
       $("recentSessions").addEventListener("click", () => { openGlobalTool("toolRecent"); vscode.postMessage({ type: "request_recent_sessions" }); });
+      $("recentRestoreFolder").addEventListener("click", () => vscode.postMessage({ type: "import_session" }));
       $("recentBack").addEventListener("click", closeGlobalTool);
       $("boardMore").addEventListener("click", () => setBoardBodyExpanded($("boardPickerBody").hidden));
 
@@ -129,6 +130,9 @@
         // composer placeholder flips to a note hint too, so it doesn't read as "start a
         // build" while running.
         $("addNote").classList.toggle("hidden", !on);
+        // Experience mode is start-time only; hide it during a run (the board chooser above
+        // already hides via setBoardPickerVisible). Textarea + Generate stay for notes.
+        $("modeToggle").classList.toggle("hidden", on);
         $("intent").placeholder = tr(on ? "note_ph" : "intent_ph");
         if (on) setPending(tr("working")); // immediate spinner; trace_event refines the label
         updateGenerateEnabled();
@@ -188,6 +192,7 @@
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
         setBoardPickerVisible(true);
+        clearBoardChoice();
         setTab("activity");
       }
       $("newSession").addEventListener("click", () => {
@@ -196,10 +201,20 @@
         clearConversation();
         $("intent").value = ""; $("intent").style.height = "auto";
       });
+      // Grow the intent box to fit its content up to a cap, and only show a scrollbar past the cap
+      // (the default is overflow:hidden so a wrapping placeholder never triggers one). Shared by the
+      // input handler and prefillImportedRecipe so both writers size the box the same way.
+      const INTENT_MAX_HEIGHT = 120;
+      function autosizeIntent() {
+        const el = $("intent");
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, INTENT_MAX_HEIGHT) + "px";
+        el.style.overflowY = el.scrollHeight > INTENT_MAX_HEIGHT ? "auto" : "hidden";
+      }
       const ta = $("intent");
       ta.addEventListener("focus", () => $("composerBox").classList.add("focused"));
       ta.addEventListener("blur", () => $("composerBox").classList.remove("focused"));
-      ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; });
+      ta.addEventListener("input", autosizeIntent);
 
       // ----- credits -----
       let lastDailyGrant = 0;
@@ -258,11 +273,17 @@
       }
       // List of past session summaries (host-served from .mpyhw/sessions). Clicking a card RESTORES that
       // session (board/wiring/diagram/code) via the host; a session with no snapshot degrades gracefully.
-      function renderRecent(sessions) {
+      function renderRecent(msg) {
+        msg = msg || {};
+        const sessions = Array.isArray(msg.sessions) ? msg.sessions : [];
+        // Make the per-folder scope visible: name the folder (or the no-folder fallback) so an empty
+        // list reads as "nothing in THIS folder yet", not lost data.
+        const scope = $("recentScope");
+        if (scope) scope.textContent = msg.usingFallback ? tr("recent_scope_global") : (msg.folder ? tr("recent_scope", { f: String(msg.folder) }) : "");
         const box = $("recent"); if (!box) return;
         box.innerHTML = "";
         const empty = $("recentEmpty");
-        if (!sessions || !sessions.length) { empty.classList.remove("hidden"); return; }
+        if (!sessions.length) { empty.classList.remove("hidden"); return; }
         empty.classList.add("hidden");
         for (const s of sessions) {
           const card = document.createElement("button"); card.className = "recent-card"; card.type = "button";
