@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createPanel, createViewProvider, isSnapshotSelfPath, parseGitStatusRow } from "../src/webview/panel.ts";
-import { gitCommit, gitHasStagedChanges, gitLog, gitCurrentBranch, gitShowNameStatus, gitDiffText } from "../src/extension/project-git.ts";
+import { gitCommit, gitCommitCount, gitHasStagedChanges, gitLog, gitCurrentBranch, gitShowNameStatus, gitDiffText } from "../src/extension/project-git.ts";
 import { buildSessionSnapshot, writeSessionSnapshot } from "../src/extension/session-snapshot.ts";
 import { EXTENSION_VERSION } from "../src/core/toolchain-version.ts";
 
@@ -3028,6 +3028,19 @@ test("gitLog: newest-first entries with real hashes, honors -n, empty repo yield
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("gitCommitCount: the branch's REAL commit count, independent of gitLog's display cap", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-gcc-"));
+  try {
+    initTestRepo(dir);
+    assert.equal(await gitCommitCount(dir), 0, "empty repo (no HEAD, exit 128) is 0 commits, not a throw");
+    for (let i = 0; i < 5; i++) { writeFileSync(join(dir, `f${i}.py`), String(i)); commitAll(dir, `c${i}`); }
+    // The point of the helper: a capped gitLog must NOT be mistaken for the repo's size.
+    // Mutation: implement this as (await gitLog(dir, cap)).length -> 2 !== 5 here.
+    assert.equal(await gitCommitCount(dir), 5, "counts every commit");
+    assert.equal((await gitLog(dir, 2)).length, 2, "gitLog is still capped — the two numbers legitimately differ");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("gitCurrentBranch: returns the branch name even on an empty repo (pre-first-commit)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mpyhw-gcb-"));
   try {
@@ -3112,6 +3125,28 @@ test("git_history_open: repo with commits -> newest-first timeline + branch + un
     assert.equal(data.commits[0].hash, revParse(projectFolder, "HEAD"), "real HEAD hash");
     assert.ok(data.branch.length > 0, "branch reported");
     assert.ok(data.uncommitted.files.some((f: any) => f.name === "dirty.py"), "untracked shown in uncommitted");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_open: commitTotal is the repo's REAL count when history exceeds the display cap", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    // One more than GIT_HISTORY_COMMITS_MAX (50), so the sent list is capped but the count is not.
+    // Empty commits keep this cheap; the timeline never reads their trees.
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "first");
+    for (let i = 0; i < 50; i++) {
+      execFileSync("git", ["-C", projectFolder, "commit", "--allow-empty", "-q", "-m", `c${i}`], { windowsHide: true });
+    }
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    const data = ghData(posted);
+    assert.equal(data.commits.length, 50, "the timeline itself stays capped");
+    // Mutation: commitTotal: commits.length -> 50, and the panel would tell a 51-commit repo it
+    // has 50 with no "+N more" row to say otherwise.
+    assert.equal(data.commitTotal, 51, "commitTotal reports every commit, not the capped list length");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 

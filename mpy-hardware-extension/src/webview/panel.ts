@@ -31,7 +31,7 @@ import { canonicalPathKey, deleteProjectPath, isRealContained, snapshotExistingP
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
-import { GitUnavailableError, gitBranch, gitCommit, gitCurrentBranch, gitDiffText, gitLog, gitShowNameStatus, gitStatusPorcelain, isGitRepo } from "../extension/project-git.ts";
+import { GitUnavailableError, gitBranch, gitCommit, gitCommitCount, gitCurrentBranch, gitDiffText, gitLog, gitShowNameStatus, gitStatusPorcelain, isGitRepo } from "../extension/project-git.ts";
 import { buildSessionSnapshot, listSessionSnapshots, readSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
 import type { SessionSnapshot, SnapshotArtifact } from "../extension/session-snapshot.ts";
 
@@ -687,9 +687,14 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     try {
       // branch --show-current (not rev-parse) so an empty repo still reports its branch; gitLog
       // returns [] pre-first-commit; porcelain works pre-commit too — all read-only.
-      const [branch, commits, porcelain] = await Promise.all([
+      // commitTotal is the branch's REAL commit count, never commits.length: the timeline is
+      // capped at GIT_HISTORY_COMMITS_MAX, so reporting the capped figure would tell a
+      // 120-commit repo it has 50 and hide the rest with no indication. Same contract as
+      // uncommitted's fileTotal below — true total, display list capped, "+N more" for the gap.
+      const [branch, commits, commitTotal, porcelain] = await Promise.all([
         gitCurrentBranch(projectFolder),
         gitLog(projectFolder, GIT_HISTORY_COMMITS_MAX),
+        gitCommitCount(projectFolder),
         gitStatusPorcelain(projectFolder),
       ]);
       const summary = summarizeGitStatus(porcelain);
@@ -707,7 +712,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         repoPresent: true,
         branch,
         commits: commits.map((c) => ({ hash: c.hash, shortHash: c.shortHash, author: c.author, date: c.date, subject: c.subject, snapshot: associations.get(c.hash) || null })),
-        commitTotal: commits.length,
+        commitTotal,
         uncommitted: { files: summary.files, fileTotal: summary.fileTotal },
         note: "",
       });

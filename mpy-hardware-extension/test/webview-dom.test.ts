@@ -4039,6 +4039,27 @@ test("git_history_data renders the timeline via textContent (XSS-inert), branch 
   assert.deepEqual(badges, ["M", "U"], "M and U badges shown");
 });
 
+test("git_history: a capped timeline says how many older commits are not shown", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  // The host sends the newest N with the repo's REAL total; the gap must be stated, exactly as
+  // the uncommitted section does. Mutation: drop the ghAppendMore call -> no row, and the 49
+  // hidden commits read as "this is the whole history".
+  post(dom, {
+    type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 51,
+    commits: [
+      { hash: "a".repeat(40), shortHash: "aaaaaaa", author: "T", date: "2026-07-24T10:00:00Z", subject: "newest" },
+      { hash: "b".repeat(40), shortHash: "bbbbbbb", author: "T", date: "2026-07-23T10:00:00Z", subject: "older" },
+    ],
+    uncommitted: { files: [], fileTotal: 0 }, note: "",
+  });
+  const more = document.querySelector("#ghCommits .sv-art-more");
+  assert.ok(more, "a truncated timeline shows the +N more row");
+  assert.ok(more!.textContent!.includes("49"), "names the 49 commits it did not render");
+  assert.ok(document.getElementById("ghCommitsCount")!.textContent!.includes("51"), "the group count is the real total");
+});
+
 test("git_history: clicking a commit posts git_history_commit; commit_data yields file rows; a file click posts git_history_diff", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

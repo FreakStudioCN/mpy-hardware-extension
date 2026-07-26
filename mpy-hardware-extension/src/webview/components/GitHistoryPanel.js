@@ -86,6 +86,10 @@
         host.classList.toggle("hidden", total === 0);
         ghSetCount("ghCommitsCount", total);
         for (const c of commits) host.appendChild(ghCommitRow(c));
+        // The host caps the timeline it sends; commitTotal is the repo's real count. Say how many
+        // older commits are not shown, exactly as the uncommitted section does — a silent cut
+        // reads as "this is the whole history".
+        ghAppendMore(host, total, commits.length);
       }
       // A GitHub/GitLens-style graph row: a colored dot on a connecting rail, then the commit
       // SUBJECT only (truncated to one line). Collapsed shows nothing but the message; expanding

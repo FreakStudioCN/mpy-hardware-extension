@@ -173,6 +173,22 @@ export async function gitLog(projectFolder: string, limit: number): Promise<GitL
     });
 }
 
+// How many commits the branch ACTUALLY has, independent of the timeline's display cap. The panel
+// renders the newest N; without this it would report N as the repo's commit count and silently
+// hide the rest. Mirrors gitLog's empty-repo handling: no HEAD exits 128 and means 0 commits.
+export async function gitCommitCount(projectFolder: string): Promise<number> {
+  let stdout: string;
+  try {
+    ({ stdout } = await git(projectFolder, ["rev-list", "--count", "HEAD"]));
+  } catch (error: any) {
+    if (error instanceof GitUnavailableError) throw error;
+    if (error?.exitCode === 128) return 0;
+    throw error;
+  }
+  const count = Number.parseInt(stdout.trim(), 10);
+  return Number.isFinite(count) ? count : 0;
+}
+
 // Current branch via `branch --show-current`. Unlike `rev-parse --abbrev-ref HEAD` (which exits
 // 128 before the first commit), this exits 0 and returns the (unborn) branch name even on an empty
 // repo, and prints "" on a detached HEAD — exactly what the read-only history view needs to show
