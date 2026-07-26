@@ -17,7 +17,7 @@ DAILY_GRANT = int(os.getenv("MPYHW_DAILY_GRANT", "200"))
 # survive every redeploy/env rewrite, and the grant refills daily so nothing ever
 # runs out. Both keys are listed because GitHub only exposes `email` when the user
 # makes it public — the login is the reliable match.
-UNLIMITED_ACCOUNTS = frozenset({"ersonp", "ersonpereiracr7@gmail.com", "leezisheng", "gypsyold"})
+UNLIMITED_ACCOUNTS = frozenset({"ersonp", "ersonpereiracr7@gmail.com", "leezisheng", "gypsyold", "xinruili-git"})
 UNLIMITED_DAILY_GRANT = 1_000_000
 
 
