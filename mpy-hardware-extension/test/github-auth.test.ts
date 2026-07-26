@@ -53,3 +53,24 @@ test("github auth can force-refresh a cached backend session token", async () =>
   assert.equal(await auth.getToken(true, { forceRefresh: true }), "jwt-2");
   assert.equal(calls, 2, "forceRefresh re-fetches");
 });
+
+test("getLogin prefers the backend exchange login over the VS Code account label (#97)", async () => {
+  const auth = createGithubAuth({
+    apiBaseUrl: "http://api.test",
+    vscode: { authentication: { getSession: async () => ({ accessToken: "gho-token", account: { label: "Label Name" } }) } },
+    fetchImpl: async () => ({ ok: true, json: async () => ({ token: "jwt", login: "canonical" }) } as Response),
+  });
+  assert.equal(auth.getLogin(), undefined, "no login until a token exchange happens");
+  await auth.getToken(true);
+  assert.equal(auth.getLogin(), "canonical", "the exchange login wins over the account label");
+});
+
+test("getLogin falls back to the VS Code account label when the exchange omits login (#97)", async () => {
+  const auth = createGithubAuth({
+    apiBaseUrl: "http://api.test",
+    vscode: { authentication: { getSession: async () => ({ accessToken: "gho-token", account: { label: "Label Name" } }) } },
+    fetchImpl: async () => ({ ok: true, json: async () => ({ token: "jwt" }) } as Response),
+  });
+  await auth.getToken(true);
+  assert.equal(auth.getLogin(), "Label Name", "no exchange login -> the account label survives");
+});

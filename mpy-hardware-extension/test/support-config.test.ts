@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ISSUE_FORM_URL, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildIssueReportUrl, orderContactsByLocale } from "../src/core/support-config.ts";
+import { CREDITS_REQUEST_EMAIL, ISSUE_FORM_URL, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildCreditsRequestMailto, buildIssueReportUrl, orderContactsByLocale } from "../src/core/support-config.ts";
 
 test("every support contact has an id, a label, and a value or url", () => {
   for (const c of SUPPORT_CONTACTS) {
@@ -101,4 +101,38 @@ test("buildIssueReportUrl tolerates a lone surrogate already split by an upstrea
     assert.ok(!decoded.includes(hi) && !decoded.includes(lo), "the injected lone surrogate is stripped, not carried into the url");
   }
   // Mutation: drop stripLoneSurrogates from buildIssueReportUrl -> encodeURIComponent throws URIError here.
+});
+
+test("buildCreditsRequestMailto targets the support email and carries every identifier line (#97)", () => {
+  const url = buildCreditsRequestMailto({
+    githubLogin: "octocat",
+    balance: "42",
+    dailyGrant: "100",
+    resetsAt: "2026-07-26T00:00:00Z",
+    extensionVersion: "1.2.3",
+    pluginVersion: "4.5.6",
+    sessionId: "sess-9",
+  });
+  assert.ok(url.startsWith(`mailto:${CREDITS_REQUEST_EMAIL}?`), "addresses the config support email, not a hardcoded literal");
+  const body = decodeURIComponent(url.slice(url.indexOf("body=") + "body=".length));
+  assert.match(body, /Contact email: please fill in your email/, "user-filled contact line present");
+  assert.match(body, /GitHub login: octocat/);
+  assert.match(body, /Credit balance: 42/);
+  assert.match(body, /Daily grant: 100/);
+  assert.match(body, /Resets at: 2026-07-26T00:00:00Z/);
+  assert.match(body, /Extension version: 1\.2\.3/);
+  assert.match(body, /Plugin version: 4\.5\.6/);
+  assert.match(body, /Session id: sess-9/);
+  // Not a payment portal: no payment/recharge/top-up language in the generated mail.
+  assert.doesNotMatch(body.toLowerCase(), /pay|recharge|top-up|top up/, "contact entry, not a payment portal");
+});
+
+test("buildCreditsRequestMailto keeps a CJK login under the encoded budget and never throws on a lone surrogate (#97)", () => {
+  const cjk = buildCreditsRequestMailto({
+    githubLogin: "用户".repeat(2000), balance: "0", dailyGrant: "0", resetsAt: "", extensionVersion: "1", pluginVersion: "1", sessionId: "",
+  });
+  assert.ok(cjk.length < 2083, "encoded mailto stays under the Windows mailto command cap");
+  assert.doesNotThrow(() => buildCreditsRequestMailto({
+    githubLogin: "octo\uD83D", balance: "0", dailyGrant: "0", resetsAt: "", extensionVersion: "1", pluginVersion: "1", sessionId: "\uDE00x",
+  }), "a lone surrogate in login/session must not throw URIError");
 });
