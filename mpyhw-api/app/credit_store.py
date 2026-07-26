@@ -10,7 +10,7 @@ from typing import Any
 from app import db
 
 CREDIT_TOKENS = 10_000
-DAILY_GRANT = int(os.getenv("MPYHW_DAILY_GRANT", "50"))
+DAILY_GRANT = int(os.getenv("MPYHW_DAILY_GRANT", "200"))
 
 # Accounts comped with permanent unlimited credits, matched by lowercased GitHub
 # login OR email. Hardcoded in source on purpose (not an env override): it must
