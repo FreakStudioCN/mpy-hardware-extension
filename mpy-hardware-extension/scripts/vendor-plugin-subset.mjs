@@ -16,9 +16,9 @@ import { dirname, join, relative } from "node:path";
 // scripts and the toolchain-spec schemas. The cloud model names scripts by their bare
 // filename and serve.py's run_v0 resolver finds them under any bundled scripts/ dir,
 // so the whole dir must ship — not a cherry-picked allowlist. We DROP the heavy prose
-// (SKILL.md/README) and the test/sample/mock fixtures. WONTFIX (issue #3/#4): the packaged
-// device shim runs the scripts but never reads SKILL.md, and the cloud backend loads skill
-// prose from its OWN copy (skill_catalog.py / live serve), not from the VSIX. Only an
+// (SKILL.md/README) and the test/sample/mock fixtures by design: the packaged device shim
+// runs the scripts but never reads SKILL.md, and the cloud backend loads skill prose from
+// its OWN copy (skill_catalog.py / live serve), not from the VSIX. Only an
 // offline/self-hosted full-protocol run would need the .md re-included.
 const PLUGIN_DIRS = [
   "upy-analyze-plugin",
@@ -28,7 +28,8 @@ const PLUGIN_DIRS = [
   "upy-generate-plugin",
   "upy-deploy-plugin",
   // Optional flows, now served: their script_run scripts must ship or the packaged VSIX
-  // fails script_not_found on every gen-driver/wiring/diagram run (the #39 dev-vs-packaged trap).
+  // fails script_not_found on every gen-driver/wiring/diagram run (the dev-vs-packaged trap:
+  // they resolve in a dev checkout but are absent from the VSIX unless bundled here).
   "upy-gen-driver-plugin",
   "upy-wiring-plugin",
   "upy-diagram-plugin",
@@ -44,7 +45,7 @@ const PLUGIN_DIRS = [
 
 const EXCLUDE_DIRS = new Set(["test", "tests", "sample", "samples", "mock-messages", "__pycache__"]);
 
-// Curation cruft that must never ship (security P1-A): the board-source staging area and
+// Curation cruft that must never ship: the board-source staging area and
 // its dated archives carry the maintainer's local paths + fetch-failure traces (a CSV, a
 // ZIP of OCR reports, cleanup manifests). None is read at runtime.
 function shouldSkip(relPosix) {
