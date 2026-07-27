@@ -120,6 +120,10 @@
           session_ended: "Session ended: {t}", tool_failed: "Step failed: {e}",
           target_board: "Target board", led_note: "⚠ LED needs a current-limiting resistor (≈220–330Ω).",
           wiring_provisional: "Preview — pins not assigned yet",
+          // BOM procurement. A site_entry link opens a vendor landing page, so its label says
+          // "search", never "buy this product" — the payload carries no product URL and we never build one.
+          search_on_vendor: "Search on YourCee", search_on_named: "Search on {v}", open_link: "Open link", copy_query: "Copy",
+          no_purchase_link: "No purchase link yet", bom_product: "Product page", bom_store: "Store page", bom_datasheet: "Datasheet",
           term_generated: "Done", term_success: "Done", term_cancelled: "Stopped", term_complete: "Done",
           term_awaiting_user: "Waiting for your reply", term_max_turns: "Stopped (max turns)",
           term_stalled: "Build got stuck",
@@ -254,6 +258,8 @@
           session_ended: "会话结束：{t}", tool_failed: "步骤失败：{e}",
           target_board: "目标开发板", led_note: "⚠ LED 需要串联一个限流电阻（约 220–330Ω）。",
           wiring_provisional: "预览 — 引脚尚未分配",
+          search_on_vendor: "在 YourCee 搜索", search_on_named: "在 {v} 搜索", open_link: "打开链接", copy_query: "复制",
+          no_purchase_link: "暂无购买链接", bom_product: "产品页", bom_store: "店铺页", bom_datasheet: "数据手册",
           term_generated: "完成", term_success: "完成", term_cancelled: "已停止", term_complete: "完成",
           term_awaiting_user: "等待你的回复", term_max_turns: "已停止（达到回合上限）",
           term_stalled: "构建卡住了",

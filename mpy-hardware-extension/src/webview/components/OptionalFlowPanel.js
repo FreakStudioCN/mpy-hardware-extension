@@ -164,16 +164,88 @@
         html += "</div>";
         return html;
       }
+      // ----- BOM procurement (search_query + purchase links carried by manifest.bom) -----
+      // The select-hw Skill normalizes every physical BOM item with search_query,
+      // purchase_links[] ({region,vendor,url,link_type,search_query,confidence,notes}) and
+      // product/shop/datasheet URLs; older manifests carry none of them. Every field is
+      // optional here: absent renders as nothing, and this surface never throws and never
+      // gates flash/scaffold/generate/deploy.
+      function bomText(v) { return typeof v === "string" && v.trim() ? v.trim() : ""; }
+      // Label for one purchase_links[] entry. A site_entry is a vendor landing page, not a
+      // product page, so it reads as "search on the vendor site" — never as a buy link.
+      function bomLinkLabel(link) {
+        const vendor = bomText(link.vendor);
+        if (link.link_type === "site_entry") {
+          // The Skill's own default entry spells the partner "Yourcee"; keep the contract's wording
+          // for it, and give any other named vendor's landing page the same "search", not "buy",
+          // framing. An unnamed site_entry names no site at all rather than borrowing YourCee's.
+          if (/^yourcee$/i.test(vendor)) return tr("search_on_vendor");
+          return vendor ? tr("search_on_named", { v: vendor }) : tr("open_link");
+        }
+        return vendor || tr("open_link");
+      }
+      function bomLinkButton(cls, url, label, title) {
+        return '<button type="button" class="' + cls + '" data-bom-url="' + esc(url) + '"' +
+          (title ? ' title="' + esc(title) + '"' : "") + ">" + esc(label) + "</button>";
+      }
+      function bomProcurementMarkup(manifest) {
+        let rows = "";
+        try {
+          const items = manifest && Array.isArray(manifest.bom) ? manifest.bom : [];
+          for (const item of items) {
+            if (!item || typeof item !== "object") continue;
+            const query = bomText(item.search_query);
+            let links = "";
+            const entries = Array.isArray(item.purchase_links) ? item.purchase_links : [];
+            for (const link of entries) {
+              if (!link || typeof link !== "object") continue;
+              // Only the URL the payload carries is ever clickable — a search_query is text to
+              // copy, never a URL to build.
+              const url = bomText(link.url);
+              if (url) links += bomLinkButton("bom-link", url, bomLinkLabel(link), bomText(link.notes));
+            }
+            const docs = [[item.product_url, tr("bom_product")], [item.shop_url, tr("bom_store")], [item.datasheet_url, tr("bom_datasheet")]];
+            for (const doc of docs) {
+              const url = bomText(doc[0]);
+              if (url) links += bomLinkButton("bom-doc", url, doc[1], "");
+            }
+            if (!query && !links) continue; // nothing procurable on this item — render nothing for it
+            const name = bomText(item.name) || bomText(item.model);
+            const model = bomText(item.model);
+            rows += '<div class="bom-item"><div class="bom-name">' + esc(name) +
+              (model && model !== name ? ' <span class="bom-model">' + esc(model) + "</span>" : "") + "</div>" +
+              (query ? '<div class="bom-query"><code>' + esc(query) + '</code><button type="button" class="bom-copy" data-bom-copy="' + esc(query) + '">' + tr("copy_query") + "</button></div>" : "") +
+              (links ? '<div class="bom-links">' + links + "</div>" : '<div class="bom-empty">' + tr("no_purchase_link") + "</div>") +
+              "</div>";
+          }
+        } catch (e) {
+          console.error("bomProcurementMarkup: unrecognized manifest.bom shape", e);
+        }
+        return rows ? '<div class="bom-proc">' + rows + "</div>" : "";
+      }
+      // Purchase buttons post the payload's own URL through the host's scheme-guarded
+      // open_external handler; copy reuses the host's clipboard handler. No new host message.
+      function bindBomProcurement(root) {
+        if (!root) return;
+        root.querySelectorAll("[data-bom-url]").forEach((b) => {
+          b.addEventListener("click", () => vscode.postMessage({ type: "open_external", url: b.dataset.bomUrl }));
+        });
+        root.querySelectorAll("[data-bom-copy]").forEach((b) => {
+          b.addEventListener("click", () => vscode.postMessage({ type: "copy_code", text: b.dataset.bomCopy }));
+        });
+      }
       function renderWiring(manifest) {
         const html = wiringMarkup(manifest);
+        const bom = bomProcurementMarkup(manifest);
         const host = $("wiring");
-        if (!html) { $("wiringEmpty").classList.remove("hidden"); host.innerHTML = ""; return; }
+        if (!html && !bom) { $("wiringEmpty").classList.remove("hidden"); host.innerHTML = ""; return; }
         $("wiringEmpty").classList.add("hidden");
         // Before the select-hw turn assigns pins, the manifest carries derived bus/interface
         // topology but no pinout[]; flag the diagram as a preview so it doesn't read as final.
         const pinout = manifest && manifest.pinout;
         const provisional = !Array.isArray(pinout) || pinout.length === 0;
-        host.innerHTML = (provisional ? '<div class="wire-provisional">' + tr("wiring_provisional") + "</div>" : "") + html;
+        host.innerHTML = (html && provisional ? '<div class="wire-provisional">' + tr("wiring_provisional") + "</div>" : "") + html + bom;
+        bindBomProcurement(host);
         markNew("wiring");
       }
       function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }

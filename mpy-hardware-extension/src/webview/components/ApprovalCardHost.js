@@ -592,6 +592,7 @@
           '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_deploy") + '</span></div>' +
           '<div class="ev-sum">' + tr("deploy_intro") + '</div>' +
           '<div class="deploy-wiring"></div>' +
+          '<div class="deploy-bom"></div>' +
           '<div class="deploy-status">' + tr("detecting_board") + '</div>' +
           '<div class="deploy-ports"></div>' +
           '<div class="deploy-actions"><button class="ask-opt deploy-go" type="button" data-answer="confirm" disabled>' + tr("deploy") + '</button>' +
@@ -599,6 +600,14 @@
           "</div></div></div>";
         const wiring = wiringMarkup(manifest);
         if (wiring) card.querySelector(".deploy-wiring").innerHTML = wiring;
+        // Purchase links live on the BOM review checkpoint. They keep working after the card is
+        // answered: reply() disables by the .ask-opt class, which these buttons don't carry.
+        const bom = bomProcurementMarkup(manifest);
+        if (bom) {
+          const bomHost = card.querySelector(".deploy-bom");
+          bomHost.innerHTML = bom;
+          bindBomProcurement(bomHost);
+        }
         const statusEl = card.querySelector(".deploy-status");
         const portsEl = card.querySelector(".deploy-ports");
         const goBtn = card.querySelector(".deploy-go");
@@ -686,12 +695,15 @@
         // radio unchecks this inert card's shown selection. Namespace inert radios out of the live group
         // (renaming a checked radio keeps it checked).
         card.querySelectorAll('input[type="radio"][name]').forEach((el) => { el.name = "inert-" + el.name; });
-        card.querySelectorAll("input, button, select, textarea").forEach((el) => { el.disabled = true; });
+        // A purchase link is navigation, not an answer: it stays clickable on a historical card
+        // (opening a vendor page can't re-answer a past prompt), and it is never the chosen action.
+        const isBomLink = (el) => el.hasAttribute("data-bom-url") || el.hasAttribute("data-bom-copy");
+        card.querySelectorAll("input, button, select, textarea").forEach((el) => { if (!isBomLink(el)) el.disabled = true; });
         const ans = answer == null ? "" : String(answer);
         if (!ans) return;
         let chosen = null;
         card.querySelectorAll("button").forEach((b) => {
-          if (chosen) return;
+          if (chosen || isBomLink(b)) return;
           if (b.dataset.answer === ans || (b.textContent || "").trim() === ans) chosen = b;
         });
         if (chosen) { chosen.classList.add("chosen"); return; }
