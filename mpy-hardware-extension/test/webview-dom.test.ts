@@ -99,8 +99,8 @@ test("start screen selects an official MicroPython board and sends full pre_sele
   assert.ok(search, "board search input is present on the start screen");
   search.value = "esp32";
   search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  assert.match(document.getElementById("boardPicker")!.textContent!, /ESP32-S3/);
-  assert.doesNotMatch(document.getElementById("boardPicker")!.textContent!, /Pyboard D-series/);
+  assert.match(document.getElementById("boardList")!.textContent!, /ESP32-S3/);
+  assert.doesNotMatch(document.getElementById("boardList")!.textContent!, /Pyboard D-series/);
 
   (document.getElementById("modeCustom") as HTMLButtonElement).click();
   assert.equal(document.getElementById("modeBeginner")!.getAttribute("aria-pressed"), "false");
@@ -191,12 +191,14 @@ test("the last-used preference mode persists across panel reopens", async () => 
 test("preference and board groups expose localized accessible names", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;
-  assert.equal(document.querySelector(".mode-toggle")!.getAttribute("aria-label"), "Experience level");
+  // Scope to the Experience-level toggle (the Save Version panel reuses .mode-toggle for its own
+  // save-method segmented control, so a bare .mode-toggle now matches two).
+  assert.equal(document.querySelector(".mode-toggle:not(.sv-mode)")!.getAttribute("aria-label"), "Experience level");
   assert.equal(document.querySelector(".board-toggle")!.getAttribute("aria-label"), "Board selection");
 
   (document.getElementById("intent") as HTMLTextAreaElement).value = "\u6e29\u5ea6\u62a5\u8b66";
   (document.getElementById("generate") as HTMLButtonElement).click();
-  assert.equal(document.querySelector(".mode-toggle")!.getAttribute("aria-label"), "\u4f53\u9a8c\u7ea7\u522b");
+  assert.equal(document.querySelector(".mode-toggle:not(.sv-mode)")!.getAttribute("aria-label"), "\u4f53\u9a8c\u7ea7\u522b");
   assert.equal(document.querySelector(".board-toggle")!.getAttribute("aria-label"), "\u5f00\u53d1\u677f\u9009\u62e9");
 });
 
@@ -413,21 +415,44 @@ test("partner with no resolved logo renders its name and still opens the site", 
   assert.ok(ext && /wiznet\.io/.test(ext.url), "clicking the text fallback still opens the site");
 });
 
-test("Import Existing Project posts import_project to the host", async () => {
+test("launch entries: Open Folder and Recent Sessions are the top-level actions; folder-restore is demoted into the Recent panel", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
-
-  const btn = document.getElementById("importProject") as HTMLButtonElement;
   const startZone = document.querySelector('#activityEmpty [data-zone="start"]')!;
-  assert.ok(startZone.contains(btn), "Import Existing Project is in the start zone");
+
+  // The mislabeled top-level "Import Existing Project" button is gone; the two axes are separated.
+  assert.equal(document.getElementById("importSession"), null, "no top-level Import Existing Project button");
+  const openBtn = document.getElementById("openFolder") as HTMLButtonElement;
+  const recentBtn = document.getElementById("recentSessions") as HTMLButtonElement;
+  for (const [name, btn] of [["openFolder", openBtn], ["recentSessions", recentBtn]] as const) {
+    assert.ok(btn && startZone.contains(btn), `${name} is a launch entry`);
+    assert.ok(btn.querySelector("svg"), `${name} has a distinct icon`);
+  }
 
   posted.length = 0;
-  btn.click();
-  assert.ok(posted.some((m) => m.type === "import_project"), "clicking posts import_project");
+  openBtn.click();
+  assert.ok(posted.some((m) => m.type === "open_project_folder"), "Open Folder posts open_project_folder (workspace selection)");
+  assert.ok(!posted.some((m) => m.type === "import_session"), "Open Folder is not session restore");
+
+  // The folder-picker restore now lives inside the Recent panel as "Restore from folder…".
+  posted.length = 0;
+  (document.getElementById("recentRestoreFolder") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "import_session"), "Restore from folder posts import_session (the demoted folder-restore)");
+  assert.ok(!posted.some((m) => m.type === "open_project_folder"), "restore-from-folder does not open a workspace");
 });
 
-test("Recent Sessions opens the surface, lists host-served summaries, opens the jsonl on click", async () => {
+test("Recent panel shows the per-folder scope line from the host (folder name / global fallback)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("recentSessions") as HTMLButtonElement).click();
+  post(dom, { type: "recent_sessions", sessions: [], folder: "my-project", usingFallback: false });
+  assert.ok(document.getElementById("recentScope")!.textContent!.includes("my-project"), "names the current folder so an empty list reads as scope");
+  post(dom, { type: "recent_sessions", sessions: [], folder: "", usingFallback: true });
+  assert.ok(document.getElementById("recentScope")!.textContent!.length > 0, "no-folder fallback still shows a scope line");
+});
+
+test("Recent Sessions opens the surface, lists host-served summaries, RESTORES the session on click", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
@@ -440,20 +465,123 @@ test("Recent Sessions opens the surface, lists host-served summaries, opens the 
   post(dom, {
     type: "recent_sessions",
     sessions: [
-      { id: "trace-a", date: "2026-07-07T10:00:00.000Z", intent: "blink an LED", finalPhase: "done", path: "/w/.mpyhw/sessions/trace-a/session.jsonl" },
-      { id: "trace-b", date: "2026-07-06T09:00:00.000Z", intent: "read a sensor", finalPhase: "cancelled", path: "/w/.mpyhw/sessions/trace-b/session.jsonl" },
+      { id: "trace-a", date: "2026-07-07T10:00:00.000Z", intent: "blink an LED", finalPhase: "done", path: "/w/.mpyhw/sessions/trace-a/session.jsonl", restorable: true },
+      { id: "trace-b", date: "2026-07-06T09:00:00.000Z", intent: "read a sensor", finalPhase: "cancelled", path: "/w/.mpyhw/sessions/trace-b/session.jsonl", restorable: false },
     ],
   });
   const cards = document.querySelectorAll("#recent .recent-card");
   assert.equal(cards.length, 2, "one card per session");
   assert.match((cards[0] as HTMLElement).textContent!, /blink an LED/, "shows the session intent");
   assert.equal(document.getElementById("recentEmpty")!.classList.contains("hidden"), true, "empty state hidden when sessions exist");
+  // A restorable session has no view-only marker; a pre-Save-Version one is marked view-only.
+  assert.equal(cards[0].querySelector(".recent-viewonly"), null, "a restorable session is not marked view-only");
+  assert.ok(cards[1].querySelector(".recent-viewonly"), "a snapshot-less session is marked view-only");
 
   posted.length = 0;
   (cards[0] as HTMLButtonElement).click();
-  const open = posted.find((m) => m.type === "open_path");
-  assert.ok(open, "clicking a session posts open_path");
-  assert.match(open.path, /trace-a\/session\.jsonl$/, "opens that session's jsonl");
+  const restore = posted.find((m) => m.type === "restore_session");
+  assert.ok(restore && restore.id === "trace-a", "a restorable session restores on click (restore_session by id)");
+  assert.equal(document.getElementById("toolRecent")!.classList.contains("hidden"), true, "restoring closes the Recent surface so the rehydrated feed is visible");
+
+  posted.length = 0;
+  (cards[1] as HTMLButtonElement).click();
+  const view = posted.find((m) => m.type === "open_path");
+  assert.ok(view && /trace-b\/session\.jsonl$/.test(view.path), "a view-only session opens its log instead (no failed restore)");
+  assert.ok(!posted.some((m) => m.type === "restore_session"), "a view-only session does not attempt a restore");
+});
+
+test("session-restore feed rehydration: restore_done appends a terminal line, restore_reset clears", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  post(dom, { type: "restore_done", terminal: "complete" });
+  assert.ok(feed().children.length > 0, "restore_done appends a terminal line");
+  post(dom, { type: "restore_reset" });
+  assert.equal(feed().children.length, 0, "restore_reset clears the feed");
+});
+
+test("session-restore rich feed (Stage 1): restore_user is a user card, restore_line error is .is-error, no spinner, live gate intact", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  post(dom, { type: "restore_user", text: "blink an LED" });
+  assert.match(feed().textContent || "", /blink an LED/, "the user's request renders in the feed");
+  post(dom, { type: "restore_line", kind: "trace", text: "Generating code" });
+  assert.match(feed().textContent || "", /Generating code/, "a trace line renders");
+  post(dom, { type: "restore_line", kind: "error", text: "I2C read failed" });
+  assert.ok(feed().querySelector(".is-error"), "an error line renders with the .is-error class");
+  // The run is idle during restore — a replayed line must NEVER arm the working spinner (trap #15 inverse).
+  assert.equal(feed().querySelector(".feed-pending"), null, "no working spinner is armed by the replay");
+  // The live gate is untouched: a status_update while NOT running still renders nothing (proves rich replay
+  // did not un-gate the live path — it uses separate ungated restore_* messages).
+  const before = feed().children.length;
+  post(dom, { type: "status_update", payload: { message: "should be gated" } });
+  assert.equal(feed().children.length, before, "a live status_update is still gated on running (no regression)");
+});
+
+test("session-restore inert cards (Stage 2): restore_prompt renders the REAL card disabled + answer, no device scan, and live prompts stay interactive", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  // A past PLAN prompt replays as the real plan card (not a one-line note), fully inert.
+  post(dom, { type: "restore_prompt", kind: "plan_proposed", payload: { promptId: "p1", plan: { summary: "Blink an LED", boardId: "esp32" } }, answer: "confirm" });
+  const planGo = feed().querySelector(".plan-go") as HTMLButtonElement | null;
+  assert.ok(planGo, "the real plan card renders (not a flat note line)");
+  assert.match(feed().textContent || "", /Blink an LED/, "the plan's own content is shown");
+  assert.ok([...feed().querySelectorAll("button, input, select, textarea")].every((el: any) => el.disabled), "every control is disabled — the card is inert");
+  assert.ok(planGo!.classList.contains("chosen"), "the chosen button (Confirm) is highlighted to show what was selected");
+  assert.equal((feed().querySelector(".plan-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked button is not highlighted");
+  assert.equal(feed().querySelector(".feed-pending"), null, "rendering an inert card never arms the working spinner");
+  // A past DEPLOY prompt must NOT trigger a live device scan (the guarded render-time side effect).
+  posted.length = 0;
+  post(dom, { type: "restore_prompt", kind: "deploy_proposed", payload: { promptId: "p2", manifest: {} }, answer: "confirm" });
+  assert.ok(!posted.some((m) => m.type === "deploy_rescan"), "an inert deploy card does not scan for devices");
+  // No regression: a LIVE plan prompt rendered afterwards is still interactive (inert mode is confined to replay).
+  post(dom, { type: "plan_needed", promptId: "p3", plan: { summary: "Live plan", boardId: "esp32" } });
+  const liveGo = [...feed().querySelectorAll(".plan-go")].pop() as HTMLButtonElement;
+  assert.equal(liveGo.disabled, false, "a live plan card is still clickable — inert mode is confined to the replay");
+  // Tighter leak check: a LIVE deploy card DOES scan for devices — proving `replaying` was reset to false
+  // after the inert renders (a leaked flag would suppress this exactly like the inert card above).
+  posted.length = 0;
+  post(dom, { type: "deploy_needed", promptId: "p4", manifest: {} });
+  assert.ok(posted.some((m) => m.type === "deploy_rescan"), "a live deploy card still scans — the replaying flag did not leak");
+});
+
+test("a restored inert approval card does not block a live approval_request reusing the same promptId", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  // Replay a past approval card as inert. It carries the ORIGINAL session's promptId "approval-1".
+  post(dom, { type: "restore_prompt", kind: "approval_requested", payload: { promptId: "approval-1", card: { question: "Historical approval", actions: [{ label: "OK", value: "confirm", primary: true }] } }, answer: "confirm" });
+  assert.match(feed().textContent || "", /Historical approval/, "the inert approval card rendered");
+  // A NEW session mints the SAME id (promptSeq restarts at 0 per window). The live approval MUST render — it
+  // must not be dropped by the message-bus dup-guard matching the stale inert card's data-prompt-id.
+  post(dom, { type: "approval_request", promptId: "approval-1", card: { question: "Live approval", actions: [{ label: "Go", value: "confirm", primary: true }] } });
+  assert.match(feed().textContent || "", /Live approval/, "the live approval card is NOT dropped as a duplicate of the inert one");
+  const liveCard = feed().querySelector('[data-prompt-id="approval-1"]');
+  assert.ok(liveCard && !liveCard.classList.contains("restore-inert"), "the card carrying the live promptId is the live one, not the stale inert card");
+  assert.ok([...liveCard!.querySelectorAll("button")].some((b: any) => !b.disabled), "the live approval card has an enabled button to answer");
+});
+
+test("a restored inert approval card's selected radio is not unchecked by a live card reusing the id", async () => {
+  const dom = await loadWebview([]);
+  const { document, Event } = dom.window;
+  const feed = () => document.getElementById("activity")!;
+  // A single-select group renders radios whose `name` embeds the promptId — same collision class as the id.
+  const radioCard = (q: string) => ({ question: q, item_groups: [{ group_id: "band", multi_select: false, items: [{ id: "a", label: "A", selected: true }, { id: "b", label: "B" }] }], actions: [{ label: "Go", value: "confirm", primary: true }] });
+  post(dom, { type: "restore_prompt", kind: "approval_requested", payload: { promptId: "approval-1", card: radioCard("Historical") }, answer: "confirm" });
+  const inertRadios = [...feed().querySelectorAll('input[type="radio"]')] as any[];
+  assert.equal(inertRadios.length, 2, "the inert approval card rendered its radio group");
+  const inertChecked = inertRadios.find((r) => r.checked);
+  assert.ok(inertChecked, "the inert card shows its historical radio selection");
+  // The live card reuses the id. Choosing a radio in it must not disturb the inert card's (renamed) group.
+  post(dom, { type: "approval_request", promptId: "approval-1", card: radioCard("Live") });
+  const liveRadios = ([...feed().querySelectorAll('input[type="radio"]')] as any[]).filter((r) => !inertRadios.includes(r));
+  assert.equal(liveRadios.length, 2, "the live card rendered its own radio group (was not dropped as a duplicate)");
+  liveRadios[1].checked = true; liveRadios[1].dispatchEvent(new Event("change", { bubbles: true }));
+  assert.equal(inertChecked.checked, true, "the inert card's historical selection survives choosing a radio in the live card");
 });
 
 test("Recent Sessions shows the empty state when the host returns none", async () => {
@@ -529,17 +657,60 @@ test("board picker collapses during a generated session and returns on Restart",
   const { document } = dom.window;
 
   const picker = document.getElementById("boardPicker")!;
+  const body = document.getElementById("boardPickerBody") as HTMLElement;
+  const modeToggle = document.getElementById("modeToggle")!;
   assert.equal(picker.classList.contains("hidden"), false, "start controls are visible before a session starts");
+
+  // Open the Browse popover before generating: it's a sibling of the composer, not a descendant
+  // of #boardPicker, so hiding the subbar must not be the only thing that closes it.
+  (document.getElementById("boardMore") as HTMLButtonElement).click();
+  assert.equal(body.hidden, false, "browse popover open before Generate");
 
   (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
   (document.getElementById("generate") as HTMLButtonElement).click();
   assert.equal(picker.classList.contains("hidden"), true, "board picker should not occupy the active session UI");
+  assert.equal(body.hidden, true, "an open browse popover collapses when the run starts");
+  assert.equal(modeToggle.classList.contains("hidden"), true, "the Beginner/Custom toggle hides during a run");
 
   post(dom, { type: "session_done", terminal: "generated" });
   assert.equal(picker.classList.contains("hidden"), true, "finished sessions keep the focused composer until Restart");
 
   (document.getElementById("newSession") as HTMLButtonElement).click();
   assert.equal(picker.classList.contains("hidden"), false, "Restart restores the start controls for the next project");
+  assert.equal(modeToggle.classList.contains("hidden"), false, "Restart restores the Beginner/Custom toggle");
+});
+test("an imported recipe prefills the intent box and auto-sizes it", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "recipe_imported", payload: { prompt: "blink an led every second" } });
+  const intent = document.getElementById("intent") as HTMLTextAreaElement;
+  assert.equal(intent.value, "blink an led every second", "the recipe prompt fills the intent box");
+  // autosizeIntent ran: it sets height to min(scrollHeight, cap)px. jsdom reports scrollHeight 0,
+  // so the observable effect is "0px" — an absent call leaves height "" (mutation-sensitive).
+  assert.equal(intent.style.height, "0px", "the intent box is auto-sized after import");
+});
+test("picking a board collapses the browse panel and Restart clears the selection", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    boards: [{ id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: [], firmware: { url: "u", board_name: "ESP32_GENERIC_S3" }, download_slug: "ESP32_GENERIC_S3", support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" }],
+  });
+  (document.getElementById("boardMore") as HTMLButtonElement).click();
+  const search = document.getElementById("boardSearch") as HTMLInputElement;
+  search.value = "esp";
+  search.dispatchEvent(new dom.window.Event("input"));
+  (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+  assert.equal((document.getElementById("boardPickerBody") as HTMLElement).hidden, true, "browse panel collapses once a board is picked");
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), false, "chip shown after picking");
+
+  (document.getElementById("newSession") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("boardSelected")!.classList.contains("hidden"), true, "Restart clears the board selection");
+  assert.equal(document.getElementById("boardAuto")!.classList.contains("active"), true, "Restart returns to the Recommend segment");
+  assert.equal(search.value, "", "Restart clears the board search box");
 });
 test("the Doctor tab requests a check on load and renders results as localized status cards", async () => {
   const posted: any[] = [];
@@ -687,6 +858,11 @@ test("multi-device deploy card groups device chips above the actions and gates D
   (chips[0] as HTMLButtonElement).click();
   assert.ok((chips[0] as HTMLElement).classList.contains("chosen"), "picked chip is marked chosen");
   assert.equal(deployBtn.disabled, false, "Deploy enabled once a device is picked");
+
+  // Confirming marks the Deploy action chosen (bordered) — same live/restore selection cue; Cancel stays unmarked.
+  deployBtn.click();
+  assert.ok((deployBtn as HTMLElement).classList.contains("chosen"), "the confirmed Deploy action is marked chosen live, like a restored card");
+  assert.equal((activity.querySelector(".deploy-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked action is not marked");
 });
 
 test("manifest_updated renders wiring from the flat [{role,pin}] shape", async () => {
@@ -1011,6 +1187,21 @@ test("credits message updates the quota label and gates Start", async () => {
   assert.equal(document.getElementById("qUsed")!.textContent, "0");
   assert.ok(document.getElementById("quota")!.classList.contains("exhausted"));
   assert.equal(generate.disabled, true, "out of credits -> Start disabled");
+});
+
+test("request-credits button is gated on visible credits and posts request_credits_email (#97)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // The button lives inside #quota, which stays hidden until a credits event arrives.
+  assert.equal(document.getElementById("quota")!.classList.contains("hidden"), true, "quota bar (and its button) hidden before any credits");
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 47, dailyGrant: 50 } });
+  assert.equal(document.getElementById("quota")!.classList.contains("hidden"), false, "quota bar visible once credits arrive");
+
+  (document.getElementById("requestCredits") as HTMLButtonElement).click();
+  const reqs = posted.filter((m) => m.type === "request_credits_email");
+  assert.equal(reqs.length, 1, "click asks the host to open the prefilled email exactly once");
 });
 
 test("quota warning copy distinguishes nearly-exhausted (>0) from fully exhausted (==0)", async () => {
@@ -1597,6 +1788,9 @@ test("confirming the build plan shows an immediate in-feed spinner that clears w
   });
   (activity.querySelector(".plan-go") as HTMLButtonElement).click();
   assert.ok(activity.querySelector(".feed-pending"), "a pending spinner appears right after Confirm & generate");
+  // The answered action is marked chosen (bordered), matching a restored inert card; the other is not.
+  assert.ok((activity.querySelector(".plan-go") as HTMLElement).classList.contains("chosen"), "the confirmed action is marked chosen live, like a restored card");
+  assert.equal((activity.querySelector(".plan-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked action is not marked");
 
   post(dom, { type: "code_delta", text: "import time\n", path: "main.py" });
   assert.equal(activity.querySelector(".feed-pending"), null, "pending spinner cleared once code streams");
@@ -1675,6 +1869,9 @@ test("component card renders devices as pre-ticked toggle chips; unticking one a
   // Array.prototype differs, so a direct deepStrictEqual would fail on prototype.
   assert.deepEqual([...confirm.devices], ["SSD1306 OLED 128x64"], "only the kept device names are sent");
   assert.equal(confirm.feedback, "加一个 DHT22 温湿度传感器");
+  // The confirmed action is marked chosen (bordered) live, matching a restored card; Cancel is not.
+  assert.ok((activity.querySelector(".comp-go") as HTMLElement).classList.contains("chosen"), "the confirmed action is marked chosen live");
+  assert.equal((activity.querySelector(".comp-cancel") as HTMLElement).classList.contains("chosen"), false, "the un-picked action is not marked");
 });
 
 test("an ask_user option that needs follow-up text focuses the input instead of ending the turn", async () => {
@@ -1856,6 +2053,111 @@ test("rapid double-click on an approval action posts exactly one ui_prompt_respo
 
   const responses = posted.filter((m) => m.type === "ui_prompt_response" && m.promptId === "appr-race");
   assert.equal(responses.length, 1, "only one ui_prompt_response posted despite the double-click");
+  // The answered action is marked chosen (bordered), matching a restored inert card — the primary live gate.
+  assert.ok(btn.classList.contains("chosen"), "the clicked approval action is marked chosen live");
+});
+
+test("Save Version panel renders save_version_data as color-coded letter badges + clean paths", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "save_version_data",
+    canCommit: true,
+    proposed: "blockless: temp logger (generate)",
+    stage: "phase: generate  |  1 artifact(s)",
+    note: "",
+    files: [
+      { id: "chg-0", name: ".flake8", status: "new", badge: "U" },
+      { id: "chg-1", name: "main.py", status: "modified", badge: "M" },
+      { id: "chg-2", name: "old.py", status: "deleted", badge: "D" },
+    ],
+  });
+  const host = document.getElementById("svFiles")!;
+  const rows = [...host.querySelectorAll(".ask-file")];
+  assert.equal(rows.length, 3, "one file row per change");
+  assert.ok(host.querySelector(".ask-file-badge-new") && host.querySelector(".ask-file-badge-modified") && host.querySelector(".ask-file-badge-deleted"), "a color class per status kind");
+  assert.equal(rows[0].querySelector(".ask-file-path")!.textContent, ".flake8", "path shows clean (no ?? code)");
+  assert.equal(rows[0].querySelector(".ask-file-badge")!.textContent, "U", "the badge shows the compact letter (U), not the raw ?? code");
+  assert.equal(host.querySelectorAll("input").length, 0, "file rows are display-only (no checkbox)");
+  // The proposed message prefills, and Commit shows because canCommit.
+  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "blockless: temp logger (generate)", "proposed message prefilled");
+  assert.equal(document.getElementById("svCommit")!.classList.contains("hidden"), false, "Commit button shown when a git commit is possible");
+});
+
+test("Save Version panel: the summary shows all 7 details — session state, artifact list, and diagnostics, not just files", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "save_version_data", canCommit: true, proposed: "blockless: led blink (generate)", stage: "phase: generate", note: "",
+    files: [{ id: "chg-0", name: "main.py", status: "modified", badge: "M" }],
+    session: { intent: "make the onboard led blink", phase: "generate", board: "ESP32-C6-DevKitC-1", mode: "beginner" },
+    artifacts: [{ path: "firmware/main.py", kind: "code", phase: "generate" }, { path: "project-manifest.json", kind: "manifest", phase: "generate" }, { path: "boot.py", kind: "code", phase: "" }],
+    artifactTotal: 5,
+    diagnostics: { activity: "generate_code", errors: "flake8 timed out", session_id: "session-abc" },
+  });
+  // Session/manifest state — the resume context, as key-value rows (not just the one-line stage).
+  const sess = document.getElementById("svSession")!;
+  assert.ok(!sess.classList.contains("hidden"), "session section shown");
+  const sessText = sess.textContent || "";
+  assert.ok(sessText.includes("make the onboard led blink") && sessText.includes("generate") && sessText.includes("ESP32-C6-DevKitC-1"), "session shows intent, phase, board");
+  // Key artifacts — an actual LIST, plus the true total in the summary (not just a count).
+  const arts = [...document.querySelectorAll("#svArtifacts .sv-art")];
+  assert.equal(arts.length, 3, "each supplied artifact is a row");
+  assert.equal(arts[0].querySelector(".sv-art-path")!.textContent, "firmware/main.py", "artifact path shown");
+  assert.equal(arts[0].querySelector(".sv-art-phase")!.textContent, "generate", "artifact's producing phase shown (phase-associated per §3.6.3)");
+  assert.equal(arts[2].querySelector(".sv-art-phase"), null, "an artifact with an empty phase renders no phase span (the if(ph) guard)");
+  assert.ok((document.getElementById("svArtifactsSum")!.textContent || "").includes("5"), "summary carries the true total (5), not just the shown 2");
+  assert.ok(document.querySelector("#svArtifacts .sv-art-more"), "a '+N more' row when the total exceeds the shown rows");
+  // Diagnostics — key errors / recent activity / session id.
+  const diag = document.getElementById("svDiag")!;
+  assert.ok(!document.getElementById("svDiagWrap")!.classList.contains("hidden"), "diagnostics section shown");
+  assert.ok((diag.textContent || "").includes("flake8 timed out") && (diag.textContent || "").includes("generate_code"), "diagnostics shows errors + recent activity");
+});
+
+test("Save Version panel: summary sections stay hidden when the host sends no session/artifacts/diagnostics", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [{ id: "c0", name: "a.py", status: "modified", badge: "M" }] });
+  assert.ok(document.getElementById("svSession")!.classList.contains("hidden"), "empty session section hides itself");
+  assert.ok(document.getElementById("svDiagWrap")!.classList.contains("hidden"), "empty diagnostics section hides itself");
+  assert.ok(document.getElementById("svArtifactsWrap")!.classList.contains("hidden"), "zero-artifact section hides itself");
+});
+
+test("Save Version panel: a non-git summary disables Commit + forces the Snapshot pane", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: false, proposed: "", stage: "phase: generate", note: "Not a git repo — a session snapshot will be saved instead.", files: [] });
+  assert.equal((document.getElementById("svModeCommit") as HTMLButtonElement).disabled, true, "the Commit method is disabled without a git repo");
+  assert.equal(document.getElementById("svCommitPane")!.classList.contains("hidden"), true, "the commit pane (message box + Commit button) is hidden");
+  assert.equal(document.getElementById("svSnapshotPane")!.classList.contains("hidden"), false, "the Snapshot pane (Save button) is shown");
+  assert.equal(document.getElementById("svModeSnapshot")!.classList.contains("active"), true, "Save Snapshot is the active method");
+  assert.match(document.getElementById("svNote")!.textContent || "", /Not a git repo/, "the fallback note shows");
+});
+
+test("Save Version panel: the method toggle switches between the Commit box and the Snapshot save", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "blockless: x", stage: "s", note: "", files: [] });
+  // Default: Commit method — the message box + Commit button pane is shown, snapshot pane hidden.
+  assert.equal(document.getElementById("svModeCommit")!.classList.contains("active"), true, "Commit is the default method in a git repo");
+  assert.equal(document.getElementById("svCommitPane")!.classList.contains("hidden"), false, "commit pane visible");
+  assert.equal(document.getElementById("svSnapshotPane")!.classList.contains("hidden"), true, "snapshot pane hidden");
+  // Toggle to Snapshot: the panes swap (either/or).
+  (document.getElementById("svModeSnapshot") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("svSnapshotPane")!.classList.contains("hidden"), false, "snapshot pane shown after toggle");
+  assert.equal(document.getElementById("svCommitPane")!.classList.contains("hidden"), true, "commit box hidden after toggle");
+  assert.equal(document.getElementById("svModeCommit")!.classList.contains("active"), false, "Commit no longer active");
+});
+
+test("Save Version chips are not clobbered by the experience-level toggle (shared .mode-chip class)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  assert.equal(document.getElementById("svModeCommit")!.classList.contains("active"), true, "SV Commit chip starts active");
+  // The experience-level toggle reuses the same .mode-chip class; its setMode must NOT sweep the
+  // Save Version chips (they carry data-svmode, not data-mode) and strip their active/aria state.
+  (document.getElementById("modeCustom") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("svModeCommit")!.classList.contains("active"), true, "SV Commit chip stays active after a preferences setMode");
+  assert.equal(document.getElementById("svModeCommit")!.getAttribute("aria-pressed"), "true", "SV chip aria-pressed preserved");
 });
 
 test("a duplicate approval_request for an already-rendered promptId does not render a second card", async () => {
@@ -2568,6 +2870,140 @@ test("wiring/diagram rows jump to their rendered tab instead of opening raw JSON
   row.click();
   assert.ok(!posted.some((m) => m.type === "open_artifact"), "wiring row does not post open_artifact");
   assert.ok(!(document.querySelector('.view[data-view="wiring"]') as HTMLElement).classList.contains("hidden"), "Wiring tab activated by the row");
+});
+
+test("Save Version gtool button opens its own tool surface and requests the summary", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("saveVersionOpen") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "save_version_open"), "clicking Save Version requests the summary (not an Activity-feed card)");
+  assert.equal(document.getElementById("toolSaveVersion")!.classList.contains("hidden"), false, "the Save Version tool surface opens");
+});
+
+test("an approval card prefills a text_input value (not just placeholder)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, {
+    type: "approval_request", promptId: "p-sv",
+    card: {
+      kind: "save_version", header: "Save Version", question: "phase: generate",
+      text_inputs: [{ id: "commit_message", placeholder: "Commit message", value: "blockless: temp logger (generate)" }],
+      actions: [{ label: "Save Snapshot", value: "snapshot", primary: true }, { label: "Cancel", value: "cancel" }],
+    },
+  });
+  const input = document.querySelector('[data-prompt-id="p-sv"] input.ask-input') as HTMLInputElement;
+  assert.equal(input.value, "blockless: temp logger (generate)", "the proposed message is prefilled and editable");
+  assert.equal(input.placeholder, "Commit message", "placeholder still set");
+});
+
+test("Save Version panel: commit/snapshot buttons post their acts, and save_version_status renders in the panel (not the Activity feed)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // Render a git summary, then click Commit -> posts save_version_commit with the message.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "blockless: x", stage: "phase: generate", note: "", files: [] });
+  (document.getElementById("svMsg") as HTMLInputElement).value = "my message";
+  (document.getElementById("svCommit") as HTMLButtonElement).click();
+  const commit = posted.find((m) => m.type === "save_version_commit");
+  assert.ok(commit && commit.message === "my message", "Commit posts save_version_commit with the edited message");
+  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "my message", "the box is NOT cleared on click — only on a successful commit, so a failed act keeps it for retry");
+  // The result renders in the panel's own status line, and NOT in the Activity feed.
+  post(dom, { type: "save_version_status", status: "saved_commit", hash: "abcdef1234", files: [] });
+  assert.equal((document.getElementById("svMsg") as HTMLInputElement).value, "", "a successful commit clears the box");
+  assert.match(document.getElementById("svStatus")!.textContent || "", /abcdef12/, "the commit result shows in the panel status");
+  assert.doesNotMatch(document.getElementById("activity")!.textContent || "", /abcdef12/, "the save result does NOT land in the build/Activity feed");
+  // Toggle to the Snapshot method, then its Save button posts the snapshot act.
+  posted.length = 0;
+  (document.getElementById("svModeSnapshot") as HTMLButtonElement).click();
+  (document.getElementById("svSnapshot") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "save_version_snapshot"), "Save Snapshot posts save_version_snapshot");
+});
+
+test("Save Version panel: staged marker, commit-mode note, and a '+N more' row when the file list is capped", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", commitMode: "staged", fileTotal: 53, files: [
+    { id: "chg-0", name: "a.py", status: "modified", badge: "M", staged: true },
+    { id: "chg-1", name: "b.py", status: "new", badge: "U", staged: false },
+  ] });
+  const rows = [...document.querySelectorAll("#svFiles .ask-file")];
+  assert.equal(rows.length, 2, "the two shown rows render");
+  assert.ok(rows[0].querySelector(".sv-file-staged-tag"), "the staged file carries a staged marker");
+  assert.equal(rows[1].querySelector(".sv-file-staged-tag"), null, "the unstaged file has no marker");
+  const more = document.querySelector("#svFiles .sv-art-more");
+  assert.ok(more && /51/.test(more.textContent || ""), "a '+N more' row surfaces the 51 files beyond the shown 2 (add -A commits them all)");
+  const mode = document.getElementById("svCommitMode")!;
+  assert.equal(mode.classList.contains("hidden"), false, "the commit-mode note is shown");
+  assert.ok((mode.textContent || "").length > 0, "and names the mode (staged-only)");
+});
+
+test("Save Version panel: an in_flight status keeps buttons disabled + an inline notice, not a full-view block", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [] });
+  post(dom, { type: "save_version_status", status: "in_flight" });
+  assert.equal((document.getElementById("svCommit") as HTMLButtonElement).disabled, true, "commit stays disabled while a save is already in flight");
+  assert.equal(document.getElementById("svBlocked")!.classList.contains("hidden"), true, "it does NOT take over the whole view (it isn't a build-busy block)");
+  assert.ok((document.getElementById("svStatus")!.textContent || "").length > 0, "an inline notice is shown instead of dropping the click");
+});
+
+test("Save Version panel: a FAILED commit retains the typed message for retry (cleared only on success)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "blockless: x", stage: "s", note: "", files: [] });
+  const box = document.getElementById("svMsg") as HTMLInputElement;
+  box.value = "test: a message I do not want to lose";
+  (document.getElementById("svCommit") as HTMLButtonElement).click();
+  // The host reports the commit failed (index.lock contention / a gpgsign hang). The typed message
+  // MUST survive: a retry has to re-send it, not silently commit the generic fallback template.
+  post(dom, { type: "save_version_status", status: "git_commit_failed", error: "index.lock" });
+  assert.equal(box.value, "test: a message I do not want to lose", "a failed commit keeps the message for retry");
+  assert.ok((document.getElementById("svStatus")!.textContent || "").length > 0, "the failure is shown inline");
+  assert.equal((document.getElementById("svCommit") as HTMLButtonElement).disabled, false, "the Commit button is re-enabled so the retry is possible");
+  // The retry finally succeeds → only now is the box cleared.
+  post(dom, { type: "save_version_status", status: "saved_commit", hash: "abc1234", files: [] });
+  assert.equal(box.value, "", "the box clears once the commit actually succeeds");
+});
+
+test("Save Version panel: a saved_commit status refreshes the file list to the post-commit truth", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // Start with 3 pending changes.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [
+    { id: "chg-0", name: "a.py", status: "new", badge: "U" },
+    { id: "chg-1", name: "b.py", status: "modified", badge: "M" },
+    { id: "chg-2", name: "c.py", status: "new", badge: "U" },
+  ] });
+  assert.equal(document.querySelectorAll("#svFiles .ask-file").length, 3, "three pending changes shown");
+  // A staged-only commit leaves one behind: the refresh shows exactly that remaining file.
+  post(dom, { type: "save_version_status", status: "saved_commit", hash: "abc1234", files: [{ id: "chg-0", name: "b.py", status: "modified", badge: "M" }] });
+  const rows = [...document.querySelectorAll("#svFiles .ask-file")];
+  assert.equal(rows.length, 1, "the list refreshed to the single remaining file");
+  assert.equal(rows[0].querySelector(".ask-file-path")!.textContent, "b.py", "it's the remaining unstaged file, not the committed ones");
+  // An add -A commit cleans the tree: an empty refresh shows the 'no changes' line, not stale rows.
+  post(dom, { type: "save_version_status", status: "saved_commit", hash: "def5678", files: [] });
+  assert.equal(document.querySelectorAll("#svFiles .ask-file").length, 0, "no file rows after a clean commit");
+  assert.ok(!document.getElementById("svNoChanges")!.classList.contains("hidden"), "the centered 'no changes' empty state is shown");
+  assert.ok(document.getElementById("svFiles")!.classList.contains("hidden"), "the empty file list is hidden so the icon empty state stands alone");
+});
+
+test("Save Version panel: a build-running (busy) status blocks the whole view, not just a status line", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // The form is shown once data arrives.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [] });
+  assert.equal(document.getElementById("svBody")!.classList.contains("hidden"), false, "the save form is visible with data");
+  // A busy status (a build is running) takes over the WHOLE view: form hidden, full message shown.
+  post(dom, { type: "save_version_status", status: "busy" });
+  assert.equal(document.getElementById("svBody")!.classList.contains("hidden"), true, "the save form is hidden while a build runs");
+  assert.equal(document.getElementById("svBlocked")!.classList.contains("hidden"), false, "the full-view blocked state shows instead");
+  assert.match(document.getElementById("svBlockedH")!.textContent || "", /Build in progress/i, "the blocked state explains why (heading)");
+  assert.ok((document.getElementById("svBlockedP")!.textContent || "").length > 0, "and a subtext line, like the no-device empty state");
+  // Fresh data (build finished / reopened) restores the form.
+  post(dom, { type: "save_version_data", canCommit: true, proposed: "m", stage: "s", note: "", files: [] });
+  assert.equal(document.getElementById("svBody")!.classList.contains("hidden"), false, "the form is restored on fresh data");
+  assert.equal(document.getElementById("svBlocked")!.classList.contains("hidden"), true, "the blocked state is hidden again");
 });
 
 test("artifact rows show role + created_at, and an 'on disk' tag for disk-origin files", async () => {
@@ -3905,4 +4341,200 @@ test("the rollup says 'credit' for exactly one, matching the diagnostics export"
   const feed = document.getElementById("activity")!.textContent!;
   assert.ok(feed.includes("Generate: 1 credit over 1 turn, 46 left"), `expected the singular: ${feed}`);
   assert.equal(feed.includes("1 credits"), false, `plural for a single credit: ${feed}`);
+});
+
+// ----- WI-4/WI-5: Git History surface (open, render, XSS-inert, diff, empty states) -----
+
+test("Git History gtool button opens its own surface (registered in GLOBAL_TOOL_SURFACES) and requests the timeline", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "git_history_open"), "clicking Git History requests the timeline");
+  // Silent-blank guard: opening only un-hides the surface if it is in GLOBAL_TOOL_SURFACES.
+  assert.equal(document.getElementById("toolGitHistory")!.classList.contains("hidden"), false, "the Git History surface opens (not left blank)");
+  assert.equal(document.getElementById("toolSaveVersion")!.classList.contains("hidden"), true, "a sibling tool surface is hidden");
+});
+
+test("git_history_data renders the timeline via textContent (XSS-inert), branch summary, and uncommitted rows", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, {
+    type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 2,
+    commits: [
+      { hash: "a".repeat(40), shortHash: "aaaaaaa", author: "T", date: "2026-07-24T10:00:00Z", subject: '<img src=x onerror=alert(1)> evil' },
+      { hash: "b".repeat(40), shortHash: "bbbbbbb", author: "T", date: "2026-07-23T10:00:00Z", subject: "second" },
+    ],
+    uncommitted: { files: [{ name: "dirty.py", status: "modified", badge: "M" }, { name: "new.py", status: "new", badge: "U" }], fileTotal: 2 },
+    note: "",
+  });
+  assert.equal(document.querySelectorAll("#ghCommits .gh-commit").length, 2, "both commits rendered");
+  assert.equal(document.querySelector("#ghCommits img"), null, "a crafted subject is inert (textContent, no <img> created)");
+  assert.ok(document.getElementById("ghCommits")!.textContent!.includes("evil"), "the subject shows as literal text");
+  assert.ok(document.getElementById("ghSummary")!.textContent!.includes("main"), "branch shown in the summary");
+  assert.equal(document.querySelectorAll("#ghUncommitted .gh-file").length, 2, "uncommitted files rendered");
+  const badges = [...document.querySelectorAll("#ghUncommitted .ask-file-badge")].map((b) => b.textContent);
+  assert.deepEqual(badges, ["M", "U"], "M and U badges shown");
+});
+
+test("git_history: a capped timeline says how many older commits are not shown", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  // The host sends the newest N with the repo's REAL total; the gap must be stated, exactly as
+  // the uncommitted section does. Mutation: drop the ghAppendMore call -> no row, and the 49
+  // hidden commits read as "this is the whole history".
+  post(dom, {
+    type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 51,
+    commits: [
+      { hash: "a".repeat(40), shortHash: "aaaaaaa", author: "T", date: "2026-07-24T10:00:00Z", subject: "newest" },
+      { hash: "b".repeat(40), shortHash: "bbbbbbb", author: "T", date: "2026-07-23T10:00:00Z", subject: "older" },
+    ],
+    uncommitted: { files: [], fileTotal: 0 }, note: "",
+  });
+  const more = document.querySelector("#ghCommits .sv-art-more");
+  assert.ok(more, "a truncated timeline shows the +N more row");
+  assert.ok(more!.textContent!.includes("49"), "names the 49 commits it did not render");
+  assert.ok(document.getElementById("ghCommitsCount")!.textContent!.includes("51"), "the group count is the real total");
+});
+
+test("git_history: clicking a commit posts git_history_commit; commit_data yields file rows; a file click posts git_history_diff", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const hash = "c".repeat(40);
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 1, commits: [{ hash, shortHash: "ccccccc", author: "T", date: "2026-07-24T10:00:00Z", subject: "only" }], uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  assert.ok(document.querySelector("#ghCommits .gh-commit > .gh-dot"), "each commit row has a graph dot on the rail");
+  assert.ok(document.querySelector("#ghCommits .gh-commit-detail"), "detail block exists (CSS-hidden until expand)");
+  const commitHead = document.querySelector("#ghCommits .gh-commit-head") as HTMLElement;
+  commitHead.click();
+  assert.ok(commitHead.classList.contains("expanded"), "clicking the row expands it (reveals detail + unwraps the message)");
+  assert.ok(posted.some((m) => m.type === "git_history_commit" && m.hash === hash), "expanding a commit requests its files with that exact hash");
+  post(dom, { type: "git_history_commit_data", hash, files: [{ status: "M", path: "main.py" }, { status: "A", path: "new.py" }] });
+  const fileRows = document.querySelectorAll("#ghCommits .gh-commit-files .gh-file");
+  assert.equal(fileRows.length, 2, "file rows rendered under the commit");
+  (fileRows[0] as HTMLElement).click();
+  assert.ok(posted.some((m) => m.type === "git_history_diff" && m.hash === hash && m.path === "main.py"), "a file click requests its diff with hash + path");
+  // The clicked file is marked active and the diff viewer is revealed.
+  assert.ok((fileRows[0] as HTMLElement).classList.contains("gh-file-active"), "the shown file gets the active highlight");
+  assert.equal(document.getElementById("ghDiffWrap")!.classList.contains("hidden"), false, "the diff viewer is shown");
+  // Re-clicking the SAME file toggles the diff closed and drops the active highlight.
+  (fileRows[0] as HTMLElement).click();
+  assert.equal(document.getElementById("ghDiffWrap")!.classList.contains("hidden"), true, "re-clicking the same file hides the diff");
+  assert.ok(!(fileRows[0] as HTMLElement).classList.contains("gh-file-active"), "the active highlight is cleared on close");
+});
+
+// Establish an active diff selection (open -> commit -> expand -> click a file), so a matching
+// git_history_diff_data reply is accepted by the correlation guard. Returns the commit hash.
+function ghSelectFile(dom: JSDOM, path: string): string {
+  const { document } = dom.window;
+  const hash = "d".repeat(40);
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 1, commits: [{ hash, shortHash: "ddddddd", author: "T", date: "2026-07-24T10:00:00Z", subject: "x" }], uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  (document.querySelector("#ghCommits .gh-commit-head") as HTMLElement).click();
+  post(dom, { type: "git_history_commit_data", hash, files: [{ status: "M", path }] });
+  (document.querySelector("#ghCommits .gh-commit-files .gh-file") as HTMLElement).click();
+  return hash;
+}
+
+test("git_history_diff_data renders line-classed diff (add/del/hunk), XSS-inert", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const hash = ghSelectFile(dom, "a.py");
+  post(dom, { type: "git_history_diff_data", hash, path: "a.py", diff: "@@ -1 +1 @@\n-old\n+<img src=x onerror=alert(1)>\n unchanged" });
+  assert.equal(document.querySelectorAll("#ghDiff .gh-diff-hunk").length, 1, "hunk line classed");
+  assert.equal(document.querySelectorAll("#ghDiff .gh-diff-del").length, 1, "deletion line classed");
+  assert.equal(document.querySelectorAll("#ghDiff .gh-diff-add").length, 1, "addition line classed");
+  assert.equal(document.querySelector("#ghDiff img"), null, "a crafted +line is inert (textContent)");
+  assert.ok(document.getElementById("ghDiff")!.textContent!.includes("onerror"), "the +line shows as literal text");
+});
+
+test("git_history_diff_data drops a stale reply for a since-changed file (no cross-render)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  const hash = "c".repeat(40);
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 1, commits: [{ hash, shortHash: "ccccccc", author: "T", date: "2026-07-24T10:00:00Z", subject: "only" }], uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  (document.querySelector("#ghCommits .gh-commit-head") as HTMLElement).click();
+  post(dom, { type: "git_history_commit_data", hash, files: [{ status: "M", path: "a.py" }, { status: "M", path: "b.py" }] });
+  const rows = document.querySelectorAll("#ghCommits .gh-commit-files .gh-file");
+  (rows[0] as HTMLElement).click();               // select a.py (slow diff)
+  (rows[1] as HTMLElement).click();               // switch to b.py before a.py's reply lands
+  // a.py's late reply must be ignored while b.py is the active selection.
+  post(dom, { type: "git_history_diff_data", hash, path: "a.py", diff: "@@\n+AAA_stale\n" });
+  assert.ok(!document.getElementById("ghDiff")!.textContent!.includes("AAA_stale"), "stale a.py reply does not overwrite the active b.py view");
+  // b.py's reply (the active file) renders.
+  post(dom, { type: "git_history_diff_data", hash, path: "b.py", diff: "@@\n+BBB_current\n" });
+  assert.ok(document.getElementById("ghDiff")!.textContent!.includes("BBB_current"), "the active file's reply renders");
+});
+
+test("git_history_diff_data: an uncommitted (hash-absent) diff still correlates and renders", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 0, commits: [], uncommitted: { files: [{ name: "dirty.py", status: "modified", badge: "M" }], fileTotal: 1 }, note: "" });
+  (document.querySelector("#ghUncommitted .gh-file") as HTMLElement).click();
+  const req = posted.find((m) => m.type === "git_history_diff" && m.path === "dirty.py");
+  assert.ok(req && req.hash === undefined, "uncommitted diff request carries no hash");
+  // The host echoes hash:null; the correlation key must treat null/undefined/'' identically, else
+  // this reply is dropped and the viewer strands on Loading. Asserts that null-normalization.
+  post(dom, { type: "git_history_diff_data", hash: null, path: "dirty.py", diff: "@@\n+NEWLINE\n" });
+  assert.ok(document.getElementById("ghDiff")!.textContent!.includes("NEWLINE"), "the uncommitted working-tree diff renders (null-hash key matches the undefined-hash request)");
+});
+
+test("git_history no-repo note is localized: a host English note does not override tr()", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  // Even if the host posts a stale English note, the panel must show the localized gh_no_repo_p.
+  post(dom, { type: "git_history_data", repoPresent: false, branch: "", commits: [], commitTotal: 0, uncommitted: { files: [], fileTotal: 0 }, note: "Not a git repo — showing saved session snapshots instead." });
+  assert.equal(document.getElementById("ghBlocked")!.classList.contains("hidden"), false, "no-repo blocks the view");
+  assert.equal(document.getElementById("ghBlockedP")!.textContent, "This folder has no git history yet.", "shows the localized gh_no_repo_p, not the host's English note");
+});
+
+test("git_history empty states: no repo blocks the body; empty repo shows no-commits; clean tree shows clean", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  // No repo -> full-view blocked, body hidden, and never a git-init affordance.
+  post(dom, { type: "git_history_data", repoPresent: false, branch: "", commits: [], commitTotal: 0, uncommitted: { files: [], fileTotal: 0 }, note: "Not a git repo — showing saved session snapshots instead." });
+  assert.equal(document.getElementById("ghBlocked")!.classList.contains("hidden"), false, "no-repo blocks the view");
+  assert.equal(document.getElementById("ghBody")!.classList.contains("hidden"), true, "the interactive body is hidden with no repo");
+  // Empty repo (repo present, no commits) -> body shown, no-commits state, clean uncommitted.
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commits: [], commitTotal: 0, uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  assert.equal(document.getElementById("ghBody")!.classList.contains("hidden"), false, "body shown for a present repo");
+  assert.equal(document.getElementById("ghNoCommits")!.classList.contains("hidden"), false, "no-commits state shown");
+  assert.equal(document.getElementById("ghClean")!.classList.contains("hidden"), false, "clean-tree state shown for empty uncommitted");
+});
+
+test("git_history_data renders the WI-3 snapshot association chip (phase + artifact count) on a commit", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, {
+    type: "git_history_data", repoPresent: true, branch: "main", commitTotal: 1,
+    commits: [{ hash: "f".repeat(40), shortHash: "fffffff", author: "T", date: "2026-07-24T10:00:00Z", subject: "gen", snapshot: { phase: "generate", artifact_total: 2, artifacts: [], session_id: "s", saved_at: "", intent: "" } }],
+    uncommitted: { files: [], fileTotal: 0 }, note: "",
+  });
+  const chip = document.querySelector("#ghCommits .gh-commit-assoc");
+  assert.ok(chip, "association chip rendered");
+  assert.ok(chip!.textContent!.includes("generate"), "shows the phase");
+  assert.ok(chip!.textContent!.includes("2"), "shows the artifact count");
+});
+
+test("git_history_status maps taxonomy to the blocked view (git unavailable) / inline (invalid request)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("gitHistoryOpen") as HTMLButtonElement).click();
+  post(dom, { type: "git_history_status", status: "git_unavailable" });
+  assert.equal(document.getElementById("ghBlocked")!.classList.contains("hidden"), false, "git_unavailable blocks the view");
+  // Show a populated repo, then a rejected request only sets the inline status (does not blank the body).
+  post(dom, { type: "git_history_data", repoPresent: true, branch: "main", commits: [{ hash: "e".repeat(40), shortHash: "eeeeeee", author: "T", date: "2026-07-24T10:00:00Z", subject: "x" }], commitTotal: 1, uncommitted: { files: [], fileTotal: 0 }, note: "" });
+  post(dom, { type: "git_history_status", status: "invalid_request" });
+  assert.equal(document.getElementById("ghBody")!.classList.contains("hidden"), false, "an invalid_request keeps the timeline visible");
+  assert.ok(document.getElementById("ghStatus")!.textContent!.length > 0, "invalid_request shows an inline message");
 });

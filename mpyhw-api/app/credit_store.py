@@ -10,14 +10,14 @@ from typing import Any
 from app import db
 
 CREDIT_TOKENS = 10_000
-DAILY_GRANT = int(os.getenv("MPYHW_DAILY_GRANT", "50"))
+DAILY_GRANT = int(os.getenv("MPYHW_DAILY_GRANT", "200"))
 
 # Accounts comped with permanent unlimited credits, matched by lowercased GitHub
 # login OR email. Hardcoded in source on purpose (not an env override): it must
 # survive every redeploy/env rewrite, and the grant refills daily so nothing ever
 # runs out. Both keys are listed because GitHub only exposes `email` when the user
 # makes it public — the login is the reliable match.
-UNLIMITED_ACCOUNTS = frozenset({"ersonp", "ersonpereiracr7@gmail.com", "leezisheng"})
+UNLIMITED_ACCOUNTS = frozenset({"ersonp", "ersonpereiracr7@gmail.com", "leezisheng", "gypsyold", "xinruili-git"})
 UNLIMITED_DAILY_GRANT = 1_000_000
 
 

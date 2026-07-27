@@ -1,4 +1,5 @@
 import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -243,6 +244,7 @@ export type RecentSession = {
   // written before the stamp existed. Lets the abandoned-session sweep tell "the host died
   // mid-build" from "another window is building right now".
   owner?: { pid: number; host: string };
+  restorable: boolean; // true when a checkpoints/snapshot.json exists — a pre-Save-Version session is view-only
 };
 
 function parseLine(line: string): Record<string, any> | null {
@@ -282,6 +284,7 @@ async function readSessionSummary(sessionsRoot: string, id: string): Promise<Rec
     finalPhase: finished?.terminal ?? finished?.state ?? "",
     path,
     owner: stamped ? { pid: stamped.pid, host: String(stamped.host ?? "") } : undefined,
+    restorable: existsSync(join(sessionsRoot, id, "checkpoints", "snapshot.json")),
   };
 }
 
@@ -294,9 +297,16 @@ async function readSessionSummary(sessionsRoot: string, id: string): Promise<Rec
 // be empty) because Math.random().toString(36).slice(2,10) is empty when random()===0, so
 // a real id can be `session-<ts>-`. (base36 timestamps are equal-width — and thus
 // lexicographically ordered — until the 9-digit rollover in 2059.)
+// The one place the session-dir-name shape is defined. Reused by the restore path as a
+// containment guard before an id from the webview is joined into a filesystem path (#11:
+// a value joined into a path needs its own guard even when a sibling field already has one).
+export function isSessionId(id: string): boolean {
+  return /^session-[0-9a-z]+-[0-9a-z]*$/.test(id);
+}
+
 export function selectRecentSessionIds(ids: string[]): string[] {
   return ids
-    .filter((id) => /^session-[0-9a-z]+-[0-9a-z]*$/.test(id))
+    .filter(isSessionId)
     .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
 }
 

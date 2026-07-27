@@ -142,10 +142,11 @@ test("enriches session_finished with repair + no-progress counters from loop sta
   assert.equal(t?.payload.no_progress_streak, 1);
 });
 
-test("session_started carries raw intent (no hash)", () => {
-  const t = sessionEventToTelemetry("trace-1", { type: "session_started", intent: "blink an LED", boardId: "esp32-c3" });
+test("session_started carries raw intent (no hash) and the host UI locale", () => {
+  const t = sessionEventToTelemetry("trace-1", { type: "session_started", intent: "blink an LED", boardId: "esp32-c3", locale: "zh-cn" });
   assert.equal(t?.event_type, "session_started");
   assert.equal(t?.payload.intent, "blink an LED");
+  assert.equal(t?.payload.locale, "zh-cn");
   assert.equal("intent_hash" in (t?.payload ?? {}), false);
 });
 

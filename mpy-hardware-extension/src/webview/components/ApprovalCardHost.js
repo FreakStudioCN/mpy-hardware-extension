@@ -154,6 +154,13 @@
         main.appendChild(section);
       }
 
+      // True only while a restored session's past prompts are being re-rendered as INERT cards (Stage 2).
+      // The renderers are reused verbatim so the cards look exactly like they did live; this flag suppresses
+      // ONLY their render-time host side effects (device rescans / owning currentDeployCard), which must not
+      // fire for a historical, non-interactive card. It is false during every live run, so live behavior is
+      // provably unchanged. finalizeInertCard then disables the card and shows the answer it got.
+      let replaying = false;
+
       function addApprovalPrompt(promptId, card) {
         finalizeThinking();
         clearPending();
@@ -208,6 +215,9 @@
           const row = document.createElement("div"); row.className = "ask-row";
           const inp = document.createElement("input"); inp.className = "ask-input"; inp.type = "text";
           if (ti.placeholder) inp.placeholder = String(ti.placeholder);
+          // Prefilled-but-editable value (e.g. Save Version's proposed commit message):
+          // without this, a card can only offer ghost placeholder text, never a real default.
+          if (ti.value != null) inp.value = String(ti.value);
           textEls[ti.id == null ? "" : String(ti.id)] = inp; row.appendChild(inp); main.appendChild(row);
         });
         // esp32_flash_confirm: a live serial-port + baud picker. The Skill card carries the
@@ -251,7 +261,7 @@
           rescan.addEventListener("click", () => { flashStatusEl.textContent = tr("detecting_board"); vscode.postMessage({ type: "deploy_rescan" }); });
           pick.appendChild(rescan);
           main.appendChild(pick);
-          currentDeployCard = { setPorts: setFlashPorts };
+          if (!replaying) currentDeployCard = { setPorts: setFlashPorts }; // an inert historical card never owns port updates
         }
         const btnRow = document.createElement("div"); btnRow.className = "ask-options";
         let answered = false;
@@ -267,8 +277,10 @@
           if (isFlashConfirm && action === FLASH_ACTION && selectedPort) { msg.serial_port = selectedPort; }
           vscode.postMessage(msg);
           // Disable every button in the card (actions + the flash picker's rescan/port
-          // buttons), not just the action row, so nothing stays clickable after answering.
-          wrap.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+          // buttons), not just the action row, so nothing stays clickable after answering. Mark the
+          // action the user picked (matched by data-answer) so the answered card shows the same bordered
+          // "chosen" button a restored inert card does — the picker/rescan buttons carry no data-answer.
+          wrap.querySelectorAll("button").forEach((b) => { b.disabled = true; if (b.dataset.answer === action) b.classList.add("chosen"); });
           checks.forEach((c) => { c.disabled = true; });
           currentDeployCard = null;
           setPending(tr("working"));
@@ -281,6 +293,7 @@
           const answer = (a && a.value != null) ? String(a.value) : (a && a.id != null) ? String(a.id) : "confirm";
           const b = document.createElement("button"); b.className = "ask-opt" + (a && a.primary ? " primary" : "");
           b.textContent = (a && a.label != null) ? String(a.label) : answer;
+          b.dataset.answer = answer; // so an inert restore can highlight the button that was chosen
           // Gate Start Flashing on a chosen port; setFlashPorts enables it once one is picked.
           if (isFlashConfirm && answer === FLASH_ACTION) { flashBtn = b; b.disabled = true; }
           b.addEventListener("click", () => respond(answer));
@@ -288,8 +301,9 @@
         });
         main.appendChild(btnRow); head.appendChild(main); wrap.appendChild(head); el.appendChild(wrap);
         $("activity").appendChild(el);
-        // Kick off the initial port scan for the flash picker (mirrors addDeployPrompt).
-        if (isFlashConfirm) vscode.postMessage({ type: "deploy_rescan" });
+        // Kick off the initial port scan for the flash picker (mirrors addDeployPrompt). Skipped on replay:
+        // a restored historical card must not trigger a live device scan.
+        if (isFlashConfirm && !replaying) vscode.postMessage({ type: "deploy_rescan" });
       }
 
       // status_update -> a timeline trace line.
@@ -336,8 +350,8 @@
           '<div class="ev-main"><div class="ev-label"><span class="kind">' + tr("kind_confirm") + '</span></div>' +
           '<div class="ev-sum fileop-q"></div>' +
           '<div class="ask-options">' +
-            '<button class="ask-opt fileop-proceed" type="button"></button>' +
-            '<button class="ask-opt fileop-ignore" type="button"></button>' +
+            '<button class="ask-opt fileop-proceed" type="button" data-answer="proceed"></button>' +
+            '<button class="ask-opt fileop-ignore" type="button" data-answer="ignore"></button>' +
           '</div></div></div></div>';
         // textContent for the question (carries the file path) and the labels — never innerHTML.
         card.querySelector(".fileop-q").textContent = question;
@@ -427,6 +441,7 @@
         for (const opt of opts) {
           const b = document.createElement("button");
           b.className = "ask-opt"; b.type = "button"; b.textContent = String(opt);
+          b.dataset.answer = String(opt); // so an inert restore can highlight the chosen option
           b.addEventListener("click", () => pickOption(opt));
           optHost.appendChild(b);
         }
@@ -454,7 +469,7 @@
           '<div class="ev-sum">' + tr("comp_intro") + '</div>' +
           '<div class="ask-options comp-options"></div>' +
           '<div class="ask-row"><input class="ask-input comp-add" type="text" placeholder="' + tr("comp_add_ph") + '"></div>' +
-          '<div class="ask-options"><button class="ask-opt comp-go" type="button">' + tr("comp_confirm") + '</button><button class="ask-opt comp-cancel" type="button">' + tr("cancel") + '</button></div>' +
+          '<div class="ask-options"><button class="ask-opt comp-go" type="button" data-answer="confirm">' + tr("comp_confirm") + '</button><button class="ask-opt comp-cancel" type="button" data-answer="cancel">' + tr("cancel") + '</button></div>' +
           "</div></div></div>";
         const optHost = card.querySelector(".comp-options");
         const selected = new Set();
@@ -476,7 +491,9 @@
           if (answered) return;
           answered = true;
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer, devices: Array.from(selected), feedback: addInput.value.trim() });
-          card.querySelectorAll(".ask-opt").forEach((x) => { x.disabled = true; });
+          // Mark the picked action (data-answer) so a live-answered components card shows the same bordered
+          // "chosen" button a restored one does. Device chips carry no data-answer, so their selection .chosen is untouched.
+          card.querySelectorAll(".ask-opt").forEach((x) => { x.disabled = true; if (x.dataset.answer === answer) x.classList.add("chosen"); });
           addInput.disabled = true;
           if (answer === "confirm") setPending(tr("working"));
         };
@@ -503,8 +520,8 @@
           '<div class="ev-sum plan-summary"></div>' +
           '<ul class="plan-list"></ul>' +
           '<div class="plan-cost"></div>' +
-          '<div class="ask-row"><input class="ask-input plan-revise" type="text" placeholder="' + tr("plan_revise_ph") + '"><button class="ask-send plan-edit" type="button">' + tr("revise") + '</button></div>' +
-          '<div class="ask-options"><button class="ask-opt plan-go" type="button">' + tr("confirm_generate") + '</button><button class="ask-opt plan-cancel" type="button">' + tr("cancel") + '</button></div>' +
+          '<div class="ask-row"><input class="ask-input plan-revise" type="text" placeholder="' + tr("plan_revise_ph") + '"><button class="ask-send plan-edit" type="button" data-answer="revise">' + tr("revise") + '</button></div>' +
+          '<div class="ask-options"><button class="ask-opt plan-go" type="button" data-answer="confirm">' + tr("confirm_generate") + '</button><button class="ask-opt plan-cancel" type="button" data-answer="cancel">' + tr("cancel") + '</button></div>' +
           "</div></div></div>";
         // Model-written narrative (optional), rendered above the structured rows.
         const summaryEl = card.querySelector(".plan-summary");
@@ -539,7 +556,9 @@
           if (answered) return;
           answered = true;
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer, feedback });
-          card.querySelectorAll(".ask-opt, .ask-send").forEach((b) => { b.disabled = true; });
+          // Mark the action the user picked (matched by data-answer) so the answered card shows the same
+          // bordered "chosen" button a restored inert card does — consistent live/restore selection cue.
+          card.querySelectorAll(".ask-opt, .ask-send").forEach((b) => { b.disabled = true; if (b.dataset.answer === answer) b.classList.add("chosen"); });
           reviseInput.disabled = true;
           if (answer === "cancel") return; // session_done renders the terminal
           // Revise re-runs the agent to re-plan; confirm proceeds to codegen.
@@ -575,8 +594,8 @@
           '<div class="deploy-wiring"></div>' +
           '<div class="deploy-status">' + tr("detecting_board") + '</div>' +
           '<div class="deploy-ports"></div>' +
-          '<div class="deploy-actions"><button class="ask-opt deploy-go" type="button" disabled>' + tr("deploy") + '</button>' +
-          '<div class="deploy-secondary"><button class="ask-opt deploy-rescan" type="button">' + tr("rescan") + '</button><button class="ask-opt deploy-cancel" type="button">' + tr("cancel") + '</button></div></div>' +
+          '<div class="deploy-actions"><button class="ask-opt deploy-go" type="button" data-answer="confirm" disabled>' + tr("deploy") + '</button>' +
+          '<div class="deploy-secondary"><button class="ask-opt deploy-rescan" type="button">' + tr("rescan") + '</button><button class="ask-opt deploy-cancel" type="button" data-answer="cancel">' + tr("cancel") + '</button></div></div>' +
           "</div></div></div>";
         const wiring = wiringMarkup(manifest);
         if (wiring) card.querySelector(".deploy-wiring").innerHTML = wiring;
@@ -592,7 +611,10 @@
           // before unblocking the agent — a separate select_device message races the
           // resolve and the first device tool can fire before the port lands.
           vscode.postMessage({ type: "ui_prompt_response", promptId, answer, port: answer === "confirm" ? selectedPort : null });
-          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; });
+          // Mark the picked action (data-answer) so a live-answered deploy card shows the same bordered
+          // "chosen" button a restored inert one does. Port buttons carry no data-answer, so their own
+          // selection-time .chosen is untouched.
+          card.querySelectorAll(".ask-opt").forEach((b) => { b.disabled = true; if (b.dataset.answer === answer) b.classList.add("chosen"); });
           currentDeployCard = null;
           if (answer === "confirm") setPending(tr("deploying")); // cancel: session_done renders the terminal
         };
@@ -601,7 +623,7 @@
         card.querySelector(".deploy-rescan").addEventListener("click", () => { statusEl.textContent = tr("detecting_board"); vscode.postMessage({ type: "deploy_rescan" }); });
         // Updated by deploy_ports_updated: no board -> Deploy stays disabled; one
         // board -> auto-selected; several -> the user picks one before deploying.
-        currentDeployCard = {
+        const deployController = {
           setPorts: (ports) => {
             ports = Array.isArray(ports) ? ports : [];
             portsEl.innerHTML = "";
@@ -629,6 +651,58 @@
             goBtn.disabled = selectedPort == null;
           },
         };
+        if (!replaying) currentDeployCard = deployController; // an inert historical card never owns port updates
         $("activity").appendChild(card);
-        vscode.postMessage({ type: "deploy_rescan" });
+        if (!replaying) vscode.postMessage({ type: "deploy_rescan" }); // no live device scan for a restored card
+      }
+
+      // ----- Stage 2: replay a past prompt as its REAL card, rendered INERT -----
+      // Reuse the exact live renderer (so the historical card looks identical), then disable every control and
+      // show the answer it received. `replaying` suppresses the renderers' device-scan side effects above.
+      const INERT_RENDERERS = {
+        ui_prompt: (p) => addAskPrompt(p.promptId, p.question, p.options, p.optionsRequiringText, p.textPlaceholder),
+        plan_proposed: (p) => addPlanPrompt(p.promptId, p.plan),
+        deploy_proposed: (p) => addDeployPrompt(p.promptId, p.manifest),
+        components_proposed: (p) => addComponentPrompt(p.promptId, p.devices),
+        approval_requested: (p) => addApprovalPrompt(p.promptId, p.card),
+        file_op_proposed: (p) => addFileOpPrompt(p.promptId, p.op, p.path),
+      };
+      // Neutralize the card the renderer just appended: disable every input/button, then SHOW what was chosen
+      // by highlighting the button that was clicked (.chosen = accent border, kept bright while the rest dim). A button
+      // carries its answer value in data-answer; an option button also matches by its own label. Only when no
+      // button matches (a free-text answer) do we fall back to a "• answer" line.
+      function finalizeInertCard(answer) {
+        const card = $("activity").lastElementChild;
+        if (!card) return;
+        card.classList.add("restore-inert");
+        // An inert card is HISTORICAL: strip the data-prompt-id the live renderers stamped (ApprovalCardHost
+        // approval/file_op cards). promptSeq restarts at 0 each window, so a NEW session's live prompt gets the
+        // SAME id — the message-bus approval dup-guard queries [data-prompt-id] globally and would drop the live
+        // card as a "duplicate" of this stale replayed one, hanging the run. A disabled card needs no id.
+        if (card.hasAttribute("data-prompt-id")) card.removeAttribute("data-prompt-id");
+        card.querySelectorAll("[data-prompt-id]").forEach((el) => { el.removeAttribute("data-prompt-id"); });
+        // Same class: a single-select group's radio `name` embeds the promptId ("apr-<id>-<gid>"), and radio
+        // groups are document-scoped, so a live card reusing the id would share the group — clicking a live
+        // radio unchecks this inert card's shown selection. Namespace inert radios out of the live group
+        // (renaming a checked radio keeps it checked).
+        card.querySelectorAll('input[type="radio"][name]').forEach((el) => { el.name = "inert-" + el.name; });
+        card.querySelectorAll("input, button, select, textarea").forEach((el) => { el.disabled = true; });
+        const ans = answer == null ? "" : String(answer);
+        if (!ans) return;
+        let chosen = null;
+        card.querySelectorAll("button").forEach((b) => {
+          if (chosen) return;
+          if (b.dataset.answer === ans || (b.textContent || "").trim() === ans) chosen = b;
+        });
+        if (chosen) { chosen.classList.add("chosen"); return; }
+        const a = document.createElement("div"); a.className = "ask-answer restore-answer";
+        a.textContent = "• " + ans; // free-text (or otherwise unmatched) answer: show it as a line
+        (card.querySelector(".ev-main") || card).appendChild(a);
+      }
+      function renderInertPrompt(kind, payload, answer) {
+        const render = Object.prototype.hasOwnProperty.call(INERT_RENDERERS, kind) ? INERT_RENDERERS[kind] : null;
+        if (!render) { addActivity({ text: String(answer || "") }, "note"); return; } // unknown type: fall back to a note line
+        replaying = true;
+        try { render(payload || {}); finalizeInertCard(answer); }
+        finally { replaying = false; }
       }

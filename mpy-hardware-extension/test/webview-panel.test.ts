@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createPanel, createViewProvider } from "../src/webview/panel.ts";
+import { createPanel, createViewProvider, isSnapshotSelfPath, parseGitStatusRow } from "../src/webview/panel.ts";
+import { gitCommit, gitCommitCount, gitHasStagedChanges, gitLog, gitCurrentBranch, gitShowNameStatus, gitDiffText } from "../src/extension/project-git.ts";
+import { buildSessionSnapshot, writeSessionSnapshot } from "../src/extension/session-snapshot.ts";
+import { EXTENSION_VERSION } from "../src/core/toolchain-version.ts";
 
 test("webview start_session runs API-backed pipeline and renders generated outputs", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
@@ -1822,6 +1827,140 @@ test("submit_issue_report validates host-side and opens a prefilled issue url", 
   assert.equal(opened.length, 0, "empty description opens nothing");
 });
 
+test("request_credits_email opens a prefilled mailto for a signed-in user and never touches admin (#97)", async () => {
+  const posted: any[] = [];
+  const opened: string[] = [];
+  const fetched: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async (u: any) => { opened.push(u.toString()); return true; } },
+    authentication: { getSession: async () => ({ accessToken: "gho-token", account: { label: "octocat" } }) },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    fetched.push(url);
+    if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123", login: "octocat" });
+    if (url === "http://api.test/v1/credits") return jsonResponse({ balance: 42, daily_grant: 100, resets_at: "2026-07-08T00:00:00.000Z" });
+    return jsonResponse({});
+  }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+  await handler?.({ type: "request_credits_email" });
+  assert.equal(opened.length, 1, "opens the prefilled mailto");
+  assert.ok(opened[0].startsWith("mailto:1069653183@qq.com?"), "targets the support email over mailto:");
+  const body = decodeURIComponent(opened[0].slice(opened[0].indexOf("body=") + "body=".length));
+  assert.match(body, /GitHub login: octocat/, "login prefilled from the auth exchange");
+  assert.match(body, /Credit balance: 42/, "fresh balance from /v1/credits");
+  assert.match(body, /Daily grant: 100/);
+  assert.match(body, /Resets at: 2026-07-08/);
+  assert.match(body, /Contact email: please fill in your email/, "user-filled contact line");
+  assert.ok(posted.some((m) => m.type === "support_feedback_opened" && m.entry === "request_credits"), "records the §8.1 action");
+  assert.ok(posted.some((m) => m.type === "session_event" && m.event?.kind === "credits" && m.event.balance === 42), "refreshes the quota bar");
+  assert.ok(!fetched.some((u) => u.includes("/v1/admin")), "never calls any admin credits endpoint");
+});
+
+test("request_credits_email blocks and prompts sign-in with no GitHub session; opens nothing (#97)", async () => {
+  const posted: any[] = [];
+  const opened: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async (u: any) => { opened.push(u.toString()); return true; } },
+    authentication: { getSession: async () => undefined }, // user has no session / declined sign-in
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: pipelineFetch, loopMode: "template" });
+
+  await handler?.({ type: "request_credits_email" });
+  assert.equal(opened.length, 0, "no mailto opened without sign-in — the host gate, not the hidden button, is the boundary");
+  assert.ok(posted.some((m) => m.type === "session_error"), "posts a sign-in error");
+  assert.ok(!posted.some((m) => m.type === "support_feedback_opened" && m.entry === "request_credits"), "no support action recorded when blocked");
+});
+
+test("request_credits_email still opens (blank amounts) when the credits fetch fails (#97)", async () => {
+  const posted: any[] = [];
+  const opened: string[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+    env: { openExternal: async (u: any) => { opened.push(u.toString()); return true; } },
+    authentication: { getSession: async () => ({ accessToken: "gho-token", account: { label: "octocat" } }) },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123", login: "octocat" });
+    // A non-ok credits response with a JSON error body: without the cr.ok guard, cr.json() parses it
+    // and the handler posts balance: undefined -> the quota bar renders the literal "undefined".
+    if (url === "http://api.test/v1/credits") return { ok: false, status: 401, json: async () => ({ error: "expired" }) };
+    return jsonResponse({});
+  }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+  await handler?.({ type: "request_credits_email" });
+  assert.equal(opened.length, 1, "a credits outage must not block reaching support — the mail still opens");
+  const body = decodeURIComponent(opened[0].slice(opened[0].indexOf("body=") + "body=".length));
+  assert.match(body, /Credit balance: \n/, "balance line is blank on a non-ok response, not 'undefined'");
+  assert.match(body, /GitHub login: octocat/, "identifiers the team needs are still present");
+  assert.ok(!posted.some((m) => m.type === "session_event" && m.event?.kind === "credits"), "no bad credits event posted on a non-ok response");
+});
+
+test("request_credits_email records the support action ONLY when the mail client actually opened (#97 review)", async () => {
+  // openExternal resolves false when the OS has no mailto handler or the user dismisses the
+  // picker; a headless host has no openExternal at all. Neither is a request that reached us,
+  // so neither may be counted. Mutation: record unconditionally -> both asserts below fail.
+  const attempt = async (env: any) => {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 },
+      Uri: { parse: (s: string) => ({ scheme: new URL(s).protocol.replace(/:$/, ""), toString: () => s }) },
+      env,
+      authentication: { getSession: async () => ({ accessToken: "gho-token", account: { label: "octocat" } }) },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+    };
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123", login: "octocat" });
+      if (url === "http://api.test/v1/credits") return jsonResponse({ balance: 42, daily_grant: 100, resets_at: "2026-07-08T00:00:00.000Z" });
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    await handler?.({ type: "request_credits_email" });
+    return posted.some((m) => m.type === "support_feedback_opened" && m.entry === "request_credits");
+  };
+
+  assert.equal(await attempt({ openExternal: async () => false }), false, "no mailto handler / user cancelled -> not counted as opened");
+  assert.equal(await attempt({}), false, "headless host without openExternal -> not counted as opened");
+  assert.equal(await attempt({ openExternal: async () => true }), true, "a real open still records the action");
+});
+
+test("refreshCredits (via request_boards) ignores a non-ok /v1/credits — no 'undefined' credits event (#97 review)", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    authentication: { getSession: async () => ({ accessToken: "gho-token" }) },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123" });
+    if (url === "http://api.test/v1/credits") return { ok: false, status: 500, json: async () => ({ error: "boom" }) };
+    return jsonResponse({ builtin: [], community: [], boards: [], status: "ok" });
+  }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+
+  await handler?.({ type: "request_boards" });
+  assert.ok(!posted.some((m) => m.type === "session_event" && m.event?.kind === "credits"), "non-ok credits leaves the bar as-is instead of posting balance: undefined");
+});
+
 test("request_diagnostics records support_diagnostics_exported with plugin vs session scope", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;
@@ -1998,4 +2137,1289 @@ test("start_optional_flow allowlist-maps the flow and host-gates on the generate
   posted.length = 0;
   await handler?.({ type: "start_optional_flow", flow: "wiring" });
   assert.ok(posted.some((m) => m.type === "optional_flow_status" && m.status === "failed" && /Run generate first/.test(m.detail)), "an unoffered flow is host-refused");
+});
+
+// ----- Welcome-page project entry: session import vs folder open (#88 slice 1) -----
+
+test("open_project_folder opens a FOLDER picker then vscode.openFolder (the folder-open action, now its own entry)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    let handler: any; const opened: any[] = []; let dialogOpts: any;
+    const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showOpenDialog: async (o: any) => { dialogOpts = o; return [{ fsPath: join(ws, "picked") }]; } },
+      commands: { executeCommand: async (cmd: string, arg: any) => { opened.push({ cmd, path: arg?.fsPath }); } },
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
+    await handler({ type: "open_project_folder" });
+    assert.equal(dialogOpts?.canSelectFolders, true, "picks a FOLDER");
+    assert.equal(dialogOpts?.canSelectFiles, false, "not a file picker");
+    assert.deepEqual(opened, [{ cmd: "vscode.openFolder", path: join(ws, "picked") }], "opens the picked folder as the workspace");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("import_session picks a session folder and RESTORES from it, but never vscode.openFolder (the reported bug)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    let handler: any; let dialogOpts: any; const commands: string[] = []; const infos: string[] = [];
+    const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: {
+        createWebviewPanel: () => panel,
+        showOpenDialog: async (o: any) => { dialogOpts = o; return [{ fsPath: ws }]; }, // pick a folder that has no snapshot
+        showInformationMessage: async (m: string) => { infos.push(m); }, showErrorMessage: async () => {},
+      },
+      commands: { executeCommand: async (cmd: string) => { commands.push(cmd); } },
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
+    await handler({ type: "import_session" });
+    assert.equal(dialogOpts?.canSelectFolders, true, "prompts for a session FOLDER");
+    // The core of the fix: Import restores; it must NOT open the folder as the workspace (that was the bug).
+    assert.ok(!commands.includes("vscode.openFolder"), "import_session does NOT vscode.openFolder");
+    // The picked folder has no snapshot -> it routes to restore, which degrades with an informative notice.
+    assert.ok(infos.some((m) => /no saved snapshot|predates/i.test(m)), "routes to restore (no snapshot here -> informs), not folder-open");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+// ----- Welcome-page entry telemetry: session-independent /v1/web/events emit -----
+
+// A panel whose fetchImpl records every request, so a welcome click's telemetry POST is
+// captured. hasWorkspace toggles the workspace so has_workspace can be asserted both ways.
+function welcomePanel(hasWorkspace: boolean, fetchImpl?: (url: any, init: any) => Promise<any>) {
+  const calls: Array<{ url: string; init: any }> = [];
+  const opened: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: () => {}, onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    workspace: { workspaceFolders: hasWorkspace ? [{ uri: { fsPath: "/ws" } }] : undefined },
+    window: { createWebviewPanel: () => panel, showOpenDialog: async () => [{ fsPath: "/ws/picked" }], showInformationMessage: async () => {}, showErrorMessage: async () => {} },
+    commands: { executeCommand: async (cmd: string, arg: any) => { opened.push({ cmd, path: arg?.fsPath }); } },
+  };
+  const captured = fetchImpl ?? (async () => jsonResponse({}, 204) as any);
+  const recording = async (url: any, init: any) => { calls.push({ url: String(url), init }); return captured(url, init); };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: recording as any });
+  return { handler: handler!, calls, opened };
+}
+
+function webEvents(calls: Array<{ url: string; init: any }>) {
+  return calls.filter((c) => c.url === "http://api.test/v1/web/events");
+}
+
+for (const c of [
+  { type: "open_project_folder", eventType: "welcome_open_project_folder_clicked", entry: "open_project_folder", message: { type: "open_project_folder" } },
+  { type: "import_session", eventType: "welcome_import_session_clicked", entry: "import_session", message: { type: "import_session" } },
+  { type: "restore_session", eventType: "welcome_recent_session_restore_clicked", entry: "recent_session_restore", message: { type: "restore_session", id: "session-abc-1" } },
+]) {
+  test(`${c.type} emits ${c.eventType} to /v1/web/events with a non-sensitive payload, no auth header`, async () => {
+    const { handler, calls } = welcomePanel(true);
+    await handler(c.message);
+    const events = webEvents(calls);
+    assert.equal(events.length, 1, "exactly one web-event per click");
+    const init = events[0].init;
+    assert.equal(init.method, "POST");
+    // Anonymous endpoint — the GitHub JWT must never ride it.
+    assert.ok(!("authorization" in (init.headers ?? {})), "no authorization header");
+    // Deep-equal the whole body so a wrong event name, a dropped `source` (server would
+    // default it to website-home), or a leaked trace_id each fails this one assertion.
+    assert.deepEqual(JSON.parse(init.body), {
+      event_type: c.eventType,
+      payload: { surface: "welcome_page", entry: c.entry, extension_version: EXTENSION_VERSION, has_workspace: true },
+      source: "vscode_extension",
+    });
+  });
+}
+
+test("welcome telemetry: has_workspace reflects the live workspace state, false when none is open", async () => {
+  const { handler, calls } = welcomePanel(false);
+  await handler({ type: "open_project_folder" });
+  assert.equal(JSON.parse(webEvents(calls)[0].init.body).payload.has_workspace, false, "no workspace -> has_workspace:false");
+});
+
+test("welcome telemetry: an invalid restore id emits NOTHING (the emit sits inside the id guard)", async () => {
+  const { handler, calls } = welcomePanel(true);
+  await handler({ type: "restore_session", id: "../../etc/passwd" });
+  assert.equal(webEvents(calls).length, 0, "a non-session-id restore never emits");
+});
+
+test("welcome telemetry: the restore session id never rides the payload (non-sensitive)", async () => {
+  const { handler, calls } = welcomePanel(true);
+  await handler({ type: "restore_session", id: "session-secret-9" });
+  assert.ok(!webEvents(calls)[0].init.body.includes("session-secret-9"), "the id is not carried in the event body");
+});
+
+test("welcome telemetry: a rejected POST is swallowed — the click's primary action still runs", async () => {
+  const { handler, opened } = welcomePanel(true, async () => { throw new Error("network down"); });
+  await handler({ type: "open_project_folder" }); // must not reject even though the telemetry fetch throws
+  assert.ok(opened.some((o) => o.cmd === "vscode.openFolder"), "the folder still opens; telemetry failure is silent");
+});
+
+function restorePanel(ws: string) {
+  const posted: any[] = []; const infos: string[] = []; const errors: string[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, showInformationMessage: async (m: string) => { infos.push(m); }, showErrorMessage: async (m: string) => { errors.push(m); } },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
+  return { handler: handler!, posted, infos, errors };
+}
+
+test("restore_session rehydrates the tabs from a saved snapshot (wiring/diagram/sha-verified code) and confirms", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    const sid = "session-s1-1";
+    mkdirSync(join(ws, "blockless-project"), { recursive: true });
+    const codeBytes = Buffer.from("print('restored')\n");
+    writeFileSync(join(ws, "blockless-project", "main.py"), codeBytes);
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { devices: [] }, phase: "generate", intent: "blink red" },
+      boardId: "esp32", preSelectedBoard: { id: "esp32", display_name: "ESP32" }, boardSelectionMode: "recommend",
+      preferences: { mode: "beginner", locale: "en", existing_hardware: "none" },
+      manifest: { devices: [{ pin: 1 }] }, diagram: { nodes: ["led"] }, credits: null, diagnostics: {},
+      optionalNextPhases: [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }],
+      generatePhaseComplete: { type: "phase_complete", payload: { phase: "generate", result: "success" } },
+      artifacts: [{ relative_path: "blockless-project/main.py", kind: "code", role: "", phase: "generate", size: codeBytes.length, sha256: createHash("sha256").update(codeBytes).digest("hex"), created_at: "2026-07-23T00:00:00.000Z" }],
+      git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0; infos.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(posted.some((m) => m.type === "manifest_updated"), "wiring/manifest replayed");
+    assert.ok(posted.some((m) => m.type === "diagram_updated"), "diagram replayed");
+    // The Wiring tab's optional-flow buttons come back: restore re-offers the flows a successful generate exposed.
+    const flows = posted.find((m) => m.type === "optional_flows");
+    assert.ok(flows && flows.phases.some((p: any) => p.phase === "upy-diagram-plugin"), "the Generate diagram/wiring buttons are re-offered on restore");
+    const code = posted.find((m) => m.type === "code_updated");
+    assert.ok(code && /restored/.test(code.code), "code content replayed from disk after sha256 verify");
+    // D1: the artifacts tab is rehydrated from the restored session's tree (the file on disk).
+    assert.ok(posted.some((m) => m.type === "artifacts_index" && (m.artifacts || []).some((a: any) => /main\.py/.test(a.relative_path))), "artifacts tab rehydrated for the restored session");
+    assert.ok(infos.some((m) => /Restored/.test(m)), "a restore confirmation is shown");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session derives the Diagram tab from the manifest when the snapshot has no authored diagram", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-derive-1";
+    // A saved session with a device-bearing manifest but NO authored diagram (the common case: the
+    // authored diagram is almost always null). Live derives the diagram from the manifest; restore must too.
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: {}, phase: "generate", intent: "read temp" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { mcu: { board_name: "ESP32" }, devices: [{ id: "aht20", interface: "I2C" }] },
+      diagram: null, optionalNextPhases: [], generatePhaseComplete: null, credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    const diagram = posted.find((m) => m.type === "diagram_updated");
+    assert.ok(diagram, "the Diagram tab is populated even without an authored diagram");
+    assert.ok(diagram.diagram?.architecture?.layers?.length > 0, "the diagram is derived from the manifest's devices (not empty)");
+    // A no-offers snapshot posts optional_flows:[] so a prior session's stale Generate buttons are HIDDEN
+    // (the flow entries are siblings of the tab panes, so restore_reset does not clear them).
+    const flows = posted.find((m) => m.type === "optional_flows");
+    assert.ok(flows && flows.phases.length === 0, "restore posts optional_flows:[] to hide stale flow buttons when the snapshot offered none");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("start_optional_flow after a restore passes the host gate (the restored offers satisfy it, no 'Run generate first' bounce)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-flowrun-1";
+    // A saved session that offered the flows AND carries the upstream generate result — the two pieces the
+    // host gate (getOptionalNextPhases + wrapped getLatestGeneratePhaseComplete) needs to run the flow.
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null,
+      optionalNextPhases: [{ phase: "upy-wiring-plugin" }, { phase: "upy-diagram-plugin" }],
+      generatePhaseComplete: { type: "phase_complete", payload: { phase: "generate", result: "success" } },
+      credits: null, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    await handler({ type: "restore_session", id: sid });
+    posted.length = 0;
+    await handler({ type: "start_optional_flow", flow: "diagram" });
+    // The gate at start_optional_flow rejects an unoffered flow with this exact detail. The restored offers
+    // must clear it; the flow then runs (against the {}-stub backend) and stalls, which is fine.
+    const bounced = posted.find((m) => m.type === "optional_flow_status" && /Run generate first/.test(m.detail || ""));
+    assert.ok(!bounced, "the restored offer + upstream satisfy the host gate — no 'Run generate first' bounce");
+    // ...and the flow PROGRESSED past the gate into the actual run (phase_start is emitted only after the
+    // offered-set gate passes), proving it didn't just no-op before the gate for an unrelated reason.
+    assert.ok(posted.some((m) => m.type === "phase_start"), "the flow ran past the gate into the phase run");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session skips a code file whose on-disk sha256 no longer matches the snapshot (no stale replay)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-s2-1";
+    mkdirSync(join(ws, "blockless-project"), { recursive: true });
+    writeFileSync(join(ws, "blockless-project", "main.py"), "print('CHANGED since save')\n"); // on-disk content differs
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: null,
+      state: { manifest: {}, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null,
+      artifacts: [{ relative_path: "blockless-project/main.py", kind: "code", role: "", phase: "generate", size: 10, sha256: "0".repeat(64), created_at: "2026-07-23T00:00:00.000Z" }],
+      git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(!posted.some((m) => m.type === "code_updated"), "a changed-on-disk file is NOT replayed (sha mismatch)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session on a session with NO snapshot degrades (informs, no rehydration)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    await handler({ type: "restore_session", id: "session-neversaved-1" });
+    assert.ok(infos.some((m) => /no saved snapshot|predates/i.test(m)), "informs there is nothing to restore");
+    assert.ok(!posted.some((m) => m.type === "manifest_updated" || m.type === "code_updated"), "no rehydration for a snapshot-less session");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session refetches the LIVE credit balance (the snapshot's credits are advisory)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const posted: any[] = []; let handler: any;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showInformationMessage: async () => {}, showErrorMessage: async () => {} },
+      authentication: { getSession: async () => ({ accessToken: "gho-token" }) },
+    };
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/auth/github") return jsonResponse({ token: "jwt-123" });
+      if (url === "http://api.test/v1/credits") return jsonResponse({ balance: 42, daily_grant: 100, resets_at: "2026-07-08T00:00:00.000Z" });
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+    const sid = "session-cred-1";
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: null, terminal: null,
+      state: { manifest: {}, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, optionalNextPhases: [], generatePhaseComplete: null,
+      credits: { balance: 1, dailyGrant: 1, resetsAt: "stale", capturedAt: "stale" }, diagnostics: {}, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    const credits = posted.find((m) => m.type === "session_event" && m.event?.kind === "credits");
+    assert.ok(credits, "restore refetches credits");
+    assert.equal(credits.event.balance, 42, "shows the LIVE balance (42), not the snapshot's advisory 1");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session replays the durable activity feed: summaries + INERT prompt history + terminal (D4)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-feed-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    // A transcript: a summary, a prompt + its answer, and a transient trace event (should NOT replay).
+    const jsonl = [
+      { type: "session_started", intent: "blink", boardId: "esp32" },
+      { type: "summary", text: "Wired the LED to pin 4." },
+      { type: "ui_prompt", promptId: "p1", question: "Which board?" },
+      { type: "ui_prompt_answer", promptId: "p1", answer: "ESP32-C6" },
+      { type: "trace_event", event: { text: "transient step" } },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: {}, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(sessionDir, snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(posted.some((m) => m.type === "restore_reset"), "clears the view before replay");
+    assert.ok(posted.some((m) => m.type === "summary" && /pin 4/.test(m.text)), "the AI summary is replayed");
+    const prompt = posted.find((m) => m.type === "restore_prompt");
+    assert.ok(prompt && prompt.kind === "ui_prompt" && /Which board\?/.test(prompt.payload.question) && /ESP32-C6/.test(prompt.answer), "a past prompt replays as its INERT card carrying the answer it got");
+    assert.ok(!posted.some((m) => m.type === "ui_prompt_needed" || m.type === "plan_needed" || m.type === "deploy_needed"), "no LIVE (clickable) prompt is re-created");
+    assert.ok(!posted.some((m) => m.type === "trace_event"), "transient trace events are not replayed (not durable)");
+    assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line is posted");
+    // ORDERING is load-bearing: restore_reset (clearConversation) wipes tabs+feed, so it MUST land before
+    // every replayed message or it erases the restore. Assert it precedes the feed AND the tab replays.
+    const resetAt = posted.findIndex((m) => m.type === "restore_reset");
+    const summaryAt = posted.findIndex((m) => m.type === "summary");
+    const promptAt = posted.findIndex((m) => m.type === "restore_prompt");
+    const manifestAt = posted.findIndex((m) => m.type === "manifest_updated");
+    for (const [label, at] of [["summary", summaryAt], ["restore_prompt", promptAt], ["manifest_updated", manifestAt]] as const) {
+      assert.ok(at > resetAt, `restore_reset precedes ${label} (else it wipes the just-replayed content)`);
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session replays the RICH narration in file order via ungated messages (Stage 1)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-rich-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    // A transcript covering every durable narration type the rich replay maps.
+    const jsonl = [
+      { type: "session_started", intent: "blink", boardId: "esp32" },
+      { type: "user_message", intent: "blink an LED", boardId: "esp32" },
+      { type: "status_update", payload: { message: "Generating code…" } },
+      { type: "phase_complete", payload: { summary: "Generated main.py", artifacts: [{ type: "markdown", content: "### Wiring notes" }] } },
+      { type: "ui_prompt", promptId: "p1", question: "Which board?" },
+      { type: "ui_prompt_answer", promptId: "p1", answer: "ESP32-C6" },
+      { type: "serial_output", lines: ["LED on", "LED off"] },
+      { type: "trace_event", event: { isError: true, text: "I2C read failed" } },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-24T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: {}, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(sessionDir, snap);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    // Each durable event mapped to its restore message, with content preserved.
+    assert.ok(posted.some((m) => m.type === "restore_user" && /blink an LED/.test(m.text)), "the user's request replays as a user card");
+    assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "trace" && /Generating code/.test(m.text)), "a status update replays as a trace line");
+    assert.ok(posted.some((m) => m.type === "summary" && /main\.py/.test(m.text)), "the phase_complete summary replays");
+    assert.ok(posted.some((m) => m.type === "summary" && /Wiring notes/.test(m.text)), "an inline markdown artifact replays as a summary");
+    assert.ok(posted.some((m) => m.type === "restore_prompt" && m.kind === "ui_prompt" && /Which board\?/.test(m.payload.question) && /ESP32-C6/.test(m.answer)), "a past prompt replays as its inert card with the answer it got");
+    assert.ok(posted.some((m) => m.type === "serial_output" && Array.isArray(m.lines) && m.lines.includes("LED on")), "serial output replays");
+    assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "error" && /I2C read failed/.test(m.text)), "a real tool-failure reason replays as an error line");
+    assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line is posted");
+    // The whole point of Stage 1: NO raw/gated live messages are ever posted (they would render as dead UI or
+    // be swallowed by the running-gate). Mutation-sensitive: mapping to any live type fails one of these.
+    for (const live of ["user_message", "status_update", "trace_event", "phase_complete", "ui_prompt_needed", "plan_needed"]) {
+      assert.ok(!posted.some((m) => m.type === live), `no live ${live} is posted (rich replay is ungated restore messages only)`);
+    }
+    // File order is preserved: request -> status -> summary -> prompt -> serial -> error.
+    const at = (pred: (m: any) => boolean) => posted.findIndex(pred);
+    const userAt = at((m) => m.type === "restore_user");
+    const traceAt = at((m) => m.type === "restore_line" && m.kind === "trace");
+    const sumAt = at((m) => m.type === "summary" && /main\.py/.test(m.text));
+    const serialAt = at((m) => m.type === "serial_output");
+    const errAt = at((m) => m.type === "restore_line" && m.kind === "error");
+    assert.ok(userAt < traceAt && traceAt < sumAt && sumAt < serialAt && serialAt < errAt, "replays in transcript file order");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session rejects a malformed session id (no path join, no restore)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos, errors } = restorePanel(ws);
+    for (const id of ["../../etc", "sess-1", "session-ok-1/../../evil", ""]) {
+      posted.length = 0; infos.length = 0; errors.length = 0;
+      await handler({ type: "restore_session", id });
+      assert.equal(posted.length + infos.length + errors.length, 0, `a malformed id (${JSON.stringify(id)}) is ignored — no restore, no path join`);
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("Save Version after a restore targets the RESTORED session's dir (adopts its trace id), not the prior session's", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-restore-1";
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    await handler({ type: "restore_session", id: sid });
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    // Old bug: restore left the controller's traceId null (and residual prior-session state), so a re-save
+    // had NO session dir and reported nothing_to_save. Fixed: restore adopts the snapshot's trace id, so a
+    // re-save writes into THAT session's own dir carrying the restored terminal (not null/stale).
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_snapshot", "a post-restore save has a dir to write (not nothing_to_save)");
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", sid, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, sid, "the re-saved snapshot lands in the restored session's own dir");
+    assert.equal(written.stage.terminal, "complete", "and carries the restored terminal (seeded), not an empty/stale one");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore ignores a traversal trace_id in the snapshot content (a later Save Version cannot escape the sessions root)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const dirId = "session-evil-1";          // the DIR id is well-formed (restore_session gates on it)...
+    const evilTraceId = "../evil-sibling";    // ...but the snapshot CONTENT (foreign/imported) carries a traversal id
+    const snap = buildSessionSnapshot({
+      traceId: evilTraceId, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), snap);
+    await handler({ type: "restore_session", id: dirId });
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    // #49-6: the id comes from the RESTORE-SOURCE dir (session-evil-1); the snapshot's traversal trace_id is
+    // never consulted for the path. So the re-save lands in the restored session's OWN dir and the traversal
+    // string cannot steer the write anywhere — nothing at `.mpyhw/sessions/../evil-sibling`.
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_snapshot", "re-savable via the safe dir id, not the snapshot's foreign id");
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", dirId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, dirId, "the re-save lands in the restored session's own dir, ignoring the snapshot's traversal id");
+    assert.ok(!existsSync(join(ws, ".mpyhw", "evil-sibling", "checkpoints", "snapshot.json")), "no snapshot write escapes the sessions root");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore ignores a NON-STRING trace_id in the snapshot content (no path.join crash mid-restore)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    const dirId = "session-nonstr-1";
+    const snap: any = buildSessionSnapshot({
+      traceId: "session-ok-1", savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "x" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    snap.trace_id = ["session-abc-def"]; // a non-string id that a coerce-then-adopt would have crashed path.join with
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), snap);
+    // #49-6: snap.trace_id is never consulted — the id comes from the restore-source dir — so a non-string
+    // value can't reach path.join at all. The restore COMPLETES and is re-savable into its own dir.
+    await handler({ type: "restore_session", id: dirId });
+    assert.ok(infos.some((m) => /Restored/.test(m)), "the restore completes (a non-string snapshot trace_id is simply ignored)");
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_snapshot", "re-savable via the safe dir id");
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", dirId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, dirId, "the re-save lands in the restored session's own dir");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore does NOT adopt a VALID-but-foreign trace_id from snapshot content — a later save can't overwrite another session (#49-6)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const dirId = "session-aaaa-1";        // the session actually being restored (the recent-list card)
+    const foreignId = "session-bbbb-2";    // a DIFFERENT, syntactically valid id embedded in the snapshot content
+    // A pre-existing OTHER session B on disk, with its own saved snapshot we must not clobber.
+    const bSnap = buildSessionSnapshot({
+      traceId: foreignId, savedAt: "2026-07-20T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { b: 1 }, phase: "generate", intent: "session B" }, boardId: "pico", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { b: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", foreignId), bSnap);
+    // Session A's snapshot carries session B's valid id in its CONTENT (an imported / mis-copied snapshot).
+    const aSnap = buildSessionSnapshot({
+      traceId: foreignId, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { a: 1 }, phase: "generate", intent: "session A" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { a: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", dirId), aSnap);
+    await handler({ type: "restore_session", id: dirId });
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    // The re-save must land in A's OWN dir (the restore source), never B's — the snapshot's foreign id is ignored.
+    const written = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", dirId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.equal(written.trace_id, dirId, "the re-save targets the restored dir, not the snapshot's foreign id");
+    // B's saved snapshot on disk is UNTOUCHED (the old snap.trace_id adoption would have overwritten it with A's data).
+    const bStill = JSON.parse(readFileSync(join(ws, ".mpyhw", "sessions", foreignId, "checkpoints", "snapshot.json"), "utf-8"));
+    assert.deepEqual(bStill.manifest, { b: 1 }, "session B's saved snapshot is NOT overwritten by A's restored state");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore is refused while a Save Version is in flight — no mixed-session snapshot (#49-2)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos } = restorePanel(ws);
+    const sid = "session-inflight-1";
+    const snap = buildSessionSnapshot({
+      traceId: sid, savedAt: "2026-07-23T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+      state: { manifest: { m: 1 }, phase: "generate", intent: "seed" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: undefined,
+      preferences: undefined, manifest: { m: 1 }, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+    });
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", sid), snap);
+    await handler({ type: "restore_session", id: sid }); // seed a restorable session so the save has state to write
+    posted.length = 0; infos.length = 0;
+    // Kick off a save (sets saveInFlight synchronously, then awaits the fs write) WITHOUT awaiting, then fire a
+    // restore in the SAME tick: doRestoreFromDir's entry guard must see saveInFlight and refuse — otherwise the
+    // save would capture the restore's mid-applied state into the wrong dir (the session-A/session-B chimera).
+    const saving = handler({ type: "save_version_snapshot" });
+    const restoring = handler({ type: "restore_session", id: sid });
+    await Promise.all([saving, restoring]);
+    assert.ok(infos.some((m) => /Save Version before restoring/.test(m)), "the concurrent restore is refused while a save is in flight");
+    assert.ok(!posted.some((m) => m.type === "restore_reset"), "the refused restore never cleared the feed (no half-applied restore)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+// ----- Save Version (#95) real-git panel tests -----
+// Drive a template-mode session so the controller has state + the project folder is a real
+// git repo (ensureProjectGitRepo runs on start_session). Reuses the file's jsonResponse/
+// aht20Context/board fixtures.
+async function startTemplateSession(ws: string) {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" },
+  };
+  const fetchImpl = (async (url: string) => {
+    if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+    if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+    if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+    if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+    if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") return jsonResponse(board());
+    throw new Error(`unexpected URL ${url}`);
+  }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+  await handler!({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+  return { handler: handler!, posted, projectFolder: join(ws, "blockless-project") };
+}
+
+test("parseGitStatusRow maps every porcelain XY to a kind + letter, with the XY code stripped", () => {
+  const cases: Array<[string, string, string, string]> = [
+    ["?? .flake8", ".flake8", "new", "U"],
+    [" M main.py", "main.py", "modified", "M"],
+    ["M  staged.py", "staged.py", "modified", "M"],
+    ["MM both.py", "both.py", "modified", "M"],
+    ["A  added.py", "added.py", "added", "A"],
+    ["AM addmod.py", "addmod.py", "added", "A"],   // A checked before M
+    [" D gone.py", "gone.py", "deleted", "D"],
+    ["R  old.py -> new.py", "old.py -> new.py", "renamed", "R"],
+    ["T  typed.py", "typed.py", "changed", "•"], // typechange -> fallback bullet
+  ];
+  for (const [line, name, status, badge] of cases) {
+    const row = parseGitStatusRow(line, 0);
+    assert.equal(row.name, name, `path for "${line}"`);
+    assert.equal(row.status, status, `status for "${line}"`);
+    assert.equal(row.badge, badge, `badge for "${line}"`);
+    assert.ok(!/^[ ?ADMRTC]{2}\s/.test(row.name), `no XY code left in "${row.name}"`);
+  }
+});
+
+test("parseGitStatusRow flags STAGED rows by the index (first) column", () => {
+  assert.equal(parseGitStatusRow("M  staged.py", 0).staged, true, "index-column M = staged");
+  assert.equal(parseGitStatusRow("A  added.py", 0).staged, true, "index-column A = staged");
+  assert.equal(parseGitStatusRow("MM both.py", 0).staged, true, "staged + reworktree change is staged");
+  assert.equal(parseGitStatusRow(" M main.py", 0).staged, false, "worktree-only modification is not staged");
+  assert.equal(parseGitStatusRow("?? new.py", 0).staged, false, "untracked is not staged");
+});
+
+function findSnapshot(ws: string): any | null {
+  const base = join(ws, ".mpyhw", "sessions");
+  if (!existsSync(base)) return null;
+  for (const id of readdirSync(base)) {
+    const p = join(base, id, "checkpoints", "snapshot.json");
+    if (existsSync(p)) return JSON.parse(readFileSync(p, "utf-8"));
+  }
+  return null;
+}
+
+test("save_version_open posts the summary with parsed file rows (status kind + letter, clean path)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    const data = posted.find((m) => m.type === "save_version_data");
+    assert.ok(data, "opening posts save_version_data");
+    assert.equal(data.canCommit, true, "a git repo can commit");
+    const f = (data.files as any[]).find((it) => it.name === "extra.txt");
+    assert.ok(f && f.status === "new" && f.badge === "U", "an untracked file parses to status 'new' + badge 'U'");
+    assert.ok(!(data.files as any[]).some((it) => String(it.name).startsWith("?? ")), "no path carries the raw XY porcelain code");
+    // The card must cover more than files (§3.6.3): the host also sends the resume/session
+    // state, the phase-associated artifacts (list + true total), and the diagnostics — all local.
+    // Assert the exact subfield keys the webview reads, not just container shape — a host-side
+    // rename would otherwise render an empty row while both tests stay green (contract drift).
+    assert.ok(data.session && "intent" in data.session && "phase" in data.session && "board" in data.session && "mode" in data.session, "session carries the fields the panel renders");
+    assert.ok(Array.isArray(data.artifacts) && typeof data.artifactTotal === "number", "payload carries the artifact list + total");
+    assert.ok(data.diagnostics && "activity" in data.diagnostics && "errors" in data.diagnostics && "session_id" in data.diagnostics, "diagnostics carries the fields the panel renders");
+    // Opening alone writes nothing — no commit, no snapshot.
+    assert.equal(findSnapshot(ws), null, "opening the panel writes no snapshot");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_open: a CJK filename shows as raw UTF-8, not octal-escaped (core.quotepath=false)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "温度.py"), "x"); // untracked CJK-named file (the primary audience)
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    const names = ((posted.find((m) => m.type === "save_version_data")!.files) as any[]).map((f) => f.name);
+    assert.ok(names.includes("温度.py"), "the CJK filename is raw UTF-8, not git's octal-escaped form");
+    assert.ok(!names.some((n) => /\\\d{3}/.test(n)), "no path carries backslash-octal escapes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit commits in a git repo and posts the real new HEAD hash + user message", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "guaranteed change");
+    posted.length = 0;
+    await handler({ type: "save_version_commit", message: "test: save version" });
+    const head = execFileSync("git", ["-C", projectFolder, "rev-parse", "HEAD"], { windowsHide: true }).toString().trim();
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.equal(status?.status, "saved_commit");
+    assert.equal(status?.hash, head, "the posted hash is the real new HEAD (kills a fake/fixed-hash return)");
+    assert.equal(findSnapshot(ws)?.git?.commit_hash, head, "one save = one restorable point: the snapshot records the commit hash");
+    const subject = execFileSync("git", ["-C", projectFolder, "log", "-1", "--format=%s"], { windowsHide: true }).toString().trim();
+    assert.equal(subject, "test: save version", "git committed the user-edited message (kills dropping message)");
+    // Post-commit refresh: an add -A commit cleaned the tree, so the status carries an empty list
+    // (no longer showing the just-committed extra.txt as pending).
+    assert.deepEqual(status?.files, [], "the saved_commit status refreshes the file list to the clean post-commit tree");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version: two concurrent commit acts are serialized — only one commit lands (in-flight guard)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // Two acts fired together (e.g. a double-click that beat the webview's own disable): saveInFlight
+    // lets exactly one through; the second returns early with no commit.
+    await Promise.all([handler({ type: "save_version_commit", message: "one" }), handler({ type: "save_version_commit", message: "two" })]);
+    assert.equal(execFileSync("git", ["-C", projectFolder, "rev-list", "--count", "HEAD"], { windowsHide: true }).toString().trim(), "1", "only one commit landed despite two concurrent acts");
+    assert.equal(posted.filter((m) => m.type === "save_version_status" && m.status === "saved_commit").length, 1, "exactly one saved_commit status");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit: a build running at commit time aborts as busy, no commit (TOCTOU re-check)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+    let gate: (() => void) | null = null;
+    let holdBoard = false; // block the SECOND build at its per-build board fetch so it stays running
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+      if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+      if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+      if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") { if (holdBoard) await new Promise<void>((r) => { gate = r; }); return jsonResponse(board()); }
+      throw new Error(`unexpected URL ${url}`);
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    await handler!({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
+    const projectFolder = join(ws, "blockless-project");
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+
+    holdBoard = true;
+    const build2 = handler!({ type: "start_session", intent: "second", boardId: "esp32-s3-devkitc-1" }); // starts a run that hangs at the board fetch
+    for (let i = 0; i < 200 && !gate; i++) await new Promise((r) => setTimeout(r, 5)); // wait until the run is blocked (isRunning true)
+    await handler!({ type: "save_version_commit", message: "should NOT commit" });
+
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "busy", "a run active at act time aborts the save as busy");
+    let log = "";
+    try { log = execFileSync("git", ["-C", projectFolder, "log", "--format=%s"], { windowsHide: true }).toString(); } catch { log = ""; }
+    assert.ok(!/should NOT commit/.test(log), "no commit landed while a build was running");
+
+    (gate as any)?.(); await build2.catch(() => {}); // unblock the held run
+    await new Promise((r) => setTimeout(r, 200)); // let build2's trailing recorder writes drain before rmSync
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit respects staging: commits only staged fileA, leaves fileB uncommitted", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
+    execFileSync("git", ["-C", projectFolder, "commit", "-m", "base"], { windowsHide: true });
+    writeFileSync(join(projectFolder, "fileA.txt"), "A");
+    writeFileSync(join(projectFolder, "fileB.txt"), "B");
+    execFileSync("git", ["-C", projectFolder, "add", "fileA.txt"], { windowsHide: true }); // stage A only
+    posted.length = 0;
+    await handler({ type: "save_version_commit", message: "test: staged only" });
+    const committed = execFileSync("git", ["-C", projectFolder, "show", "--name-only", "--pretty=format:", "HEAD"], { windowsHide: true }).toString();
+    assert.match(committed, /fileA\.txt/, "the staged file is committed");
+    assert.doesNotMatch(committed, /fileB\.txt/, "the unstaged file is NOT committed (kills an add -A mutation)");
+    assert.match(execFileSync("git", ["-C", projectFolder, "status", "--porcelain"], { windowsHide: true }).toString(), /fileB\.txt/, "fileB remains uncommitted");
+    // Post-commit refresh: a staged-only commit leaves fileB behind, so the refreshed list shows it
+    // (not an empty list, and not the committed fileA).
+    const status = posted.find((m) => m.type === "save_version_status");
+    assert.ok((status?.files as any[]).some((f) => f.name === "fileB.txt"), "the refreshed list shows the remaining unstaged file");
+    assert.ok(!(status?.files as any[]).some((f) => f.name === "fileA.txt"), "the committed file is gone from the list");
+    // The saved_commit refresh carries the FULL summary, not just rows: after the staged-only commit,
+    // fileB is now unstaged so the NEXT click would add -A — the mode note must flip and the total ride along.
+    assert.equal(status?.commitMode, "all", "post-commit mode reflects the remaining unstaged files (next click is add -A)");
+    assert.equal(status?.fileTotal, 1, "post-commit fileTotal is sent (the display cap needs the real count)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_snapshot in a non-git project writes a snapshot.json covering the session-restore schema", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // non-git project
+    posted.length = 0;
+    await handler({ type: "save_version_snapshot" });
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_snapshot");
+    const snap = findSnapshot(ws);
+    assert.ok(snap, "snapshot.json written");
+    for (const key of ["schema", "stage", "state", "board", "preferences", "manifest", "artifacts", "restore"]) {
+      assert.ok(key in snap, `snapshot has ${key} (a dropped field fails the session-restore contract)`);
+    }
+    assert.equal(snap.git, null, "no commit → git linkage null");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit on a clean git repo surfaces nothing_to_commit (auditable, no throw)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
+    execFileSync("git", ["-C", projectFolder, "commit", "-m", "commit everything"], { windowsHide: true }); // tree now clean
+    posted.length = 0;
+    await handler({ type: "save_version_commit", message: "nothing here" });
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "nothing_to_commit");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_commit with an empty message falls back to the deterministic blockless: template (sink test)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "guaranteed change");
+    posted.length = 0;
+    // The webview can post an empty box (the user cleared it). The host must fill in the §C
+    // template, never pass "" to `git commit -m` (which git rejects) or drop the message.
+    await handler({ type: "save_version_commit", message: "" });
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_commit", "an empty message still commits — the host fills in the template");
+    const subject = execFileSync("git", ["-C", projectFolder, "log", "-1", "--format=%s"], { windowsHide: true }).toString().trim();
+    assert.match(subject, /^blockless: /, "the empty message fell back to the deterministic blockless: template");
+    assert.notEqual(subject, "", "the fallback never lets git commit an empty subject");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("a build cannot start while a Save Version act is in flight (add -A must not race the build's writes)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // Fire the commit WITHOUT awaiting: doSaveVersionCommit sets saveInFlight synchronously, up to
+    // its first git await, so the act is genuinely in flight when start_session runs next.
+    const commitP = handler({ type: "save_version_commit", message: "in flight" });
+    await handler({ type: "start_session", intent: "second", boardId: "esp32-s3-devkitc-1" });
+    assert.ok(posted.some((m) => m.type === "session_busy"), "start_session is refused session_busy while a save is in flight");
+    await commitP;
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_commit", "the in-flight save itself still completes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_snapshot never lists its own checkpoints/snapshot.json in artifacts[] (no stale-sha self-reference for session restore)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // snapshot path (non-git)
+    await handler({ type: "save_version_snapshot" }); // save #1 writes checkpoints/snapshot.json + re-scans
+    await handler({ type: "save_version_snapshot" }); // save #2's index now contains the prior snapshot.json
+    const snap = findSnapshot(ws);
+    assert.ok(snap, "snapshot written");
+    assert.ok(
+      !(snap.artifacts as any[]).some((a) => String(a.relative_path).replace(/\\/g, "/").endsWith("checkpoints/snapshot.json")),
+      "the snapshot never references itself — else replay would verify the file against a sha it's about to overwrite",
+    );
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("gitHasStagedChanges throws on a real git failure instead of misreporting 'staged' (exit-code taxonomy)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-nogit-"));
+  try {
+    // Not a git repo: `git diff --cached --quiet` fails with a usage/repo error (exit != 1). The old
+    // catch-all returned true here → gitCommit would skip `add -A` and commit an empty index while
+    // the tree is dirty. Only exit 1 means "staged changes exist"; any other failure must surface.
+    await assert.rejects(gitHasStagedChanges(dir), "a non-repo git failure surfaces, is not misread as staged");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("retry_session is refused while a Save Version act is in flight (sibling entry point — fix the class, not just start_session)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // saveInFlight is set synchronously by the commit act; retry_session's sync guard must see it.
+    const commitP = handler({ type: "save_version_commit", message: "in flight" });
+    await handler({ type: "retry_session" });
+    assert.ok(posted.some((m) => m.type === "session_busy"), "retry_session is refused session_busy while a save is in flight");
+    await commitP;
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("beginRun refuses a parked build that finds a save in flight at dequeue (TOCTOU recheck after the queue is acquired)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+    // A gated device tool: listDir holds the run-ownership queue until we release it, so a build can
+    // be parked at beginRun's acquire (isRunning still false) — the exact window the recheck closes.
+    let reachedList: () => void = () => {};
+    const listReached = new Promise<void>((res) => { reachedList = res; });
+    let releaseList: () => void = () => {};
+    const listGate = new Promise<void>((res) => { releaseList = res; });
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {}, listDir: async () => { reachedList(); await listGate; return ["boot.py"]; } };
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+      if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+      if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+      if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") return jsonResponse(board());
+      throw new Error(`unexpected URL ${url}`);
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+    await handler!({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" }); // completes: repo + state
+    const projectFolder = join(ws, "blockless-project");
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+
+    const deviceP = handler!({ type: "device_tool_list", path: "/" }); // occupy the queue
+    await listReached; // the device tool now HOLDS the queue
+    // retry_session has no pre-acquire subprocess, so it parks at beginRun's acquire via microtasks
+    // while saveInFlight is still false (passes the synchronous guard).
+    const build = handler!({ type: "retry_session" });
+    // Now a save begins: saveInFlight is set synchronously; its gitCommit is a subprocess (IO), so it
+    // cannot clear across the microtask hop that resolves the parked acquire.
+    const saveP = handler!({ type: "save_version_commit", message: "in flight" });
+    releaseList(); // free the queue -> the parked build's beginRun rechecks saveInFlight (still true) -> busy
+    await Promise.all([deviceP, build, saveP]);
+
+    assert.ok(posted.some((m) => m.type === "session_busy"), "the parked build is refused when a save is found in flight at dequeue");
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_commit", "the save that won the race still completes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("isSnapshotSelfPath matches only the session snapshot, segment-anchored (no false match on a lookalike user file)", () => {
+  assert.equal(isSnapshotSelfPath(".mpyhw/sessions/abc123/checkpoints/snapshot.json"), true, "the real session snapshot path matches");
+  assert.equal(isSnapshotSelfPath("checkpoints/snapshot.json"), true, "a bare root-relative snapshot path matches");
+  assert.equal(isSnapshotSelfPath(".mpyhw\\sessions\\abc\\checkpoints\\snapshot.json"), true, "a Windows-separator path matches after normalization");
+  assert.equal(isSnapshotSelfPath("mycheckpoints/snapshot.json"), false, "a lookalike segment is NOT dropped (segment-anchored, not bare endsWith)");
+  assert.equal(isSnapshotSelfPath("checkpoints/snapshot.json.bak"), false, "a different filename is not matched");
+  assert.equal(isSnapshotSelfPath("src/checkpoints/snapshot.jsonl"), false, "a different extension is not matched");
+});
+
+test("REPRO PR#47 blocker 2: snapshot artifacts[] reflects confirm time, not panel-open time", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // snapshot path (non-git)
+    await handler({ type: "save_version_open" }); // artifactIndex refreshed HERE (panel-open)
+    // An artifact appears while the confirmation panel sits open:
+    const sessionsBase = join(ws, ".mpyhw", "sessions");
+    const sid = readdirSync(sessionsBase)[0];
+    writeFileSync(join(sessionsBase, sid, "post-open.py"), "# created between open and confirm");
+    await handler({ type: "save_version_snapshot" });
+    const snap = findSnapshot(ws);
+    assert.ok(snap, "snapshot written");
+    assert.ok(
+      (snap.artifacts as any[]).some((a) => String(a.relative_path).includes("post-open.py")),
+      "artifacts[] must reflect the tree at CONFIRM time (refreshArtifacts at act time), not the stale panel-open index",
+    );
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("REPRO PR#47 blocker 3: a >4MiB artifact (firmware .bin) carries a real 64-char sha256 in the integrity-checked artifacts[]", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, projectFolder } = await startTemplateSession(ws);
+    rmSync(join(projectFolder, ".git"), { recursive: true, force: true }); // snapshot path (non-git)
+    const sessionsBase = join(ws, ".mpyhw", "sessions");
+    const sid = readdirSync(sessionsBase)[0];
+    const bytes = Buffer.alloc(5 * 1024 * 1024, 1); // over the display 4MiB hash cap
+    writeFileSync(join(sessionsBase, sid, "firmware.bin"), bytes);
+    await handler({ type: "save_version_snapshot" });
+    const snap = findSnapshot(ws);
+    const fw = (snap.artifacts as any[]).find((a) => String(a.relative_path).includes("firmware.bin"));
+    assert.ok(fw, "firmware artifact listed");
+    // Assert the digest VALUE, not just its length: it must be the real sha256 of the file CONTENT
+    // (computed fresh at snapshot time), so hashing the wrong file or the display-only cap's "" both fail.
+    assert.equal(fw.sha256, createHash("sha256").update(bytes).digest("hex"), "the persisted digest is the sha256 of the firmware content, not the display-only empty string or a stale/wrong value");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_open reports commit mode + per-file staged flags: staged-only when the index has staged changes", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    execFileSync("git", ["-C", projectFolder, "add", "-A"], { windowsHide: true });
+    execFileSync("git", ["-C", projectFolder, "commit", "-m", "base"], { windowsHide: true });
+    writeFileSync(join(projectFolder, "fileA.txt"), "A");
+    writeFileSync(join(projectFolder, "fileB.txt"), "B");
+    execFileSync("git", ["-C", projectFolder, "add", "fileA.txt"], { windowsHide: true }); // stage A only
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    const data = posted.find((m) => m.type === "save_version_data");
+    assert.equal(data.commitMode, "staged", "a staged file present -> the commit takes staged only");
+    assert.equal((data.files as any[]).find((f) => f.name === "fileA.txt")?.staged, true, "fileA is flagged staged");
+    assert.equal((data.files as any[]).find((f) => f.name === "fileB.txt")?.staged, false, "fileB (untracked) is not staged");
+    assert.equal(data.fileTotal, (data.files as any[]).length, "fileTotal matches the count when under the display cap");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("save_version_open reports commit mode 'all' when nothing is staged (add -A path)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "x"); // untracked, unstaged
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    assert.equal(posted.find((m) => m.type === "save_version_data")?.commitMode, "all", "no staged changes -> commit is add -A (all)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("gitCommit surfaces an actionable error when .git/index.lock is stranded (not the raw git message)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-lock-"));
+  try {
+    execFileSync("git", ["-C", dir, "init"], { windowsHide: true });
+    writeFileSync(join(dir, "f.txt"), "x");
+    writeFileSync(join(dir, ".git", "index.lock"), ""); // an interrupted git left this behind
+    await assert.rejects(gitCommit(dir, "test: save"), /index is locked/i, "a stranded index.lock yields an actionable, self-explaining error");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("save_version: a second act while one is in flight reports in_flight (not a silent drop)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // Two acts fired together (e.g. a re-opened panel re-enabled the buttons and the user double-clicked):
+    // saveInFlight lets one through; the second must post in_flight so the click isn't dropped silently.
+    await Promise.all([handler({ type: "save_version_commit", message: "one" }), handler({ type: "save_version_commit", message: "two" })]);
+    assert.equal(posted.filter((m) => m.type === "save_version_status" && m.status === "saved_commit").length, 1, "exactly one commit lands");
+    assert.ok(posted.some((m) => m.type === "save_version_status" && m.status === "in_flight"), "the dropped second act reports in_flight");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("start_gen_driver refused while a save is in flight posts its OWN status (button un-sticks), not bare session_busy", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-sv-"));
+  try {
+    const { handler, posted, projectFolder } = await startTemplateSession(ws);
+    writeFileSync(join(projectFolder, "extra.txt"), "change");
+    posted.length = 0;
+    // saveInFlight is set synchronously by the commit act; the gen-driver entry must refuse with a
+    // gen_driver_status (message-bus restores the "Generating…" button only on that, never on
+    // session_busy) — else the trigger button stays stuck.
+    const commitP = handler({ type: "save_version_commit", message: "in flight" });
+    await handler({ type: "start_gen_driver", sources: [{ type: "chip_model", metadata: { chip_model: "SHT30" } }] });
+    assert.ok(posted.some((m) => m.type === "gen_driver_status" && m.status === "failed"), "gen-driver refused with its own status so the button restores");
+    assert.ok(!posted.some((m) => m.type === "session_busy"), "no bare session_busy for a gen-driver refusal (would leave the button stuck)");
+    await commitP;
+    assert.equal(posted.find((m) => m.type === "save_version_status")?.status, "saved_commit", "the in-flight save still completes");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+// ----- WI-1: read-only Git History helpers (real temp repos) -----
+
+function initTestRepo(dir: string) {
+  execFileSync("git", ["-C", dir, "init", "-q"], { windowsHide: true });
+  execFileSync("git", ["-C", dir, "config", "user.email", "t@t.dev"], { windowsHide: true });
+  execFileSync("git", ["-C", dir, "config", "user.name", "Tester"], { windowsHide: true });
+}
+function commitAll(dir: string, message: string) {
+  execFileSync("git", ["-C", dir, "add", "-A"], { windowsHide: true });
+  execFileSync("git", ["-C", dir, "commit", "-q", "-m", message], { windowsHide: true });
+}
+function revParse(dir: string, rev: string): string {
+  return execFileSync("git", ["-C", dir, "rev-parse", rev], { windowsHide: true }).toString().trim();
+}
+
+test("gitLog: newest-first entries with real hashes, honors -n, empty repo yields [] not a throw", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-glog-"));
+  try {
+    initTestRepo(dir);
+    assert.deepEqual(await gitLog(dir, 50), [], "no HEAD yet -> [] (empty repo is a normal state, exit 128 swallowed)");
+    writeFileSync(join(dir, "a.py"), "1"); commitAll(dir, "first");
+    writeFileSync(join(dir, "b.py"), "2"); commitAll(dir, "second");
+    const log = await gitLog(dir, 50);
+    assert.equal(log.length, 2);
+    assert.equal(log[0].subject, "second", "newest first");
+    assert.equal(log[0].hash, revParse(dir, "HEAD"), "entry 0 hash == rev-parse HEAD");
+    assert.equal(log[1].hash, revParse(dir, "HEAD~1"), "entry 1 hash == rev-parse HEAD~1");
+    assert.ok(log[0].hash.startsWith(log[0].shortHash), "shortHash is a prefix of the full hash");
+    assert.ok(/^\d{4}-\d{2}-\d{2}T/.test(log[0].date), "date is ISO-8601 (%aI)");
+    assert.equal((await gitLog(dir, 1)).length, 1, "-n cap honored (kills a dropped -n arg)");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("gitCommitCount: the branch's REAL commit count, independent of gitLog's display cap", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-gcc-"));
+  try {
+    initTestRepo(dir);
+    assert.equal(await gitCommitCount(dir), 0, "empty repo (no HEAD, exit 128) is 0 commits, not a throw");
+    for (let i = 0; i < 5; i++) { writeFileSync(join(dir, `f${i}.py`), String(i)); commitAll(dir, `c${i}`); }
+    // The point of the helper: a capped gitLog must NOT be mistaken for the repo's size.
+    // Mutation: implement this as (await gitLog(dir, cap)).length -> 2 !== 5 here.
+    assert.equal(await gitCommitCount(dir), 5, "counts every commit");
+    assert.equal((await gitLog(dir, 2)).length, 2, "gitLog is still capped — the two numbers legitimately differ");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("gitCurrentBranch: returns the branch name even on an empty repo (pre-first-commit)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-gcb-"));
+  try {
+    initTestRepo(dir);
+    // The whole point: rev-parse --abbrev-ref HEAD throws here, but branch --show-current works.
+    assert.ok((await gitCurrentBranch(dir)).length > 0, "unborn branch name is returned pre-commit");
+    writeFileSync(join(dir, "a.py"), "1"); commitAll(dir, "first");
+    assert.ok((await gitCurrentBranch(dir)).length > 0, "branch name still returned after a commit");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("gitShowNameStatus: parses A/M/D/R (new path for rename) and works on a root commit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-gns-"));
+  try {
+    initTestRepo(dir);
+    writeFileSync(join(dir, "keep.py"), "1");
+    writeFileSync(join(dir, "gone.py"), "2");
+    writeFileSync(join(dir, "old.py"), "same-content-for-rename-detection\n");
+    commitAll(dir, "root");
+    const root = await gitShowNameStatus(dir, revParse(dir, "HEAD"));
+    assert.deepEqual(root.map((c) => c.status).sort(), ["A", "A", "A"], "root commit adds via show (not diff hash^ hash)");
+    writeFileSync(join(dir, "keep.py"), "2");                                  // modify
+    writeFileSync(join(dir, "fresh.py"), "3");                                 // add
+    execFileSync("git", ["-C", dir, "rm", "-q", "gone.py"], { windowsHide: true }); // delete
+    execFileSync("git", ["-C", dir, "mv", "old.py", "new.py"], { windowsHide: true }); // rename
+    commitAll(dir, "changes");
+    const changes = await gitShowNameStatus(dir, revParse(dir, "HEAD"));
+    const byPath = Object.fromEntries(changes.map((c) => [c.path, c.status]));
+    assert.equal(byPath["keep.py"], "M");
+    assert.equal(byPath["fresh.py"], "A");
+    assert.equal(byPath["gone.py"], "D");
+    assert.equal(byPath["new.py"], "R", "rename keeps the NEW path with status R");
+    assert.ok(!("old.py" in byPath), "the old rename path is not emitted as its own row");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("gitDiffText: commit patch via show, uncommitted change via diff HEAD", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mpyhw-gdt-"));
+  try {
+    initTestRepo(dir);
+    writeFileSync(join(dir, "a.py"), "line one\n"); commitAll(dir, "first");
+    writeFileSync(join(dir, "a.py"), "line one\nline two\n"); commitAll(dir, "second");
+    const committed = await gitDiffText(dir, "a.py", revParse(dir, "HEAD"));
+    assert.match(committed, /\+line two/, "commit diff (show <hash> -- path) shows the added line");
+    writeFileSync(join(dir, "a.py"), "line one\nline two\nline three\n");     // uncommitted
+    const working = await gitDiffText(dir, "a.py");
+    assert.match(working, /\+line three/, "diff HEAD -- path shows the uncommitted change");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ----- WI-2: Git History host handlers (real temp repos, projectFolder = ws/blockless-project) -----
+
+function gitHistoryPanel(ws: string) {
+  const posted: any[] = [];
+  let handler: ((m: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = {
+    ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+    window: { createWebviewPanel: () => panel, showInformationMessage: async () => {}, showErrorMessage: async () => {} },
+  };
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: (async () => jsonResponse({})) as any });
+  return { handler: handler!, posted, projectFolder: join(ws, "blockless-project") };
+}
+function ghData(posted: any[]) { return posted.find((m) => m.type === "git_history_data"); }
+function ghStatus(posted: any[]) { return posted.find((m) => m.type === "git_history_status")?.status; }
+
+test("git_history_open: repo with commits -> newest-first timeline + branch + uncommitted", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "first");
+    writeFileSync(join(projectFolder, "b.py"), "2"); commitAll(projectFolder, "second");
+    writeFileSync(join(projectFolder, "dirty.py"), "x"); // uncommitted untracked
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    const data = ghData(posted);
+    assert.equal(data.repoPresent, true);
+    assert.equal(data.commits.length, 2);
+    assert.equal(data.commits[0].subject, "second", "newest first");
+    assert.equal(data.commits[0].hash, revParse(projectFolder, "HEAD"), "real HEAD hash");
+    assert.ok(data.branch.length > 0, "branch reported");
+    assert.ok(data.uncommitted.files.some((f: any) => f.name === "dirty.py"), "untracked shown in uncommitted");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_open: commitTotal is the repo's REAL count when history exceeds the display cap", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    // One more than GIT_HISTORY_COMMITS_MAX (50), so the sent list is capped but the count is not.
+    // Empty commits keep this cheap; the timeline never reads their trees.
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "first");
+    for (let i = 0; i < 50; i++) {
+      execFileSync("git", ["-C", projectFolder, "commit", "--allow-empty", "-q", "-m", `c${i}`], { windowsHide: true });
+    }
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    const data = ghData(posted);
+    assert.equal(data.commits.length, 50, "the timeline itself stays capped");
+    // Mutation: commitTotal: commits.length -> 50, and the panel would tell a 51-commit repo it
+    // has 50 with no "+N more" row to say otherwise.
+    assert.equal(data.commitTotal, 51, "commitTotal reports every commit, not the capped list length");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_open: empty repo -> repoPresent, commits [], branch + uncommitted still shown", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "new.py"), "x"); // untracked, pre-first-commit
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    const data = ghData(posted);
+    assert.equal(data.repoPresent, true);
+    assert.deepEqual(data.commits, [], "no commits yet (gitLog swallows exit 128)");
+    assert.ok(data.branch.length > 0, "branch works pre-first-commit (branch --show-current)");
+    assert.ok(data.uncommitted.files.some((f: any) => f.name === "new.py"), "untracked shown pre-commit");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_open: no .git -> repoPresent:false and NEVER forces a git init (spec :343)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true }); // dir exists but is not a repo
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    assert.equal(ghData(posted).repoPresent, false);
+    assert.equal(existsSync(join(projectFolder, ".git")), false, "open must not create a .git");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history handlers are READ-ONLY: HEAD + porcelain byte-identical after open/commit/diff", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "one\n"); commitAll(projectFolder, "first");
+    writeFileSync(join(projectFolder, "a.py"), "one\ntwo\n"); commitAll(projectFolder, "second");
+    writeFileSync(join(projectFolder, "dirty.py"), "z"); // leave the tree dirty
+    const head0 = revParse(projectFolder, "HEAD");
+    const porcelain0 = execFileSync("git", ["-C", projectFolder, "status", "--porcelain"], { windowsHide: true }).toString();
+    await handler({ type: "git_history_open" });
+    await handler({ type: "git_history_commit", hash: head0 });
+    await handler({ type: "git_history_diff", hash: head0, path: "a.py" });
+    await handler({ type: "git_history_diff", path: "dirty.py" }); // uncommitted diff
+    assert.equal(revParse(projectFolder, "HEAD"), head0, "HEAD unchanged (no commit/checkout/revert)");
+    assert.equal(execFileSync("git", ["-C", projectFolder, "status", "--porcelain"], { windowsHide: true }).toString(), porcelain0, "index + worktree unchanged");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_diff: a flag-shaped hash is rejected at the host boundary and writes NO file", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "first");
+    const pwned = join(ws, "pwned.txt");
+    posted.length = 0;
+    await handler({ type: "git_history_diff", hash: `--output=${pwned}`, path: "a.py" });
+    assert.equal(ghStatus(posted), "invalid_request", "flag-shaped hash rejected before git");
+    assert.ok(!posted.some((m) => m.type === "git_history_diff_data"), "no diff produced");
+    assert.equal(existsSync(pwned), false, "the injection wrote no file (the whole point of the guard)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_commit/diff: non-hex hash, traversal, and absolute paths all rejected pre-git", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "first");
+    for (const msg of [
+      { type: "git_history_commit", hash: "HEAD" },              // non-hex revision
+      { type: "git_history_diff", hash: revParse(projectFolder, "HEAD"), path: "../escape" }, // traversal
+      { type: "git_history_diff", path: "/etc/passwd" },         // absolute
+      { type: "git_history_diff", path: "a\0.py" },              // NUL
+    ]) {
+      posted.length = 0;
+      await handler(msg);
+      assert.equal(ghStatus(posted), "invalid_request", `rejected: ${JSON.stringify(msg)}`);
+      assert.ok(!posted.some((m) => m.type?.endsWith("_data")), "no data produced on a rejected request");
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("git_history_commit returns file rows (root via show), git_history_diff returns patch text", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "one\n"); commitAll(projectFolder, "root");
+    const root = revParse(projectFolder, "HEAD");
+    posted.length = 0;
+    await handler({ type: "git_history_commit", hash: root });
+    const cd = posted.find((m) => m.type === "git_history_commit_data");
+    assert.equal(cd.hash, root);
+    assert.ok(cd.files.some((f: any) => f.path === "a.py" && f.status === "A"), "root commit's A row via show");
+    writeFileSync(join(projectFolder, "a.py"), "one\ntwo\n"); commitAll(projectFolder, "second");
+    const head = revParse(projectFolder, "HEAD");
+    posted.length = 0;
+    await handler({ type: "git_history_diff", hash: head, path: "a.py" });
+    const dd = posted.find((m) => m.type === "git_history_diff_data");
+    assert.equal(dd.hash, head); assert.equal(dd.path, "a.py");
+    assert.match(dd.diff, /\+two/, "commit diff patch text present");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+function ghSnapInput() {
+  return {
+    traceId: "session-zzz-1", savedAt: "2026-07-24T00:00:00.000Z", currentPhase: "generate", terminal: "complete",
+    state: { manifest: { devices: [] }, phase: "generate", intent: "blink" }, boardId: "esp32", preSelectedBoard: null, boardSelectionMode: "recommend",
+    preferences: { mode: "beginner", locale: "en", existing_hardware: "none" }, manifest: { devices: [] }, diagram: null, credits: null, diagnostics: {},
+    optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
+  } as any;
+}
+
+test("git_history_open: WI-3 associates a commit with the session snapshot saved at that hash (phase + artifacts)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-gh-"));
+  try {
+    const { handler, posted, projectFolder } = gitHistoryPanel(ws);
+    mkdirSync(projectFolder, { recursive: true });
+    initTestRepo(projectFolder);
+    writeFileSync(join(projectFolder, "a.py"), "1"); commitAll(projectFolder, "gen");
+    const head = revParse(projectFolder, "HEAD");
+    // sessionRoot is the workspace (ws); seed a snapshot under it linking `head` -> phase generate + 1 artifact.
+    await writeSessionSnapshot(join(ws, ".mpyhw", "sessions", "session-zzz-1"), buildSessionSnapshot({
+      ...ghSnapInput(), git: { commit_hash: head, branch: "main" },
+      artifacts: [{ relative_path: "a.py", kind: "code", role: "", phase: "generate", size: 1, sha256: "x", created_at: "2026-07-24T00:00:00Z" }],
+    }));
+    posted.length = 0;
+    await handler({ type: "git_history_open" });
+    const commit = ghData(posted).commits.find((c: any) => c.hash === head);
+    assert.ok(commit.snapshot, "the commit carries its snapshot association");
+    assert.equal(commit.snapshot.phase, "generate");
+    assert.equal(commit.snapshot.artifact_total, 1);
+  } finally { rmSync(ws, { recursive: true, force: true }); }
 });

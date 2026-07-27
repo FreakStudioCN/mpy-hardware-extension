@@ -61,6 +61,22 @@ test("listRecentSessions summarizes past sessions newest-first, capped at the li
   assert.deepEqual(capped.map((s) => s.id), ["session-aaaa0002-new0"], "limit caps the list to newest N");
 });
 
+test("listRecentSessions marks a session restorable only when it has a checkpoints/snapshot.json", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-recent-"));
+  const saved = new JsonlSessionRecorder({ workspaceFolder: root, traceId: "session-aaaa0002-svd0" });
+  await saved.record({ type: "session_started", intent: "with snapshot", boardId: "esp32" });
+  const bare = new JsonlSessionRecorder({ workspaceFolder: root, traceId: "session-aaaa0001-bar0" });
+  await bare.record({ type: "session_started", intent: "no snapshot", boardId: "esp32" });
+  // Only the first session has a saved snapshot.
+  const sessionsRoot = join(root, ".mpyhw", "sessions");
+  await mkdir(join(sessionsRoot, "session-aaaa0002-svd0", "checkpoints"), { recursive: true });
+  await writeFile(join(sessionsRoot, "session-aaaa0002-svd0", "checkpoints", "snapshot.json"), "{}");
+
+  const all = await listRecentSessions(root, 20);
+  assert.equal(all.find((s) => s.id === "session-aaaa0002-svd0")?.restorable, true, "a session with a snapshot is restorable");
+  assert.equal(all.find((s) => s.id === "session-aaaa0001-bar0")?.restorable, false, "a pre-Save-Version session is view-only");
+});
+
 test("listRecentSessions returns [] when no sessions dir exists", async () => {
   const root = await mkdtemp(join(tmpdir(), "mpyhw-recent-empty-"));
   assert.deepEqual(await listRecentSessions(root, 20), []);

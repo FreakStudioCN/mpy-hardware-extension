@@ -27,7 +27,28 @@
         if (msg.type === "device_present") { onDevicePresent(msg.present, msg.ports, msg.needsEnvSetup); }
         if (msg.type === "logs_status") { const n = $("scDiag"); if (n) n.textContent = msg.text; }
         if (msg.type === "partners_config") { renderPartners(msg.partners); }
-        if (msg.type === "recent_sessions") { renderRecent(msg.sessions); }
+        if (msg.type === "recent_sessions") { renderRecent(msg); }
+        // Session restore rehydrates the feed (the inverse of clearConversation): clear, then replay the
+        // DURABLE content from the transcript — the AI's summaries + an INERT "asked -> answered" line per
+        // past prompt (never a live, clickable prompt) — then a terminal line. Transient trace/spinner is
+        // not replayed (it isn't durable), so no live-run guard is touched.
+        if (msg.type === "restore_reset") { clearConversation(); }
+        // Rich feed replay (Stage 1): the host maps DURABLE transcript events to these ungated messages, so
+        // the past run's narration re-renders on restore without touching the live-run gates. A user request
+        // renders as its own card; a mapped line renders as a trace line, or an error line (kind:"error").
+        // Restore never arms the spinner (the run is idle) — addActivity here must not setPending.
+        if (msg.type === "restore_user") { addUserMessage(String(msg.text || "")); }
+        if (msg.type === "restore_line") {
+          if (msg.kind === "error") addActivity({ text: String(msg.text || "") }, "error");
+          else addActivity({ type: "trace", text: String(msg.text || "") });
+        }
+        // A past prompt replays as its REAL card, rendered inert (Stage 2): the recorded prompt payload +
+        // the answer it received. renderInertPrompt reuses the live renderer, disabled and answer-stamped.
+        if (msg.type === "restore_prompt") { renderInertPrompt(msg.kind, msg.payload, msg.answer); }
+        if (msg.type === "restore_done") {
+          const t = String(msg.terminal || "");
+          if (t) { const label = tr("term_" + t); addActivity({ text: tr("session_ended", { t: label === "term_" + t ? t : label }) }); }
+        }
         if (msg.type === "diagnostics") {
           vscode.postMessage({ type: "copy_code", text: msg.text });
           const n = $("scDiag"); if (n) n.textContent = "Diagnostics copied to clipboard.";
@@ -104,6 +125,14 @@
         if (msg.type === "user_supplement_applied") { addActivity({ type: "trace", text: tr("supplement_applied", { d: msg.decision, r: msg.reason }) }, "note"); if (running && pendingLabel) setPending(pendingLabel); }
         if (msg.type === "files_written") { addActivity({ type: "trace", text: tr("files_written", { p: (msg.paths || []).join(", ") }) }); vscode.postMessage({ type: "request_artifacts" }); addArtifactsLink(); }
         if (msg.type === "files_write_failed") { addActivity({ type: "trace", text: tr("files_write_failed", { e: msg.error }) }); }
+        // Save Version (#95) lives in its own tool surface (SaveVersionPanel), not the Activity feed.
+        if (msg.type === "save_version_data") { onSaveVersionData(msg); }
+        if (msg.type === "save_version_status") { onSaveVersionStatus(msg); }
+        // Git History (#94): its own read-only surface (GitHistoryPanel), not the Activity feed.
+        if (msg.type === "git_history_data") { onGitHistoryData(msg); }
+        if (msg.type === "git_history_commit_data") { onGitHistoryCommitData(msg); }
+        if (msg.type === "git_history_diff_data") { onGitHistoryDiffData(msg); }
+        if (msg.type === "git_history_status") { onGitHistoryStatus(msg); }
         if (msg.type === "session_error") {
           const errKey = "err_" + msg.error;
           const text = (I18N[LOCALE] && I18N[LOCALE][errKey]) || I18N.en[errKey] || msg.error;

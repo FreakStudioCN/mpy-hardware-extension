@@ -136,6 +136,124 @@ test("a reset clears the artifact accumulators so a new session does not surface
   assert.ok(!controller.artifactSources().some((s) => s.absolute_path === "/abs/session-a/main.py"), "session B does not inherit session A's produced files");
 });
 
+test("reset() clears the Save Version accumulators (terminal/diagram/credits) so the next snapshot doesn't inherit them", async () => {
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "diagram_updated", diagram: { nodes: ["a"] } });
+      onEvent({ type: "credits", remaining: 42, dailyGrant: 100, resetsAt: "2026-07-07T00:00:00Z" });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "acc", boardId: "auto" });
+  let snap = controller.getSnapshotState();
+  assert.equal(snap.terminal, "complete", "terminal accumulated from the run");
+  assert.deepEqual(snap.diagram, { nodes: ["a"] }, "authored diagram accumulated");
+  assert.equal(snap.credits?.balance, 42, "credits accumulated");
+
+  // reset() must null ALL THREE. They are cleared on BOTH fresh-session paths (reset() and start()'s
+  // board-change block); reset() nulls boardId, so on a reset it is THIS clear that runs. The
+  // board-change path is covered by the "REPRO PR#47 blocker 1" test below.
+  controller.reset();
+  snap = controller.getSnapshotState();
+  assert.equal(snap.terminal, null, "reset clears terminal");
+  assert.equal(snap.diagram, undefined, "reset clears diagram");
+  assert.equal(snap.credits, null, "reset clears credits");
+});
+
+test("REPRO PR#47 blocker 1: a board-change fresh session must not inherit the previous session's Save Version accumulators", async () => {
+  let call = 0;
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      call++;
+      if (call === 1) {
+        onEvent({ type: "diagram_updated", diagram: { nodes: ["board-A-diagram"] } });
+        onEvent({ type: "credits", remaining: 42, dailyGrant: 100, resetsAt: "2026-07-07T00:00:00Z" });
+      }
+      return { terminal: "complete" }; // run 2 emits NO diagram/credits
+    },
+  });
+  await controller.start({ intent: "blink", boardId: "board-a" });
+  // Fresh session via BOARD CHANGE, not reset(): start()'s board-change branch clears state,
+  // keyErrors, phaseArtifacts, ... and must clear the three Save Version accumulators too, or
+  // board A's authored diagram/credits leak into board B's snapshot.json for session restore.
+  await controller.start({ intent: "unrelated project", boardId: "board-b" });
+  const snap = controller.getSnapshotState();
+  assert.equal(snap.diagram, undefined, "board B's snapshot must not carry board A's authored diagram");
+  assert.equal(snap.credits, null, "board B's snapshot must not carry board A's credits");
+});
+
+test("seedFromSnapshot restores state/board/preferences without running, and refuses while a run is active", async () => {
+  const controller = new SessionController({ postMessage: () => { }, loop: async () => ({ terminal: "complete" }) });
+  const ok = controller.seedFromSnapshot({
+    state: { manifest: { m: 1 }, phase: "generate", intent: "blink" },
+    boardId: "esp32", preSelectedBoard: { id: "esp32" }, boardSelectionMode: "recommend",
+    preferences: { mode: "beginner", locale: "en" }, currentPhase: "generate",
+    manifest: { m: 1 }, diagram: { nodes: ["a"] },
+    optionalNextPhases: [{ phase: "upy-diagram-plugin" }],
+    generatePhaseComplete: { type: "phase_complete", payload: { result: "success" } },
+  });
+  assert.equal(ok, true, "seed succeeds when idle");
+  const snap = controller.getSnapshotState();
+  assert.deepEqual(snap.state, { manifest: { m: 1 }, phase: "generate", intent: "blink" }, "resume state restored");
+  assert.equal(snap.boardId, "esp32", "board restored");
+  assert.equal(snap.currentPhase, "generate", "phase restored");
+  assert.deepEqual(snap.diagram, { nodes: ["a"] }, "diagram carried for a re-save");
+  // The optional-flow offers + upstream generate result are restored, so a restored session can re-run
+  // wiring/diagram: the host gate reads getOptionalNextPhases + the wrapped upstream generate result.
+  assert.deepEqual(controller.getOptionalNextPhases(), [{ phase: "upy-diagram-plugin" }], "optional-flow offers restored");
+  assert.deepEqual(controller.getLatestGeneratePhaseComplete(), { type: "phase_complete", payload: { result: "success" } }, "upstream generate restored so a re-run has a valid source");
+  assert.equal(controller.hasSnapshotState(), true, "a restored session is itself re-savable");
+
+  // The restored session adopts ITS OWN id + terminal, so a post-restore Save Version writes into that
+  // session's dir (not the session that ran before it) and carries the real terminal, not null.
+  assert.equal(controller.seedFromSnapshot({ boardId: "b", traceId: "session-xyz-1", terminal: "complete" }), true, "re-seed succeeds when idle");
+  const s2 = controller.getSnapshotState();
+  assert.equal(s2.traceId, "session-xyz-1", "restore adopts the snapshot's trace id");
+  assert.equal(s2.terminal, "complete", "the restored terminal is carried for a re-save");
+
+  // Residual wipe (#28/#33): re-seeding a DIFFERENT session must NOT inherit the prior seed's
+  // diagram/terminal — a snapshot written after this restore must carry only this session's data.
+  assert.equal(controller.seedFromSnapshot({ boardId: "c" }), true, "third seed succeeds when idle");
+  const s3 = controller.getSnapshotState();
+  assert.equal(s3.diagram, undefined, "a fresh restore does not inherit the previous restore's diagram");
+  assert.equal(s3.terminal, null, "a fresh restore does not inherit the previous restore's terminal");
+  assert.equal(s3.traceId, null, "a fresh restore without an id does not inherit the previous id");
+
+  // Must NOT clobber a live run's state: with a run in flight (abort set), seeding is refused.
+  let release: () => void = () => { };
+  const gate = new Promise<void>((r) => { release = r; });
+  const c2 = new SessionController({ postMessage: () => { }, loop: async () => { await gate; return { terminal: "complete" }; } });
+  const running = c2.start({ intent: "x", boardId: "auto" });
+  assert.equal(c2.seedFromSnapshot({ boardId: "b" }), false, "seed refuses while a run owns the state");
+  release(); await running;
+});
+
+test("a restored authored diagram survives a later wiring optional-flow run (guard held across the startPhase excursion)", async () => {
+  const posts: any[] = [];
+  // The loop streams a devices-bearing manifest_updated (what a wiring/diagram run emits) then completes —
+  // exactly the production path: start_optional_flow -> startPhase -> run() -> loop onEvent. Driving the real
+  // run() entry is the point: run() clears per-run state at entry, so a bare postEvent would miss the bug.
+  const controller = new SessionController({
+    postMessage: (m) => posts.push(m),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "manifest_updated", manifest: { devices: [{ id: "aht20", interface: "I2C" }] } });
+      return { terminal: "complete" };
+    },
+  });
+  // Restore a session whose snapshot HAD an authored diagram + a device-bearing manifest.
+  controller.seedFromSnapshot({ manifest: { devices: [{ id: "aht20" }] }, diagram: { authored: true, nodes: ["led"] } });
+  posts.length = 0;
+  // Run the wiring optional flow the way the panel does. preserveManifest is set inside startPhase; the
+  // authored-diagram guard must survive the run-entry clear (class fix at run():238), so NO derived
+  // diagram_updated is posted to clobber the restored authored one.
+  await controller.startPhase({ phase: "upy-wiring-plugin", envelope: "{}" });
+  assert.ok(posts.some((m) => m.type === "manifest_updated"), "the wiring tab refreshes from the run's manifest");
+  assert.ok(!posts.some((m) => m.type === "diagram_updated"), "the restored authored diagram is NOT clobbered by the excursion's derived view");
+});
+
 test("records and posts a phase_stalled event so a stuck build surfaces (not swallowed as a generic trace)", async () => {
   const recorded: any[] = [];
   const posted: any[] = [];
@@ -280,6 +398,29 @@ test("reset() supersedes the in-flight run: late messages are dropped and a new 
   const second = await controller.start({ intent: "b", boardId: "esp32-s3-devkitc-1" });
   assert.notEqual(second.terminal, "session_busy");
   assert.equal(messages.some((m) => m.type === "session_done"), true, "the new run posts its own session_done");
+});
+
+test("reset() supersedes a THROWING run: its catch records/accumulates nothing into the next session (#29)", async () => {
+  const recorded: any[] = [];
+  let release: () => void = () => { };
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async () => { await gate; throw new Error("boom"); }, // parks in flight, then throws after reset
+  });
+
+  const first = controller.start({ intent: "a", boardId: "esp32-s3-devkitc-1" });
+  await Promise.resolve();          // let the loop reach `await gate`
+  controller.reset();               // supersede: current() is now false for the in-flight run
+  release();
+  await first;
+
+  // The superseded run's catch path is guarded by current(), so it records NOTHING and does not
+  // push into keyErrors -- else its "boom" leaks into the freshly-reset next session's log/snapshot.
+  assert.equal(recorded.some((e) => e.type === "session_error"), false, "superseded throw records no session_error");
+  assert.equal(recorded.some((e) => e.type === "session_finished"), false, "superseded throw records no session_finished");
+  assert.ok(!/boom/.test(controller.getDiagnostics().key_errors ?? ""), "the superseded error did not poison the next session's key_errors");
 });
 
 test("session controller writes generated files after code and manifest are available", async () => {

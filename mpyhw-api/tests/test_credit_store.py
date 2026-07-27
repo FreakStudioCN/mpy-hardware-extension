@@ -303,11 +303,26 @@ def test_unlimited_account_spend_never_touches_global_budget():
 
 def test_grant_for_resolves_login_override_else_default(monkeypatch):
     # Per-user override is keyed by lowercased GitHub login; everyone else gets the global.
-    monkeypatch.setattr(credit_store, "_GRANT_OVERRIDES", {"xinruili-git": 500})
-    assert credit_store.grant_for({"id": "9", "login": "xinruili-git"}) == 500
-    assert credit_store.grant_for({"id": "9", "login": "XinruiLi-Git"}) == 500  # case-insensitive
+    # The fixture login must be a NON-comped one: grant_for checks is_unlimited() first and
+    # returns UNLIMITED_DAILY_GRANT without ever consulting the override table, so a real login
+    # here silently stops testing the override branch the moment that account gets comped.
+    override_login = "grant-override-fixture"
+    assert override_login not in credit_store.UNLIMITED_ACCOUNTS, "fixture login must not be a comped account"
+    monkeypatch.setattr(credit_store, "_GRANT_OVERRIDES", {override_login: 500})
+    assert credit_store.grant_for({"id": "9", "login": override_login}) == 500
+    assert credit_store.grant_for({"id": "9", "login": "Grant-Override-Fixture"}) == 500  # case-insensitive
     assert credit_store.grant_for({"id": "1", "login": "octocat"}) == credit_store.DAILY_GRANT
     assert credit_store.grant_for({"id": "2", "login": None}) == credit_store.DAILY_GRANT
+
+
+def test_comped_account_outranks_a_per_login_grant_override(monkeypatch):
+    # The precedence that made the fixture above collide, pinned so it reads as a deliberate rule
+    # rather than an accident: is_unlimited() is checked first, so a comped login gets
+    # UNLIMITED_DAILY_GRANT even when a numeric override names that same login.
+    # (is_unlimited matches login OR email against one set, so any member works as the login here.)
+    comped = next(iter(credit_store.UNLIMITED_ACCOUNTS))
+    monkeypatch.setattr(credit_store, "_GRANT_OVERRIDES", {comped.lower(): 500})
+    assert credit_store.grant_for({"id": "9", "login": comped}) == credit_store.UNLIMITED_DAILY_GRANT
 
 
 def test_parse_grant_overrides_lowercases_and_coerces_int():

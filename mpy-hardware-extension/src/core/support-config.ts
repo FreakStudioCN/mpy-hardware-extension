@@ -101,7 +101,7 @@ function stripLoneSurrogates(s: string): string {
 
 // Slice by whole code points, so a UTF-16 surrogate pair (e.g. an emoji) at the boundary is never
 // split into a lone surrogate — which would make encodeURIComponent throw URIError (PR #35 review).
-function sliceCodePoints(s: string, maxCodePoints: number): string {
+export function sliceCodePoints(s: string, maxCodePoints: number): string {
   return [...s].slice(0, maxCodePoints).join("");
 }
 
@@ -149,4 +149,41 @@ export function buildIssueReportUrl(input: {
   const prefix = `${ISSUE_FORM_URL}?title=${encodeURIComponent(title)}&body=`;
   const body = truncateToEncodedLength(parts.join("\n"), ISSUE_URL_ENCODED_MAX - prefix.length);
   return `${prefix}${encodeURIComponent(body)}`;
+}
+
+// The support email is the "email" contact's address — one source of truth with the panel.
+export const CREDITS_REQUEST_EMAIL =
+  SUPPORT_CONTACTS.find((c) => c.id === "email")?.value ?? "1069653183@qq.com";
+
+// Windows mailto handlers cap the whole command around 2083 chars; budget the ENCODED body under
+// that after the (short) fixed subject. A CJK char is 9 encoded chars, so bound the ENCODED length.
+const CREDITS_MAILTO_BODY_ENCODED_MAX = 1800;
+const CREDITS_REQUEST_SUBJECT = "Request credits";
+
+// Build a prefilled mailto: to the support email for a MANUAL credit-request (card #97). Pure and
+// code-point/surrogate-safe (mirrors buildIssueReportUrl); the host validates + fetches fresh values
+// first. NOT a payment portal: the body only carries the identifiers the team needs to adjust credits
+// by hand, plus a user-filled contact line (GitHub email may be private and is not readable here).
+export function buildCreditsRequestMailto(input: {
+  githubLogin: string;
+  balance: string;
+  dailyGrant: string;
+  resetsAt: string;
+  extensionVersion: string;
+  pluginVersion: string;
+  sessionId: string;
+}): string {
+  const line = (key: string, value: string): string => `${key}: ${stripLoneSurrogates(value ?? "")}`;
+  const body = [
+    "Contact email: please fill in your email",
+    line("GitHub login", input.githubLogin),
+    line("Credit balance", input.balance),
+    line("Daily grant", input.dailyGrant),
+    line("Resets at", input.resetsAt),
+    line("Extension version", input.extensionVersion),
+    line("Plugin version", input.pluginVersion),
+    line("Session id", input.sessionId),
+  ].join("\n");
+  const bounded = truncateToEncodedLength(body, CREDITS_MAILTO_BODY_ENCODED_MAX);
+  return `mailto:${CREDITS_REQUEST_EMAIL}?subject=${encodeURIComponent(CREDITS_REQUEST_SUBJECT)}&body=${encodeURIComponent(bounded)}`;
 }

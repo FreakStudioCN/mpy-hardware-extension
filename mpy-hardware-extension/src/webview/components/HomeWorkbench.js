@@ -40,7 +40,7 @@
       // The global-tools bar stays visible when a tool opens (switch tools without
       // going Back); only the workflow surfaces below it hide.
       const GLOBAL_TOOL_HIDES = ["#tabs", ".tabwrap", ".composer"];
-      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent", "toolDeviceTools"];
+      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent", "toolDeviceTools", "toolSaveVersion", "toolGitHistory"];
       // Mark the bar circle whose data-tool matches the open surface as selected (a
       // tool opened from the home area, e.g. toolRecent, matches no circle — none active).
       function setActiveGtool(id) {
@@ -70,6 +70,14 @@
       // the root if one is connected, else shows the "plug in a device" state.
       $("deviceToolsOpen").addEventListener("click", () => { openGlobalTool("toolDeviceTools"); dtOnOpen(); });
       $("deviceToolsBack").addEventListener("click", closeGlobalTool);
+      // Save Version (#95): its own global-tool surface (a git commit or session snapshot with
+      // confirmation) — a user utility with no agent involvement, so it does NOT go in the Activity
+      // feed. Open the surface and ask the host for the save summary.
+      $("saveVersionOpen").addEventListener("click", () => { openGlobalTool("toolSaveVersion"); svOnOpen(); });
+      $("saveVersionBack").addEventListener("click", closeGlobalTool);
+      // Git History (#94): its own read-only surface — open it and ask the host for the timeline.
+      $("gitHistoryOpen").addEventListener("click", () => { openGlobalTool("toolGitHistory"); ghOnOpen(); });
+      $("gitHistoryBack").addEventListener("click", closeGlobalTool);
       // Global-tools overflow: any number of circle tools fit — the row scrolls and the
       // chevrons show only when it clips (recomputed on scroll/resize).
       const gtoolsTrack = $("globalTools");
@@ -93,15 +101,21 @@
       updateGtoolArrows();
       // Home hero action: begin a build. The composer is always mounted, so "start"
       // just reveals the board picker and focuses the prompt (no session yet).
-      // ponytail: Git history / Save Version (spec 3.8) are still stubbed global tools
-      // pending their own cards.
+      // Save Version (#95) and Git History (#94) are wired above as their own global-tool surfaces.
       $("startWorkflow").addEventListener("click", () => { setBoardPickerVisible(true); setBoardBodyExpanded(true); $("intent").focus(); });
-      // Import Existing Project: host opens a folder picker then reloads on that
-      // folder (no webview surface). Recent Sessions: read-only list of past session
-      // summaries in a global-tool surface; the host serves them from .mpyhw/sessions.
-      $("importProject").addEventListener("click", () => vscode.postMessage({ type: "import_project" }));
+      // Two axes, no longer conflated in one flat row: Open Folder is workspace selection (opens a
+      // local FOLDER as the workspace); Recent Sessions is the session-lifecycle entry (a read-only
+      // per-folder list from .mpyhw/sessions). The folder-picker restore (import_session) is NOT a
+      // top-level button anymore -- it lives inside the Recent panel as "Restore from folder…", since
+      // it and a Recent card both just restore a saved session.
+      $("openFolder").addEventListener("click", () => vscode.postMessage({ type: "open_project_folder" }));
       $("recentSessions").addEventListener("click", () => { openGlobalTool("toolRecent"); vscode.postMessage({ type: "request_recent_sessions" }); });
+      $("recentRestoreFolder").addEventListener("click", () => vscode.postMessage({ type: "import_session" }));
       $("recentBack").addEventListener("click", closeGlobalTool);
+      // Request credits (#97): a contact entry, not a payment portal. The host builds the prefilled
+      // mailto (gating on GitHub sign-in) and opens it via openExternal. The button lives inside the
+      // quota bar, so it's only visible once credits are shown.
+      $("requestCredits").addEventListener("click", () => vscode.postMessage({ type: "request_credits_email" }));
       $("boardMore").addEventListener("click", () => setBoardBodyExpanded($("boardPickerBody").hidden));
 
       // ----- composer / working indicator -----
@@ -120,6 +134,9 @@
         // composer placeholder flips to a note hint too, so it doesn't read as "start a
         // build" while running.
         $("addNote").classList.toggle("hidden", !on);
+        // Experience mode is start-time only; hide it during a run (the board chooser above
+        // already hides via setBoardPickerVisible). Textarea + Generate stay for notes.
+        $("modeToggle").classList.toggle("hidden", on);
         $("intent").placeholder = tr(on ? "note_ph" : "intent_ph");
         if (on) setPending(tr("working")); // immediate spinner; trace_event refines the label
         updateGenerateEnabled();
@@ -188,6 +205,7 @@
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
         setBoardPickerVisible(true);
+        clearBoardChoice();
         setTab("activity");
       }
       $("newSession").addEventListener("click", () => {
@@ -196,10 +214,20 @@
         clearConversation();
         $("intent").value = ""; $("intent").style.height = "auto";
       });
+      // Grow the intent box to fit its content up to a cap, and only show a scrollbar past the cap
+      // (the default is overflow:hidden so a wrapping placeholder never triggers one). Shared by the
+      // input handler and prefillImportedRecipe so both writers size the box the same way.
+      const INTENT_MAX_HEIGHT = 120;
+      function autosizeIntent() {
+        const el = $("intent");
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, INTENT_MAX_HEIGHT) + "px";
+        el.style.overflowY = el.scrollHeight > INTENT_MAX_HEIGHT ? "auto" : "hidden";
+      }
       const ta = $("intent");
       ta.addEventListener("focus", () => $("composerBox").classList.add("focused"));
       ta.addEventListener("blur", () => $("composerBox").classList.remove("focused"));
-      ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; });
+      ta.addEventListener("input", autosizeIntent);
 
       // ----- credits -----
       let lastDailyGrant = 0;
@@ -256,13 +284,19 @@
         }
         root.appendChild(h); root.appendChild(row);
       }
-      // Read-only list of past session summaries (host-served from .mpyhw/sessions).
-      // Clicking a card reveals its session.jsonl via the host's open_path handler.
-      function renderRecent(sessions) {
+      // List of past session summaries (host-served from .mpyhw/sessions). Clicking a card RESTORES that
+      // session (board/wiring/diagram/code) via the host; a session with no snapshot degrades gracefully.
+      function renderRecent(msg) {
+        msg = msg || {};
+        const sessions = Array.isArray(msg.sessions) ? msg.sessions : [];
+        // Make the per-folder scope visible: name the folder (or the no-folder fallback) so an empty
+        // list reads as "nothing in THIS folder yet", not lost data.
+        const scope = $("recentScope");
+        if (scope) scope.textContent = msg.usingFallback ? tr("recent_scope_global") : (msg.folder ? tr("recent_scope", { f: String(msg.folder) }) : "");
         const box = $("recent"); if (!box) return;
         box.innerHTML = "";
         const empty = $("recentEmpty");
-        if (!sessions || !sessions.length) { empty.classList.remove("hidden"); return; }
+        if (!sessions.length) { empty.classList.remove("hidden"); return; }
         empty.classList.add("hidden");
         for (const s of sessions) {
           const card = document.createElement("button"); card.className = "recent-card"; card.type = "button";
@@ -271,7 +305,17 @@
           const when = s.date ? new Date(s.date).toLocaleString() : "";
           meta.textContent = s.finalPhase ? (when + " · " + s.finalPhase) : when;
           card.appendChild(title); card.appendChild(meta);
-          card.addEventListener("click", () => vscode.postMessage({ type: "open_path", path: s.path }));
+          // A session with a saved snapshot RESTORES on click; a pre-Save-Version one has no snapshot,
+          // so it is view-only (mark it + open its log instead of a restore that would just fail).
+          if (s.restorable) {
+            // Close the Recent surface so the restored feed/tabs (which render on the home workbench
+            // beneath it) are actually visible — otherwise the click looks like it did nothing until Back.
+            card.addEventListener("click", () => { closeGlobalTool(); vscode.postMessage({ type: "restore_session", id: s.id }); });
+          } else {
+            const tag = document.createElement("span"); tag.className = "recent-viewonly"; tag.textContent = tr("recent_view_only");
+            card.appendChild(tag);
+            card.addEventListener("click", () => vscode.postMessage({ type: "open_path", path: s.path }));
+          }
           box.appendChild(card);
         }
       }

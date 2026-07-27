@@ -66,9 +66,12 @@
 
       /* quota */
       .quota { margin-top: 10px; }
-      .quota-top { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--fg-muted); }
+      .quota-top { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--fg-muted); }
       .quota-top .num { font-family: var(--mono); color: var(--fg); }
       .quota-top .num b { color: var(--fg-bright); font-weight: 600; }
+      .request-credits-btn { margin-left: auto; border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted);
+        border-radius: 6px; padding: 2px 8px; font-size: 10.5px; cursor: pointer; font-family: var(--ui); white-space: nowrap; }
+      .request-credits-btn:hover { color: var(--fg-bright); border-color: var(--accent); background: #ffffff0a; }
       .quota-bar { height: 4px; border-radius: 3px; background: #ffffff14; margin-top: 5px; overflow: hidden; }
       .quota-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width .5s ease, background .3s; }
       .quota.low .quota-fill { background: var(--yellow); }
@@ -189,6 +192,8 @@
       .empty { padding: 40px 22px; text-align: center; color: var(--fg-dim); }
       .empty h4 { color: var(--fg-muted); font-size: 13px; font-weight: 600; margin: 0 0 5px; }
       .empty p { font-size: 12px; line-height: 1.5; margin: 0; }
+      .sv-nochanges { padding: 26px 22px; }
+      .sv-nochanges-icon { display: block; margin: 0 auto 10px; color: var(--fg-dim); opacity: 0.75; }
 
       /* Activity welcome hero — the first-run / empty-feed landing. Reuses
          #activityEmpty so every existing show/hide path keeps working
@@ -209,9 +214,12 @@
         background: var(--accent); color: #fff; font-size: 12.5px; font-weight: 650; cursor: pointer; }
       .start-workflow:hover { filter: brightness(1.08); }
       /* secondary launch entries under the hero (Import Project, Recent Sessions) */
-      .launch-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+      .launch-caption { margin-top: 14px; font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .5px; color: var(--fg-dim); }
+      .launch-actions { margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
       .launch-btn { font: inherit; font-size: 11.5px; padding: 5px 12px; cursor: pointer; color: var(--fg-dim);
-        background: transparent; border: 1px solid var(--vsc-border-soft); border-radius: 6px; }
+        background: transparent; border: 1px solid var(--vsc-border-soft); border-radius: 6px;
+        display: inline-flex; align-items: center; gap: 6px; }
+      .launch-btn svg { flex: none; opacity: .8; }
       .launch-btn:hover { border-color: var(--accent); color: var(--fg-bright); }
       /* recent-sessions list (read-only cards inside the toolRecent surface) */
       #recent { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; }
@@ -220,6 +228,11 @@
       .recent-card:hover { border-color: var(--accent); }
       .recent-intent { font-size: 12.5px; color: var(--fg-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .recent-meta { font-size: 10.5px; color: var(--fg-dim); }
+      .recent-viewonly { align-self: flex-start; margin-top: 2px; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em; opacity: .55; }
+      /* per-folder scope line + the folder-picker restore footer (the demoted "import" action) */
+      .recent-scope { padding: 8px 12px 0; font-size: 10.5px; color: var(--fg-muted); }
+      .recent-footer { padding: 10px 12px; border-top: 1px solid var(--vsc-border); margin-top: 6px; }
+      .recent-restore { width: 100%; }
 
       /* activity (card style) */
       .activity { padding: 10px 12px 18px; }
@@ -270,8 +283,15 @@
       .plan-edit:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); background: var(--vsc-hover); }
       .ask-opt.plan-go, .ask-opt.deploy-go { background: var(--accent, #2f6feb); color: #fff; border-color: transparent; }
       .ask-opt:hover:not(:disabled) { border-color: var(--accent); color: var(--fg-bright); }
-      .ask-opt.chosen { background: var(--accent); color: #fff; border-color: var(--accent); }
+      /* Selected/answered option: an accent BORDER (doubled via an inset ring, no layout shift) rather than a
+         solid accent fill — reads as "this one" while staying legible. Applies live (flash port, component
+         chips, answered options) and on restored inert cards alike. */
+      .ask-opt.chosen { background: var(--vsc-input); color: var(--fg); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
       .ask-opt:disabled { opacity: .5; cursor: default; }
+      /* A disabled card dims its buttons, but keep the CHOSEN one bright so its accent border still reads as
+         "this is what was selected" — on a live answered card and a restored inert card alike. Without this the
+         answered button greys out with the rest and the selection cue is lost. */
+      .ask-opt.chosen:disabled { opacity: 1; }
       /* Approval-card body (summary/steps/guidance/links) + grouped item sections. */
       .ask-kv { margin-top: 8px; font-size: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 7px 9px; }
       .ask-kv-row { margin-top: 3px; line-height: 1.45; overflow-wrap: anywhere; }
@@ -293,6 +313,87 @@
       .flash-baud { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
       .flash-baud select { background: var(--vsc-input); color: var(--fg); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 4px 6px; font-family: var(--ui); font-size: 12px; }
       .flash-rescan { margin-top: 8px; }
+      /* Save Version file-summary rows: a color-coded git-status badge + the path. Colors use
+         VS Code's own git-decoration theme vars (theme-aware) with GitHub-ish fallbacks. */
+      .ask-file { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-size: 12px; }
+      .ask-file-badge { flex: none; width: 16px; text-align: center; border: 1px solid currentColor; border-radius: 3px; padding: 1px 0; font-size: 10px; font-weight: 600; text-transform: uppercase; opacity: .95; }
+      .ask-file-path { font-family: var(--vscode-editor-font-family, monospace); word-break: break-all; }
+      .sv-file-staged-tag { flex: none; margin-left: auto; font-size: 10px; opacity: .6; text-transform: uppercase; letter-spacing: .04em; }
+      .ask-file-badge-new, .ask-file-badge-added { color: var(--vscode-gitDecoration-untrackedResourceForeground, #3fb950); }
+      .ask-file-badge-modified { color: var(--vscode-gitDecoration-modifiedResourceForeground, #d29922); }
+      .ask-file-badge-deleted { color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149); }
+      .ask-file-badge-renamed { color: var(--vscode-gitDecoration-renamedResourceForeground, #a371f7); }
+      .ask-file-badge-changed { color: var(--vscode-descriptionForeground, #8b949e); }
+      /* Save Version tool surface (its own view, not the Activity feed). */
+      .sv-stage { font-size: 12px; opacity: .8; margin-bottom: 6px; }
+      .sv-note { font-size: 12px; color: var(--vscode-descriptionForeground, #8b949e); margin-bottom: 6px; }
+      .sv-files { margin: 6px 0; max-height: 240px; overflow: auto; }
+      .sv-empty { font-size: 12px; opacity: .7; padding: 4px 0; }
+      .sv-mode { margin: 12px 0 4px; }
+      .sv-pane { margin-top: 6px; }
+      .sv-msg { display: block; width: 100%; box-sizing: border-box; min-height: 54px; resize: vertical; font-family: var(--vscode-editor-font-family, monospace); }
+      .sv-msg-label { display: block; font-size: 11px; opacity: .8; margin: 6px 0 3px; }
+      .sv-actions { display: flex; gap: 8px; margin-top: 8px; }
+      .sv-actions .sv-commit, .sv-actions .sv-snapshot { background: var(--accent, #2f6feb); color: #fff; border-color: transparent; }
+      /* Save Version summary sections: resume/session state (KV), plus collapsible artifacts + diagnostics. */
+      .sv-section { margin: 8px 0; }
+      .sv-kv-row { display: flex; gap: 8px; font-size: 12px; padding: 1px 0; }
+      .sv-kv-k { flex: none; min-width: 68px; color: var(--vscode-descriptionForeground, #8b949e); }
+      .sv-kv-v { overflow-wrap: anywhere; }
+      .sv-details > .sv-sum { cursor: pointer; font-size: 12px; color: var(--vscode-descriptionForeground, #8b949e); user-select: none; }
+      .sv-artifacts { margin: 4px 0 0; max-height: 180px; overflow: auto; }
+      .sv-art { display: flex; gap: 8px; font-size: 12px; padding: 1px 0; }
+      .sv-art-kind { flex: none; color: var(--vscode-descriptionForeground, #8b949e); }
+      .sv-art-path { font-family: var(--vscode-editor-font-family, monospace); overflow-wrap: anywhere; }
+      .sv-art-phase { flex: none; margin-left: auto; font-size: 11px; opacity: .6; }
+      .sv-art-more { font-size: 11px; opacity: .7; margin-top: 2px; }
+
+      /* Git History (#94): read-only timeline + per-file diff renderer. Badge colors reuse the
+         shared .ask-file-badge-* classes; only the layout + diff-line coloring is new here. */
+      /* Reserve the scrollbar gutter so the timeline doesn't shift when the scrollbar appears. */
+      #toolGitHistory .tool-body { scrollbar-gutter: stable; }
+      .gh-summary { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); margin: 2px 0 10px; }
+      .gh-section { margin-bottom: 14px; }
+      .gh-sec-title { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; padding: 0 2px; }
+      .gh-sec-count { font-weight: 600; color: var(--fg-dim); }
+      .gh-clickable { cursor: pointer; }
+      .gh-file { padding: 2px 6px; border-radius: 4px; }
+      .gh-file.gh-clickable:hover { background: var(--vsc-hover); }
+      /* The file whose diff is currently shown: persistent highlight + an accent bar, distinct from hover. */
+      .gh-file.gh-file-active { background: var(--vsc-hover); box-shadow: inset 2px 0 0 var(--accent); }
+      /* GitHub/GitLens-style commit graph: a colored dot on a connecting rail, then the message.
+         Collapsed shows only the (truncated) subject; expanding unwraps the full message and reveals
+         the hash/author/date, association, and files. */
+      /* Single-lane rail: history is linear (git log, no --graph/branch topology), so ONE color for
+         both dot and line is the honest rendering -- per-commit colors would imply branches that
+         don't exist. Rail is decorative overlay (pointer-events:none) so the whole row -- dot area
+         included -- is one clickable/hover line via the padded header beneath. Dot left:4 width:10
+         => center x=9; line left:8 width:2 => center x=9: dead-centered under the dots. Dot top:6
+         height:10 => center y=11, aligned to the 12px message line's vertical centre. */
+      .gh-commit { position: relative; }
+      .gh-commit::before { content: ""; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
+      .gh-commit:first-child::before { top: 11px; }                    /* newest: rail only below the dot */
+      .gh-commit:last-child::before { bottom: auto; height: 11px; }    /* oldest: rail only above the dot */
+      .gh-commit:only-child::before { content: none; }                 /* single commit (first save): a dot, no dangling rail */
+      .gh-dot { position: absolute; left: 4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--vsc-sidebar); pointer-events: none; }
+      .gh-commit-head { padding: 3px 6px 3px 20px; border-radius: 4px; }  /* left pad clears the rail; the box still spans it so the dot area is clickable + hovers */
+      .gh-commit-head:hover { background: var(--vsc-hover); }
+      .gh-commit-subject { font-size: 12px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .gh-commit-head.expanded .gh-commit-subject { white-space: pre-wrap; overflow: visible; text-overflow: clip; font-weight: 600; }
+      .gh-commit-detail { display: none; padding: 3px 6px 6px 20px; }
+      .gh-commit-head.expanded + .gh-commit-detail { display: block; }
+      .gh-commit-meta { font-family: var(--mono); font-size: 10.5px; color: var(--fg-muted); margin-bottom: 5px; }
+      .gh-commit-assoc { font-size: 10.5px; color: var(--accent); margin-bottom: 5px; }
+      .gh-commit-files { padding-left: 6px; border-left: 1px solid var(--vsc-border); }
+      .gh-diff-wrap { margin-top: 10px; border: 1px solid var(--vsc-border); border-radius: 5px; overflow: hidden; }
+      .gh-diff-head { font-family: var(--mono); font-size: 11px; color: var(--fg-bright); background: var(--vsc-hover); padding: 5px 8px; word-break: break-all; }
+      .gh-diff { font-family: var(--mono); font-size: 11.5px; line-height: 16px; overflow-x: auto; padding: 4px 0; }
+      .gh-diff-line { white-space: pre; padding: 0 8px; }
+      .gh-diff-add { color: var(--green); background: rgba(63,185,80,.08); }
+      .gh-diff-del { color: var(--red); background: rgba(241,76,76,.08); }
+      .gh-diff-hunk { color: var(--accent); }
+      .gh-diff-meta { color: var(--fg-muted); }
+      .gh-diff-ctx { color: var(--fg); }
       /* Deploy checkpoint: device-pick chips above a divider, then a primary Deploy
          (full-width) over a secondary Rescan/Cancel row — keeps selection and actions
          visually distinct and avoids the 3-button wrap. */
@@ -396,14 +497,23 @@
       .diagram-edge-node { font-family: var(--mono); color: var(--fg-bright); }
 
       /* composer */
-      .composer { flex: 0 0 auto; border-top: 1px solid var(--vsc-border); padding: 10px 12px 12px; }
-      .composer-box { border: 1px solid var(--vsc-input-border); background: var(--vsc-input); border-radius: 9px; padding: 9px 10px 8px; transition: border-color .15s, box-shadow .15s; }
+      .composer { position: relative; flex: 0 0 auto; border-top: 1px solid var(--vsc-border); padding: 10px 12px 12px; }
+      /* z-index:1 so the text box paints OVER the Browse panel that tucks behind its top edge. */
+      .composer-box { position: relative; z-index: 1; border: 1px solid var(--vsc-input-border); background: var(--vsc-input); border-radius: 14px; padding: 10px 10px 8px 12px; transition: border-color .15s, box-shadow .15s; }
       .composer-box.focused { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
       .composer-box.disabled { opacity: .55; }
       .composer textarea { width: 100%; border: 0; background: transparent; color: var(--fg); resize: none;
-        font-family: var(--ui); font-size: 13px; line-height: 1.5; outline: none; min-height: 38px; max-height: 120px; }
+        font-family: var(--ui); font-size: 13px; line-height: 1.5; outline: none; min-height: 38px; max-height: 120px; overflow-y: hidden; }
       .composer textarea::placeholder { color: var(--fg-dim); }
-      .composer-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+      .composer-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; row-gap: 6px; }
+      /* Left tools live on the action bar (one line with Generate); wraps on a narrow panel. */
+      /* Board chooser: a strip at the TOP inside .composer-box, bled to the box's inner edges
+         (negative margins cancel the box padding), same background as the text box, separated only
+         by a hairline divider below it. The Browse popover is anchored to .composer (a sibling), not
+         this strip. */
+      .composer-subbar { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+        margin: -10px -10px 8px -12px; padding: 8px 12px;
+        border-bottom: 1px solid var(--vsc-border); border-radius: 13px 13px 0 0; }
       @keyframes spin { to { transform: rotate(360deg); } }
       .composer-bar .grow { flex: 1; }
       .gen-btn { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 13px;
@@ -419,41 +529,54 @@
       /* minmax(0,1fr): clamp the single grid column to the panel width so a wide
          child (nowrap cache date, badge row, filter selects) can't force the whole
          composer — and the body — wider than a narrow VS Code side panel. */
-      .start-controls { border-bottom: 1px solid var(--vsc-card-border); padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-      .mode-row, .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .board-filter-row, .board-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
       .mode-chip, .board-chip, .board-page-btn, .board-refresh { border: 1px solid var(--vsc-card-border); background: transparent; color: var(--fg-muted); border-radius: 6px; padding: 5px 8px; font-size: 11px; cursor: pointer; }
       .mode-chip.active, .board-chip.chosen { border-color: var(--accent); color: var(--fg); background: #0e7aff1a; }
-      /* Experience-level segmented toggle: Beginner/Custom are ONE connected control (the mode axis),
-         visually distinct from the separate board-choice buttons (Recommend board / Browse boards). */
-      .mode-toggle { display: inline-flex; }
-      /* --vsc-card-border is near-invisible on the dark sidebar; use a clearly visible gray so BOTH
-         segments read as bordered buttons (the active one overrides to accent below). */
-      .mode-toggle .mode-chip { border: 1px solid var(--fg-dim); border-radius: 0; }
-      .mode-toggle .mode-chip:first-child { border-radius: 6px 0 0 6px; }
-      .mode-toggle .mode-chip:last-child { border-radius: 0 6px 6px 0; }
-      /* Overlap the touching borders into a single line (both chips keep a full border, no double edge),
-         and lift the active chip so its accent border wraps the whole segment, including the shared edge. */
-      .mode-toggle .mode-chip + .mode-chip { margin-left: -1px; }
-      .mode-toggle .mode-chip.active { border-color: var(--accent); color: var(--fg-bright); background: #0e7aff26; position: relative; z-index: 1; }
-      /* Board-choice segmented toggle (Recommend vs Browse) — same segmented pattern as the mode toggle,
-         with an always-visible selected-board chip so the current choice is never hidden in a collapsed list. */
-      .board-toggle { display: inline-flex; }
-      .board-toggle .board-seg { border: 1px solid var(--fg-dim); border-radius: 0; background: transparent; color: var(--fg-muted); padding: 5px 8px; font-size: 11px; cursor: pointer; }
-      .board-toggle .board-seg:first-child { border-radius: 6px 0 0 6px; }
-      .board-toggle .board-seg:last-child { border-radius: 0 6px 6px 0; }
-      .board-toggle .board-seg + .board-seg { margin-left: -1px; }
-      .board-toggle .board-seg.active { border-color: var(--accent); color: var(--fg-bright); background: #0e7aff26; position: relative; z-index: 1; }
-      .board-selected { display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 8px; border: 1px solid var(--accent); border-radius: 6px; background: #0e7aff1a; font-size: 11px; color: var(--fg-bright); }
+      /* Segmented toggle (Claude-style filled track) — ONE definition shared by every connected
+         multi-segment control: experience level (Beginner/Custom), board choice (Recommend/Browse),
+         the Save Version save-method toggle (Commit/Snapshot, reusing .mode-chip), and Device Tools'
+         Search/Installed. The control is a subtle inset track; the .active segment is a solid raised
+         pill with NO per-segment borders — matching claude.ai's Chat/Cowork/Code segmented control. */
+      /* inline-GRID with equal auto-columns so every segment is truly the same width (inline-flex
+         sizes to content, which made "Recommend board" and "Browse boards ▾" unequal and mis-padded,
+         and mis-aligned the half-width thumb). */
+      .mode-toggle, .board-toggle, .dt-pkg-toggle { position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; min-width: 0; max-width: 100%; padding: 2px; background: rgba(0, 0, 0, .22); border: 1px solid var(--vsc-input-border); border-radius: 8px; }
+      /* Sliding "thumb": one moving pill behind the segments (a real slide, not a per-segment
+         crossfade). Segments are equal width, so the thumb is one half and :has() slides it to the
+         active segment. All current toggles are 2-segment, so translateX(100%) lands on segment two. */
+      .mode-toggle::before, .board-toggle::before, .dt-pkg-toggle::before { content: ""; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / 2); border-radius: 6px; background: rgba(255, 255, 255, .16); box-shadow: 0 1px 3px rgba(0, 0, 0, .45); transition: transform .18s cubic-bezier(.4, 0, .2, 1); z-index: 0; pointer-events: none; }
+      .mode-toggle:has(.mode-chip:last-child.active)::before, .board-toggle:has(.board-seg:last-child.active)::before, .dt-pkg-toggle:has(.dt-pkg-seg:last-child.active)::before { transform: translateX(100%); }
+      .mode-toggle .mode-chip, .board-toggle .board-seg, .dt-pkg-toggle .dt-pkg-seg {
+        position: relative; z-index: 1; min-width: 0; text-align: center; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+        border: 0; border-radius: 6px; background: transparent; color: var(--fg-muted);
+        padding: 5px 12px; font-size: 11px; cursor: pointer; transition: color .15s; }
+      .mode-toggle .mode-chip:hover, .board-toggle .board-seg:hover, .dt-pkg-toggle .dt-pkg-seg:hover { color: var(--fg-bright); }
+      /* Active segment: brighten the text only — NO weight change (bold reflows the text wider). The
+         sliding thumb provides the fill/shadow that marks the selection. */
+      .mode-toggle .mode-chip.active, .board-toggle .board-seg.active, .dt-pkg-toggle .dt-pkg-seg.active { color: var(--fg-bright); }
+      @media (prefers-reduced-motion: reduce) { .mode-toggle::before, .board-toggle::before, .dt-pkg-toggle::before { transition: none; } }
+      .board-selected { order: -1; display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 8px; border: 1px dashed var(--fg-muted); border-radius: 6px; background: var(--vsc-input); font-size: 11px; color: var(--fg-bright); }
       .board-selected-ic { color: var(--green); font-size: 11px; }
       .board-selected-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .board-selected-clear { border: 0; background: transparent; color: var(--fg-muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 5px; border-radius: 4px; }
       .board-selected-clear:hover { color: var(--fg-bright); background: #ffffff14; }
-      /* The Browse segment is a disclosure for the collapsed board picker; its caret flips when open. */
-      .board-toggle #boardMore::after { content: "\25be"; font-size: 9px; margin-left: 4px; transition: transform .15s; }
-      .board-toggle #boardMore[aria-expanded="true"]::after { transform: rotate(180deg); }
-      .board-picker-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-      /* explicit display defeats the [hidden] attribute; restore it so collapse works */
-      .board-picker-body[hidden] { display: none; }
+      /* Board browser: opens OVER the composer and tucks BEHIND its top edge (z-index:0 < the box's
+         z-index:1), so the text box sits on top and the panel's bottom disappears behind it — one
+         continuous unit. Anchored to .composer (padding: 10px top / 12px sides); bottom is pushed
+         ~20px past the box's top edge for the tuck. Distinct background from the text box. */
+      .board-picker-body {
+        position: absolute; left: 12px; right: 12px; bottom: calc(100% - 30px); z-index: 0;
+        display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px;
+        padding: 10px 10px 30px; border-radius: 12px 12px 0 0;
+        background: var(--vsc-sidebar); border: 1px solid var(--vsc-border); border-bottom: none;
+        opacity: 1; transform: translateY(0);
+        transition: opacity .16s ease, transform .16s ease, display .16s allow-discrete; }
+      /* Open/close = slide-up + fade. @starting-style is the entry keyframe; [hidden] is the exit;
+         display is discrete-animated so it participates in the transition instead of snapping. */
+      @starting-style { .board-picker-body { opacity: 0; transform: translateY(6px); } }
+      .board-picker-body[hidden] { display: none; opacity: 0; transform: translateY(6px); }
+      @media (prefers-reduced-motion: reduce) { .board-picker-body { transition: none; } }
       .board-search, .board-filter { min-width: 0; border: 1px solid var(--vsc-card-border); background: #101012; color: var(--fg); border-radius: 6px; padding: 6px 8px; font-size: 11px; }
       .board-search { width: 100%; }
       .board-filter { flex: 1 1 92px; }
@@ -474,6 +597,11 @@
       .board-meta { margin-top: 4px; color: var(--fg-muted); font-size: 10.5px; line-height: 1.35; }
       .board-badge { flex: 0 0 auto; color: var(--accent); font-size: 10px; border: 1px solid #0e7aff55; border-radius: 999px; padding: 1px 6px; }
       .board-status { color: var(--fg-dim); font-size: 10.5px; min-height: 14px; }
+      /* Pagination: prev/next flanking a centered status, on one line, divided from the list above. */
+      .board-pager { justify-content: space-between; flex-wrap: nowrap; margin-top: 2px; padding-top: 8px; border-top: 1px solid var(--vsc-border); }
+      .board-pager .board-status { flex: 1; text-align: center; }
+      .board-page-btn { min-width: 30px; text-align: center; border-radius: 8px; }
+      .board-page-btn:not(:disabled):hover { border-color: var(--accent); color: var(--fg-bright); background: #ffffff0a; }
       .board-page-btn:disabled { opacity: .45; cursor: default; }
       .fade-in { animation: fadeIn .28s ease both; }
       @keyframes fadeIn { from { transform: translateY(5px); } to { transform: none; } }
@@ -543,13 +671,9 @@
       .dt-name { flex: 1; font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .dt-mip { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vsc-border); flex-wrap: wrap; }
       .dt-pkg-body { display: flex; flex-direction: column; gap: 8px; padding: 6px 2px 2px; }
-      /* Search | Installed segmented toggle (mirrors the board picker's .board-toggle). */
-      .dt-pkg-toggle { display: inline-flex; align-self: flex-start; }
-      .dt-pkg-seg { border: 1px solid var(--fg-dim); border-radius: 0; background: transparent; color: var(--fg-muted); padding: 5px 10px; font-size: 11px; cursor: pointer; }
-      .dt-pkg-seg:first-child { border-radius: 6px 0 0 6px; }
-      .dt-pkg-seg:last-child { border-radius: 0 6px 6px 0; }
-      .dt-pkg-seg + .dt-pkg-seg { margin-left: -1px; }
-      .dt-pkg-seg.active { border-color: var(--accent); color: var(--fg-bright); background: #0e7aff26; position: relative; z-index: 1; }
+      /* Search | Installed toggle: segmented style is the shared rule above; only the column
+         left-alignment is specific to Device Tools. */
+      .dt-pkg-toggle { align-self: flex-start; }
       .dt-pkg-results { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--fg-dim); }
       /* Each result is an accordion card: header (row) + inline detail body. */
       .dt-pkg-item { background: var(--vsc-card); border: 1px solid var(--vsc-border); border-radius: 6px; overflow: hidden; }
