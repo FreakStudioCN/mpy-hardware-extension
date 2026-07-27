@@ -369,26 +369,30 @@
           </button>
           <span class="tool-title" data-i18n="svn_title">Sipeed Vision Export</span>
         </div>
-        <div class="tool-body">
+        <div class="tool-body svn-body">
           <p class="svn-intro" data-i18n="svn_intro">Generates standalone MaixPy code for a Sipeed MaixCAM Pro used as a vision coprocessor. It sends detection results to your MicroPython board over UART JSON Lines. Nothing is flashed or deployed.</p>
-          <div class="svn-row">
-            <span class="svn-label" data-i18n="svn_task">Vision task</span>
-            <span class="svn-value" data-i18n="svn_task_yolo">Object detection (YOLO)</span>
+          <!-- Fixed, host-pinned facts for this one task family — read-only, grouped as a spec card. -->
+          <div class="svn-card">
+            <div class="svn-row">
+              <span class="svn-label" data-i18n="svn_task">Vision task</span>
+              <span class="svn-value" data-i18n="svn_task_yolo">Object detection (YOLO)</span>
+            </div>
+            <div class="svn-row">
+              <span class="svn-label" data-i18n="svn_uart">UART</span>
+              <span class="svn-value">UART1 · TX A19 · RX A18 · 115200 · JSON Lines</span>
+            </div>
+            <div class="svn-row">
+              <span class="svn-label" data-i18n="svn_writes">Will write</span>
+              <span class="svn-value">sipeed_vision/main.py · sipeed_vision/README.md</span>
+            </div>
           </div>
-          <div class="svn-row">
-            <span class="svn-label" data-i18n="svn_uart">UART</span>
-            <span class="svn-value">UART1 · TX A19 · RX A18 · 115200 · JSON Lines</span>
-          </div>
+          <!-- The only input: an optional model path the host sanitizes. -->
           <label class="svn-field">
             <span class="svn-label" data-i18n="svn_model">Model path on the MaixCAM (optional)</span>
             <input id="svnModelPath" class="dt-input" data-i18n-ph="svn_model_ph" placeholder="/root/models/yolo11n.mud" />
           </label>
           <p class="svn-note" data-i18n="svn_model_hint">Prepare the model yourself through MaixHub or the official docs and copy it to the board — this tool never downloads or uploads models.</p>
-          <div class="svn-row">
-            <span class="svn-label" data-i18n="svn_writes">Will write</span>
-            <span class="svn-value">sipeed_vision/main.py · sipeed_vision/README.md</span>
-          </div>
-          <div class="sv-actions"><button type="button" class="dt-act" id="svnGenerate" data-i18n="svn_generate">Generate</button></div>
+          <div class="sv-actions svn-actions"><button type="button" class="dt-act svn-generate" id="svnGenerate" data-i18n="svn_generate">Generate</button></div>
           <div class="dt-status" id="svnStatus"></div>
         </div>
       </div>
