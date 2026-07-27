@@ -1,13 +1,33 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import Module from "node:module";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import test from "node:test";
 
 import { PARTNERS } from "../src/core/partner-config.ts";
 import { activate, parseRecipeImportUri } from "../src/extension/activate.ts";
+// @ts-expect-error — plain-JS build script, no type declarations.
+import { vendorPluginSubset } from "../scripts/vendor-plugin-subset.mjs";
+
+const UPSTREAM_ROOT = resolve("..", "third_party", "MicroPython_Skills");
+
+// Run the REAL VSIX vendor step over the REAL submodule (its layout, .mpy files and all)
+// into a throwaway dir and hand the caller the relative paths that landed.
+function vendorIntoTempDir(assertOn: (destRoot: string, relPaths: string[]) => void) {
+  assert.ok(existsSync(UPSTREAM_ROOT), `upstream submodule missing at ${UPSTREAM_ROOT} — run \`git submodule update --init --recursive\``);
+  const destRoot = mkdtempSync(join(tmpdir(), "vsce-vendor-"));
+  try {
+    const vendored = vendorPluginSubset(UPSTREAM_ROOT, destRoot);
+    assert.ok(vendored > 0, "the vendor step copied nothing — every assertion below would be vacuous");
+    const relPaths = readdirSync(destRoot, { recursive: true, encoding: "utf-8" }).map((p) => p.replaceAll("\\", "/"));
+    assertOn(destRoot, relPaths);
+  } finally {
+    rmSync(destRoot, { recursive: true, force: true });
+  }
+}
 
 const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
 
@@ -35,6 +55,54 @@ test("packaged VSIX ships every partner logo asset", () => {
     const path = `src/webview/assets/partners/${partner.file}`;
     assert.ok(packaged.has(path), `partner asset missing from the packaged VSIX: ${path}`);
   }
+});
+
+test("packaged VSIX ships the MicroPython-lib evidence knowledge and the mip install/verify scripts", () => {
+  // Nothing else pins this subset. A one-line EXCLUDE_DIRS edit (adding "knowledge") or a
+  // .json drop rule would strip the API-evidence index out of every VSIX and no test would
+  // notice — generate would then have no evidence to justify MicroPython-lib API calls and
+  // deploy no script to turn the manifest's mip dependencies into a real install. Assert
+  // the real FILE SET the vendor step produces, not the ignore rules that produced it.
+  vendorIntoTempDir((destRoot) => {
+    for (const rel of [
+      // Read at runtime by check_doc_evidence.py / the generate driver-API rules.
+      "upy-generate-plugin/knowledge/micropython_official_library_index.json",
+      "upy-generate-plugin/knowledge/mip_runtime_dependencies.pitfall.json",
+      // Emits the mip runtime dependency instead of vendoring package source.
+      "upy-generate-plugin/scripts/download_drivers.py",
+      // The two evidence gates that block generate when API evidence is missing.
+      "upy-generate-plugin/scripts/check_runtime_dependencies.py",
+      "upy-generate-plugin/scripts/check_doc_evidence.py",
+      // Deploy turns those dependencies into `mpremote mip install` + an import verify.
+      "upy-deploy-plugin/scripts/install_mip_dependencies.py",
+      // The legacy copy the host's script.run_download_drivers dispatch actually runs.
+      "upy-generate/scripts/download_drivers.py",
+    ]) {
+      assert.ok(existsSync(join(destRoot, rel)), `missing from the vendored VSIX subset: ${rel}`);
+    }
+  });
+});
+
+test("the VSIX vendor step still drops prose, fixtures and the maintainer's local paths", () => {
+  // The evidence-knowledge pin above must not be satisfiable by widening the subset to
+  // "ship everything": the prose/fixture drops and the board-JSON local-path strip are
+  // the other half of the contract (packaged size, and the maintainer local-path leak).
+  vendorIntoTempDir((destRoot, relPaths) => {
+    assert.ok(!relPaths.some((p) => p.endsWith(".md")), "heavy prose (SKILL.md/README) must stay out of the VSIX");
+    assert.ok(!existsSync(join(destRoot, "upy-generate-plugin/test/smoke_tests.py")), "test fixtures must stay out of the VSIX");
+    assert.ok(!existsSync(join(destRoot, "upy-generate-plugin/sample")), "sample fixtures must stay out of the VSIX");
+
+    const boards = relPaths.filter((p) => p.includes("/boards/") && p.endsWith(".json"));
+    assert.ok(boards.length > 0, "no board JSONs vendored — the local-path assertion below would be vacuous");
+    for (const rel of boards) {
+      // Upstream board JSONs bake the maintainer's Windows absolute paths (e.g. "G:\\...").
+      assert.doesNotMatch(
+        readFileSync(join(destRoot, rel), "utf-8"),
+        /"[A-Za-z]:[\\/]/,
+        `vendored board JSON still carries a maintainer local path: ${rel}`,
+      );
+    }
+  });
 });
 
 test("extension entry loads in a CommonJS host and exports activate", () => {
