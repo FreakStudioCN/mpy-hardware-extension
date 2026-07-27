@@ -146,6 +146,19 @@ _V0_PLUGIN_DIRS = (
     "upy-project-gen-toolchain-spec",
 )
 
+# Upstream MAINTENANCE scripts: they refresh a Skill's own reference library from the live web and
+# write wherever their --out-dir points, with no workspace containment. They are for the Skill's
+# maintainers, never for a user run — but indexing a plugin dir would otherwise make them resolvable
+# by bare name from ANY phase's script_run, i.e. a network fetch and an unconfined write inside a
+# run that declares network:false. Never indexed, and never bundled (scripts/plugin-dirs.mjs keeps
+# the same list; plugin-dirs-contract asserts the two agree).
+_V0_MAINTENANCE_SCRIPTS = frozenset(
+    {
+        "crawl_sipeed_maixpy_docs.py",
+        "build_reference_index.py",
+    }
+)
+
 
 def _build_v0_script_index() -> dict:
     """Map each V0 plugin-script basename to the LIST of bundled paths sharing it.
@@ -172,7 +185,7 @@ def _build_v0_script_index() -> dict:
                     and "upy-project-gen-toolchain-spec/scripts" not in norm):
                 continue
             for fname in files:
-                if fname.endswith(".py"):
+                if fname.endswith(".py") and fname not in _V0_MAINTENANCE_SCRIPTS:
                     index.setdefault(fname, []).append(os.path.join(dirpath, fname))
     return index
 

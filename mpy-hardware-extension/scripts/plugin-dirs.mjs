@@ -38,3 +38,13 @@ export const PLUGIN_DIRS = [
   "upy-scaffold",
   "upy-generate",
 ];
+
+// Upstream MAINTENANCE scripts, excluded from the VSIX: they refresh a Skill's reference library
+// from the live web and write to an arbitrary --out-dir, with no workspace containment. They are
+// run by the Skill's maintainers, never by a user run — shipping them would put a network fetch and
+// an unconfined write one hallucinated script_run away. serve.py keeps the same list out of its
+// resolver index (_V0_MAINTENANCE_SCRIPTS); plugin-dirs-contract asserts the two agree.
+export const MAINTENANCE_SCRIPTS = [
+  "crawl_sipeed_maixpy_docs.py",
+  "build_reference_index.py",
+];

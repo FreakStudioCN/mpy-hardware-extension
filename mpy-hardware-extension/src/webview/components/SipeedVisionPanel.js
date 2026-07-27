@@ -38,6 +38,12 @@
           visionTaskType: SVN_VISION_TASK,
           modelPath: model ? model.value.trim() : "",
         });
+        // Leave the tool surface for Activity, like the gen-driver run does. A tool surface hides
+        // the feed AND the composer, so a run launched from behind it would show nothing — and an
+        // overwrite confirm (a re-run over files the user has since edited) would render into the
+        // hidden feed with no way to answer it, blocking the run forever.
+        closeGlobalTool();
+        setTab("activity");
       }
 
       // Terminal status from the host (done / partial / failed) plus a REASON code. The line is

@@ -454,6 +454,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // getter) but read the live value per call.
   let writeRestriction: WriteRestriction | null = null;
   const getWriteRestriction = () => writeRestriction;
+  // Set for the same window as writeRestriction, for a run whose envelope declares
+  // capabilities.device_command:false: the loop's device lane refuses every action while it holds,
+  // so "this tool never touches a board" is enforced here and not just claimed on the wire.
+  let denyDeviceCommands = false;
   // The destructive-file confirm is shown as an in-panel card by the controller (deliverables
   // 07 §4). Late-bound: the writer/deleter capture these stable closures now, but the real
   // controller.confirmFileOp is wired in after the controller exists (below). Until then (and
@@ -503,7 +507,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       webview.postMessage(message);
     },
-    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite, getWriteRestriction), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder, getWriteRestriction), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete, getWriteRestriction), confirmDeviceDelete: async (p: string) => (await confirmDelete("device:" + p)) && (await confirmDeviceErase("device:" + p)), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, projectRoot: projectFolder }),
+    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite, getWriteRestriction), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder, getWriteRestriction), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete, getWriteRestriction), confirmDeviceDelete: async (p: string) => (await confirmDelete("device:" + p)) && (await confirmDeviceErase("device:" + p)), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, denyDeviceCommands: () => denyDeviceCommands, projectRoot: projectFolder }),
     // Stop must hard-interrupt an in-flight device op, not just abort the loop signal
     // (deliverables 07 §4). shim.kill() dies the blocked mpremote/script now and frees
     // the serial lock; idempotent, so a Stop with nothing in flight is a no-op.
@@ -1550,7 +1554,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.unsupportedTask });
         return;
       }
-      const rawModelPath = String(message.modelPath ?? "").trim();
+      // Refuse a non-string outright (same rigor as the task token): coercing {} would send the
+      // literal "[object Object]" as a model path.
+      if (message.modelPath != null && typeof message.modelPath !== "string") {
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.invalidModelPath });
+        return;
+      }
+      const rawModelPath = (message.modelPath ?? "").trim();
       if (rawModelPath.length > MAIXPY_MODEL_PATH_MAX) {
         webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.modelPathTooLong });
         return;
@@ -1568,10 +1578,14 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Post the tool-specific status (not bare session_busy) so the Generate button un-sticks.
       if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.busy }); return; }
+      // Every exit from here on ALSO posts a tool status: session_error alone leaves the Generate
+      // button stuck on "Generating…" (the panel restores it only on its own status), and the
+      // session_error feed line is not on screen while the tool surface is open.
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
         webview.postMessage({ type: "session_done", terminal: "session_error" });
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.dispatchFailed });
         return;
       }
       if (vscode.authentication) {
@@ -1579,6 +1593,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         if (!jwt) {
           webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
           webview.postMessage({ type: "session_done", terminal: "session_error" });
+          webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.dispatchFailed });
           return;
         }
       }
@@ -1594,6 +1609,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // writable, and mkdir/delete may not leave sipeed_vision/. This is what keeps a stage-A
         // export from writing firmware/, project-manifest.json, or master-MCU receiver code.
         writeRestriction = { allowedPaths: [...MAIXPY_ARTIFACT_PATHS], subtree: MAIXPY_OUTPUT_ROOT };
+        // The envelope declares device_command:false and the product boundary forbids
+        // mpremote/esptool/flash/deploy — enforce it for the run instead of trusting the model.
+        denyDeviceCommands = true;
         const sessionId = randomUUID();
         const envelope = buildMaixpyExportDispatch({ sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), visionTaskType, modelPath });
         await controller.startPhase({ phase: MAIXPY_EXPORT_PHASE, envelope: JSON.stringify(envelope), label: "Sipeed vision export", locale: vscode.env?.language });
@@ -1615,8 +1633,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.dispatchFailed });
       } finally {
         // Clear the narrowing before anything else can run, even if the dispatch threw: a leaked
-        // restriction would silently block a normal build's firmware writes.
+        // restriction would silently block a normal build's firmware writes (or its device work).
         writeRestriction = null;
+        denyDeviceCommands = false;
         releaseRun();
       }
       return;
@@ -2087,7 +2106,7 @@ async function fetchToolchainVersion(apiBaseUrl: string, fetchImpl: typeof fetch
 
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; confirmDeviceDelete?: (devicePath: string) => Promise<boolean>; confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>; projectRoot?: string }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; confirmDeviceDelete?: (devicePath: string) => Promise<boolean>; confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>; denyDeviceCommands?: () => boolean; projectRoot?: string }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);

@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
-import { PLUGIN_DIRS } from "./plugin-dirs.mjs";
+import { MAINTENANCE_SCRIPTS, PLUGIN_DIRS } from "./plugin-dirs.mjs";
 
 // The VSIX vendor step, extracted from prepare-vsce.mjs so a test can run the REAL
 // selection logic against the real submodule instead of re-describing it. vsce can only
@@ -26,6 +26,7 @@ const EXCLUDE_DIRS = new Set(["test", "tests", "sample", "samples", "mock-messag
 function shouldSkip(relPosix) {
   const parts = relPosix.split("/");
   if (parts.some((p) => EXCLUDE_DIRS.has(p) || p === "_official_pending" || p.startsWith("_archive_"))) return true;
+  if (MAINTENANCE_SCRIPTS.includes(parts[parts.length - 1])) return true;
   return relPosix.endsWith(".md") || relPosix.endsWith(".pyc") || relPosix.endsWith(".csv") || relPosix.endsWith(".zip");
 }
 

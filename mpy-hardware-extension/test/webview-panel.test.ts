@@ -3470,6 +3470,9 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
           { id: "w3", name: "file_operation", input: { op: "write", path: "project-manifest.json", content: "{}" } },
           { id: "w4", name: "file_operation", input: { op: "mkdir", path: "firmware" } },
           { id: "w5", name: "file_operation", input: { op: "delete", path: "firmware" } },
+          // The envelope declares device_command:false and the tool must never touch a board.
+          { id: "w6", name: "device_command", input: { action: "scan" } },
+          { id: "w7", name: "device_command", input: { action: "ls", path: "/" } },
         ]),
         sseTurn([{
           id: "pc", name: "phase_complete",
@@ -3493,7 +3496,12 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
       return { ok: true, status: 200, text: async () => queue.shift() ?? sseTurn([{ id: "x", name: "phase_complete", input: { result: "success", next_phase: null } }]) } as unknown as Response;
     }) as unknown as typeof fetch;
 
-    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+    const deviceCalls: string[] = [];
+    const shim = {
+      scan: async () => { deviceCalls.push("scan"); return ["COM3"]; },
+      listDir: async () => { deviceCalls.push("listDir"); return ["boot.py"]; },
+    };
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
     // Pre-existing user files the export run must not be able to touch.
     mkdirSync(join(ws, "blockless-project", "firmware"), { recursive: true });
     writeFileSync(join(ws, "blockless-project", "firmware", "keep.py"), "user code");
@@ -3524,10 +3532,71 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
     // an English sentence. Mutation: post a `detail` sentence instead and this fails.
     assert.ok(posted.filter((m) => m.type === "sipeed_vision_status").every((m) => m.detail === undefined), "the host sends no UI prose");
 
+    // device_command:false is enforced, not just declared: neither device action reached the shim.
+    // Mutation: drop the denyDeviceCommands gate and "scan"/"listDir" show up here.
+    assert.deepEqual(deviceCalls, [], "an export run never drives the board");
+
     // The narrowing was run-scoped: a normal build after it writes firmware/ again. Mutation: leave
     // writeRestriction set (drop the finally clear) and this write is refused.
     await handler?.({ type: "start_session", intent: "blink an led", boardId: "esp32-s3-devkitc-1" });
     assert.ok(existsSync(join(proj, "firmware", "main.py")), "a later normal build can write firmware/ again");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("a second export run over a user-edited artifact goes through the overwrite confirm", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-maixpy2-"));
+  try {
+    const confirms: any[] = [];
+    let answer = "keep";
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "", html: "",
+        postMessage: (m: any) => {
+          if (m.type === "file_op_confirm_needed") {
+            confirms.push(m);
+            void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer });
+          }
+        },
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      // Turn 1 writes the artifact, turn 2 ends the phase. `messages` grows by 2 per turn, so its
+      // length identifies the turn without leaking state between the two runs.
+      const first = body.messages.length <= 1;
+      return { ok: true, status: 200, text: async () => (first
+        ? sseTurn([{ id: "w", name: "file_operation", input: { op: "write", path: "sipeed_vision/main.py", content: "# generated\n" } }])
+        : sseTurn([{ id: "pc", name: "phase_complete", input: { phase: "upy-maixpy-export-plugin", result: "success", summary: "ok", next_phase: null } }])) } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+    const mainPy = join(ws, "blockless-project", "sipeed_vision", "main.py");
+    await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection" });
+    assert.equal(readFileSync(mainPy, "utf-8"), "# generated\n", "the first run writes freely");
+    assert.deepEqual(confirms, [], "a first-time write never prompts");
+
+    // The user edits the generated file, then re-runs. Because the handler re-snapshots the tree
+    // per dispatch, that file is now PRE-EXISTING, so the overwrite gate fires and a decline keeps
+    // the user's edit. Mutation: hoist snapshotExistingPaths out of the handler (snapshot once per
+    // panel) and the second run silently overwrites with no confirm.
+    writeFileSync(mainPy, "# my edits\n");
+    await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection" });
+    assert.equal(confirms.length, 1, "the re-run asks before clobbering the edited file");
+    assert.match(String(confirms[0].path), /sipeed_vision[/\\]main\.py$/);
+    assert.equal(confirms[0].op, "overwrite");
+    assert.equal(readFileSync(mainPy, "utf-8"), "# my edits\n", "declining keeps the user's version");
+
+    // Accepting overwrites — the gate is a question, not a wall.
+    answer = "proceed";
+    await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection" });
+    assert.equal(confirms.length, 2);
+    assert.equal(readFileSync(mainPy, "utf-8"), "# generated\n", "accepting rewrites the artifact");
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }

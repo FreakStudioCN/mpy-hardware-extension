@@ -4,6 +4,8 @@ import test, { after } from "node:test";
 
 import { JSDOM } from "jsdom";
 
+import { MAIXPY_ARTIFACT_PATHS, MAIXPY_UART_BAUDRATE, MAIXPY_UART_PORT, MAIXPY_UART_RX_PIN, MAIXPY_UART_TX_PIN } from "../src/core/maixpy-export-schema.ts";
+
 // Loads the REAL shipped webview (index.html + its sibling webview.css + the
 // webview/components/*.js, assembled the same way readWebviewHtml() does) into jsdom and
 // drives it through window 'message' events, exactly as the extension host posts them.
@@ -4927,6 +4929,25 @@ test("Generate posts start_sipeed_vision with the pinned task and the typed mode
   assert.equal(posted.filter((m) => m.type === "start_sipeed_vision").length, 1, "no duplicate dispatch");
 });
 
+test("Generate leaves the tool surface for Activity, so the run and its confirms are visible", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), true, "a tool surface hides the feed");
+  (document.getElementById("svnGenerate") as HTMLButtonElement).click();
+  // A tool surface hides the feed AND the composer. A run left behind it shows nothing — and a
+  // re-run over files the user edited posts an overwrite confirm that renders into the feed and
+  // blocks until answered, so it MUST be on screen. Mutation: drop the closeGlobalTool()/setTab()
+  // pair from svnGenerate and the feed stays hidden here.
+  assert.equal(document.getElementById("toolSipeedVision")!.classList.contains("hidden"), true, "the tool surface closes");
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), false, "the feed is back on screen");
+  assert.equal(document.querySelector('.tab[data-tab="activity"]')!.classList.contains("active"), true, "Activity is the shown tab");
+  // The confirm card the host would post now lands somewhere the user can actually answer.
+  post(dom, { type: "file_op_confirm_needed", promptId: "file-overwrite-1", op: "overwrite", path: "sipeed_vision/main.py" });
+  assert.ok(document.getElementById("activity")!.textContent!.includes("sipeed_vision/main.py"), "the overwrite card is rendered in the visible feed");
+});
+
 test("every sipeed_vision_status outcome restores the button and localizes the host's reason code", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -4962,4 +4983,17 @@ test("an unknown reason code falls back to the generic line for its status, neve
   assert.match(line, /did not complete/, "falls back to the generic failed line");
   post(dom, { type: "sipeed_vision_status", status: "done" });
   assert.match(document.getElementById("svnStatus")!.textContent!, /Generated/, "a missing reason still reports the outcome");
+});
+
+test("the Sipeed surface tells the user exactly what the envelope pins", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  const shown = document.getElementById("toolSipeedVision")!.textContent!;
+  // The surface's UART line and file list are prose, while the envelope's values come from the
+  // schema constants. Assert the rendered text against those constants so the two cannot drift —
+  // telling the user 115200 while sending something else is a wiring bug the user pays for.
+  for (const pinned of [MAIXPY_UART_PORT, MAIXPY_UART_TX_PIN, MAIXPY_UART_RX_PIN, String(MAIXPY_UART_BAUDRATE), ...MAIXPY_ARTIFACT_PATHS]) {
+    assert.ok(shown.includes(pinned), `the surface must show the pinned value ${pinned}`);
+  }
 });

@@ -40,6 +40,11 @@ type BuildDeps = {
   // cp_from only when its host destination pre-exists (the wiring supplies that check).
   confirmDeviceDelete?: (devicePath: string) => Promise<boolean>;
   confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>;
+  // True while a run that declared capabilities.device_command:false is in flight (the Sipeed
+  // MaixPy export tool). Read per call, not per loop: the host installs it for that run only.
+  // Without it the declaration is a wire claim the host does not enforce, so one hallucinated
+  // device_command would still drive mpremote from a tool whose whole premise is "no device".
+  denyDeviceCommands?: () => boolean;
   projectRoot?: string;
 };
 
@@ -73,6 +78,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
   // exercised against real hardware (the e2e harness mocks it).
   const firmwareActions = new Set(["flash_firmware", "download_firmware", "download_and_flash", "use_local_firmware", "firmware_flash"]);
   const device = async (action: string, payload: any) => {
+    if (deps.denyDeviceCommands?.()) return { ok: false, error_kind: "device_command_not_permitted", stderr: action };
     if (firmwareActions.has(action)) return { ok: false, error_kind: "firmware_action_requires_script_run", stderr: action };
     if (!shim) return { ok: false, error_kind: "device_unavailable" };
     try {
