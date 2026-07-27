@@ -3423,3 +3423,139 @@ test("git_history_open: WI-3 associates a commit with the session snapshot saved
     assert.equal(commit.snapshot.artifact_total, 1);
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
+
+// ----- Sipeed vision-module export (MaixPy) global tool -----
+
+// One SSE turn made of N tool_use blocks. The panel tests' fetch stub returns { text() }, so this
+// yields the raw stream body the sse-client parses.
+function sseTurn(blocks: Array<{ id: string; name: string; input: any }>) {
+  const events: string[] = [];
+  for (const b of blocks) {
+    events.push(JSON.stringify({ type: "content_block_start", content_block: { type: "tool_use", id: b.id, name: b.name } }));
+    events.push(JSON.stringify({ type: "content_block_delta", delta: { type: "input_json_delta", partial_json: JSON.stringify(b.input) } }));
+    events.push(JSON.stringify({ type: "content_block_stop" }));
+  }
+  events.push(JSON.stringify({ type: "message_stop" }));
+  return events.map((d) => `data: ${d}`).join("\n\n");
+}
+
+test("start_sipeed_vision dispatches the export phase and confines its writes to sipeed_vision/", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-maixpy-"));
+  try {
+    const posted: any[] = [];
+    const llmBodies: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = {
+      webview: {
+        cspSource: "", html: "",
+        postMessage: (m: any) => {
+          posted.push(m);
+          // Auto-decline the destructive-file card. A confined export run never reaches that gate
+          // (the forbidden paths are refused before it), so this only matters when the confinement
+          // regresses: the answer arrives, the run finishes, and the assertions below fail —
+          // instead of the test blocking forever on an unanswered prompt.
+          if (m.type === "file_op_confirm_needed") void handler?.({ type: "ui_prompt_response", promptId: m.promptId, answer: "keep" });
+        },
+        onDidReceiveMessage: (n: any) => { handler = n; },
+      },
+    };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel" } };
+    // The scripted run tries to write BOTH its own artifact and the files stage A forbids
+    // (firmware code + the project manifest), then reports success.
+    const turns: Record<string, string[]> = {
+      "upy-maixpy-export-plugin": [
+        sseTurn([
+          { id: "w1", name: "file_operation", input: { op: "write", path: "sipeed_vision/main.py", content: "from maix import camera\n" } },
+          { id: "w2", name: "file_operation", input: { op: "write", path: "firmware/receiver.py", content: "# master MCU code\n" } },
+          { id: "w3", name: "file_operation", input: { op: "write", path: "project-manifest.json", content: "{}" } },
+          { id: "w4", name: "file_operation", input: { op: "mkdir", path: "firmware" } },
+          { id: "w5", name: "file_operation", input: { op: "delete", path: "firmware" } },
+        ]),
+        sseTurn([{
+          id: "pc", name: "phase_complete",
+          input: { phase: "upy-maixpy-export-plugin", result: "success", summary: "generated", next_phase: null, artifacts: [{ type: "file", path: "sipeed_vision/main.py" }] },
+        }]),
+      ],
+      // A normal build afterwards: it must be able to write firmware/ again (the narrowing was
+      // for the export run only).
+      "analyze": [
+        sseTurn([{ id: "a1", name: "file_operation", input: { op: "write", path: "firmware/main.py", content: "# normal build\n" } }]),
+        sseTurn([{ id: "a2", name: "phase_complete", input: { phase: "analyze", result: "success", summary: "ok", next_phase: null } }]),
+      ],
+    };
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      assert.match(url, /\/v1\/llm\/messages$/);
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      llmBodies.push(body);
+      const queue = turns[body.phase];
+      assert.ok(queue, `unexpected phase ${body.phase}`);
+      return { ok: true, status: 200, text: async () => queue.shift() ?? sseTurn([{ id: "x", name: "phase_complete", input: { result: "success", next_phase: null } }]) } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+    // Pre-existing user files the export run must not be able to touch.
+    mkdirSync(join(ws, "blockless-project", "firmware"), { recursive: true });
+    writeFileSync(join(ws, "blockless-project", "firmware", "keep.py"), "user code");
+    await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: "/root/models/yolo11n.mud" });
+
+    // The dispatched envelope is the export phase, sent as the run's first user message.
+    const exportBody = llmBodies.find((b) => b.phase === "upy-maixpy-export-plugin");
+    assert.ok(exportBody, "the run dispatches phase=upy-maixpy-export-plugin");
+    const envelope = JSON.parse(String(exportBody.messages[0].content));
+    assert.equal(envelope.phase, "upy-maixpy-export-plugin");
+    assert.equal(envelope.payload.target_runtime, "maixpy");
+    assert.equal(envelope.payload.target_device, "maixcam_pro");
+    assert.equal(envelope.payload.output_root, "sipeed_vision");
+    assert.deepEqual(envelope.payload.vision_task, { type: "yolo_detection", model_path: "/root/models/yolo11n.mud", uart_output: true });
+    // It never chains: the export phase is the only phase this run drove.
+    assert.deepEqual([...new Set(llmBodies.map((b) => b.phase))], ["upy-maixpy-export-plugin"]);
+
+    // Only the allowlisted artifact landed; the forbidden writes were refused and the pre-existing
+    // firmware tree survived the delete attempt. Mutation: drop the writeRestriction assignment and
+    // firmware/receiver.py + project-manifest.json appear, and keep.py is gone.
+    const proj = join(ws, "blockless-project");
+    assert.ok(existsSync(join(proj, "sipeed_vision", "main.py")), "the export artifact is written");
+    assert.equal(existsSync(join(proj, "firmware", "receiver.py")), false, "master-MCU code is refused");
+    assert.equal(existsSync(join(proj, "project-manifest.json")), false, "the project manifest is refused");
+    assert.ok(existsSync(join(proj, "firmware", "keep.py")), "the user's firmware tree survives the delete");
+    assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "done"), "a terminal status restores the button");
+
+    // The narrowing was run-scoped: a normal build after it writes firmware/ again. Mutation: leave
+    // writeRestriction set (drop the finally clear) and this write is refused.
+    await handler?.({ type: "start_session", intent: "blink an led", boardId: "esp32-s3-devkitc-1" });
+    assert.ok(existsSync(join(proj, "firmware", "main.py")), "a later normal build can write firmware/ again");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("start_sipeed_vision host-refuses an unlisted task, a bad model path, and a missing workspace", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  // No workspace folder and no globalStoragePath -> projectFolder is undefined.
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: undefined }, window: { createWebviewPanel: () => panel } };
+  const fetchImpl = (async () => { throw new Error("no run may start"); }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+
+  // An un-pinned task family (dep on the upstream token list) never reaches body.phase. Mutation:
+  // pass message.visionTaskType straight into the envelope and this stops failing.
+  await handler?.({ type: "start_sipeed_vision", visionTaskType: "face_recognition" });
+  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && /isn't supported yet/.test(m.detail)), "an unlisted task is refused");
+
+  // A traversal model path is refused rather than sanitized into something else.
+  posted.length = 0;
+  await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: "/root/models/../../etc/passwd" });
+  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && /model path isn't valid/.test(m.detail)), "a traversal model path is refused");
+
+  // Over the length cap is refused, not truncated to a different path.
+  posted.length = 0;
+  await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: "/root/models/" + "a".repeat(300) + ".mud" });
+  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && /too long/.test(m.detail)), "an over-long model path is refused");
+
+  // A valid request with no workspace stops before any run.
+  posted.length = 0;
+  await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection" });
+  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && /workspace folder/.test(m.detail)), "no workspace is refused before dispatch");
+});

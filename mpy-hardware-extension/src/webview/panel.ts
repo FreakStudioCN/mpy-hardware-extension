@@ -15,6 +15,7 @@ import { deriveDiagram } from "../core/diagram-derive.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
 import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
+import { buildMaixpyExportDispatch, normalizeVisionTaskType, MAIXPY_ARTIFACT_PATHS, MAIXPY_EXPORT_PHASE, MAIXPY_OUTPUT_ROOT } from "../core/maixpy-export-schema.ts";
 import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildCreditsRequestMailto, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale, sliceCodePoints } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
@@ -27,7 +28,7 @@ import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder 
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { postWelcomeEvent } from "../extension/web-telemetry.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
-import { canonicalPathKey, deleteProjectPath, isRealContained, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile } from "../extension/workspace-writer.ts";
+import { canonicalPathKey, deleteProjectPath, isRealContained, sanitizeDevicePath, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile, type WriteRestriction } from "../extension/workspace-writer.ts";
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
@@ -111,6 +112,10 @@ const GIT_HISTORY_COMMITS_MAX = 50; // newest-first timeline cap; commitTotal ca
 // active. Posted via the flow-specific status so the trigger button restores (message-bus.js
 // restores those buttons only on their own status, never on bare session_busy).
 const RUN_BUSY_DETAIL = "A build is already running — try again once it finishes.";
+// A MaixCAM-side model path (e.g. /root/models/yolo11n.mud) the user types in. Long enough for a
+// real path, short enough that a pasted blob never reaches the envelope; over the cap is refused
+// rather than truncated, so the run never quietly points at a different file than the user typed.
+const MAIXPY_MODEL_PATH_MAX = 200;
 
 // Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
 // timeout, never throws — a headless/missing tool yields "unknown".
@@ -429,6 +434,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // start_session before the loop writes anything (see snapshotExistingPaths).
   const preExistingPaths = new Set<string>();
   const isPreExisting = (p: string) => preExistingPaths.has(canonicalPathKey(p));
+  // Fixed-output run (Sipeed MaixPy export): while set, the loop's file tools may write ONLY
+  // allowedPaths and may create/delete only inside `subtree`. Installed immediately before that
+  // run's startPhase and cleared in its finally, so a normal build is never narrowed. Late-bound
+  // like confirmFileOp below: the writer/deleter/mkdir closures are built once (they capture this
+  // getter) but read the live value per call.
+  let writeRestriction: WriteRestriction | null = null;
+  const getWriteRestriction = () => writeRestriction;
   // The destructive-file confirm is shown as an in-panel card by the controller (deliverables
   // 07 §4). Late-bound: the writer/deleter capture these stable closures now, but the real
   // controller.confirmFileOp is wired in after the controller exists (below). Until then (and
@@ -478,7 +490,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       webview.postMessage(message);
     },
-    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete), confirmDeviceDelete: async (p: string) => (await confirmDelete("device:" + p)) && (await confirmDeviceErase("device:" + p)), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, projectRoot: projectFolder }),
+    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite, getWriteRestriction), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder, getWriteRestriction), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete, getWriteRestriction), confirmDeviceDelete: async (p: string) => (await confirmDelete("device:" + p)) && (await confirmDeviceErase("device:" + p)), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, projectRoot: projectFolder }),
     // Stop must hard-interrupt an in-flight device op, not just abort the loop signal
     // (deliverables 07 §4). shim.kill() dies the blocked mpremote/script now and frees
     // the serial lock; idempotent, so a Stop with nothing in flight is a no-op.
@@ -1513,6 +1525,87 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } finally { releaseRun(); }
       return;
     }
+    if (message.type === "start_sipeed_vision") {
+      // Sipeed vision-module export: a STANDALONE global tool. It dispatches its own start_phase
+      // through the same excursion path as the optional flows, but with no upstream-generate gate
+      // (nothing precedes it) and no device work at all — it must never enter the
+      // select-hw/flash/scaffold/generate/deploy chain, and never touch mpremote/esptool.
+      // Trust boundary (register #1): the webview's task string is allowlist-mapped here, and the
+      // model path is sanitized here, before either reaches the envelope.
+      const visionTaskType = normalizeVisionTaskType(message.visionTaskType);
+      if (!visionTaskType) {
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: "That vision task isn't supported yet — stage A generates YOLO detection." });
+        return;
+      }
+      const rawModelPath = String(message.modelPath ?? "").trim();
+      if (rawModelPath.length > MAIXPY_MODEL_PATH_MAX) {
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: "That model path is too long — use the path on the MaixCAM, e.g. /root/models/yolo11n.mud." });
+        return;
+      }
+      // Reuses the device-path sanitizer: this is a path on the MaixCAM (POSIX, may be absolute),
+      // not a host path, and traversal / backslashes / NUL must never reach the generated code.
+      const modelPath = rawModelPath ? sanitizeDevicePath(rawModelPath) : null;
+      if (rawModelPath && !modelPath) {
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: "That model path isn't valid — use the path on the MaixCAM, e.g. /root/models/yolo11n.mud." });
+        return;
+      }
+      if (!projectFolder) {
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: `Open a workspace folder to generate ${MAIXPY_OUTPUT_ROOT}/.` });
+        return;
+      }
+      // Post the tool-specific status (not bare session_busy) so the Generate button un-sticks.
+      if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; }
+      const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
+      if (registry.warning === "protocol_version_mismatch") {
+        webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
+        webview.postMessage({ type: "session_done", terminal: "session_error" });
+        return;
+      }
+      if (vscode.authentication) {
+        const jwt = await auth.getToken(true, { forceRefresh: true });
+        if (!jwt) {
+          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
+          webview.postMessage({ type: "session_done", terminal: "session_error" });
+          return;
+        }
+      }
+      await ensureProjectGitRepo(projectFolder, deps.log);
+      const releaseRun = await beginRun();
+      if (!releaseRun) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; } // a save slipped in during the pre-run awaits
+      try {
+        // Re-snapshot per dispatch: the files a PREVIOUS export run wrote are pre-existing now, so
+        // a retry that would clobber a main.py the user has since edited hits the overwrite guard
+        // instead of silently overwriting it.
+        snapshotExistingPaths(projectFolder, preExistingPaths);
+        // Narrow the loop's file tools for this run only: exactly the two artifact paths are
+        // writable, and mkdir/delete may not leave sipeed_vision/. This is what keeps a stage-A
+        // export from writing firmware/, project-manifest.json, or master-MCU receiver code.
+        writeRestriction = { allowedPaths: [...MAIXPY_ARTIFACT_PATHS], subtree: MAIXPY_OUTPUT_ROOT };
+        const sessionId = randomUUID();
+        const envelope = buildMaixpyExportDispatch({ sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), visionTaskType, modelPath });
+        await controller.startPhase({ phase: MAIXPY_EXPORT_PHASE, envelope: JSON.stringify(envelope), label: "Sipeed vision export", locale: vscode.env?.language });
+        // Always post a terminal status so the Generate button restores. A partial is a legitimate
+        // outcome here (the Skill returns link-only guidance when a reference isn't codegen-ready),
+        // so it is reported as its own state, not as a failure.
+        const runResult = controller.getLastPhaseComplete()?.result;
+        if (runResult === "success") {
+          webview.postMessage({ type: "sipeed_vision_status", status: "done", detail: `Generated ${MAIXPY_ARTIFACT_PATHS.join(" and ")}.` });
+        } else if (runResult === "partial") {
+          webview.postMessage({ type: "sipeed_vision_status", status: "partial", detail: "Partly generated — see the run summary for what needs doing by hand." });
+        } else {
+          webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: "The export run did not complete — retry to generate it." });
+        }
+        refreshArtifacts();
+      } catch (error: any) {
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: error?.message ?? "Sipeed vision dispatch failed" });
+      } finally {
+        // Clear the narrowing before anything else can run, even if the dispatch threw: a leaked
+        // restriction would silently block a normal build's firmware writes.
+        writeRestriction = null;
+        releaseRun();
+      }
+      return;
+    }
     if (message.type === "pick_gen_driver_file") {
       // The host owns the file dialog; return the path plus integrity metadata so the
       // source payload records what was uploaded (sha256 lets the plugin dedupe/verify).
@@ -2020,6 +2113,7 @@ function makeWorkspaceWriter(
   workspaceFolder: string | undefined,
   isPreExisting: (target: string) => boolean,
   confirmOverwrite: (target: string) => Promise<boolean>,
+  getRestriction: () => WriteRestriction | null = () => null,
 ) {
   if (!workspaceFolder) return undefined;
   return (relPath: string, content: string) =>
@@ -2027,6 +2121,10 @@ function makeWorkspaceWriter(
       workspaceFolder,
       path: relPath,
       content,
+      // Read per write, not per closure: a fixed-output run (Sipeed MaixPy export) installs the
+      // restriction just before its startPhase and clears it in finally, so the same writer is
+      // narrow during that run and normal outside it.
+      allowedPaths: getRestriction()?.allowedPaths,
       // Prompt only when clobbering a still-present pre-existing user file (deliverables 07
       // §4). New and session-created files write silently, so iterative codegen (which
       // rewrites its own output on gate retries) is never spammed with a confirm.
@@ -2067,12 +2165,18 @@ function makeWorkspaceLister(workspaceFolder?: string) {
 
 // file_operation(mkdir) backing: creates a project-tree directory (recursive).
 // Same containment as makeWorkspaceReader — a path escaping the root is refused.
-function makeWorkspaceMkdir(workspaceFolder?: string) {
+function makeWorkspaceMkdir(workspaceFolder?: string, getRestriction: () => WriteRestriction | null = () => null) {
   if (!workspaceFolder) return undefined;
   const root = resolve(workspaceFolder);
   return async (relPath: string) => {
     const target = resolve(root, relPath);
     if (!isRealContained(root, target)) {
+      return { ok: false as const, error_kind: "path_outside_workspace" };
+    }
+    // A fixed-output run may only create dirs inside its own output subtree — otherwise it could
+    // still materialize firmware/ and friends, which the write allowlist exists to prevent.
+    const restriction = getRestriction();
+    if (restriction && !isRealContained(resolve(root, restriction.subtree), target)) {
       return { ok: false as const, error_kind: "path_outside_workspace" };
     }
     try { await mkdir(target, { recursive: true }); return { ok: true as const }; }
@@ -2089,6 +2193,7 @@ function makeWorkspaceDeleter(
   workspaceFolder: string | undefined,
   isPreExisting: (target: string) => boolean,
   confirmDelete: (target: string) => Promise<boolean>,
+  getRestriction: () => WriteRestriction | null = () => null,
 ) {
   if (!workspaceFolder) return undefined;
   return (relPath: string) =>
@@ -2096,6 +2201,9 @@ function makeWorkspaceDeleter(
       workspaceFolder,
       path: relPath,
       removePath: (target) => rm(target, { recursive: true, force: true }),
+      // Same late binding as the writer: during a fixed-output run the recursive delete may not
+      // leave that run's own output subtree.
+      restrictToSubtree: getRestriction()?.subtree,
       // Confirm only for a still-present pre-existing user file (deliverables 07 §4); the
       // build's own scratch (e.g. firmware/tools/ removed before the mpy_imports gate) is
       // session-created, not in the start snapshot, so it deletes silently.
