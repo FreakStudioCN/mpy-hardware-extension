@@ -335,6 +335,16 @@
       .sv-msg-label { display: block; font-size: 11px; opacity: .8; margin: 6px 0 3px; }
       .sv-actions { display: flex; gap: 8px; margin-top: 8px; }
       .sv-actions .sv-commit, .sv-actions .sv-snapshot { background: var(--accent, #2f6feb); color: #fff; border-color: transparent; }
+      /* Sipeed vision export surface: a short read-only spec (task / UART / target files) plus the
+         one optional input. Reuses the Device Tools input + action button styling. */
+      .svn-intro { font-size: 12px; opacity: .85; margin: 0 0 10px; }
+      .svn-row { display: flex; gap: 8px; font-size: 12px; padding: 2px 0; }
+      .svn-label { flex: 0 0 40%; opacity: .75; }
+      .svn-value { flex: 1; font-family: var(--mono); word-break: break-word; }
+      .svn-field { display: block; margin: 10px 0 4px; }
+      .svn-field .svn-label { display: block; flex: none; margin-bottom: 3px; }
+      .svn-field .dt-input { width: 100%; box-sizing: border-box; }
+      .svn-note { font-size: 11px; opacity: .7; margin: 0 0 10px; }
       /* Save Version summary sections: resume/session state (KV), plus collapsible artifacts + diagnostics. */
       .sv-section { margin: 8px 0; }
       .sv-kv-row { display: flex; gap: 8px; font-size: 12px; padding: 1px 0; }

@@ -4888,3 +4888,68 @@ test("a purchase link's own search query is shown, labeled by its vendor, and co
   ([...bom.querySelectorAll(".bom-copy")][1] as HTMLButtonElement).click();
   assert.equal(onlyPosted(posted, "copy_code").text, "Freenove AHT20 kit", "copy hands the host that link's own query");
 });
+
+// ----- Sipeed vision-module export (MaixPy) global tool surface -----
+
+test("the Sipeed Vision gtool button opens its own surface (registered in GLOBAL_TOOL_SURFACES)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  // Silent-blank guard: the click only un-hides the surface when it is registered — a missing
+  // GLOBAL_TOOL_SURFACES entry leaves the panel blank with no error. Mutation: drop the entry and
+  // this fails.
+  assert.equal(document.getElementById("toolSipeedVision")!.classList.contains("hidden"), false, "the Sipeed Vision surface opens");
+  assert.equal(document.getElementById("toolGitHistory")!.classList.contains("hidden"), true, "a sibling tool surface is hidden");
+  // Opening only resets the form: no run is dispatched until the user clicks Generate.
+  assert.equal(posted.filter((m) => m.type === "start_sipeed_vision").length, 0, "opening the surface starts no run");
+  // The Save Version status line is a sibling panel's node — opening this tool must not touch it
+  // (the components share one script scope, so a redeclared sv* helper would hijack it).
+  assert.equal(document.getElementById("svStatus")!.textContent, "", "the Save Version status line is untouched");
+});
+
+test("Generate posts start_sipeed_vision with the pinned task and the typed model path, then locks the button", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  (document.getElementById("svnModelPath") as HTMLInputElement).value = "  /root/models/yolo11n.mud  ";
+  const btn = document.getElementById("svnGenerate") as HTMLButtonElement;
+  btn.click();
+  const start = posted.filter((m) => m.type === "start_sipeed_vision");
+  assert.equal(start.length, 1);
+  assert.equal(start[0].visionTaskType, "yolo_detection", "stage A pins the one task token the plugin defines");
+  assert.equal(start[0].modelPath, "/root/models/yolo11n.mud", "the model path is trimmed");
+  // A second click while the run is in flight must not queue a duplicate dispatch. Mutation: drop
+  // the svRunning guard (or the disable) and a second start_sipeed_vision appears.
+  assert.equal(btn.disabled, true, "the button locks for the duration of the run");
+  btn.click();
+  assert.equal(posted.filter((m) => m.type === "start_sipeed_vision").length, 1, "no duplicate dispatch");
+});
+
+test("every sipeed_vision_status outcome restores the button and shows the host's detail", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  const btn = document.getElementById("svnGenerate") as HTMLButtonElement;
+  for (const [status, detail] of [["done", "Generated sipeed_vision/main.py and sipeed_vision/README.md."], ["partial", "Partly generated."], ["failed", "A build is already running."]]) {
+    btn.click();
+    assert.equal(btn.disabled, true, `${status}: locked while running`);
+    post(dom, { type: "sipeed_vision_status", status, detail });
+    // Mutation: stop clearing the running flag on a non-"done" status and the button stays stuck
+    // for the rest of the session.
+    assert.equal(btn.disabled, false, `${status}: the button restores`);
+    assert.equal(document.getElementById("svnStatus")!.textContent, detail, `${status}: the host detail is shown`);
+  }
+});
+
+test("a status detail is rendered as text, never as markup", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  post(dom, { type: "sipeed_vision_status", status: "failed", detail: "<img src=x onerror=alert(1)> broke" });
+  assert.equal(document.querySelector("#svnStatus img"), null, "no element is created from the detail");
+  assert.ok(document.getElementById("svnStatus")!.textContent!.includes("broke"), "it shows as literal text");
+});

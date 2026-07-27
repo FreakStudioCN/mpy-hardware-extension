@@ -40,7 +40,7 @@
       // The global-tools bar stays visible when a tool opens (switch tools without
       // going Back); only the workflow surfaces below it hide.
       const GLOBAL_TOOL_HIDES = ["#tabs", ".tabwrap", ".composer"];
-      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent", "toolDeviceTools", "toolSaveVersion", "toolGitHistory"];
+      const GLOBAL_TOOL_SURFACES = ["toolGenDriver", "toolSupport", "toolRecent", "toolDeviceTools", "toolSaveVersion", "toolGitHistory", "toolSipeedVision"];
       // Mark the bar circle whose data-tool matches the open surface as selected (a
       // tool opened from the home area, e.g. toolRecent, matches no circle — none active).
       function setActiveGtool(id) {
@@ -78,6 +78,11 @@
       // Git History (#94): its own read-only surface — open it and ask the host for the timeline.
       $("gitHistoryOpen").addEventListener("click", () => { openGlobalTool("toolGitHistory"); ghOnOpen(); });
       $("gitHistoryBack").addEventListener("click", closeGlobalTool);
+      // Sipeed vision export: a standalone tool surface. Opening it only resets the form — nothing
+      // is requested from the host and nothing is written until the user clicks Generate.
+      $("sipeedVisionOpen").addEventListener("click", () => { openGlobalTool("toolSipeedVision"); svnOnOpen(); });
+      $("sipeedVisionBack").addEventListener("click", closeGlobalTool);
+      $("svnGenerate").addEventListener("click", svnGenerate);
       // Global-tools overflow: any number of circle tools fit — the row scrolls and the
       // chevrons show only when it clips (recomputed on scroll/resize).
       const gtoolsTrack = $("globalTools");
