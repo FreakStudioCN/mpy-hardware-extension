@@ -3636,8 +3636,10 @@ test("a protocol-version block un-sticks every on-demand flow's own button, not 
     assert.equal(sipeed.length, 1);
     assert.equal(sipeed[0].status, "failed");
     // Not "busy": the cause was the protocol gate, and a wrong reason sends the user hunting for a
-    // running build that does not exist.
-    assert.equal(sipeed[0].reason, "dispatch_failed");
+    // running build that does not exist. "blocked" points at the session_error in Activity instead
+    // of advising a retry that cannot succeed. Mutation: collapse the busy/blocked distinction and
+    // this fails.
+    assert.equal(sipeed[0].reason, "blocked");
 
     posted.length = 0;
     await handler?.({ type: "start_gen_driver", sources: [{ type: "chip_model", metadata: { chip_model: "SHT30" } }] });

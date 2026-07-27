@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { canonicalPathKey, deleteProjectPath, snapshotExistingPaths, writeProjectFile, normalizeGeneratedArtifactPath } from "../src/extension/workspace-writer.ts";
+import { canonicalPathKey, deleteProjectPath, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile, normalizeGeneratedArtifactPath } from "../src/extension/workspace-writer.ts";
 
 function capturingWriter() {
   const writes = new Map<string, string>();
@@ -280,4 +280,37 @@ test("a restricted run's delete cannot leave its own subtree", async () => {
     assert.equal(result.ok, true, path);
     assert.equal(removed.length, 1, path);
   }
+});
+
+
+test("the post-loop batch writer honors a restricted run's allowlist too", async () => {
+  // writeProjectFile is not the only lane into the project tree: the post-loop batch writes
+  // whatever the run reported as files. Confinement has to be a property of the RUN, not of which
+  // lane the write took. Mutation: drop allowedPaths from writeGeneratedFiles and main.py is
+  // written despite the restriction.
+  const allowedPaths = ["sipeed_vision/main.py"];
+  const { writes, writeFile } = capturingWriter();
+  const result = await writeGeneratedFiles({
+    workspaceFolder: "/ws/project",
+    files: { "main.py": "print('x')" },
+    allowedPaths,
+    exists: async () => false,
+    writeFile,
+    confirmOverwrite: async () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "invalid_generated_path");
+  assert.equal(writes.size, 0);
+
+  // The listed path still goes through.
+  const ok = await writeGeneratedFiles({
+    workspaceFolder: "/ws/project",
+    files: { "sipeed_vision/main.py": "from maix import camera" },
+    allowedPaths,
+    exists: async () => false,
+    writeFile,
+    confirmOverwrite: async () => true,
+  });
+  assert.equal(ok.ok, true);
+  assert.deepEqual([...writes.keys()], ["/ws/project/sipeed_vision/main.py"]);
 });

@@ -4991,6 +4991,19 @@ test("every sipeed_vision_status outcome restores the button and localizes the h
   }
 });
 
+test("a blocked refusal points at the real error instead of advising a retry", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  (document.getElementById("svnGenerate") as HTMLButtonElement).click();
+  // A protocol/auth block posts its own session_error into the (hidden) feed. Telling the user to
+  // retry would send them in circles; the line has to name where the reason is. Mutation: map the
+  // blocked refusal back to dispatch_failed and this fails.
+  post(dom, { type: "sipeed_vision_status", status: "failed", reason: "blocked" });
+  assert.match(document.getElementById("svnStatus")!.textContent!, /see the error in Activity/);
+});
+
 test("an unknown reason code falls back to the generic line for its status, never the raw token", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

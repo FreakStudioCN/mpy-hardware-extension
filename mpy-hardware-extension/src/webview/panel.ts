@@ -115,6 +115,7 @@ const SIPEED_VISION_REASON = {
   modelPathTooLong: "model_path_too_long",
   workspaceUnavailable: "workspace_unavailable",
   busy: "busy",
+  blocked: "blocked",
   generated: "generated",
   partial: "partial",
   incomplete: "incomplete",
@@ -524,6 +525,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       const result = await writeGeneratedFiles({
         workspaceFolder: projectFolder,
         files,
+        // The loop writes through writeProjectFile, but this post-loop batch is a second lane into
+        // the same tree — narrow it with the same run-scoped allowlist so the confinement is a
+        // property of the run, not of which lane happened to be used.
+        allowedPaths: getWriteRestriction()?.allowedPaths,
         exists: async (path) => existsSync(path),
         writeFile: async (path, content) => {
           await mkdir(dirname(path), { recursive: true });
@@ -1588,7 +1593,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Post the tool-specific status (not bare session_busy) so the Generate button un-sticks.
       if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.busy }); return; }
-      const releaseRun = await beginFlowRun(projectFolder, (refusal) => webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: refusal === "busy" ? SIPEED_VISION_REASON.busy : SIPEED_VISION_REASON.dispatchFailed }));
+      const releaseRun = await beginFlowRun(projectFolder, (refusal) => webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: refusal === "busy" ? SIPEED_VISION_REASON.busy : SIPEED_VISION_REASON.blocked }));
       if (!releaseRun) return;
       try {
         // Re-snapshot per dispatch: the files a PREVIOUS export run wrote are pre-existing now, so

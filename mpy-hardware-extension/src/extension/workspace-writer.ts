@@ -105,6 +105,8 @@ export async function writeGeneratedFiles(input: {
   workspaceFolder?: string;
   generatedRoot?: string;
   files: Record<string, string>;
+  // Fixed-output run: the ONLY writable paths for its duration (see normalizeGeneratedArtifactPath).
+  allowedPaths?: readonly string[];
   exists: (path: string) => Promise<boolean>;
   writeFile: (path: string, content: string) => Promise<void>;
   confirmOverwrite: (path: string) => Promise<boolean>;
@@ -112,7 +114,7 @@ export async function writeGeneratedFiles(input: {
   const paths: string[] = [];
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   for (const [name, content] of Object.entries(input.files)) {
-    const safeName = normalizeGeneratedArtifactPath(name);
+    const safeName = normalizeGeneratedArtifactPath(name, input.allowedPaths ? { allowedPaths: input.allowedPaths } : {});
     if (!safeName) {
       return { ok: false, error_kind: "invalid_generated_path", path: name };
     }
