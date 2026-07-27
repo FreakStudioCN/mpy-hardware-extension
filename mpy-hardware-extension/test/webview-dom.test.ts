@@ -4547,7 +4547,8 @@ test("git_history_status maps taxonomy to the blocked view (git unavailable) / i
 const YOURCEE_QUERY = "AHT20 温湿度传感器模块";
 const YOURCEE_SITE_ENTRY = {
   region: "cn", vendor: "Yourcee", url: "https://www.yourcee.com/cpzl",
-  link_type: "site_entry", search_query: YOURCEE_QUERY, confidence: "medium", notes: "",
+  link_type: "site_entry", search_query: YOURCEE_QUERY, confidence: "medium",
+  notes: "Open YourCee product data entry and search this query manually.",
 };
 function bomItem(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

@@ -173,6 +173,8 @@
       function bomText(v) { return typeof v === "string" && v.trim() ? v.trim() : ""; }
       // Label for one purchase_links[] entry. A site_entry is a vendor landing page, not a
       // product page, so it reads as "search on the vendor site" — never as a buy link.
+      // Returns RAW text (a Skill-authored vendor name can flow through tr()); callers MUST
+      // esc() the result before any innerHTML sink. bomLinkButton, its only caller, does.
       function bomLinkLabel(link) {
         const vendor = bomText(link.vendor);
         if (link.link_type === "site_entry") {
