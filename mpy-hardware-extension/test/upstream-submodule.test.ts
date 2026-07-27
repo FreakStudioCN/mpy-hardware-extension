@@ -43,6 +43,7 @@ test("V0 plugin scripts the run_v0 host runner resolves + the packager bundles a
     "upy-generate-plugin/scripts/run_quality_gates.py",
     "upy-generate-plugin/scripts/common.py",
     "upy-deploy-plugin/scripts/deploy_manifest.py",
+    "upy-maixpy-export-plugin/scripts/validate_maixpy_export.py",
   ];
   for (const rel of required) {
     assert.ok(existsSync(join(upstream, rel)), `missing V0 plugin script: ${rel}`);

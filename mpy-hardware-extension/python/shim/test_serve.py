@@ -380,3 +380,15 @@ if __name__ == "__main__":
                 print(f"FAIL {name}: {exc}")
     print(f"\n{('ALL PASS' if not failures else str(failures) + ' FAILED')}")
     sys.exit(1 if failures else 0)
+
+
+def test_resolve_finds_the_maixpy_export_validator():
+    # The Sipeed export SKILL invokes validate_maixpy_export.py by its bare name. Unless the plugin
+    # dir is indexed here (and bundled by prepare-vsce), every export run fails script_not_found in
+    # a packaged install while dev still works. Mutation: drop upy-maixpy-export-plugin from
+    # _V0_PLUGIN_DIRS and this resolves to None.
+    path = serve.resolve_v0_script("validate_maixpy_export.py")
+    assert path and os.path.isfile(path), path
+    assert "upy-maixpy-export-plugin" in path.replace("\\", "/"), path
+    # Unique basename across the bundled plugins -> exactly one candidate, so no qualifier needed.
+    assert len(serve._v0_script_candidates("validate_maixpy_export.py")) == 1

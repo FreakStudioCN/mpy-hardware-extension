@@ -138,6 +138,9 @@ _V0_PLUGIN_DIRS = (
     "upy-gen-driver-plugin",
     "upy-wiring-plugin",
     "upy-diagram-plugin",
+    # Sipeed MaixPy export (standalone global tool). Its script basenames are unique across the
+    # bundled plugins, so they resolve bare.
+    "upy-maixpy-export-plugin",
     "shared-plugin-scripts",
     # Toolchain-spec scripts (validate_json.py) — wiring/diagram SKILLs invoke the schema check by name.
     "upy-project-gen-toolchain-spec",

@@ -39,7 +39,7 @@ if (!existsSync(upstreamRoot)) {
 }
 const destRoot = join("third_party", "MicroPython_Skills");
 
-// Which dirs/files make up the subset (and why) lives in vendor-plugin-subset.mjs so the
-// packaged-runtime test can run the same selection against the real submodule.
+// The selection logic lives in vendor-plugin-subset.mjs (the dir list in plugin-dirs.mjs)
+// so the packaged-runtime test can run the same selection against the real submodule.
 const vendored = vendorPluginSubset(upstreamRoot, destRoot);
 console.log(`Vendored ${vendored} V0 plugin files into ${destRoot}`);
