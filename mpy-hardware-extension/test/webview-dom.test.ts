@@ -3158,14 +3158,35 @@ test("file_op_confirm_needed renders an in-panel card with the file path and pos
   // to the Overwrite card (label "Overwrite", generic copy) and these three assertions fail.
 });
 
-test("global tools: the scroll chevrons exist and stay hidden when the row fits", async () => {
+test("global tools: float side is tagged per pill by row position", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;
-  // Guards the load path: a missing chevron id would throw in the arrow wiring and
-  // blank the panel. JSDOM has no layout, so no overflow -> both chevrons hidden.
-  assert.ok(document.getElementById("gtoolsLeft") && document.getElementById("gtoolsRight"), "both chevrons exist");
-  assert.ok(document.getElementById("gtoolsLeft").classList.contains("hidden"), "no overflow -> left chevron hidden");
-  assert.ok(document.getElementById("gtoolsRight").classList.contains("hidden"), "no overflow -> right chevron hidden");
+  const btns = [...document.querySelectorAll("#globalTools .gtool-btn")] as HTMLElement[];
+  const n = btns.length;
+  // Left half opens its chip right, right half opens it left, so it always grows toward the
+  // centre and never runs off-panel. Mutation guard: flip the split and the two edges swap.
+  assert.ok(btns[0].classList.contains("exp-right"), "leftmost pill opens its chip to the right");
+  assert.ok(btns[n - 1].classList.contains("exp-left"), "rightmost pill opens its chip to the left");
+  for (const b of btns) {
+    const sides = ["exp-left", "exp-right"].filter((c) => b.classList.contains(c));
+    assert.equal(sides.length, 1, "each pill has exactly one float side");
+  }
+});
+
+test("global tools: hover floats the chip and blurs the rest; a click collapses it but keeps it active", async () => {
+  const dom = await loadWebview([]);
+  const { document, MouseEvent } = dom.window;
+  const wrap = document.querySelector(".gtools-wrap") as HTMLElement;
+  const btn = document.getElementById("sipeedVisionOpen") as HTMLButtonElement;
+
+  btn.dispatchEvent(new MouseEvent("mouseenter"));
+  assert.ok(btn.classList.contains("gt-lifted"), "hover lifts the pill so its chip shows");
+  assert.ok(wrap.classList.contains("gt-floating"), "hover flags the wrap so the rest of the row blurs");
+
+  btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  assert.ok(!btn.classList.contains("gt-lifted"), "click collapses the chip back to the small icon");
+  assert.ok(!wrap.classList.contains("gt-floating"), "click clears the row blur");
+  assert.ok(btn.classList.contains("active"), "the clicked tool stays selected");
 });
 
 test("device tools: clicking the Device Tools button shows its surface and hides the workflow", async () => {

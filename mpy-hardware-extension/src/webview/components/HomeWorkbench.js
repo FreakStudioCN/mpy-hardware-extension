@@ -83,27 +83,28 @@
       $("sipeedVisionOpen").addEventListener("click", () => { openGlobalTool("toolSipeedVision"); svnOnOpen(); });
       $("sipeedVisionBack").addEventListener("click", closeGlobalTool);
       $("svnGenerate").addEventListener("click", svnGenerate);
-      // Global-tools overflow: any number of circle tools fit — the row scrolls and the
-      // chevrons show only when it clips (recomputed on scroll/resize).
+      // Global tools: hover/focus floats the tool's name as a chip and blurs the rest of the row;
+      // a click opens the tool and collapses the chip back to the small icon, which stays selected.
       const gtoolsTrack = $("globalTools");
-      const gtoolLeft = $("gtoolsLeft"), gtoolRight = $("gtoolsRight");
-      const GTOOL_SCROLL_FRACTION = 0.7; // fraction of the visible width one arrow click moves
-      function updateGtoolArrows() {
-        const clip = gtoolsTrack.scrollWidth - gtoolsTrack.clientWidth;
-        const overflow = clip > 1;
-        gtoolLeft.classList.toggle("hidden", !overflow || gtoolsTrack.scrollLeft <= 0);
-        gtoolRight.classList.toggle("hidden", !overflow || gtoolsTrack.scrollLeft >= clip - 1);
-      }
-      const reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-      const scrollGtools = (dir) => gtoolsTrack.scrollBy({ left: dir * gtoolsTrack.clientWidth * GTOOL_SCROLL_FRACTION, behavior: reduceMotion ? "auto" : "smooth" });
-      gtoolLeft.addEventListener("click", () => scrollGtools(-1));
-      gtoolRight.addEventListener("click", () => scrollGtools(1));
-      gtoolsTrack.addEventListener("scroll", updateGtoolArrows);
-      // A pill expanding (hover or the selected tool) widens the row without a scroll/
-      // resize event, so re-check when its expand/collapse transition settles.
-      gtoolsTrack.addEventListener("transitionend", updateGtoolArrows);
-      window.addEventListener("resize", updateGtoolArrows);
-      updateGtoolArrows();
+      const gtoolsWrap = gtoolsTrack.closest(".gtools-wrap");
+      const gtoolBtns = [...gtoolsTrack.querySelectorAll(".gtool-btn")];
+      // Float side by row position: the left half opens its chip to the right, the right half to the
+      // left, so the chip always grows toward the centre and never runs off the panel edge.
+      const gtoolSplit = Math.ceil(gtoolBtns.length / 2);
+      gtoolBtns.forEach((b, i) => b.classList.add(i < gtoolSplit ? "exp-right" : "exp-left"));
+      const liftGtool = (btn, on) => {
+        gtoolsWrap.classList.toggle("gt-floating", on);
+        gtoolBtns.forEach((b) => b.classList.toggle("gt-lifted", on && b === btn));
+      };
+      gtoolBtns.forEach((btn) => {
+        btn.addEventListener("mouseenter", () => liftGtool(btn, true));
+        btn.addEventListener("mouseleave", () => liftGtool(btn, false));
+        btn.addEventListener("focus", () => liftGtool(btn, true));
+        btn.addEventListener("blur", () => liftGtool(btn, false));
+        // The open handlers (wired above) already mark the tool active; here just collapse the chip
+        // and clear the blur so the open tool sits as a small accent icon.
+        btn.addEventListener("click", () => liftGtool(btn, false));
+      });
       // Home hero action: begin a build. The composer is always mounted, so "start"
       // just reveals the board picker and focuses the prompt (no session yet).
       // Save Version (#95) and Git History (#94) are wired above as their own global-tool surfaces.
