@@ -4927,29 +4927,39 @@ test("Generate posts start_sipeed_vision with the pinned task and the typed mode
   assert.equal(posted.filter((m) => m.type === "start_sipeed_vision").length, 1, "no duplicate dispatch");
 });
 
-test("every sipeed_vision_status outcome restores the button and shows the host's detail", async () => {
+test("every sipeed_vision_status outcome restores the button and localizes the host's reason code", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
   (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
   const btn = document.getElementById("svnGenerate") as HTMLButtonElement;
-  for (const [status, detail] of [["done", "Generated sipeed_vision/main.py and sipeed_vision/README.md."], ["partial", "Partly generated."], ["failed", "A build is already running."]]) {
+  const cases: Array<[string, string, RegExp]> = [
+    ["done", "generated", /Generated sipeed_vision\/main\.py/],
+    ["partial", "partial", /Partly generated/],
+    ["failed", "busy", /already running/],
+  ];
+  for (const [status, reason, expected] of cases) {
     btn.click();
-    assert.equal(btn.disabled, true, `${status}: locked while running`);
-    post(dom, { type: "sipeed_vision_status", status, detail });
+    assert.equal(btn.disabled, true, `${reason}: locked while running`);
+    post(dom, { type: "sipeed_vision_status", status, reason });
     // Mutation: stop clearing the running flag on a non-"done" status and the button stays stuck
     // for the rest of the session.
-    assert.equal(btn.disabled, false, `${status}: the button restores`);
-    assert.equal(document.getElementById("svnStatus")!.textContent, detail, `${status}: the host detail is shown`);
+    assert.equal(btn.disabled, false, `${reason}: the button restores`);
+    assert.match(document.getElementById("svnStatus")!.textContent!, expected, `${reason}: its own line is shown`);
   }
 });
 
-test("a status detail is rendered as text, never as markup", async () => {
+test("an unknown reason code falls back to the generic line for its status, never the raw token", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
   (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
-  post(dom, { type: "sipeed_vision_status", status: "failed", detail: "<img src=x onerror=alert(1)> broke" });
-  assert.equal(document.querySelector("#svnStatus img"), null, "no element is created from the detail");
-  assert.ok(document.getElementById("svnStatus")!.textContent!.includes("broke"), "it shows as literal text");
+  // A host that grows a new code must not render "svn_reason_something_new" at the user. Mutation:
+  // pass the tr() key straight through and this fails.
+  post(dom, { type: "sipeed_vision_status", status: "failed", reason: "something_new" });
+  const line = document.getElementById("svnStatus")!.textContent!;
+  assert.equal(line.includes("svn_reason"), false, `raw i18n key leaked: ${line}`);
+  assert.match(line, /did not complete/, "falls back to the generic failed line");
+  post(dom, { type: "sipeed_vision_status", status: "done" });
+  assert.match(document.getElementById("svnStatus")!.textContent!, /Generated/, "a missing reason still reports the outcome");
 });

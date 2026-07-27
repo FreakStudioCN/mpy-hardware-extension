@@ -40,13 +40,17 @@
         });
       }
 
-      // Terminal status from the host (done / partial / failed). Always restores the button — a
-      // stuck "Generating…" would leave the tool unusable for the rest of the session.
+      // Terminal status from the host (done / partial / failed) plus a REASON code. The line is
+      // localized here — the host never sends UI prose, so a zh session doesn't get an English
+      // sentence. An unknown/absent reason falls back to the generic line for that status, so a
+      // future host code degrades to a sensible message instead of rendering the raw token.
+      // Always restores the button: a stuck "Generating…" would make the tool unusable for the
+      // rest of the session.
       function onSipeedVisionStatus(msg) {
         svnSetRunning(false);
         const status = msg && msg.status;
-        const detail = msg && msg.detail ? String(msg.detail) : "";
-        if (status === "done") svnStatusMsg(detail || tr("svn_done"));
-        else if (status === "partial") svnStatusMsg(detail || tr("svn_partial"));
-        else svnStatusMsg(detail || tr("svn_failed"));
+        const reasonKey = "svn_reason_" + String((msg && msg.reason) || "");
+        const reason = tr(reasonKey);
+        if (reason !== reasonKey) { svnStatusMsg(reason); return; }
+        svnStatusMsg(tr(status === "done" ? "svn_done" : status === "partial" ? "svn_partial" : "svn_failed"));
       }

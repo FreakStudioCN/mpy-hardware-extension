@@ -3519,7 +3519,10 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
     assert.equal(existsSync(join(proj, "firmware", "receiver.py")), false, "master-MCU code is refused");
     assert.equal(existsSync(join(proj, "project-manifest.json")), false, "the project manifest is refused");
     assert.ok(existsSync(join(proj, "firmware", "keep.py")), "the user's firmware tree survives the delete");
-    assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "done"), "a terminal status restores the button");
+      assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "done" && m.reason === "generated"), "a terminal status restores the button");
+    // The status is a CODE, not host prose: the webview localizes it, so a zh session never gets
+    // an English sentence. Mutation: post a `detail` sentence instead and this fails.
+    assert.ok(posted.filter((m) => m.type === "sipeed_vision_status").every((m) => m.detail === undefined), "the host sends no UI prose");
 
     // The narrowing was run-scoped: a normal build after it writes firmware/ again. Mutation: leave
     // writeRestriction set (drop the finally clear) and this write is refused.
@@ -3542,20 +3545,20 @@ test("start_sipeed_vision host-refuses an unlisted task, a bad model path, and a
   // An un-pinned task family (dep on the upstream token list) never reaches body.phase. Mutation:
   // pass message.visionTaskType straight into the envelope and this stops failing.
   await handler?.({ type: "start_sipeed_vision", visionTaskType: "face_recognition" });
-  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && /isn't supported yet/.test(m.detail)), "an unlisted task is refused");
+  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "unsupported_task"), "an unlisted task is refused");
 
   // A traversal model path is refused rather than sanitized into something else.
   posted.length = 0;
   await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: "/root/models/../../etc/passwd" });
-  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && /model path isn't valid/.test(m.detail)), "a traversal model path is refused");
+  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "invalid_model_path"), "a traversal model path is refused");
 
   // Over the length cap is refused, not truncated to a different path.
   posted.length = 0;
   await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: "/root/models/" + "a".repeat(300) + ".mud" });
-  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && /too long/.test(m.detail)), "an over-long model path is refused");
+  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "model_path_too_long"), "an over-long model path is refused");
 
   // A valid request with no workspace stops before any run.
   posted.length = 0;
   await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection" });
-  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && /workspace folder/.test(m.detail)), "no workspace is refused before dispatch");
+  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "workspace_unavailable"), "no workspace is refused before dispatch");
 });

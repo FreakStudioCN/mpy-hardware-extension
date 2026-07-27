@@ -107,6 +107,19 @@ const GIT_HISTORY_STATUS = {
   gitUnavailable: "git_unavailable",
   invalidRequest: "invalid_request",
 } as const;
+// Why an export run was refused or how it ended. The webview localizes these codes (a host-side
+// English sentence would show up untranslated in a zh session), so they are the wire contract.
+const SIPEED_VISION_REASON = {
+  unsupportedTask: "unsupported_task",
+  invalidModelPath: "invalid_model_path",
+  modelPathTooLong: "model_path_too_long",
+  workspaceUnavailable: "workspace_unavailable",
+  busy: "busy",
+  generated: "generated",
+  partial: "partial",
+  incomplete: "incomplete",
+  dispatchFailed: "dispatch_failed",
+} as const;
 const GIT_HISTORY_COMMITS_MAX = 50; // newest-first timeline cap; commitTotal carries the shown count
 // Detail shown when a flow run (gen-driver / optional-flow) is refused because a run or a save is
 // active. Posted via the flow-specific status so the trigger button restores (message-bus.js
@@ -1534,27 +1547,27 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // model path is sanitized here, before either reaches the envelope.
       const visionTaskType = normalizeVisionTaskType(message.visionTaskType);
       if (!visionTaskType) {
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: "That vision task isn't supported yet — stage A generates YOLO detection." });
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.unsupportedTask });
         return;
       }
       const rawModelPath = String(message.modelPath ?? "").trim();
       if (rawModelPath.length > MAIXPY_MODEL_PATH_MAX) {
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: "That model path is too long — use the path on the MaixCAM, e.g. /root/models/yolo11n.mud." });
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.modelPathTooLong });
         return;
       }
       // Reuses the device-path sanitizer: this is a path on the MaixCAM (POSIX, may be absolute),
       // not a host path, and traversal / backslashes / NUL must never reach the generated code.
       const modelPath = rawModelPath ? sanitizeDevicePath(rawModelPath) : null;
       if (rawModelPath && !modelPath) {
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: "That model path isn't valid — use the path on the MaixCAM, e.g. /root/models/yolo11n.mud." });
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.invalidModelPath });
         return;
       }
       if (!projectFolder) {
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: `Open a workspace folder to generate ${MAIXPY_OUTPUT_ROOT}/.` });
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.workspaceUnavailable });
         return;
       }
       // Post the tool-specific status (not bare session_busy) so the Generate button un-sticks.
-      if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; }
+      if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.busy }); return; }
       const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
       if (registry.warning === "protocol_version_mismatch") {
         webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
@@ -1571,7 +1584,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       await ensureProjectGitRepo(projectFolder, deps.log);
       const releaseRun = await beginRun();
-      if (!releaseRun) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; } // a save slipped in during the pre-run awaits
+      if (!releaseRun) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.busy }); return; } // a save slipped in during the pre-run awaits
       try {
         // Re-snapshot per dispatch: the files a PREVIOUS export run wrote are pre-existing now, so
         // a retry that would clobber a main.py the user has since edited hits the overwrite guard
@@ -1589,15 +1602,17 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // so it is reported as its own state, not as a failure.
         const runResult = controller.getLastPhaseComplete()?.result;
         if (runResult === "success") {
-          webview.postMessage({ type: "sipeed_vision_status", status: "done", detail: `Generated ${MAIXPY_ARTIFACT_PATHS.join(" and ")}.` });
+          webview.postMessage({ type: "sipeed_vision_status", status: "done", reason: SIPEED_VISION_REASON.generated });
         } else if (runResult === "partial") {
-          webview.postMessage({ type: "sipeed_vision_status", status: "partial", detail: "Partly generated — see the run summary for what needs doing by hand." });
+          webview.postMessage({ type: "sipeed_vision_status", status: "partial", reason: SIPEED_VISION_REASON.partial });
         } else {
-          webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: "The export run did not complete — retry to generate it." });
+          webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.incomplete });
         }
         refreshArtifacts();
       } catch (error: any) {
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", detail: error?.message ?? "Sipeed vision dispatch failed" });
+        // The reason is localized in the webview; the raw message goes to the log, not the UI.
+        deps.log?.(`sipeed vision dispatch failed: ${error?.message ?? error}`);
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.dispatchFailed });
       } finally {
         // Clear the narrowing before anything else can run, even if the dispatch threw: a leaked
         // restriction would silently block a normal build's firmware writes.
