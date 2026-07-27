@@ -211,13 +211,16 @@ def _vendor_board_entry(data: dict) -> dict | None:
         "mcu": mcu,
         "chip_family": str(data.get("chip_family") or mcu),
         "features": data["features"] if isinstance(data.get("features"), list) else [],
-        # Copied verbatim: the flash phase needs every key the vendor profile declares
-        # (variant/source/file_type/flash_method, and whatever a future family adds), not a
-        # re-projection of the handful of fields the official entry happens to use.
+        # Copied verbatim so the served entry is complete (BoardSelector display, snapshot
+        # round-trip). Downstream phases do NOT read variant/file_type/flash_method off this
+        # object: the prompt sanitizer (prompt_assembly._sanitized_preselected_board) projects
+        # firmware down to url/board_name/port. They recover the full firmware by reloading the
+        # profile via skill_board_id (below), which select-hw mandates -- "load the complete
+        # board JSON, not the selected_board summary".
         "firmware": dict(firmware),
-        # Onboard peripherals ride along verbatim so the driver-package metadata
-        # (uPyPi package/version/install_cmd, expander and revision-dependent notes) reaches
-        # the phases unfiltered instead of being rebuilt downstream.
+        # Carried verbatim to keep the served entry whole; the driver-package metadata reaches
+        # select-hw/generate by that same skill_board_id reload of the board JSON, not by riding
+        # this field through the prompt (the sanitizer does not forward onboard_peripherals).
         "onboard_peripherals": data["onboard_peripherals"] if isinstance(data.get("onboard_peripherals"), list) else [],
         "download_slug": None,
         "skill_board_id": board_id,

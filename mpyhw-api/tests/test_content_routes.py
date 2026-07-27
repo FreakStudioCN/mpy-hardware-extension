@@ -221,6 +221,12 @@ def test_curated_vendor_boards_are_appended_to_the_official_board_list():
     assert "Waveshare" in body["filters"]["vendor"]
     assert body["board_count"] == len(body["boards"])
 
+    # Board ids must stay globally unique across the official + vendor append. On a collision the
+    # picker's find-by-id keeps the first match, so the second board renders but is unselectable.
+    # This fails at the next index or submodule bump that reuses an id, no runtime guard needed.
+    ids = [b["id"] for b in body["boards"]]
+    assert len(set(ids)) == len(ids)
+
 
 @pytest.mark.no_db
 def test_official_board_entries_are_unchanged_by_the_vendor_append():
