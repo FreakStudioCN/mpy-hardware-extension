@@ -3473,6 +3473,11 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
           // The envelope declares device_command:false and the tool must never touch a board.
           { id: "w6", name: "device_command", input: { action: "scan" } },
           { id: "w7", name: "device_command", input: { action: "ls", path: "/" } },
+          // script_run reaches the SAME sinks: the shim resolves scripts across every bundled
+          // plugin, so a flash/firmware/deploy script must be refused before it is dispatched.
+          { id: "w8", name: "script_run", input: { interpreter: "python", script: "esp32_flash.py", args: [] } },
+          { id: "w9", name: "script_run", input: { interpreter: "python", script: "upy-flash-mpy-firmware-plugin/firmware_download.py", args: [] } },
+          { id: "w10", name: "script_run", input: { interpreter: "python", script: "scripts/validate_maixpy_export.py", args: ["--project-root", "."] } },
         ]),
         sseTurn([{
           id: "pc", name: "phase_complete",
@@ -3497,9 +3502,11 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
     }) as unknown as typeof fetch;
 
     const deviceCalls: string[] = [];
+    const ranScripts: string[] = [];
     const shim = {
       scan: async () => { deviceCalls.push("scan"); return ["COM3"]; },
       listDir: async () => { deviceCalls.push("listDir"); return ["boot.py"]; },
+      runV0Script: async ({ script }: any) => { ranScripts.push(String(script)); return { status: "ok", stdout: "{}", exit_code: 0 }; },
     };
     createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, shim });
     // Pre-existing user files the export run must not be able to touch.
@@ -3527,7 +3534,8 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
     assert.equal(existsSync(join(proj, "firmware", "receiver.py")), false, "master-MCU code is refused");
     assert.equal(existsSync(join(proj, "project-manifest.json")), false, "the project manifest is refused");
     assert.ok(existsSync(join(proj, "firmware", "keep.py")), "the user's firmware tree survives the delete");
-      assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "done" && m.reason === "generated"), "a terminal status restores the button");
+    assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "running"), "the accepted run is announced so the panel can hand over to Activity");
+    assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "done" && m.reason === "generated"), "a terminal status restores the button");
     // The status is a CODE, not host prose: the webview localizes it, so a zh session never gets
     // an English sentence. Mutation: post a `detail` sentence instead and this fails.
     assert.ok(posted.filter((m) => m.type === "sipeed_vision_status").every((m) => m.detail === undefined), "the host sends no UI prose");
@@ -3535,6 +3543,10 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
     // device_command:false is enforced, not just declared: neither device action reached the shim.
     // Mutation: drop the denyDeviceCommands gate and "scan"/"listDir" show up here.
     assert.deepEqual(deviceCalls, [], "an export run never drives the board");
+    // Same boundary through the script lane: only this plugin's own validator runs, so a flash or
+    // firmware-download script is refused before the shim sees it. Mutation: drop the allowedScripts
+    // gate and esp32_flash.py / firmware_download.py appear here.
+    assert.deepEqual(ranScripts, ["scripts/validate_maixpy_export.py"], "only the export validator may run");
 
     // The narrowing was run-scoped: a normal build after it writes firmware/ again. Mutation: leave
     // writeRestriction set (drop the finally clear) and this write is refused.
@@ -3602,6 +3614,42 @@ test("a second export run over a user-edited artifact goes through the overwrite
   }
 });
 
+test("a protocol-version block un-sticks every on-demand flow's own button, not just session_error", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-block-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    // The backend speaks a protocol this build can't: every flow must refuse BEFORE dispatching.
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/tools") return jsonResponse({ protocol_version: "9.9.9", tools: [] });
+      throw new Error("no run may start");
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
+
+    // Each flow reports through its OWN status message; the webview restores a flow's button only
+    // on that message, so a bare session_error leaves it stuck on "Generating…" forever. Mutation:
+    // drop the postRefused call from the shared gate's protocol branch and each check below fails.
+    await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection" });
+    const sipeed = posted.filter((m) => m.type === "sipeed_vision_status");
+    assert.equal(sipeed.length, 1);
+    assert.equal(sipeed[0].status, "failed");
+    // Not "busy": the cause was the protocol gate, and a wrong reason sends the user hunting for a
+    // running build that does not exist.
+    assert.equal(sipeed[0].reason, "dispatch_failed");
+
+    posted.length = 0;
+    await handler?.({ type: "start_gen_driver", sources: [{ type: "chip_model", metadata: { chip_model: "SHT30" } }] });
+    const gd = posted.filter((m) => m.type === "gen_driver_status");
+    assert.equal(gd.length, 1);
+    assert.equal(gd[0].status, "failed");
+    assert.equal(/already running/.test(gd[0].detail), false, `the detail must name the real cause: ${gd[0].detail}`);
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
 test("start_sipeed_vision host-refuses an unlisted task, a bad model path, and a missing workspace", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;
@@ -3615,6 +3663,7 @@ test("start_sipeed_vision host-refuses an unlisted task, a bad model path, and a
   // pass message.visionTaskType straight into the envelope and this stops failing.
   await handler?.({ type: "start_sipeed_vision", visionTaskType: "face_recognition" });
   assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "unsupported_task"), "an unlisted task is refused");
+  assert.equal(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "running"), false, "a refused request never announces a run");
 
   // A traversal model path is refused rather than sanitized into something else.
   posted.length = 0;
@@ -3625,6 +3674,11 @@ test("start_sipeed_vision host-refuses an unlisted task, a bad model path, and a
   posted.length = 0;
   await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: "/root/models/" + "a".repeat(300) + ".mud" });
   assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "model_path_too_long"), "an over-long model path is refused");
+
+  // A non-string is refused outright rather than coerced into "[object Object]".
+  posted.length = 0;
+  await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: { path: "/root/models/x.mud" } });
+  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "invalid_model_path"), "a non-string model path is refused");
 
   // A valid request with no workspace stops before any run.
   posted.length = 0;

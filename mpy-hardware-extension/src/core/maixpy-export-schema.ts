@@ -19,6 +19,12 @@ export const MAIXPY_VISION_TASK_TYPES = ["yolo_detection"] as const;
 export type MaixpyVisionTaskType = (typeof MAIXPY_VISION_TASK_TYPES)[number];
 export const MAIXPY_DEFAULT_VISION_TASK: MaixpyVisionTaskType = "yolo_detection";
 
+// The only bundled script an export run may execute. The SKILL also offers
+// validate_reference_index.py, but that one validates the Skill's own reference library (and needs
+// the reference .md files, which the VSIX strips) — it is maintenance, not part of a user run, and
+// SKILL.md's "use bundled scripts when available / else self-check and warn" covers its absence.
+export const MAIXPY_RUNTIME_SCRIPTS = ["validate_maixpy_export.py"] as const;
+
 const MAIXPY_PROTOCOL_VERSION = "1.0";
 
 // Fixed UART wiring for MaixCAM Pro -> master MCU. Stage A does not let the user change the

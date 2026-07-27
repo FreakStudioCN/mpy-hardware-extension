@@ -156,6 +156,11 @@ _V0_MAINTENANCE_SCRIPTS = frozenset(
     {
         "crawl_sipeed_maixpy_docs.py",
         "build_reference_index.py",
+        # Validates the Skill's OWN reference library, and requires the reference .md files that the
+        # VSIX strips — so in a packaged install it can only ever fail. Its SKILL offers it as "use
+        # bundled scripts when available" with an explicit self-check-and-warn fallback, so a clean
+        # script_not_found is the better answer than a guaranteed non-zero exit.
+        "validate_reference_index.py",
     }
 )
 

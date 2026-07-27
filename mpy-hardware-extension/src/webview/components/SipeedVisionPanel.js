@@ -15,11 +15,12 @@
 
       function svnStatusMsg(text) { const n = $("svnStatus"); if (n) n.textContent = text || ""; }
 
-      // Opened from the global-tools bar: reset the surface to its idle state. No host round-trip —
-      // there is nothing to load, and nothing is written until the user clicks Generate.
+      // Opened from the global-tools bar. No host round-trip — there is nothing to load, and
+      // nothing is written until the user clicks Generate. It re-applies the CURRENT state rather
+      // than resetting: wiping the status here would erase the very line explaining why the last
+      // click did nothing, and forcing running:false would unlock the button mid-run.
       function svnOnOpen() {
-        svnSetRunning(false);
-        svnStatusMsg("");
+        svnSetRunning(svnRunning);
       }
 
       function svnSetRunning(on) {
@@ -38,12 +39,9 @@
           visionTaskType: SVN_VISION_TASK,
           modelPath: model ? model.value.trim() : "",
         });
-        // Leave the tool surface for Activity, like the gen-driver run does. A tool surface hides
-        // the feed AND the composer, so a run launched from behind it would show nothing — and an
-        // overwrite confirm (a re-run over files the user has since edited) would render into the
-        // hidden feed with no way to answer it, blocking the run forever.
-        closeGlobalTool();
-        setTab("activity");
+        // The surface stays up until the host says the run really started (status "running"), so a
+        // pre-dispatch refusal — bad model path, busy, no workspace — is read where the user is
+        // looking instead of behind a closed panel.
       }
 
       // Terminal status from the host (done / partial / failed) plus a REASON code. The line is
@@ -53,8 +51,17 @@
       // Always restores the button: a stuck "Generating…" would make the tool unusable for the
       // rest of the session.
       function onSipeedVisionStatus(msg) {
-        svnSetRunning(false);
         const status = msg && msg.status;
+        if (status === "running") {
+          // The run is live: leave the tool surface for Activity, like the gen-driver run does. A
+          // tool surface hides the feed AND the composer, so a run left behind it would show
+          // nothing — and an overwrite confirm (a re-run over files the user has since edited)
+          // would render into the hidden feed with no way to answer it, blocking the run forever.
+          closeGlobalTool();
+          setTab("activity");
+          return; // still running: keep the button locked until a terminal status
+        }
+        svnSetRunning(false);
         const reasonKey = "svn_reason_" + String((msg && msg.reason) || "");
         const reason = tr(reasonKey);
         if (reason !== reasonKey) { svnStatusMsg(reason); return; }

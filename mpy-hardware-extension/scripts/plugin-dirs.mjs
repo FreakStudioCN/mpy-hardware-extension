@@ -47,4 +47,7 @@ export const PLUGIN_DIRS = [
 export const MAINTENANCE_SCRIPTS = [
   "crawl_sipeed_maixpy_docs.py",
   "build_reference_index.py",
+  // Validates the Skill's own reference library and needs the reference .md files this packager
+  // strips, so a packaged run could only ever fail it; the SKILL has a self-check fallback.
+  "validate_reference_index.py",
 ];

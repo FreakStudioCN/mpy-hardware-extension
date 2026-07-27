@@ -90,7 +90,7 @@ export function snapshotExistingPaths(root: string | undefined, into: Set<string
 // paths, and the one subtree its mkdir/delete may touch. Both are project-relative POSIX paths.
 export type WriteRestriction = { allowedPaths: readonly string[]; subtree: string };
 
-export function planWorkspaceWrites(input:{ workspaceFolder?: string; generatedRoot?: string; files: Record<string, string> }) {
+export function planWorkspaceWrites(input: { workspaceFolder?: string; generatedRoot?: string; files: Record<string, string> }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   // Apply the same containment as writeGeneratedFiles: skip any name that fails
   // normalization rather than falling back to the raw name, which would let a

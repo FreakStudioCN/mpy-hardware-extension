@@ -4929,23 +4929,44 @@ test("Generate posts start_sipeed_vision with the pinned task and the typed mode
   assert.equal(posted.filter((m) => m.type === "start_sipeed_vision").length, 1, "no duplicate dispatch");
 });
 
-test("Generate leaves the tool surface for Activity, so the run and its confirms are visible", async () => {
+test("the surface hands over to Activity once the run starts, so the run and its confirms are visible", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
   (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
   assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), true, "a tool surface hides the feed");
   (document.getElementById("svnGenerate") as HTMLButtonElement).click();
+  // The click alone does NOT close the surface: a pre-dispatch refusal has to be readable where the
+  // user is looking. Mutation: close on click and the refusal case below renders off-screen.
+  assert.equal(document.getElementById("toolSipeedVision")!.classList.contains("hidden"), false, "the surface stays up until the host accepts");
+  post(dom, { type: "sipeed_vision_status", status: "running" });
   // A tool surface hides the feed AND the composer. A run left behind it shows nothing — and a
   // re-run over files the user edited posts an overwrite confirm that renders into the feed and
   // blocks until answered, so it MUST be on screen. Mutation: drop the closeGlobalTool()/setTab()
-  // pair from svnGenerate and the feed stays hidden here.
+  // pair from the "running" branch and the feed stays hidden here.
   assert.equal(document.getElementById("toolSipeedVision")!.classList.contains("hidden"), true, "the tool surface closes");
   assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), false, "the feed is back on screen");
   assert.equal(document.querySelector('.tab[data-tab="activity"]')!.classList.contains("active"), true, "Activity is the shown tab");
+  assert.equal((document.getElementById("svnGenerate") as HTMLButtonElement).disabled, true, "running keeps the button locked");
   // The confirm card the host would post now lands somewhere the user can actually answer.
   post(dom, { type: "file_op_confirm_needed", promptId: "file-overwrite-1", op: "overwrite", path: "sipeed_vision/main.py" });
   assert.ok(document.getElementById("activity")!.textContent!.includes("sipeed_vision/main.py"), "the overwrite card is rendered in the visible feed");
+});
+
+test("a pre-dispatch refusal is readable on the surface and survives a reopen", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  (document.getElementById("svnGenerate") as HTMLButtonElement).click();
+  post(dom, { type: "sipeed_vision_status", status: "failed", reason: "invalid_model_path" });
+  assert.equal(document.getElementById("toolSipeedVision")!.classList.contains("hidden"), false, "a refused run leaves the user on the surface");
+  assert.match(document.getElementById("svnStatus")!.textContent!, /model path isn't valid/);
+  // Reopening must not wipe the explanation (or unlock a still-running button). Mutation: reset the
+  // status/running state in svnOnOpen and the line is gone here.
+  (document.getElementById("sipeedVisionBack") as HTMLButtonElement).click();
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  assert.match(document.getElementById("svnStatus")!.textContent!, /model path isn't valid/, "the reason is still on screen after a reopen");
 });
 
 test("every sipeed_vision_status outcome restores the button and localizes the host's reason code", async () => {

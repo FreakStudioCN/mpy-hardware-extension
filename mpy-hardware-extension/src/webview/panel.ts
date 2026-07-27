@@ -15,7 +15,7 @@ import { deriveDiagram } from "../core/diagram-derive.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
 import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
-import { buildMaixpyExportDispatch, normalizeVisionTaskType, MAIXPY_ARTIFACT_PATHS, MAIXPY_EXPORT_PHASE, MAIXPY_OUTPUT_ROOT } from "../core/maixpy-export-schema.ts";
+import { buildMaixpyExportDispatch, normalizeVisionTaskType, MAIXPY_ARTIFACT_PATHS, MAIXPY_EXPORT_PHASE, MAIXPY_OUTPUT_ROOT, MAIXPY_RUNTIME_SCRIPTS } from "../core/maixpy-export-schema.ts";
 import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildCreditsRequestMailto, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale, sliceCodePoints } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
@@ -125,6 +125,9 @@ const GIT_HISTORY_COMMITS_MAX = 50; // newest-first timeline cap; commitTotal ca
 // active. Posted via the flow-specific status so the trigger button restores (message-bus.js
 // restores those buttons only on their own status, never on bare session_busy).
 const RUN_BUSY_DETAIL = "A build is already running — try again once it finishes.";
+// The other pre-run refusal: the protocol/auth gate declined and posted its own session_error, so
+// this only has to un-stick the flow's button and point at that message.
+const RUN_BLOCKED_DETAIL = "Could not start the run — see the error in Activity.";
 // A MaixCAM-side model path (e.g. /root/models/yolo11n.mud) the user types in. Long enough for a
 // real path, short enough that a pasted blob never reaches the envelope; over the cap is refused
 // rather than truncated, so the run never quietly points at a different file than the user typed.
@@ -447,17 +450,17 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // start_session before the loop writes anything (see snapshotExistingPaths).
   const preExistingPaths = new Set<string>();
   const isPreExisting = (p: string) => preExistingPaths.has(canonicalPathKey(p));
-  // Fixed-output run (Sipeed MaixPy export): while set, the loop's file tools may write ONLY
-  // allowedPaths and may create/delete only inside `subtree`. Installed immediately before that
+  // The narrow tool scope a fixed-output run (Sipeed MaixPy export) works under. ONE object so the
+  // three lanes cannot drift apart: the file tools may write only `write.allowedPaths` and
+  // create/delete only inside `write.subtree`, script_run may execute only `allowedScripts`, and
+  // device_command is refused outright — which is what makes the envelope's device_command:false /
+  // network:false honest rather than a claim the host ignores. Installed immediately before that
   // run's startPhase and cleared in its finally, so a normal build is never narrowed. Late-bound
-  // like confirmFileOp below: the writer/deleter/mkdir closures are built once (they capture this
-  // getter) but read the live value per call.
-  let writeRestriction: WriteRestriction | null = null;
-  const getWriteRestriction = () => writeRestriction;
-  // Set for the same window as writeRestriction, for a run whose envelope declares
-  // capabilities.device_command:false: the loop's device lane refuses every action while it holds,
-  // so "this tool never touches a board" is enforced here and not just claimed on the wire.
-  let denyDeviceCommands = false;
+  // like confirmFileOp below: the writer/deleter/mkdir/script closures are built once (they capture
+  // these getters) but read the live value per call.
+  type RunLimits = { write: WriteRestriction; allowedScripts: readonly string[] };
+  let runLimits: RunLimits | null = null;
+  const getWriteRestriction = () => runLimits?.write ?? null;
   // The destructive-file confirm is shown as an in-panel card by the controller (deliverables
   // 07 §4). Late-bound: the writer/deleter capture these stable closures now, but the real
   // controller.confirmFileOp is wired in after the controller exists (below). Until then (and
@@ -507,7 +510,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       webview.postMessage(message);
     },
-    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite, getWriteRestriction), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder, getWriteRestriction), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete, getWriteRestriction), confirmDeviceDelete: async (p: string) => (await confirmDelete("device:" + p)) && (await confirmDeviceErase("device:" + p)), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, denyDeviceCommands: () => denyDeviceCommands, projectRoot: projectFolder }),
+    loop: createLoop({ ...deps, apiBaseUrl, shim, getAuthToken: () => auth.getToken(false), readWorkspaceFile: makeWorkspaceReader(projectFolder), writeProjectFile: makeWorkspaceWriter(projectFolder, isPreExisting, confirmOverwrite, getWriteRestriction), listFiles: makeWorkspaceLister(projectFolder), makeProjectDir: makeWorkspaceMkdir(projectFolder, getWriteRestriction), deleteProjectPath: makeWorkspaceDeleter(projectFolder, isPreExisting, confirmDelete, getWriteRestriction), confirmDeviceDelete: async (p: string) => (await confirmDelete("device:" + p)) && (await confirmDeviceErase("device:" + p)), confirmDeviceCopyOverwrite: async (target: string) => isPreExisting(target) && existsSync(target) ? confirmOverwrite(target) : true, denyDeviceCommands: () => runLimits !== null, allowedScripts: () => runLimits?.allowedScripts ?? null, projectRoot: projectFolder }),
     // Stop must hard-interrupt an in-flight device op, not just abort the loop signal
     // (deliverables 07 §4). shim.kill() dies the blocked mpremote/script now and frees
     // the serial lock; idempotent, so a Stop with nothing in flight is a no-op.
@@ -1147,6 +1150,43 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     return () => { runPending = false; release(); };
   }
 
+
+  // Why a flow run was refused before it started: "busy" (another run or a save owns the port) vs
+  // "blocked" (the protocol/auth gate said no and already posted the specific session_error). The
+  // distinction keeps each flow's own message honest — telling a signed-out user "a build is
+  // already running" would send them looking for the wrong problem.
+  type FlowRefusal = "busy" | "blocked";
+  // The shared pre-run gate for the on-demand flow entries (gen-driver / wiring+diagram / Sipeed
+  // export). Each of them must clear the SAME four hurdles before dispatching — protocol version,
+  // GitHub auth, a git repo for the project, and run ownership of the serial port — and each must
+  // report its refusal through its OWN status message, or its trigger button stays stuck on
+  // "Generating…" (the webview restores a flow button only on that flow's status). `postRefused`
+  // is that flow-specific poster; it runs for every refusal here, including the protocol/auth exits
+  // that previously posted only session_error. Returns the run release for the caller's finally, or
+  // null when the run was refused (already reported).
+  async function beginFlowRun(projectDir: string, postRefused: (refusal: FlowRefusal) => void): Promise<(() => void) | null> {
+    const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
+    if (registry.warning === "protocol_version_mismatch") {
+      webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
+      webview.postMessage({ type: "session_done", terminal: "session_error" });
+      postRefused("blocked");
+      return null;
+    }
+    if (vscode.authentication) {
+      const jwt = await auth.getToken(true, { forceRefresh: true });
+      if (!jwt) {
+        webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
+        webview.postMessage({ type: "session_done", terminal: "session_error" });
+        postRefused("blocked");
+        return null;
+      }
+    }
+    await ensureProjectGitRepo(projectDir, deps.log);
+    const releaseRun = await beginRun();
+    if (!releaseRun) { postRefused("busy"); return null; } // a save slipped in during the pre-run awaits
+    return releaseRun;
+  }
+
   // Upload: pick a local file, write it to the current device dir under its basename.
   // The read + write run INSIDE runDeviceTool so a read failure surfaces as device_tool_error
   // (not an unhandled rejection); the device path is validated by writeUserDeviceFile.
@@ -1389,27 +1429,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Reject a re-entrant run OR a run during a save (register #1/#16), posting the flow-specific
       // status so the gen-driver button un-sticks; then gate protocol + auth like start_session.
       if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "gen_driver_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; }
-      const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
-      if (registry.warning === "protocol_version_mismatch") {
-        webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
-        webview.postMessage({ type: "session_done", terminal: "session_error" });
-        return;
-      }
-      if (vscode.authentication) {
-        const jwt = await auth.getToken(true, { forceRefresh: true });
-        if (!jwt) {
-          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
-          webview.postMessage({ type: "session_done", terminal: "session_error" });
-          return;
-        }
-      }
-      await ensureProjectGitRepo(projectFolder, deps.log);
       // Snapshot the manifest to build the dispatch envelope so mode inference + the pipeline envelope
       // see the cold-driver devices even if the run streams a thin manifest_content (preserveManifest
       // keeps latestManifest from being clobbered by that thin manifest during the excursion).
       const manifestSnapshot = controller.getLatestManifest();
-      const releaseRun = await beginRun();
-      if (!releaseRun) { webview.postMessage({ type: "gen_driver_status", status: "failed", detail: RUN_BUSY_DETAIL }); return; } // a save slipped in during the pre-run awaits
+      const releaseRun = await beginFlowRun(projectFolder, (refusal) => webview.postMessage({ type: "gen_driver_status", status: "failed", detail: refusal === "busy" ? RUN_BUSY_DETAIL : RUN_BLOCKED_DETAIL }));
+      if (!releaseRun) return;
       try {
         snapshotExistingPaths(projectFolder, preExistingPaths);
         // Stage picked files under projectFolder (containment-reachable), sha256-verified.
@@ -1460,23 +1485,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Post the flow-specific status (not bare session_busy) so the optional-flow button un-sticks.
       if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: RUN_BUSY_DETAIL }); return; }
-      const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
-      if (registry.warning === "protocol_version_mismatch") {
-        webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
-        webview.postMessage({ type: "session_done", terminal: "session_error" });
-        return;
-      }
-      if (vscode.authentication) {
-        const jwt = await auth.getToken(true, { forceRefresh: true });
-        if (!jwt) {
-          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
-          webview.postMessage({ type: "session_done", terminal: "session_error" });
-          return;
-        }
-      }
-      await ensureProjectGitRepo(projectFolder, deps.log);
-      const releaseRun = await beginRun();
-      if (!releaseRun) { webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: RUN_BUSY_DETAIL }); return; } // a save slipped in during the pre-run awaits
+      const releaseRun = await beginFlowRun(projectFolder, (refusal) => webview.postMessage({ type: "optional_flow_status", flow, status: "failed", detail: refusal === "busy" ? RUN_BUSY_DETAIL : RUN_BLOCKED_DETAIL }));
+      if (!releaseRun) return;
       try {
         snapshotExistingPaths(projectFolder, preExistingPaths);
         const sessionId = randomUUID();
@@ -1578,28 +1588,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       }
       // Post the tool-specific status (not bare session_busy) so the Generate button un-sticks.
       if (controller.isRunning() || saveInFlight) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.busy }); return; }
-      // Every exit from here on ALSO posts a tool status: session_error alone leaves the Generate
-      // button stuck on "Generating…" (the panel restores it only on its own status), and the
-      // session_error feed line is not on screen while the tool surface is open.
-      const registry = await checkProtocolVersion(apiBaseUrl, fetchImpl);
-      if (registry.warning === "protocol_version_mismatch") {
-        webview.postMessage({ type: "session_error", error: "protocol_version_mismatch" });
-        webview.postMessage({ type: "session_done", terminal: "session_error" });
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.dispatchFailed });
-        return;
-      }
-      if (vscode.authentication) {
-        const jwt = await auth.getToken(true, { forceRefresh: true });
-        if (!jwt) {
-          webview.postMessage({ type: "session_error", error: auth.getLastError() ?? "sign_in_required" });
-          webview.postMessage({ type: "session_done", terminal: "session_error" });
-          webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.dispatchFailed });
-          return;
-        }
-      }
-      await ensureProjectGitRepo(projectFolder, deps.log);
-      const releaseRun = await beginRun();
-      if (!releaseRun) { webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.busy }); return; } // a save slipped in during the pre-run awaits
+      const releaseRun = await beginFlowRun(projectFolder, (refusal) => webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: refusal === "busy" ? SIPEED_VISION_REASON.busy : SIPEED_VISION_REASON.dispatchFailed }));
+      if (!releaseRun) return;
       try {
         // Re-snapshot per dispatch: the files a PREVIOUS export run wrote are pre-existing now, so
         // a retry that would clobber a main.py the user has since edited hits the overwrite guard
@@ -1608,12 +1598,20 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // Narrow the loop's file tools for this run only: exactly the two artifact paths are
         // writable, and mkdir/delete may not leave sipeed_vision/. This is what keeps a stage-A
         // export from writing firmware/, project-manifest.json, or master-MCU receiver code.
-        writeRestriction = { allowedPaths: [...MAIXPY_ARTIFACT_PATHS], subtree: MAIXPY_OUTPUT_ROOT };
-        // The envelope declares device_command:false and the product boundary forbids
-        // mpremote/esptool/flash/deploy — enforce it for the run instead of trusting the model.
-        denyDeviceCommands = true;
+        // Narrow every tool lane for this run: the two artifact paths, this plugin's own validator,
+        // and no device command at all. The envelope declares device_command:false / network:false
+        // and the product boundary forbids mpremote/esptool/flash/deploy — enforce that instead of
+        // trusting the model, and remember the shim resolves scripts across ALL bundled plugins.
+        runLimits = {
+          write: { allowedPaths: [...MAIXPY_ARTIFACT_PATHS], subtree: MAIXPY_OUTPUT_ROOT },
+          allowedScripts: [...MAIXPY_RUNTIME_SCRIPTS],
+        };
         const sessionId = randomUUID();
         const envelope = buildMaixpyExportDispatch({ sessionId, msgId: randomUUID(), timestamp: new Date().toISOString(), visionTaskType, modelPath });
+        // Every gate has passed and the run is about to start. The panel uses this to hand the
+        // screen over to the Activity feed; until it arrives the tool surface stays up so a refusal
+        // above is visible where the user is looking.
+        webview.postMessage({ type: "sipeed_vision_status", status: "running" });
         await controller.startPhase({ phase: MAIXPY_EXPORT_PHASE, envelope: JSON.stringify(envelope), label: "Sipeed vision export", locale: vscode.env?.language });
         // Always post a terminal status so the Generate button restores. A partial is a legitimate
         // outcome here (the Skill returns link-only guidance when a reference isn't codegen-ready),
@@ -1632,10 +1630,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         deps.log?.(`sipeed vision dispatch failed: ${error?.message ?? error}`);
         webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.dispatchFailed });
       } finally {
-        // Clear the narrowing before anything else can run, even if the dispatch threw: a leaked
-        // restriction would silently block a normal build's firmware writes (or its device work).
-        writeRestriction = null;
-        denyDeviceCommands = false;
+        // Clear the narrowing before anything else can run, even if the dispatch threw: leaked
+        // limits would silently block a normal build's firmware writes, scripts, and device work.
+        runLimits = null;
         releaseRun();
       }
       return;
@@ -2106,7 +2103,7 @@ async function fetchToolchainVersion(apiBaseUrl: string, fetchImpl: typeof fetch
 
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; confirmDeviceDelete?: (devicePath: string) => Promise<boolean>; confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>; denyDeviceCommands?: () => boolean; projectRoot?: string }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; confirmDeviceDelete?: (devicePath: string) => Promise<boolean>; confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>; denyDeviceCommands?: () => boolean; allowedScripts?: () => readonly string[] | null; projectRoot?: string }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);

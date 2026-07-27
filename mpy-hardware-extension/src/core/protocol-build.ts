@@ -45,6 +45,11 @@ type BuildDeps = {
   // Without it the declaration is a wire claim the host does not enforce, so one hallucinated
   // device_command would still drive mpremote from a tool whose whole premise is "no device".
   denyDeviceCommands?: () => boolean;
+  // The script BASENAMES such a run may execute, or null for the normal "any bundled script" rule.
+  // The shim's resolver is global across bundled plugins, so without this the same run could reach
+  // esp32_flash.py / firmware_download.py / the deploy scripts through script_run — the device and
+  // network denial has to cover this lane too, not just the device_command one.
+  allowedScripts?: () => readonly string[] | null;
   projectRoot?: string;
 };
 
@@ -157,6 +162,12 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
   // commit), so we run the model's named script for real. A missing runner or an
   // unresolvable script is a HARD failure (ok:false) — never a faked ok:true.
   const runScript = async (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number; phase?: string }) => {
+    const allowedScripts = deps.allowedScripts?.();
+    // Compare on the basename: the model may send a bare, "scripts/"-relative, or plugin-qualified
+    // name, and the shim resolves all three by basename.
+    if (allowedScripts && !allowedScripts.includes(String(script).replace(/\\/g, "/").split("/").pop() ?? "")) {
+      return { ok: false as const, error_kind: "script_not_permitted", stderr: script };
+    }
     if (!shim || !projectDir) return { ok: false, error_kind: "host_runner_absent" as string };
     try {
       const res = await shim.runV0Script({ interpreter, script, args, project_dir: projectDir, stdin_content: extra?.stdin_content, stdin_json: extra?.stdin_json, timeout_ms: extra?.timeout_ms, phase: extra?.phase });
