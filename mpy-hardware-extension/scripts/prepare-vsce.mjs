@@ -1,8 +1,9 @@
 import { build } from "esbuild";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 import { readSkillsCommit } from "./skills-commit.mjs";
+import { vendorPluginSubset } from "./vendor-plugin-subset.mjs";
 
 // `vscode:prepublish` — produce everything that must ship in the VSIX but is not a
 // committed source file:
@@ -37,95 +38,8 @@ if (!existsSync(upstreamRoot)) {
   process.exit(1);
 }
 const destRoot = join("third_party", "MicroPython_Skills");
-rmSync(destRoot, { recursive: true, force: true });
 
-// V0: bundle the 6 protocol-native `-plugin` skill dirs (their scripts/ + the
-// resources those scripts read: templates, schemas, knowledge), plus shared-plugin-
-// scripts and the toolchain-spec schemas. The cloud model names scripts by their bare
-// filename and serve.py's run_v0 resolver finds them under any bundled scripts/ dir,
-// so the whole dir must ship — not a cherry-picked allowlist. We DROP the heavy prose
-// (SKILL.md/README) and the test/sample/mock fixtures. WONTFIX (issue #3/#4): the packaged
-// device shim runs the scripts but never reads SKILL.md, and the cloud backend loads skill
-// prose from its OWN copy (skill_catalog.py / live serve), not from the VSIX. Only an
-// offline/self-hosted full-protocol run would need the .md re-included.
-const PLUGIN_DIRS = [
-  "upy-analyze-plugin",
-  "upy-select-hw-plugin",
-  "upy-flash-mpy-firmware-plugin",
-  "upy-scaffold-plugin",
-  "upy-generate-plugin",
-  "upy-deploy-plugin",
-  // Optional flows, now served: their script_run scripts must ship or the packaged VSIX
-  // fails script_not_found on every gen-driver/wiring/diagram run (the #39 dev-vs-packaged trap).
-  "upy-gen-driver-plugin",
-  "upy-wiring-plugin",
-  "upy-diagram-plugin",
-  "shared-plugin-scripts",
-  "upy-project-gen-toolchain-spec",
-  // Legacy (non-plugin) scaffold/download scripts: the host's script.run_scaffold /
-  // script.run_download_drivers dispatch passes --project-dir and expects files written to
-  // disk, which only these legacy scripts do (the -plugin equivalents are stdout-only). See
-  // serve.py SCRIPT_FILES. Must ship or the packaged VSIX fails on scaffold/download.
-  "upy-scaffold",
-  "upy-generate",
-];
-const EXCLUDE_DIRS = new Set(["test", "tests", "sample", "samples", "mock-messages", "__pycache__"]);
-// Curation cruft that must never ship (security P1-A): the board-source staging area and
-// its dated archives carry the maintainer's local paths + fetch-failure traces (a CSV, a
-// ZIP of OCR reports, cleanup manifests). None is read at runtime.
-function shouldSkip(relPosix) {
-  const parts = relPosix.split("/");
-  if (parts.some((p) => EXCLUDE_DIRS.has(p) || p === "_official_pending" || p.startsWith("_archive_"))) return true;
-  return relPosix.endsWith(".md") || relPosix.endsWith(".pyc") || relPosix.endsWith(".csv") || relPosix.endsWith(".zip");
-}
-
-// The generated board JSONs bake build-time provenance whose values are the maintainer's
-// local absolute paths (e.g. "G:\\...") — dead at runtime (no reader in the extension or
-// the vendored scripts, verified) but shipped in every VSIX. Drop any key/element whose
-// string value is a Windows absolute path. Name-agnostic (can't miss a field) and
-// value-conditional (can't delete a legitimate non-path field).
-const WIN_ABS_PATH = /^[A-Za-z]:[\\/]/;
-function stripLocalPaths(value) {
-  if (Array.isArray(value)) {
-    return value.filter((v) => !(typeof v === "string" && WIN_ABS_PATH.test(v))).map(stripLocalPaths);
-  }
-  if (value && typeof value === "object") {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (typeof v === "string" && WIN_ABS_PATH.test(v)) continue;
-      out[k] = stripLocalPaths(v);
-    }
-    return out;
-  }
-  return value;
-}
-
-let vendored = 0;
-for (const dir of PLUGIN_DIRS) {
-  const absDir = join(upstreamRoot, dir);
-  if (!existsSync(absDir)) continue;
-  for (const abs of walk(absDir)) {
-    const rel = relative(upstreamRoot, abs).replaceAll("\\", "/");
-    if (shouldSkip(rel)) continue;
-    const to = join(destRoot, rel);
-    mkdirSync(dirname(to), { recursive: true });
-    if (rel.includes("/boards/") && rel.endsWith(".json")) {
-      writeFileSync(to, JSON.stringify(stripLocalPaths(JSON.parse(readFileSync(abs, "utf8"))), null, 2) + "\n");
-    } else {
-      cpSync(abs, to);
-    }
-    vendored++;
-  }
-}
+// Which dirs/files make up the subset (and why) lives in vendor-plugin-subset.mjs so the
+// packaged-runtime test can run the same selection against the real submodule.
+const vendored = vendorPluginSubset(upstreamRoot, destRoot);
 console.log(`Vendored ${vendored} V0 plugin files into ${destRoot}`);
-
-function walk(dir) {
-  if (!existsSync(dir)) return [];
-  const out = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...walk(full));
-    else out.push(full);
-  }
-  return out;
-}

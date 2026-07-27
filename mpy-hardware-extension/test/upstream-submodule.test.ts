@@ -33,7 +33,7 @@ test("vendored upstream toolchain the shim runs + packages is present (submodule
 
 test("V0 plugin scripts the run_v0 host runner resolves + the packager bundles are present", () => {
   // These are run by serve.py's generic run_v0 on the V0 build path and bundled by
-  // prepare-vsce.mjs (PLUGIN_DIRS). If any go missing, the full-stack build breaks.
+  // vendor-plugin-subset.mjs (PLUGIN_DIRS). If any go missing, the full-stack build breaks.
   const required = [
     "upy-analyze-plugin/scripts/init_manifest.py",
     "upy-select-hw-plugin/scripts/select_hw_manifest.py",

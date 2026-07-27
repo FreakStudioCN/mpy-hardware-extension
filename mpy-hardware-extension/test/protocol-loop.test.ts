@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { PROTOCOL_TOOLS } from "../src/core/protocol-registry.ts";
 import { PHASE_ORDER, runProtocolBuild, executeProtocolTool } from "../src/core/protocol-loop.ts";
+import { micropythonLibDriver, micropythonLibManifest } from "./micropython-lib-manifest.ts";
 
 // A scripted LLM: per phase, an array of turns; each turn is an array of SSE events.
 // Each streamMessages(body) call pops the next turn for body.phase.
@@ -70,6 +71,91 @@ test("protocol build walks the full V0 plugin chain and sends the cloud envelope
     assert.deepEqual(body.tools, PROTOCOL_TOOLS);
     assert.deepEqual(body.manifest, index === 0 ? {} : { phase: V0_PHASE_CHAIN[index - 1], index: index - 1 });
   }
+});
+
+test("the generate manifest's mip dependencies and API evidence reach the deploy prompt, the terminal result and the manifest event verbatim", async () => {
+  // A MicroPython-lib package is a RUNTIME dependency: generate declares it under
+  // generate.runtime_dependencies.mip with its API evidence (doc_evidence + the device's
+  // driver.api_ref/install_cmd/repo_url) and deploy is what actually runs `mpremote mip
+  // install` + the import verify. The loop never reads those fields — it carries the whole
+  // manifest — so the only thing keeping them alive is that the carry stays verbatim.
+  // Field-picking the phase-boundary copy would strip them silently: deploy would then have
+  // no package to install and no evidence for the calls generate already wrote.
+  const generateManifest = micropythonLibManifest();
+  const expected = structuredClone(generateManifest);
+  const sentBodies: any[] = [];
+  const events: any[] = [];
+  const baseLlm = scriptedLlm({
+    "upy-generate-plugin": [[
+      tu("g", "phase_complete", { result: "success", summary: "generated", next_phase: "upy-deploy-plugin", manifest_content: generateManifest }),
+      stop,
+    ]],
+    // Deploy completes WITHOUT a manifest_content of its own — the real deploy phase adds no
+    // manifest fields, so the evidence has to survive on the carry alone.
+    "upy-deploy-plugin": [[
+      tu("d", "phase_complete", { result: "success", summary: "deployed", next_phase: null }),
+      stop,
+    ]],
+  });
+  const llm = {
+    // Snapshot what actually went on the wire, at send time.
+    streamMessages: async (body: any) => { sentBodies.push(structuredClone(body)); return baseLlm.streamMessages(body); },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "ble beacon", startPhase: "upy-generate-plugin", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm },
+  );
+
+  assert.equal(result.terminal, "complete");
+
+  const deployBody = sentBodies.find((b) => b.phase === "upy-deploy-plugin");
+  assert.ok(deployBody, "the deploy phase must run — nothing installs the mip packages otherwise");
+  assert.deepEqual(deployBody.manifest, expected, "the deploy prompt carries the generate manifest verbatim");
+  // Spell out the three evidence carriers so a regression names what was lost.
+  assert.deepEqual(
+    deployBody.manifest.generate.runtime_dependencies,
+    expected.generate.runtime_dependencies,
+    "deploy must see the mip runtime dependencies (incl. the micropython_lib entry) it is supposed to install",
+  );
+  assert.deepEqual(deployBody.manifest.generate.doc_evidence, expected.generate.doc_evidence, "deploy must see the API doc evidence");
+  assert.deepEqual(
+    deployBody.manifest.devices.find((d: any) => d.driver?.source === "micropython_lib")?.driver,
+    micropythonLibDriver(),
+    "the device's MicroPython-lib driver evidence (package_name/install_cmd/repo_url/api_ref) survives the carry",
+  );
+
+  assert.deepEqual(result.manifest, expected, "the terminal result still carries the evidence (a manifest-less deploy must not blank it)");
+
+  const manifestEvents = events.filter((e) => e.type === "manifest_updated");
+  assert.equal(manifestEvents.length, 1, "only generate emitted a manifest_content, so only one manifest_updated is forwarded");
+  assert.deepEqual(manifestEvents[0].manifest, expected, "the host receives the same rich manifest the deploy prompt got");
+
+  assert.deepEqual(generateManifest, expected, "the loop must not mutate the manifest object the caller handed it");
+});
+
+test("a phase that emits no manifest_content leaves the mip dependencies and evidence from the start manifest intact", async () => {
+  // The optional/one-shot entry point (startManifest) plus a phase that completes without a
+  // manifest_content: the carry is the only thing keeping the evidence alive here too.
+  const startManifest = micropythonLibManifest();
+  const expected = structuredClone(startManifest);
+
+  const result = await runProtocolBuild(
+    {
+      intent: "deploy it",
+      startPhase: "upy-deploy-plugin",
+      startManifest,
+      onEvent: () => {},
+    },
+    {
+      llmClient: scriptedLlm({
+        "upy-deploy-plugin": [[tu("d", "phase_complete", { result: "success", summary: "deployed", next_phase: null }), stop]],
+      }),
+    },
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.deepEqual(result.manifest, expected, "the start manifest's mip dependencies and evidence survive a manifest-less phase");
 });
 
 test("protocol build forwards streamed credit events to onEvent (production quota-bar path)", async () => {
