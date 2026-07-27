@@ -223,6 +223,76 @@ test("board cards show the 3-way badges (firmware + local-layout state)", async 
   assert.doesNotMatch(officialOnly, /Pin layout/, "no local-layout badge without builtin_pin_layout");
 });
 
+test("a curated vendor board carries its own badge, distinct from the builtin and official-only states", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    source_url: "https://micropython.org/download/",
+    boards: [
+      { id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: ["WiFi"], firmware: { board_name: "ESP32_GENERIC_S3" }, support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" },
+      { id: "PYBD_SF2", display_name: "Pyboard D-series SF2", vendor: "George Robotics", port: "stm32", mcu: "stm32f722", features: [], firmware: { board_name: "PYBD_SF2" }, support_status: "official_firmware_only" },
+      // Appended by the API to the same boards[]: a physical vendor board that shares the
+      // ESP32_GENERIC_S3 firmware page and has no official slug of its own.
+      { id: "lilygo-t-watch-s3", official_id: null, display_name: "LilyGO T-Watch S3", vendor: "LILYGO", port: "esp32", mcu: "esp32s3", features: ["Display", "LoRa"], firmware: { url: "https://micropython.org/download/ESP32_GENERIC_S3/", board_name: "ESP32_GENERIC_S3", variant: "spiram-oct", file_type: "bin", flash_method: "esptool" }, download_slug: null, support_status: "skill_vendor_profile", local_board_id: null, skill_board_id: "lilygo-t-watch-s3" },
+    ],
+  });
+
+  const vendor = document.querySelector('.board-card[data-board-id="lilygo-t-watch-s3"]')!.textContent!;
+  assert.match(vendor, /Official firmware/, "the vendor board still flashes official firmware");
+  assert.match(vendor, /Vendor board/, "vendor-profile badge");
+  assert.doesNotMatch(vendor, /Official only/, "a vendor profile is not the no-layout state");
+  assert.doesNotMatch(vendor, /Pin layout/, "the vendor badge replaces the builtin-layout badge");
+  // The other two states keep their own badge — the third state is added, not substituted.
+  assert.doesNotMatch(document.querySelector('.board-card[data-board-id="esp32-s3-devkitc"]')!.textContent!, /Vendor board/);
+  assert.doesNotMatch(document.querySelector('.board-card[data-board-id="PYBD_SF2"]')!.textContent!, /Vendor board/);
+
+  // Search and the vendor/port/mcu/feature filters cover the appended entry with no merge code.
+  const search = document.getElementById("boardSearch") as HTMLInputElement;
+  search.value = "lilygo";
+  search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.match(document.getElementById("boardList")!.textContent!, /LilyGO T-Watch S3/);
+  assert.doesNotMatch(document.getElementById("boardList")!.textContent!, /Pyboard D-series/);
+  search.value = "";
+  search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  const vendorFilter = document.getElementById("boardVendor") as HTMLSelectElement;
+  assert.ok([...vendorFilter.options].some((o) => o.value === "LILYGO"), "the vendor family reaches the filter dropdown");
+  vendorFilter.value = "LILYGO";
+  vendorFilter.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  assert.match(document.getElementById("boardList")!.textContent!, /LilyGO T-Watch S3/);
+  assert.doesNotMatch(document.getElementById("boardList")!.textContent!, /Espressif/, "other vendors filtered out");
+});
+
+test("a vendor board's declared firmware file type wins over the port heuristic", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    boards: [
+      // A port whose heuristic would say uf2, with the profile declaring the real file type.
+      { id: "vendor-hex-board", display_name: "Vendor Hex Board", vendor: "Acme", port: "rp2", mcu: "rp2040", features: [], firmware: { url: "https://example.invalid/fw/", file_type: "hex" }, support_status: "skill_vendor_profile", skill_board_id: "vendor-hex-board" },
+    ],
+  });
+
+  assert.match(document.querySelector(".board-meta")!.textContent!, /firmware: hex/, "declared file_type beats the port map");
+});
+
+test("an unexpected support_status or port never resolves to an inherited Object member", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, {
+    type: "micropython_boards",
+    boards: [
+      { id: "odd-board", display_name: "Odd Board", vendor: "Acme", port: "constructor", mcu: "x", features: [], firmware: { url: "https://example.invalid/fw/" }, support_status: "constructor" },
+    ],
+  });
+
+  const card = document.querySelector('.board-card[data-board-id="odd-board"]')!.textContent!;
+  assert.match(card, /Official only/, "an unknown support status falls back to the no-layout badge");
+  assert.doesNotMatch(card, /function|Object/, "no prototype member leaks into the badge text");
+  assert.doesNotMatch(document.querySelector(".board-meta")!.textContent!, /firmware:/, "an unknown port yields no firmware format");
+});
+
 test("board cards show a firmware format and a details link that opens the download page (not selecting the card)", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
