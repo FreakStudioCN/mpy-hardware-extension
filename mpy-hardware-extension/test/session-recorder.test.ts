@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder, listRecentSessions, selectRecentSessionIds, withTimeout } from "../src/extension/session-recorder.ts";
+
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 test("JSONL session recorder writes complete ordered events under the session trace id", async () => {
   const root = await mkdtemp(join(tmpdir(), "mpyhw-sessions-"));
@@ -243,6 +246,92 @@ test("cloud telemetry recorder buffers a transient failure and a later session d
   assert.equal(requests.length, 1, "buffered event redelivered on next session");
   assert.equal(JSON.parse(String(requests[0].body)).events[0].event_type, "session_finished");
   await assert.rejects(readFile(outboxPath, "utf-8"), /ENOENT/, "outbox emptied after a successful drain");
+});
+
+test("a buffered event stores only a token FINGERPRINT, never the bearer token itself", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-outbox-idh-"));
+  const outboxPath = join(root, "telemetry-outbox.jsonl");
+
+  const down = new CloudTelemetryRecorder({
+    traceId: "trace-1",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async () => { throw new Error("offline"); },
+    getAuthToken: async () => "jwt-secret-A",
+    outboxPath,
+  });
+  await down.record({ type: "session_finished", terminal: "generated" });
+  await down.flush();
+
+  const buffered = await readFile(outboxPath, "utf-8");
+  assert.equal(buffered.includes("jwt-secret-A"), false, "the raw bearer token is never written to disk");
+  const line = JSON.parse(buffered.trim());
+  assert.equal(line.__v, 2, "buffered as an identity-stamped envelope");
+  assert.equal(line.idh, sha256("jwt-secret-A"), "identity is the sha256 fingerprint of the token");
+  assert.equal(line.event.event_type, "session_finished", "the mapped event rides inside the envelope");
+});
+
+test("a buffered event replays AUTHENTICATED when the same account is signed in at drain time", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-outbox-same-"));
+  const outboxPath = join(root, "telemetry-outbox.jsonl");
+
+  const down = new CloudTelemetryRecorder({
+    traceId: "trace-1",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async () => { throw new Error("offline"); },
+    getAuthToken: async () => "jwt-A",
+    outboxPath,
+  });
+  await down.record({ type: "session_finished", terminal: "generated" });
+  await down.flush();
+
+  // Next session, SAME account signed in -> the drain re-authenticates as that account.
+  const requests: any[] = [];
+  const up = new CloudTelemetryRecorder({
+    traceId: "trace-2",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (_url: string, init?: RequestInit) => { requests.push(init); return { ok: true, status: 204 } as Response; },
+    getAuthToken: async () => "jwt-A",
+    outboxPath,
+  });
+  await up.flush();
+
+  assert.equal(requests.length, 1, "buffered event redelivered");
+  assert.equal((requests[0].headers as any).authorization, "Bearer jwt-A", "re-attributed to the same account");
+  await assert.rejects(readFile(outboxPath, "utf-8"), /ENOENT/, "outbox emptied");
+});
+
+test("a buffered event replays ANONYMOUSLY when a DIFFERENT account is signed in at drain time", async () => {
+  // The blocker: identity is server-derived from the bearer token, and a buffered credit event
+  // carries no identity of its own. Account A builds offline (events buffer), A signs out, B
+  // signs in, and B's next session drains the outbox. Without the identity gate, A's buffered
+  // consumption would post under B's token and be recorded against B. The gate posts it with NO
+  // Authorization header instead, so the server lands it as user_id NULL — never misattributed.
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-outbox-cross-"));
+  const outboxPath = join(root, "telemetry-outbox.jsonl");
+
+  const a = new CloudTelemetryRecorder({
+    traceId: "trace-a",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async () => { throw new Error("offline"); },
+    getAuthToken: async () => "jwt-A",
+    outboxPath,
+  });
+  await a.record({ type: "session_finished", terminal: "generated" });
+  await a.flush();
+
+  const requests: any[] = [];
+  const b = new CloudTelemetryRecorder({
+    traceId: "trace-b",
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async (_url: string, init?: RequestInit) => { requests.push(init); return { ok: true, status: 204 } as Response; },
+    getAuthToken: async () => "jwt-B", // a DIFFERENT account is signed in now
+    outboxPath,
+  });
+  await b.flush();
+
+  assert.equal(requests.length, 1, "buffered event still delivered");
+  assert.equal((requests[0].headers as any).authorization, undefined, "posted anonymously — never under B's token");
+  await assert.rejects(readFile(outboxPath, "utf-8"), /ENOENT/, "outbox emptied");
 });
 
 test("cloud telemetry recorder drops a permanent 4xx instead of buffering it", async () => {

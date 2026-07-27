@@ -1984,16 +1984,19 @@ test("the webview gets the usage on the same session_event the quota bar reads",
   assert.equal(events[0].event.usage.operation, "generate");
 });
 
-test("a refunded turn reports zero consumption, never negative credits", async () => {
-  // The server refunds the reserved credit on a zero-token turn, so the balance goes UP.
-  // Mutation: drop the clamp -> credits_consumed is -2 and the aggregate understates real spend.
+test("a balance increase (refund/refill) reports unknown consumption, never a fabricated 0 or a negative", async () => {
+  // The server refunds a reserved credit (or the daily grant refills), so the balance goes UP.
+  // The delta is then meaningless — a paid-then-refilled turn is indistinguishable from a pure
+  // refund — so this turn's cost is UNKNOWN, not 0. The old behavior clamped the inverted delta
+  // to 0, which misreads a paid turn across a refill as free and understates real spend.
+  // Mutation: report 0 (or the negative delta) here -> the rollup counts a refill turn as known-free.
   const recorded: any[] = [];
   const controller = new SessionController({
     postMessage: () => { },
     recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
     loop: async ({ onEvent }: any) => {
       creditsTurn(onEvent, "analyze", 47);
-      creditsTurn(onEvent, "analyze", 49); // refund: balance climbs back
+      creditsTurn(onEvent, "analyze", 49); // refund/refill: balance climbs back up
       return { terminal: "complete" };
     },
   });
@@ -2001,8 +2004,34 @@ test("a refunded turn reports zero consumption, never negative credits", async (
   await controller.start({ intent: "x", boardId: "esp32" });
 
   const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
-  assert.equal(usage[1].credits_consumed, 0);
+  assert.equal(usage[1].credits_consumed, undefined, "a balance increase yields unknown, not a fabricated 0");
   assert.equal(usage[1].remaining_quota, 49, "the balance itself is still reported truthfully");
+});
+
+test("a paid turn across a daily refill is not swallowed as free", async () => {
+  // The concrete failure the unknown-on-increase rule prevents: the balance is nearly spent,
+  // the daily grant refills, then a real paid turn follows. The refill turn is unknown, and
+  // because the baseline re-advances to the post-refill balance, the paid turn after it is
+  // measured correctly instead of against a stale pre-refill baseline.
+  // Mutation: clamp the inverted delta to 0 on the refill -> the refill turn reads free AND its
+  // stale baseline makes the following paid turn's delta wrong too.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      creditsTurn(onEvent, "generate", 2);   // baseline: 2 left
+      creditsTurn(onEvent, "generate", 50);  // daily refill -> unknown, re-baselines to 50
+      creditsTurn(onEvent, "generate", 49);  // a real 1-credit turn against the new baseline
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(usage[1].credits_consumed, undefined, "the refill turn's cost is unknown, not 0");
+  assert.equal(usage[2].credits_consumed, 1, "the paid turn after the refill is measured correctly");
 });
 
 test("a retry and an absorbed supplement label the turn they pay for", async () => {

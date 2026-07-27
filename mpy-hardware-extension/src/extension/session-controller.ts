@@ -942,10 +942,16 @@ export class SessionController {
   private accumulateCreditUsage(event: any): CreditUsageRecord {
     const now = Date.now();
     const balance = typeof event.remaining === "number" ? event.remaining : undefined;
-    // Best-effort consumption until the server sends its authoritative charge. A refund makes
-    // the delta negative; the builder clamps it, so a refunded turn reads as 0 consumed,
-    // never as negative credits that would understate the aggregate.
-    const consumed = this.lastCreditBalance !== null && balance !== undefined ? this.lastCreditBalance - balance : undefined;
+    // Best-effort consumption until the server sends its authoritative charge, valid ONLY when
+    // the balance did not go UP: a daily refill or admin top-up (balance jumps e.g. 2 -> 50)
+    // inverts the delta, and clamping that to 0 would misread a paid turn across the refill as
+    // free. When the balance rose, this turn's cost is unknowable from the delta, so leave it
+    // undefined — the rollup treats unknown as "no known cost", not as 0. A same-or-lower
+    // balance is a real non-negative consumption (0 for a genuinely free turn).
+    const consumed =
+      this.lastCreditBalance !== null && balance !== undefined && balance <= this.lastCreditBalance
+        ? this.lastCreditBalance - balance
+        : undefined;
     const manifest: any = this.latestManifest;
     // Canonicalize the phase for the same reason the operation is canonicalized: "generate",
     // "upy-generate" and "upy-generate-plugin" are one phase, and an aggregate split three

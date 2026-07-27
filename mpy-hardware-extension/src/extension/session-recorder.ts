@@ -1,4 +1,5 @@
 import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -124,8 +125,8 @@ export class CloudTelemetryRecorder implements SessionRecorder {
       return Promise.resolve();
     }
     this.pending = this.pending
-      .then(() => this.post(telemetry))
-      .catch((error) => this.onPostFailure(telemetry, error));
+      .then(() => this.deliver(telemetry))
+      .catch((error) => this.log?.(`[telemetry] ${formatError(error)}`));
     return Promise.resolve();
   }
 
@@ -165,13 +166,46 @@ export class CloudTelemetryRecorder implements SessionRecorder {
     this.record({ type: "telemetry_dropped", dropped: snapshot });
   }
 
-  private async onPostFailure(event: Record<string, any>, error: unknown) {
+  // Resolve the auth token, bounded so a hung token exchange can't stall the pending chain
+  // (and via flush()/run()'s finally, the whole run). Returns undefined when signed OUT
+  // (github-auth resolves undefined, no throw). A network failure/timeout THROWS — the caller
+  // treats that as transient (buffer on the live path, keep-for-later on the drain path)
+  // rather than silently anonymizing an event whose real owner is simply momentarily unreachable.
+  private async resolveToken(): Promise<string | undefined> {
+    return this.getAuthToken ? await withTimeout(this.getAuthToken(), POST_TIMEOUT_MS) : undefined;
+  }
+
+  // Deliver one live event. The token is resolved ONCE and used both to authenticate the POST
+  // and — if it fails — to fingerprint the account this event belongs to, so a later outbox
+  // replay (postBuffered) can never attribute it to whoever is signed in at drain time.
+  private async deliver(event: Record<string, any>) {
+    let token: string | undefined;
+    try {
+      token = await this.resolveToken();
+    } catch (error) {
+      // Token exchange itself failed/timed out (transient). Buffer with a null identity — a
+      // safe degradation: replayed anonymously later, never misattributed to another account.
+      await this.onPostFailure(event, error, null);
+      return;
+    }
+    try {
+      await this.postWith(event, token);
+    } catch (error) {
+      await this.onPostFailure(event, error, fingerprint(token));
+    }
+  }
+
+  private async onPostFailure(event: Record<string, any>, error: unknown, idh: string | null) {
     // Only transient failures (network / 5xx / 429 / 408) are worth retaining; a permanent
     // 4xx (unknown event_type, too-large) would loop the outbox forever, so log + drop.
     if (isTransient(error)) {
       let buffered = false;
       try {
-        buffered = this.outbox ? await this.outbox.append(event) : false;
+        // Stamp the identity fingerprint the event must be attributed to alongside it. A drain
+        // in a later session re-checks this against whoever is signed in THEN before deciding
+        // whether to authenticate (postBuffered), so one user's buffered credit/telemetry can
+        // never be recorded against another who happens to be signed in when it replays.
+        buffered = this.outbox ? await this.outbox.append({ __v: 2, idh, event }) : false;
       } catch (writeError) {
         error = writeError;
       }
@@ -181,12 +215,10 @@ export class CloudTelemetryRecorder implements SessionRecorder {
     this.log?.(`[telemetry] ${formatError(error)}`);
   }
 
-  private async post(event: Record<string, any>) {
-    // The token fetch does its own un-timed network POST (github-auth getToken), so bound it
-    // too — a hung token exchange would stall post() -> flush() -> run()'s finally, exactly the
-    // hang the fetch timeout below prevents. A timeout rejects with no `status`, so isTransient()
-    // buffers the event for a later retry rather than losing it.
-    const token = this.getAuthToken ? await withTimeout(this.getAuthToken(), POST_TIMEOUT_MS) : undefined;
+  // POST one already-mapped telemetry event, authenticated with `token` when present. The
+  // server derives identity from the bearer token (routes_telemetry get_optional_user), so no
+  // token means the batch lands anonymous (user_id NULL) rather than being rejected.
+  private async postWith(event: Record<string, any>, token: string | undefined) {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (token) headers.authorization = `Bearer ${token}`;
     // Bounded: a backend that accepts the socket but never responds must not hang the
@@ -205,18 +237,49 @@ export class CloudTelemetryRecorder implements SessionRecorder {
     }
   }
 
+  // Re-POST one buffered line. The line is the identity-stamped envelope {__v,idh,event}:
+  // authenticate ONLY if the account signed in NOW is the one the event was captured under;
+  // otherwise post anonymously (user_id NULL) so a signed-in B never inherits A's buffered
+  // credit charges. A legacy/foreign bare line (no envelope) posts as-is — prior behavior.
+  private async postBuffered(line: Record<string, any>) {
+    if (line?.__v !== 2 || !("event" in line)) {
+      await this.postWith(line, await this.resolveToken());
+      return;
+    }
+    const stamped: string | null = line.idh ?? null;
+    // resolveToken THROWS on a transient token failure -> postBuffered rejects -> the outbox
+    // keeps this line for a later drain that can attribute it correctly (isTransient), rather
+    // than anonymizing on a momentary hiccup. Signed out resolves undefined (not a throw) ->
+    // fingerprint null -> anonymous, which is correct: no account to attribute to.
+    const token = await this.resolveToken();
+    const now = fingerprint(token);
+    const useToken = stamped !== null && now !== null && stamped === now ? token : undefined;
+    await this.postWith(line.event, useToken);
+  }
+
   private async drainOutbox() {
     // A backlog buffered while consent was ON must not be replayed after it is revoked.
     // The events stay on disk (they are the user's own local file) and drain if consent
     // returns; nothing is sent in the meantime.
     if (!this.consented()) return;
-    await this.outbox?.drain((event) => this.post(event));
+    await this.outbox?.drain((line) => this.postBuffered(line));
   }
 }
 
 // Cap a single telemetry POST so a hung backend can't stall the pending chain (and thus
 // flush(), and via run()'s finally, the run itself).
 const POST_TIMEOUT_MS = 15_000;
+
+// A stable, non-reversible fingerprint of an auth token, stamped on a buffered event so a
+// later drain can tell "same account as when this was captured" from "someone else is signed
+// in now". The token itself is never written to disk — it is a bearer secret — only this
+// sha256. A token maps to exactly one account, so equal fingerprints mean the same user;
+// a rotated token yields a different fingerprint and the buffered event is replayed
+// anonymously (a safe loss of attribution, never a cross-user misattribution). Null when
+// there is no token (already anonymous).
+export function fingerprint(token: string | undefined): string | null {
+  return token ? createHash("sha256").update(token).digest("hex") : null;
+}
 
 // Bound an await that carries no AbortSignal of its own (the auth-token exchange inside
 // getAuthToken does an un-timed network POST). On timeout, reject with no `status` so
