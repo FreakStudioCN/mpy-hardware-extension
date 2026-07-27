@@ -1,5 +1,12 @@
 import { registerCommands } from "./commands.ts";
+import { resolveApiBaseUrl } from "./api-base-url.ts";
+import { createGithubAuth } from "./github-auth.ts";
+import { installHostErrorHandlers, sweepAbandonedSessions, type HostTelemetryDeps } from "./host-telemetry.ts";
 import { createViewProvider } from "../webview/panel.ts";
+
+// Set by the active webview's controller (via registerTelemetryFlush) so deactivate() can
+// drain the telemetry outbox on shutdown. Last-wired webview wins (one active controller).
+let telemetryFlush: (() => Promise<void>) | undefined;
 
 export function activate(context: any, vscode: any = undefined) {
   // VS Code injects its API via require("vscode") in the CommonJS host. Tests
@@ -22,6 +29,10 @@ export function activate(context: any, vscode: any = undefined) {
     // Guaranteed-writable per-extension dir; the fallback project root when no
     // workspace folder is open, so generation never writes to process.cwd().
     globalStoragePath: context.globalStorageUri?.fsPath,
+    // Real runtime version for telemetry attribution — read from the manifest, NOT the
+    // hand-kept EXTENSION_VERSION constant (which has drifted before). Absent in tests.
+    extensionVersion: context.extension?.packageJSON?.version,
+    registerTelemetryFlush: (flush: () => Promise<void>) => { telemetryFlush = flush; },
     onWebviewReady: (webview: any) => {
       activeWebview = webview;
       if (pendingRecipeImport) {
@@ -51,9 +62,52 @@ export function activate(context: any, vscode: any = undefined) {
     }));
   }
   if (output) context.subscriptions.push(output);
+  installHostTelemetry(context, api, (message: string) => output?.appendLine(message));
 }
 
-export function deactivate() {}
+// Wire host-level telemetry (uncaught-fault observer + abandoned-session sweep). Fully
+// guarded: a headless/test host or an unreachable backend must never break activation.
+function installHostTelemetry(context: any, api: any, log?: (message: string) => void) {
+  try {
+    const apiBaseUrl = resolveApiBaseUrl(api);
+    const workspaceFolder = api.workspace?.workspaceFolders?.[0]?.uri?.fsPath;
+    const auth = api.authentication ? createGithubAuth({ vscode: api, apiBaseUrl, fetchImpl: fetch, log }) : undefined;
+    const hostDeps: HostTelemetryDeps = {
+      apiBaseUrl,
+      fetchImpl: fetch,
+      getAuthToken: auth ? () => auth.getToken(false) : undefined,
+      log,
+      clientMeta: { extension_version: context.extension?.packageJSON?.version, vscode_version: api.version, platform: `${process.platform} ${process.arch}` },
+      sessionRoot: workspaceFolder ?? context.globalStorageUri?.fsPath,
+      extensionPath: context.extension?.extensionPath ?? context.extensionUri?.fsPath,
+      // Read live on every cloud event, so revoking consent stops the next post — no
+      // recorder is rebuilt and no cached flag can go stale.
+      isTelemetryEnabled: () => api.env?.isTelemetryEnabled !== false,
+    };
+    // The setting change itself is worth a log line: without it a user who opts out sees
+    // the extension go quiet with no confirmation that it was the setting that did it.
+    if (api.env?.onDidChangeTelemetryEnabled) {
+      context.subscriptions.push(api.env.onDidChangeTelemetryEnabled((enabled: boolean) =>
+        log?.(`[telemetry] cloud telemetry ${enabled ? "enabled" : "disabled"} by the user's VS Code telemetry setting`)));
+    }
+    context.subscriptions.push({ dispose: installHostErrorHandlers(hostDeps) });
+    // Fire-and-forget best-effort. Guard the rejection: with the host error handlers already
+    // installed above, an unhandled rejection here would be re-observed and reported as a fault.
+    void sweepAbandonedSessions(hostDeps).catch((error) => log?.(`[telemetry] abandoned-session sweep: ${String(error)}`));
+  } catch (error) {
+    log?.(`[telemetry] host telemetry setup skipped: ${String(error)}`);
+  }
+}
+
+export async function deactivate() {
+  // Best-effort: VS Code awaits this on shutdown (with a timeout). Anything not delivered
+  // stays durably in the telemetry outbox and drains on the next activation.
+  try {
+    await telemetryFlush?.();
+  } catch {
+    /* never block shutdown on a telemetry flush */
+  }
+}
 
 export function parseRecipeImportUri(uri: any) {
   const params = new URLSearchParams(String(uri.query ?? ""));

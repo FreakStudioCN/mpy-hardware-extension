@@ -52,6 +52,17 @@
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
           add_note: "Add note", add_note_tip: "Add a note to the running build (applied at the next safe point)",
           kind_thinking: "Thinking", kind_note: "Note", supplement_received: "queued: {s}", supplement_applied: "{d}: {r}",
+          // The remaining-quota clause is its own string, appended only when the balance is
+          // known — substituting an absent {r} would render a bare comma.
+          credit_line: "{o}: {c} {cu} over {t} {u}", credit_remaining: ", {r} left",
+          credit_one: "credit", credit_many: "credits", credit_turns_one: "turn", credit_turns_many: "turns",
+          // Display names for the credit line's label (cl_ + operation, or cl_ + canonical phase
+          // for the generic bucket). Without these the feed shows the raw wire token, which for
+          // scaffold/flash is a plugin id (upy-scaffold-plugin). Unknown tokens fall back to raw.
+          cl_generate: "Generate", cl_deploy: "Deploy", cl_gen_driver: "Driver build", cl_wiring: "Wiring", cl_diagram: "Diagram",
+          cl_retry: "Retry", cl_supplement: "Added note", cl_llm_call: "Other",
+          cl_analyze: "Analyze", "cl_select-hw": "Select hardware",
+          "cl_upy-scaffold-plugin": "Scaffold", "cl_upy-flash-mpy-firmware-plugin": "Flash firmware",
           mode_group: "Experience level", board_group: "Board selection", mode_beginner: "Beginner", mode_custom: "Custom", board_auto: "Recommend", board_browse: "Browse", board_browse_tip: "Browse and pick a specific board", board_use_recommend: "Use recommend instead", board_search_ph: "Search official MicroPython boards", board_vendor_all: "All vendors", board_port_all: "All ports", board_mcu_all: "All MCUs", board_feature_all: "All features", board_firmware: "Official firmware", board_builtin: "Pin layout", board_official_only: "Official only", board_none: "No matching boards", board_refresh: "Refresh", board_details_tip: "Open the official download page", board_firmware_fmt: "firmware:", board_cache_stale: "Cache stale {t}", board_cache_fetched: "Fetched {t}",
           new_session: "Restart", new_session_tip: "Restart the project - clears the current conversation",
           waiting_answer: "Waiting for your answer…", review_plan: "Review the plan…", cancelled: "Cancelled",
@@ -180,6 +191,12 @@
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
           add_note: "添加备注", add_note_tip: "为运行中的构建添加备注（在下一个安全点应用）",
           kind_thinking: "思考中", kind_note: "备注", supplement_received: "已排队：{s}", supplement_applied: "{d}：{r}",
+          credit_line: "{o}：{t} {u}共消耗 {c} {cu}", credit_remaining: "，剩余 {r}",
+          credit_one: "点", credit_many: "点", credit_turns_one: "次", credit_turns_many: "次",
+          cl_generate: "生成", cl_deploy: "部署", cl_gen_driver: "驱动生成", cl_wiring: "接线", cl_diagram: "架构图",
+          cl_retry: "重试", cl_supplement: "追加备注", cl_llm_call: "其他",
+          cl_analyze: "需求分析", "cl_select-hw": "硬件选型",
+          "cl_upy-scaffold-plugin": "项目骨架", "cl_upy-flash-mpy-firmware-plugin": "固件烧录",
           mode_group: "\u4f53\u9a8c\u7ea7\u522b", board_group: "\u5f00\u53d1\u677f\u9009\u62e9", mode_beginner: "小白", mode_custom: "自定义", board_auto: "推荐", board_browse: "浏览", board_browse_tip: "浏览并选择具体板卡", board_use_recommend: "改用系统推荐", board_search_ph: "搜索官方 MicroPython 板卡", board_vendor_all: "全部品牌", board_port_all: "全部 Port", board_mcu_all: "全部 MCU", board_feature_all: "全部特性", board_firmware: "官方固件", board_builtin: "内置引脚", board_official_only: "仅官方固件", board_none: "没有匹配板卡", board_details_tip: "打开官方下载页面", board_firmware_fmt: "固件:",
           new_session: "重新开始", new_session_tip: "重新开始项目——会清空当前对话",
           waiting_answer: "等待你的回答…", review_plan: "请确认方案…", cancelled: "已取消",

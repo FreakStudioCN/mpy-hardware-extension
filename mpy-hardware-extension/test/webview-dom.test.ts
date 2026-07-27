@@ -4072,6 +4072,277 @@ test("package browser: MicroPython-lib searches by name; GitHub is not a search 
   assert.deepEqual(sourceValues, ["auto", "micropython_lib", "upypi"], "selector has no github option");
 });
 
+test("a phase's credits roll up into one line at the phase boundary", async () => {
+  // Card #87: the feed shows what each phase cost, off the SAME session_events the quota bar
+  // reads. The backend streams a frame per turn; we fold them and emit ONE line at the phase
+  // boundary, like the diagnostics export. Mutation: emit per frame -> a line per turn.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Three generate turns (two free, one costing 3). No line yet — the phase has not ended.
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 49, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 0, remaining_quota: 49 } } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 3, remaining_quota: 46 } } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 0, remaining_quota: 46 } } });
+  assert.equal(document.querySelector(".ev-ico.note"), null, "no line until the phase boundary");
+
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 3 credits over 3 turns, 46 left"), `rolled-up line missing: ${feed}`);
+  assert.equal(document.querySelectorAll(".ev-ico.note").length, 1, "one rolled-up line, not one per frame");
+  assert.equal(document.getElementById("qUsed")!.textContent, "46", "the bar and the line agree");
+});
+
+test("the last phase's credits flush at session_done", async () => {
+  // A run can end without a trailing phase_complete; the final tally must still surface.
+  // Mutation: drop the session_done flush -> the last phase's cost is silently lost.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 40, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 6, remaining_quota: 40 } } });
+  post(dom, { type: "session_done", terminal: "complete" });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 6 credits over 1 turn, 40 left"), `final phase not flushed: ${feed}`);
+});
+
+test("a fully-free phase rolls up to one 0-credit line", async () => {
+  // The 0-cost turns are real (kept in JSONL/telemetry); the feed folds them into a single
+  // "0 credits over N turns" summary rather than one note per free frame. Mutation: suppress
+  // known-zero groups -> a free phase vanishes from the feed entirely.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 1000000, dailyGrant: 50, usage: { operation: "phase", phase: "select-hw", credits_consumed: 0, remaining_quota: 1000000 } } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 1000000, dailyGrant: 50, usage: { operation: "phase", phase: "select-hw", credits_consumed: 0, remaining_quota: 1000000 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-select-hw-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Select hardware: 0 credits over 2 turns, 1000000 left"), `free-phase rollup missing: ${feed}`);
+  assert.equal(document.querySelectorAll(".ev-ico.note").length, 1, "one summary line, not one per free frame");
+});
+
+test("a phase with only unknown-cost turns renders no line", async () => {
+  // A session's first frames have no balance baseline and no server charge; the summary must not
+  // read a free phase where every number was simply missing. Mutation: emit at known===0 ->
+  // a bogus 0-credit line appears.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 49, dailyGrant: 50, usage: { operation: "phase", phase: "analyze", remaining_quota: 49 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "analyze", result: "ok" } });
+
+  assert.equal(document.querySelector(".ev-ico.note"), null, "no line when no turn had a known cost");
+  assert.equal(document.getElementById("qUsed")!.textContent, "49", "the quota bar still updates");
+});
+
+test("the authoritative server charge wins over the balance delta in the rollup", async () => {
+  // Once the server reports what it actually deducted, that is the number the user sees.
+  // Mutation: sum credits_consumed first -> the feed shows the estimate, not the real charge.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 42, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, charged: 4, remaining_quota: 42 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 4 credits over 1 turn, 42 left"), `expected the authoritative charge: ${feed}`);
+});
+
+test("the credit rollup uses the phase name for the generic bucket", async () => {
+  // analyze / select-hw / scaffold / flash share the catch-all "phase" operation; the line must
+  // show the actual phase, not the bucket token. Mutation: label from operation only -> "phase".
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 48, dailyGrant: 50, usage: { operation: "phase", phase: "analyze", credits_consumed: 2, remaining_quota: 48 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "analyze", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Analyze: 2 credits over 1 turn, 48 left"), `expected the phase name, not the bucket: ${feed}`);
+  assert.ok(!feed.includes("phase: 2 credits"), `must not show the generic bucket token: ${feed}`);
+});
+
+test("the credit rollup is localized (zh)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Flip the UI language the same way a real session does: submit a Chinese intent.
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "用 OLED 显示温度";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 3, remaining_quota: 46 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("生成：1 次共消耗 3 点，剩余 46"), `expected the zh rollup line: ${feed}`);
+});
+
+test("Restart drops the running tally instead of billing it to the next session", async () => {
+  // The accumulator outlives the feed DOM, and Restart reaches neither flush point:
+  // reset_session posts no session_done back, and an aborted run's own session_done is
+  // dropped by the host's generation guard. Mutation: stop clearing it in clearConversation
+  // -> session 2's first line reads "8 credits over 2 turns" for a 1-credit session.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Session 1: a generate turn costs 7, then the user restarts mid-phase (no phase_complete).
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 43, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 7, remaining_quota: 43 } } });
+  (document.getElementById("newSession") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "reset_session"), "the host was told to reset too");
+  assert.equal(document.getElementById("activity")!.textContent, "", "the feed is wiped");
+
+  // Session 2: a brand-new build, one generate turn costing 1.
+  post(dom, { type: "phase_start", phase: "upy-generate-plugin" });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 49, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, remaining_quota: 49 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 1 credit over 1 turn, 49 left"), `session 2 must stand alone: ${feed}`);
+  assert.ok(!feed.includes("8 credits"), `session 1's spend leaked into session 2: ${feed}`);
+  assert.ok(!feed.includes("2 turns"), `session 1's turn leaked into session 2: ${feed}`);
+  // And the discarded tally is dropped, not re-emitted into the fresh feed.
+  assert.equal(document.querySelectorAll(".ev-ico.note").length, 1, "exactly one line, session 2's");
+});
+
+test("a credits frame in flight at Restart is dropped, not folded into the next session", async () => {
+  // Host->webview frames are async, so a credits frame already posted for session 1 can
+  // land AFTER Restart's clearConversation() and repopulate the fresh accumulator. On
+  // Restart the webview DRAINS stamped frames until the host echoes the reset
+  // (session_reset); FIFO puts the stale frame before that echo, so it is dropped.
+  // Mutation: skip the drain -> session 2 reads "6 credits over 2 turns" for 1 credit.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // Session 1 (generation 4): one generate turn costs 5.
+  post(dom, { type: "session_event", generation: 4, event: { kind: "credits", balance: 45, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 5, remaining_quota: 45 } } });
+
+  // Restart: the webview starts draining stamped frames.
+  (document.getElementById("newSession") as HTMLButtonElement).click();
+
+  // The in-flight session-1 frame (still generation 4) lands AFTER the click — drained.
+  post(dom, { type: "session_event", generation: 4, event: { kind: "credits", balance: 45, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 5, remaining_quota: 45 } } });
+
+  // The host echoes the reset (generation now 5): the drain ends, gen<=4 is stale.
+  post(dom, { type: "session_reset", generation: 5 });
+
+  // Session 2 (generation 5): a brand-new build, one generate turn costing 1.
+  post(dom, { type: "phase_start", phase: "upy-generate-plugin" });
+  post(dom, { type: "session_event", generation: 5, event: { kind: "credits", balance: 49, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, remaining_quota: 49 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 1 credit over 1 turn, 49 left"), `session 2 must stand alone: ${feed}`);
+  assert.ok(!feed.includes("2 turns"), `the stale in-flight frame added a turn: ${feed}`);
+  assert.ok(!feed.includes("6 credits"), `the stale frame's 5 credits leaked: ${feed}`);
+});
+
+test("the very first credits frame of an abandoned session is dropped too (never-seen generation)", async () => {
+  // The hard case: the frame in flight at Restart is the session's FIRST credits frame, so
+  // its generation was never seen. A seen-generations guard can't mark it stale — but the
+  // drain-until-session_reset does, because FIFO puts that first frame before the echo.
+  // Mutation: end the drain on Restart instead of on session_reset -> the 9-credit first
+  // frame folds into session 2, which reads "11 credits over 2 turns" for a 2-credit build.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // The user restarts before session 1 has delivered any credits frame at all.
+  (document.getElementById("newSession") as HTMLButtonElement).click();
+
+  // Session 1's FIRST credits frame (generation 3, never seen) arrives in flight — drained.
+  post(dom, { type: "session_event", generation: 3, event: { kind: "credits", balance: 41, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 9, remaining_quota: 41 } } });
+
+  // Host confirms the reset (generation now 4): the drain ends.
+  post(dom, { type: "session_reset", generation: 4 });
+
+  // Session 2 (generation 4): one generate turn costing 2.
+  post(dom, { type: "phase_start", phase: "upy-generate-plugin" });
+  post(dom, { type: "session_event", generation: 4, event: { kind: "credits", balance: 48, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 2, remaining_quota: 48 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 2 credits over 1 turn, 48 left"), `session 2 must stand alone: ${feed}`);
+  assert.ok(!feed.includes("2 turns"), `the never-seen first frame added a turn: ${feed}`);
+  assert.ok(!feed.includes("11 credits"), `the never-seen first frame's 9 credits leaked: ${feed}`);
+});
+
+test("the generic bucket never renders a plugin id, in either language", async () => {
+  // The host stamps `phase` canonicalized through PHASE_ALIASES, and for scaffold/flash that
+  // canonical form IS a plugin id. Mutation: label straight from the token -> the feed shows
+  // "upy-scaffold-plugin" to a beginner.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "phase", phase: "upy-scaffold-plugin", credits_consumed: 1, remaining_quota: 46 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-scaffold-plugin", result: "ok" } });
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 44, dailyGrant: 50, usage: { operation: "phase", phase: "upy-flash-mpy-firmware-plugin", credits_consumed: 2, remaining_quota: 44 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-flash-mpy-firmware-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Scaffold: 1 credit over 1 turn, 46 left"), `expected the display name: ${feed}`);
+  assert.ok(feed.includes("Flash firmware: 2 credits over 1 turn, 44 left"), `expected the display name: ${feed}`);
+  assert.equal(feed.includes("upy-"), false, `a plugin id reached the feed: ${feed}`);
+});
+
+test("an unnamed phase token degrades to itself rather than to an empty label", async () => {
+  // A phase we have not added a display name for must still produce a readable line — the
+  // lookup falls back to the raw token. Mutation: return tr(key) unconditionally -> the line
+  // reads "cl_upy-future-plugin: …".
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "phase", phase: "upy-future-plugin", credits_consumed: 1, remaining_quota: 46 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-future-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("upy-future-plugin: 1 credit over 1 turn, 46 left"), `expected the raw token: ${feed}`);
+  assert.equal(feed.includes("cl_"), false, `the lookup key leaked into the feed: ${feed}`);
+});
+
+test("the rollup drops the balance clause when no frame carried a balance", async () => {
+  // tr() substitutes with split().join(), and join(undefined) falls back to "," — so an
+  // absent {r} used to render "…over 1 turn, , left". Mutation: always append the clause.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // A server charge with no balance anywhere: no remaining_quota on the usage, no event balance.
+  post(dom, { type: "session_event", event: { kind: "credits", dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", charged: 2 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 2 credits over 1 turn"), `rollup missing: ${feed}`);
+  assert.equal(feed.includes("left"), false, `a balance clause with no balance: ${feed}`);
+  assert.equal(/,\s*,/.test(feed), false, `join(undefined) rendered a stray comma: ${feed}`);
+});
+
+test("the rollup says 'credit' for exactly one, matching the diagnostics export", async () => {
+  // The host formatter singularizes; the feed used to hardcode "credits", so the two surfaces
+  // disagreed on identical data. Mutation: hardcode the plural -> "1 credits".
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "session_event", event: { kind: "credits", balance: 46, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 1, remaining_quota: 46 } } });
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 1 credit over 1 turn, 46 left"), `expected the singular: ${feed}`);
+  assert.equal(feed.includes("1 credits"), false, `plural for a single credit: ${feed}`);
+});
+
 // ----- WI-4/WI-5: Git History surface (open, render, XSS-inert, diff, empty states) -----
 
 test("Git History gtool button opens its own surface (registered in GLOBAL_TOOL_SURFACES) and requests the timeline", async () => {

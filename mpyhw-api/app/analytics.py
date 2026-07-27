@@ -63,6 +63,17 @@ ALLOWED_EVENT_TYPES = {
     "skill_loaded",
     "terminal",
     "error",
+    # Retry signals: already mapped + unit-tested client-side (telemetry.ts), but were
+    # missing here — so the route 422'd them and the client swallowed the loss. Listed so
+    # they persist (and so the delivery outbox never treats them as poison 4xx).
+    "connect_retry",
+    "session_retry",
+    # Client self-observability (extension host, not the agent loop). `session_abandoned`
+    # is terminal (see _update_session); the rest are ingest-only, like the phase_* trace.
+    "extension_error",
+    "extension_host_error_observed",
+    "session_abandoned",
+    "telemetry_dropped",
 }
 
 ingestion_failure_count = 0
@@ -80,13 +91,19 @@ def record_telemetry(events: list[dict[str, Any]]) -> None:
                 user_id = event.get("user_id")
                 db.execute(
                     conn,
-                    "INSERT INTO telemetry_events(trace_id, user_id, event_type, timestamp, payload_json, created_at) VALUES(?,?,?,?,?,?)",
+                    "INSERT INTO telemetry_events("
+                    "trace_id, user_id, event_type, timestamp, payload_json, "
+                    "extension_version, vscode_version, platform, created_at"
+                    ") VALUES(?,?,?,?,?,?,?,?,?)",
                     (
                         event["trace_id"],
                         user_id,
                         event["event_type"],
                         event["timestamp"],
                         payload_value,
+                        event.get("extension_version"),
+                        event.get("vscode_version"),
+                        event.get("platform"),
                         now,
                     ),
                 )
@@ -157,6 +174,11 @@ def record_llm_turn(
     credits_charged: int | None,
     status: str,
     error_kind: str | None = None,
+    # The llm_turns columns existed from the start but were hard-coded to NULL, so the
+    # input/output split of a turn was never queryable — only the total. Optional so the
+    # error path (which has no usage chunk) keeps writing NULL, which is the truth there.
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
 ) -> None:
     ended_at = datetime.now(timezone.utc)
     duration_ms = int((ended_at - started_at).total_seconds() * 1000)
@@ -177,8 +199,8 @@ def record_llm_turn(
                 started_at.isoformat(),
                 ended_at.isoformat(),
                 duration_ms,
-                None,
-                None,
+                input_tokens,
+                output_tokens,
                 total_tokens,
                 credits_charged,
                 status,
@@ -343,8 +365,10 @@ def _update_session(conn: Any, event: dict[str, Any], payload: dict[str, Any]) -
             """,
             (trace_id, user_id, payload.get("board_id"), payload.get("intent_hash"), event["timestamp"]),
         )
-    elif event_type in {"session_finished", "session_error", "session_cancelled", "repair_exhausted", "max_turns", "terminal"}:
-        terminal = payload.get("terminal") if event_type == "session_finished" else None
+    elif event_type in {"session_finished", "session_error", "session_cancelled", "repair_exhausted", "max_turns", "terminal", "session_abandoned"}:
+        # session_abandoned carries its own terminal ("abandoned") like session_finished,
+        # so a crashed session surfaces distinctly in session_terminal_distribution.
+        terminal = payload.get("terminal") if event_type in {"session_finished", "session_abandoned"} else None
         db.execute(
             conn,
             "UPDATE sessions SET ended_at=?, terminal=? WHERE trace_id=?",

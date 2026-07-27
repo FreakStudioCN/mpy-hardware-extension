@@ -1,11 +1,18 @@
 import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
+import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { ClientMeta } from "../core/telemetry.ts";
 import { sessionEventToTelemetry } from "../core/telemetry.ts";
+import { TelemetryOutbox, formatError, isTransient } from "./telemetry-outbox.ts";
 
 export type SessionRecorder = {
   record(event: Record<string, any>): Promise<void>;
+  // Await any buffered/in-flight delivery. Optional: only the cloud recorder has a durable
+  // outbox; the JSONL recorder implements it as "await my write chain".
+  flush?(): Promise<void>;
 };
 
 export class CompositeSessionRecorder implements SessionRecorder {
@@ -17,6 +24,10 @@ export class CompositeSessionRecorder implements SessionRecorder {
 
   async record(event: Record<string, any>) {
     await Promise.all(this.recorders.map((recorder) => recorder.record(event)));
+  }
+
+  async flush() {
+    await Promise.all(this.recorders.map((recorder) => recorder.flush?.()));
   }
 }
 
@@ -35,15 +46,27 @@ export class JsonlSessionRecorder implements SessionRecorder {
   async record(event: Record<string, any>) {
     this.pending = this.pending.then(async () => {
       await mkdir(dirname(this.filePath), { recursive: true });
+      const seq = ++this.seq;
+      // The first line this recorder writes also claims the session for this extension host.
+      // The abandoned-session sweep needs to know WHICH process is recording, or a second
+      // window on the same workspace reports the first window's live build as a crash. File
+      // ownership, not per-event data — hence only the first line, and local-only (the
+      // telemetry mapper whitelists payload fields, so pid/host are never uploaded).
+      const owner = seq === 1 ? { pid: process.pid, host: hostname() } : {};
       const line = JSON.stringify({
         ...event,
-        seq: ++this.seq,
+        seq,
         ts: new Date().toISOString(),
         traceId: this.traceId,
+        ...owner,
       });
       await appendFile(this.filePath, `${line}\n`, "utf-8");
     });
     return this.pending;
+  }
+
+  async flush() {
+    await this.pending;
   }
 }
 
@@ -54,45 +77,223 @@ export class CloudTelemetryRecorder implements SessionRecorder {
   private readonly fetchImpl: typeof fetch;
   private readonly getAuthToken?: () => Promise<string | undefined>;
   private readonly log?: (message: string) => void;
+  private readonly clientMeta?: ClientMeta;
+  private readonly outbox?: TelemetryOutbox;
+  // The user's telemetry consent, read LIVE on every event (not captured once at
+  // construction) so revoking consent mid-session stops the very next post. Absent means
+  // "no host to ask" — headless and test callers keep today's behavior.
+  private readonly isTelemetryEnabled?: () => boolean;
+  // Set when an event was neither delivered nor durably buffered — it is gone. Read by the
+  // abandoned-session sweep, which must not burn its one-shot local marker on a lost report.
+  private undelivered = false;
+  // Per-type histogram of events that mapSessionEvent dropped (returned null for). Many
+  // types are local-only by design; a NEW controller type someone forgot to map shows up
+  // here as an unexpected key. Emitted as one telemetry_dropped on flush.
+  private readonly dropped: Record<string, number> = {};
 
-  constructor(input: { traceId: string; apiBaseUrl: string; fetchImpl: typeof fetch; getAuthToken?: () => Promise<string | undefined>; log?: (message: string) => void }) {
+  constructor(input: { traceId: string; apiBaseUrl: string; fetchImpl: typeof fetch; getAuthToken?: () => Promise<string | undefined>; log?: (message: string) => void; clientMeta?: ClientMeta; outboxPath?: string; isTelemetryEnabled?: () => boolean }) {
     this.traceId = input.traceId;
     this.apiBaseUrl = input.apiBaseUrl.replace(/\/$/, "");
     this.fetchImpl = input.fetchImpl;
     this.getAuthToken = input.getAuthToken;
     this.log = input.log;
+    this.clientMeta = input.clientMeta;
+    this.isTelemetryEnabled = input.isTelemetryEnabled;
+    this.outbox = input.outboxPath ? new TelemetryOutbox({ path: input.outboxPath, log: input.log }) : undefined;
+    // Replay whatever a prior session failed to deliver, oldest-first — the primary retry
+    // trigger (next session start), no timer. On the pending chain so it can't interleave
+    // with this session's posts. Best-effort: a drain failure must not break recording.
+    this.pending = this.pending.then(() => this.drainOutbox()).catch((error) => this.log?.(`[telemetry] outbox drain: ${formatError(error)}`));
+  }
+
+  // Whether anything may leave the machine right now. Gated at the HOST — the one place
+  // every cloud path (session record, host faults, the abandoned sweep, the outbox drain)
+  // funnels through — rather than in the webview, which cannot enforce anything.
+  private consented(): boolean {
+    return this.isTelemetryEnabled ? this.isTelemetryEnabled() : true;
   }
 
   record(event: Record<string, any>) {
-    const telemetry = sessionEventToTelemetry(this.traceId, event);
-    if (!telemetry) return Promise.resolve();
+    // Consent off: nothing is posted AND nothing is buffered for a later post — an event
+    // durably queued now would be delivered the moment consent flipped back on. The local
+    // JSONL recorder is untouched: local diagnostics are the user's own data.
+    if (!this.consented()) return Promise.resolve();
+    const telemetry = sessionEventToTelemetry(this.traceId, event, this.clientMeta);
+    if (!telemetry) {
+      const key = String(event?.type ?? "unknown");
+      this.dropped[key] = (this.dropped[key] ?? 0) + 1;
+      return Promise.resolve();
+    }
     this.pending = this.pending
-      .then(() => this.post(telemetry))
-      .catch((error) => {
-        this.log?.(`[telemetry] ${formatError(error)}`);
-      });
+      .then(() => this.deliver(telemetry))
+      .catch((error) => this.log?.(`[telemetry] ${formatError(error)}`));
     return Promise.resolve();
   }
 
-  async flush() {
-    await this.pending;
+  // Snapshot of dropped-event counts, for local inspection / tests.
+  getDroppedCounts(): Record<string, number> {
+    return { ...this.dropped };
   }
 
-  private async post(event: Record<string, any>) {
-    const token = this.getAuthToken ? await this.getAuthToken() : undefined;
+  // True once an event was lost outright (transient failure, and the outbox could not take it).
+  // A caller whose retry depends on NOT writing a local "already reported" marker checks this.
+  hasUndelivered(): boolean {
+    return this.undelivered;
+  }
+
+  // Enqueue a single telemetry_dropped histogram (if any), then await the in-flight chain
+  // and re-attempt anything still buffered. Called on session end and on deactivate so the
+  // tail of a session actually delivers (or durably buffers).
+  async flush() {
+    this.emitDropped();
+    await this.pending;
+    // A drain failure (a filesystem error, not a post) must never reject flush(): flush is
+    // awaited in run()'s finally, and a throw there would reject the whole run. Log and move on.
+    try {
+      await this.drainOutbox();
+    } catch (error) {
+      this.log?.(`[telemetry] outbox drain on flush: ${formatError(error)}`);
+    }
+  }
+
+  private emitDropped() {
+    const keys = Object.keys(this.dropped);
+    if (keys.length === 0) return;
+    const snapshot = { ...this.dropped };
+    for (const key of keys) delete this.dropped[key];
+    // Goes through record() → maps to a real event → posts (and buffers on failure like
+    // any other). telemetry_dropped itself maps non-null, so it can't recount itself.
+    this.record({ type: "telemetry_dropped", dropped: snapshot });
+  }
+
+  // Resolve the auth token, bounded so a hung token exchange can't stall the pending chain
+  // (and via flush()/run()'s finally, the whole run). Returns undefined when signed OUT
+  // (github-auth resolves undefined, no throw). A network failure/timeout THROWS — the caller
+  // treats that as transient (buffer on the live path, keep-for-later on the drain path)
+  // rather than silently anonymizing an event whose real owner is simply momentarily unreachable.
+  private async resolveToken(): Promise<string | undefined> {
+    return this.getAuthToken ? await withTimeout(this.getAuthToken(), POST_TIMEOUT_MS) : undefined;
+  }
+
+  // Deliver one live event. The token is resolved ONCE and used both to authenticate the POST
+  // and — if it fails — to fingerprint the account this event belongs to, so a later outbox
+  // replay (postBuffered) can never attribute it to whoever is signed in at drain time.
+  private async deliver(event: Record<string, any>) {
+    let token: string | undefined;
+    try {
+      token = await this.resolveToken();
+    } catch (error) {
+      // Token exchange itself failed/timed out (transient). Buffer with a null identity — a
+      // safe degradation: replayed anonymously later, never misattributed to another account.
+      await this.onPostFailure(event, error, null);
+      return;
+    }
+    try {
+      await this.postWith(event, token);
+    } catch (error) {
+      await this.onPostFailure(event, error, fingerprint(token));
+    }
+  }
+
+  private async onPostFailure(event: Record<string, any>, error: unknown, idh: string | null) {
+    // Only transient failures (network / 5xx / 429 / 408) are worth retaining; a permanent
+    // 4xx (unknown event_type, too-large) would loop the outbox forever, so log + drop.
+    if (isTransient(error)) {
+      let buffered = false;
+      try {
+        // Stamp the identity fingerprint the event must be attributed to alongside it. A drain
+        // in a later session re-checks this against whoever is signed in THEN before deciding
+        // whether to authenticate (postBuffered), so one user's buffered credit/telemetry can
+        // never be recorded against another who happens to be signed in when it replays.
+        buffered = this.outbox ? await this.outbox.append({ __v: 2, idh, event }) : false;
+      } catch (writeError) {
+        error = writeError;
+      }
+      if (buffered) return;
+      this.undelivered = true; // retryable, yet nothing durable holds it — this event is lost
+    }
+    this.log?.(`[telemetry] ${formatError(error)}`);
+  }
+
+  // POST one already-mapped telemetry event, authenticated with `token` when present. The
+  // server derives identity from the bearer token (routes_telemetry get_optional_user), so no
+  // token means the batch lands anonymous (user_id NULL) rather than being rejected.
+  private async postWith(event: Record<string, any>, token: string | undefined) {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (token) headers.authorization = `Bearer ${token}`;
+    // Bounded: a backend that accepts the socket but never responds must not hang the
+    // pending chain forever — that would stall flush(), and via run()'s finally, the whole
+    // run. A timeout rejects with no `status`, so isTransient() buffers it for later retry.
     const response = await this.fetchImpl(`${this.apiBaseUrl}/v1/telemetry`, {
       method: "POST",
       headers,
       body: JSON.stringify({ events: [event] }),
+      signal: AbortSignal.timeout(POST_TIMEOUT_MS),
     });
-    if (!response.ok) throw new Error(`telemetry_post_failed:${response.status}`);
+    if (!response.ok) {
+      const error: any = new Error(`telemetry_post_failed:${response.status}`);
+      error.status = response.status; // read by isTransient — a 4xx must not be re-buffered
+      throw error;
+    }
+  }
+
+  // Re-POST one buffered line. The line is the identity-stamped envelope {__v,idh,event}:
+  // authenticate ONLY if the account signed in NOW is the one the event was captured under;
+  // otherwise post anonymously (user_id NULL) so a signed-in B never inherits A's buffered
+  // credit charges. A legacy/foreign bare line (no envelope) posts as-is — prior behavior.
+  private async postBuffered(line: Record<string, any>) {
+    if (line?.__v !== 2 || !("event" in line)) {
+      await this.postWith(line, await this.resolveToken());
+      return;
+    }
+    const stamped: string | null = line.idh ?? null;
+    // resolveToken THROWS on a transient token failure -> postBuffered rejects -> the outbox
+    // keeps this line for a later drain that can attribute it correctly (isTransient), rather
+    // than anonymizing on a momentary hiccup. Signed out resolves undefined (not a throw) ->
+    // fingerprint null -> anonymous, which is correct: no account to attribute to.
+    const token = await this.resolveToken();
+    const now = fingerprint(token);
+    const useToken = stamped !== null && now !== null && stamped === now ? token : undefined;
+    await this.postWith(line.event, useToken);
+  }
+
+  private async drainOutbox() {
+    // A backlog buffered while consent was ON must not be replayed after it is revoked.
+    // The events stay on disk (they are the user's own local file) and drain if consent
+    // returns; nothing is sent in the meantime.
+    if (!this.consented()) return;
+    await this.outbox?.drain((line) => this.postBuffered(line));
   }
 }
 
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+// Cap a single telemetry POST so a hung backend can't stall the pending chain (and thus
+// flush(), and via run()'s finally, the run itself).
+const POST_TIMEOUT_MS = 15_000;
+
+// A stable, non-reversible fingerprint of an auth token, stamped on a buffered event so a
+// later drain can tell "same account as when this was captured" from "someone else is signed
+// in now". The token itself is never written to disk — it is a bearer secret — only this
+// sha256. A token maps to exactly one account, so equal fingerprints mean the same user;
+// a rotated token yields a different fingerprint and the buffered event is replayed
+// anonymously (a safe loss of attribution, never a cross-user misattribution). Null when
+// there is no token (already anonymous).
+export function fingerprint(token: string | undefined): string | null {
+  return token ? createHash("sha256").update(token).digest("hex") : null;
+}
+
+// Bound an await that carries no AbortSignal of its own (the auth-token exchange inside
+// getAuthToken does an un-timed network POST). On timeout, reject with no `status` so
+// isTransient() treats it as retryable and the event is buffered, not lost. The underlying
+// promise is left to settle on its own (harmless) — we just stop waiting on it.
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("telemetry_timeout")), ms);
+    timer.unref?.();
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
 }
 
 // A read-only summary of a past session, for the "View Recent Sessions" launch entry.
@@ -102,6 +303,10 @@ export type RecentSession = {
   intent: string;
   finalPhase: string; // session_finished terminal/state, or "" if still open/crashed
   path: string; // absolute path to the session.jsonl
+  // The extension host that recorded it, stamped on the first line. Absent for a session
+  // written before the stamp existed. Lets the abandoned-session sweep tell "the host died
+  // mid-build" from "another window is building right now".
+  owner?: { pid: number; host: string };
   restorable: boolean; // true when a checkpoints/snapshot.json exists — a pre-Save-Version session is view-only
 };
 
@@ -129,13 +334,19 @@ async function readSessionSummary(sessionsRoot: string, id: string): Promise<Rec
   }
   if (events.length === 0) return null;
   const started = events.find((e) => e.type === "session_started" || e.type === "user_message");
-  const finished = [...events].reverse().find((e) => e.type === "session_finished");
+  // session_abandoned counts as terminal too: the abandoned-session sweep appends one to
+  // flip finalPhase non-empty, so a crashed session is reported once and not re-swept.
+  const finished = [...events].reverse().find((e) => e.type === "session_finished" || e.type === "session_abandoned");
+  // The FIRST stamped line is the recording host; later lines can carry another host's stamp
+  // (the sweep appends its marker through a recorder of its own).
+  const stamped = events.find((e) => typeof e.pid === "number");
   return {
     id,
     date: events[0].ts ?? "",
     intent: started?.intent ?? "",
     finalPhase: finished?.terminal ?? finished?.state ?? "",
     path,
+    owner: stamped ? { pid: stamped.pid, host: String(stamped.host ?? "") } : undefined,
     restorable: existsSync(join(sessionsRoot, id, "checkpoints", "snapshot.json")),
   };
 }

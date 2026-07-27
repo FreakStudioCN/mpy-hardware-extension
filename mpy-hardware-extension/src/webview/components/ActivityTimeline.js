@@ -248,6 +248,87 @@
         $("activity").appendChild(card);
       }
 
+      // Per-phase credit line (card #87). The backend streams a credits frame per turn, most
+      // of them free, so a line per frame floods the feed. Instead we accumulate the frames of
+      // one phase and emit ONE rolled-up line at the phase boundary — the same shape the
+      // diagnostics export uses ("generate: 4 credits over 3 turns, N left"), off the SAME
+      // events the quota bar consumes, so feed / bar / diagnostics never disagree.
+      // Label: the specific operation (generate/deploy/gen_driver/...) when it has its own cost
+      // family, else the canonical phase instead of the generic "phase" bucket token. Both are
+      // WIRE tokens, so they go through the cl_* display table before being shown — the host
+      // stamps the phase canonicalized (PHASE_ALIASES), and for scaffold/flash that canonical
+      // form IS a plugin id (upy-scaffold-plugin), which must never reach the feed.
+      // Cleared by clearConversation() on Restart — see the accumulator note there.
+      // Host->webview frames are async: a stamped session_event already in flight when
+      // the user hits Restart lands AFTER clearConversation() and would repopulate the
+      // just-cleared credit accumulator. Each session_event carries the host run
+      // `generation`; on Restart the webview DRAINS every stamped frame until the host
+      // echoes the reset (session_reset), which by FIFO arrives after the last old-gen
+      // frame and before the first new-gen one — so even the first frame of a session
+      // whose generation the webview never saw is dropped, not folded in.
+      let acceptGen = -1;         // stamped session_events with generation <= acceptGen are stale stragglers
+      let drainingFrames = false; // Restart issued; drop stamped frames until the host confirms the reset
+      function sessionEventIsStale(msg) {
+        if (typeof msg.generation !== "number") return false; // unstamped (old host / balance fetch): unchanged
+        if (drainingFrames) return true;                       // between Restart and the host's session_reset
+        return msg.generation <= acceptGen;                    // a straggler from an already-closed session
+      }
+      function markSessionEventsStale() { drainingFrames = true; }
+      function onSessionReset(generation) {
+        if (typeof generation === "number") acceptGen = generation - 1;
+        drainingFrames = false;
+      }
+      let creditAccum = null;
+      function creditToken(usage) {
+        return usage.operation && usage.operation !== "phase" ? usage.operation : (usage.phase || usage.operation);
+      }
+      // Same idiom as phaseLabel(): a curated, localized name when we have one, else the raw
+      // token — a phase we have not named yet degrades to its identifier rather than to "".
+      function creditLabel(token) {
+        const key = "cl_" + token;
+        return tr(key) !== key ? tr(key) : token;
+      }
+      // Fold one credits frame into the current phase's tally. A label change (a new phase, or a
+      // retry/supplement turn that is its own cost line) flushes the prior tally first.
+      function accumulateCreditUsage(usage, balance) {
+        if (!usage) return;
+        // Group by the WIRE token, not the display name: two tokens could share a display
+        // string, and the name is resolved at flush so a locale switch mid-phase still renders
+        // the line in the language the user is now reading.
+        const token = creditToken(usage);
+        if (creditAccum && creditAccum.token !== token) flushCreditUsage();
+        if (!creditAccum) creditAccum = { token, turns: 0, credits: 0, known: 0, remaining: undefined };
+        creditAccum.turns += 1;
+        // Sum only known costs; a pre-baseline turn (no balance diff, no server charge) counts as
+        // a turn but not as 0 credits.
+        const spent = usage.charged != null ? usage.charged : usage.credits_consumed;
+        if (spent != null) { creditAccum.credits += spent; creditAccum.known += 1; }
+        const remaining = usage.remaining_quota != null ? usage.remaining_quota : balance;
+        if (remaining != null) creditAccum.remaining = remaining;
+      }
+      // Emit the rolled-up line and reset. Idempotent: a second call (session_done posts twice on
+      // cancel) is a no-op. Skipped when no turn had a known cost — a summary must not read a free
+      // phase where every number was simply missing.
+      function flushCreditUsage() {
+        const g = creditAccum;
+        creditAccum = null;
+        if (!g || g.known === 0) return;
+        const u = tr(g.turns === 1 ? "credit_turns_one" : "credit_turns_many");
+        const cu = tr(g.credits === 1 ? "credit_one" : "credit_many");
+        const line = tr("credit_line", { o: creditLabel(g.token), c: g.credits, t: g.turns, u, cu });
+        // Append the balance clause ONLY when we have one: tr() substitutes with
+        // String.split().join(), and join(undefined) falls back to "," — an absent {r}
+        // would render a stray comma rather than nothing.
+        const tail = g.remaining != null ? tr("credit_remaining", { r: g.remaining }) : "";
+        addActivity({ text: line + tail }, "note");
+      }
+      // Drop the in-flight tally WITHOUT emitting it. Restart wipes the conversation this
+      // tally belongs to, and the accumulator outlives the feed DOM — leaving it populated
+      // folds the discarded session's credits into the next session's first line.
+      function discardCreditUsage() {
+        creditAccum = null;
+      }
+
       // Fallback-save notice: no workspace was open, so the project went to the
       // extension's globalStorage dir. Show where, with a button that asks the host
       // to reveal it in the OS file manager (button → host action, like the doctor).

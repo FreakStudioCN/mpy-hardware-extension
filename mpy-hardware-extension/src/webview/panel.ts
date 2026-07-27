@@ -35,7 +35,7 @@ import { GitUnavailableError, gitBranch, gitCommit, gitCommitCount, gitCurrentBr
 import { buildSessionSnapshot, listSessionSnapshots, readSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
 import type { SessionSnapshot, SnapshotArtifact } from "../extension/session-snapshot.ts";
 
-type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void };
+type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void; extensionVersion?: string; registerTelemetryFlush?: (flush: () => Promise<void>) => void };
 
 const execFileAsync = promisify(execFile);
 
@@ -459,7 +459,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     ? (traceId: string) => {
       const recorders = [];
       if (sessionRoot) recorders.push(new JsonlSessionRecorder({ workspaceFolder: sessionRoot, traceId }));
-      if (vscode.authentication) recorders.push(new CloudTelemetryRecorder({ traceId, apiBaseUrl, fetchImpl, getAuthToken: () => auth.getToken(false), log: deps.log }));
+      // The local JSONL recorder is UNCONDITIONAL (it is the user's own diagnostics file);
+      // only the cloud recorder is consent-gated, and it reads the setting live per event
+      // so a mid-session opt-out stops the next post.
+      if (vscode.authentication) recorders.push(new CloudTelemetryRecorder({ traceId, apiBaseUrl, fetchImpl, getAuthToken: () => auth.getToken(false), log: deps.log, clientMeta: { extension_version: deps.extensionVersion, vscode_version: vscode.version, platform: `${process.platform} ${process.arch}` }, outboxPath: sessionRoot ? join(sessionRoot, ".mpyhw", "telemetry-outbox.jsonl") : undefined, isTelemetryEnabled: () => vscode.env?.isTelemetryEnabled !== false }));
       return recorders.length === 1 ? recorders[0] : new CompositeSessionRecorder(recorders);
     }
     : undefined;
@@ -480,6 +483,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     // (deliverables 07 §4). shim.kill() dies the blocked mpremote/script now and frees
     // the serial lock; idempotent, so a Stop with nothing in flight is a no-op.
     killDevice: () => shim.kill?.(),
+    // Stable per-install id, so credit usage can be grouped per install (how many builds a
+    // machine runs) without identifying the user. VS Code's own anonymous telemetry id.
+    anonId: vscode.env?.machineId,
     recorderFactory,
     writeFiles: async (files) => {
       if (!projectFolder) return { ok: false, error_kind: "workspace_unavailable" };
@@ -524,6 +530,8 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // Wire the destructive-file confirm to the controller's in-panel card (deliverables 07 §4),
   // showing a RELATIVE path (§4.2 forbids an absolute/drive-letter path reaching the UI).
   confirmFileOp = (op, target) => controller.confirmFileOp(op, toRelativeDisplayPath(artifactRoot, target));
+  // Let deactivate() drain this session's telemetry outbox on shutdown (best-effort).
+  deps.registerTelemetryFlush?.(() => controller.flush());
   // sha256 the file contents, but bounded (#28 F4): the index rebuilds on every
   // phase_complete, and reading a whole multi-MB .bin/.uf2 synchronously on the extension-host
   // thread each time would jank the UI. Skip the hash above a size cap (the row still shows

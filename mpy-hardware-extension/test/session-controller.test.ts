@@ -1917,3 +1917,368 @@ test("a later run that emits no phase_complete does not leak the prior run's res
   await controller.start({ intent: "y", boardId: "auto" });
   assert.equal(controller.getLastPhaseComplete(), undefined, "the second run's entry cleared the prior result");
 });
+
+// ---- per-phase credit usage (card #87) ----
+
+// Drive one turn: a phase boundary, then the credits event the backend streams after it.
+const creditsTurn = (onEvent: any, phase: string, remaining: number, extra: Record<string, any> = {}) => {
+  onEvent({ type: "phase_start", phase });
+  onEvent({ type: "credits", remaining, dailyGrant: 50, resetsAt: "2026-07-26T00:00:00Z", ...extra });
+};
+
+test("a credits event writes a per-phase credit_usage record stamped with the phase in flight", async () => {
+  // The credits event is the ONE place per-turn consumption arrives, and currentPhase moves on
+  // as soon as the next phase starts — so the record must be stamped at arrival. Mutation: stamp
+  // it at flush/session end instead and every record reports the LAST phase.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    anonId: "machine-42",
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "manifest_updated", manifest: { board_id: "esp32", devices: [{ id: "a" }, { id: "b" }] } });
+      creditsTurn(onEvent, "analyze", 49);
+      onEvent({ type: "code_updated", path: "main.py", code: "import machine\nled = machine.Pin(2)\n" });
+      creditsTurn(onEvent, "generate", 46);
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "blink an LED", boardId: "esp32" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(usage.length, 2, "one record per metered turn");
+  assert.equal(usage[0].phase, "analyze");
+  assert.equal(usage[0].operation, "phase");
+  assert.equal(usage[0].remaining_quota, 49);
+  assert.equal(usage[0].device_count, 2, "complexity dimension from the manifest in flight");
+  assert.equal(usage[0].anon_id, "machine-42");
+  assert.ok(String(usage[0].session_id).startsWith("session-"), "carries the session trace id");
+  assert.equal(usage[1].phase, "upy-generate-plugin");
+  assert.equal(usage[1].operation, "generate");
+  assert.equal(usage[1].credits_consumed, 3, "49 -> 46 is the second turn's balance delta");
+  assert.equal(usage[1].remaining_quota, 46);
+  assert.equal(usage[1].generated_file_count, 1);
+  assert.equal(usage[1].code_line_count, 3, "line COUNT only — never the code");
+  // By construction the record cannot carry the intent or the generated source.
+  const serialized = JSON.stringify(usage);
+  assert.equal(serialized.includes("machine.Pin"), false, "generated code must not reach the record");
+  assert.equal(serialized.includes("blink an LED"), false, "the intent must not reach the record");
+});
+
+test("the webview gets the usage on the same session_event the quota bar reads", async () => {
+  // Single source of truth: the Activity credit line and the quota bar must not be able to
+  // disagree. Mutation: post usage on its own message -> two events, two sources of truth.
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    loop: async ({ onEvent }: any) => { creditsTurn(onEvent, "generate", 46); return { terminal: "complete" }; },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const events = posted.filter((m) => m.type === "session_event" && m.event?.kind === "credits");
+  assert.equal(events.length, 1, "exactly one credits message");
+  assert.equal(events[0].event.balance, 46, "the quota bar's balance");
+  assert.equal(events[0].event.usage.remaining_quota, 46, "and the usage record's, from the same event");
+  assert.equal(events[0].event.usage.operation, "generate");
+});
+
+test("a balance increase (refund/refill) reports unknown consumption, never a fabricated 0 or a negative", async () => {
+  // The server refunds a reserved credit (or the daily grant refills), so the balance goes UP.
+  // The delta is then meaningless — a paid-then-refilled turn is indistinguishable from a pure
+  // refund — so this turn's cost is UNKNOWN, not 0. The old behavior clamped the inverted delta
+  // to 0, which misreads a paid turn across a refill as free and understates real spend.
+  // Mutation: report 0 (or the negative delta) here -> the rollup counts a refill turn as known-free.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      creditsTurn(onEvent, "analyze", 47);
+      creditsTurn(onEvent, "analyze", 49); // refund/refill: balance climbs back up
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(usage[1].credits_consumed, undefined, "a balance increase yields unknown, not a fabricated 0");
+  assert.equal(usage[1].remaining_quota, 49, "the balance itself is still reported truthfully");
+});
+
+test("a paid turn across a daily refill is not swallowed as free", async () => {
+  // The concrete failure the unknown-on-increase rule prevents: the balance is nearly spent,
+  // the daily grant refills, then a real paid turn follows. The refill turn is unknown, and
+  // because the baseline re-advances to the post-refill balance, the paid turn after it is
+  // measured correctly instead of against a stale pre-refill baseline.
+  // Mutation: clamp the inverted delta to 0 on the refill -> the refill turn reads free AND its
+  // stale baseline makes the following paid turn's delta wrong too.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      creditsTurn(onEvent, "generate", 2);   // baseline: 2 left
+      creditsTurn(onEvent, "generate", 50);  // daily refill -> unknown, re-baselines to 50
+      creditsTurn(onEvent, "generate", 49);  // a real 1-credit turn against the new baseline
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(usage[1].credits_consumed, undefined, "the refill turn's cost is unknown, not 0");
+  assert.equal(usage[2].credits_consumed, 1, "the paid turn after the refill is measured correctly");
+});
+
+test("a retry and an absorbed supplement label the turn they pay for", async () => {
+  // A retried generate must not be counted as a first-try generate, and the turn that folds in
+  // a queued note is its own cost line. Mutation: derive the operation from the phase alone ->
+  // both records read "generate" and retry/supplement cost is invisible.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent, onSafePoint }: any) => {
+      onEvent({ type: "phase_start", phase: "generate" });
+      onSafePoint?.("generate", true); // drains the queued supplement
+      onEvent({ type: "credits", remaining: 48, dailyGrant: 50 });
+      return { terminal: "llm_unreachable", state: { phase: "generate" } };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+  controller.submitSupplement("also log the temperature");
+  await controller.start({ intent: "y", boardId: "esp32" });
+  await controller.retry();
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(usage[0].operation, "generate", "no note queued, no retry: bills to the phase");
+  assert.equal(usage[1].operation, "supplement", "the turn that absorbed the note");
+  assert.equal(usage[2].operation, "retry", "the re-issued turn");
+  assert.equal(usage[2].retry_count, 1, "the manual retry is counted");
+});
+
+test("credit accumulators do not bleed across sessions (Restart)", async () => {
+  // reset() nulls boardId, so start()'s board-change clear is short-circuited — the credit
+  // state must be cleared in reset() too. Mutation: clear only on board change -> run 2's first
+  // record inherits run 1's balance baseline (a bogus 44-credit delta), retry_count and flags.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "connect_retry", attempt: 1, maxAttempts: 3 });
+      creditsTurn(onEvent, "wiring", 46);
+      creditsTurn(onEvent, "diagram", 44);
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+  const first = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(first[1].wiring, true);
+  assert.equal(first[1].diagram, true);
+  assert.equal(first[1].retry_count, 1);
+  assert.equal(first[1].credits_consumed, 2);
+
+  recorded.length = 0;
+  controller.reset();
+  await controller.start({ intent: "y", boardId: "esp32" });
+
+  const second = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(second[0].credits_consumed, undefined, "no balance baseline carried over");
+  assert.notEqual(second[0].session_id, first[0].session_id, "a fresh session id");
+  assert.equal(controller.getCreditUsage().length, second.length, "the accumulator holds only this session");
+  assert.equal(second[0].retry_count, 1, "this session's own retry, not run 1's");
+});
+
+test("credit accumulators are cleared on a board switch too", async () => {
+  // The other clear site: a new board is a new session without a reset(). Mutation: drop the
+  // board-change clear -> the ESP32 run's wiring flag and balance baseline follow the RP2040 run.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => { creditsTurn(onEvent, "wiring", 40); return { terminal: "complete" }; },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+  recorded.length = 0;
+  await controller.start({ intent: "y", boardId: "rp2040" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(usage[0].credits_consumed, undefined, "no balance baseline from the ESP32 session");
+  assert.equal(controller.getCreditUsage().length, 1, "only the RP2040 session's record");
+});
+
+test("a stalled phase attaches its error code to the turn that paid for it", async () => {
+  // A failing turn still costs a credit; without the code the aggregate cannot tell an
+  // expensive failure from an expensive success. Mutation: drop lastErrorCode -> undefined.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "generate" });
+      onEvent({ type: "phase_stalled", phase: "generate", reason: "no_tool_calls" });
+      onEvent({ type: "credits", remaining: 45, dailyGrant: 50 });
+      onEvent({ type: "credits", remaining: 44, dailyGrant: 50 });
+      return { terminal: "stalled" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(usage[0].error_code, "no_tool_calls");
+  assert.equal(usage[1].error_code, undefined, "one-shot: it labels the turn it happened in");
+});
+
+test("a credits event carrying the server fields records model, tokens and the real charge", async () => {
+  // Card #87 slice C: the four blocked fields land in the record once the backend sends
+  // them, and the authoritative charge coexists with the balance-delta estimate. Mutation:
+  // drop the mapping in accumulateCreditUsage -> the record is estimate-only forever.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "generate" });
+      onEvent({ type: "credits", remaining: 46, dailyGrant: 50, charged: 3, model: "deepseek-v4-pro", inputTokens: 1200, outputTokens: 180, cacheHitTokens: 1024 });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage)[0];
+  assert.equal(usage.charged, 3, "the authoritative deduction");
+  assert.equal(usage.model, "deepseek-v4-pro");
+  assert.equal(usage.input_tokens, 1200);
+  assert.equal(usage.output_tokens, 180);
+  assert.equal(usage.cache_hit_tokens, 1024);
+  assert.equal(usage.remaining_quota, 46);
+  // The very first turn of a session has no balance baseline, so only the server's charge
+  // can answer what it cost — which is exactly why the field is worth having.
+  assert.equal(usage.credits_consumed, undefined);
+});
+
+test("an old backend still produces a valid record with the server fields unset", async () => {
+  // The extension ships before the server deploys. Mutation: default the fields to 0 ->
+  // every pre-enrichment session reports free turns and a 0-token model.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "generate" });
+      onEvent({ type: "credits", remaining: 49, dailyGrant: 50 });
+      onEvent({ type: "credits", remaining: 46, dailyGrant: 50 });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  for (const key of ["charged", "model", "input_tokens", "output_tokens", "cache_hit_tokens"]) {
+    assert.equal(key in usage[1], false, `${key} must stay unset against an old backend`);
+  }
+  assert.equal(usage[1].operation, "generate", "and the record is otherwise complete");
+  assert.equal(usage[1].credits_consumed, 3, "the balance delta still carries the cost");
+});
+
+test("a run's error code does not follow it into the next run of the same session", async () => {
+  // The error code is one-shot: it labels the turn it happened in. A run that ends on a
+  // terminal phase_error emits no further credits event to clear it, and a same-board
+  // continuation start() skips the board-change clear. Mutation: drop the run() prologue
+  // clear -> run 2's first metered turn is stamped TOOL_SCHEMA_INVALID.
+  const recorded: any[] = [];
+  let run = 0;
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      run++;
+      if (run === 1) {
+        onEvent({ type: "phase_start", phase: "generate" });
+        onEvent({ type: "phase_error", error_kind: "TOOL_SCHEMA_INVALID" });
+        return { terminal: "failed" };
+      }
+      onEvent({ type: "phase_start", phase: "generate" });
+      onEvent({ type: "credits", remaining: 46, dailyGrant: 50 });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+  await controller.start({ intent: "y", boardId: "esp32" }); // SAME board: no change-clear
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(usage.length, 1, "only run 2 metered a turn");
+  assert.equal("error_code" in usage[0], false, "run 1's failure must not label run 2's turn");
+});
+
+test("a retry still labels its turn even though run() clears the error code", async () => {
+  // retryTurnPending is set immediately before run(), so the prologue must NOT clear it.
+  // Mutation: clear retryTurnPending alongside lastErrorCode -> the re-issued turn reads
+  // "generate" and retry cost becomes invisible.
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "generate" });
+      onEvent({ type: "credits", remaining: 48, dailyGrant: 50 });
+      return { terminal: "llm_unreachable", state: { phase: "generate" } };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+  recorded.length = 0;
+  await controller.retry();
+
+  const usage = recorded.filter((e) => e.type === "credit_usage").map((e) => e.usage);
+  assert.equal(usage[0].operation, "retry", "the re-issued turn keeps its label");
+});
+
+test("the diagnostics rollup says so when the cap dropped the oldest turns", async () => {
+  // The ring is bounded at 100; without a marker a truncated rollup reads as the whole
+  // build's cost. Mutation: drop the counter -> a 130-turn session reports only its last
+  // 100 turns with no sign anything is missing.
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "generate" });
+      // 130 metered turns, each costing exactly 1 credit.
+      for (let i = 0; i < 130; i++) onEvent({ type: "credits", remaining: 1000 - i, dailyGrant: 50, charged: 1 });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  const text = controller.getDiagnostics().credit_usage;
+  assert.match(text, /^\(oldest 30 turns dropped\) /, `expected a truncation marker: ${text}`);
+  assert.match(text, /100 credits over 100 turns/, "and the retained turns are still rolled up");
+  assert.equal(controller.getCreditUsage().length, 100, "the ring itself is bounded");
+});
+
+test("a session inside the cap carries no truncation marker", async () => {
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "phase_start", phase: "generate" });
+      onEvent({ type: "credits", remaining: 46, dailyGrant: 50, charged: 1 });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "esp32" });
+
+  assert.equal(controller.getDiagnostics().credit_usage, "upy-generate-plugin/generate: 1 credit over 1 turn, remaining 46");
+});
