@@ -205,12 +205,18 @@ def _vendor_board_entry(data: dict) -> dict | None:
     return {
         "id": board_id,
         "official_id": None,
-        "display_name": data.get("display_name") or board_id,
-        "vendor": data.get("vendor") or "",
+        "display_name": str(data.get("display_name") or board_id),
+        # `vendor`/`features` land in the /v1/micropython/boards `filters` set-comprehensions,
+        # which need hashables: a hand-maintained profile writing `"vendor": ["LILYGO"]` (or any
+        # non-scalar) would otherwise raise TypeError there -- AFTER every board is already in
+        # the list, so one bad field 500s the whole picker instead of skipping one board.
+        # Non-str feature entries are dropped rather than stringified: `features` is a flat tag
+        # list and a coerced "{'a': 1}" would become a selectable filter value.
+        "vendor": str(data.get("vendor") or ""),
         "port": port,
         "mcu": mcu,
         "chip_family": str(data.get("chip_family") or mcu),
-        "features": data["features"] if isinstance(data.get("features"), list) else [],
+        "features": [f for f in data["features"] if isinstance(f, str)] if isinstance(data.get("features"), list) else [],
         # Copied verbatim so the served entry is complete (BoardSelector display, snapshot
         # round-trip). Downstream phases do NOT read variant/file_type/flash_method off this
         # object: the prompt sanitizer (prompt_assembly._sanitized_preselected_board) projects

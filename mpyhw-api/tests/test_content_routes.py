@@ -341,6 +341,50 @@ def test_a_malformed_vendor_profile_is_skipped_without_dropping_the_others(tmp_p
 
 
 @pytest.mark.no_db
+def test_a_non_scalar_vendor_or_feature_value_cannot_500_the_whole_listing(tmp_path, monkeypatch):
+    from app import routes_content
+
+    boards_dir = tmp_path / "boards"
+    boards_dir.mkdir(parents=True)
+    real_dir = routes_content._skill_boards_dir()
+    (boards_dir / "lilygo-t-watch-s3.json").write_bytes((real_dir / "lilygo-t-watch-s3.json").read_bytes())
+    # `id` and `firmware` are well-formed, so this profile passes _vendor_board_entry and reaches
+    # the `filters` set-comprehensions. Before the str()/isinstance guards a list `vendor` raised
+    # TypeError: unhashable type there -- after every board was already collected, so this one
+    # hand-edited field took down the entire picker rather than skipping its own board.
+    (boards_dir / "sloppy-vendor-board.json").write_text(
+        json.dumps(
+            {
+                "ui_visible": True,
+                "support_status": "skill_vendor_profile",
+                "id": "sloppy-vendor-board",
+                "vendor": ["LILYGO"],
+                "display_name": {"en": "Sloppy"},
+                "features": ["wifi", {"nested": "object"}, 42],
+                "firmware": {"port": "esp32", "board_name": "ESP32_GENERIC_S3"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(routes_content, "_skill_boards_dir", lambda: boards_dir)
+
+    response = client.get("/v1/micropython/boards")
+
+    assert response.status_code == 200
+    served = _served_vendor_boards()
+    # The good board is still listed: one sloppy profile must not cost the others.
+    assert sorted(served) == ["lilygo-t-watch-s3", "sloppy-vendor-board"]
+    sloppy = served["sloppy-vendor-board"]
+    assert isinstance(sloppy["vendor"], str)
+    assert isinstance(sloppy["display_name"], str)
+    # Non-str feature entries are dropped, not coerced into selectable filter values.
+    assert sloppy["features"] == ["wifi"]
+    body = response.json()
+    assert all(isinstance(v, str) for v in body["filters"]["vendor"])
+    assert all(isinstance(v, str) for v in body["filters"]["feature"])
+
+
+@pytest.mark.no_db
 def test_no_vendor_boards_are_served_without_a_skill_submodule_checkout(tmp_path, monkeypatch):
     from app import routes_content
 
