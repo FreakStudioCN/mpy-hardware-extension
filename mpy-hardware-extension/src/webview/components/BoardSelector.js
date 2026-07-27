@@ -100,10 +100,15 @@
       function filteredOfficialBoards() { return officialBoards.filter(currentBoardMatches); }
       // Board-selector doc §3 badges: firmware availability + the local-layout state
       // (derived from the canonical support_status; local_support is a view helper only).
+      // skill_vendor_profile is the third state: a curated vendor board that carries a Skill
+      // pin layout and onboard-peripheral facts but no official download page of its own.
+      // Null-prototype so an unexpected support_status can never resolve to an inherited
+      // Object member ("constructor") and render it as badge text.
+      var SUPPORT_STATUS_BADGE = { __proto__: null, builtin_pin_layout: "board_builtin", skill_vendor_profile: "board_vendor" };
       function boardBadges(board) {
         const badges = [];
         if (board.firmware) badges.push(tr("board_firmware"));
-        badges.push(board.support_status === "builtin_pin_layout" ? tr("board_builtin") : tr("board_official_only"));
+        badges.push(tr(SUPPORT_STATUS_BADGE[board.support_status] || "board_official_only"));
         return badges;
       }
       // The official download page for a board (board-selector doc §3 "Board details").
@@ -111,9 +116,9 @@
       // ponytail: the API sends no firmware.format and firmware.url is a download *page*
       // (no file extension), so we map the port/family to its flashing format — the same
       // taxonomy the hardware-acceptance cards use (esp32→bin, rp2→uf2, stm32→dfu/hex).
-      // A real backend firmware.format field would supersede this heuristic.
-      var PORT_FIRMWARE_FORMAT = { esp32: "bin", esp8266: "bin", rp2: "uf2", samd: "uf2", stm32: "dfu/hex", nrf: "hex", mimxrt: "hex" };
-      function firmwareFormat(board) { return board.firmware ? (PORT_FIRMWARE_FORMAT[board.port] || "") : ""; }
+      // Curated vendor boards do declare the real file type, so that wins when present.
+      var PORT_FIRMWARE_FORMAT = { __proto__: null, esp32: "bin", esp8266: "bin", rp2: "uf2", samd: "uf2", stm32: "dfu/hex", nrf: "hex", mimxrt: "hex" };
+      function firmwareFormat(board) { return board.firmware ? (board.firmware.file_type || PORT_FIRMWARE_FORMAT[board.port] || "") : ""; }
       function renderBoardPicker() {
         const list = $("boardList"); const status = $("boardStatus");
         if (!list || !status) return;

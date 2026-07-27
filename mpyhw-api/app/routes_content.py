@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import re
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from app.tool_registry import PROTOCOL_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
 router = APIRouter()
+logger = logging.getLogger("mpyhw.content")
 
 
 def _safe_content_path(base: Path, name: str, suffix: str) -> Path:
@@ -76,9 +78,12 @@ def _local_board_ids() -> set[str]:
     return ids
 
 
+def _skill_boards_dir() -> Path:
+    return ROOT.parent / "third_party" / "MicroPython_Skills" / "upy-analyze-plugin" / "boards"
+
+
 def _skill_board_ids() -> set[str]:
-    boards_dir = ROOT.parent / "third_party" / "MicroPython_Skills" / "upy-analyze-plugin" / "boards"
-    return {path.stem for path in boards_dir.glob("*.json") if not path.name.startswith("_")}
+    return {path.stem for path in _skill_boards_dir().glob("*.json") if not path.name.startswith("_")}
 
 
 def _port_from_board(board: dict) -> str:
@@ -167,6 +172,94 @@ def _official_board_entry(board: dict, *, local_ids: set[str], skill_ids: set[st
     }
 
 
+VENDOR_SUPPORT_STATUS = "skill_vendor_profile"
+
+
+def _vendor_board_paths() -> list[Path]:
+    try:
+        return sorted(
+            path for path in _skill_boards_dir().iterdir()
+            if path.suffix == ".json" and not path.name.startswith("_")
+        )
+    except FileNotFoundError:
+        # No Skill submodule checkout (fresh clone, or a test ROOT): serve the official
+        # index alone. Any other read error (permissions, not-a-directory) must surface.
+        return []
+
+
+def _vendor_board_entry(data: dict) -> dict | None:
+    """A curated Skill vendor board as one `boards[]` entry, or None if the file is malformed.
+
+    These boards have no official download slug of their own (LilyGO/Waveshare ESP32-S3
+    boards share the ESP32_GENERIC_S3 firmware page), so `official_id`/`download_slug`/
+    `local_board_id` stay null: the entry is a real physical board, not an official index row.
+    """
+    board_id = data.get("id")
+    firmware = data.get("firmware")
+    if not isinstance(board_id, str) or not board_id.strip() or not isinstance(firmware, dict):
+        return None
+    # Vendor profiles carry no top-level port; the firmware block is the one that names it.
+    port = str(firmware.get("port") or "")
+    mcu = str(data.get("mcu") or "")
+    media = data.get("media") if isinstance(data.get("media"), dict) else {}
+    return {
+        "id": board_id,
+        "official_id": None,
+        "display_name": data.get("display_name") or board_id,
+        "vendor": data.get("vendor") or "",
+        "port": port,
+        "mcu": mcu,
+        "chip_family": str(data.get("chip_family") or mcu),
+        "features": data["features"] if isinstance(data.get("features"), list) else [],
+        # Copied verbatim: the flash phase needs every key the vendor profile declares
+        # (variant/source/file_type/flash_method, and whatever a future family adds), not a
+        # re-projection of the handful of fields the official entry happens to use.
+        "firmware": dict(firmware),
+        # Onboard peripherals ride along verbatim so the driver-package metadata
+        # (uPyPi package/version/install_cmd, expander and revision-dependent notes) reaches
+        # the phases unfiltered instead of being rebuilt downstream.
+        "onboard_peripherals": data["onboard_peripherals"] if isinstance(data.get("onboard_peripherals"), list) else [],
+        "download_slug": None,
+        "skill_board_id": board_id,
+        "skill_profile_available": True,
+        "source_url": str(media.get("source_url") or media.get("product_page_url") or ""),
+        "detail_url": str(firmware.get("url") or ""),
+        "image_url": str(media.get("board_image_url") or ""),
+        "support_status": VENDOR_SUPPORT_STATUS,
+        "local_board_id": None,
+    }
+
+
+def _vendor_boards() -> list[dict]:
+    """Curated vendor boards from the pinned Skill profiles, for the same `boards[]` list.
+
+    Only profiles that opt in (`ui_visible` + `support_status`) are served, so a vendor family
+    whose flash workflow is not wired up yet stays out of the picker until it flips the flag.
+    """
+    entries: list[dict] = []
+    for path in _vendor_board_paths():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue  # deleted between listing and read
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            # Unparseable content (bad JSON, or a profile saved in a non-UTF-8 encoding): skip the
+            # bad file rather than 500 the listing or drop the boards after it.
+            logger.warning("skipping vendor board profile %s: unreadable JSON (%s)", path.name, exc)
+            continue
+        if not isinstance(data, dict):
+            logger.warning("skipping vendor board profile %s: not a JSON object", path.name)
+            continue
+        if data.get("ui_visible") is not True or data.get("support_status") != VENDOR_SUPPORT_STATUS:
+            continue  # not opted in for the picker: the official index is its only listing
+        entry = _vendor_board_entry(data)
+        if entry is None:
+            logger.warning("skipping vendor board profile %s: missing id or firmware block", path.name)
+            continue
+        entries.append(entry)
+    return entries
+
+
 @router.get("/v1/micropython/boards")
 def micropython_boards():
     path = _official_boards_path()
@@ -190,6 +283,10 @@ def micropython_boards():
         for board in payload.get("boards", [])
         if board.get("slug")
     ]
+    # Curated vendor boards are appended to the same list (flagged by support_status) rather
+    # than served as a sibling key: the picker's search/filters/paging then cover them with no
+    # merge code, and the official index above stays exactly the official download page.
+    boards += _vendor_boards()
     filters = {
         "vendor": sorted({board["vendor"] for board in boards if board["vendor"]}),
         "port": sorted({board["port"] for board in boards if board["port"]}),

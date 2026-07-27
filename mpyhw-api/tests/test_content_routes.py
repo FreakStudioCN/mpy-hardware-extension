@@ -167,6 +167,186 @@ def test_real_catalog_has_no_missing_skill_profiles():
     assert missing == [], f"official boards with no Skill profile: {missing}"
 
 
+VENDOR_BOARD_IDS = [
+    "lilygo-t-deck-plus",
+    "lilygo-t-display-s3",
+    "lilygo-t-embed",
+    "lilygo-t-watch-s3",
+    "waveshare-esp32-s3-touch-lcd-1-54",
+    "waveshare-esp32-s3-touch-lcd-2",
+    "waveshare-esp32-s3-touch-lcd-2-8",
+    "waveshare-esp32-s3-touch-lcd-3-5",
+]
+
+
+def _skill_profile(board_id: str) -> dict:
+    from app import routes_content
+
+    return json.loads((routes_content._skill_boards_dir() / f"{board_id}.json").read_text(encoding="utf-8"))
+
+
+def _served_vendor_boards() -> dict[str, dict]:
+    body = client.get("/v1/micropython/boards").json()
+    return {b["id"]: b for b in body["boards"] if b["support_status"] == "skill_vendor_profile"}
+
+
+@pytest.mark.no_db
+def test_curated_vendor_boards_are_appended_to_the_official_board_list():
+    body = client.get("/v1/micropython/boards").json()
+    vendor = {b["id"]: b for b in body["boards"] if b["support_status"] == "skill_vendor_profile"}
+
+    assert sorted(vendor) == VENDOR_BOARD_IDS
+    for board_id, entry in vendor.items():
+        source = _skill_profile(board_id)
+        assert entry["skill_board_id"] == board_id
+        assert entry["skill_profile_available"] is True
+        assert entry["display_name"] == source["display_name"]
+        assert entry["vendor"] == source["vendor"]
+        assert entry["mcu"] == source["mcu"]
+        assert entry["features"] == source["features"]
+        # Port is derived from the firmware block: vendor profiles carry no top-level port.
+        assert entry["port"] == source["firmware"]["port"] == "esp32"
+        # Exact equality, not a subset: a future field drop in the emit must fail here.
+        assert entry["firmware"] == source["firmware"], board_id
+        assert entry["firmware"]["variant"] == "spiram-oct"
+        assert entry["firmware"]["flash_method"] == "esptool"
+        # No official download slug of their own; they share the ESP32_GENERIC_S3 firmware page.
+        assert entry["official_id"] is None
+        assert entry["download_slug"] is None
+        assert entry["local_board_id"] is None
+        assert entry["detail_url"] == source["firmware"]["url"]
+
+    # The filters the picker builds its dropdowns from must include the vendor families.
+    assert "LILYGO" in body["filters"]["vendor"]
+    assert "Waveshare" in body["filters"]["vendor"]
+    assert body["board_count"] == len(body["boards"])
+
+
+@pytest.mark.no_db
+def test_official_board_entries_are_unchanged_by_the_vendor_append():
+    body = client.get("/v1/micropython/boards").json()
+    official = [b for b in body["boards"] if b["support_status"] != "skill_vendor_profile"]
+    cached = json.loads(_official_boards_cache().read_text(encoding="utf-8"))
+
+    # The official index still is exactly the official download page: one entry per cached slug,
+    # none of them re-labelled or given vendor-profile firmware fields.
+    assert [b["official_id"] for b in official] == [b["slug"] for b in cached["boards"] if b.get("slug")]
+    assert all(b["support_status"] in {"builtin_pin_layout", "official_firmware_only"} for b in official)
+    assert all("variant" not in b["firmware"] for b in official)
+    generic_s3 = next(b for b in official if b["official_id"] == "ESP32_GENERIC_S3")
+    assert generic_s3["download_slug"] == "ESP32_GENERIC_S3"
+    assert generic_s3["firmware"]["board_name"] == "ESP32_GENERIC_S3"
+
+
+def _official_boards_cache():
+    from app import routes_content
+
+    return routes_content._official_boards_path()
+
+
+@pytest.mark.no_db
+def test_vendor_families_without_ui_opt_in_stay_out_of_the_board_list():
+    from app import routes_content
+
+    # These profiles ship in the pinned Skill submodule with firmware workflows the flash phase
+    # does not implement yet (github_release_zip / vendor_direct) and no ui_visible opt-in, so the
+    # curated emit must not surface them. Guards the opt-in filter, not just the current board set.
+    not_opted_in = ["w5100s-evb-pico2", "w5500-evb-pico2", "w6300-evb-pico2", "w55mh32l-evb"]
+    for board_id in not_opted_in:
+        profile = _skill_profile(board_id)
+        assert profile.get("ui_visible") is not True, board_id
+        assert profile.get("support_status") != "skill_vendor_profile", board_id
+        assert (routes_content._skill_boards_dir() / f"{board_id}.json").exists(), board_id
+
+    served = _served_vendor_boards()
+    assert [board_id for board_id in not_opted_in if board_id in served] == []
+
+
+@pytest.mark.no_db
+def test_served_vendor_board_carries_the_onboard_driver_package_metadata_verbatim():
+    served = _served_vendor_boards()
+
+    # An I/O expander whose driver package must be installed before the EXIO-controlled LCD reset,
+    # touch INT and SD CS lines work: the package fields have to reach the phases unfiltered.
+    expander_source = next(
+        p for p in _skill_profile("waveshare-esp32-s3-touch-lcd-3-5")["onboard_peripherals"]
+        if p["type"] == "io_expander"
+    )
+    expander = next(
+        p for p in served["waveshare-esp32-s3-touch-lcd-3-5"]["onboard_peripherals"]
+        if p["type"] == "io_expander"
+    )
+    assert expander == expander_source
+    assert expander["driver"] == expander_source["driver"]
+    assert expander["driver"]["package_name"] == "tca9554_driver"
+    assert expander["driver"]["install_cmd"] == expander_source["driver"]["install_cmd"]
+    assert expander["expanded_pins"] == expander_source["expanded_pins"]
+
+    # A revision-dependent touch controller: the aliases and the partial-mapping note are the whole
+    # point of the entry (one revision has a uPyPi package, the other does not), so they must survive.
+    touch_source = next(
+        p for p in _skill_profile("waveshare-esp32-s3-touch-lcd-2-8")["onboard_peripherals"]
+        if p["type"] == "touch_controller"
+    )
+    touch = next(
+        p for p in served["waveshare-esp32-s3-touch-lcd-2-8"]["onboard_peripherals"]
+        if p["type"] == "touch_controller"
+    )
+    assert touch == touch_source
+    assert touch["aliases"] == touch_source["aliases"] == ["CST3530"]
+    assert touch["driver"] == touch_source["driver"]
+    assert touch["driver"]["mapping_status"] == "revision_dependent_partial_upypi_mapping"
+    assert touch["driver"]["unmapped_models"] == ["CST3530"]
+    # Not promoted to a ready driver just because one revision has a package.
+    assert touch["driver"].get("status") is None
+
+
+@pytest.mark.no_db
+def test_a_malformed_vendor_profile_is_skipped_without_dropping_the_others(tmp_path, monkeypatch):
+    from app import routes_content
+
+    boards_dir = tmp_path / "boards"
+    boards_dir.mkdir(parents=True)
+    real_dir = routes_content._skill_boards_dir()
+    for board_id in ("lilygo-t-watch-s3", "waveshare-esp32-s3-touch-lcd-2"):
+        (boards_dir / f"{board_id}.json").write_bytes((real_dir / f"{board_id}.json").read_bytes())
+    (boards_dir / "broken-vendor-board.json").write_text("{not json", encoding="utf-8")
+    # Valid JSON in the wrong encoding: unreadable content, not an OS error, so it is skipped
+    # like the unparseable one instead of raising out of the listing. Written as raw latin-1
+    # bytes (a real 0xE9), and otherwise a complete emittable profile, so the decode error is
+    # the only thing that can keep it out of the listing.
+    (boards_dir / "latin1-vendor-board.json").write_bytes(
+        '{"ui_visible": true, "support_status": "skill_vendor_profile", "id": "café-board",'
+        ' "firmware": {"port": "esp32", "board_name": "ESP32_GENERIC_S3"}}'.encode("latin-1")
+    )
+    # A top-level array where a board object is expected.
+    (boards_dir / "array-vendor-board.json").write_text(json.dumps([{"id": "not-a-board"}]), encoding="utf-8")
+    # Opted in for the UI but with no id/firmware to emit: skipped like the unparseable one.
+    (boards_dir / "idless-vendor-board.json").write_text(
+        json.dumps({"ui_visible": True, "support_status": "skill_vendor_profile", "display_name": "No id"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(routes_content, "_skill_boards_dir", lambda: boards_dir)
+
+    served = _served_vendor_boards()
+
+    assert sorted(served) == ["lilygo-t-watch-s3", "waveshare-esp32-s3-touch-lcd-2"]
+    assert served["waveshare-esp32-s3-touch-lcd-2"]["firmware"]["variant"] == "spiram-oct"
+
+
+@pytest.mark.no_db
+def test_no_vendor_boards_are_served_without_a_skill_submodule_checkout(tmp_path, monkeypatch):
+    from app import routes_content
+
+    # A fresh clone has an empty submodule directory: the official index must still be served.
+    monkeypatch.setattr(routes_content, "_skill_boards_dir", lambda: tmp_path / "missing")
+
+    body = client.get("/v1/micropython/boards").json()
+
+    assert body["boards"], "official boards still served without the Skill submodule"
+    assert [b for b in body["boards"] if b["support_status"] == "skill_vendor_profile"] == []
+
+
 def test_board_route_rejects_encoded_backslash_path_traversal():
     response = client.get("/v1/boards/..%5Cpackages%5Cpackage_index")
 
