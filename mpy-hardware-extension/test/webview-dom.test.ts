@@ -4608,3 +4608,283 @@ test("git_history_status maps taxonomy to the blocked view (git unavailable) / i
   assert.equal(document.getElementById("ghBody")!.classList.contains("hidden"), false, "an invalid_request keeps the timeline visible");
   assert.ok(document.getElementById("ghStatus")!.textContent!.length > 0, "invalid_request shows an inline message");
 });
+
+// ----- BOM procurement (search_query + purchase_links) -----
+// Fixture shape = the select-hw Skill's normalized BOM item: every physical item carries
+// product_url/shop_url/datasheet_url/supplier/sku/search_query/purchase_links[], and when a
+// normalized item has a search_query but no links the Skill injects the vendor site-entry
+// default below ({region,vendor,url,link_type,search_query,confidence,notes}).
+const YOURCEE_QUERY = "AHT20 温湿度传感器模块";
+const YOURCEE_SITE_ENTRY = {
+  region: "cn", vendor: "Yourcee", url: "https://www.yourcee.com/cpzl",
+  link_type: "site_entry", search_query: YOURCEE_QUERY, confidence: "medium",
+  notes: "Open YourCee product data entry and search this query manually.",
+};
+function bomItem(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name: "AHT20 sensor", model: "AHT20", quantity: 1, unit_price_yuan: 12, notes: "I2C",
+    product_url: "", shop_url: "", datasheet_url: "", supplier: "", sku: "",
+    search_query: YOURCEE_QUERY, purchase_links: [{ ...YOURCEE_SITE_ENTRY }],
+    ...overrides,
+  };
+}
+// The pinned Skill samples are stale: their bom items carry only these fields, no purchase data.
+const STALE_BOM_ITEM = { name: "AHT20 sensor", model: "AHT20", quantity: 1, unit_price_yuan: 12, notes: "I2C" };
+// The webview posts from the page realm, so a deepEqual against a host-realm literal fails on
+// prototype identity. Pin the count (nothing extra was posted) and read the fields off the one hit.
+function onlyPosted(posted: any[], type: string): any {
+  const hits = posted.filter((m) => m && m.type === type);
+  assert.equal(hits.length, 1, `expected exactly one ${type} message, got ${hits.length}`);
+  return hits[0];
+}
+
+test("deploy checkpoint renders a site_entry as a vendor search with a copyable query, never a product-buy link", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+
+  post(dom, { type: "deploy_needed", promptId: "deploy-bom", manifest: { board_id: "esp32-s3-devkitc-1", bom: [bomItem()] } });
+
+  const bom = document.querySelector("#activity .deploy-bom")!;
+  assert.ok(bom.textContent!.includes(YOURCEE_QUERY), "the copyable search query is shown");
+  assert.ok(bom.textContent!.includes("AHT20 sensor"), "the BOM item is named");
+  const link = bom.querySelector(".bom-link") as HTMLButtonElement;
+  assert.equal(link.textContent, "Search on YourCee", "a site_entry reads as a vendor search");
+  assert.equal(bom.textContent!.includes("https://www.yourcee.com/cpzl"), false, "the raw URL is never shown as a buy label");
+  assert.equal(bom.querySelector("a"), null, "links go through the host, not an anchor the webview navigates");
+  assert.equal(bom.querySelector(".bom-empty"), null, "no empty-state while a link exists");
+});
+
+test("clicking a purchase link posts only the URL the payload carries, and copy posts the raw search query", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "deploy_needed", promptId: "deploy-bom-click", manifest: { bom: [bomItem()] } });
+  const bom = document.querySelector("#activity .deploy-bom")!;
+
+  (bom.querySelector(".bom-link") as HTMLButtonElement).click();
+  assert.equal(onlyPosted(posted, "open_external").url, "https://www.yourcee.com/cpzl", "opens the payload's own URL and nothing else");
+
+  (bom.querySelector(".bom-copy") as HTMLButtonElement).click();
+  assert.equal(onlyPosted(posted, "copy_code").text, YOURCEE_QUERY, "copy hands the host the raw search query");
+});
+
+test("a non-site_entry link is labeled by its vendor, and product/store/datasheet URLs open through the same host path", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "deploy_needed", promptId: "deploy-bom-vendor",
+    manifest: {
+      bom: [bomItem({
+        product_url: "https://example.com/p/aht20",
+        shop_url: "https://shop.example.com/aht20",
+        datasheet_url: "https://example.com/aht20.pdf",
+        purchase_links: [
+          { ...YOURCEE_SITE_ENTRY, vendor: "Freenove", link_type: "brand_search_fallback", url: "https://freenove.com/search", notes: "brand store" },
+          { ...YOURCEE_SITE_ENTRY, vendor: "", link_type: "brand_search_fallback", url: "https://vendorless.example.com" },
+          { ...YOURCEE_SITE_ENTRY, vendor: "Taobao", url: "https://taobao.example.com" },
+          { ...YOURCEE_SITE_ENTRY, vendor: "", url: "https://unnamed.example.com" },
+        ],
+      })],
+    },
+  });
+
+  const bom = document.querySelector("#activity .deploy-bom")!;
+  const labels = [...bom.querySelectorAll(".bom-link, .bom-doc")].map((b) => b.textContent);
+  assert.deepEqual(
+    labels,
+    ["Freenove", "Open link", "Search on Taobao", "Open link", "Product page", "Store page", "Datasheet"],
+    "vendor names label their own links, another vendor's site_entry keeps the search wording, and a vendor-less link never borrows the YourCee wording",
+  );
+  assert.equal((bom.querySelector(".bom-link") as HTMLElement).getAttribute("title"), "brand store", "the entry's notes ride along as the tooltip");
+
+  (bom.querySelectorAll(".bom-doc")[2] as HTMLButtonElement).click();
+  assert.equal(onlyPosted(posted, "open_external").url, "https://example.com/aht20.pdf", "the datasheet opens through the same host path");
+});
+
+test("an item with a search query but no purchase links shows the empty state and no fabricated link", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+
+  post(dom, { type: "deploy_needed", promptId: "deploy-bom-nolinks", manifest: { bom: [bomItem({ purchase_links: [] })] } });
+
+  const bom = document.querySelector("#activity .deploy-bom")!;
+  assert.ok(bom.textContent!.includes(YOURCEE_QUERY), "the query stays copyable so the user can search it themselves");
+  assert.ok(bom.querySelector(".bom-copy"), "copy stays available with no links");
+  assert.equal(bom.querySelector("[data-bom-url]"), null, "no URL is invented from the query");
+  assert.equal((bom.querySelector(".bom-empty") as HTMLElement).textContent, "No purchase link yet");
+});
+
+test("stale and malformed BOM shapes render nothing and never block the deploy checkpoint", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  // Pinned-sample shape (no purchase fields), a link with a blank URL and no query of its
+  // own, a non-array purchase_links, and junk rows — nothing procurable, so nothing renders.
+  post(dom, {
+    type: "deploy_needed", promptId: "deploy-bom-stale",
+    manifest: {
+      wiring: [{ role: "led_anode", pin: "GPIO2" }],
+      bom: [
+        STALE_BOM_ITEM,
+        bomItem({ search_query: "   ", purchase_links: [{ ...YOURCEE_SITE_ENTRY, url: "   ", search_query: "" }] }),
+        bomItem({ search_query: "", purchase_links: "not-an-array" }),
+        null,
+        "junk",
+      ],
+    },
+  });
+
+  assert.equal(document.querySelector("#activity .deploy-bom")!.innerHTML, "", "a stale manifest renders no procurement block");
+  assert.match(activity.innerHTML, /GPIO2/, "the rest of the checkpoint still renders");
+
+  // The deploy flow itself is untouched.
+  post(dom, { type: "deploy_ports_updated", ports: ["COM7"] });
+  const deployBtn = activity.querySelector(".deploy-go") as HTMLButtonElement;
+  assert.equal(deployBtn.disabled, false);
+  deployBtn.click();
+  const confirm = onlyPosted(posted, "ui_prompt_response");
+  assert.equal(confirm.promptId, "deploy-bom-stale");
+  assert.equal(confirm.answer, "confirm", "deploy still confirms");
+  assert.equal(confirm.port, "COM7", "with the detected port");
+});
+
+test("a manifest with no bom at all renders no procurement block", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+
+  post(dom, { type: "deploy_needed", promptId: "deploy-bom-absent", manifest: { board_id: "esp32-s3-devkitc-1" } });
+  assert.equal(document.querySelector("#activity .deploy-bom")!.innerHTML, "", "no bom -> no block, no throw");
+  assert.ok(document.querySelector("#activity .deploy-go"), "the checkpoint still renders");
+});
+
+test("an LLM-authored search query is rendered as text, never as markup", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const payload = '<img src=x onerror="alert(1)">';
+
+  post(dom, {
+    type: "deploy_needed", promptId: "deploy-bom-xss",
+    manifest: {
+      bom: [bomItem({
+        name: '<script>alert("name")</script>',
+        search_query: payload,
+        purchase_links: [{ ...YOURCEE_SITE_ENTRY, vendor: '<b>evil</b>', link_type: "brand_search_fallback", notes: '"><img src=x>' }],
+      })],
+    },
+  });
+
+  const bom = document.querySelector("#activity .deploy-bom")!;
+  assert.equal(bom.querySelectorAll("img").length, 0, "the payload is not parsed into an element");
+  assert.equal(bom.querySelectorAll("script").length, 0, "nor is a script tag");
+  assert.ok(bom.textContent!.includes(payload), "it shows as literal text");
+  assert.equal((bom.querySelector(".bom-link") as HTMLElement).textContent, "<b>evil</b>", "a vendor name is text too");
+  assert.equal((bom.querySelector(".bom-link") as HTMLElement).getAttribute("title"), '"><img src=x>', "notes stay inside the attribute");
+
+  // Copy still hands the host the original string, escaping and all.
+  (bom.querySelector(".bom-copy") as HTMLButtonElement).click();
+  assert.equal(onlyPosted(posted, "copy_code").text, payload, "copy round-trips the original string, escaping and all");
+});
+
+test("BOM procurement labels follow the session locale (zh)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+
+  // Flip the UI language the way a real session does: submit a Chinese intent.
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "用 AHT20 读温湿度";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  post(dom, {
+    type: "deploy_needed", promptId: "deploy-bom-zh",
+    manifest: { bom: [bomItem(), bomItem({ name: "OLED", model: "SSD1306", search_query: "SSD1306", purchase_links: [] })] },
+  });
+
+  const bom = document.querySelector("#activity .deploy-bom")!;
+  assert.equal((bom.querySelector(".bom-link") as HTMLElement).textContent, "在 YourCee 搜索");
+  assert.equal((bom.querySelector(".bom-copy") as HTMLElement).textContent, "复制");
+  assert.equal((bom.querySelector(".bom-empty") as HTMLElement).textContent, "暂无购买链接");
+});
+
+test("a restored (inert) checkpoint keeps its purchase links live while every answer control stays disabled", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "restore_prompt", kind: "deploy_proposed", payload: { promptId: "p-old", manifest: { bom: [bomItem()] } }, answer: "confirm" });
+
+  const card = document.querySelector("#activity .ev")!;
+  assert.equal((card.querySelector(".deploy-go") as HTMLButtonElement).disabled, true, "the historical answer controls stay inert");
+  const link = card.querySelector(".bom-link") as HTMLButtonElement;
+  assert.equal(link.disabled, false, "a purchase link is navigation, not an answer");
+  assert.equal(link.classList.contains("chosen"), false, "and is never marked as the chosen action");
+
+  link.click();
+  assert.equal(onlyPosted(posted, "open_external").url, "https://www.yourcee.com/cpzl", "it still opens through the host");
+  (card.querySelector(".bom-copy") as HTMLButtonElement).click();
+  assert.equal(onlyPosted(posted, "copy_code").text, YOURCEE_QUERY, "and the query is still copyable");
+  assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "a historical card answers nothing");
+});
+
+test("the wiring tab shows purchase links from manifest_updated, even with no wiring to draw", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1", bom: [bomItem()] } });
+
+  const wiring = document.getElementById("wiring")!;
+  assert.equal(document.getElementById("wiringEmpty")!.classList.contains("hidden"), true, "a bom-only manifest is not an empty tab");
+  assert.equal((wiring.querySelector(".bom-link") as HTMLElement).textContent, "Search on YourCee");
+  assert.equal(wiring.querySelector(".wire-provisional"), null, "the pins-not-assigned note belongs to a wiring diagram, not a bom list");
+
+  (wiring.querySelector(".bom-link") as HTMLButtonElement).click();
+  assert.equal(onlyPosted(posted, "open_external").url, "https://www.yourcee.com/cpzl", "the wiring tab uses the same host path");
+
+  // A later manifest with neither wiring nor procurable bom falls back to the empty state.
+  post(dom, { type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1", bom: [STALE_BOM_ITEM] } });
+  assert.equal(document.getElementById("wiringEmpty")!.classList.contains("hidden"), false);
+  assert.equal(wiring.innerHTML, "");
+});
+
+test("a purchase link's own search query is shown, labeled by its vendor, and copyable when it differs from the item's", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // The producer keeps a link's non-empty search_query and only backfills an absent one
+  // from the item's, so a vendor-specific query is real signal, not a duplicate.
+  post(dom, {
+    type: "deploy_needed", promptId: "deploy-bom-linkquery",
+    manifest: {
+      bom: [bomItem({
+        purchase_links: [
+          { ...YOURCEE_SITE_ENTRY }, // same query as the item — no extra row
+          { ...YOURCEE_SITE_ENTRY, vendor: "Freenove", link_type: "brand_search_fallback", url: "https://freenove.com/search", search_query: "Freenove AHT20 kit" },
+          { ...YOURCEE_SITE_ENTRY, vendor: "Taobao", url: "", search_query: "AHT20 模块 I2C" }, // no URL: the query still surfaces, still no fabricated link
+          { ...YOURCEE_SITE_ENTRY, vendor: "Mirror", url: "https://mirror.example.com", search_query: "Freenove AHT20 kit" }, // duplicate query renders once
+        ],
+      })],
+    },
+  });
+
+  const bom = document.querySelector("#activity .deploy-bom")!;
+  assert.deepEqual(
+    [...bom.querySelectorAll(".bom-query code")].map((c) => c.textContent),
+    [YOURCEE_QUERY, "Freenove AHT20 kit", "AHT20 模块 I2C"],
+    "the item query renders first, then each distinct link query exactly once",
+  );
+  assert.deepEqual(
+    [...bom.querySelectorAll(".bom-query-vendor")].map((v) => v.textContent),
+    ["Freenove", "Taobao"],
+    "a vendor-specific query is labeled by its vendor",
+  );
+  assert.equal(bom.querySelectorAll("[data-bom-url]").length, 3, "a URL-less link still never becomes clickable");
+
+  ([...bom.querySelectorAll(".bom-copy")][1] as HTMLButtonElement).click();
+  assert.equal(onlyPosted(posted, "copy_code").text, "Freenove AHT20 kit", "copy hands the host that link's own query");
+});

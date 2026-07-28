@@ -479,6 +479,22 @@
       .wire-note { font-size: 11px; color: var(--yellow); background: #d3a50a14; border: 1px solid #d3a50a33; padding: 6px 9px; border-radius: 6px; margin-top: 4px; }
       .wire-provisional { font-size: 11px; color: var(--fg-muted); background: #ffffff08; border: 1px solid #ffffff14; padding: 6px 9px; border-radius: 6px; margin-bottom: 8px; }
 
+      /* BOM procurement — where to buy each part (deploy checkpoint + wiring tab) */
+      .bom-proc { padding: 4px 12px 8px; }
+      .deploy-bom .bom-proc { padding: 0; }
+      .bom-item { border: 1px solid var(--vsc-card-border); background: var(--vsc-card); border-radius: 9px; padding: 9px 11px; margin-bottom: 8px; }
+      .bom-name { font-size: 12.5px; font-weight: 600; color: var(--fg-bright); }
+      .bom-model { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--fg-muted); margin-left: 6px; }
+      .bom-query { display: flex; align-items: center; gap: 7px; margin-top: 6px; }
+      .bom-query-vendor { font-size: 10.5px; color: var(--fg-muted); white-space: nowrap; }
+      .bom-query code { font-family: var(--mono); font-size: 11px; color: var(--fg); background: #ffffff0d; border: 1px solid var(--vsc-border-soft); border-radius: 5px; padding: 2px 7px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      .bom-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+      .bom-link, .bom-doc, .bom-copy { font-family: inherit; font-size: 11px; color: var(--fg-bright); background: #ffffff12; border: 1px solid var(--vsc-border-soft); border-radius: 5px; padding: 3px 9px; cursor: pointer; }
+      .bom-link:hover, .bom-doc:hover, .bom-copy:hover { background: #ffffff1f; }
+      .bom-link { color: var(--accent); background: #0e7aff1a; border-color: #0e7aff33; }
+      .bom-doc { color: var(--fg-dim); }
+      .bom-empty { font-size: 11px; color: var(--fg-muted); margin-top: 6px; }
+
       /* diagram (architecture layers + run flow) */
       #diagram { padding: 11px 12px 22px; }
       .diagram-section { margin-bottom: 16px; }
