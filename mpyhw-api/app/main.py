@@ -88,7 +88,16 @@ def validate_config() -> None:
     except HTTPException as exc:
         raise RuntimeError("MPYHW_JWT_SECRET is not configured (still the dev default)") from exc
 
-    missing = [name for name in ("DEEPSEEK_API_KEY", "MPYHW_ADMIN_TOKEN") if not os.getenv(name)]
+    # The key requirement follows the selected provider (MPYHW_LLM_PROVIDER):
+    # openai requires OPENAI_API_KEY and deepseek is then NOT required. An
+    # unsupported provider value must kill the boot, not surface as per-request 503s.
+    from app.routes_llm import get_llm_provider
+
+    try:
+        provider = get_llm_provider()
+    except HTTPException as exc:
+        raise RuntimeError(f"MPYHW_LLM_PROVIDER is not supported: {os.getenv('MPYHW_LLM_PROVIDER')!r}") from exc
+    missing = [name for name in (provider.api_key_env, "MPYHW_ADMIN_TOKEN") if not os.getenv(name)]
     if missing:
         raise RuntimeError(f"missing required prod secrets: {', '.join(missing)}")
 

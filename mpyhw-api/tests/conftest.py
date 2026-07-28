@@ -8,6 +8,14 @@ def _api_env(monkeypatch, request):
     """Run API tests against a real Postgres database only."""
     import os
 
+    # Provider selection and the OpenAI key must come from the test, never the
+    # developer's shell/.env: a leaked MPYHW_LLM_PROVIDER would flip every
+    # provider-default assertion (including in no_db tests, hence before the
+    # early return below). The DEEPSEEK_API_KEY delenv stays in the DB branch
+    # where it always was.
+    monkeypatch.delenv("MPYHW_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
     if request.node.get_closest_marker("no_db"):
         monkeypatch.setenv("MPYHW_JWT_SECRET", "test-secret")
         yield

@@ -34,10 +34,11 @@ from app.prompt_assembly import (  # noqa: F401
     _translate_blocks, _v0_phase_note,
 )
 from app.sse_translate import (  # noqa: F401
-    DeepSeekProvider, UpstreamError, _PAYLOAD_VALIDATORS, _call_deepseek_plain,
-    _deepseek_payload, _deepseek_tools, _noncanonical_tools,
-    _open_deepseek_stream, _payload_violation, _sse, _stub_sse,
-    _translate_deepseek_stream, get_llm_provider,
+    DeepSeekProvider, OpenAIProvider, UpstreamError, _PAYLOAD_VALIDATORS,
+    _call_deepseek_plain, _deepseek_payload, _deepseek_tools,
+    _noncanonical_tools, _open_deepseek_stream, _payload_violation, _sse,
+    _stub_sse, _translate_deepseek_stream, get_llm_provider,
+    llm_provider_configured,
 )
 
 
@@ -47,7 +48,8 @@ logger = logging.getLogger("mpyhw.llm")
 
 
 class _CircuitBreaker:
-    """Minimal in-process breaker for the DeepSeek upstream.
+    """Minimal in-process breaker for the active LLM upstream (shared across
+    providers; a deployment runs exactly one provider at a time).
 
     Per-worker (NOT distributed): local stampede protection so a provider outage
     doesn't make every request reserve-then-refund a credit and churn session slots.
@@ -176,11 +178,11 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
             llm_sessions.release(session_id, "not_configured")
             raise
 
-        is_deepseek = getattr(provider, "name", "") == "deepseek"
+        breaker_enabled = getattr(provider, "uses_breaker", False)
         # Fail fast during an upstream outage: short-circuit BEFORE reserving a
         # credit (and release the slot), so a provider incident doesn't churn
         # reserve/refund or leak session slots across every request.
-        if is_deepseek and _deepseek_breaker.is_open():
+        if breaker_enabled and _deepseek_breaker.is_open():
             llm_sessions.release(session_id, "upstream_unavailable")
             raise HTTPException(status_code=503, detail={"error": "llm_upstream_unavailable"})
 
@@ -235,7 +237,7 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
                 remaining = credit_store.debit(user, charge - 1)
             else:
                 remaining = credit_store.debit(user, 0)
-            model = os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro")
+            model = _provider_model(provider)
             tokens = _usage_fields(usage)
             analytics.record_llm_turn(
                 trace_id=body.get("trace_id"),
@@ -267,7 +269,7 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
         except UpstreamError as error:
             # Only a transient outage (timeout/5xx/429) trips the breaker; a 4xx
             # (bad key/request) is a config error that retrying won't fix.
-            if is_deepseek and _is_outage_status(error.status):
+            if breaker_enabled and _is_outage_status(error.status):
                 _deepseek_breaker.record_failure()
             logger.warning("llm upstream error", extra={"status": error.status})
             credit_store.refund(user, 1)
@@ -275,7 +277,7 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
                 trace_id=body.get("trace_id"),
                 user_id=str(user["id"]),
                 kind="chat",
-                model=os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
+                model=_provider_model(provider),
                 started_at=started_at,
                 total_tokens=None,
                 credits_charged=0,
@@ -284,7 +286,7 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
             )
             llm_sessions.release(session_id, "upstream_error")
             raise HTTPException(status_code=502, detail={"error": "llm_upstream_error", "status": error.status})
-        if is_deepseek:
+        if breaker_enabled:
             _deepseek_breaker.record_success()
         # V0-pure: the model writes file content inline; the backend no longer
         # intercepts file_operation writes to synthesize code from an `intent`.
@@ -322,10 +324,16 @@ def _usage_fields(usage: dict[str, Any]) -> dict[str, Any]:
     as 0: an older model with no cache breakdown must read as "unknown" downstream, not as
     a real zero that would skew the per-turn cost aggregate.
     """
+    details = usage.get("prompt_tokens_details")
     candidates = {
         "input_tokens": usage.get("prompt_tokens"),
         "output_tokens": usage.get("completion_tokens"),
-        "cache_hit_tokens": usage.get("prompt_cache_hit_tokens"),
+        # DeepSeek reports the flat field; OpenAI nests it as
+        # prompt_tokens_details.cached_tokens. Same meaning: cached prompt tokens.
+        "cache_hit_tokens": usage.get(
+            "prompt_cache_hit_tokens",
+            details.get("cached_tokens") if isinstance(details, dict) else None,
+        ),
     }
     return {
         key: int(value)
@@ -334,19 +342,44 @@ def _usage_fields(usage: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _billable_tokens(usage: dict[str, Any]) -> int:
-    """Tokens to charge credits on: what DeepSeek effectively bills, not raw prompt size.
+def _provider_model(provider) -> str:
+    """Model name recorded in analytics; getattr because fake test providers
+    predate the provider.model() accessor."""
+    fn = getattr(provider, "model", None)
+    return fn() if callable(fn) else os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro")
 
-    DeepSeek auto-caches a byte-stable request prefix and bills cache-hit tokens at a
-    fraction of miss tokens, so charge `miss + completion + MPYHW_CACHE_HIT_WEIGHT*hit`
-    (default weight 0.1, matching DeepSeek's ~10x cache-hit discount). Falls back to
-    raw total_tokens when the cache breakdown is absent (older model / cache disabled).
+
+def _billable_tokens(usage: dict[str, Any]) -> int:
+    """Tokens to charge credits on: cache-discounted usage, not raw prompt size.
+
+    Both upstreams auto-cache a byte-stable request prefix and bill cache-hit
+    tokens at a fraction of miss tokens, so charge
+    `miss + completion + MPYHW_CACHE_HIT_WEIGHT*hit` (default weight 0.1 — both
+    DeepSeek and gpt-5.5 price cached input at ~1/10). DeepSeek reports
+    hit/miss flat; OpenAI reports only the hit side (prompt_tokens_details.
+    cached_tokens), so miss is the uncached remainder of the prompt. OpenAI's
+    completion_tokens already includes reasoning tokens — do not add
+    completion_tokens_details.reasoning_tokens on top (double count). Falls back
+    to raw total_tokens when no cache breakdown is present. This is the credit
+    abstraction, not exact upstream dollar accounting.
     """
     total = int(usage.get("total_tokens", 0) or 0)
     hit = usage.get("prompt_cache_hit_tokens")
     miss = usage.get("prompt_cache_miss_tokens")
     if hit is None or miss is None:
-        return total
+        details = usage.get("prompt_tokens_details")
+        prompt = usage.get("prompt_tokens")
+        cached = details.get("cached_tokens") if isinstance(details, dict) else None
+        # A malformed breakdown must not raise inside the streaming meter() (the
+        # turn is already paid for) nor produce a negative/invalid charge: any
+        # non-numeric, negative, or cached>prompt shape bills the plain total.
+        ok = all(isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 for v in (prompt, cached))
+        if not ok or cached > prompt:
+            if cached is not None:
+                logger.warning("invalid openai cache breakdown; billing full total_tokens")
+            return total
+        hit = int(cached)
+        miss = int(prompt) - hit
     completion = int(usage.get("completion_tokens", 0) or 0)
     # Clamp to [0, 1] and fall back to the default on a bad value: a misconfigured
     # env var must not raise inside the streaming meter() generator (it would abort

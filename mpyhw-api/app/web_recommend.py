@@ -136,11 +136,12 @@ def _llm_configured() -> bool:
     """Whether the LLM path is usable at all: key present and not stubbed. The daily
     cap is enforced separately and atomically by _reserve_llm_call, so the
     availability check and the slot consumption stay one atomic step apart."""
-    if not os.getenv("DEEPSEEK_API_KEY"):
+    from app.routes_llm import get_llm_provider
+    try:
+        key = os.getenv(get_llm_provider().api_key_env)
+    except HTTPException:
         return False
-    if os.getenv("MPYHW_LLM_STUB") == "1":
-        return False
-    return True
+    return bool(key) and os.getenv("MPYHW_LLM_STUB") != "1"
 
 
 # Alias: the LLM availability pre-check has been referred to by both names. extract_capabilities
@@ -267,23 +268,22 @@ def _normalize_capabilities(raw_tokens: list[Any]) -> list[str]:
 def _llm_extract(idea: str) -> dict[str, Any]:
     """Call DeepSeek (JSON mode), parse tolerantly, normalize to taxonomy tokens. Returns
     {capabilities, board_family_hint, raw_count}; raises on upstream/parse failure."""
-    from app.routes_llm import _call_deepseek_plain
+    from app.routes_llm import _call_deepseek_plain, get_llm_provider
 
     max_tokens = int(os.getenv("MPYHW_WEB_RECOMMEND_MAX_TOKENS", "256"))
     timeout = int(os.getenv("MPYHW_WEB_RECOMMEND_TIMEOUT", "10"))
-    # Capability extraction is a trivial classification, so use a NON-thinking model. The
-    # global MPYHW_LLM_MODEL is a thinking model (deepseek-v4-pro) whose reasoning_content
-    # counts against max_tokens; on a complex idea the ~256-token budget is fully consumed
-    # by reasoning -> finish_reason="length", content="" -> parse failure -> 503 llm_failed.
-    # A non-thinking model emits the tiny JSON directly (0 reasoning tokens), so the answer
-    # always fits and the call is ~1s instead of 15-26s. Overridable by env.
-    model = os.getenv("MPYHW_WEB_RECOMMEND_MODEL", "deepseek-chat")
+    # Trivial classification → the provider's cheaper plain model, NOT the global
+    # MPYHW_LLM_MODEL: a reasoning model's hidden reasoning eats the tiny budget
+    # (finish_reason="length", content="" → 503 llm_failed). Env-overridable; raise
+    # MPYHW_WEB_RECOMMEND_MAX_TOKENS if the plain model reasons (gpt-5.4-mini does).
+    provider = get_llm_provider()
+    model = os.getenv("MPYHW_WEB_RECOMMEND_MODEL", provider.default_plain_model)
     text, _usage = _call_deepseek_plain(
         [{"role": "user", "content": _build_prompt(idea)}],
         max_tokens,
         timeout=timeout,
         response_format={"type": "json_object"},
-        model=model,
+        model=model, provider=provider,
     )
     parsed = _parse_capability_json(text)
     return {
@@ -303,7 +303,7 @@ def extract_capabilities(idea: str) -> dict[str, Any]:
       tokens (a schema violation).
     - 422 no_capabilities: the model succeeded but returned an empty list (vague idea)."""
     if not _llm_available():
-        logger.error("web recommend: LLM not configured (missing/stubbed DEEPSEEK_API_KEY)")
+        logger.error("web recommend: LLM not configured (missing key or stubbed for the active provider)")
         raise HTTPException(status_code=503, detail={"error": "llm_unconfigured"})
     if not _reserve_llm_call():
         logger.warning("web recommend: daily LLM cap reached")
