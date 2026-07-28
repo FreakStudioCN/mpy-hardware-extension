@@ -4653,15 +4653,15 @@ test("stale and malformed BOM shapes render nothing and never block the deploy c
   const { document } = dom.window;
   const activity = document.getElementById("activity")!;
 
-  // Pinned-sample shape (no purchase fields), a link with a blank URL, a non-array
-  // purchase_links, and junk rows — nothing procurable, so nothing renders.
+  // Pinned-sample shape (no purchase fields), a link with a blank URL and no query of its
+  // own, a non-array purchase_links, and junk rows — nothing procurable, so nothing renders.
   post(dom, {
     type: "deploy_needed", promptId: "deploy-bom-stale",
     manifest: {
       wiring: [{ role: "led_anode", pin: "GPIO2" }],
       bom: [
         STALE_BOM_ITEM,
-        bomItem({ search_query: "   ", purchase_links: [{ ...YOURCEE_SITE_ENTRY, url: "   " }] }),
+        bomItem({ search_query: "   ", purchase_links: [{ ...YOURCEE_SITE_ENTRY, url: "   ", search_query: "" }] }),
         bomItem({ search_query: "", purchase_links: "not-an-array" }),
         null,
         "junk",
@@ -4779,4 +4779,42 @@ test("the wiring tab shows purchase links from manifest_updated, even with no wi
   post(dom, { type: "manifest_updated", manifest: { board_id: "esp32-s3-devkitc-1", bom: [STALE_BOM_ITEM] } });
   assert.equal(document.getElementById("wiringEmpty")!.classList.contains("hidden"), false);
   assert.equal(wiring.innerHTML, "");
+});
+
+test("a purchase link's own search query is shown, labeled by its vendor, and copyable when it differs from the item's", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // The producer keeps a link's non-empty search_query and only backfills an absent one
+  // from the item's, so a vendor-specific query is real signal, not a duplicate.
+  post(dom, {
+    type: "deploy_needed", promptId: "deploy-bom-linkquery",
+    manifest: {
+      bom: [bomItem({
+        purchase_links: [
+          { ...YOURCEE_SITE_ENTRY }, // same query as the item — no extra row
+          { ...YOURCEE_SITE_ENTRY, vendor: "Freenove", link_type: "brand_search_fallback", url: "https://freenove.com/search", search_query: "Freenove AHT20 kit" },
+          { ...YOURCEE_SITE_ENTRY, vendor: "Taobao", url: "", search_query: "AHT20 模块 I2C" }, // no URL: the query still surfaces, still no fabricated link
+          { ...YOURCEE_SITE_ENTRY, vendor: "Mirror", url: "https://mirror.example.com", search_query: "Freenove AHT20 kit" }, // duplicate query renders once
+        ],
+      })],
+    },
+  });
+
+  const bom = document.querySelector("#activity .deploy-bom")!;
+  assert.deepEqual(
+    [...bom.querySelectorAll(".bom-query code")].map((c) => c.textContent),
+    [YOURCEE_QUERY, "Freenove AHT20 kit", "AHT20 模块 I2C"],
+    "the item query renders first, then each distinct link query exactly once",
+  );
+  assert.deepEqual(
+    [...bom.querySelectorAll(".bom-query-vendor")].map((v) => v.textContent),
+    ["Freenove", "Taobao"],
+    "a vendor-specific query is labeled by its vendor",
+  );
+  assert.equal(bom.querySelectorAll("[data-bom-url]").length, 3, "a URL-less link still never becomes clickable");
+
+  ([...bom.querySelectorAll(".bom-copy")][1] as HTMLButtonElement).click();
+  assert.equal(onlyPosted(posted, "copy_code").text, "Freenove AHT20 kit", "copy hands the host that link's own query");
 });

@@ -198,6 +198,11 @@
             if (!item || typeof item !== "object") continue;
             const query = bomText(item.search_query);
             let links = "";
+            // The Skill keeps a link's own search_query and only backfills an absent one from
+            // the item's, so a vendor-specific query is real signal: show it (labeled by its
+            // vendor, copyable) instead of silently dropping it. Dedupe against the item query.
+            let vendorQueries = "";
+            const seenQueries = new Set([query]);
             const entries = Array.isArray(item.purchase_links) ? item.purchase_links : [];
             for (const link of entries) {
               if (!link || typeof link !== "object") continue;
@@ -205,18 +210,27 @@
               // copy, never a URL to build.
               const url = bomText(link.url);
               if (url) links += bomLinkButton("bom-link", url, bomLinkLabel(link), bomText(link.notes));
+              const linkQuery = bomText(link.search_query);
+              if (linkQuery && !seenQueries.has(linkQuery)) {
+                seenQueries.add(linkQuery);
+                const vendor = bomText(link.vendor);
+                vendorQueries += '<div class="bom-query">' +
+                  (vendor ? '<span class="bom-query-vendor">' + esc(vendor) + "</span>" : "") +
+                  "<code>" + esc(linkQuery) + '</code><button type="button" class="bom-copy" data-bom-copy="' + esc(linkQuery) + '">' + tr("copy_query") + "</button></div>";
+              }
             }
             const docs = [[item.product_url, tr("bom_product")], [item.shop_url, tr("bom_store")], [item.datasheet_url, tr("bom_datasheet")]];
             for (const doc of docs) {
               const url = bomText(doc[0]);
               if (url) links += bomLinkButton("bom-doc", url, doc[1], "");
             }
-            if (!query && !links) continue; // nothing procurable on this item — render nothing for it
+            if (!query && !links && !vendorQueries) continue; // nothing procurable on this item — render nothing for it
             const name = bomText(item.name) || bomText(item.model);
             const model = bomText(item.model);
             rows += '<div class="bom-item"><div class="bom-name">' + esc(name) +
               (model && model !== name ? ' <span class="bom-model">' + esc(model) + "</span>" : "") + "</div>" +
               (query ? '<div class="bom-query"><code>' + esc(query) + '</code><button type="button" class="bom-copy" data-bom-copy="' + esc(query) + '">' + tr("copy_query") + "</button></div>" : "") +
+              vendorQueries +
               (links ? '<div class="bom-links">' + links + "</div>" : '<div class="bom-empty">' + tr("no_purchase_link") + "</div>") +
               "</div>";
           }
