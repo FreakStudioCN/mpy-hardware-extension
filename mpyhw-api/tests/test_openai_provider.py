@@ -57,8 +57,10 @@ def test_openai_payload_reasoning_model_params(monkeypatch):
     assert payload["stream_options"] == {"include_usage": True}
     assert [tool["function"]["name"] for tool in payload["tools"]] == sorted(routes_llm.LLM_TOOL_NAMES)
 
-    monkeypatch.setenv("MPYHW_LLM_MODEL", "gpt-5.5-pro")
-    assert routes_llm._deepseek_payload(BODY, provider=provider)["model"] == "gpt-5.5-pro"
+    # Override example is deliberately NOT gpt-5.5-pro: the pro tier rejects
+    # streaming, which this path unconditionally enables (stream=True).
+    monkeypatch.setenv("MPYHW_LLM_MODEL", "gpt-5.4-mini")
+    assert routes_llm._deepseek_payload(BODY, provider=provider)["model"] == "gpt-5.4-mini"
 
 
 def test_deepseek_payload_shape_unchanged_without_provider(monkeypatch):
@@ -87,6 +89,19 @@ def test_openai_payload_strips_reasoning_content(monkeypatch):
     assert all("reasoning_content" not in message for message in openai_messages)
     deepseek_messages = routes_llm._deepseek_payload(body)["messages"]
     assert any("reasoning_content" in message for message in deepseek_messages)
+
+
+def test_translate_stream_surfaces_openai_refusal():
+    # OpenAI streams safety refusals as delta.refusal (no content). It must be
+    # surfaced as text — dropping it would bill the turn and hand the client a
+    # charged, silently empty "success".
+    chunks = [
+        b'data: {"choices":[{"delta":{"refusal":"I cannot help with that."},"finish_reason":"stop"}]}\n',
+        b"data: [DONE]\n",
+    ]
+    out = "".join(routes_llm._translate_deepseek_stream(chunks))
+    assert "text_delta" in out
+    assert "I cannot help with that." in out
 
 
 def test_billable_tokens_openai_usage_shape(monkeypatch):

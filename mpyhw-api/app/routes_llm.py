@@ -79,14 +79,14 @@ class _CircuitBreaker:
                 return False
             if time.monotonic() - self._opened_at >= self._cooldown:
                 self._opened_at = time.monotonic()  # re-arm: admit exactly one probe
-                logger.info("deepseek circuit breaker probing (single probe admitted)")
+                logger.info("llm circuit breaker probing (single probe admitted)")
                 return False
             return True
 
     def record_success(self) -> None:
         with self._lock:
             if self._state != "closed":
-                logger.info("deepseek circuit breaker closed (recovered)")
+                logger.info("llm circuit breaker closed (recovered)")
             self._failures = 0
             self._state = "closed"
 
@@ -94,7 +94,7 @@ class _CircuitBreaker:
         with self._lock:
             self._failures += 1
             if self._state != "open" and self._failures >= self._threshold:
-                logger.warning("deepseek circuit breaker opened", extra={"failures": self._failures})
+                logger.warning("llm circuit breaker opened", extra={"failures": self._failures})
                 self._state = "open"
                 self._opened_at = time.monotonic()
             elif self._state == "open":

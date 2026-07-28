@@ -8,11 +8,14 @@ to keep that module within the line budget."""
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterable
 from typing import Any
 
 from fastapi import HTTPException
+
+logger = logging.getLogger("mpyhw.llm")
 
 
 def _R():
@@ -34,6 +37,11 @@ class DeepSeekProvider:
     # to max_completion_tokens, and 400 on DeepSeek's nonstandard reasoning_content
     # field — these switches let the shared payload builder emit what each
     # upstream actually accepts.
+    # NOTE: on DeepSeekProvider itself the URL/payload attrs above and below are
+    # documentation only — open_stream deliberately passes provider=None so the
+    # DeepSeek request keeps the hardcoded constants byte-identical (prefix-cache
+    # contract). Changing them here changes nothing; OpenAIProvider passes
+    # provider=self and does read them.
     send_temperature = True
     max_tokens_param = "max_tokens"
     accepts_reasoning_content = True
@@ -87,3 +95,14 @@ def llm_provider_configured() -> bool:
     except HTTPException:
         return False
     return bool(os.getenv(provider.api_key_env))
+
+
+def _log_upstream_rejection(error) -> None:
+    """Bounded upstream error-body log — the only diagnostic for a rejected payload
+    (e.g. an unsupported-parameter 400). Lives here, not in sse_translate, purely
+    for that module's line budget."""
+    try:
+        detail = error.read(2048).decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - diagnostics only; callers still raise UpstreamError
+        detail = "<unreadable>"
+    logger.warning("llm upstream rejected request", extra={"status": error.code, "body": detail})
