@@ -306,6 +306,22 @@ def test_served_vendor_board_carries_the_onboard_driver_package_metadata_verbati
     # Not promoted to a ready driver just because one revision has a package.
     assert touch["driver"].get("status") is None
 
+    # A driver that needs a binary config blob flashed alongside the module: without asset_files
+    # the deploy phase installs the package and the IMU never initialises. The only profile in
+    # the pinned Skill set carrying the field, so it is the one case that catches an emit which
+    # projects `driver` down to the install fields.
+    imu_source = next(
+        p for p in _skill_profile("lilygo-t-watch-s3")["onboard_peripherals"]
+        if p["type"] == "imu"
+    )
+    imu = next(
+        p for p in served["lilygo-t-watch-s3"]["onboard_peripherals"]
+        if p["type"] == "imu"
+    )
+    assert imu == imu_source
+    assert imu["driver"] == imu_source["driver"]
+    assert imu["driver"]["asset_files"] == imu_source["driver"]["asset_files"] == ["bma423conf.bin"]
+
 
 @pytest.mark.no_db
 def test_a_malformed_vendor_profile_is_skipped_without_dropping_the_others(tmp_path, monkeypatch):
