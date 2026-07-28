@@ -205,6 +205,9 @@ test("a saved session restores the vendor board with its firmware variant intact
   assert.equal(sent.firmware.variant, "spiram-oct", "a restored session still flashes the Octal-SPIRAM firmware");
   assert.equal(sent.skill_board_id, VENDOR_BOARD_ID);
   assert.deepEqual(sent.firmware, profile.firmware);
+  // The snapshot round trip is a separate JSON path from the picker, so pin the whole board
+  // (onboard_peripherals included), not just firmware — nothing may be projected away here either.
+  assert.deepEqual(sent, vendorBoard);
 });
 
 test("a phase manifest carries its runtime mip dependencies and onboard devices into the next phase unchanged", async () => {
