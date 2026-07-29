@@ -92,16 +92,20 @@
       .gtool-btn { flex: 0 0 auto; position: relative; display: flex; align-items: center; justify-content: center; height: 34px; width: 34px;
         font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--vsc-border); border-radius: 999px; cursor: pointer;
         transition: background .15s, border-color .15s, color .15s, filter .18s ease, opacity .18s ease; }
-      .gtool-ic { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; width: 32px; }
+      .gtool-ic { flex: 0 0 auto; position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; width: 32px; }
       .gtool-btn:hover, .gtool-btn:focus-visible { color: var(--fg-bright); border-color: var(--accent); background: var(--vsc-hover); }
       /* Selected: the tool whose surface is currently open — an accent circle (small, not a chip). */
       .gtool-btn.active { color: var(--accent); border-color: var(--accent); background: var(--vsc-hover); }
-      /* Floating name chip: absolute, never affects layout. Hidden until the pill is lifted. */
-      .gtool-label { position: absolute; top: 50%; transform: translateY(-50%); z-index: 30; white-space: nowrap; font-size: 12px;
-        color: var(--fg-bright); background: var(--vsc-hover); border: 1px solid var(--accent); border-radius: 999px; padding: 5px 10px;
-        box-shadow: 0 4px 14px #0009; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .14s ease; }
-      .gtool-btn.exp-right .gtool-label { left: calc(100% + 6px); }
-      .gtool-btn.exp-left .gtool-label { right: calc(100% + 6px); }
+      /* Floating name pill: same height as the circle and overlapping to the circle's centre,
+         so the circle is the round left cap of one continuous capsule. It sits above the
+         circle's fill/border (hiding the seam) but below the icon (z-index below), and never
+         affects layout. */
+      .gtool-label { position: absolute; top: 50%; transform: translateY(-50%); z-index: 1; white-space: nowrap; font-size: 12px;
+        height: 34px; box-sizing: border-box; display: flex; align-items: center; line-height: 1;
+        color: var(--fg-bright); background: var(--vsc-hover); border: 1px solid var(--accent);
+        box-shadow: 0 3px 12px #0009; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .14s ease; }
+      .gtool-btn.exp-right .gtool-label { left: 50%; padding: 0 14px 0 20px; border-left: none; border-radius: 0 999px 999px 0; }
+      .gtool-btn.exp-left .gtool-label { right: 50%; padding: 0 20px 0 14px; border-right: none; border-radius: 999px 0 0 999px; }
       /* Lifted (hover/focus, JS-driven): show the chip and raise the pill above its blurred siblings. */
       .gtool-btn.gt-lifted { z-index: 2; }
       .gtool-btn.gt-lifted .gtool-label { opacity: 1; visibility: visible; }
