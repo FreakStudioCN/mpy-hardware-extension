@@ -225,6 +225,13 @@ test("a phase manifest carries its runtime mip dependencies and onboard devices 
         model: expander.model,
         // select-hw marks a reused onboard peripheral instead of treating it as an external part.
         physical_source: "board_onboard",
+        // The rest of the shape create_device_from_peripheral() writes for a board_onboard
+        // device: its validator requires all four non-empty, and `source` stays
+        // "system_recommended" (never "board_onboard" — that lives in physical_source).
+        name: expander.model,
+        type: expander.type,
+        interface: expander.interface,
+        source: "system_recommended",
         // The ref select-hw actually writes is the object from peripheral_ref() (board id, index,
         // identity and the pins the peripheral already occupies), not the bare name.
         onboard_peripheral_ref: {
