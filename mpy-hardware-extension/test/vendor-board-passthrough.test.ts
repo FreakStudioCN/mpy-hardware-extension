@@ -151,6 +151,12 @@ test("picking a curated vendor board sends its whole firmware block to the phase
   // projection that keeps only url/port/board_name must fail here.
   assert.deepEqual(sent.firmware, profile.firmware);
   assert.equal(sent.support_status, "skill_vendor_profile");
+  // The onboard peripherals ride along too: their driver package names and asset files are what
+  // select-hw reuses instead of treating the built-in display/IMU as external parts.
+  assert.deepEqual(sent.onboard_peripherals, profile.onboard_peripherals);
+  // ...and nothing else is dropped either. The board object the picker chose is the one the
+  // phase receives, field for field, so any narrowing of pre_selected_board fails here.
+  assert.deepEqual(sent, vendorBoard);
 });
 
 test("a saved session restores the vendor board with its firmware variant intact", async () => {
@@ -199,22 +205,46 @@ test("a saved session restores the vendor board with its firmware variant intact
   assert.equal(sent.firmware.variant, "spiram-oct", "a restored session still flashes the Octal-SPIRAM firmware");
   assert.equal(sent.skill_board_id, VENDOR_BOARD_ID);
   assert.deepEqual(sent.firmware, profile.firmware);
+  // The snapshot round trip is a separate JSON path from the picker, so pin the whole board
+  // (onboard_peripherals included), not just firmware — nothing may be projected away here either.
+  assert.deepEqual(sent, vendorBoard);
 });
 
 test("a phase manifest carries its runtime mip dependencies and onboard devices into the next phase unchanged", async () => {
   // The driver packages an onboard peripheral needs are a generate-manifest field, not a board
   // field: they ride the manifest from phase to phase. Use the real uPyPi install target from a
   // vendor profile so a renamed package field would show up as a diff here.
-  const expander = skillProfile("waveshare-esp32-s3-touch-lcd-3-5").onboard_peripherals.find((p: any) => p.type === "io_expander");
+  const expanderBoard = skillProfile("waveshare-esp32-s3-touch-lcd-3-5");
+  const expanderIndex = expanderBoard.onboard_peripherals.findIndex((p: any) => p.type === "io_expander");
+  const expander = expanderBoard.onboard_peripherals[expanderIndex];
   const manifest = {
-    board: { id: "waveshare-esp32-s3-touch-lcd-3-5", firmware: skillProfile("waveshare-esp32-s3-touch-lcd-3-5").firmware },
+    board: { id: "waveshare-esp32-s3-touch-lcd-3-5", firmware: expanderBoard.firmware },
     devices: [
       {
         id: "io_expander",
         model: expander.model,
         // select-hw marks a reused onboard peripheral instead of treating it as an external part.
         physical_source: "board_onboard",
-        onboard_peripheral_ref: expander.name,
+        // The rest of the shape create_device_from_peripheral() writes for a board_onboard
+        // device: its validator requires all four non-empty, and `source` stays
+        // "system_recommended" (never "board_onboard" — that lives in physical_source).
+        name: expander.model,
+        type: expander.type,
+        interface: expander.interface,
+        source: "system_recommended",
+        // The ref select-hw actually writes is the object from peripheral_ref() (board id, index,
+        // identity and the pins the peripheral already occupies), not the bare name.
+        onboard_peripheral_ref: {
+          board_id: expanderBoard.id,
+          index: expanderIndex,
+          name: expander.name,
+          type: expander.type,
+          model: expander.model,
+          occupied_pins: expander.occupied_pins ?? {},
+          always_used: Boolean(expander.always_used),
+          verification: expander.verification ?? "",
+          pin_evidence: expander.pin_evidence ?? "",
+        },
         driver: expander.driver,
       },
     ],
