@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
@@ -39,4 +39,23 @@ test("the maintenance scripts the shim refuses to index are also kept out of the
   const refused = shimValue("serve._V0_MAINTENANCE_SCRIPTS");
   assert.ok(refused, "could not read serve._V0_MAINTENANCE_SCRIPTS");
   assert.deepEqual(refused, [...MAINTENANCE_SCRIPTS].sort(), "the shim's refusal list and the packager's exclusion list must agree");
+});
+
+test("every excluded maintenance script still matches a real bundled-dir file", () => {
+  // The agreement test above only proves the two hand-maintained lists match each other; it says
+  // nothing about whether the names still correspond to real files. A content property ("no network
+  // import") is not viable here — legitimate flow scripts (firmware_download, download_drivers,
+  // resolve_upypi_packages) fetch by design, so nothing mechanical separates them from a reference
+  // crawler. What IS assertable: each excluded name must still match an actual script on disk. If
+  // upstream renames or moves a maintenance script, its exclusion silently stops matching and the
+  // renamed crawler ships + gets indexed. Mutation: rename any MAINTENANCE_SCRIPTS entry -> this fails.
+  const submoduleRoot = resolve("..", "third_party", "MicroPython_Skills");
+  const present = new Set<string>();
+  for (const dir of PLUGIN_DIRS) {
+    const scriptsDir = resolve(submoduleRoot, dir, "scripts");
+    if (existsSync(scriptsDir)) for (const name of readdirSync(scriptsDir)) present.add(name);
+  }
+  assert.ok(present.size > 0, "no plugin scripts on disk — is the submodule checked out?");
+  const dangling = MAINTENANCE_SCRIPTS.filter((s) => !present.has(s));
+  assert.deepEqual(dangling, [], `MAINTENANCE_SCRIPTS entries no longer match any bundled script (dead exclusion): ${dangling.join(", ")}`);
 });

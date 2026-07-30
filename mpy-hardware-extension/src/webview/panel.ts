@@ -15,7 +15,7 @@ import { deriveDiagram } from "../core/diagram-derive.ts";
 import { GEN_DRIVER_TABS, GEN_DRIVER_ENVELOPE_PHASE, buildGenDriverDispatch, canStartGeneration, materializeGenDriverTabs } from "../core/gen-driver-schema.ts";
 import { stageGenDriverSources } from "../extension/gen-driver-staging.ts";
 import { buildOptionalFlowDispatch, isNetworkRenderDenied, OPTIONAL_FLOW_PHASE_BY_FLOW, wrapGeneratePhaseComplete } from "../core/optional-flow-schema.ts";
-import { buildMaixpyExportDispatch, normalizeVisionTaskType, MAIXPY_ARTIFACT_PATHS, MAIXPY_EXPORT_PHASE, MAIXPY_OUTPUT_ROOT, MAIXPY_RUNTIME_SCRIPTS } from "../core/maixpy-export-schema.ts";
+import { buildMaixpyExportDispatch, validateSipeedVisionRequest, MAIXPY_ARTIFACT_PATHS, MAIXPY_EXPORT_PHASE, MAIXPY_OUTPUT_ROOT, MAIXPY_RUNTIME_SCRIPTS } from "../core/maixpy-export-schema.ts";
 import { ISSUE_TYPES, SUPPORT_CONTACTS, SUPPORT_DIAGNOSTICS_FIELDS, buildCreditsRequestMailto, buildDiagnosticsFields, buildIssueReportUrl, orderContactsByLocale, sliceCodePoints } from "../core/support-config.ts";
 import { PARTNERS } from "../core/partner-config.ts";
 import { DEV_API_BASE_URL } from "../core/config.ts";
@@ -129,10 +129,6 @@ const RUN_BUSY_DETAIL = "A build is already running — try again once it finish
 // The other pre-run refusal: the protocol/auth gate declined and posted its own session_error, so
 // this only has to un-stick the flow's button and point at that message.
 const RUN_BLOCKED_DETAIL = "Could not start the run — see the error in Activity.";
-// A MaixCAM-side model path (e.g. /root/models/yolo11n.mud) the user types in. Long enough for a
-// real path, short enough that a pasted blob never reaches the envelope; over the cap is refused
-// rather than truncated, so the run never quietly points at a different file than the user typed.
-const MAIXPY_MODEL_PATH_MAX = 200;
 
 // Best-effort tool version (`npm --version`, `mpremote --version`); first line, short
 // timeout, never throws — a headless/missing tool yields "unknown".
@@ -1562,31 +1558,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // through the same excursion path as the optional flows, but with no upstream-generate gate
       // (nothing precedes it) and no device work at all — it must never enter the
       // select-hw/flash/scaffold/generate/deploy chain, and never touch mpremote/esptool.
-      // Trust boundary (register #1): the webview's task string is allowlist-mapped here, and the
-      // model path is sanitized here, before either reaches the envelope.
-      const visionTaskType = normalizeVisionTaskType(message.visionTaskType);
-      if (!visionTaskType) {
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.unsupportedTask });
+      // Trust boundary (register #1): the whole request ladder — task-token allowlist, model-path
+      // type/length, and the device-path sanitizer (injected, POSIX MaixCAM path) — lives in the
+      // schema module so it is unit-tested there; the failing rung's key maps to a reason code.
+      const req = validateSipeedVisionRequest(message, sanitizeDevicePath);
+      if (!req.ok) {
+        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON[req.reason] });
         return;
       }
-      // Refuse a non-string outright (same rigor as the task token): coercing {} would send the
-      // literal "[object Object]" as a model path.
-      if (message.modelPath != null && typeof message.modelPath !== "string") {
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.invalidModelPath });
-        return;
-      }
-      const rawModelPath = (message.modelPath ?? "").trim();
-      if (rawModelPath.length > MAIXPY_MODEL_PATH_MAX) {
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.modelPathTooLong });
-        return;
-      }
-      // Reuses the device-path sanitizer: this is a path on the MaixCAM (POSIX, may be absolute),
-      // not a host path, and traversal / backslashes / NUL must never reach the generated code.
-      const modelPath = rawModelPath ? sanitizeDevicePath(rawModelPath) : null;
-      if (rawModelPath && !modelPath) {
-        webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.invalidModelPath });
-        return;
-      }
+      const { visionTaskType, modelPath } = req;
       if (!projectFolder) {
         webview.postMessage({ type: "sipeed_vision_status", status: "failed", reason: SIPEED_VISION_REASON.workspaceUnavailable });
         return;

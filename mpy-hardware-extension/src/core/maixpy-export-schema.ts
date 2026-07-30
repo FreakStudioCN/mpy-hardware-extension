@@ -19,11 +19,14 @@ export const MAIXPY_VISION_TASK_TYPES = ["yolo_detection"] as const;
 export type MaixpyVisionTaskType = (typeof MAIXPY_VISION_TASK_TYPES)[number];
 export const MAIXPY_DEFAULT_VISION_TASK: MaixpyVisionTaskType = "yolo_detection";
 
-// The only bundled script an export run may execute. The SKILL also offers
-// validate_reference_index.py, but that one validates the Skill's own reference library (and needs
-// the reference .md files, which the VSIX strips) — it is maintenance, not part of a user run, and
-// SKILL.md's "use bundled scripts when available / else self-check and warn" covers its absence.
-export const MAIXPY_RUNTIME_SCRIPTS = ["validate_maixpy_export.py"] as const;
+// The bundled scripts an export run may execute. SKILL.md instructs the model to run BOTH
+// validate_reference_index.py (validates the Skill's reference library) and validate_maixpy_export.py
+// (validates the generated project). Both are allowlisted on purpose: validate_reference_index.py needs
+// the reference .md files the VSIX strips, so at runtime it resolves to script_not_found — which IS the
+// "reference unavailable" signal SKILL.md's fallback keys on. Refusing it instead (script_not_permitted)
+// reads to the model as forbidden, a tool error its own instructions never anticipate. Matched by
+// basename, so the model's "scripts/"-prefixed name resolves here.
+export const MAIXPY_RUNTIME_SCRIPTS = ["validate_reference_index.py", "validate_maixpy_export.py"] as const;
 
 const MAIXPY_PROTOCOL_VERSION = "1.0";
 
@@ -63,6 +66,41 @@ export function normalizeVisionTaskType(value: unknown): MaixpyVisionTaskType | 
   if (typeof value !== "string") return null;
   const token = value.trim();
   return (MAIXPY_VISION_TASK_TYPES as readonly string[]).includes(token) ? (token as MaixpyVisionTaskType) : null;
+}
+
+// A MaixCAM-side model path (e.g. /root/models/yolo11n.mud) the user types in. Long enough for a real
+// path, short enough that a pasted blob never reaches the envelope; over the cap is refused rather
+// than truncated, so the run never quietly points at a different file than the user typed.
+export const MAIXPY_MODEL_PATH_MAX = 200;
+
+// Failure key when a request is refused, or the validated inputs when it is accepted. The keys are
+// the SIPEED_VISION_REASON keys the host maps to on-the-wire codes — kept as neutral tokens here so
+// this module never depends on the panel's reason table.
+export type SipeedVisionRequest =
+  | { ok: true; visionTaskType: MaixpyVisionTaskType; modelPath: string | null }
+  | { ok: false; reason: "unsupportedTask" | "invalidModelPath" | "modelPathTooLong" };
+
+// Whole trust boundary for one start_sipeed_vision message, in one testable place: task token is
+// allowlist-mapped, the model path must be string-or-absent, is length-capped before anything reads
+// it, and is run through the injected device-path sanitizer. `sanitizeModelPath` is injected (the
+// real one lives in the extension layer, which core must not import) and is a SHAPE guard: it rejects
+// NUL, backslashes, `..` traversal and an empty/all-slash path, but not quotes/newlines/`$` (interior
+// redundant slashes are collapsed, not refused) — escaping the value into generated Python is the
+// plugin's job, not this guard's. Returns the validated pair or the first failing rung's key; the
+// caller posts SIPEED_VISION_REASON[reason] and stops.
+export function validateSipeedVisionRequest(
+  message: { visionTaskType?: unknown; modelPath?: unknown },
+  sanitizeModelPath: (path: string) => string | null,
+): SipeedVisionRequest {
+  const visionTaskType = normalizeVisionTaskType(message.visionTaskType);
+  if (!visionTaskType) return { ok: false, reason: "unsupportedTask" };
+  // Refuse a non-string outright: coercing {} would send the literal "[object Object]" as a path.
+  if (message.modelPath != null && typeof message.modelPath !== "string") return { ok: false, reason: "invalidModelPath" };
+  const rawModelPath = (message.modelPath ?? "").trim();
+  if (rawModelPath.length > MAIXPY_MODEL_PATH_MAX) return { ok: false, reason: "modelPathTooLong" };
+  const modelPath = rawModelPath ? sanitizeModelPath(rawModelPath) : null;
+  if (rawModelPath && !modelPath) return { ok: false, reason: "invalidModelPath" };
+  return { ok: true, visionTaskType, modelPath };
 }
 
 // Build the start_phase envelope for one export run. `modelPath` is a MaixCAM-side path

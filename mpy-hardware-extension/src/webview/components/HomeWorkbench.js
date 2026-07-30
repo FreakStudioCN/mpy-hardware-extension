@@ -78,8 +78,10 @@
       // Git History (#94): its own read-only surface — open it and ask the host for the timeline.
       $("gitHistoryOpen").addEventListener("click", () => { openGlobalTool("toolGitHistory"); ghOnOpen(); });
       $("gitHistoryBack").addEventListener("click", closeGlobalTool);
-      // Sipeed vision export: a standalone tool surface. Opening it only resets the form — nothing
-      // is requested from the host and nothing is written until the user clicks Generate.
+      // Sipeed vision export: a standalone tool surface. Opening it re-applies the CURRENT state
+      // (svnOnOpen re-syncs the running lock) rather than clearing the form — the typed model path and
+      // the last status line persist across close/reopen. No host round-trip and nothing written until
+      // the user clicks Generate.
       $("sipeedVisionOpen").addEventListener("click", () => { openGlobalTool("toolSipeedVision"); svnOnOpen(); });
       $("sipeedVisionBack").addEventListener("click", closeGlobalTool);
       $("svnGenerate").addEventListener("click", svnGenerate);
@@ -88,12 +90,20 @@
       const gtoolsTrack = $("globalTools");
       const gtoolsWrap = gtoolsTrack.closest(".gtools-wrap");
       const gtoolBtns = [...gtoolsTrack.querySelectorAll(".gtool-btn")];
-      // Float side by row position: the left half opens its chip to the right, the right half to the
-      // left, so the chip always grows toward the centre and never runs off the panel edge.
-      const gtoolSplit = Math.ceil(gtoolBtns.length / 2);
-      gtoolBtns.forEach((b, i) => b.classList.add(i < gtoolSplit ? "exp-right" : "exp-left"));
+      // Float side by MEASURED position, re-derived at lift time (NOT DOM index): .gtools has
+      // flex-wrap, so a fixed first-half/second-half split by index puts the chip of the last button
+      // on a wrapped row off the panel edge. A pill whose centre is left of the row midpoint opens its
+      // chip right, otherwise left, so it always grows toward the centre — correct after a resize or a
+      // re-wrap because it is measured each hover, not fixed once at init.
+      const gtoolFloatSide = (btn) => {
+        const wrapRect = gtoolsWrap.getBoundingClientRect();
+        const btnRect = btn.getBoundingClientRect();
+        const centre = btnRect.left + btnRect.width / 2;
+        return centre <= wrapRect.left + wrapRect.width / 2 ? "exp-right" : "exp-left";
+      };
       const liftGtool = (btn, on) => {
         gtoolsWrap.classList.toggle("gt-floating", on);
+        if (on) { btn.classList.remove("exp-left", "exp-right"); btn.classList.add(gtoolFloatSide(btn)); }
         gtoolBtns.forEach((b) => b.classList.toggle("gt-lifted", on && b === btn));
       };
       gtoolBtns.forEach((btn) => {

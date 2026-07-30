@@ -3158,19 +3158,30 @@ test("file_op_confirm_needed renders an in-panel card with the file path and pos
   // to the Overwrite card (label "Overwrite", generic copy) and these three assertions fail.
 });
 
-test("global tools: float side is tagged per pill by row position", async () => {
+test("global tools: float side is measured per pill and stays correct when the bar wraps", async () => {
   const dom = await loadWebview([]);
-  const { document } = dom.window;
+  const { document, MouseEvent } = dom.window;
+  const wrap = document.querySelector(".gtools-wrap") as HTMLElement;
   const btns = [...document.querySelectorAll("#globalTools .gtool-btn")] as HTMLElement[];
-  const n = btns.length;
-  // Left half opens its chip right, right half opens it left, so it always grows toward the
-  // centre and never runs off-panel. Mutation guard: flip the split and the two edges swap.
-  assert.ok(btns[0].classList.contains("exp-right"), "leftmost pill opens its chip to the right");
-  assert.ok(btns[n - 1].classList.contains("exp-left"), "rightmost pill opens its chip to the left");
-  for (const b of btns) {
-    const sides = ["exp-left", "exp-right"].filter((c) => b.classList.contains(c));
-    assert.equal(sides.length, 1, "each pill has exactly one float side");
-  }
+  // jsdom does not lay out, so stub rects: a 200px-wide bar (midpoint x=100) wrapped into two rows.
+  const rect = (left: number, top: number, width: number) => () =>
+    ({ left, top, width, height: 34, right: left + width, bottom: top + 34, x: left, y: top, toJSON() {} }) as any;
+  wrap.getBoundingClientRect = rect(0, 0, 200);
+  const rowRight = btns[0];
+  const wrappedLeft = btns[btns.length - 1];
+  rowRight.getBoundingClientRect = rect(150, 0, 34);   // right of centre on row 1 -> opens LEFT
+  wrappedLeft.getBoundingClientRect = rect(10, 40, 34); // left of centre on the WRAPPED row -> opens RIGHT
+  const sideOnHover = (b: HTMLElement) => {
+    b.dispatchEvent(new MouseEvent("mouseenter"));
+    const s = ["exp-left", "exp-right"].filter((c) => b.classList.contains(c));
+    b.dispatchEvent(new MouseEvent("mouseleave"));
+    return s;
+  };
+  // The wrapped pill is the last DOM node, so the old index split tagged it exp-left and its chip
+  // opened off-panel. Measured position tags it by its real x. Mutation: revert to the index split
+  // and the wrapped-left assertion fails.
+  assert.deepEqual(sideOnHover(rowRight), ["exp-left"], "a pill right of the row midpoint opens its chip left");
+  assert.deepEqual(sideOnHover(wrappedLeft), ["exp-right"], "a wrapped pill left of the midpoint opens right, not off-panel");
 });
 
 test("global tools: hover floats the chip and blurs the rest; a click collapses it but keeps it active", async () => {

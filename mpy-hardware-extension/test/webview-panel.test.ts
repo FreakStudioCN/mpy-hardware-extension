@@ -3477,7 +3477,13 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
           // plugin, so a flash/firmware/deploy script must be refused before it is dispatched.
           { id: "w8", name: "script_run", input: { interpreter: "python", script: "esp32_flash.py", args: [] } },
           { id: "w9", name: "script_run", input: { interpreter: "python", script: "upy-flash-mpy-firmware-plugin/firmware_download.py", args: [] } },
-          { id: "w10", name: "script_run", input: { interpreter: "python", script: "scripts/validate_maixpy_export.py", args: ["--project-root", "."] } },
+          // SKILL.md instructs the model to run validate_reference_index.py, so the gate must PERMIT
+          // it (reach the shim), not refuse it as script_not_permitted. In production it is a
+          // maintenance script excluded from the bundle, so the shim resolves it to script_not_found
+          // (the "reference unavailable" signal) — but that 404 is the shim's job; the gate decision
+          // is what this run exercises.
+          { id: "w10", name: "script_run", input: { interpreter: "python", script: "scripts/validate_reference_index.py", args: [] } },
+          { id: "w11", name: "script_run", input: { interpreter: "python", script: "scripts/validate_maixpy_export.py", args: ["--project-root", "."] } },
         ]),
         sseTurn([{
           id: "pc", name: "phase_complete",
@@ -3543,10 +3549,13 @@ test("start_sipeed_vision dispatches the export phase and confines its writes to
     // device_command:false is enforced, not just declared: neither device action reached the shim.
     // Mutation: drop the denyDeviceCommands gate and "scan"/"listDir" show up here.
     assert.deepEqual(deviceCalls, [], "an export run never drives the board");
-    // Same boundary through the script lane: only this plugin's own validator runs, so a flash or
-    // firmware-download script is refused before the shim sees it. Mutation: drop the allowedScripts
-    // gate and esp32_flash.py / firmware_download.py appear here.
-    assert.deepEqual(ranScripts, ["scripts/validate_maixpy_export.py"], "only the export validator may run");
+    // Same boundary through the script lane: only this plugin's OWN allowlisted validators reach the
+    // shim, so a flash or firmware-download script is refused before the shim sees it. Both SKILL.md
+    // scripts are permitted (reference-index + export validator); the cross-plugin scripts are not.
+    // Mutation A: drop the allowedScripts gate and esp32_flash.py / firmware_download.py appear here.
+    // Mutation B: drop validate_reference_index.py from MAIXPY_RUNTIME_SCRIPTS and it is refused as
+    // script_not_permitted before the shim, so it never appears here (the blocking-fix regression).
+    assert.deepEqual(ranScripts, ["scripts/validate_reference_index.py", "scripts/validate_maixpy_export.py"], "both allowlisted validators run, nothing else");
 
     // The narrowing was run-scoped: a normal build after it writes firmware/ again. Mutation: leave
     // writeRestriction set (drop the finally clear) and this write is refused.
@@ -3667,22 +3676,15 @@ test("start_sipeed_vision host-refuses an unlisted task, a bad model path, and a
   assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "unsupported_task"), "an unlisted task is refused");
   assert.equal(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "running"), false, "a refused request never announces a run");
 
-  // A traversal model path is refused rather than sanitized into something else.
+  // A traversal model path is refused rather than sanitized into something else. This is the wiring
+  // proof that the handler passes the REAL sanitizeDevicePath into validateSipeedVisionRequest (a
+  // no-op stub would let this through); the per-rung exhaustiveness lives in maixpy-export-schema.test.
   posted.length = 0;
   await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: "/root/models/../../etc/passwd" });
   assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "invalid_model_path"), "a traversal model path is refused");
 
-  // Over the length cap is refused, not truncated to a different path.
-  posted.length = 0;
-  await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: "/root/models/" + "a".repeat(300) + ".mud" });
-  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "model_path_too_long"), "an over-long model path is refused");
-
-  // A non-string is refused outright rather than coerced into "[object Object]".
-  posted.length = 0;
-  await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection", modelPath: { path: "/root/models/x.mud" } });
-  assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "invalid_model_path"), "a non-string model path is refused");
-
-  // A valid request with no workspace stops before any run.
+  // workspace_unavailable is the one rung NOT in the schema validator (projectFolder is a panel
+  // closure): a valid request with no workspace stops before any run.
   posted.length = 0;
   await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection" });
   assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "workspace_unavailable"), "no workspace is refused before dispatch");

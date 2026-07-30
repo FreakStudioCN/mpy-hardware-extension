@@ -6,11 +6,14 @@ import test from "node:test";
 import {
   buildMaixpyExportDispatch,
   normalizeVisionTaskType,
+  validateSipeedVisionRequest,
   MAIXPY_ARTIFACT_PATHS,
   MAIXPY_DEFAULT_VISION_TASK,
   MAIXPY_EXPORT_PHASE,
+  MAIXPY_MODEL_PATH_MAX,
   MAIXPY_OUTPUT_ROOT,
 } from "../src/core/maixpy-export-schema.ts";
+import { sanitizeDevicePath } from "../src/extension/workspace-writer.ts";
 
 // Source of truth: the submodule at the REPO ROOT (two up from test/), which keeps the sample/
 // fixtures. The vendored copy prepare-vsce produces excludes sample/, so it must not be used here.
@@ -99,4 +102,51 @@ test("normalizeVisionTaskType admits only the pinned stage-A token", () => {
 
 test("the artifact paths are the two files the writer allowlist permits", () => {
   assert.deepEqual([...MAIXPY_ARTIFACT_PATHS], ["sipeed_vision/main.py", "sipeed_vision/README.md"]);
+});
+
+// The injected sanitizer is a stand-in so the ladder is tested without the extension layer: passthru
+// accepts every path (isolating the earlier rungs), reject models the sanitizer refusing.
+const passthru = (p: string): string | null => p;
+const reject = (): string | null => null;
+
+test("validateSipeedVisionRequest walks the request ladder and reports the first failing rung", () => {
+  // Bad token loses before the model path is ever looked at. Mutation: return ok for an unknown
+  // token and this fails.
+  assert.deepEqual(validateSipeedVisionRequest({ visionTaskType: "ocr" }, passthru), { ok: false, reason: "unsupportedTask" });
+  // A non-string model path is refused outright (coercing {} would send "[object Object]").
+  assert.deepEqual(
+    validateSipeedVisionRequest({ visionTaskType: "yolo_detection", modelPath: {} }, passthru),
+    { ok: false, reason: "invalidModelPath" },
+  );
+  // Over the cap is refused, not truncated, so the run never points at a different file than typed.
+  const tooLong = "/root/" + "a".repeat(MAIXPY_MODEL_PATH_MAX);
+  assert.deepEqual(
+    validateSipeedVisionRequest({ visionTaskType: "yolo_detection", modelPath: tooLong }, passthru),
+    { ok: false, reason: "modelPathTooLong" },
+  );
+  // A non-empty path the sanitizer rejects surfaces as invalidModelPath, not a silent null path.
+  assert.deepEqual(
+    validateSipeedVisionRequest({ visionTaskType: "yolo_detection", modelPath: "/root/x.mud" }, reject),
+    { ok: false, reason: "invalidModelPath" },
+  );
+});
+
+test("validateSipeedVisionRequest accepts a valid request and normalizes an absent path to null", () => {
+  // Blank/absent is a valid request with a null path (no model picked yet) — the sanitizer is never
+  // called for it. Mutation: sanitize the empty string and reject would flip these to a failure.
+  assert.deepEqual(validateSipeedVisionRequest({ visionTaskType: "  yolo_detection  " }, reject), {
+    ok: true, visionTaskType: "yolo_detection", modelPath: null,
+  });
+  assert.deepEqual(validateSipeedVisionRequest({ visionTaskType: "yolo_detection", modelPath: "   " }, reject), {
+    ok: true, visionTaskType: "yolo_detection", modelPath: null,
+  });
+  // Against the REAL device-path sanitizer: a clean POSIX path passes through, a `..` traversal is
+  // rejected — proving the injected boundary is the one production uses, not just a stub.
+  assert.deepEqual(validateSipeedVisionRequest({ visionTaskType: "yolo_detection", modelPath: "/root/models/yolo11n.mud" }, sanitizeDevicePath), {
+    ok: true, visionTaskType: "yolo_detection", modelPath: "/root/models/yolo11n.mud",
+  });
+  assert.deepEqual(
+    validateSipeedVisionRequest({ visionTaskType: "yolo_detection", modelPath: "/root/../etc/passwd" }, sanitizeDevicePath),
+    { ok: false, reason: "invalidModelPath" },
+  );
 });
