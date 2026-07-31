@@ -196,6 +196,9 @@ def _maixpy_vision_task(body: dict[str, Any]) -> str:
         task = vision.get("type") if isinstance(vision, dict) else None
         if isinstance(task, str) and task in _MAIXPY_REFERENCE_SET:
             return task
+    # Fall back to the only token stage A ships. An UNKNOWN token also lands here, so when a
+    # second vision task is added to the extension's MAIXPY_VISION_TASK_TYPES, add its reference
+    # row to _MAIXPY_REFERENCE_SET too, or that task silently grounds on the YOLO references.
     return _MAIXPY_DEFAULT_TASK
 
 

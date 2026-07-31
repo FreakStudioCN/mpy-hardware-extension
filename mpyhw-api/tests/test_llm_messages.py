@@ -883,8 +883,11 @@ def test_maixpy_reference_map_files_all_exist():
 @pytest.mark.no_db
 def test_maixpy_export_system_prompt_is_stable_as_the_session_grows():
     # Prefix-cache safety: the system prompt must not change as the conversation grows, so later
-    # rounds keep hitting the cached prefix. Mutation: key the injection off the latest message
-    # instead of the envelope and round2 diverges from round1.
+    # rounds keep hitting the cached prefix. This guards the assembly as a whole (task resolution
+    # reads the FIRST envelope not the latest message, and the block is process-cached + sorted).
+    # NOTE: with only yolo_detection in the map every task-resolution path yields the same block,
+    # so this cannot yet catch a "key off the latest message" regression; it sharpens into that
+    # guard once a second task token exists.
     from app.routes_llm import _deepseek_messages
 
     envelope = json.dumps({
