@@ -21,11 +21,13 @@ export const MAIXPY_DEFAULT_VISION_TASK: MaixpyVisionTaskType = "yolo_detection"
 
 // The bundled scripts an export run may execute. SKILL.md instructs the model to run BOTH
 // validate_reference_index.py (validates the Skill's reference library) and validate_maixpy_export.py
-// (validates the generated project). Both are allowlisted on purpose: validate_reference_index.py needs
-// the reference .md files the VSIX strips, so at runtime it resolves to script_not_found — which IS the
-// "reference unavailable" signal SKILL.md's fallback keys on. Refusing it instead (script_not_permitted)
-// reads to the model as forbidden, a tool error its own instructions never anticipate. Matched by
-// basename, so the model's "scripts/"-prefixed name resolves here.
+// (validates the generated project). Both stay allowlisted, but validate_reference_index.py is only a
+// belt-and-braces path now: the SERVER injects the resolved reference content into the prompt, and its
+// phase note tells the model not to run that script at all. A model that runs it anyway still needs the
+// reference .md files the VSIX strips, so it resolves to script_not_found — a benign tool error the note
+// tells it to expect. Refusing it instead (script_not_permitted) reads to the model as forbidden, a tool
+// error its own instructions never anticipate. Matched by basename, so the model's "scripts/"-prefixed
+// name resolves here.
 export const MAIXPY_RUNTIME_SCRIPTS = ["validate_reference_index.py", "validate_maixpy_export.py"] as const;
 
 const MAIXPY_PROTOCOL_VERSION = "1.0";

@@ -791,3 +791,179 @@ def test_resolve_board_marks_unknown_boards_loudly_instead_of_bare_stub():
     assert board["support_status"] == "unknown_board"
     assert board["pin_allocation_supported"] is False
     assert "pin" in board["note"].lower()
+
+
+# --- Sipeed MaixPy export: stage-A reference grounding (Option A) ---------------------------
+
+
+@pytest.mark.no_db
+def test_maixpy_export_prompt_injects_task_specific_references():
+    from app.routes_llm import _deepseek_messages
+    from app.skill_catalog import SKILLS_ROOT
+
+    envelope = json.dumps({
+        "phase": "upy-maixpy-export-plugin",
+        "payload": {"vision_task": {"type": "yolo_detection"}},
+    })
+    system = _deepseek_messages({
+        "phase": "upy-maixpy-export-plugin",
+        "messages": [{"role": "user", "content": envelope}],
+    })[0]["content"]
+
+    # The REFERENCES block is present, and the phase note that points the model at it is wired.
+    assert "--- REFERENCES (server-provided" in system
+    assert "SIPEED MAIXPY EXPORT PHASE PROTOCOL" in system
+    # The ACTUAL file content is injected, not just a header: the YOLO reference and the UART
+    # JSONL example both appear verbatim (files are < the size cap, so they are not truncated).
+    # Mutation: drop the injection wiring in _deepseek_messages -> both asserts fail.
+    plugin = SKILLS_ROOT / "upy-maixpy-export-plugin"
+    yolo_ref = (plugin / "references" / "maixpy_ai_yolo.md").read_text(encoding="utf-8").strip()
+    uart_example = (plugin / "examples" / "yolo_uart_jsonl.py").read_text(encoding="utf-8").strip()
+    assert yolo_ref in system
+    assert uart_example in system
+    assert "### references/maixpy_ai_yolo.md" in system
+    # The note says the references are in the block "below", so it must PRECEDE the block.
+    # Mutation: reorder the _deepseek_messages concatenation -> the note points at nothing.
+    assert system.index("SIPEED MAIXPY EXPORT PHASE") < system.index("--- REFERENCES (server-provided")
+    # Nothing is missing on a healthy checkout, so the degraded notice must be absent.
+    assert "### UNAVAILABLE" not in system
+
+
+@pytest.mark.no_db
+def test_maixpy_reference_injection_is_scoped_to_the_export_phase():
+    from app.routes_llm import _deepseek_messages
+
+    # Any non-export phase must be byte-untouched by the new injection. Mutation: fire the
+    # injection unconditionally (drop the phase gate) and the reference bytes leak in here.
+    system = _deepseek_messages({
+        "phase": "analyze",
+        "messages": [{"role": "user", "content": "blink an led"}],
+    })[0]["content"]
+    assert "--- REFERENCES (server-provided" not in system
+    assert "maixpy_ai_yolo" not in system
+
+
+@pytest.mark.no_db
+def test_maixpy_reference_map_matches_the_skill_index_table():
+    # The static map is the runtime source of truth; this pins it to the SKILL's own defined set
+    # (references/maixpy_api_index.md) so a hand-mirror can't silently drift (recurring finding
+    # #37). Mutation: add/remove a file in _MAIXPY_REFERENCE_SET without editing the table -> fails.
+    import re
+
+    from app.prompt_assembly import _MAIXPY_REFERENCE_SET
+    from app.skill_catalog import SKILLS_ROOT
+
+    index = (SKILLS_ROOT / "upy-maixpy-export-plugin" / "references" / "maixpy_api_index.md").read_text(encoding="utf-8")
+    rows = {}
+    for line in index.splitlines():
+        cells = [c.strip() for c in line.split("|")]
+        if len(cells) >= 4:
+            rows[cells[1]] = (cells[2], cells[3])
+
+    def _to_plugin_rel(name: str) -> str:
+        # Table reference names are relative to references/ (bare or api_modules/...); example
+        # names are already plugin-root-relative (examples/...).
+        return name if name.startswith(("references/", "examples/")) else f"references/{name}"
+
+    expected: set[str] = set()
+    for label in ("YOLOv5 detection", "UART JSONL output"):
+        assert label in rows, f"index table row {label!r} missing"
+        for cell in rows[label]:
+            expected.update(_to_plugin_rel(n) for n in re.findall(r"`([^`]+)`", cell))
+    assert set(_MAIXPY_REFERENCE_SET["yolo_detection"]) == expected
+
+
+@pytest.mark.no_db
+def test_maixpy_reference_map_files_all_exist():
+    # Pins every mapped entry to a real file on disk, catching an upstream rename the conformance
+    # test alone would miss if the table were edited to match. Mutation: rename a file -> fails.
+    from app.prompt_assembly import _MAIXPY_REFERENCE_SET
+    from app.skill_catalog import SKILLS_ROOT
+
+    plugin = SKILLS_ROOT / "upy-maixpy-export-plugin"
+    missing = [rel for files in _MAIXPY_REFERENCE_SET.values() for rel in files if not (plugin / rel).is_file()]
+    assert missing == [], f"mapped reference files missing on disk: {missing}"
+
+
+@pytest.mark.no_db
+def test_maixpy_export_system_prompt_is_stable_as_the_session_grows():
+    # Prefix-cache safety: the system prompt must not change as the conversation grows, so later
+    # rounds keep hitting the cached prefix. This guards the assembly as a whole (task resolution
+    # reads the FIRST envelope not the latest message, and the block is process-cached + sorted).
+    # NOTE: with only yolo_detection in the map every task-resolution path yields the same block,
+    # so this cannot yet catch a "key off the latest message" regression; it sharpens into that
+    # guard once a second task token exists.
+    from app.routes_llm import _deepseek_messages
+
+    envelope = json.dumps({
+        "phase": "upy-maixpy-export-plugin",
+        "payload": {"vision_task": {"type": "yolo_detection"}},
+    })
+    round1 = {"phase": "upy-maixpy-export-plugin", "messages": [{"role": "user", "content": envelope}]}
+    round2 = {"phase": "upy-maixpy-export-plugin", "messages": [
+        {"role": "user", "content": envelope},
+        {"role": "assistant", "content": "generating"},
+        {"role": "user", "content": "tool result"},
+    ]}
+    # TODO: when a second vision task token is added to _MAIXPY_REFERENCE_SET, make round2's
+    # latest message resolve to a DIFFERENT task so this assertion actually catches a
+    # "key off the latest message instead of the first envelope" regression.
+    assert _deepseek_messages(round1)[0]["content"] == _deepseek_messages(round2)[0]["content"]
+
+
+@pytest.mark.no_db
+def test_maixpy_missing_reference_file_logs_a_degraded_warning(caplog, monkeypatch):
+    # A stale/partial submodule trims the block; that must be operator-visible, not silent
+    # (the @cache would otherwise lock the degraded result in for the process). Mutation: drop
+    # the logger.warning in _maixpy_reference_block -> no record -> this fails.
+    import logging
+
+    from app import prompt_assembly as pa
+
+    monkeypatch.setitem(pa._MAIXPY_REFERENCE_SET, "__test_missing__",
+                        ("references/does_not_exist_xyz.md", "references/maixpy_api_uart.md"))
+    pa._maixpy_reference_block.cache_clear()
+    try:
+        with caplog.at_level(logging.WARNING, logger="mpyhw.llm"):
+            block = pa._maixpy_reference_block("__test_missing__")
+        assert any("grounding degraded" in r.getMessage() for r in caplog.records), \
+            "a missing reference file must log a degraded-grounding warning"
+        # The phase note claims this block holds everything, so the gap must ALSO be visible to
+        # the model — otherwise it reads an absent reference as "MaixPy has no such API" and
+        # writes unverified code instead of reporting partial. Mutation: drop the UNAVAILABLE
+        # branch and the block silently ships a trimmed set that still reads as complete.
+        assert "### UNAVAILABLE" in block
+        assert "references/does_not_exist_xyz.md" in block
+        assert "partial" in block
+        # The files that DID resolve are still served — degraded, not disabled.
+        assert "### references/maixpy_api_uart.md" in block
+    finally:
+        pa._maixpy_reference_block.cache_clear()
+
+
+@pytest.mark.no_db
+def test_maixpy_unmapped_vision_task_refuses_to_substitute_the_yolo_references(caplog):
+    # An envelope naming a task with no _MAIXPY_REFERENCE_SET row must NOT be grounded on the
+    # YOLO refs: that is wrong API content, not merely thinner (a QR run reasoning from a
+    # detector model wrapper). It warns and degrades to the UNAVAILABLE notice. Unreachable
+    # while the extension allowlists one token; pinned so adding a token can't silently
+    # mis-ground. Mutation: fall back to _MAIXPY_DEFAULT_TASK -> the YOLO bytes appear here.
+    import logging
+
+    from app.prompt_assembly import _maixpy_reference_injection
+    from app.skill_catalog import SKILLS_ROOT
+
+    envelope = json.dumps({
+        "phase": "upy-maixpy-export-plugin",
+        "payload": {"vision_task": {"type": "qr_code"}},
+    })
+    with caplog.at_level(logging.WARNING, logger="mpyhw.llm"):
+        block = _maixpy_reference_injection({
+            "phase": "upy-maixpy-export-plugin",
+            "messages": [{"role": "user", "content": envelope}],
+        })
+    yolo_ref = (SKILLS_ROOT / "upy-maixpy-export-plugin" / "references" / "maixpy_ai_yolo.md").read_text(encoding="utf-8").strip()
+    assert yolo_ref not in block
+    assert "### UNAVAILABLE" in block
+    assert any("no reference row" in r.getMessage() for r in caplog.records), \
+        "an unmapped vision task must be operator-visible, not a silent YOLO substitution"
