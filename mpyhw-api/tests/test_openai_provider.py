@@ -184,7 +184,11 @@ def test_plain_budget_needs_no_env_var_to_be_correct(monkeypatch):
     # still gets its own matching budget. Mutation: move the value back to an env-var default
     # and the openai case collapses to DeepSeek's 256.
     monkeypatch.delenv("MPYHW_WEB_RECOMMEND_MAX_TOKENS", raising=False)
+    # BOTH keys: the autouse fixture in conftest clears them, and this test drives each
+    # provider in turn — with only one set, the other's turn dies on llm_unconfigured
+    # before it ever reaches the budget under test.
     monkeypatch.setenv("OPENAI_API_KEY", "sk-o")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-d")
     seen = []
 
     def fake(messages, max_tokens, timeout=120, response_format=None, model=None, provider=None):
