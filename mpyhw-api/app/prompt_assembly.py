@@ -160,6 +160,10 @@ def _phase_data_injection(body: dict[str, Any]) -> str:
 # pins it to the index table, and an existence test pins every entry to a real file on disk.
 _MAIXPY_PHASE = "upy-maixpy-export-plugin"
 _MAIXPY_DEFAULT_TASK = "yolo_detection"
+# Stand-in key for "the envelope named a task this map has no row for". It deliberately has no row,
+# so the block degrades to the UNAVAILABLE notice below. A single constant (never the caller's raw
+# string) keeps the @cache bounded by the map instead of by untrusted envelope input.
+_MAIXPY_UNMAPPED_TASK = "__unmapped__"
 # Per-file cap so one oversized reference can never dominate the prompt (today's largest is ~3.5KB).
 _MAIXPY_REF_FILE_MAX = 20000
 # Plugin-root-relative paths. yolo_detection is the only token stage A pins: the index table's
@@ -194,35 +198,55 @@ def _maixpy_vision_task(body: dict[str, Any]) -> str:
         payload = envelope.get("payload") if isinstance(envelope, dict) else None
         vision = payload.get("vision_task") if isinstance(payload, dict) else None
         task = vision.get("type") if isinstance(vision, dict) else None
-        if isinstance(task, str) and task in _MAIXPY_REFERENCE_SET:
+        if not isinstance(task, str) or not task:
+            continue
+        if task in _MAIXPY_REFERENCE_SET:
             return task
-    # Fall back to the only token stage A ships. An UNKNOWN token also lands here, so when a
-    # second vision task is added to the extension's MAIXPY_VISION_TASK_TYPES, add its reference
-    # row to _MAIXPY_REFERENCE_SET too, or that task silently grounds on the YOLO references.
+        # The envelope named a task with no reference row — a token added to the extension's
+        # MAIXPY_VISION_TASK_TYPES without a _MAIXPY_REFERENCE_SET row. Substituting the YOLO
+        # references would ground the codegen in the WRONG API (a QR run reasoning from a detector
+        # model wrapper), which is worse than not grounding it, so refuse the substitution loudly
+        # and let the SKILL's own routing + partial rules apply.
+        logger.warning("maixpy vision task has no reference row (codegen grounding degraded)", extra={"task": task})
+        return _MAIXPY_UNMAPPED_TASK
+    # No readable envelope (e.g. retry() re-entry): fall back to the only token stage A ships.
     return _MAIXPY_DEFAULT_TASK
 
 
 @functools.cache
 def _maixpy_reference_block(task: str) -> str:
     """The verbatim reference/example bundle for one vision task, assembled once per process.
-    Files are read from the server-side submodule, size-capped, and ordered by path so the
-    system-prompt bytes stay stable across a session (DeepSeek prefix-cache friendly)."""
+    Files are read from the server-side submodule and size-capped, in the map's own order (the
+    index table's order: each row's required references, then its example). The map is a tuple, so
+    those bytes are already stable across a session — DeepSeek prefix-cache friendly."""
     plugin_dir = skill_catalog.SKILLS_ROOT / _MAIXPY_PHASE
     blocks: list[str] = []
-    for rel in sorted(_MAIXPY_REFERENCE_SET.get(task, ())):
+    missing: list[str] = []
+    for rel in _MAIXPY_REFERENCE_SET.get(task, ()):
         path = plugin_dir / rel
         if not path.is_file():
             # A stale / partially-synced submodule would trim the block invisibly, and the
             # @cache locks that degraded result in for the process. Warn like the sibling
             # driver-context path so a bad deploy is operator-visible instead of silent.
             logger.warning("maixpy reference file missing (codegen grounding degraded)", extra={"task": task, "path": rel})
+            missing.append(rel)
             continue
         text = path.read_text(encoding="utf-8").strip()
         if len(text) > _MAIXPY_REF_FILE_MAX:
             text = text[:_MAIXPY_REF_FILE_MAX] + "\n...[truncated]"
         blocks.append(f"### {rel}\n{text}")
-    if not blocks:
-        return ""
+    if missing or not blocks:
+        # The phase note tells the model this block holds everything it needs, so a trimmed or
+        # empty block must say so IN THE PROMPT — an operator-only warning leaves the model
+        # believing an absent reference simply doesn't exist and writing unverified API code.
+        # Naming the gap is what lets the SKILL's own "return partial" rule fire.
+        blocks.append(
+            "### UNAVAILABLE\nThese references could not be served: "
+            f"{', '.join(missing) or 'the entire set for this vision task'}.\n"
+            "Do NOT write unverified API code for what they cover and do NOT claim MaixPy lacks "
+            "the API: follow SKILL.md's missing-reference rule (conservative skeleton or link-only "
+            "guidance, official URL) and report the run as partial."
+        )
     return (
         "\n\n--- REFERENCES (server-provided; task-specific MaixPy API refs + examples; "
         "do not re-fetch, and do not read them from disk) ---\n" + "\n\n".join(blocks) + "\n"

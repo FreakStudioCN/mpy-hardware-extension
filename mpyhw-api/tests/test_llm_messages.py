@@ -822,6 +822,11 @@ def test_maixpy_export_prompt_injects_task_specific_references():
     assert yolo_ref in system
     assert uart_example in system
     assert "### references/maixpy_ai_yolo.md" in system
+    # The note says the references are in the block "below", so it must PRECEDE the block.
+    # Mutation: reorder the _deepseek_messages concatenation -> the note points at nothing.
+    assert system.index("SIPEED MAIXPY EXPORT PHASE") < system.index("--- REFERENCES (server-provided")
+    # Nothing is missing on a healthy checkout, so the degraded notice must be absent.
+    assert "### UNAVAILABLE" not in system
 
 
 @pytest.mark.no_db
@@ -915,13 +920,50 @@ def test_maixpy_missing_reference_file_logs_a_degraded_warning(caplog, monkeypat
 
     from app import prompt_assembly as pa
 
-    monkeypatch.setitem(pa._MAIXPY_REFERENCE_SET, "__test_missing__", ("references/does_not_exist_xyz.md",))
+    monkeypatch.setitem(pa._MAIXPY_REFERENCE_SET, "__test_missing__",
+                        ("references/does_not_exist_xyz.md", "references/maixpy_api_uart.md"))
     pa._maixpy_reference_block.cache_clear()
     try:
         with caplog.at_level(logging.WARNING, logger="mpyhw.llm"):
             block = pa._maixpy_reference_block("__test_missing__")
-        assert block == "", "an all-missing task resolves to an empty block"
         assert any("grounding degraded" in r.getMessage() for r in caplog.records), \
             "a missing reference file must log a degraded-grounding warning"
+        # The phase note claims this block holds everything, so the gap must ALSO be visible to
+        # the model — otherwise it reads an absent reference as "MaixPy has no such API" and
+        # writes unverified code instead of reporting partial. Mutation: drop the UNAVAILABLE
+        # branch and the block silently ships a trimmed set that still reads as complete.
+        assert "### UNAVAILABLE" in block
+        assert "references/does_not_exist_xyz.md" in block
+        assert "partial" in block
+        # The files that DID resolve are still served — degraded, not disabled.
+        assert "### references/maixpy_api_uart.md" in block
     finally:
         pa._maixpy_reference_block.cache_clear()
+
+
+@pytest.mark.no_db
+def test_maixpy_unmapped_vision_task_refuses_to_substitute_the_yolo_references(caplog):
+    # An envelope naming a task with no _MAIXPY_REFERENCE_SET row must NOT be grounded on the
+    # YOLO refs: that is wrong API content, not merely thinner (a QR run reasoning from a
+    # detector model wrapper). It warns and degrades to the UNAVAILABLE notice. Unreachable
+    # while the extension allowlists one token; pinned so adding a token can't silently
+    # mis-ground. Mutation: fall back to _MAIXPY_DEFAULT_TASK -> the YOLO bytes appear here.
+    import logging
+
+    from app.prompt_assembly import _maixpy_reference_injection
+    from app.skill_catalog import SKILLS_ROOT
+
+    envelope = json.dumps({
+        "phase": "upy-maixpy-export-plugin",
+        "payload": {"vision_task": {"type": "qr_code"}},
+    })
+    with caplog.at_level(logging.WARNING, logger="mpyhw.llm"):
+        block = _maixpy_reference_injection({
+            "phase": "upy-maixpy-export-plugin",
+            "messages": [{"role": "user", "content": envelope}],
+        })
+    yolo_ref = (SKILLS_ROOT / "upy-maixpy-export-plugin" / "references" / "maixpy_ai_yolo.md").read_text(encoding="utf-8").strip()
+    assert yolo_ref not in block
+    assert "### UNAVAILABLE" in block
+    assert any("no reference row" in r.getMessage() for r in caplog.records), \
+        "an unmapped vision task must be operator-visible, not a silent YOLO substitution"
