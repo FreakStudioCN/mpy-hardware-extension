@@ -63,6 +63,18 @@ def test_openai_payload_reasoning_model_params(monkeypatch):
     assert routes_llm._deepseek_payload(BODY, provider=provider)["model"] == "gpt-5.4-mini"
 
 
+def test_openai_default_model_is_the_full_luna_id():
+    # The test above compares the payload against the class attribute, so it passes for ANY
+    # default. Pin the literal here: the bare "gpt-5.6" alias routes to Sol, a different and
+    # pricier tier, so a short spelling would silently run (and bill) as another model with
+    # no error anywhere. Mutation: set default_model to "gpt-5.6" and this fails.
+    assert routes_llm.OpenAIProvider.default_model == "gpt-5.6-luna"
+    assert routes_llm.OpenAIProvider.default_model != "gpt-5.6", "the bare alias resolves to Sol"
+    # The plain path is deliberately NOT changed with it: it is a separate lane whose model
+    # is chosen for being cheap and non-thinking, and its budget is sized for that model.
+    assert routes_llm.OpenAIProvider.default_plain_model == "gpt-5.4-mini"
+
+
 def test_deepseek_payload_shape_unchanged_without_provider(monkeypatch):
     # provider=None must keep the exact pre-provider key order (prefix-cache
     # byte-stability contract) and DeepSeek parameter names.

@@ -74,7 +74,11 @@ class OpenAIProvider(DeepSeekProvider):
     api_key_env = "OPENAI_API_KEY"
     base_url_env = "OPENAI_BASE_URL"
     default_base_url = "https://api.openai.com/v1"
-    default_model = "gpt-5.5"
+    # The FULL id, never the bare "gpt-5.6" alias: that alias routes to Sol, a different
+    # (and much pricier) tier, so the short spelling silently bills and behaves as another
+    # model. Luna is a reasoning model, so the gpt-5-class payload switches below apply to
+    # it exactly as they did to gpt-5.5.
+    default_model = "gpt-5.6-luna"
     default_plain_model = "gpt-5.4-mini"
     # gpt-5.4-mini DOES reason, so it needs far more than the DeepSeek budget for the same
     # tiny JSON answer. Inherit 256 here and every web_recommend call 503s the moment the

@@ -49,7 +49,7 @@ Keep `DEEPSEEK_API_KEY` in place - **rollback is re-commenting those two lines a
 
 Two things NOT to do:
 
-- **Do not set `MPYHW_LLM_MODEL`.** Each provider carries its own defaults (`gpt-5.5` for codegen, and a separate cheaper model for the `/v1/web/recommend` extraction). A model id left over from the other provider makes every request 400.
+- **Do not set `MPYHW_LLM_MODEL`.** Each provider carries its own defaults (`gpt-5.6-luna` for codegen, and a separate cheaper model for the `/v1/web/recommend` extraction). A model id left over from the other provider makes every request 400. Changing which model runs in production is a one-line code change that ships through the normal deploy, so it does not need an edit on this host.
 - **Do not set `MPYHW_WEB_RECOMMEND_MAX_TOKENS`.** Its default follows the provider, because the right budget depends on whether that provider's small model reasons. Pinning it to the other provider's value makes `/v1/web/recommend` return 503 with empty content.
 
 A missing or wrong key never degrades silently - the request fails loudly and `/v1/health` reports `llm_configured: false`.
