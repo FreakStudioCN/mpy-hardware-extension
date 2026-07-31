@@ -15,6 +15,8 @@
 #   DEEPSEEK_API_KEY                                     -> your DeepSeek sk-... key
 #   MPYHW_GITHUB_CLIENT_ID / _SECRET                     -> your GitHub OAuth app
 #            (needed for user login; the backend still STARTS without them)
+# To run on OpenAI instead of DeepSeek, uncomment MPYHW_LLM_PROVIDER + OPENAI_API_KEY
+# in the environment block (two lines, nothing else changes).
 # Also set the real Caddy network name at the bottom (`caddy_net`).
 # NEVER commit a filled copy of this file to a public repo.
 #
@@ -36,6 +38,13 @@ services:
       MPYHW_JWT_SECRET: CHANGE-ME-openssl-rand-hex-32
       MPYHW_ADMIN_TOKEN: CHANGE-ME-openssl-rand-hex-24
       DEEPSEEK_API_KEY: CHANGE-ME-your-deepseek-sk-key
+      # LLM provider switch. Absent (or "deepseek") = the DeepSeek key above. To run on
+      # OpenAI instead, uncomment BOTH lines below and LEAVE the DeepSeek key in place -
+      # rollback is then just re-commenting them and `up -d` again.
+      # Do NOT add MPYHW_LLM_MODEL here: each provider carries its own defaults (gpt-5.5
+      # for codegen) and a value left over from the other provider 400s every request.
+      # MPYHW_LLM_PROVIDER: openai
+      # OPENAI_API_KEY: CHANGE-ME-your-openai-sk-key
       # Public HTTPS URL of THIS backend. The GitHub OAuth callback is built from it as
       # <MPYHW_PUBLIC_API_BASE>/v1/auth/github/callback - register that exact URL in the OAuth app.
       MPYHW_PUBLIC_API_BASE: https://blockless.upypi.net

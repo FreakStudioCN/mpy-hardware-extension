@@ -161,11 +161,46 @@ def test_web_recommend_follows_provider(monkeypatch):
     def fake(messages, max_tokens, timeout=120, response_format=None, model=None, provider=None):
         seen["provider"] = provider.name
         seen["model"] = model
+        seen["max_tokens"] = max_tokens
         return '{"capabilities": ["servo_control"]}', {}
 
     monkeypatch.setattr(routes_llm, "_call_deepseek_plain", fake)
     web_recommend.extract_capabilities("a robot arm")
-    assert seen == {"provider": "openai", "model": routes_llm.OpenAIProvider.default_plain_model}
+    # The BUDGET has to follow the provider too, not just the model name. gpt-5.4-mini reasons,
+    # so inheriting DeepSeek's 256 spends the whole budget on hidden reasoning and returns empty
+    # content -> every web_recommend call 503s the moment the provider is switched. Mutation:
+    # make plain_max_tokens a plain inherited 256 (or read the env default) and this fails.
+    assert seen == {
+        "provider": "openai",
+        "model": routes_llm.OpenAIProvider.default_plain_model,
+        "max_tokens": routes_llm.OpenAIProvider.plain_max_tokens,
+    }
+    assert seen["max_tokens"] > routes_llm.DeepSeekProvider.plain_max_tokens
+
+
+def test_plain_budget_needs_no_env_var_to_be_correct(monkeypatch):
+    # The whole point of the fix: a correct budget must not depend on a human remembering to
+    # set MPYHW_WEB_RECOMMEND_MAX_TOKENS on the deploy host. With NO env var set, each provider
+    # still gets its own matching budget. Mutation: move the value back to an env-var default
+    # and the openai case collapses to DeepSeek's 256.
+    monkeypatch.delenv("MPYHW_WEB_RECOMMEND_MAX_TOKENS", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-o")
+    seen = []
+
+    def fake(messages, max_tokens, timeout=120, response_format=None, model=None, provider=None):
+        seen.append(max_tokens)
+        return '{"capabilities": ["servo_control"]}', {}
+
+    monkeypatch.setattr(routes_llm, "_call_deepseek_plain", fake)
+    for provider_name, expected in (("deepseek", 256), ("openai", 2048)):
+        monkeypatch.setenv("MPYHW_LLM_PROVIDER", provider_name)
+        web_recommend.extract_capabilities("a robot arm")
+        assert seen[-1] == expected, f"{provider_name} budget"
+
+    # The env var still overrides — it is an escape hatch, not the source of correctness.
+    monkeypatch.setenv("MPYHW_WEB_RECOMMEND_MAX_TOKENS", "77")
+    web_recommend.extract_capabilities("a robot arm")
+    assert seen[-1] == 77
 
 
 def test_validate_config_openai_key_requirement(monkeypatch):

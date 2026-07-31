@@ -36,6 +36,24 @@ The image is pulled from GHCR (`ghcr.io/freakstudiocn/mpyhw-api:latest`). Make t
 | `DEEPSEEK_API_KEY` | the DeepSeek `sk-...` key (Blockless side provides) |
 | `MPYHW_GITHUB_CLIENT_ID` / `MPYHW_GITHUB_CLIENT_SECRET` | the GitHub OAuth app (Blockless side provides; needed for user login - the backend still **starts** without them) |
 
+## Switching the LLM upstream to OpenAI
+
+Uncomment these **two** lines in the `environment:` block of `compose.yml`, then `docker compose up -d`:
+
+```yaml
+      MPYHW_LLM_PROVIDER: openai
+      OPENAI_API_KEY: sk-...          # Blockless side provides
+```
+
+Keep `DEEPSEEK_API_KEY` in place - **rollback is re-commenting those two lines and `up -d` again**, with no key to re-fetch.
+
+Two things NOT to do:
+
+- **Do not set `MPYHW_LLM_MODEL`.** Each provider carries its own defaults (`gpt-5.5` for codegen, and a separate cheaper model for the `/v1/web/recommend` extraction). A model id left over from the other provider makes every request 400.
+- **Do not set `MPYHW_WEB_RECOMMEND_MAX_TOKENS`.** Its default follows the provider, because the right budget depends on whether that provider's small model reasons. Pinning it to the other provider's value makes `/v1/web/recommend` return 503 with empty content.
+
+A missing or wrong key never degrades silently - the request fails loudly and `/v1/health` reports `llm_configured: false`.
+
 These are secrets: send the filled `compose.yml` **privately**, never commit it to a public repo.
 
 ## Networking / Caddy
@@ -66,7 +84,7 @@ schema on boot; no Render data migrates). For a managed Postgres, delete the `db
 ## Verify it's up
 
 ```
-curl -s https://blockless.upypi.net/v1/health         # -> {"status":"ok"}
+curl -s https://blockless.upypi.net/v1/health         # -> {"status":"ok","llm_configured":true}
 curl -s https://blockless.upypi.net/v1/health/ready    # -> {"status":"ok","db":"ok"}
 curl -s https://blockless.upypi.net/v1/skills          # -> non-empty (skills submodule copied)
 curl -s https://blockless.upypi.net/v1/boards          # -> non-empty (bundled content copied)
