@@ -138,9 +138,30 @@ _V0_PLUGIN_DIRS = (
     "upy-gen-driver-plugin",
     "upy-wiring-plugin",
     "upy-diagram-plugin",
+    # Sipeed MaixPy export (standalone global tool). Its script basenames are unique across the
+    # bundled plugins, so they resolve bare.
+    "upy-maixpy-export-plugin",
     "shared-plugin-scripts",
     # Toolchain-spec scripts (validate_json.py) — wiring/diagram SKILLs invoke the schema check by name.
     "upy-project-gen-toolchain-spec",
+)
+
+# Upstream MAINTENANCE scripts: they refresh a Skill's own reference library from the live web and
+# write wherever their --out-dir points, with no workspace containment. They are for the Skill's
+# maintainers, never for a user run — but indexing a plugin dir would otherwise make them resolvable
+# by bare name from ANY phase's script_run, i.e. a network fetch and an unconfined write inside a
+# run that declares network:false. Never indexed, and never bundled (scripts/plugin-dirs.mjs keeps
+# the same list; plugin-dirs-contract asserts the two agree).
+_V0_MAINTENANCE_SCRIPTS = frozenset(
+    {
+        "crawl_sipeed_maixpy_docs.py",
+        "build_reference_index.py",
+        # Validates the Skill's OWN reference library, and requires the reference .md files that the
+        # VSIX strips — so in a packaged install it can only ever fail. Its SKILL offers it as "use
+        # bundled scripts when available" with an explicit self-check-and-warn fallback, so a clean
+        # script_not_found is the better answer than a guaranteed non-zero exit.
+        "validate_reference_index.py",
+    }
 )
 
 
@@ -169,7 +190,7 @@ def _build_v0_script_index() -> dict:
                     and "upy-project-gen-toolchain-spec/scripts" not in norm):
                 continue
             for fname in files:
-                if fname.endswith(".py"):
+                if fname.endswith(".py") and fname not in _V0_MAINTENANCE_SCRIPTS:
                     index.setdefault(fname, []).append(os.path.join(dirpath, fname))
     return index
 

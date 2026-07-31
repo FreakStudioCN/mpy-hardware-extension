@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { canonicalPathKey, deleteProjectPath, snapshotExistingPaths, writeProjectFile, normalizeGeneratedArtifactPath } from "../src/extension/workspace-writer.ts";
+import { canonicalPathKey, deleteProjectPath, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile, normalizeGeneratedArtifactPath } from "../src/extension/workspace-writer.ts";
 
 function capturingWriter() {
   const writes = new Map<string, string>();
@@ -225,4 +225,92 @@ test("snapshot lookups match through a case-mismatched model path on win32/darwi
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a restricted run may write only its allowlisted paths (project tree stays denied)", async () => {
+  // The Sipeed MaixPy export run writes exactly two files. The restriction REPLACES the project-tree
+  // allowlist rather than extending it, so firmware/**, project-manifest.json and the base main.py /
+  // lib/*.py set are all refused while it is in force. Mutation: treat allowedPaths as an extra
+  // branch alongside allowProjectTree and the firmware/manifest cases below start writing.
+  const allowedPaths = ["sipeed_vision/main.py", "sipeed_vision/README.md"];
+  const allowed = capturingWriter();
+  for (const path of allowedPaths) {
+    const result = await writeProjectFile({ workspaceFolder: "/ws/project", path, content: "x", writeFile: allowed.writeFile, allowedPaths });
+    assert.equal(result.ok, true, path);
+    assert.equal(result.path, `/ws/project/${path}`);
+  }
+  assert.equal(allowed.writes.size, 2);
+
+  const denied = capturingWriter();
+  for (const path of ["firmware/main.py", "project-manifest.json", "main.py", "lib/aht20.py", "sipeed_vision/notes.txt", "sipeed_vision/sub/main.py", "../sipeed_vision/main.py"]) {
+    const result = await writeProjectFile({ workspaceFolder: "/ws/project", path, content: "x", writeFile: denied.writeFile, allowedPaths });
+    assert.equal(result.ok, false, `${path} must be refused`);
+    assert.equal(result.error_kind, "invalid_generated_path", path);
+  }
+  assert.equal(denied.writes.size, 0, "nothing outside the allowlist reaches the filesystem");
+});
+
+test("normalizeGeneratedArtifactPath allowedPaths still rejects unsafe spellings of a listed path", () => {
+  const allowedPaths = ["sipeed_vision/main.py"];
+  assert.equal(normalizeGeneratedArtifactPath("sipeed_vision/main.py", { allowedPaths }), "sipeed_vision/main.py");
+  // Traversal / absolute / backslash / NUL are rejected by the generic checks before the allowlist,
+  // so no crafted spelling can be string-equal to a listed path after normalization.
+  for (const bad of ["sipeed_vision/../sipeed_vision/main.py", "/sipeed_vision/main.py", "sipeed_vision\\main.py", "sipeed_vision/main.py\0", "./sipeed_vision/main.py", ""]) {
+    assert.equal(normalizeGeneratedArtifactPath(bad, { allowedPaths }), null, `${JSON.stringify(bad)} is refused`);
+  }
+  // Without the restriction the project tree is writable again (the run-scoped narrowing lifts).
+  assert.equal(normalizeGeneratedArtifactPath("firmware/main.py", { allowProjectTree: true }), "firmware/main.py");
+});
+
+test("a restricted run's delete cannot leave its own subtree", async () => {
+  // The recursive delete is the loop's most destructive tool: a run allowed to write only
+  // sipeed_vision/ must not be able to remove firmware/ or the user's sources. Mutation: drop the
+  // restrictToSubtree check and the firmware/ + docs/ cases below start removing.
+  for (const path of ["firmware", "firmware/main.py", "docs/wiring.json", "sipeed_vision/../firmware"]) {
+    const { removed, removePath } = capturingRemover();
+    const result = await deleteProjectPath({ workspaceFolder: "/ws/project", path, removePath, restrictToSubtree: "sipeed_vision" });
+    assert.equal(result.ok, false, path);
+    assert.equal(result.error_kind, "path_outside_workspace", path);
+    assert.equal(removed.length, 0, `no remove for ${path}`);
+  }
+  // Inside the subtree it still works — including the output dir itself (the run's own scratch).
+  for (const path of ["sipeed_vision/main.py", "sipeed_vision"]) {
+    const { removed, removePath } = capturingRemover();
+    const result = await deleteProjectPath({ workspaceFolder: "/ws/project", path, removePath, restrictToSubtree: "sipeed_vision" });
+    assert.equal(result.ok, true, path);
+    assert.equal(removed.length, 1, path);
+  }
+});
+
+
+test("the post-loop batch writer honors a restricted run's allowlist too", async () => {
+  // writeProjectFile is not the only lane into the project tree: the post-loop batch writes
+  // whatever the run reported as files. Confinement has to be a property of the RUN, not of which
+  // lane the write took. Mutation: drop allowedPaths from writeGeneratedFiles and main.py is
+  // written despite the restriction.
+  const allowedPaths = ["sipeed_vision/main.py"];
+  const { writes, writeFile } = capturingWriter();
+  const result = await writeGeneratedFiles({
+    workspaceFolder: "/ws/project",
+    files: { "main.py": "print('x')" },
+    allowedPaths,
+    exists: async () => false,
+    writeFile,
+    confirmOverwrite: async () => true,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "invalid_generated_path");
+  assert.equal(writes.size, 0);
+
+  // The listed path still goes through.
+  const ok = await writeGeneratedFiles({
+    workspaceFolder: "/ws/project",
+    files: { "sipeed_vision/main.py": "from maix import camera" },
+    allowedPaths,
+    exists: async () => false,
+    writeFile,
+    confirmOverwrite: async () => true,
+  });
+  assert.equal(ok.ok, true);
+  assert.deepEqual([...writes.keys()], ["/ws/project/sipeed_vision/main.py"]);
 });

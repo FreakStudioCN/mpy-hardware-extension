@@ -1,6 +1,8 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
+import { MAINTENANCE_SCRIPTS, PLUGIN_DIRS } from "./plugin-dirs.mjs";
+
 // The VSIX vendor step, extracted from prepare-vsce.mjs so a test can run the REAL
 // selection logic against the real submodule instead of re-describing it. vsce can only
 // package files inside the extension dir, but the upstream subset lives in the repo-root
@@ -11,38 +13,11 @@ import { dirname, join, relative } from "node:path";
 // imported them could only re-assert them, which is the tautology the packaged-runtime test
 // avoids by asserting the file set they produce.
 
-// V0: bundle the 6 protocol-native `-plugin` skill dirs (their scripts/ + the
-// resources those scripts read: templates, schemas, knowledge), plus shared-plugin-
-// scripts and the toolchain-spec schemas. The cloud model names scripts by their bare
-// filename and serve.py's run_v0 resolver finds them under any bundled scripts/ dir,
-// so the whole dir must ship — not a cherry-picked allowlist. We DROP the heavy prose
+// The dirs to bundle (and why each must ship) live in plugin-dirs.mjs, the single source
+// plugin-dirs-contract asserts serve.py's _V0_PLUGIN_DIRS against. We DROP the heavy prose
 // (SKILL.md/README) and the test/sample/mock fixtures by design: the packaged device shim
 // runs the scripts but never reads SKILL.md, and the cloud backend loads skill prose from
-// its OWN copy (skill_catalog.py / live serve), not from the VSIX. Only an
-// offline/self-hosted full-protocol run would need the .md re-included.
-const PLUGIN_DIRS = [
-  "upy-analyze-plugin",
-  "upy-select-hw-plugin",
-  "upy-flash-mpy-firmware-plugin",
-  "upy-scaffold-plugin",
-  "upy-generate-plugin",
-  "upy-deploy-plugin",
-  // Optional flows, now served: their script_run scripts must ship or the packaged VSIX
-  // fails script_not_found on every gen-driver/wiring/diagram run (the dev-vs-packaged trap:
-  // they resolve in a dev checkout but are absent from the VSIX unless bundled here).
-  "upy-gen-driver-plugin",
-  "upy-wiring-plugin",
-  "upy-diagram-plugin",
-  "shared-plugin-scripts",
-  "upy-project-gen-toolchain-spec",
-  // Legacy (non-plugin) scaffold/download scripts: the host's script.run_scaffold /
-  // script.run_download_drivers dispatch passes --project-dir and expects files written to
-  // disk, which only these legacy scripts do (the -plugin equivalents are stdout-only). See
-  // serve.py SCRIPT_FILES. Must ship or the packaged VSIX fails on scaffold/download.
-  "upy-scaffold",
-  "upy-generate",
-];
-
+// its OWN copy (skill_catalog.py / live serve), not from the VSIX.
 const EXCLUDE_DIRS = new Set(["test", "tests", "sample", "samples", "mock-messages", "__pycache__"]);
 
 // Curation cruft that must never ship: the board-source staging area and
@@ -51,6 +26,7 @@ const EXCLUDE_DIRS = new Set(["test", "tests", "sample", "samples", "mock-messag
 function shouldSkip(relPosix) {
   const parts = relPosix.split("/");
   if (parts.some((p) => EXCLUDE_DIRS.has(p) || p === "_official_pending" || p.startsWith("_archive_"))) return true;
+  if (MAINTENANCE_SCRIPTS.includes(parts[parts.length - 1])) return true;
   return relPosix.endsWith(".md") || relPosix.endsWith(".pyc") || relPosix.endsWith(".csv") || relPosix.endsWith(".zip");
 }
 

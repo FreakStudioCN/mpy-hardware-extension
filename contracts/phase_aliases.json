@@ -1,7 +1,7 @@
 {
   "$comment": "Single source of truth for phase tokens. protocol-loop.ts PHASE_ALIASES and skill_catalog.py PHASE_BY_SKILL are each contract-tested against this file. Upstream is inconsistent on purpose: analyze/select-hw use short names, the rest full -plugin dir names. optional_phases are on-demand flows (gen-driver/wiring/diagram) started by a start_phase envelope, NOT part of the sequential canonical chain: they stay OUT of canonical_phases (PHASE_ORDER) but ARE served + aliased.",
   "canonical_phases": ["analyze", "select-hw", "upy-flash-mpy-firmware-plugin", "upy-scaffold-plugin", "upy-generate-plugin", "upy-deploy-plugin"],
-  "optional_phases": ["upy-gen-driver-plugin", "upy-wiring-plugin", "upy-diagram-plugin"],
+  "optional_phases": ["upy-gen-driver-plugin", "upy-wiring-plugin", "upy-diagram-plugin", "upy-maixpy-export-plugin"],
   "aliases": {
     "analyze": "analyze",
     "upy-analyze-plugin": "analyze",
@@ -28,6 +28,9 @@
     "upy-wiring-plugin": "upy-wiring-plugin",
     "diagram": "upy-diagram-plugin",
     "upy-diagram": "upy-diagram-plugin",
-    "upy-diagram-plugin": "upy-diagram-plugin"
+    "upy-diagram-plugin": "upy-diagram-plugin",
+    "sipeed-vision": "upy-maixpy-export-plugin",
+    "maixpy-export": "upy-maixpy-export-plugin",
+    "upy-maixpy-export-plugin": "upy-maixpy-export-plugin"
   }
 }

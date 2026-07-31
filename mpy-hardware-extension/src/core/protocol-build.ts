@@ -40,6 +40,16 @@ type BuildDeps = {
   // cp_from only when its host destination pre-exists (the wiring supplies that check).
   confirmDeviceDelete?: (devicePath: string) => Promise<boolean>;
   confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>;
+  // True while a run that declared capabilities.device_command:false is in flight (the Sipeed
+  // MaixPy export tool). Read per call, not per loop: the host installs it for that run only.
+  // Without it the declaration is a wire claim the host does not enforce, so one hallucinated
+  // device_command would still drive mpremote from a tool whose whole premise is "no device".
+  denyDeviceCommands?: () => boolean;
+  // The script BASENAMES such a run may execute, or null for the normal "any bundled script" rule.
+  // The shim's resolver is global across bundled plugins, so without this the same run could reach
+  // esp32_flash.py / firmware_download.py / the deploy scripts through script_run — the device and
+  // network denial has to cover this lane too, not just the device_command one.
+  allowedScripts?: () => readonly string[] | null;
   projectRoot?: string;
 };
 
@@ -73,6 +83,7 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
   // exercised against real hardware (the e2e harness mocks it).
   const firmwareActions = new Set(["flash_firmware", "download_firmware", "download_and_flash", "use_local_firmware", "firmware_flash"]);
   const device = async (action: string, payload: any) => {
+    if (deps.denyDeviceCommands?.()) return { ok: false, error_kind: "device_command_not_permitted", stderr: action };
     if (firmwareActions.has(action)) return { ok: false, error_kind: "firmware_action_requires_script_run", stderr: action };
     if (!shim) return { ok: false, error_kind: "device_unavailable" };
     try {
@@ -151,6 +162,12 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
   // commit), so we run the model's named script for real. A missing runner or an
   // unresolvable script is a HARD failure (ok:false) — never a faked ok:true.
   const runScript = async (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number; phase?: string }) => {
+    const allowedScripts = deps.allowedScripts?.();
+    // Compare on the basename: the model may send a bare, "scripts/"-relative, or plugin-qualified
+    // name, and the shim resolves all three by basename.
+    if (allowedScripts && !allowedScripts.includes(String(script).replace(/\\/g, "/").split("/").pop() ?? "")) {
+      return { ok: false as const, error_kind: "script_not_permitted", stderr: script };
+    }
     if (!shim || !projectDir) return { ok: false, error_kind: "host_runner_absent" as string };
     try {
       const res = await shim.runV0Script({ interpreter, script, args, project_dir: projectDir, stdin_content: extra?.stdin_content, stdin_json: extra?.stdin_json, timeout_ms: extra?.timeout_ms, phase: extra?.phase });

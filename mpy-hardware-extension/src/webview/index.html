@@ -31,14 +31,11 @@
         </div>
       </div>
 
-      <!-- Global tools: work regardless of a workflow session. Icon-only circles,
-           centered; each expands to a pill with its name on hover. The track scrolls
-           horizontally and the chevrons appear only when the row clips, so any number
-           of tools fits. The open tool's circle stays selected. -->
+      <!-- Global tools: work regardless of a workflow session. Icon-only circles, centered;
+           on hover/focus each shows its name as a floating chip (no layout shift) and blurs the
+           rest of the row. Clicking opens the tool and collapses the chip to a small selected
+           circle. The chip's side is set per pill by row position so it stays on-panel. -->
       <div class="gtools-wrap">
-        <button class="gtools-arrow hidden" id="gtoolsLeft" title="Scroll tools left" aria-label="Scroll tools left">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
         <div class="gtools" id="globalTools">
           <button class="gtool-btn" id="genDriverOpen" data-tool="toolGenDriver" title="Turn a datasheet, Arduino code, a GitHub repo, or a chip model into a MicroPython driver">
             <span class="gtool-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 3v13M6 10l6 6 6-6M4 20h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
@@ -60,10 +57,11 @@
             <span class="gtool-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="12" r="2.4"/><path d="M6 8.4v7.2M8.4 6h4.8a3 3 0 0 1 3 3v.6"/></svg></span>
             <span class="gtool-label" data-i18n="git_history">Git History</span>
           </button>
+          <button class="gtool-btn" id="sipeedVisionOpen" data-tool="toolSipeedVision" data-i18n-title="svn_tip" title="Generate standalone MaixPy code for a Sipeed vision module (MaixCAM Pro)">
+            <span class="gtool-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg></span>
+            <span class="gtool-label" data-i18n="svn_title">Sipeed Vision Export</span>
+          </button>
         </div>
-        <button class="gtools-arrow hidden" id="gtoolsRight" title="Scroll tools right" aria-label="Scroll tools right">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
       </div>
 
       <div class="tabs" id="tabs">
@@ -355,6 +353,47 @@
           </div>
           <div class="empty hidden" id="ghBlocked"><h4 id="ghBlockedH"></h4><p id="ghBlockedP"></p></div>
           <div class="dt-status" id="ghStatus"></div>
+        </div>
+      </div>
+
+      <!-- Sipeed vision-module export (MaixPy): a STANDALONE global tool. It generates
+           sipeed_vision/main.py + README.md for a MaixCAM Pro used as a UART vision coprocessor,
+           and never enters the select-hw/flash/scaffold/generate/deploy chain. Stage A pins the
+           task (YOLO detection) and the UART wiring; the run's results appear in Activity and the
+           Artifacts tab. Driven by SipeedVisionPanel.js. -->
+      <div class="tool-view hidden" id="toolSipeedVision">
+        <div class="tool-head">
+          <button class="tool-back" id="sipeedVisionBack" title="Back to workflow">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Back</span>
+          </button>
+          <span class="tool-title" data-i18n="svn_title">Sipeed Vision Export</span>
+        </div>
+        <div class="tool-body svn-body">
+          <p class="svn-intro" data-i18n="svn_intro">Generates standalone MaixPy code for a Sipeed MaixCAM Pro used as a vision coprocessor. It sends detection results to your MicroPython board over UART JSON Lines. Nothing is flashed or deployed.</p>
+          <!-- Fixed, host-pinned facts for this one task family — read-only, grouped as a spec card. -->
+          <div class="svn-card">
+            <div class="svn-row">
+              <span class="svn-label" data-i18n="svn_task">Vision task</span>
+              <span class="svn-value" data-i18n="svn_task_yolo">Object detection (YOLO)</span>
+            </div>
+            <div class="svn-row">
+              <span class="svn-label" data-i18n="svn_uart">UART</span>
+              <span class="svn-value">UART1 · TX A19 · RX A18 · 115200 · JSON Lines</span>
+            </div>
+            <div class="svn-row">
+              <span class="svn-label" data-i18n="svn_writes">Will write</span>
+              <span class="svn-value">sipeed_vision/main.py · sipeed_vision/README.md</span>
+            </div>
+          </div>
+          <!-- The only input: an optional model path the host sanitizes. -->
+          <label class="svn-field">
+            <span class="svn-label" data-i18n="svn_model">Model path on the MaixCAM (optional)</span>
+            <input id="svnModelPath" class="dt-input" data-i18n-ph="svn_model_ph" placeholder="/root/models/yolo11n.mud" />
+          </label>
+          <p class="svn-note" data-i18n="svn_model_hint">Prepare the model yourself through MaixHub or the official docs and copy it to the board — this tool never downloads or uploads models.</p>
+          <div class="sv-actions svn-actions"><button type="button" class="dt-act svn-generate" id="svnGenerate" data-i18n="svn_generate">Generate</button></div>
+          <div class="dt-status" id="svnStatus"></div>
         </div>
       </div>
 

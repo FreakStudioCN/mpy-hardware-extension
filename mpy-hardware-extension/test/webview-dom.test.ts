@@ -4,6 +4,8 @@ import test, { after } from "node:test";
 
 import { JSDOM } from "jsdom";
 
+import { MAIXPY_ARTIFACT_PATHS, MAIXPY_UART_BAUDRATE, MAIXPY_UART_PORT, MAIXPY_UART_RX_PIN, MAIXPY_UART_TX_PIN } from "../src/core/maixpy-export-schema.ts";
+
 // Loads the REAL shipped webview (index.html + its sibling webview.css + the
 // webview/components/*.js, assembled the same way readWebviewHtml() does) into jsdom and
 // drives it through window 'message' events, exactly as the extension host posts them.
@@ -3156,14 +3158,46 @@ test("file_op_confirm_needed renders an in-panel card with the file path and pos
   // to the Overwrite card (label "Overwrite", generic copy) and these three assertions fail.
 });
 
-test("global tools: the scroll chevrons exist and stay hidden when the row fits", async () => {
+test("global tools: float side is measured per pill and stays correct when the bar wraps", async () => {
   const dom = await loadWebview([]);
-  const { document } = dom.window;
-  // Guards the load path: a missing chevron id would throw in the arrow wiring and
-  // blank the panel. JSDOM has no layout, so no overflow -> both chevrons hidden.
-  assert.ok(document.getElementById("gtoolsLeft") && document.getElementById("gtoolsRight"), "both chevrons exist");
-  assert.ok(document.getElementById("gtoolsLeft").classList.contains("hidden"), "no overflow -> left chevron hidden");
-  assert.ok(document.getElementById("gtoolsRight").classList.contains("hidden"), "no overflow -> right chevron hidden");
+  const { document, MouseEvent } = dom.window;
+  const wrap = document.querySelector(".gtools-wrap") as HTMLElement;
+  const btns = [...document.querySelectorAll("#globalTools .gtool-btn")] as HTMLElement[];
+  // jsdom does not lay out, so stub rects: a 200px-wide bar (midpoint x=100) wrapped into two rows.
+  const rect = (left: number, top: number, width: number) => () =>
+    ({ left, top, width, height: 34, right: left + width, bottom: top + 34, x: left, y: top, toJSON() {} }) as any;
+  wrap.getBoundingClientRect = rect(0, 0, 200);
+  const rowRight = btns[0];
+  const wrappedLeft = btns[btns.length - 1];
+  rowRight.getBoundingClientRect = rect(150, 0, 34);   // right of centre on row 1 -> opens LEFT
+  wrappedLeft.getBoundingClientRect = rect(10, 40, 34); // left of centre on the WRAPPED row -> opens RIGHT
+  const sideOnHover = (b: HTMLElement) => {
+    b.dispatchEvent(new MouseEvent("mouseenter"));
+    const s = ["exp-left", "exp-right"].filter((c) => b.classList.contains(c));
+    b.dispatchEvent(new MouseEvent("mouseleave"));
+    return s;
+  };
+  // The wrapped pill is the last DOM node, so the old index split tagged it exp-left and its chip
+  // opened off-panel. Measured position tags it by its real x. Mutation: revert to the index split
+  // and the wrapped-left assertion fails.
+  assert.deepEqual(sideOnHover(rowRight), ["exp-left"], "a pill right of the row midpoint opens its chip left");
+  assert.deepEqual(sideOnHover(wrappedLeft), ["exp-right"], "a wrapped pill left of the midpoint opens right, not off-panel");
+});
+
+test("global tools: hover floats the chip and blurs the rest; a click collapses it but keeps it active", async () => {
+  const dom = await loadWebview([]);
+  const { document, MouseEvent } = dom.window;
+  const wrap = document.querySelector(".gtools-wrap") as HTMLElement;
+  const btn = document.getElementById("sipeedVisionOpen") as HTMLButtonElement;
+
+  btn.dispatchEvent(new MouseEvent("mouseenter"));
+  assert.ok(btn.classList.contains("gt-lifted"), "hover lifts the pill so its chip shows");
+  assert.ok(wrap.classList.contains("gt-floating"), "hover flags the wrap so the rest of the row blurs");
+
+  btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  assert.ok(!btn.classList.contains("gt-lifted"), "click collapses the chip back to the small icon");
+  assert.ok(!wrap.classList.contains("gt-floating"), "click clears the row blur");
+  assert.ok(btn.classList.contains("active"), "the clicked tool stays selected");
 });
 
 test("device tools: clicking the Device Tools button shows its surface and hides the workflow", async () => {
@@ -4887,4 +4921,145 @@ test("a purchase link's own search query is shown, labeled by its vendor, and co
 
   ([...bom.querySelectorAll(".bom-copy")][1] as HTMLButtonElement).click();
   assert.equal(onlyPosted(posted, "copy_code").text, "Freenove AHT20 kit", "copy hands the host that link's own query");
+});
+
+// ----- Sipeed vision-module export (MaixPy) global tool surface -----
+
+test("the Sipeed Vision gtool button opens its own surface (registered in GLOBAL_TOOL_SURFACES)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  // Silent-blank guard: the click only un-hides the surface when it is registered — a missing
+  // GLOBAL_TOOL_SURFACES entry leaves the panel blank with no error. Mutation: drop the entry and
+  // this fails.
+  assert.equal(document.getElementById("toolSipeedVision")!.classList.contains("hidden"), false, "the Sipeed Vision surface opens");
+  assert.equal(document.getElementById("toolGitHistory")!.classList.contains("hidden"), true, "a sibling tool surface is hidden");
+  // Opening only resets the form: no run is dispatched until the user clicks Generate.
+  assert.equal(posted.filter((m) => m.type === "start_sipeed_vision").length, 0, "opening the surface starts no run");
+  // The Save Version status line is a sibling panel's node — opening this tool must not touch it
+  // (the components share one script scope, so a redeclared sv* helper would hijack it).
+  assert.equal(document.getElementById("svStatus")!.textContent, "", "the Save Version status line is untouched");
+});
+
+test("Generate posts start_sipeed_vision with the pinned task and the typed model path, then locks the button", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  (document.getElementById("svnModelPath") as HTMLInputElement).value = "  /root/models/yolo11n.mud  ";
+  const btn = document.getElementById("svnGenerate") as HTMLButtonElement;
+  btn.click();
+  const start = posted.filter((m) => m.type === "start_sipeed_vision");
+  assert.equal(start.length, 1);
+  assert.equal(start[0].visionTaskType, "yolo_detection", "stage A pins the one task token the plugin defines");
+  assert.equal(start[0].modelPath, "/root/models/yolo11n.mud", "the model path is trimmed");
+  // A second click while the run is in flight must not queue a duplicate dispatch. Mutation: drop
+  // the svRunning guard (or the disable) and a second start_sipeed_vision appears.
+  assert.equal(btn.disabled, true, "the button locks for the duration of the run");
+  btn.click();
+  assert.equal(posted.filter((m) => m.type === "start_sipeed_vision").length, 1, "no duplicate dispatch");
+});
+
+test("the surface hands over to Activity once the run starts, so the run and its confirms are visible", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), true, "a tool surface hides the feed");
+  (document.getElementById("svnGenerate") as HTMLButtonElement).click();
+  // The click alone does NOT close the surface: a pre-dispatch refusal has to be readable where the
+  // user is looking. Mutation: close on click and the refusal case below renders off-screen.
+  assert.equal(document.getElementById("toolSipeedVision")!.classList.contains("hidden"), false, "the surface stays up until the host accepts");
+  post(dom, { type: "sipeed_vision_status", status: "running" });
+  // A tool surface hides the feed AND the composer. A run left behind it shows nothing — and a
+  // re-run over files the user edited posts an overwrite confirm that renders into the feed and
+  // blocks until answered, so it MUST be on screen. Mutation: drop the closeGlobalTool()/setTab()
+  // pair from the "running" branch and the feed stays hidden here.
+  assert.equal(document.getElementById("toolSipeedVision")!.classList.contains("hidden"), true, "the tool surface closes");
+  assert.equal(document.querySelector(".tabwrap")!.classList.contains("hidden"), false, "the feed is back on screen");
+  assert.equal(document.querySelector('.tab[data-tab="activity"]')!.classList.contains("active"), true, "Activity is the shown tab");
+  assert.equal((document.getElementById("svnGenerate") as HTMLButtonElement).disabled, true, "running keeps the button locked");
+  // The confirm card the host would post now lands somewhere the user can actually answer.
+  post(dom, { type: "file_op_confirm_needed", promptId: "file-overwrite-1", op: "overwrite", path: "sipeed_vision/main.py" });
+  assert.ok(document.getElementById("activity")!.textContent!.includes("sipeed_vision/main.py"), "the overwrite card is rendered in the visible feed");
+});
+
+test("a pre-dispatch refusal is readable on the surface and survives a reopen", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  (document.getElementById("svnGenerate") as HTMLButtonElement).click();
+  post(dom, { type: "sipeed_vision_status", status: "failed", reason: "invalid_model_path" });
+  assert.equal(document.getElementById("toolSipeedVision")!.classList.contains("hidden"), false, "a refused run leaves the user on the surface");
+  assert.match(document.getElementById("svnStatus")!.textContent!, /model path isn't valid/);
+  // Reopening must not wipe the explanation (or unlock a still-running button). Mutation: reset the
+  // status/running state in svnOnOpen and the line is gone here.
+  (document.getElementById("sipeedVisionBack") as HTMLButtonElement).click();
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  assert.match(document.getElementById("svnStatus")!.textContent!, /model path isn't valid/, "the reason is still on screen after a reopen");
+});
+
+test("every sipeed_vision_status outcome restores the button and localizes the host's reason code", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  const btn = document.getElementById("svnGenerate") as HTMLButtonElement;
+  const cases: Array<[string, string, RegExp]> = [
+    ["done", "generated", /Generated sipeed_vision\/main\.py/],
+    ["partial", "partial", /Partly generated/],
+    ["failed", "busy", /already running/],
+  ];
+  for (const [status, reason, expected] of cases) {
+    btn.click();
+    assert.equal(btn.disabled, true, `${reason}: locked while running`);
+    post(dom, { type: "sipeed_vision_status", status, reason });
+    // Mutation: stop clearing the running flag on a non-"done" status and the button stays stuck
+    // for the rest of the session.
+    assert.equal(btn.disabled, false, `${reason}: the button restores`);
+    assert.match(document.getElementById("svnStatus")!.textContent!, expected, `${reason}: its own line is shown`);
+  }
+});
+
+test("a blocked refusal points at the real error instead of advising a retry", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  (document.getElementById("svnGenerate") as HTMLButtonElement).click();
+  // A protocol/auth block posts its own session_error into the (hidden) feed. Telling the user to
+  // retry would send them in circles; the line has to name where the reason is. Mutation: map the
+  // blocked refusal back to dispatch_failed and this fails.
+  post(dom, { type: "sipeed_vision_status", status: "failed", reason: "blocked" });
+  assert.match(document.getElementById("svnStatus")!.textContent!, /see the error in Activity/);
+});
+
+test("an unknown reason code falls back to the generic line for its status, never the raw token", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  // A host that grows a new code must not render "svn_reason_something_new" at the user. Mutation:
+  // pass the tr() key straight through and this fails.
+  post(dom, { type: "sipeed_vision_status", status: "failed", reason: "something_new" });
+  const line = document.getElementById("svnStatus")!.textContent!;
+  assert.equal(line.includes("svn_reason"), false, `raw i18n key leaked: ${line}`);
+  assert.match(line, /did not complete/, "falls back to the generic failed line");
+  post(dom, { type: "sipeed_vision_status", status: "done" });
+  assert.match(document.getElementById("svnStatus")!.textContent!, /Generated/, "a missing reason still reports the outcome");
+});
+
+test("the Sipeed surface tells the user exactly what the envelope pins", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("sipeedVisionOpen") as HTMLButtonElement).click();
+  const shown = document.getElementById("toolSipeedVision")!.textContent!;
+  // The surface's UART line and file list are prose, while the envelope's values come from the
+  // schema constants. Assert the rendered text against those constants so the two cannot drift —
+  // telling the user 115200 while sending something else is a wiring bug the user pays for.
+  for (const pinned of [MAIXPY_UART_PORT, MAIXPY_UART_TX_PIN, MAIXPY_UART_RX_PIN, String(MAIXPY_UART_BAUDRATE), ...MAIXPY_ARTIFACT_PATHS]) {
+    assert.ok(shown.includes(pinned), `the surface must show the pinned value ${pinned}`);
+  }
 });

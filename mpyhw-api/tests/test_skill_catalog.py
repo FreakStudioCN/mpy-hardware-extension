@@ -10,13 +10,15 @@ from app import skill_catalog
 
 
 def test_served_phases_are_v0_plugin_chain():
-    # V0: the 6 sequential -plugin skills, then the 3 on-demand optional flows. Phase tokens are
-    # the exact `next_phase` values upstream emits (analyze/select-hw use short names; the rest use
-    # the full plugin dir name — upstream is inconsistent). Optional flows use their envelope name.
+    # V0: the 6 sequential -plugin skills, then the on-demand flows (3 optional + the standalone
+    # Sipeed MaixPy export global tool). Phase tokens are the exact `next_phase` values upstream
+    # emits (analyze/select-hw use short names; the rest use the full plugin dir name — upstream is
+    # inconsistent). On-demand flows use their envelope name.
     assert skill_catalog.served_phase_names() == [
         "analyze", "select-hw", "upy-flash-mpy-firmware-plugin",
         "upy-scaffold-plugin", "upy-generate-plugin", "upy-deploy-plugin",
         "upy-gen-driver-plugin", "upy-wiring-plugin", "upy-diagram-plugin",
+        "upy-maixpy-export-plugin",
     ]
 
 

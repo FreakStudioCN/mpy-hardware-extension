@@ -963,3 +963,51 @@ test("onSafePoint is told whether a next phase exists (false on the terminal pha
 
   assert.deepEqual(seen, [{ phase: "analyze", hasNext: true }, { phase: "select-hw", hasNext: false }]);
 });
+
+test("a MaixPy export run terminates on its own phase and never issues a second turn", async () => {
+  // The Sipeed vision global tool is a single-phase excursion: the plugin always emits
+  // next_phase:null, and the phase is deliberately absent from PHASE_ORDER, so the loop must stop
+  // after exactly one server turn — it must not fall through into a canonical flash/deploy phase.
+  // Mutation: make the loop advance on a null next_phase (or add maixpy to PHASE_ORDER and chain
+  // off it) and a second body appears here.
+  const sentBodies: any[] = [];
+  const baseLlm = scriptedLlm({
+    "upy-maixpy-export-plugin": [[
+      tu("m", "phase_complete", {
+        result: "success",
+        summary: "Generated standalone MaixPy files for a Sipeed vision module.",
+        next_phase: null,
+        artifacts: [{ type: "file", path: "sipeed_vision/main.py" }, { type: "file", path: "sipeed_vision/README.md" }],
+      }),
+      stop,
+    ]],
+  });
+  const llm = { streamMessages: async (body: any) => { sentBodies.push(body); return baseLlm.streamMessages(body); } };
+
+  const result = await runProtocolBuild({ intent: "ENVELOPE", startPhase: "upy-maixpy-export-plugin" }, { llmClient: llm });
+
+  assert.equal(result.terminal, "complete");
+  assert.deepEqual(result.phases.map((p) => p.phase), ["upy-maixpy-export-plugin"]);
+  assert.equal(sentBodies.length, 1, "exactly one turn: the export phase never chains");
+  assert.ok(!PHASE_ORDER.includes("upy-maixpy-export-plugin" as never), "the export phase stays out of the canonical chain");
+});
+
+test("the MaixPy export short tokens resolve instead of failing as an unknown next phase", async () => {
+  // The aliases are load-bearing: a next_phase carrying ruili's short token ("sipeed-vision" /
+  // "maixpy-export") must normalize to the plugin dir name. Mutation: drop either alias from
+  // PHASE_ALIASES and the run ends terminal:"failed" (unknown_next_phase) instead of running the
+  // export phase.
+  for (const token of ["sipeed-vision", "maixpy-export"]) {
+    const seen: string[] = [];
+    const baseLlm = scriptedLlm({
+      "analyze": [[tu("a", "phase_complete", { result: "success", summary: "analyze", next_phase: token }), stop]],
+      "upy-maixpy-export-plugin": [[tu("m", "phase_complete", { result: "success", summary: "export", next_phase: null }), stop]],
+    });
+    const llm = { streamMessages: async (body: any) => { seen.push(body.phase); return baseLlm.streamMessages(body); } };
+
+    const result = await runProtocolBuild({ intent: "x" }, { llmClient: llm });
+
+    assert.equal(result.terminal, "complete", `${token} resolves`);
+    assert.deepEqual(seen, ["analyze", "upy-maixpy-export-plugin"], `${token} normalizes to the plugin dir name`);
+  }
+});

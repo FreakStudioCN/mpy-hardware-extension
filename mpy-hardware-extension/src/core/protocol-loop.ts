@@ -46,6 +46,13 @@ export const PHASE_ALIASES: Record<string, string> = {
   "diagram": "upy-diagram-plugin",
   "upy-diagram": "upy-diagram-plugin",
   "upy-diagram-plugin": "upy-diagram-plugin",
+  // Sipeed MaixPy export: a STANDALONE global tool, dispatched by its own start_phase and never
+  // part of the canonical chain. Aliased for the same reason as the optional flows — an
+  // un-aliased token would fail to resolve — while the no-chain firewall stays PHASE_ORDER
+  // omission plus the plugin always emitting next_phase:null.
+  "sipeed-vision": "upy-maixpy-export-plugin",
+  "maixpy-export": "upy-maixpy-export-plugin",
+  "upy-maixpy-export-plugin": "upy-maixpy-export-plugin",
 };
 
 function phaseToken(value: any): string | null {

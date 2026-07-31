@@ -86,6 +86,10 @@ export function snapshotExistingPaths(root: string | undefined, into: Set<string
   walk(resolve(root));
 }
 
+// The narrow file-tool scope a fixed-output run installs for its duration: the exact writable
+// paths, and the one subtree its mkdir/delete may touch. Both are project-relative POSIX paths.
+export type WriteRestriction = { allowedPaths: readonly string[]; subtree: string };
+
 export function planWorkspaceWrites(input: { workspaceFolder?: string; generatedRoot?: string; files: Record<string, string> }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   // Apply the same containment as writeGeneratedFiles: skip any name that fails
@@ -101,6 +105,8 @@ export async function writeGeneratedFiles(input: {
   workspaceFolder?: string;
   generatedRoot?: string;
   files: Record<string, string>;
+  // Fixed-output run: the ONLY writable paths for its duration (see normalizeGeneratedArtifactPath).
+  allowedPaths?: readonly string[];
   exists: (path: string) => Promise<boolean>;
   writeFile: (path: string, content: string) => Promise<void>;
   confirmOverwrite: (path: string) => Promise<boolean>;
@@ -108,7 +114,7 @@ export async function writeGeneratedFiles(input: {
   const paths: string[] = [];
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   for (const [name, content] of Object.entries(input.files)) {
-    const safeName = normalizeGeneratedArtifactPath(name);
+    const safeName = normalizeGeneratedArtifactPath(name, input.allowedPaths ? { allowedPaths: input.allowedPaths } : {});
     if (!safeName) {
       return { ok: false, error_kind: "invalid_generated_path", path: name };
     }
@@ -134,12 +140,17 @@ export async function writeGeneratedFiles(input: {
   return { ok: true, paths };
 }
 
-export function normalizeGeneratedArtifactPath(name: string, options: { allowMain?: boolean; allowManifest?: boolean; allowLib?: boolean; allowFirmware?: boolean; allowProjectTree?: boolean } = {}) {
-  const { allowMain = true, allowManifest = true, allowLib = true, allowFirmware = false, allowProjectTree = false } = options;
+export function normalizeGeneratedArtifactPath(name: string, options: { allowMain?: boolean; allowManifest?: boolean; allowLib?: boolean; allowFirmware?: boolean; allowProjectTree?: boolean; allowedPaths?: readonly string[] } = {}) {
+  const { allowMain = true, allowManifest = true, allowLib = true, allowFirmware = false, allowProjectTree = false, allowedPaths } = options;
   if (typeof name !== "string" || !name || name.includes("\\") || name.includes("\0")) return null;
   if (name.startsWith("/") || /^[A-Za-z]:/.test(name)) return null;
   const segments = name.split("/");
   if (segments.some((segment) => !segment || segment === "." || segment === ".." || !/^[A-Za-z0-9._-]+$/.test(segment))) return null;
+  // A fixed-output run (the Sipeed MaixPy export tool) REPLACES the allowlist instead of extending
+  // it: only these exact paths may be written, so firmware/**, project-manifest.json and the rest of
+  // the project tree stay denied for as long as the restriction is in force. Checked before the
+  // allowMain/allowLib defaults, which are on unless a caller turns them off.
+  if (allowedPaths) return allowedPaths.includes(name) ? name : null;
   if (allowMain && name === "main.py") return name;
   if (allowManifest && name === "manifest.json") return name;
   if (allowLib && segments[0] === "lib" && segments.length >= 2 && name.endsWith(".py")) return name;
@@ -201,9 +212,12 @@ export async function writeProjectFile(input: {
   // only asks the user on a still-present pre-existing file. Absent = prior write-through
   // behavior (headless/e2e callers), so this stays backward-compatible.
   guardOverwrite?: (target: string) => Promise<boolean>;
+  // Fixed-output run: the ONLY writable paths for the duration of that run (see
+  // normalizeGeneratedArtifactPath). Absent = the normal project-tree allowlist.
+  allowedPaths?: readonly string[];
 }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
-  const safe = normalizeGeneratedArtifactPath(input.path, { allowProjectTree: true });
+  const safe = normalizeGeneratedArtifactPath(input.path, input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true });
   if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path };
   const target = joinPath(root, safe);
   // normalizeGeneratedArtifactPath already rejects `..`/absolute, but a symlinked dir in the
@@ -233,10 +247,19 @@ export async function deleteProjectPath(input: {
   path: string;
   removePath: (target: string) => Promise<void>;
   guardDelete?: (target: string) => Promise<boolean>;
+  // Fixed-output run: a project-relative directory the delete may not leave. The recursive remove is
+  // the most destructive tool the loop has, so a run allowed to write only sipeed_vision/ must not
+  // be able to delete firmware/ or the user's sources. Absent = the whole project tree, as before.
+  restrictToSubtree?: string;
 }) {
   const root = resolve(input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated");
   const target = resolve(root, input.path);
   if (target === root || !isRealContained(root, target)) {
+    return { ok: false as const, error_kind: "path_outside_workspace" };
+  }
+  // Contained in the restricted subtree (the subtree itself may be removed — it is the run's own
+  // output dir — but nothing beside it).
+  if (input.restrictToSubtree && !isRealContained(resolve(root, input.restrictToSubtree), target)) {
     return { ok: false as const, error_kind: "path_outside_workspace" };
   }
   if (input.guardDelete && !(await input.guardDelete(target))) {

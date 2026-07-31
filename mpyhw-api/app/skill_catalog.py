@@ -34,6 +34,11 @@ SERVED_SKILLS = (
     "upy-gen-driver-plugin",
     "upy-wiring-plugin",
     "upy-diagram-plugin",
+    # Sipeed MaixPy export: a standalone global tool (Sipeed vision module -> sipeed_vision/
+    # main.py + README.md). Served like the optional flows — the extension dispatches it with
+    # its own start_phase — but it never enters the canonical chain: it always ends on
+    # next_phase=null and stays out of the phase order.
+    "upy-maixpy-export-plugin",
 )
 
 PHASE_BY_SKILL = {
@@ -47,6 +52,7 @@ PHASE_BY_SKILL = {
     "upy-gen-driver-plugin": "upy-gen-driver-plugin",
     "upy-wiring-plugin": "upy-wiring-plugin",
     "upy-diagram-plugin": "upy-diagram-plugin",
+    "upy-maixpy-export-plugin": "upy-maixpy-export-plugin",
 }
 
 SKILL_BY_PHASE = {phase: skill for skill, phase in PHASE_BY_SKILL.items()}

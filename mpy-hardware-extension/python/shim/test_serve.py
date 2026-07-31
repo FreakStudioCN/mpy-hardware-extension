@@ -367,6 +367,31 @@ def test_device_copy_from_creates_local_parent_dirs():
     finally:
         restore()
 
+def test_resolve_finds_the_maixpy_export_validator():
+    # The Sipeed export SKILL invokes validate_maixpy_export.py by its bare name. Unless the plugin
+    # dir is indexed here (and bundled by prepare-vsce), every export run fails script_not_found in
+    # a packaged install while dev still works. Mutation: drop upy-maixpy-export-plugin from
+    # _V0_PLUGIN_DIRS and this resolves to None.
+    path = serve.resolve_v0_script("validate_maixpy_export.py")
+    assert path and os.path.isfile(path), path
+    assert "upy-maixpy-export-plugin" in path.replace("\\", "/"), path
+    # Unique basename across the bundled plugins -> exactly one candidate, so no qualifier needed.
+    assert len(serve._v0_script_candidates("validate_maixpy_export.py")) == 1
+
+
+def test_maintenance_scripts_are_not_runnable_from_a_phase():
+    # The upstream maintenance scripts fetch the live web and write to an arbitrary --out-dir with
+    # no workspace containment. Indexing a plugin dir must NOT make them resolvable by bare name, or
+    # one hallucinated script_run inside a network:false run fetches and writes outside the project.
+    # Mutation: drop the _V0_MAINTENANCE_SCRIPTS filter and each of these resolves.
+    for name in serve._V0_MAINTENANCE_SCRIPTS:
+        assert serve.resolve_v0_script(name) is None, name
+        assert serve._v0_script_candidates(name) == [], name
+        # A plugin-qualified spelling must not smuggle one in either.
+        assert serve.resolve_v0_script(f"upy-maixpy-export-plugin/{name}") is None, name
+    # They really are on disk (the guard is the filter, not a missing file).
+    assert os.path.isfile(os.path.join(serve.scripts_root(), "upy-maixpy-export-plugin", "scripts", "crawl_sipeed_maixpy_docs.py"))
+
 
 if __name__ == "__main__":
     failures = 0
