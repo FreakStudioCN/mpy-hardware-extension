@@ -900,4 +900,28 @@ def test_maixpy_export_system_prompt_is_stable_as_the_session_grows():
         {"role": "assistant", "content": "generating"},
         {"role": "user", "content": "tool result"},
     ]}
+    # TODO: when a second vision task token is added to _MAIXPY_REFERENCE_SET, make round2's
+    # latest message resolve to a DIFFERENT task so this assertion actually catches a
+    # "key off the latest message instead of the first envelope" regression.
     assert _deepseek_messages(round1)[0]["content"] == _deepseek_messages(round2)[0]["content"]
+
+
+@pytest.mark.no_db
+def test_maixpy_missing_reference_file_logs_a_degraded_warning(caplog, monkeypatch):
+    # A stale/partial submodule trims the block; that must be operator-visible, not silent
+    # (the @cache would otherwise lock the degraded result in for the process). Mutation: drop
+    # the logger.warning in _maixpy_reference_block -> no record -> this fails.
+    import logging
+
+    from app import prompt_assembly as pa
+
+    monkeypatch.setitem(pa._MAIXPY_REFERENCE_SET, "__test_missing__", ("references/does_not_exist_xyz.md",))
+    pa._maixpy_reference_block.cache_clear()
+    try:
+        with caplog.at_level(logging.WARNING, logger="mpyhw.llm"):
+            block = pa._maixpy_reference_block("__test_missing__")
+        assert block == "", "an all-missing task resolves to an empty block"
+        assert any("grounding degraded" in r.getMessage() for r in caplog.records), \
+            "a missing reference file must log a degraded-grounding warning"
+    finally:
+        pa._maixpy_reference_block.cache_clear()

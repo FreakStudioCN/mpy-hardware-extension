@@ -212,6 +212,10 @@ def _maixpy_reference_block(task: str) -> str:
     for rel in sorted(_MAIXPY_REFERENCE_SET.get(task, ())):
         path = plugin_dir / rel
         if not path.is_file():
+            # A stale / partially-synced submodule would trim the block invisibly, and the
+            # @cache locks that degraded result in for the process. Warn like the sibling
+            # driver-context path so a bad deploy is operator-visible instead of silent.
+            logger.warning("maixpy reference file missing (codegen grounding degraded)", extra={"task": task, "path": rel})
             continue
         text = path.read_text(encoding="utf-8").strip()
         if len(text) > _MAIXPY_REF_FILE_MAX:
