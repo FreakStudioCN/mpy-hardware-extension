@@ -791,3 +791,110 @@ def test_resolve_board_marks_unknown_boards_loudly_instead_of_bare_stub():
     assert board["support_status"] == "unknown_board"
     assert board["pin_allocation_supported"] is False
     assert "pin" in board["note"].lower()
+
+
+# --- Sipeed MaixPy export: stage-A reference grounding (Option A) ---------------------------
+
+
+@pytest.mark.no_db
+def test_maixpy_export_prompt_injects_task_specific_references():
+    from app.routes_llm import _deepseek_messages
+    from app.skill_catalog import SKILLS_ROOT
+
+    envelope = json.dumps({
+        "phase": "upy-maixpy-export-plugin",
+        "payload": {"vision_task": {"type": "yolo_detection"}},
+    })
+    system = _deepseek_messages({
+        "phase": "upy-maixpy-export-plugin",
+        "messages": [{"role": "user", "content": envelope}],
+    })[0]["content"]
+
+    # The REFERENCES block is present, and the phase note that points the model at it is wired.
+    assert "--- REFERENCES (server-provided" in system
+    assert "SIPEED MAIXPY EXPORT PHASE PROTOCOL" in system
+    # The ACTUAL file content is injected, not just a header: the YOLO reference and the UART
+    # JSONL example both appear verbatim (files are < the size cap, so they are not truncated).
+    # Mutation: drop the injection wiring in _deepseek_messages -> both asserts fail.
+    plugin = SKILLS_ROOT / "upy-maixpy-export-plugin"
+    yolo_ref = (plugin / "references" / "maixpy_ai_yolo.md").read_text(encoding="utf-8").strip()
+    uart_example = (plugin / "examples" / "yolo_uart_jsonl.py").read_text(encoding="utf-8").strip()
+    assert yolo_ref in system
+    assert uart_example in system
+    assert "### references/maixpy_ai_yolo.md" in system
+
+
+@pytest.mark.no_db
+def test_maixpy_reference_injection_is_scoped_to_the_export_phase():
+    from app.routes_llm import _deepseek_messages
+
+    # Any non-export phase must be byte-untouched by the new injection. Mutation: fire the
+    # injection unconditionally (drop the phase gate) and the reference bytes leak in here.
+    system = _deepseek_messages({
+        "phase": "analyze",
+        "messages": [{"role": "user", "content": "blink an led"}],
+    })[0]["content"]
+    assert "--- REFERENCES (server-provided" not in system
+    assert "maixpy_ai_yolo" not in system
+
+
+@pytest.mark.no_db
+def test_maixpy_reference_map_matches_the_skill_index_table():
+    # The static map is the runtime source of truth; this pins it to the SKILL's own defined set
+    # (references/maixpy_api_index.md) so a hand-mirror can't silently drift (recurring finding
+    # #37). Mutation: add/remove a file in _MAIXPY_REFERENCE_SET without editing the table -> fails.
+    import re
+
+    from app.prompt_assembly import _MAIXPY_REFERENCE_SET
+    from app.skill_catalog import SKILLS_ROOT
+
+    index = (SKILLS_ROOT / "upy-maixpy-export-plugin" / "references" / "maixpy_api_index.md").read_text(encoding="utf-8")
+    rows = {}
+    for line in index.splitlines():
+        cells = [c.strip() for c in line.split("|")]
+        if len(cells) >= 4:
+            rows[cells[1]] = (cells[2], cells[3])
+
+    def _to_plugin_rel(name: str) -> str:
+        # Table reference names are relative to references/ (bare or api_modules/...); example
+        # names are already plugin-root-relative (examples/...).
+        return name if name.startswith(("references/", "examples/")) else f"references/{name}"
+
+    expected: set[str] = set()
+    for label in ("YOLOv5 detection", "UART JSONL output"):
+        assert label in rows, f"index table row {label!r} missing"
+        for cell in rows[label]:
+            expected.update(_to_plugin_rel(n) for n in re.findall(r"`([^`]+)`", cell))
+    assert set(_MAIXPY_REFERENCE_SET["yolo_detection"]) == expected
+
+
+@pytest.mark.no_db
+def test_maixpy_reference_map_files_all_exist():
+    # Pins every mapped entry to a real file on disk, catching an upstream rename the conformance
+    # test alone would miss if the table were edited to match. Mutation: rename a file -> fails.
+    from app.prompt_assembly import _MAIXPY_REFERENCE_SET
+    from app.skill_catalog import SKILLS_ROOT
+
+    plugin = SKILLS_ROOT / "upy-maixpy-export-plugin"
+    missing = [rel for files in _MAIXPY_REFERENCE_SET.values() for rel in files if not (plugin / rel).is_file()]
+    assert missing == [], f"mapped reference files missing on disk: {missing}"
+
+
+@pytest.mark.no_db
+def test_maixpy_export_system_prompt_is_stable_as_the_session_grows():
+    # Prefix-cache safety: the system prompt must not change as the conversation grows, so later
+    # rounds keep hitting the cached prefix. Mutation: key the injection off the latest message
+    # instead of the envelope and round2 diverges from round1.
+    from app.routes_llm import _deepseek_messages
+
+    envelope = json.dumps({
+        "phase": "upy-maixpy-export-plugin",
+        "payload": {"vision_task": {"type": "yolo_detection"}},
+    })
+    round1 = {"phase": "upy-maixpy-export-plugin", "messages": [{"role": "user", "content": envelope}]}
+    round2 = {"phase": "upy-maixpy-export-plugin", "messages": [
+        {"role": "user", "content": envelope},
+        {"role": "assistant", "content": "generating"},
+        {"role": "user", "content": "tool result"},
+    ]}
+    assert _deepseek_messages(round1)[0]["content"] == _deepseek_messages(round2)[0]["content"]

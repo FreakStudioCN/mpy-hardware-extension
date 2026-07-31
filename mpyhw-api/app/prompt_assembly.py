@@ -149,6 +149,88 @@ def _phase_data_injection(body: dict[str, Any]) -> str:
     )
 
 
+# --- Sipeed MaixPy export: task-specific reference grounding (Option A) ----------------------
+# Stage A generates MaixPy API code, and the SKILL routes each vision task to a specific set of
+# reference .md + example .py files (references/maixpy_api_index.md). Those files never reach the
+# runtime model (the served surface sends only SKILL.md, and the VSIX vendor step strips .md), so
+# the model would generate ungrounded from prose alone. The server has the full submodule on disk,
+# so it injects the resolved reference CONTENT here, bounded to the SKILL's defined set. This needs
+# no VSIX or Skill change (the model-facing "use the block below" note is a server phase note).
+# The map is static (not a runtime markdown parse) to keep the hot path small; a conformance test
+# pins it to the index table, and an existence test pins every entry to a real file on disk.
+_MAIXPY_PHASE = "upy-maixpy-export-plugin"
+_MAIXPY_DEFAULT_TASK = "yolo_detection"
+# Per-file cap so one oversized reference can never dominate the prompt (today's largest is ~3.5KB).
+_MAIXPY_REF_FILE_MAX = 20000
+# Plugin-root-relative paths. yolo_detection is the only token stage A pins: the index table's
+# YOLOv5-detection row plus its UART-JSONL-output row (stage A always emits a UART JSONL coprocessor).
+_MAIXPY_REFERENCE_SET: dict[str, tuple[str, ...]] = {
+    "yolo_detection": (
+        "references/maixpy_ai_yolo.md",
+        "references/maixpy_api_camera.md",
+        "references/maixpy_api_display.md",
+        "references/api_modules/maix_nn.md",
+        "references/api_modules/maix_image.md",
+        "examples/yolo_uart_jsonl.py",
+        "references/maixpy_api_uart.md",
+        "references/maixpy_api_pinmap.md",
+        "references/api_modules/maix_peripheral.md",
+        "references/api_modules/maix_err.md",
+        "examples/uart_jsonl_bridge.py",
+    ),
+}
+
+
+def _maixpy_vision_task(body: dict[str, Any]) -> str:
+    """The vision task the export run pins, read from the start_phase envelope the extension sends
+    as the first user message. Falls back to the only token stage A ships when it can't be read."""
+    for message in body.get("messages", []):
+        if message.get("role") != "user" or not isinstance(message.get("content"), str):
+            continue
+        try:
+            envelope = json.loads(message["content"])
+        except (ValueError, TypeError):
+            continue
+        payload = envelope.get("payload") if isinstance(envelope, dict) else None
+        vision = payload.get("vision_task") if isinstance(payload, dict) else None
+        task = vision.get("type") if isinstance(vision, dict) else None
+        if isinstance(task, str) and task in _MAIXPY_REFERENCE_SET:
+            return task
+    return _MAIXPY_DEFAULT_TASK
+
+
+@functools.cache
+def _maixpy_reference_block(task: str) -> str:
+    """The verbatim reference/example bundle for one vision task, assembled once per process.
+    Files are read from the server-side submodule, size-capped, and ordered by path so the
+    system-prompt bytes stay stable across a session (DeepSeek prefix-cache friendly)."""
+    plugin_dir = skill_catalog.SKILLS_ROOT / _MAIXPY_PHASE
+    blocks: list[str] = []
+    for rel in sorted(_MAIXPY_REFERENCE_SET.get(task, ())):
+        path = plugin_dir / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8").strip()
+        if len(text) > _MAIXPY_REF_FILE_MAX:
+            text = text[:_MAIXPY_REF_FILE_MAX] + "\n...[truncated]"
+        blocks.append(f"### {rel}\n{text}")
+    if not blocks:
+        return ""
+    return (
+        "\n\n--- REFERENCES (server-provided; task-specific MaixPy API refs + examples; "
+        "do not re-fetch, and do not read them from disk) ---\n" + "\n\n".join(blocks) + "\n"
+    )
+
+
+def _maixpy_reference_injection(body: dict[str, Any]) -> str:
+    """Inject the task-specific MaixPy references for the Sipeed export phase; '' for every other
+    phase, whose prompts stay byte-identical. Grounds stage-A codegen in the SKILL's defined
+    reference set instead of SKILL.md prose alone (Option A of the grounding follow-up)."""
+    if _R()._phase(body) != _MAIXPY_PHASE:
+        return ""
+    return _maixpy_reference_block(_maixpy_vision_task(body))
+
+
 _CONTEXT_BOARD_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 
 
@@ -281,6 +363,7 @@ def _deepseek_messages(body: dict[str, Any]) -> list[dict[str, Any]]:
         + _R()._host_capabilities_note(ctx.get("host_capabilities"))
         + _context_injection(body)
         + _R()._phase_data_injection(body)
+        + _maixpy_reference_injection(body)
         + _language_directive(body)
     )
     messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
