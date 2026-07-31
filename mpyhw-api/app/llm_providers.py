@@ -33,6 +33,12 @@ class DeepSeekProvider:
     default_model = "deepseek-v4-pro"
     # Non-thinking model for the tool-free web_recommend path (see _llm_extract).
     default_plain_model = "deepseek-chat"
+    # Output budget for that path, a property of default_plain_model above and NOT of the
+    # deployment: whether a budget suffices is decided by whether that model reasons, so it
+    # belongs beside the model it sizes. deepseek-chat does not reason, so the small budget
+    # is enough; a reasoning plain model needs headroom or it spends the whole budget on
+    # hidden reasoning and returns finish_reason="length" with empty content (503).
+    plain_max_tokens = 256
     # gpt-5-class reasoning models reject sampling params, renamed the output cap
     # to max_completion_tokens, and 400 on DeepSeek's nonstandard reasoning_content
     # field — these switches let the shared payload builder emit what each
@@ -70,6 +76,11 @@ class OpenAIProvider(DeepSeekProvider):
     default_base_url = "https://api.openai.com/v1"
     default_model = "gpt-5.5"
     default_plain_model = "gpt-5.4-mini"
+    # gpt-5.4-mini DOES reason, so it needs far more than the DeepSeek budget for the same
+    # tiny JSON answer. Inherit 256 here and every web_recommend call 503s the moment the
+    # provider is switched — the failure the env var could only prevent by a human
+    # remembering to set it on the host.
+    plain_max_tokens = 2048
     send_temperature = False
     max_tokens_param = "max_completion_tokens"
     accepts_reasoning_content = False

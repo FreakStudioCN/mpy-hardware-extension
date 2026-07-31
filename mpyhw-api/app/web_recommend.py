@@ -270,13 +270,13 @@ def _llm_extract(idea: str) -> dict[str, Any]:
     {capabilities, board_family_hint, raw_count}; raises on upstream/parse failure."""
     from app.routes_llm import _call_deepseek_plain, get_llm_provider
 
-    max_tokens = int(os.getenv("MPYHW_WEB_RECOMMEND_MAX_TOKENS", "256"))
-    timeout = int(os.getenv("MPYHW_WEB_RECOMMEND_TIMEOUT", "10"))
     # Trivial classification → the provider's cheaper plain model, NOT the global
     # MPYHW_LLM_MODEL: a reasoning model's hidden reasoning eats the tiny budget
-    # (finish_reason="length", content="" → 503 llm_failed). Env-overridable; raise
-    # MPYHW_WEB_RECOMMEND_MAX_TOKENS if the plain model reasons (gpt-5.4-mini does).
+    # (finish_reason="length", content="" → 503 llm_failed). Model AND budget both come
+    # from the provider, so switching providers carries the matching pair; env vars override.
     provider = get_llm_provider()
+    max_tokens = int(os.getenv("MPYHW_WEB_RECOMMEND_MAX_TOKENS", provider.plain_max_tokens))
+    timeout = int(os.getenv("MPYHW_WEB_RECOMMEND_TIMEOUT", "10"))
     model = os.getenv("MPYHW_WEB_RECOMMEND_MODEL", provider.default_plain_model)
     text, _usage = _call_deepseek_plain(
         [{"role": "user", "content": _build_prompt(idea)}],
