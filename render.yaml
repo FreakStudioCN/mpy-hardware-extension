@@ -35,6 +35,12 @@ services:
         generateValue: true
       - key: DEEPSEEK_API_KEY
         sync: false
+      # LLM provider switch: unset/deepseek (default) or openai (then
+      # OPENAI_API_KEY is the required key). Rollback = set back to deepseek.
+      - key: MPYHW_LLM_PROVIDER
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: MPYHW_ADMIN_TOKEN
         sync: false
 

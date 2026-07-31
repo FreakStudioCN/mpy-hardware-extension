@@ -28,7 +28,7 @@ def _fake_returning(payload, capture=None):
     Accepts (and optionally captures) the new response_format kwarg so it matches the
     real signature."""
 
-    def fake(messages, max_tokens, timeout=120, response_format=None, model=None):
+    def fake(messages, max_tokens, timeout=120, response_format=None, model=None, provider=None):
         if capture is not None:
             capture["response_format"] = response_format
             capture["messages"] = messages
@@ -168,7 +168,7 @@ def test_llm_drops_unknown_token_but_keeps_valid_ones(monkeypatch):
 def test_llm_upstream_failure_raises_503(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
 
-    def boom(messages, max_tokens, timeout=120, response_format=None, model=None):
+    def boom(messages, max_tokens, timeout=120, response_format=None, model=None, provider=None):
         raise routes_llm.UpstreamError(500)
 
     monkeypatch.setattr(routes_llm, "_call_deepseek_plain", boom)
@@ -253,7 +253,7 @@ def test_daily_cap_raises_503_and_skips_llm(monkeypatch):
     monkeypatch.setenv("MPYHW_WEB_RECOMMEND_DAILY_LLM_CAP", "0")
     called = {"n": 0}
 
-    def fake(messages, max_tokens, timeout=120, response_format=None, model=None):
+    def fake(messages, max_tokens, timeout=120, response_format=None, model=None, provider=None):
         called["n"] += 1
         return '{"capabilities": ["motion_sensing"]}', {}
 
@@ -276,7 +276,7 @@ def test_daily_cap_not_overshot_under_concurrency(monkeypatch):
     monkeypatch.setenv("MPYHW_WEB_RECOMMEND_DAILY_LLM_CAP", "5")
     calls, calls_lock = [], threading.Lock()
 
-    def fake(messages, max_tokens, timeout=120, response_format=None, model=None):
+    def fake(messages, max_tokens, timeout=120, response_format=None, model=None, provider=None):
         with calls_lock:
             calls.append(1)
         return '{"capabilities": ["digital_output"], "board_family_hint": null}', {}

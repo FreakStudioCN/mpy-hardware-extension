@@ -13,7 +13,6 @@ from collections.abc import Iterable
 from typing import Any
 
 import jsonschema
-from fastapi import HTTPException
 
 from app.tool_registry import (
     LLM_TOOL_DESCRIPTIONS,
@@ -52,28 +51,10 @@ class UpstreamError(Exception):
         self.status = status
 
 
-class DeepSeekProvider:
-    name = "deepseek"
-
-    def ensure_configured(self) -> None:
-        if not os.getenv("DEEPSEEK_API_KEY"):
-            raise HTTPException(status_code=503, detail={"error": "llm_upstream_not_configured"})
-
-    def open_stream(self, body: dict[str, Any]):
-        return _R()._open_deepseek_stream(body, os.environ["DEEPSEEK_API_KEY"])
-
-    def translate_stream(self, upstream: Iterable[bytes], meter=None):
-        return _R()._translate_deepseek_stream(upstream, meter)
+from app.llm_providers import DeepSeekProvider, OpenAIProvider, _log_upstream_rejection, get_llm_provider, llm_provider_configured  # noqa: F401 - providers live there (line budget); re-exported onward via routes_llm
 
 
-def get_llm_provider():
-    provider = os.getenv("MPYHW_LLM_PROVIDER", "deepseek").lower()
-    if provider == "deepseek":
-        return DeepSeekProvider()
-    raise HTTPException(status_code=503, detail={"error": "llm_provider_not_supported", "provider": provider})
-
-
-def _deepseek_payload(body: dict[str, Any]) -> dict[str, Any]:
+def _deepseek_payload(body: dict[str, Any], *, provider=None) -> dict[str, Any]:
     # Prefix-cache contract: the leading bytes of the request (system prompt + the
     # stable head of the conversation + tools) MUST be byte-identical across rounds
     # for DeepSeek's automatic prefix caching to hit — that is what makes the re-sent
@@ -90,15 +71,20 @@ def _deepseek_payload(body: dict[str, Any]) -> dict[str, Any]:
     ceiling = int(os.getenv("MPYHW_LLM_MAX_TOKENS_CEILING", "32768"))
     requested = body.get("max_tokens")
     max_tokens = min(int(requested), ceiling) if isinstance(requested, int) and requested > 0 else default_max
+    messages = _R()._deepseek_messages(body)
+    if provider is not None and not provider.accepts_reasoning_content:
+        # OpenAI 400s DeepSeek's nonstandard reasoning_content on replayed turns; strip it (the DeepSeek path keeps it).
+        messages = [{k: v for k, v in m.items() if k != "reasoning_content"} for m in messages]
     payload = {
-        "model": os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
-        "messages": _R()._deepseek_messages(body),
-        "temperature": 0.2,
-        "stream": True,
-        # Ask DeepSeek for a final usage chunk so we can token-meter the turn.
-        "stream_options": {"include_usage": True},
-        "max_tokens": max_tokens,
+        "model": os.getenv("MPYHW_LLM_MODEL", provider.default_model if provider else "deepseek-v4-pro"),
+        "messages": messages,
     }
+    if provider is None or provider.send_temperature:
+        payload["temperature"] = 0.2
+    payload["stream"] = True
+    # Ask the upstream for a final usage chunk so we can token-meter the turn.
+    payload["stream_options"] = {"include_usage": True}
+    payload[provider.max_tokens_param if provider else "max_tokens"] = max_tokens
     tools = _R()._deepseek_tools(body.get("tools", []))
     if tools:
         payload["tools"] = tools
@@ -106,9 +92,10 @@ def _deepseek_payload(body: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _open_deepseek_stream(body: dict[str, Any], api_key: str):
-    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
-    payload = _R()._deepseek_payload(body)
+def _open_deepseek_stream(body: dict[str, Any], api_key: str, *, provider=None):
+    base_env, base_default = (provider.base_url_env, provider.default_base_url) if provider else ("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    base_url = os.getenv(base_env, base_default).rstrip("/")
+    payload = _R()._deepseek_payload(body, provider=provider)
     request = urllib.request.Request(
         f"{base_url}/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -128,13 +115,14 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str):
             return urllib.request.urlopen(request, timeout=60)
         except urllib.error.HTTPError as error:
             if _R()._is_outage_status(error.code) and attempt + 1 < attempts:
-                logger.warning("deepseek open retry", extra={"status": error.code, "attempt": attempt + 1})
+                logger.warning("llm upstream open retry", extra={"status": error.code, "attempt": attempt + 1})
                 time.sleep(0.5)
                 continue
+            _log_upstream_rejection(error)
             raise UpstreamError(error.code)
         except urllib.error.URLError:
             if attempt + 1 < attempts:
-                logger.warning("deepseek open retry", extra={"status": 0, "attempt": attempt + 1})
+                logger.warning("llm upstream open retry", extra={"status": 0, "attempt": attempt + 1})
                 time.sleep(0.5)
                 continue
             raise UpstreamError(0)
@@ -193,6 +181,12 @@ def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
                 content = delta.get("content")
                 if content:
                     yield _sse({"type": "content_block_delta", "delta": {"type": "text_delta", "text": content}})
+                refusal = delta.get("refusal")
+                if refusal:
+                    # OpenAI streams safety refusals as delta.refusal, not content.
+                    # Surface the text — dropping it would bill the turn and hand
+                    # the client a charged, silently empty "success".
+                    yield _sse({"type": "content_block_delta", "delta": {"type": "text_delta", "text": refusal}})
                 for tool_call in delta.get("tool_calls") or []:
                     index = tool_call.get("index", 0)
                     entry = tool_calls.get(index)
@@ -329,8 +323,11 @@ def _call_deepseek_plain(
     timeout: int = 120,
     response_format: dict[str, Any] | None = None,
     model: str | None = None,
+    provider=None,
 ) -> tuple[str, dict[str, Any]]:
     """A tool-free, single-shot DeepSeek generation (used for nested codegen).
+
+    provider (keyword, None) selects the upstream; None keeps the DeepSeek constants verbatim.
 
     Bypasses _deepseek_messages so the codegen prompt is clean (no adapter/SKILL
     prefix). Returns (text, usage). Raises UpstreamError on connect failure.
@@ -347,25 +344,29 @@ def _call_deepseek_plain(
     on the global (thinking) model.
     """
     payload = {
-        "model": model or os.getenv("MPYHW_LLM_MODEL", "deepseek-v4-pro"),
+        "model": model or os.getenv("MPYHW_LLM_MODEL", provider.default_model if provider else "deepseek-v4-pro"),
         "messages": messages,
-        "temperature": 0.2,
-        "stream": True,
-        "stream_options": {"include_usage": True},
-        "max_tokens": max_tokens,
     }
+    if provider is None or provider.send_temperature:
+        payload["temperature"] = 0.2
+    payload["stream"] = True
+    payload["stream_options"] = {"include_usage": True}
+    payload[provider.max_tokens_param if provider else "max_tokens"] = max_tokens
     if response_format is not None:
         payload["response_format"] = response_format
-    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    base_env, base_default = (provider.base_url_env, provider.default_base_url) if provider else ("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    base_url = os.getenv(base_env, base_default).rstrip("/")
+    key_env = provider.api_key_env if provider else "DEEPSEEK_API_KEY"
     req = urllib.request.Request(
         f"{base_url}/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"content-type": "application/json", "authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"},
+        headers={"content-type": "application/json", "authorization": f"Bearer {os.environ[key_env]}"},
         method="POST",
     )
     try:
         upstream = urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as error:
+        _log_upstream_rejection(error)
         raise UpstreamError(error.code)
     except urllib.error.URLError:
         raise UpstreamError(0)

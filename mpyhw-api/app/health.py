@@ -17,13 +17,15 @@ def health() -> dict[str, object]:
     without this signal a stub instance is indistinguishable from a broken one — the
     client surfaces it so a stub backend can't be mistaken for a hang.
 
-    `llm_configured` reports whether a DeepSeek key is actually present, so we can tell
-    from outside whether the recommendation pipeline can use the LLM path at all. The
-    recommendation endpoint fails fast: with no key every request returns 503
-    (llm_unconfigured) rather than degrading, so this flag is the early warning. The
-    boolean never echoes the key itself."""
+    `llm_configured` reports whether the active provider's API key (per
+    MPYHW_LLM_PROVIDER) is actually present, so we can tell from outside whether
+    the LLM path is usable at all. The endpoints fail fast: with no key every
+    request returns 503 rather than degrading, so this flag is the early warning.
+    The boolean never echoes the key itself."""
+    from app.routes_llm import llm_provider_configured
+
     mode = "stub" if os.getenv("MPYHW_LLM_STUB") == "1" else "live"
-    return {"status": "ok", "mode": mode, "llm_configured": bool(os.getenv("DEEPSEEK_API_KEY"))}
+    return {"status": "ok", "mode": mode, "llm_configured": llm_provider_configured()}
 
 
 @router.get("/v1/health/ready")
