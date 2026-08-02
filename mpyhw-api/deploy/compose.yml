@@ -12,10 +12,10 @@
 #            (DATABASE_URL + POSTGRES_PASSWORD)          -> openssl rand -hex 16
 #   MPYHW_JWT_SECRET                                     -> openssl rand -hex 32
 #   MPYHW_ADMIN_TOKEN                                    -> openssl rand -hex 24
-#   DEEPSEEK_API_KEY                                     -> your DeepSeek sk-... key
+#   OPENAI_API_KEY                                       -> your OpenAI sk-... key
 #   MPYHW_GITHUB_CLIENT_ID / _SECRET                     -> your GitHub OAuth app
 #            (needed for user login; the backend still STARTS without them)
-# To run on OpenAI instead of DeepSeek, uncomment MPYHW_LLM_PROVIDER + OPENAI_API_KEY
+# To run on DeepSeek instead of OpenAI, set MPYHW_LLM_PROVIDER=deepseek + DEEPSEEK_API_KEY
 # in the environment block (two lines, nothing else changes).
 # Also set the real Caddy network name at the bottom (`caddy_net`).
 # NEVER commit a filled copy of this file to a public repo.

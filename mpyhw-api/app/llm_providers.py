@@ -1,4 +1,4 @@
-"""LLM provider registry: DeepSeek (default) and OpenAI, selected by MPYHW_LLM_PROVIDER.
+"""LLM provider registry: OpenAI (default) and DeepSeek, selected by MPYHW_LLM_PROVIDER.
 
 Both upstreams speak the OpenAI chat-completions protocol, so OpenAIProvider
 subclasses DeepSeekProvider purely to reuse the shared request/stream code in
@@ -94,7 +94,7 @@ class OpenAIProvider(DeepSeekProvider):
 
 
 def get_llm_provider():
-    provider = os.getenv("MPYHW_LLM_PROVIDER", "deepseek").lower()
+    provider = os.getenv("MPYHW_LLM_PROVIDER", "openai").lower()
     if provider == "deepseek":
         return DeepSeekProvider()
     if provider == "openai":
