@@ -12,6 +12,9 @@ STORAGE="$CODE_USER/globalStorage/storage.json"
 PROFILE_NAME="Blockless"
 EXT_ID="blockless.mpy-hardware-extension"
 PY_EXT_ID="ms-python.python"
+# Pylance ships as an extensionDependency of ms-python.python (VS Code auto-installs it); assert
+# it landed rather than trusting the dependency resolved.
+PYLANCE_ID="ms-python.vscode-pylance"
 MPREMOTE_VERSION="1.28.0"
 
 fails=0
@@ -42,10 +45,10 @@ fi
 # 2. both extensions in the branded profile
 if [[ -n "$CODE" ]]; then
   list="$("$CODE" --profile "$PROFILE_NAME" --list-extensions 2>/dev/null)"
-  if print -r -- "$list" | grep -qi "^${EXT_ID}\$" && print -r -- "$list" | grep -qi "^${PY_EXT_ID}\$"; then
-    pass "both extensions in profile '$PROFILE_NAME'"
+  if print -r -- "$list" | grep -qi "^${EXT_ID}\$" && print -r -- "$list" | grep -qi "^${PY_EXT_ID}\$" && print -r -- "$list" | grep -qi "^${PYLANCE_ID}\$"; then
+    pass "extensions in profile '$PROFILE_NAME' (blockless + python + pylance)"
   else
-    fail "extensions missing in profile '$PROFILE_NAME'"
+    fail "extensions missing in profile '$PROFILE_NAME' (need blockless + python + pylance)"
   fi
 else
   fail "extension check skipped (no code CLI)"
