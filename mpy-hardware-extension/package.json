@@ -42,7 +42,8 @@
   },
   "main": "./dist/extension/activate.cjs",
   "activationEvents": [
-    "onUri"
+    "onUri",
+    "onStartupFinished"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
@@ -94,6 +95,12 @@
           "scope": "machine",
           "default": "",
           "description": "Developer fallback runner package index override. Machine-scoped (User/Remote settings only) so a workspace cannot redirect package installs to an untrusted index. Leave blank for default local runner behavior."
+        },
+        "mpyhw.autoOpenPanel": {
+          "type": "boolean",
+          "scope": "machine",
+          "default": false,
+          "description": "Open the Blockless panel automatically on VS Code startup. Off by default; the one-click installer enables this in its dedicated Blockless profile so that profile opens straight into the tool. Machine-scoped (User/Remote settings only) so an opened workspace cannot enable it."
         }
       }
     }

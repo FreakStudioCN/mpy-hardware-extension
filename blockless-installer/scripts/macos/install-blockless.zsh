@@ -214,6 +214,9 @@ except Exception:
     data = {}
 data["mpyhw.pythonPath"] = pypath
 data["workbench.colorTheme"] = theme
+# Opt this dedicated Blockless profile into auto-opening the panel on every startup (the
+# extension reads this; off by default so Marketplace users are unaffected).
+data["mpyhw.autoOpenPanel"] = True
 json.dump(data, open(target, "w"), indent=2)
 PY
 }

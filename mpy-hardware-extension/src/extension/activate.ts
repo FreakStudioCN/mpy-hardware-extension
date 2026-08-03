@@ -62,7 +62,24 @@ export function activate(context: any, vscode: any = undefined) {
     }));
   }
   if (output) context.subscriptions.push(output);
+  revealPanelIfEnabled(api);
   installHostTelemetry(context, api, (message: string) => output?.appendLine(message));
+}
+
+// Open straight into the Blockless panel when the profile opted in via the `mpyhw.autoOpenPanel`
+// setting. The one-click installer writes this into its dedicated Blockless profile, so that
+// profile lands on the tool instead of a dormant Activity Bar icon. Stateless by design — no
+// first-run flag, so it re-reveals on EVERY startup (the installer's VS Code is a kiosk-like,
+// single-purpose environment). Off by default, so Marketplace users in their own profiles are
+// never affected; `onStartupFinished` only wakes the extension to check the flag and does nothing
+// visible when it is unset.
+function revealPanelIfEnabled(api: any) {
+  try {
+    if (api.workspace?.getConfiguration?.("mpyhw")?.get?.("autoOpenPanel") !== true) return;
+    api.commands?.executeCommand?.("mpyhw.panel.focus");
+  } catch {
+    // Best-effort UX only — a failed reveal must never break activation.
+  }
 }
 
 // Wire host-level telemetry (uncaught-fault observer + abandoned-session sweep). Fully
