@@ -19,7 +19,7 @@ UV_VERSION="0.11.29"
 PYTHON_SERIES="3.12"
 MPREMOTE_VERSION="1.28.0"
 VSCODE_PLATFORM="darwin-universal"
-CANARY_THEME="Default Light Modern"   # visual canary: proves VS Code read our settings
+CANARY_THEME="Default Dark Modern"   # visual canary: proves VS Code read our settings (dark; Blockless has no light mode)
 
 # --- paths ---
 BLK="$HOME/Library/Application Support/Blockless"
@@ -112,14 +112,44 @@ install_ext() {
   return 1
 }
 
+# A brand-new VS Code profile only appears in storage.json after VS Code is launched with it
+# (a headless --install-extension into a missing profile fails). This is a python-free check —
+# step 2 runs before the interpreter exists — so it greps storage.json for the profile entry.
+profile_registered() {
+  [[ -f "$STORAGE" ]] && grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$PROFILE_NAME\"" "$STORAGE"
+}
+
+# Register the profile with the least UI possible. If VS Code is NOT already running, launch it
+# hidden and in the background (no focus steal) and quit it the moment the profile registers. If
+# the user already has VS Code open, open a normal window and leave their session alone (never
+# quit it). Polls for registration instead of a blind sleep so nothing lingers.
+register_profile() {
+  if profile_registered; then return 0; fi
+  local was_running=0
+  if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then was_running=1; fi
+  if [[ "$was_running" -eq 0 ]]; then
+    open -gj -a "Visual Studio Code" --args --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 || true
+  else
+    "$CODE" --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 || true
+  fi
+  local i
+  for i in {1..60}; do
+    if profile_registered; then break; fi
+    sleep 0.5
+  done
+  if [[ "$was_running" -eq 0 ]]; then
+    osascript -e 'tell application "Visual Studio Code" to quit' >/dev/null 2>&1 || true
+  fi
+}
+
 step2_extension() {
   if has_both_ext; then STEP_EXT=true; log "step2 extension: present, skip"; return; fi
   log "step2 extension: installing into profile '$PROFILE_NAME'"
   if ! install_ext "$EXT_ID" || ! install_ext "$PY_EXT_ID"; then
-    # Fresh-machine guard: a never-launched VS Code may not have the profile registered.
-    log "step2: first attempt failed, launching the profile once then retrying"
-    "$CODE" --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 || true
-    sleep 15
+    # Fresh-machine guard: a never-launched VS Code has no registered profile, and a headless
+    # --install-extension into a missing profile fails. Register it with the least UI possible.
+    log "step2: first attempt failed, registering the profile then retrying"
+    register_profile
     install_ext "$EXT_ID" || die "failed to install $EXT_ID"
     install_ext "$PY_EXT_ID" || die "failed to install $PY_EXT_ID"
   fi
@@ -203,9 +233,8 @@ PY
 step4_settings() {
   local loc; loc="$(profile_dir || true)"
   if [[ -z "$loc" && "$SETTINGS_MECHANISM" == "A" ]]; then
-    log "step4: profile not registered yet, launching once"
-    "$CODE" --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 || true
-    sleep 15
+    log "step4: profile not registered yet, registering"
+    register_profile
     loc="$(profile_dir || true)"
   fi
   local target
@@ -223,12 +252,23 @@ step4_settings() {
   log "step4: run 'code --profile $PROFILE_NAME' to confirm profile + canary theme + pythonPath on camera"
 }
 
+# Final launch: drop the user straight INTO the Blockless profile so the extension is right
+# there when setup finishes. Unlike register_profile's hidden registration, this one is
+# intentional and visible (foreground) — it is the "you're ready, here's Blockless" moment.
+open_blockless() {
+  log "opening the Blockless profile"
+  "$CODE" --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 \
+    || open -a "Visual Studio Code" --args --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 \
+    || true
+}
+
 main() {
   mkdir -p "$DL" "$LOGS"
   step1_vscode;    write_state
   step2_extension; write_state
   step3_python;    write_state
   step4_settings;  write_state
-  log "done. run verify-blockless.zsh to check."
+  log "setup complete. run verify-blockless.zsh to check."
+  open_blockless
 }
 main "$@"

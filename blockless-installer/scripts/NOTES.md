@@ -17,8 +17,9 @@ actually reads for a named profile:
   internal and could break across VS Code versions.
 - **Mechanism B** (insurance): write into the default `<UserDir>/settings.json`.
 
-The visual canary (`workbench.colorTheme` = "Default Light Modern") makes "did VS
-Code read this file?" answerable in two seconds on camera.
+The visual canary (`workbench.colorTheme` = "Default Dark Modern") makes "did VS
+Code read this file?" answerable in two seconds on camera. Dark, not light: Blockless
+has no light mode, so the shipped theme must not flip users to light.
 
 ### Finding
 
@@ -32,6 +33,25 @@ _TODO: fill in after the first fresh-VM run._
 ```
 
 - Notes / surprises:
+
+## Profile registration (no headless create)
+
+A named profile does not exist until VS Code is launched with it: `code --profile <new>
+--install-extension <id>` FAILS into a not-yet-registered profile, and the profile only
+appears in `storage.json`'s `userDataProfiles` after a `--profile <name> --new-window`
+launch. `code --help` says `--profile` creates the profile "if it does not exist", but only
+on the window-opening path, not on `--install-extension`.
+
+Mitigation shipped in M0 (`register_profile`): if VS Code is not already running, launch it
+hidden + in the background (`open -gj -a "Visual Studio Code" --args --profile <name>
+--new-window`), poll `storage.json` for the profile entry (not a blind sleep), then quit VS
+Code once it registers. If the user already had VS Code open, open a normal window and leave
+their session alone (never quit it), since we cannot safely hide/kill a session we did not
+start. `open -gj` is best-effort — a window may still flash briefly on some setups.
+
+installer-core (Rust) should own this cleanly: spawn VS Code as a child process it controls,
+keep it off-screen, and terminate exactly that process once the profile registers — no
+app-wide quit, no reliance on `open -gj`.
 
 ## Per-OS quirks observed
 
