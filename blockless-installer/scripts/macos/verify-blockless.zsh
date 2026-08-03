@@ -105,6 +105,22 @@ else
   fail "mpyhw.pythonPath wrong/missing (mechanism $MECH, target='$target')"
 fi
 
+# 4b. the profile opts into auto-opening the panel (the extension reads mpyhw.autoOpenPanel on
+# onStartupFinished and focuses the panel only when this is true).
+if [[ -n "$target" && -f "$target" && -n "$ENVPY" && -x "$ENVPY" ]] && "$ENVPY" - "$target" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if d.get("mpyhw.autoOpenPanel") is True else 1)
+PY
+then
+  pass "mpyhw.autoOpenPanel enabled in mechanism-$MECH settings"
+else
+  fail "mpyhw.autoOpenPanel not enabled (mechanism $MECH, target='$target')"
+fi
+
 # 5. state.json records every step ok
 if [[ -f "$STATE" ]] && ! grep -Eq '"(vscode|extension|python|settings)":[[:space:]]*false' "$STATE"; then
   pass "state.json marks all four steps ok"
