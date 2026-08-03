@@ -58,6 +58,17 @@ else
   fail "mpremote $MPREMOTE_VERSION not found (envPython='$ENVPY')"
 fi
 
+# 3b. the env's BASE interpreter is contained under $BLK, not a system/Anaconda python.
+# pyvenv.cfg's `home` is the dir of the base interpreter the venv was built on; if step 3
+# built off /opt/anaconda3 or /usr, uninstall-by-deleting-one-folder breaks and the env
+# depends on software we do not own. This is the guard for the --managed-python pin.
+BASE_HOME="$(grep -E '^home[[:space:]]*=' "$BLK/env/pyvenv.cfg" 2>/dev/null | head -1 | sed -E 's/^home[[:space:]]*=[[:space:]]*//')"
+if [[ -n "$BASE_HOME" && "$BASE_HOME" == "$BLK"* ]]; then
+  pass "env base interpreter is contained ($BASE_HOME)"
+else
+  fail "env base interpreter NOT contained (home='$BASE_HOME', expected under $BLK)"
+fi
+
 # 4. the settings file dictated by the recorded mechanism has our pythonPath -> real exe
 target=""
 if [[ "$MECH" == "A" ]]; then

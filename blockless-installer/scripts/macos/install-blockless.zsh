@@ -140,8 +140,12 @@ step3_python() {
   [[ -x "$uv" ]] || die "uv binary missing after install"
   export UV_PYTHON_INSTALL_DIR="$BLK/python"
   log "step3 python: provisioning Python $PYTHON_SERIES + mpremote $MPREMOTE_VERSION"
-  "$uv" python install "$PYTHON_SERIES" || die "uv python install failed"
-  "$uv" venv "$BLK/env" --python "$PYTHON_SERIES" || die "uv venv failed"
+  # Contained on purpose: the interpreter installs under $BLK/python (UV_PYTHON_INSTALL_DIR),
+  # --no-bin keeps uv from symlinking shims into ~/.local/bin, and --managed-python forces the
+  # venv to build on THAT interpreter. Without --managed-python, `uv venv --python 3.12` matches
+  # any discoverable 3.12 (e.g. a dev's Anaconda) and the env silently depends on it.
+  "$uv" python install --no-bin "$PYTHON_SERIES" || die "uv python install failed"
+  "$uv" venv "$BLK/env" --managed-python --python "$PYTHON_SERIES" || die "uv venv failed"
   "$uv" pip install --python "$ENVPY" "mpremote==$MPREMOTE_VERSION" || die "mpremote install failed"
   "$ENVPY" -m mpremote version 2>/dev/null | grep -q "$MPREMOTE_VERSION" || die "mpremote verify failed"
   STEP_PY=true; log "step3 python: ready ($ENVPY)"
