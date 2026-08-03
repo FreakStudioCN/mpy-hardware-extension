@@ -31,6 +31,9 @@ ENVPY="$BLK/env/bin/python"
 # --- mutable state (written to state.json as we go; strings are JSON booleans) ---
 STEP_VSCODE=false; STEP_EXT=false; STEP_PY=false; STEP_SETTINGS=false
 VSCODE_PRODUCT_VERSION=""; SETTINGS_MECHANISM="A"; VSIX_PATH=""; CODE=""
+# "We installed VS Code" (step 1 ran) vs "it was already present" (skipped). The uninstaller reads
+# this so it only removes VS Code when WE put it there, never a user's pre-existing editor.
+VSCODE_INSTALLED_BY_US=false
 
 # --- args: --vsix <path> supplies a bundled fallback for our own extension ---
 while [[ $# -gt 0 ]]; do
@@ -50,6 +53,7 @@ write_state() {
   cat > "$STATE" <<EOF
 {
   "productVersion": "$VSCODE_PRODUCT_VERSION",
+  "vscodeInstalledByUs": $VSCODE_INSTALLED_BY_US,
   "steps": { "vscode": $STEP_VSCODE, "extension": $STEP_EXT, "python": $STEP_PY, "settings": $STEP_SETTINGS },
   "mpremoteVersion": "$MPREMOTE_VERSION",
   "envPython": "$ENVPY",
@@ -92,7 +96,7 @@ step1_vscode() {
   "$CODE" --version >/dev/null 2>&1 || die "VS Code CLI not runnable after install"
   VSCODE_PRODUCT_VERSION="$("$CODE" --version | head -1)"
   [[ "$VSCODE_PRODUCT_VERSION" == "$ver" ]] || log "note: installed $VSCODE_PRODUCT_VERSION, API reported $ver"
-  STEP_VSCODE=true; log "step1 VS Code: installed ($VSCODE_PRODUCT_VERSION)"
+  VSCODE_INSTALLED_BY_US=true; STEP_VSCODE=true; log "step1 VS Code: installed ($VSCODE_PRODUCT_VERSION)"
 }
 
 has_both_ext() {
