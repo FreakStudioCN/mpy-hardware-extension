@@ -63,6 +63,16 @@ write_state() {
 EOF
 }
 
+# Preserve "we installed VS Code" across idempotent re-runs. On a re-run where step 1 SKIPS (VS Code
+# already present, possibly because a PRIOR run of THIS installer put it there), the skip branch
+# leaves VSCODE_INSTALLED_BY_US at its false default -- clobbering a true recorded earlier and making
+# the uninstaller refuse to remove a VS Code we installed. Seed the flag from any existing state.json.
+read_prior_state() {
+  if [[ -f "$STATE" ]] && grep -q '"vscodeInstalledByUs"[[:space:]]*:[[:space:]]*true' "$STATE"; then
+    VSCODE_INSTALLED_BY_US=true
+  fi
+}
+
 # Resolve the `code` CLI explicitly -- never trust PATH on a fresh machine.
 resolve_code() {
   local a="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
@@ -104,15 +114,23 @@ has_both_ext() {
   print -r -- "$list" | grep -qi "^${EXT_ID}\$" && print -r -- "$list" | grep -qi "^${PY_EXT_ID}\$"
 }
 
-# Install one extension id; fall back to the bundled .vsix for our own extension if
-# the Marketplace is unreachable (restricted school networks).
+# Install one extension id. For OUR extension, prefer the BUNDLED vsix (the exact build this
+# installer ships + verifies): the Marketplace has a 0.4.2 published at an OLDER commit (same
+# version number, but built before mpyhw.autoOpenPanel existed), so `--install-extension $EXT_ID`
+# pulls that stale build and the panel never auto-opens. Fall back to the Marketplace only if no
+# usable vsix was given. Other ids (ms-python.python -> also pulls Pylance) come from the Marketplace.
 install_ext() {
   local id="$1"
-  "$CODE" --profile "$PROFILE_NAME" --install-extension "$id" --force >/dev/null 2>&1 && return 0
-  if [[ "$id" == "$EXT_ID" && -n "$VSIX_PATH" && -f "$VSIX_PATH" ]]; then
-    log "step2: marketplace failed for $id, using bundled vsix"
-    "$CODE" --profile "$PROFILE_NAME" --install-extension "$VSIX_PATH" --force >/dev/null 2>&1 && return 0
+  if [[ "$id" == "$EXT_ID" ]]; then
+    if [[ -n "$VSIX_PATH" && -f "$VSIX_PATH" ]]; then
+      log "step2: installing $id from the bundled vsix"
+      "$CODE" --profile "$PROFILE_NAME" --install-extension "$VSIX_PATH" --force >/dev/null 2>&1 && return 0
+      log "step2: bundled vsix install failed, falling back to the Marketplace for $id"
+    fi
+    "$CODE" --profile "$PROFILE_NAME" --install-extension "$id" --force >/dev/null 2>&1 && return 0
+    return 1
   fi
+  "$CODE" --profile "$PROFILE_NAME" --install-extension "$id" --force >/dev/null 2>&1 && return 0
   return 1
 }
 
@@ -123,35 +141,88 @@ profile_registered() {
   [[ -f "$STORAGE" ]] && grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$PROFILE_NAME\"" "$STORAGE"
 }
 
-# Register the profile with the least UI possible. If VS Code is NOT already running, launch it
-# hidden and in the background (no focus steal) and quit it the moment the profile registers. If
-# the user already has VS Code open, open a normal window and leave their session alone (never
-# quit it). Polls for registration instead of a blind sleep so nothing lingers.
+# Register the profile WITHOUT launching VS Code, by seeding storage.json's userDataProfiles entry
+# ourselves (the internal name->location mapping mechanism A already reads).
+# WHY (root cause of "panel never auto-opens", found + fixed on Windows): registering via a live
+# window then quitting VS Code mid-startup leaves half-written window state, so the final cold launch
+# resolves the window's INITIAL extension list against the DEFAULT profile, fires onStartupFinished
+# with built-ins only, and delta-adds the profile's extensions moments later -- too late:
+# onStartupFinished never re-fires, so the extension's activate()/auto-open never runs (even though
+# the icon still works via onView). Seeding storage.json means NO window ever exists before the final
+# launch: the CLI installs straight into profiles/blockless/, and open_blockless opens the profile's
+# FIRST-ever window with the extension present. If a VS Code is running it owns storage.json in memory
+# and would clobber our edit, so skip -- register_profile's window fallback covers that.
+# The JSON edit uses JXA (osascript -l JavaScript): python-free (step 2 runs before $ENVPY exists,
+# and system python3 would trigger the Xcode CLT prompt on a fresh Mac) and macOS-native.
+register_profile_offline() {
+  if profile_registered; then return 0; fi
+  if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then return 0; fi
+  mkdir -p "$(dirname "$STORAGE")" "$CODE_USER/profiles/blockless"
+  osascript -l JavaScript - "$STORAGE" "$PROFILE_NAME" "blockless" >/dev/null 2>&1 <<'JXA' || true
+ObjC.import('Foundation');
+function run(argv) {
+  var path = argv[0], name = argv[1], loc = argv[2];
+  var fm = $.NSFileManager.defaultManager;
+  var obj = {};
+  if (fm.fileExistsAtPath(path)) {
+    var raw = $.NSString.stringWithContentsOfFileEncodingError($(path), $.NSUTF8StringEncoding, $()).js;
+    try { obj = JSON.parse(raw); } catch (e) { obj = {}; }
+  }
+  if (Object.prototype.toString.call(obj.userDataProfiles) !== '[object Array]') obj.userDataProfiles = [];
+  var found = false;
+  for (var i = 0; i < obj.userDataProfiles.length; i++) { if (obj.userDataProfiles[i] && obj.userDataProfiles[i].name === name) found = true; }
+  if (!found) obj.userDataProfiles.push({ location: loc, name: name });
+  $(JSON.stringify(obj)).writeToFileAtomicallyEncodingError($(path), true, $.NSUTF8StringEncoding, $());
+}
+JXA
+  if profile_registered; then log "step2: profile '$PROFILE_NAME' registered offline (no VS Code launch)"; fi
+}
+
+# Graceful close + WAIT for every VS Code process to exit. Graceful (osascript quit), not a hard kill,
+# so VS Code saves its window/profile state; then wait to zero so the next launch is a FRESH instance
+# (a running extension host won't load a newly-installed extension). Hard kill only as a last resort.
+stop_code_and_wait() {
+  osascript -e 'tell application "Visual Studio Code" to quit' >/dev/null 2>&1 || true
+  local i
+  for i in {1..60}; do
+    if ! pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then break; fi
+    sleep 0.25
+  done
+  if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then
+    pkill -f "Visual Studio Code.app/Contents/MacOS/Electron" 2>/dev/null || true
+    for i in {1..20}; do
+      if ! pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then break; fi
+      sleep 0.25
+    done
+  fi
+}
+
+# Fallback only (a live VS Code owns storage.json, or a future VS Code stops honoring the seeded
+# entry): a new profile also appears after VS Code is launched with it. Launch it, poll for
+# registration, then close it if we were the ones who started it (never quit a user's session). NOTE:
+# this path re-creates the half-written-state race described above -- keep it a last resort.
 register_profile() {
   if profile_registered; then return 0; fi
   local was_running=0
   if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then was_running=1; fi
-  if [[ "$was_running" -eq 0 ]]; then
-    open -gj -a "Visual Studio Code" --args --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 || true
-  else
-    "$CODE" --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 || true
-  fi
+  "$CODE" --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 &
   local i
   for i in {1..60}; do
     if profile_registered; then break; fi
     sleep 0.5
   done
-  if [[ "$was_running" -eq 0 ]]; then
-    osascript -e 'tell application "Visual Studio Code" to quit' >/dev/null 2>&1 || true
-  fi
+  if [[ "$was_running" -eq 0 ]]; then stop_code_and_wait; fi
 }
 
 step2_extension() {
   if has_both_ext; then STEP_EXT=true; log "step2 extension: present, skip"; return; fi
   log "step2 extension: installing into profile '$PROFILE_NAME'"
+  # Headless registration FIRST: no VS Code window may exist before the final launch (see
+  # register_profile_offline for why -- it is the panel-auto-open fix).
+  register_profile_offline
   if ! install_ext "$EXT_ID" || ! install_ext "$PY_EXT_ID"; then
-    # Fresh-machine guard: a never-launched VS Code has no registered profile, and a headless
-    # --install-extension into a missing profile fails. Register it with the least UI possible.
+    # Fallback: a never-launched VS Code (or one that ignored the seeded entry) may still lack the
+    # profile, and a headless --install-extension into a missing profile fails. Register via a window.
     log "step2: first attempt failed, registering the profile then retrying"
     register_profile
     install_ext "$EXT_ID" || die "failed to install $EXT_ID"
@@ -241,7 +312,8 @@ step4_settings() {
   local loc; loc="$(profile_dir || true)"
   if [[ -z "$loc" && "$SETTINGS_MECHANISM" == "A" ]]; then
     log "step4: profile not registered yet, registering"
-    register_profile
+    register_profile_offline
+    profile_registered || register_profile
     loc="$(profile_dir || true)"
   fi
   local target
@@ -271,6 +343,7 @@ open_blockless() {
 
 main() {
   mkdir -p "$DL" "$LOGS"
+  read_prior_state
   step1_vscode;    write_state
   step2_extension; write_state
   step3_python;    write_state
