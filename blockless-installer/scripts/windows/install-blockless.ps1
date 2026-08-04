@@ -9,11 +9,19 @@
 [CmdletBinding()]
 param([string]$Vsix = "")
 
-$ErrorActionPreference = "Stop"
-# Cmdlet errors (a failed download etc.) stop the script; native-command exit codes must NOT throw,
-# because the extension-install fallback and the "skip if already present" checks rely on inspecting
-# $LASTEXITCODE / output of commands that are *expected* to fail sometimes (PS 7.4+ default is $true).
+# Native-command failures must NOT throw: the extension-install fallback and the "skip if already
+# present" checks rely on inspecting $LASTEXITCODE / output of commands *expected* to fail sometimes
+# (e.g. `code --list-extensions` before the profile exists). PS 7.4+ has a per-native toggle
+# ($PSNativeCommandUseErrorActionPreference), but Windows PowerShell 5.1 -- what ships in-box and in
+# Windows Sandbox -- has none: under $ErrorActionPreference='Stop', a native command's stderr routed
+# through `2>$null` becomes a *terminating* NativeCommandError, killing the run before the retry path.
+# So run at the default 'Continue' (as verify-blockless.ps1 does) and abort explicitly via `die` on
+# every critical cmdlet (each is guarded below). Set the 7.4 toggle too, for parity when run under pwsh.
+$ErrorActionPreference = "Continue"
 $PSNativeCommandUseErrorActionPreference = $false
+# Windows PowerShell 5.1 (what ships in-box, incl. Windows Sandbox) renders an Invoke-WebRequest
+# progress bar per-chunk; on a ~100MB download that is 10-50x slower and looks like a hang. Silence it.
+$ProgressPreference = "SilentlyContinue"
 
 # --- pins (the executable spec the Rust installer-core will mirror) ---
 $PROFILE_NAME     = "Blockless"
@@ -39,6 +47,7 @@ $script:STEP_VSCODE = $false; $script:STEP_EXT = $false; $script:STEP_PY = $fals
 $script:VSCODE_PRODUCT_VERSION = ""
 $script:VSCODE_INSTALLED_BY_US = $false   # "we installed VS Code" vs "it was already present"
 $script:CODE = ""
+$script:USER_HAD_CODE = $false            # was a VS Code the USER started already running when we began?
 
 function log($m) { Write-Host "[blockless] $m" }
 function die($m) { Write-Host "[blockless] ERROR: $m" -ForegroundColor Red; exit 1 }
@@ -48,6 +57,16 @@ function Resolve-Code {
   $c = Join-Path $env:LOCALAPPDATA "Programs\Microsoft VS Code\bin\code.cmd"
   if (Test-Path $c) { $script:CODE = $c; return $true }
   return $false
+}
+
+# Preserve "we installed VS Code" across idempotent re-runs. On a re-run where step1 SKIPS (VS Code
+# already present, possibly because a PRIOR run of THIS installer put it there), the skip branch leaves
+# $script:VSCODE_INSTALLED_BY_US at its $false default -- which would clobber a true recorded earlier and
+# make the uninstaller refuse to remove a VS Code we installed. Seed the flag from any existing state.json.
+function Read-PriorState {
+  if (-not (Test-Path $STATE)) { return }
+  try { $st = Get-Content $STATE -Raw | ConvertFrom-Json } catch { return }
+  if ($st.vscodeInstalledByUs) { $script:VSCODE_INSTALLED_BY_US = $true }
 }
 
 function Write-State {
@@ -73,16 +92,67 @@ function Get-ProfileLocation {
 }
 function Test-ProfileRegistered { return [bool](Get-ProfileLocation) }
 
-# A new profile only appears in storage.json after VS Code is launched with it (a headless
+# Close VS Code and WAIT for every "Code" process to exit. Two things matter here:
+#  * GRACEFUL close, not a hard kill. `taskkill` WITHOUT /F posts WM_CLOSE so Electron shuts down cleanly
+#    and SAVES its window/profile state (the macOS installer gets this from `osascript quit`). A hard
+#    Stop-Process -Force skips that save, and the next cold `code --profile Blockless` launch then falls
+#    back to the DEFAULT profile instead of Blockless -- so the auto-opened window lacks the extension
+#    and the panel never appears. Force-kill is kept only as a last resort if graceful close doesn't take.
+#  * WAIT to zero. VS Code spawns several "Code" processes; the next launch could otherwise attach to one
+#    still shutting down. A fresh instance is essential -- a running extension host won't load a
+#    newly-installed extension, so a stale instance would never activate the Blockless extension.
+function Stop-CodeAndWait {
+  taskkill /IM Code.exe *> $null                      # graceful (WM_CLOSE); no /F -> state is saved
+  for ($i = 0; $i -lt 60; $i++) { if (-not (Get-Process -Name "Code" -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 250 }
+  if (Get-Process -Name "Code" -ErrorAction SilentlyContinue) {   # last resort only
+    Get-Process -Name "Code" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    for ($i = 0; $i -lt 20; $i++) { if (-not (Get-Process -Name "Code" -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 250 }
+  }
+}
+
+# Register the profile WITHOUT launching VS Code, by seeding the userDataProfiles entry in
+# storage.json ourselves (the same internal name->location mapping mechanism A already reads).
+# WHY (root cause of "panel never auto-opens", see NOTES.md): registering via a live window and then
+# killing VS Code mid-startup leaves half-written window state in storage.json (the empty-window
+# backup lands, its profileAssociations entry may not). On the final cold launch the workbench then
+# resolves the window's INITIAL extension list against the DEFAULT profile, fires onStartupFinished
+# with built-ins only, and only delta-adds the profile's extensions moments later -- too late:
+# onStartupFinished is never re-fired, so activate()/auto-open never runs even though the icon works
+# (clicking it activates via onView). Seeding storage.json means NO window ever exists before the
+# final launch: the CLI installs straight into profiles/blockless/ (verified on 1.130.0 + 1.131.0),
+# and Open-Blockless opens the profile's FIRST-ever window, whose association is written
+# synchronously by VS Code itself -- the extension lands in the onStartupFinished batch (verified
+# via exthost.log in an isolated instance). If a VS Code instance is running it owns storage.json
+# in memory and would clobber our edit, so skip; Step-Extension's window-based fallback covers that.
+function Register-ProfileOffline {
+  if (Test-ProfileRegistered) { return }
+  if (Get-Process -Name "Code" -ErrorAction SilentlyContinue) { return }
+  New-Item -ItemType Directory -Force -Path (Split-Path $STORAGE -Parent) | Out-Null
+  New-Item -ItemType Directory -Force -Path (Join-Path $CODE_USER "profiles\blockless") | Out-Null
+  $d = $null
+  if (Test-Path $STORAGE) { try { $d = Get-Content $STORAGE -Raw | ConvertFrom-Json } catch { $d = $null } }
+  if ($null -eq $d) { $d = [pscustomobject]@{} }
+  $list = @()
+  if ($d.PSObject.Properties["userDataProfiles"]) { $list = @($d.userDataProfiles) }
+  $list += [pscustomobject]@{ location = "blockless"; name = $PROFILE_NAME }
+  $d | Add-Member -Force -NotePropertyName "userDataProfiles" -NotePropertyValue $list
+  # WriteAllText, not Set-Content: VS Code's state reader is strict JSON and PS 5.1's
+  # `Set-Content -Encoding UTF8` prepends a BOM, which would corrupt storage.json.
+  [System.IO.File]::WriteAllText($STORAGE, ($d | ConvertTo-Json -Depth 30))
+  if (Test-ProfileRegistered) { log "step2: profile '$PROFILE_NAME' registered offline (no VS Code launch)" }
+}
+
+# Fallback only (a live VS Code owns storage.json, or a future VS Code stops honoring the seeded
+# entry): a new profile also appears in storage.json after VS Code is launched with it (a headless
 # --install-extension into a missing profile fails). Launch it, poll for registration, then close it
-# if we were the ones who started VS Code (never quit a user's session). Fully hiding the launch is
-# left to installer-core; this just avoids a lingering window.
+# if we were the ones who started VS Code (never quit a user's session). NOTE: this path re-creates
+# the half-written-state race described above Register-ProfileOffline; keep it a last resort.
 function Register-Profile {
   if (Test-ProfileRegistered) { return }
-  $wasRunning = [bool](Get-Process -Name "Code" -ErrorAction SilentlyContinue)
   Start-Process -FilePath $script:CODE -ArgumentList '--profile', $PROFILE_NAME, '--new-window'
   for ($i = 0; $i -lt 60; $i++) { if (Test-ProfileRegistered) { break }; Start-Sleep -Milliseconds 500 }
-  if (-not $wasRunning) { Get-Process -Name "Code" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
+  # Only tear down VS Code if the user had none running when we started (never kill a user's session).
+  if (-not $script:USER_HAD_CODE) { Stop-CodeAndWait }
 }
 
 # --- step 1: VS Code (User Setup, silent, no admin) ---
@@ -96,7 +166,8 @@ function Step-VSCode {
   $meta = Invoke-RestMethod "https://update.code.visualstudio.com/api/update/$VSCODE_PLATFORM/stable/latest"
   if (-not $meta.url -or -not $meta.sha256hash) { die "could not parse VS Code download metadata" }
   $exe = Join-Path $DL "VSCodeUserSetup.exe"
-  Invoke-WebRequest $meta.url -OutFile $exe
+  # -UseBasicParsing: PS 5.1's default IWR spins up the IE engine, which can stall on a fresh profile.
+  Invoke-WebRequest $meta.url -OutFile $exe -UseBasicParsing
   if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $meta.sha256hash) { die "VS Code sha256 mismatch (corrupt download)" }
   # /MERGETASKS=!runcode: install silently, do NOT auto-launch VS Code afterward.
   Start-Process -FilePath $exe -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/MERGETASKS=!runcode' -Wait
@@ -125,6 +196,7 @@ function Install-Ext($id) {
 function Step-Extension {
   if (Test-BothExt) { $script:STEP_EXT = $true; log "step2 extension: present, skip"; return }
   log "step2 extension: installing into profile '$PROFILE_NAME'"
+  Register-ProfileOffline   # headless registration first: no window may run before the final launch
   if ((-not (Install-Ext $EXT_ID)) -or (-not (Install-Ext $PY_EXT_ID))) {
     log "step2: first attempt failed, registering the profile then retrying"
     Register-Profile
@@ -168,7 +240,12 @@ function Merge-Settings($target) {
   $s | Add-Member -Force -NotePropertyName "workbench.colorTheme" -NotePropertyValue $CANARY_THEME
   # Opt this dedicated profile into auto-opening the panel on every startup (the extension reads this).
   $s | Add-Member -Force -NotePropertyName "mpyhw.autoOpenPanel"  -NotePropertyValue $true
-  ($s | ConvertTo-Json -Depth 20) | Set-Content -Path $target -Encoding UTF8
+  # Hide VS Code's secondary side bar (the Agent/Chat panel, default-visible since 1.104) so the branded
+  # profile opens straight to just the Blockless panel instead of also showing VS Code's chat sidebar.
+  $s | Add-Member -Force -NotePropertyName "workbench.secondarySideBar.defaultVisibility" -NotePropertyValue "hidden"
+  # WriteAllText (no BOM): PS 5.1's Set-Content -Encoding UTF8 prepends a BOM. VS Code tolerates it in
+  # settings.json, but the clean form is what was verified working, so match it (as storage.json requires).
+  [System.IO.File]::WriteAllText($target, ($s | ConvertTo-Json -Depth 20))
 }
 function Step-Settings {
   $loc = Get-ProfileLocation
@@ -185,13 +262,30 @@ function Step-Settings {
 }
 
 # --- final: drop the user straight into the Blockless profile ---
+# This must be a FRESH extension host so it loads the extension we just installed: a VS Code instance
+# already running (e.g. the one Register-Profile spun up) will NOT pick up a newly-installed extension,
+# so `--new-window` would merely attach to that stale host and the Blockless panel would never activate.
+# On a machine where the user had no VS Code open when we started, close whatever we launched and wait
+# for it to fully exit, then launch clean. If the user already had VS Code running, respect their
+# session and just open a window (--new-window for parity with macOS open_blockless).
 function Open-Blockless {
   log "opening the Blockless profile"
-  Start-Process -FilePath $script:CODE -ArgumentList '--profile', $PROFILE_NAME
+  if (-not $script:USER_HAD_CODE) { Stop-CodeAndWait }
+  Start-Process -FilePath $script:CODE -ArgumentList '--profile', $PROFILE_NAME, '--new-window'
+  # NOTE: do NOT try to force activation with `code --open-url vscode://<ext>/...` -- VS Code shows an
+  # "Allow '<extension>' to open this URI?" confirmation dialog, which defeats auto-open (needs a click).
+  # The panel auto-opens on its own via the extension's onStartupFinished activation once the profile is
+  # registered offline (Register-ProfileOffline) so the extension is enumerated in the window's initial
+  # startup batch. This is reliable on real machines; the only environment observed to lose the startup
+  # enumeration race is the artificially slow, elevated Windows Sandbox VM.
 }
 
 # --- main ---
 New-Item -ItemType Directory -Force -Path $DL, $LOGS | Out-Null
+# Did the USER already have VS Code open before we touched anything? If so we must never kill it; if not,
+# we own every instance we spawn and can freely restart it so the final window is a clean extension host.
+$script:USER_HAD_CODE = [bool](Get-Process -Name "Code" -ErrorAction SilentlyContinue)
+Read-PriorState
 Step-VSCode;    Write-State
 Step-Extension; Write-State
 Step-Python;    Write-State
