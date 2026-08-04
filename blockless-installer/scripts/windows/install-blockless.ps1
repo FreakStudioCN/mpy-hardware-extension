@@ -161,13 +161,25 @@ function Step-VSCode {
     $script:VSCODE_PRODUCT_VERSION = (& $script:CODE --version | Select-Object -First 1)
     $script:STEP_VSCODE = $true; log "step1 VS Code: present ($($script:VSCODE_PRODUCT_VERSION)), skip"; return
   }
-  log "step1 VS Code: installing"
+  log "step1 VS Code: installing (downloading ~100 MB)"
   New-Item -ItemType Directory -Force -Path $DL | Out-Null
   $meta = Invoke-RestMethod "https://update.code.visualstudio.com/api/update/$VSCODE_PLATFORM/stable/latest"
   if (-not $meta.url -or -not $meta.sha256hash) { die "could not parse VS Code download metadata" }
   $exe = Join-Path $DL "VSCodeUserSetup.exe"
-  # -UseBasicParsing: PS 5.1's default IWR spins up the IE engine, which can stall on a fresh profile.
-  Invoke-WebRequest $meta.url -OutFile $exe -UseBasicParsing
+  # Download with curl.exe (in-box since Win10 1803) for a real, fast progress bar. This is DOWNLOAD-ONLY:
+  # curl just writes the .exe to an ABSOLUTE -o path (so its working dir never matters, even when launched
+  # from the mapped C:\blk share), then the PROVEN User Setup installs it below unchanged. PS 5.1's IWR
+  # renders its progress bar per-chunk (~10-50x slower on ~100 MB, looks hung), so it's the fallback ONLY
+  # if curl is somehow absent -- its own bar stays suppressed via $ProgressPreference at top. The sha256
+  # check below catches any corrupt/partial download regardless of which path fetched it.
+  $curl = Join-Path $env:SystemRoot "System32\curl.exe"
+  if (Test-Path $curl) {
+    & $curl -fL --progress-bar -o $exe $meta.url
+    if ($LASTEXITCODE -ne 0) { die "VS Code download failed (curl exit $LASTEXITCODE)" }
+  } else {
+    Invoke-WebRequest $meta.url -OutFile $exe -UseBasicParsing   # -UseBasicParsing avoids the 5.1 IE engine
+  }
+  if (-not (Test-Path $exe)) { die "VS Code download failed (no file written)" }
   if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $meta.sha256hash) { die "VS Code sha256 mismatch (corrupt download)" }
   # /MERGETASKS=!runcode: install silently, do NOT auto-launch VS Code afterward.
   Start-Process -FilePath $exe -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/MERGETASKS=!runcode' -Wait
