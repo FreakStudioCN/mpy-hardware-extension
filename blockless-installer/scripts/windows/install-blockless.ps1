@@ -184,14 +184,23 @@ function Test-BothExt {
   return (($list -contains $EXT_ID) -and ($list -contains $PY_EXT_ID))
 }
 function Install-Ext($id) {
-  & $script:CODE --profile $PROFILE_NAME --install-extension $id --force *> $null
-  if ($LASTEXITCODE -eq 0) { return $true }
-  if (($id -eq $EXT_ID) -and $Vsix -and (Test-Path $Vsix)) {
-    log "step2: marketplace failed for $id, using bundled vsix"
-    & $script:CODE --profile $PROFILE_NAME --install-extension $Vsix --force *> $null
-    if ($LASTEXITCODE -eq 0) { return $true }
+  # OUR extension: install the BUNDLED vsix -- it is the exact build this installer ships and verifies.
+  # The Marketplace has a 0.4.2 published at an OLDER commit (SAME version number, but built before
+  # mpyhw.autoOpenPanel existed), so `--install-extension $EXT_ID` pulls that stale build and the panel
+  # never auto-opens. So prefer the vsix; fall back to the Marketplace only if no usable vsix was given.
+  if ($id -eq $EXT_ID) {
+    if ($Vsix -and (Test-Path $Vsix)) {
+      log "step2: installing $id from the bundled vsix"
+      & $script:CODE --profile $PROFILE_NAME --install-extension $Vsix --force *> $null
+      if ($LASTEXITCODE -eq 0) { return $true }
+      log "step2: bundled vsix install failed, falling back to the Marketplace for $id"
+    }
+    & $script:CODE --profile $PROFILE_NAME --install-extension $id --force *> $null
+    return ($LASTEXITCODE -eq 0)
   }
-  return $false
+  # Marketplace-sourced dependency (ms-python.python -> also pulls Pylance).
+  & $script:CODE --profile $PROFILE_NAME --install-extension $id --force *> $null
+  return ($LASTEXITCODE -eq 0)
 }
 function Step-Extension {
   if (Test-BothExt) { $script:STEP_EXT = $true; log "step2 extension: present, skip"; return }
