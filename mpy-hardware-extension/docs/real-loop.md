@@ -28,11 +28,9 @@ bundled from `src/` via esbuild. The deterministic template pipeline is opt-in o
 
 ## Prerequisites to run it for real
 
-1. **OpenAI key** — `export OPENAI_API_KEY=…` before starting the API
-   (optional `MPYHW_LLM_MODEL`, defaults to `gpt-5.6-luna`). Without it the API
+1. **DeepSeek key** — `export DEEPSEEK_API_KEY=…` before starting the API
+   (optional `MPYHW_LLM_MODEL`, defaults to `deepseek-v4-pro`). Without it the API
    returns `llm_upstream_not_configured` and the panel shows that error.
-   To run on DeepSeek instead: `export MPYHW_LLM_PROVIDER=deepseek` plus
-   `DEEPSEEK_API_KEY` (its model default is then `deepseek-v4-pro`).
 2. **Run the API** — from `mpyhw-api/`: `uvicorn app.main:app --port 8787`.
    If it is not on `http://127.0.0.1:8787`, set `MPYHW_API_BASE`.
 3. **Open the panel** — VS Code command `MPY Hardware: Open Panel`, type the intent,
@@ -40,7 +38,7 @@ bundled from `src/` via esbuild. The deterministic template pipeline is opt-in o
 
 ### Loop modes (env)
 
-- *(default)* real LLM agent loop — OpenAI unless `MPYHW_LLM_PROVIDER=deepseek`.
+- *(default)* real DeepSeek agent loop.
 - `MPYHW_LOOP=template` — offline deterministic pipeline (no key, AHT20+LED only).
 - `MPYHW_LLM_STUB=1` (API side) — connectivity smoke test only; the stub emits text,
   not tool calls, so it cannot drive the full loop.

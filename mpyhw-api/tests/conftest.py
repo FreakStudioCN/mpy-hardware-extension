@@ -8,21 +8,12 @@ def _api_env(monkeypatch, request):
     """Run API tests against a real Postgres database only."""
     import os
 
-    # Provider selection and the OpenAI key must come from here, never the
+    # Provider selection and the OpenAI key must come from the test, never the
     # developer's shell/.env: a leaked MPYHW_LLM_PROVIDER would flip every
     # provider-default assertion (including in no_db tests, hence before the
     # early return below). The DEEPSEEK_API_KEY delenv stays in the DB branch
     # where it always was.
-    #
-    # Pinned to deepseek rather than deleted. Most of this suite sets
-    # DEEPSEEK_API_KEY and stubs the DeepSeek call path, so it needs DeepSeek
-    # selected — but that is a property of what those tests stub, NOT of which
-    # provider is the code default. Leaving it implicit coupled ~60 otherwise
-    # unrelated tests to that default: they all failed the moment it moved to
-    # openai, in four files, for a reason none of them were about. A test that
-    # genuinely cares about the default deletes this itself and asserts against
-    # the code (see test_provider_dispatch).
-    monkeypatch.setenv("MPYHW_LLM_PROVIDER", "deepseek")
+    monkeypatch.delenv("MPYHW_LLM_PROVIDER", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     if request.node.get_closest_marker("no_db"):

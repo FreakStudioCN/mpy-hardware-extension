@@ -20,12 +20,8 @@ BODY = {"messages": [{"role": "user", "content": "hi"}], "tools": []}
 def test_provider_dispatch(monkeypatch):
     monkeypatch.setenv("MPYHW_LLM_PROVIDER", "openai")
     assert routes_llm.get_llm_provider().name == "openai"
-    monkeypatch.setenv("MPYHW_LLM_PROVIDER", "deepseek")
-    assert routes_llm.get_llm_provider().name == "deepseek"
-    # Unset falls through to openai. Production relies on exactly this: the host
-    # sets no MPYHW_LLM_PROVIDER, so the default IS the deployed provider.
     monkeypatch.delenv("MPYHW_LLM_PROVIDER", raising=False)
-    assert routes_llm.get_llm_provider().name == "openai"
+    assert routes_llm.get_llm_provider().name == "deepseek"
     monkeypatch.setenv("MPYHW_LLM_PROVIDER", "bogus")
     with pytest.raises(HTTPException) as excinfo:
         routes_llm.get_llm_provider()
