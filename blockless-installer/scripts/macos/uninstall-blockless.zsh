@@ -86,7 +86,12 @@ JXA
   # journaled, still allowlisted to VS Code's id shape before a recursive delete.
   loc="$PROFILE_LOCATION"
   if [[ -n "$loc" && "$loc" =~ '^[A-Za-z0-9_-]+$' && -d "$CODE_USER/profiles/$loc" ]]; then
-    rm -rf "$CODE_USER/profiles/$loc"
+    # If the dir will not delete, ABORT before removing $BLK below: otherwise state.json (the ownership
+    # journal) is gone, a re-run treats the leftover dir as not-ours, and it is never cleaned up.
+    if ! rm -rf "$CODE_USER/profiles/$loc"; then
+      log "could not remove profile directory ($loc). Leaving the contained runtime intact so a re-run keeps the ownership journal. Nothing else was removed."
+      exit 1
+    fi
     log "removed profile directory ($loc)"
   elif [[ -n "$loc" ]]; then
     log "refusing to delete a suspicious profile location ($loc); remove it manually if needed"

@@ -84,7 +84,13 @@ if (-not $profileCreatedByUs) {
     $pdir = Join-Path $CODE_USER "profiles\$loc"
     if (Test-Path -LiteralPath $pdir) {
       try { Remove-Item -Recurse -Force -LiteralPath $pdir; log "removed profile directory ($loc)" }
-      catch { log "could not remove profile directory ($loc): $($_.Exception.Message). Remove it manually if needed." }
+      catch {
+        # Same class as the storage.json abort: if the dir will not delete, do NOT remove $BLK
+        # (state.json) below, or a re-run loses the ownership journal and refuses to clean the leftover
+        # dir. Stop.
+        log "could not remove profile directory ($loc): $($_.Exception.Message). Leaving the contained runtime intact so a re-run keeps the ownership journal. Nothing else was removed."
+        exit 1
+      }
     }
   } elseif ($loc) {
     log "refusing to delete a suspicious profile location ($loc); remove it manually if needed"
