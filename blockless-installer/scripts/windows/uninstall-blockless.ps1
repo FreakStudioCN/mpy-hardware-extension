@@ -34,12 +34,21 @@ function log($m) { Write-Host "[blockless-uninstall] $m" }
 # journaled on-disk id, so the delete target is never derived from the user-writable storage.json.
 $installedByUs = $false; $profileCreatedByUs = $false; $profileLocation = ""
 if (Test-Path $STATE) {
-  try {
-    $st = Get-Content $STATE -Raw | ConvertFrom-Json
-    if ($st.vscodeInstalledByUs) { $installedByUs = $true }
-    if ($st.profileCreatedByUs) { $profileCreatedByUs = $true }
-    if ($st.profileLocation) { $profileLocation = [string]$st.profileLocation }
-  } catch {}
+  # Fail CLOSED: state.json exists, so it must be readable AND complete or we cannot know what we own.
+  # An unreadable or corrupt journal must NOT read as "not ours" -- section 2 would then delete $BLK and
+  # destroy a recoverable ownership journal while the profile survives. Do NOT swallow the read error.
+  try { $st = Get-Content $STATE -Raw -ErrorAction Stop | ConvertFrom-Json }
+  catch {
+    log "state.json exists but is unreadable or corrupt; cannot determine what to remove. Fix it, or delete '$BLK' manually, then re-run. Nothing was removed."
+    exit 1
+  }
+  if ($null -eq $st.PSObject.Properties['profileCreatedByUs']) {
+    log "state.json is missing expected fields (incomplete/corrupt); cannot determine what to remove. Fix it, or delete '$BLK' manually, then re-run. Nothing was removed."
+    exit 1
+  }
+  if ($st.vscodeInstalledByUs) { $installedByUs = $true }
+  if ($st.profileCreatedByUs) { $profileCreatedByUs = $true }
+  if ($st.profileLocation) { $profileLocation = [string]$st.profileLocation }
 }
 
 # A running VS Code holds storage.json in memory and would clobber our edit; removing $BLK now would
@@ -54,9 +63,12 @@ if (Get-Process -Name "Code" -ErrorAction SilentlyContinue) {
 if (-not $profileCreatedByUs) {
   log "leaving the '$PROFILE_NAME' profile in place (not created by this installer, or state.json already gone); remove it from VS Code's picker manually if you want it gone"
 } else {
-  # Drop the profile's entry so no orphan lingers in the picker. Atomic + BOM-free + depth-100 write
-  # (temp then rename), matching the installer's Write-StorageAtomic. Skip a corrupt/unreadable file.
-  $entryRemoved = $true
+  # Attempt both removals (storage.json entry, then the profile dir) best-effort, then apply ONE
+  # invariant guard before section 2 removes $BLK (which holds state.json, the ownership journal):
+  # never destroy the journal while any owned profile artifact survives, or a re-run loses ownership
+  # and can never finish. The guard checks what actually REMAINS rather than trusting each command's
+  # result, so a single check covers every failure mode (corrupt/locked/unwritable storage.json, a dir
+  # Remove-Item that could not complete, etc.). storage.json writes are atomic + BOM-free (temp + rename).
   if (Test-Path $STORAGE) {
     try {
       $d = Get-Content $STORAGE -Raw -ErrorAction Stop | ConvertFrom-Json
@@ -65,36 +77,31 @@ if (-not $profileCreatedByUs) {
         $tmp = "$STORAGE.tmp"
         [System.IO.File]::WriteAllText($tmp, ($d | ConvertTo-Json -Depth 100))
         Move-Item -LiteralPath $tmp -Destination $STORAGE -Force
-        log "removed '$PROFILE_NAME' from storage.json"
       }
-    } catch { $entryRemoved = $false; log "could not edit storage.json ($($_.Exception.Message))" }
+    } catch { log "could not edit storage.json ($($_.Exception.Message))" }
   }
-  if (-not $entryRemoved) {
-    # ABORT before deleting anything: removing the profile dir now would orphan a registered profile
-    # with no backing dir, and removing $BLK (below) would destroy state.json -- the ownership journal
-    # a re-run needs to finish the job. Leave everything intact and stop.
-    log "could not remove '$PROFILE_NAME' from storage.json (corrupt or unwritable). Leaving the profile and the contained runtime intact so a re-run can finish after you fix storage.json. Nothing was removed."
+  # profileLocation is installer-journaled, allowlisted to VS Code's id shape; -LiteralPath disables
+  # globbing so "." / "*" / traversal from a tampered journal cannot escape to sibling profiles.
+  $pdir = if ($profileLocation -match '^[A-Za-z0-9_-]+$') { Join-Path $CODE_USER "profiles\$profileLocation" } else { $null }
+  if ($pdir) {
+    if (Test-Path -LiteralPath $pdir) { try { Remove-Item -Recurse -Force -LiteralPath $pdir } catch { log "could not remove profile directory ($profileLocation): $($_.Exception.Message)" } }
+  } elseif ($profileLocation) {
+    log "refusing to delete a suspicious profile location ($profileLocation); remove it manually if needed"
+  }
+
+  # Invariant guard: is any owned artifact still present? If so, stop before touching the journal.
+  $entryPresent = $false
+  if (Test-Path $STORAGE) {
+    try { $chk = Get-Content $STORAGE -Raw -ErrorAction Stop | ConvertFrom-Json
+          if ($chk.userDataProfiles | Where-Object { $_.name -eq $PROFILE_NAME }) { $entryPresent = $true } }
+    catch { $entryPresent = $true }   # cannot read it => cannot confirm it is gone => treat as present
+  }
+  $dirPresent = [bool]($pdir -and (Test-Path -LiteralPath $pdir))
+  if ($entryPresent -or $dirPresent) {
+    log "could not fully remove the '$PROFILE_NAME' profile (storage.json entry present=$entryPresent, directory present=$dirPresent); it is likely corrupt, locked, or unwritable. Leaving the contained runtime and the ownership journal (state.json) intact so a re-run can finish. Nothing else was removed."
     exit 1
   }
-  # Entry gone (or storage.json absent): safe to remove the profile dir. profileLocation is installer-
-  # journaled, still allowlisted to VS Code's id shape before a recursive delete. -LiteralPath disables
-  # globbing so "." / "*" cannot escape to sibling profiles.
-  $loc = $profileLocation
-  if ($loc -and ($loc -match '^[A-Za-z0-9_-]+$')) {
-    $pdir = Join-Path $CODE_USER "profiles\$loc"
-    if (Test-Path -LiteralPath $pdir) {
-      try { Remove-Item -Recurse -Force -LiteralPath $pdir; log "removed profile directory ($loc)" }
-      catch {
-        # Same class as the storage.json abort: if the dir will not delete, do NOT remove $BLK
-        # (state.json) below, or a re-run loses the ownership journal and refuses to clean the leftover
-        # dir. Stop.
-        log "could not remove profile directory ($loc): $($_.Exception.Message). Leaving the contained runtime intact so a re-run keeps the ownership journal. Nothing else was removed."
-        exit 1
-      }
-    }
-  } elseif ($loc) {
-    log "refusing to delete a suspicious profile location ($loc); remove it manually if needed"
-  }
+  log "removed the '$PROFILE_NAME' profile (storage.json entry + directory)"
 }
 
 # 2. Remove the whole contained runtime. A file here can be locked (a running mpremote/python holds

@@ -39,6 +39,13 @@ done
 # installer-journaled on-disk id, so the delete target is never derived from user-writable storage.json.
 INSTALLED_BY_US=false; PROFILE_CREATED_BY_US=false; PROFILE_LOCATION=""
 if [[ -f "$STATE" ]]; then
+  # Fail CLOSED: state.json exists, so it must be readable AND complete or we cannot know what we own.
+  # An unreadable (EACCES) or truncated/corrupt journal must NOT read as "not ours" -- section 2 would
+  # then delete $BLK and destroy a recoverable ownership journal while the profile survives. Require the
+  # profileCreatedByUs key to be present (any value); its absence means the file is incomplete.
+  if [[ ! -r "$STATE" ]] || ! grep -q '"profileCreatedByUs"' "$STATE" 2>/dev/null; then
+    die "state.json exists but is unreadable or incomplete; cannot determine what to remove. Fix its permissions, or delete '$BLK' manually, then re-run. Nothing was removed."
+  fi
   grep -Eq '"vscodeInstalledByUs"[[:space:]]*:[[:space:]]*true' "$STATE" && INSTALLED_BY_US=true
   grep -Eq '"profileCreatedByUs"[[:space:]]*:[[:space:]]*true' "$STATE" && PROFILE_CREATED_BY_US=true
   PROFILE_LOCATION="$(get_json profileLocation)"
@@ -58,6 +65,13 @@ fi
 if [[ "$PROFILE_CREATED_BY_US" != true ]]; then
   log "leaving the '$PROFILE_NAME' profile in place (not created by this installer, or state.json already gone); remove it from VS Code's picker manually if you want it gone"
 else
+  # Attempt both removals (storage.json entry, then the profile dir) best-effort, then apply ONE
+  # invariant guard before section 2 removes $BLK (which holds state.json, the ownership journal):
+  # never destroy the journal while any owned profile artifact survives, or a re-run loses ownership
+  # and can never finish. The guard checks what actually REMAINS rather than trusting each command's
+  # exit code, so a single check covers every failure mode -- a corrupt/locked/unwritable storage.json
+  # the JXA skipped, a dir rm that could not complete, or a command that "succeeded" without doing the
+  # work. All storage.json editing is JXA (no Python -> no Xcode CLT stub; atomic write).
   if [[ -f "$STORAGE" ]]; then
     osascript -l JavaScript - "$STORAGE" "$PROFILE_NAME" >/dev/null 2>&1 <<'JXA' || true
 ObjC.import('Foundation');
@@ -71,31 +85,31 @@ function run(argv) {
   $(JSON.stringify(obj)).writeToFileAtomicallyEncodingError($(path), true, $.NSUTF8StringEncoding, $());
 }
 JXA
-    # The JXA ends in `|| true` (it skips a corrupt/unreadable/unwritable storage.json rather than
-    # clobber it), so the entry may still be there. If it is, ABORT before deleting anything: removing
-    # the profile dir now would orphan a registered profile with no backing dir, and removing $BLK
-    # (below) would destroy state.json -- the ownership journal a re-run needs to finish the job.
-    if grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$PROFILE_NAME\"" "$STORAGE" 2>/dev/null; then
-      log "could not remove '$PROFILE_NAME' from storage.json (corrupt or unwritable). Leaving the profile and the contained runtime intact so a re-run can finish after you fix storage.json. Nothing was removed."
-      exit 1
-    fi
-    log "removed '$PROFILE_NAME' from storage.json"
   fi
-
-  # Entry gone (or storage.json absent): safe to remove the profile dir. profileLocation is installer-
-  # journaled, still allowlisted to VS Code's id shape before a recursive delete.
+  # profileLocation is installer-journaled, still allowlisted to VS Code's id shape before a recursive
+  # delete (so "." / "*" / traversal from a tampered journal cannot escape).
   loc="$PROFILE_LOCATION"
-  if [[ -n "$loc" && "$loc" =~ '^[A-Za-z0-9_-]+$' && -d "$CODE_USER/profiles/$loc" ]]; then
-    # If the dir will not delete, ABORT before removing $BLK below: otherwise state.json (the ownership
-    # journal) is gone, a re-run treats the leftover dir as not-ours, and it is never cleaned up.
-    if ! rm -rf "$CODE_USER/profiles/$loc"; then
-      log "could not remove profile directory ($loc). Leaving the contained runtime intact so a re-run keeps the ownership journal. Nothing else was removed."
-      exit 1
-    fi
-    log "removed profile directory ($loc)"
+  if [[ -n "$loc" && "$loc" =~ '^[A-Za-z0-9_-]+$' ]]; then
+    [[ -d "$CODE_USER/profiles/$loc" ]] && rm -rf "$CODE_USER/profiles/$loc" 2>/dev/null
   elif [[ -n "$loc" ]]; then
     log "refusing to delete a suspicious profile location ($loc); remove it manually if needed"
   fi
+
+  # Invariant guard: is any owned artifact still present? If so, stop before touching the journal.
+  # grep exits: 0 = entry found, 1 = confirmed absent, 2+ = could not read. Fail CLOSED: only a
+  # confirmed-absent (1) counts as gone; found OR unreadable both mean "still present" (do not delete
+  # the journal on a storage.json we could not verify is clean).
+  entry_present=0
+  if [[ -f "$STORAGE" ]]; then
+    grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$PROFILE_NAME\"" "$STORAGE" 2>/dev/null
+    (( $? != 1 )) && entry_present=1
+  fi
+  dir_present=0;   [[ "$loc" =~ '^[A-Za-z0-9_-]+$' && -d "$CODE_USER/profiles/$loc" ]] && dir_present=1
+  if (( entry_present || dir_present )); then
+    log "could not fully remove the '$PROFILE_NAME' profile (storage.json entry present=$entry_present, directory present=$dir_present); it is likely corrupt, locked, or unwritable. Leaving the contained runtime and the ownership journal (state.json) intact so a re-run can finish. Nothing else was removed."
+    exit 1
+  fi
+  log "removed the '$PROFILE_NAME' profile (storage.json entry + directory)"
 fi
 
 # 2. Remove the whole contained runtime.
