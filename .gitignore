@@ -5,6 +5,9 @@
 .claude/projects/
 .claude/settings.local.json
 .superpowers/
+.clawker.yaml
+.clawkerignore
+.clawker/
 
 # Python
 __pycache__/
