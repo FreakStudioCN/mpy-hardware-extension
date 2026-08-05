@@ -56,14 +56,30 @@ if ($vscodeRunning) {
       }
     } catch { log "could not edit storage.json; the profile entry may remain in the picker" }
   }
-  if ($loc) {
+  # `$loc` comes from a user-writable storage.json and feeds a recursive delete. Allowlist the exact
+  # shape VS Code uses (hex-ish token; ours is "blockless"), not a blocklist: a blocklist misses "."
+  # (resolves to the profiles dir itself) and wildcards like "*" (Remove-Item -Path glob-expands and
+  # deletes every profile). -LiteralPath disables globbing so a literal name is treated literally.
+  if ($loc -and ($loc -match '^[A-Za-z0-9_-]+$')) {
     $pdir = Join-Path $CODE_USER "profiles\$loc"
-    if (Test-Path $pdir) { Remove-Item -Recurse -Force $pdir; log "removed profile directory ($loc)" }
+    if (Test-Path -LiteralPath $pdir) {
+      try { Remove-Item -Recurse -Force -LiteralPath $pdir; log "removed profile directory ($loc)" }
+      catch { log "could not remove profile directory ($loc): $($_.Exception.Message). Remove it manually if needed." }
+    }
+  } elseif ($loc) {
+    log "refusing to delete a suspicious profile location ($loc); remove it manually if needed"
   }
 }
 
-# 2. Remove the whole contained runtime.
-if (Test-Path $BLK) { Remove-Item -Recurse -Force $BLK; log "removed $BLK" } else { log "$BLK not present" }
+# 2. Remove the whole contained runtime. A file here can be locked (a running mpremote/python holds
+# env\Scripts\python.exe); under ErrorActionPreference=Stop that would abort the whole script before
+# VS Code removal below. Catch it, tell the user to close the tools, and continue.
+if (Test-Path $BLK) {
+  try { Remove-Item -Recurse -Force $BLK; log "removed $BLK" }
+  catch { log "could not fully remove $BLK ($($_.Exception.Message)); if a file is in use, close VS Code and any running Python/mpremote, then re-run. Continuing." }
+} else {
+  log "$BLK not present"
+}
 
 # 3. Remove VS Code only when appropriate: -KeepVSCode never; otherwise forced (-All) or because we
 # installed it. Prefer the User Setup's own uninstaller (clean); fall back to removing the folder.

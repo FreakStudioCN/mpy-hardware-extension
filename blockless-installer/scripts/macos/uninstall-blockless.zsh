@@ -78,9 +78,14 @@ PY
     log "no python available to edit storage.json; the profile entry may remain in the picker"
   fi
 
-  if [[ -n "$loc" && -d "$CODE_USER/profiles/$loc" ]]; then
+  # `loc` comes from a user-writable storage.json and feeds a recursive delete. Allowlist the exact
+  # shape VS Code uses (hex-ish token; ours is "blockless"), not a blocklist, so "." / ".." / slashes
+  # are all rejected by construction rather than enumerated.
+  if [[ -n "$loc" && "$loc" =~ '^[A-Za-z0-9_-]+$' && -d "$CODE_USER/profiles/$loc" ]]; then
     rm -rf "$CODE_USER/profiles/$loc"
     log "removed profile directory ($loc)"
+  elif [[ -n "$loc" ]]; then
+    log "refusing to delete a suspicious profile location ($loc); remove it manually if needed"
   fi
 fi
 

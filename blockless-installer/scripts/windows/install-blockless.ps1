@@ -51,10 +51,18 @@ $script:STEP_VSCODE = $false; $script:STEP_EXT = $false; $script:STEP_PY = $fals
 $script:VSCODE_PRODUCT_VERSION = ""
 $script:VSCODE_INSTALLED_BY_US = $false   # "we installed VS Code" vs "it was already present"
 $script:CODE = ""
-$script:USER_HAD_CODE = $false            # was a VS Code the USER started already running when we began?
+$script:WE_STARTED_CODE = $false          # did WE spawn a VS Code this run? only such instances may be torn down
 
 function log($m) { Write-Host "[blockless] $m" }
 function die($m) { Write-Host "[blockless] ERROR: $m" -ForegroundColor Red; exit 1 }
+
+# PS 5.1's Invoke-WebRequest/RestMethod have no -MaximumRetryCount (that's PS 6+), so wrap a manual
+# retry to match the macOS `curl --retry 3` -- every download is retried before the install aborts.
+function Invoke-WithRetry([scriptblock]$op) {
+  for ($n = 1; $n -le 3; $n++) {
+    try { return & $op } catch { if ($n -eq 3) { throw }; Start-Sleep -Seconds 2 }
+  }
+}
 
 # Resolve the `code` CLI explicitly -- never trust PATH on a fresh machine.
 function Resolve-Code {
@@ -134,8 +142,13 @@ function Register-ProfileOffline {
   New-Item -ItemType Directory -Force -Path (Split-Path $STORAGE -Parent) | Out-Null
   New-Item -ItemType Directory -Force -Path (Join-Path $CODE_USER "profiles\blockless") | Out-Null
   $d = $null
-  if (Test-Path $STORAGE) { try { $d = Get-Content $STORAGE -Raw | ConvertFrom-Json } catch { $d = $null } }
-  if ($null -eq $d) { $d = [pscustomobject]@{} }
+  if (Test-Path $STORAGE) {
+    # An EXISTING storage.json we can't parse OR can't read must NOT be replaced (that would wipe
+    # every other profile + window state). -EA Stop makes a read failure (EACCES/lock) throw too, not
+    # just a parse failure, so both skip the offline seed; Register-Profile's window fallback covers it.
+    try { $d = Get-Content $STORAGE -Raw -ErrorAction Stop | ConvertFrom-Json } catch { return }
+  }
+  if ($null -eq $d) { $d = [pscustomobject]@{} }   # file did not exist: start fresh
   $list = @()
   if ($d.PSObject.Properties["userDataProfiles"]) { $list = @($d.userDataProfiles) }
   $list += [pscustomobject]@{ location = "blockless"; name = $PROFILE_NAME }
@@ -153,10 +166,14 @@ function Register-ProfileOffline {
 # the half-written-state race described above Register-ProfileOffline; keep it a last resort.
 function Register-Profile {
   if (Test-ProfileRegistered) { return }
+  # Re-probe HERE, not once at start: the user may have opened VS Code during the minutes-long download.
+  # If nothing is running now, the instance we're about to launch is ours to tear down; if the user has
+  # one open, --new-window attaches to it (spawns nothing) so we must leave it running.
+  $wasRunning = [bool](Get-Process -Name "Code" -ErrorAction SilentlyContinue)
   Start-Process -FilePath $script:CODE -ArgumentList '--profile', $PROFILE_NAME, '--new-window'
   for ($i = 0; $i -lt 60; $i++) { if (Test-ProfileRegistered) { break }; Start-Sleep -Milliseconds 500 }
-  # Only tear down VS Code if the user had none running when we started (never kill a user's session).
-  if (-not $script:USER_HAD_CODE) { Stop-CodeAndWait }
+  # Only tear down VS Code if WE started it (never kill a user's session).
+  if (-not $wasRunning) { $script:WE_STARTED_CODE = $true; Stop-CodeAndWait }
 }
 
 # --- step 1: VS Code (User Setup, silent, no admin) ---
@@ -167,7 +184,7 @@ function Step-VSCode {
   }
   log "step1 VS Code: installing (downloading ~100 MB)"
   New-Item -ItemType Directory -Force -Path $DL | Out-Null
-  $meta = Invoke-RestMethod "https://update.code.visualstudio.com/api/update/$VSCODE_PLATFORM/stable/latest"
+  $meta = Invoke-WithRetry { Invoke-RestMethod "https://update.code.visualstudio.com/api/update/$VSCODE_PLATFORM/stable/latest" }
   if (-not $meta.url -or -not $meta.sha256hash) { die "could not parse VS Code download metadata" }
   $exe = Join-Path $DL "VSCodeUserSetup.exe"
   # Download with curl.exe (in-box since Win10 1803) for a real, fast progress bar. This is DOWNLOAD-ONLY:
@@ -178,10 +195,10 @@ function Step-VSCode {
   # check below catches any corrupt/partial download regardless of which path fetched it.
   $curl = Join-Path $env:SystemRoot "System32\curl.exe"
   if (Test-Path $curl) {
-    & $curl -fL --progress-bar -o $exe $meta.url
+    & $curl -fL --retry 3 --retry-delay 2 --progress-bar -o $exe $meta.url
     if ($LASTEXITCODE -ne 0) { die "VS Code download failed (curl exit $LASTEXITCODE)" }
   } else {
-    Invoke-WebRequest $meta.url -OutFile $exe -UseBasicParsing   # -UseBasicParsing avoids the 5.1 IE engine
+    Invoke-WithRetry { Invoke-WebRequest $meta.url -OutFile $exe -UseBasicParsing }   # -UseBasicParsing avoids the 5.1 IE engine
   }
   if (-not (Test-Path $exe)) { die "VS Code download failed (no file written)" }
   if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $meta.sha256hash) { die "VS Code sha256 mismatch (corrupt download)" }
@@ -239,7 +256,7 @@ function Step-Python {
     log "step3 python: installing uv $UV_VERSION (contained, no PATH edits)"
     $env:UV_UNMANAGED_INSTALL = (Join-Path $BLK "uv")
     $uvIvs = Join-Path $DL "uv-install.ps1"
-    Invoke-WebRequest "https://astral.sh/uv/$UV_VERSION/install.ps1" -OutFile $uvIvs -UseBasicParsing
+    Invoke-WithRetry { Invoke-WebRequest "https://astral.sh/uv/$UV_VERSION/install.ps1" -OutFile $uvIvs -UseBasicParsing }
     if ((Get-FileHash $uvIvs -Algorithm SHA256).Hash -ne $UV_INSTALL_SHA256) { die "uv install script sha256 mismatch (refusing to run)" }
     powershell -ExecutionPolicy Bypass -File $uvIvs
   }
@@ -259,8 +276,14 @@ function Step-Python {
 function Merge-Settings($target) {
   New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
   $s = $null
-  if (Test-Path $target) { try { $s = Get-Content $target -Raw | ConvertFrom-Json } catch { $s = $null } }
-  if ($null -eq $s) { $s = [pscustomobject]@{} }
+  if (Test-Path $target) {
+    # An existing settings.json we can't read/parse must NOT be clobbered down to just our keys (it may
+    # hold the user's own profile settings). Refuse, matching macOS merge_settings' exit-2 behavior.
+    try { $s = Get-Content $target -Raw -ErrorAction Stop | ConvertFrom-Json }
+    catch { die "refusing to overwrite an unreadable settings.json at $target (fix or remove it, then re-run)" }
+  } else {
+    $s = [pscustomobject]@{}   # no file yet: start fresh
+  }
   $s | Add-Member -Force -NotePropertyName "mpyhw.pythonPath"     -NotePropertyValue $ENVPY
   $s | Add-Member -Force -NotePropertyName "workbench.colorTheme" -NotePropertyValue $CANARY_THEME
   # Opt this dedicated profile into auto-opening the panel on every startup (the extension reads this).
@@ -279,9 +302,10 @@ function Step-Settings {
   $target = Join-Path $CODE_USER "profiles\$loc\settings.json"
   if (Test-Path $target) {
     try { $cur = Get-Content $target -Raw | ConvertFrom-Json } catch { $cur = $null }
-    # All THREE installer-owned keys must match, not just pythonPath, so a repair re-applies the theme
-    # or autoOpenPanel if either was removed/changed (otherwise the panel auto-open stays broken).
-    if ($cur -and ($cur."mpyhw.pythonPath" -eq $ENVPY) -and ($cur."workbench.colorTheme" -eq $CANARY_THEME) -and ($cur."mpyhw.autoOpenPanel" -eq $true)) { $script:STEP_SETTINGS = $true; log "step4 settings: already applied, skip"; return }
+    # All FOUR installer-owned keys must match, not just pythonPath, so a repair re-applies the theme,
+    # autoOpenPanel, or secondarySideBar visibility if any was removed/changed (otherwise the branded
+    # startup stays broken). Mirror every key Merge-Settings writes, or a repair leaves a stale profile.
+    if ($cur -and ($cur."mpyhw.pythonPath" -eq $ENVPY) -and ($cur."workbench.colorTheme" -eq $CANARY_THEME) -and ($cur."mpyhw.autoOpenPanel" -eq $true) -and ($cur."workbench.secondarySideBar.defaultVisibility" -eq "hidden")) { $script:STEP_SETTINGS = $true; log "step4 settings: already applied, skip"; return }
   }
   Merge-Settings $target
   $script:STEP_SETTINGS = $true
@@ -292,12 +316,12 @@ function Step-Settings {
 # This must be a FRESH extension host so it loads the extension we just installed: a VS Code instance
 # already running (e.g. the one Register-Profile spun up) will NOT pick up a newly-installed extension,
 # so `--new-window` would merely attach to that stale host and the Blockless panel would never activate.
-# On a machine where the user had no VS Code open when we started, close whatever we launched and wait
-# for it to fully exit, then launch clean. If the user already had VS Code running, respect their
-# session and just open a window (--new-window for parity with macOS open_blockless).
+# If WE spawned a VS Code this run (the Register-Profile fallback), close it and wait for it to fully
+# exit, then launch clean. If the user has their own session open, respect it and just open a window
+# (--new-window for parity with macOS open_blockless) rather than killing their editor.
 function Open-Blockless {
   log "opening the Blockless profile"
-  if (-not $script:USER_HAD_CODE) { Stop-CodeAndWait }
+  if ($script:WE_STARTED_CODE) { Stop-CodeAndWait }
   Start-Process -FilePath $script:CODE -ArgumentList '--profile', $PROFILE_NAME, '--new-window'
   # NOTE: do NOT try to force activation with `code --open-url vscode://<ext>/...` -- VS Code shows an
   # "Allow '<extension>' to open this URI?" confirmation dialog, which defeats auto-open (needs a click).
@@ -309,9 +333,6 @@ function Open-Blockless {
 
 # --- main ---
 New-Item -ItemType Directory -Force -Path $DL, $LOGS | Out-Null
-# Did the USER already have VS Code open before we touched anything? If so we must never kill it; if not,
-# we own every instance we spawn and can freely restart it so the final window is a clean extension host.
-$script:USER_HAD_CODE = [bool](Get-Process -Name "Code" -ErrorAction SilentlyContinue)
 Read-PriorState
 Step-VSCode;    Write-State
 Step-Extension; Write-State

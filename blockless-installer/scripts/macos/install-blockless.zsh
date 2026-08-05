@@ -98,7 +98,9 @@ step1_vscode() {
   curl -fsSL --retry 3 "https://update.code.visualstudio.com/api/update/${VSCODE_PLATFORM}/stable/latest" -o "$meta" \
     || die "could not reach the VS Code update API"
   local url sha ver
-  url="$(get_json url "$meta")"; sha="$(get_json sha256hash "$meta")"; ver="$(get_json productVersion "$meta")"
+  # `|| true`: get_json is a grep|head|sed pipeline; under `set -o pipefail` a missing field would
+  # make the assignment exit non-zero and errexit would kill the script BEFORE the die below.
+  url="$(get_json url "$meta" || true)"; sha="$(get_json sha256hash "$meta" || true)"; ver="$(get_json productVersion "$meta" || true)"
   [[ -n "$url" && -n "$sha" ]] || die "could not parse VS Code download metadata"
   local zip="$DL/VSCode-darwin-universal.zip"
   curl -fL --retry 3 -o "$zip" "$url" || die "VS Code download failed"
@@ -169,7 +171,9 @@ function run(argv) {
   var obj = {};
   if (fm.fileExistsAtPath(path)) {
     var raw = $.NSString.stringWithContentsOfFileEncodingError($(path), $.NSUTF8StringEncoding, $()).js;
-    try { obj = JSON.parse(raw); } catch (e) { obj = {}; }
+    // An EXISTING storage.json we can't parse must NOT be replaced (that would wipe every other
+    // profile + window state). Skip the offline seed; register_profile's window fallback covers it.
+    try { obj = JSON.parse(raw); } catch (e) { return; }
   }
   if (Object.prototype.toString.call(obj.userDataProfiles) !== '[object Array]') obj.userDataProfiles = [];
   var found = false;
@@ -261,11 +265,11 @@ step3_python() {
   STEP_PY=true; log "step3 python: ready ($ENVPY)"
 }
 
-# --- step 4: branded profile settings + the A/B experiment ---
-# ponytail: M0 ships Mechanism A (the per-profile settings.json, which is the
-# documented location for a profile's settings). Mechanism B (default settings.json)
-# is the insurance path. If the on-camera fresh-VM check shows A is ignored, set
-# SETTINGS_MECHANISM=B at the top and re-run; the winner gets recorded in NOTES.md.
+# --- step 4: branded profile settings ---
+# The fresh-VM check settled the A/B experiment: Mechanism A (the per-profile settings.json, the
+# documented location for a profile's settings) is what VS Code reads, so it is the only path shipped.
+# Mechanism B (the user's default settings.json) was removed, we never write there (see step4_settings).
+# SETTINGS_MECHANISM stays "A", recorded in state.json for the record.
 
 # Look up the profile's on-disk directory id from VS Code global storage.
 profile_dir() {
@@ -282,21 +286,28 @@ for p in d.get("userDataProfiles", []):
 PY
 }
 
-# Merge our two keys into a settings.json without clobbering existing keys.
+# Merge our four keys into a settings.json without clobbering existing keys.
 merge_settings() {
   "$ENVPY" - "$1" "$ENVPY" "$CANARY_THEME" <<'PY'
 import json, os, sys
 target, pypath, theme = sys.argv[1], sys.argv[2], sys.argv[3]
 os.makedirs(os.path.dirname(target), exist_ok=True)
-try:
-    data = json.load(open(target))
-except Exception:
+if os.path.exists(target):
+    try:
+        data = json.load(open(target))
+    except Exception:
+        # An EXISTING settings.json we cannot parse (VS Code settings are JSONC, may carry comments).
+        # Refuse to clobber it rather than overwrite the user's edits with just our keys.
+        sys.exit(2)
+else:
     data = {}
 data["mpyhw.pythonPath"] = pypath
 data["workbench.colorTheme"] = theme
 # Opt this dedicated Blockless profile into auto-opening the panel on every startup (the
 # extension reads this; off by default so Marketplace users are unaffected).
 data["mpyhw.autoOpenPanel"] = True
+# Hide the secondary (chat) side bar for the branded kiosk look (matches the Windows installer).
+data["workbench.secondarySideBar.defaultVisibility"] = "hidden"
 json.dump(data, open(target, "w"), indent=2)
 PY
 }
@@ -309,37 +320,37 @@ try:
     d = json.load(open(sys.argv[1]))
 except Exception:
     sys.exit(1)
-# All THREE installer-owned keys must match, not just pythonPath: a repair run must re-apply the
-# theme or autoOpenPanel if either was removed/changed, otherwise the branded UI / panel auto-open
-# stays broken while the step reports "already applied".
+# All FOUR installer-owned keys must match, not just pythonPath: a repair run must re-apply the theme,
+# autoOpenPanel, or secondarySideBar visibility if any was removed/changed, otherwise the branded UI /
+# panel auto-open stays broken while the step reports "already applied".
 ok = (d.get("mpyhw.pythonPath") == sys.argv[2]
       and d.get("workbench.colorTheme") == sys.argv[3]
-      and d.get("mpyhw.autoOpenPanel") is True)
+      and d.get("mpyhw.autoOpenPanel") is True
+      and d.get("workbench.secondarySideBar.defaultVisibility") == "hidden")
 sys.exit(0 if ok else 1)
 PY
 }
 
 step4_settings() {
   local loc; loc="$(profile_dir || true)"
-  if [[ -z "$loc" && "$SETTINGS_MECHANISM" == "A" ]]; then
+  if [[ -z "$loc" ]]; then
     log "step4: profile not registered yet, registering"
     register_profile_offline
     profile_registered || register_profile
     loc="$(profile_dir || true)"
   fi
-  local target
-  if [[ "$SETTINGS_MECHANISM" == "A" && -n "$loc" ]]; then
-    target="$CODE_USER/profiles/$loc/settings.json"
-  else
-    SETTINGS_MECHANISM="B"; target="$CODE_USER/settings.json"
-  fi
+  # Mechanism A ONLY: write the PROFILE's own settings.json. We deliberately do NOT fall back to the
+  # user's default settings.json (the old "mechanism B"): the theme + autoOpenPanel are a kiosk choice
+  # for THIS profile, and the default settings.json is the user's own file (JSONC, likely with
+  # comments) that we must never own or overwrite. If the profile still can't be resolved, fail loudly.
+  [[ -n "$loc" ]] || die "could not resolve the '$PROFILE_NAME' profile settings location"
+  local target="$CODE_USER/profiles/$loc/settings.json"
   if settings_already "$target"; then
-    STEP_SETTINGS=true; log "step4 settings: already applied ($SETTINGS_MECHANISM), skip"; return
+    STEP_SETTINGS=true; log "step4 settings: already applied, skip"; return
   fi
   merge_settings "$target" || die "could not write settings ($target)"
   STEP_SETTINGS=true
-  log "step4 settings: applied via mechanism $SETTINGS_MECHANISM -> $target"
-  log "step4: run 'code --profile $PROFILE_NAME' to confirm profile + canary theme + pythonPath on camera"
+  log "step4 settings: applied -> $target"
 }
 
 # Final launch: drop the user straight INTO the Blockless profile so the extension is right
