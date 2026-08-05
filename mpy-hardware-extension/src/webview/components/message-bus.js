@@ -115,7 +115,16 @@
         if (msg.type === "diagram_updated") { renderDiagram(msg.diagram); }
         if (msg.type === "artifacts_index") { renderArtifacts(msg.artifacts); renderOptionalFlowImages(msg.artifacts); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
-        if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
+        if (msg.type === "device_selected") {
+          addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) });
+          // Only a pick made FROM the Env selector re-checks the Doctor tab — a deploy/flash
+          // card's own device_selected (an unrelated port, or no pending Env pick at all)
+          // must not trigger a surprise re-check.
+          if (pendingEnvPick && pendingEnvPick === msg.port) {
+            pendingEnvPick = null;
+            vscode.postMessage({ type: "run_doctor_check", probe: false });
+          }
+        }
         // support_feedback_opened / support_diagnostics_exported are recorded host-side (session log +
         // recent_activity, surfaced in the diagnostics snapshot) for section 08 §6.3 / §8.1 traceability.
         // They are deliberately NOT rendered into the build feed: opening the support panel or copying a

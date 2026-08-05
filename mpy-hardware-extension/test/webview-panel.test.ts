@@ -345,6 +345,54 @@ test("webview lets the user choose a device port when multiple devices are conne
   assert.deepEqual(posted.find((message) => message.type === "device_selected"), { type: "device_selected", port: "COM8" });
 });
 
+test("run_doctor_check probes the port select_device already picked, with several boards connected", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  let port: string | null = null;
+  const probedWith: string[] = [];
+  const shim = {
+    scan: async () => ["COM7", "COM8"],
+    setPort: (p: string | null) => { port = p; },
+    getPort: () => port,
+    probeMicroPython: async (p: string) => { probedWith.push(p); return true; },
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: {
+      createWebviewPanel: () => panel,
+      showQuickPick: async (items: string[]) => items[1], // COM8
+      showWarningMessage: async () => "Cancel",
+    },
+  };
+
+  createPanel(vscode, {}, {
+    shim,
+    venvReady: () => true,
+    apiBaseUrl: "http://api.test",
+    fetchImpl: async () => { throw new Error("no network expected"); },
+  });
+
+  await handler?.({ type: "select_device" });
+  assert.equal(shim.getPort(), "COM8", "select_device persisted the chosen port on the shim");
+
+  posted.length = 0;
+  await handler?.({ type: "run_doctor_check", probe: true });
+  const results = posted.find((m) => m.type === "doctor_results");
+  const device = results?.items.find((i: any) => i.id === "device");
+
+  assert.equal(device?.status, "ok");
+  assert.equal(device?.detail, "COM8", "the already-selected port is reported, not ports[0] (COM7)");
+  assert.deepEqual(probedWith, ["COM8"], "the MicroPython probe ran against the selected port");
+});
+
 test("deploy confirm sets the chosen port on the prompt response, before the agent is unblocked", async () => {
   let handler: ((message: any) => Promise<void>) | undefined;
   const selectedPorts: Array<string | null> = [];

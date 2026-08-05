@@ -899,6 +899,46 @@ test("multiple boards on the Doctor tab offer a clickable port selector that pos
   );
 });
 
+test("a matching device_selected confirmation re-checks the Doctor tab after an Env port pick", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+
+  postMultiPortDoctorResults(dom);
+  const com48 = [...view.querySelectorAll(".doc-ports .ask-opt")].find((b) => b.textContent === "COM48") as HTMLButtonElement;
+  com48.click();
+
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM48" });
+  assert.ok(
+    posted.some((m) => m.type === "run_doctor_check" && m.probe === false),
+    "the matching device_selected confirmation triggers a non-invasive re-check",
+  );
+
+  // A second device_selected for the SAME port (e.g. the deploy card later confirms it
+  // too) has no pending pick left to consume — the trace still records it, but no
+  // second re-check fires.
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM48" });
+  assert.equal(
+    posted.some((m) => m.type === "run_doctor_check"),
+    false,
+    "a device_selected with no pending Env pick must not re-check",
+  );
+});
+
+test("a device_selected from an unrelated pick (no pending Env selection) does not re-check", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+
+  postMultiPortDoctorResults(dom);
+  // No Env button was ever clicked — this device_selected models the deploy/flash
+  // card's own pick path, which must not surprise-trigger an Env re-check.
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM48" });
+  assert.equal(posted.some((m) => m.type === "run_doctor_check"), false);
+});
 
 test("code streams into the activity feed and finalizes as highlighted MicroPython (no Code tab)", async () => {
   const dom = await loadWebview();
