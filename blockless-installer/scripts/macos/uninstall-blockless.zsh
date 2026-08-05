@@ -35,15 +35,24 @@ done
 INSTALLED_BY_US=false
 [[ -f "$BLK/state.json" ]] && grep -Eq '"vscodeInstalledByUs"[[:space:]]*:[[:space:]]*true' "$BLK/state.json" && INSTALLED_BY_US=true
 
+# A running VS Code holds storage.json in memory and will clobber our edit: it can restore the
+# deleted Blockless entry after we remove the profile dir, or overwrite concurrently-changed shared
+# state. So skip the profile removal entirely while VS Code is running and tell the user to close it.
+vscode_running=0
+if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then vscode_running=1; fi
+
 # 1. Remove the Blockless profile FIRST (uses the provisioned python to rewrite storage.json, which
 # only exists until step 2 deletes $BLK). Fall back to python3 if the env is already gone.
 py=""
 [[ -x "$ENVPY" ]] && py="$ENVPY"
 [[ -z "$py" ]] && command -v python3 >/dev/null 2>&1 && py="python3"
 
-loc=""
-if [[ -n "$py" && -f "$STORAGE" ]]; then
-  loc="$("$py" - "$STORAGE" "$PROFILE_NAME" <<'PY'
+if [[ "$vscode_running" -eq 1 ]]; then
+  log "VS Code is running; leaving the '$PROFILE_NAME' profile untouched to avoid racing storage.json (quit VS Code and re-run to remove the profile). Removing the contained runtime only."
+else
+  loc=""
+  if [[ -n "$py" && -f "$STORAGE" ]]; then
+    loc="$("$py" - "$STORAGE" "$PROFILE_NAME" <<'PY'
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))
@@ -52,8 +61,8 @@ except Exception:
 print(next((p.get("location", "") for p in d.get("userDataProfiles", []) if p.get("name") == sys.argv[2]), ""))
 PY
 )"
-  # Drop the profile's entry so no orphan is left behind in the picker.
-  "$py" - "$STORAGE" "$PROFILE_NAME" <<'PY'
+    # Drop the profile's entry so no orphan is left behind in the picker.
+    "$py" - "$STORAGE" "$PROFILE_NAME" <<'PY'
 import json, sys
 path, name = sys.argv[1], sys.argv[2]
 try:
@@ -64,14 +73,15 @@ before = d.get("userDataProfiles", [])
 d["userDataProfiles"] = [x for x in before if x.get("name") != name]
 json.dump(d, open(path, "w"))
 PY
-  log "removed '$PROFILE_NAME' from storage.json"
-else
-  log "no python available to edit storage.json; the profile entry may remain in the picker"
-fi
+    log "removed '$PROFILE_NAME' from storage.json"
+  else
+    log "no python available to edit storage.json; the profile entry may remain in the picker"
+  fi
 
-if [[ -n "$loc" && -d "$CODE_USER/profiles/$loc" ]]; then
-  rm -rf "$CODE_USER/profiles/$loc"
-  log "removed profile directory ($loc)"
+  if [[ -n "$loc" && -d "$CODE_USER/profiles/$loc" ]]; then
+    rm -rf "$CODE_USER/profiles/$loc"
+    log "removed profile directory ($loc)"
+  fi
 fi
 
 # 2. Remove the whole contained runtime.

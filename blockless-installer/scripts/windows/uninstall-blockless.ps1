@@ -31,24 +31,35 @@ if (Test-Path $STATE) {
   try { $st = Get-Content $STATE -Raw | ConvertFrom-Json; if ($st.vscodeInstalledByUs) { $installedByUs = $true } } catch {}
 }
 
+# A running VS Code holds storage.json in memory and will clobber our edit (restore the deleted
+# Blockless entry after we remove its dir, or overwrite concurrently-changed shared state). Skip the
+# profile removal entirely while VS Code is running; remove only the contained runtime.
+$vscodeRunning = [bool](Get-Process -Name "Code" -ErrorAction SilentlyContinue)
+
 # 1. Remove the Blockless profile: its dir + its storage.json entry (so no orphan lingers in the
 # picker). -Depth 100 avoids truncating the (deeply nested) storage.json on the JSON round-trip.
-$loc = ""
-if (Test-Path $STORAGE) {
-  try {
-    $d = Get-Content $STORAGE -Raw | ConvertFrom-Json
-    $p = $d.userDataProfiles | Where-Object { $_.name -eq $PROFILE_NAME } | Select-Object -First 1
-    if ($p) { $loc = [string]$p.location }
-    if ($d.PSObject.Properties.Name -contains "userDataProfiles") {
-      $d.userDataProfiles = @($d.userDataProfiles | Where-Object { $_.name -ne $PROFILE_NAME })
-      ($d | ConvertTo-Json -Depth 100) | Set-Content -Path $STORAGE -Encoding UTF8
-      log "removed '$PROFILE_NAME' from storage.json"
-    }
-  } catch { log "could not edit storage.json; the profile entry may remain in the picker" }
-}
-if ($loc) {
-  $pdir = Join-Path $CODE_USER "profiles\$loc"
-  if (Test-Path $pdir) { Remove-Item -Recurse -Force $pdir; log "removed profile directory ($loc)" }
+if ($vscodeRunning) {
+  log "VS Code is running; leaving the '$PROFILE_NAME' profile untouched to avoid racing storage.json (quit VS Code and re-run to remove it). Removing the contained runtime only."
+} else {
+  $loc = ""
+  if (Test-Path $STORAGE) {
+    try {
+      $d = Get-Content $STORAGE -Raw | ConvertFrom-Json
+      $p = $d.userDataProfiles | Where-Object { $_.name -eq $PROFILE_NAME } | Select-Object -First 1
+      if ($p) { $loc = [string]$p.location }
+      if ($d.PSObject.Properties.Name -contains "userDataProfiles") {
+        $d.userDataProfiles = @($d.userDataProfiles | Where-Object { $_.name -ne $PROFILE_NAME })
+        # WriteAllText, not Set-Content: PS 5.1's `Set-Content -Encoding UTF8` prepends a BOM, and VS
+        # Code's state reader needs BOM-free strict JSON (install seeds it with WriteAllText for this).
+        [System.IO.File]::WriteAllText($STORAGE, ($d | ConvertTo-Json -Depth 100))
+        log "removed '$PROFILE_NAME' from storage.json"
+      }
+    } catch { log "could not edit storage.json; the profile entry may remain in the picker" }
+  }
+  if ($loc) {
+    $pdir = Join-Path $CODE_USER "profiles\$loc"
+    if (Test-Path $pdir) { Remove-Item -Recurse -Force $pdir; log "removed profile directory ($loc)" }
+  }
 }
 
 # 2. Remove the whole contained runtime.

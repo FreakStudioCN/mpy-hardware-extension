@@ -28,6 +28,10 @@ $PROFILE_NAME     = "Blockless"
 $EXT_ID           = "blockless.mpy-hardware-extension"
 $PY_EXT_ID        = "ms-python.python"
 $UV_VERSION       = "0.11.29"
+# sha256 of the version-pinned uv install script. We download it, verify this digest, then run it,
+# rather than piping `irm | iex`: a compromised astral.sh response would otherwise be arbitrary code
+# execution as the installing user. (installer-core pins the uv binary itself; this is the equivalent.)
+$UV_INSTALL_SHA256 = "d40be32be5121f25fd433cdc5786549b53aad072947674c2818a9c31a7912b4d"
 $PYTHON_SERIES    = "3.12"
 $MPREMOTE_VERSION = "1.28.0"
 $CANARY_THEME     = "Default Dark Modern"   # dark; Blockless has no light mode
@@ -196,18 +200,15 @@ function Test-BothExt {
   return (($list -contains $EXT_ID) -and ($list -contains $PY_EXT_ID))
 }
 function Install-Ext($id) {
-  # OUR extension: install the BUNDLED vsix -- it is the exact build this installer ships and verifies.
-  # The Marketplace has a 0.4.2 published at an OLDER commit (SAME version number, but built before
-  # mpyhw.autoOpenPanel existed), so `--install-extension $EXT_ID` pulls that stale build and the panel
-  # never auto-opens. So prefer the vsix; fall back to the Marketplace only if no usable vsix was given.
+  # OUR extension: install ONLY the bundled vsix -- the exact build this installer ships + verifies.
+  # We deliberately do NOT fall back to the Marketplace: its 0.4.2 is an OLDER build (same version
+  # number, built before mpyhw.autoOpenPanel existed), so installing it produces a broken auto-open
+  # that verify cannot catch (verify checks the SETTING we write, not the extension build). A
+  # missing/failed vsix must fail loudly, not silently install a broken build.
   if ($id -eq $EXT_ID) {
-    if ($Vsix -and (Test-Path $Vsix)) {
-      log "step2: installing $id from the bundled vsix"
-      & $script:CODE --profile $PROFILE_NAME --install-extension $Vsix --force *> $null
-      if ($LASTEXITCODE -eq 0) { return $true }
-      log "step2: bundled vsix install failed, falling back to the Marketplace for $id"
-    }
-    & $script:CODE --profile $PROFILE_NAME --install-extension $id --force *> $null
+    if (-not ($Vsix -and (Test-Path $Vsix))) { log "step2: no bundled vsix (-Vsix) for $id; refusing the stale Marketplace build"; return $false }
+    log "step2: installing $id from the bundled vsix"
+    & $script:CODE --profile $PROFILE_NAME --install-extension $Vsix --force *> $null
     return ($LASTEXITCODE -eq 0)
   }
   # Marketplace-sourced dependency (ms-python.python -> also pulls Pylance).
@@ -237,7 +238,10 @@ function Step-Python {
   if ((-not (Test-Path $uv)) -or (-not ((& $uv --version 2>$null) -match $UV_VERSION))) {
     log "step3 python: installing uv $UV_VERSION (contained, no PATH edits)"
     $env:UV_UNMANAGED_INSTALL = (Join-Path $BLK "uv")
-    powershell -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/$UV_VERSION/install.ps1 | iex"
+    $uvIvs = Join-Path $DL "uv-install.ps1"
+    Invoke-WebRequest "https://astral.sh/uv/$UV_VERSION/install.ps1" -OutFile $uvIvs -UseBasicParsing
+    if ((Get-FileHash $uvIvs -Algorithm SHA256).Hash -ne $UV_INSTALL_SHA256) { die "uv install script sha256 mismatch (refusing to run)" }
+    powershell -ExecutionPolicy Bypass -File $uvIvs
   }
   if (-not (Test-Path $uv)) { die "uv binary missing after install" }
   # Contained interpreter: install under $BLK, force the venv onto the managed interpreter (not a
@@ -275,7 +279,9 @@ function Step-Settings {
   $target = Join-Path $CODE_USER "profiles\$loc\settings.json"
   if (Test-Path $target) {
     try { $cur = Get-Content $target -Raw | ConvertFrom-Json } catch { $cur = $null }
-    if ($cur -and ($cur."mpyhw.pythonPath" -eq $ENVPY)) { $script:STEP_SETTINGS = $true; log "step4 settings: already applied, skip"; return }
+    # All THREE installer-owned keys must match, not just pythonPath, so a repair re-applies the theme
+    # or autoOpenPanel if either was removed/changed (otherwise the panel auto-open stays broken).
+    if ($cur -and ($cur."mpyhw.pythonPath" -eq $ENVPY) -and ($cur."workbench.colorTheme" -eq $CANARY_THEME) -and ($cur."mpyhw.autoOpenPanel" -eq $true)) { $script:STEP_SETTINGS = $true; log "step4 settings: already applied, skip"; return }
   }
   Merge-Settings $target
   $script:STEP_SETTINGS = $true

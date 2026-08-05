@@ -16,6 +16,11 @@ PROFILE_NAME="Blockless"
 EXT_ID="blockless.mpy-hardware-extension"
 PY_EXT_ID="ms-python.python"
 UV_VERSION="0.11.29"
+# sha256 of the version-pinned uv install script. We download it to a file, verify this digest, then
+# run it, rather than piping curl straight to sh: a compromised astral.sh response would otherwise be
+# arbitrary code execution as the installing user. (The Rust installer-core pins the uv BINARY itself
+# with a checksum; this is the script-level equivalent.)
+UV_INSTALL_SHA256="504a79fd2ed0dcd47e7f04f0792cfd0871f62e24a7fe40fa8ae0f563a369f2bd"
 PYTHON_SERIES="3.12"
 MPREMOTE_VERSION="1.28.0"
 VSCODE_PLATFORM="darwin-universal"
@@ -114,20 +119,18 @@ has_both_ext() {
   print -r -- "$list" | grep -qi "^${EXT_ID}\$" && print -r -- "$list" | grep -qi "^${PY_EXT_ID}\$"
 }
 
-# Install one extension id. For OUR extension, prefer the BUNDLED vsix (the exact build this
-# installer ships + verifies): the Marketplace has a 0.4.2 published at an OLDER commit (same
-# version number, but built before mpyhw.autoOpenPanel existed), so `--install-extension $EXT_ID`
-# pulls that stale build and the panel never auto-opens. Fall back to the Marketplace only if no
-# usable vsix was given. Other ids (ms-python.python -> also pulls Pylance) come from the Marketplace.
+# Install one extension id. For OUR extension, install ONLY the bundled vsix (the exact build this
+# installer ships + verifies). We deliberately do NOT fall back to the Marketplace: its 0.4.2 is an
+# OLDER build (same version number, built before mpyhw.autoOpenPanel existed), so installing it
+# produces a broken auto-open that verify cannot catch (verify checks the SETTING we write, not the
+# extension build). A missing/failed vsix must fail loudly, not silently install a broken build.
+# Other ids (ms-python.python -> also pulls Pylance) come from the Marketplace.
 install_ext() {
   local id="$1"
   if [[ "$id" == "$EXT_ID" ]]; then
-    if [[ -n "$VSIX_PATH" && -f "$VSIX_PATH" ]]; then
-      log "step2: installing $id from the bundled vsix"
-      "$CODE" --profile "$PROFILE_NAME" --install-extension "$VSIX_PATH" --force >/dev/null 2>&1 && return 0
-      log "step2: bundled vsix install failed, falling back to the Marketplace for $id"
-    fi
-    "$CODE" --profile "$PROFILE_NAME" --install-extension "$id" --force >/dev/null 2>&1 && return 0
+    [[ -n "$VSIX_PATH" && -f "$VSIX_PATH" ]] || { log "step2: no bundled vsix (--vsix) for $id; refusing the stale Marketplace build"; return 1; }
+    log "step2: installing $id from the bundled vsix"
+    "$CODE" --profile "$PROFILE_NAME" --install-extension "$VSIX_PATH" --force >/dev/null 2>&1 && return 0
     return 1
   fi
   "$CODE" --profile "$PROFILE_NAME" --install-extension "$id" --force >/dev/null 2>&1 && return 0
@@ -239,8 +242,10 @@ step3_python() {
   local uv="$BLK/uv/uv"
   if [[ ! -x "$uv" ]] || ! "$uv" --version 2>/dev/null | grep -q "$UV_VERSION"; then
     log "step3 python: installing uv $UV_VERSION (contained, no PATH edits)"
-    curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | env UV_UNMANAGED_INSTALL="$BLK/uv" sh \
-      || die "uv install failed"
+    local uv_ivs="$DL/uv-install.sh"
+    curl -fsSL --retry 3 "https://astral.sh/uv/${UV_VERSION}/install.sh" -o "$uv_ivs" || die "uv install script download failed"
+    print -r -- "$UV_INSTALL_SHA256  $uv_ivs" | shasum -a 256 -c - >/dev/null 2>&1 || die "uv install script sha256 mismatch (refusing to run)"
+    env UV_UNMANAGED_INSTALL="$BLK/uv" sh "$uv_ivs" || die "uv install failed"
   fi
   [[ -x "$uv" ]] || die "uv binary missing after install"
   export UV_PYTHON_INSTALL_DIR="$BLK/python"
@@ -298,13 +303,19 @@ PY
 
 settings_already() {
   [[ -f "$1" && -x "$ENVPY" ]] || return 1
-  "$ENVPY" - "$1" "$ENVPY" <<'PY'
+  "$ENVPY" - "$1" "$ENVPY" "$CANARY_THEME" <<'PY'
 import json, sys
 try:
     d = json.load(open(sys.argv[1]))
 except Exception:
     sys.exit(1)
-sys.exit(0 if d.get("mpyhw.pythonPath") == sys.argv[2] else 1)
+# All THREE installer-owned keys must match, not just pythonPath: a repair run must re-apply the
+# theme or autoOpenPanel if either was removed/changed, otherwise the branded UI / panel auto-open
+# stays broken while the step reports "already applied".
+ok = (d.get("mpyhw.pythonPath") == sys.argv[2]
+      and d.get("workbench.colorTheme") == sys.argv[3]
+      and d.get("mpyhw.autoOpenPanel") is True)
+sys.exit(0 if ok else 1)
 PY
 }
 
