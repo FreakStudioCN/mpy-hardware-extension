@@ -186,12 +186,19 @@
       .doc-row.doc-warn .doc-ico { color: #e2c08d; }
       .doc-row.doc-error .doc-ico { color: #f48771; }
       .doc-body { flex: 1; min-width: 0; }
-      .doc-msg { font-weight: 600; }
+      .doc-msg { font-weight: 600; overflow-wrap: anywhere; }
       .doc-hint { margin-top: 2px; font-size: 12px; opacity: 0.75; }
       .doc-ports { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      /* Long port names (e.g. /dev/cu.usbmodem…) must wrap inside the button and never exceed
+         the panel width, or the overflow-x:hidden tab/tool body clips them instead of wrapping. */
+      .doc-ports .ask-opt { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
       .doc-actions { flex: none; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
       .doc-fix { background: #2d7d46; color: #fff; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
       .doc-fix:disabled { opacity: 0.6; cursor: default; }
+      /* "Change board" sits inside the body, below the connected line — a subtle secondary
+         button so it can't collide with the row heading the way a right-column action did. */
+      .doc-change { margin-top: 8px; background: transparent; color: var(--accent); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
+      .doc-change:hover { border-color: var(--accent); }
       .doc-link { color: #4daafc; text-decoration: none; font-size: 12px; white-space: nowrap; }
       .doc-link:hover { text-decoration: underline; }
       .hidden { display: none !important; }

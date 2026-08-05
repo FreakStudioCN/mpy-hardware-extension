@@ -15,6 +15,9 @@ export interface DoctorResult {
   action?: "install_deps";
   link?: string;
   ports?: string[];
+  // Set on a connected ("ok") device item when more than one port was scanned: the port
+  // currently in use, so the Env panel can offer a "change board" switch among `ports`.
+  selectedPort?: string;
 }
 
 export interface DoctorDeps {
@@ -85,7 +88,8 @@ export async function runDoctor(deps: DoctorDeps, opts: { probe?: boolean } = {}
     return results;
   }
   let devicePort: string;
-  if (ports.length > 1) {
+  const multiPort = ports.length > 1;
+  if (multiPort) {
     const selected = deps.getPort?.();
     if (!selected || !ports.includes(selected)) {
       results.push({ id: "device", status: "warn", messageKey: "doc_device_multiple", errorKind: "device_selection_required", ports });
@@ -97,7 +101,13 @@ export async function runDoctor(deps: DoctorDeps, opts: { probe?: boolean } = {}
     devicePort = ports[0];
   }
 
-  results.push({ id: "device", status: "ok", messageKey: "doc_device_ok", detail: devicePort });
+  // Keep the port list on the connected item when several ports exist, so the Env panel can
+  // offer a "change board" switch to the other ports without forcing an unplug/replug.
+  results.push(
+    multiPort
+      ? { id: "device", status: "ok", messageKey: "doc_device_ok", detail: devicePort, ports, selectedPort: devicePort }
+      : { id: "device", status: "ok", messageKey: "doc_device_ok", detail: devicePort },
+  );
   // The probe enters the board's raw REPL, which interrupts any running program. That's
   // too invasive to do automatically on every panel load, so it's opt-in (the Re-check
   // button) — a default run just reports the board is connected.

@@ -29,6 +29,27 @@
       // A pick that never gets a device_selected at all (session_error, a cancelled
       // QuickPick) is a known ceiling documented in message-bus.js, not fixed here.
       let pendingEnvPick = null;
+      // Builds the clickable port list. selectedPort, when given, marks the port currently in
+      // use and stays enabled so the user can switch to another. A click posts select_device
+      // and waits for the host's device_selected before re-checking — the host sets the port
+      // asynchronously, so re-checking right after the click would race it. The deploy/flash
+      // confirmation cards reach the same shim.setPort by their own reply, never this message.
+      function buildPortSelector(ports, selectedPort) {
+        const p = document.createElement("div"); p.className = "doc-ports";
+        ports.forEach((port) => {
+          const b = document.createElement("button");
+          b.className = port === selectedPort ? "ask-opt chosen" : "ask-opt";
+          b.type = "button"; b.textContent = port;
+          b.addEventListener("click", () => {
+            pendingEnvPick = port;
+            p.querySelectorAll(".ask-opt").forEach((x) => { x.disabled = true; });
+            b.classList.add("chosen");
+            vscode.postMessage({ type: "select_device", port });
+          });
+          p.appendChild(b);
+        });
+        return p;
+      }
       function renderDoctor(items) {
         if (!Array.isArray(items)) return;
         const view = $("doctor");
@@ -48,30 +69,27 @@
           body.appendChild(msg);
           const hintText = it.errorKind ? docHint(it.errorKind) : "";
           if (hintText) { const h = document.createElement("div"); h.className = "doc-hint"; h.textContent = hintText; body.appendChild(h); }
+          const okWithPorts = it.status === "ok" && it.ports && it.ports.length && it.selectedPort;
           if (it.ports && it.ports.length && it.errorKind === "device_selection_required") {
-            // A clickable port selector: click posts select_device (the deploy/flash
-            // confirmation cards reach the same shim.setPort by a different route — their
-            // own reply — never this message), then waits for device_selected before
-            // re-checking — the host sets the port asynchronously, so re-checking right
-            // after the click would race it.
-            const p = document.createElement("div"); p.className = "doc-ports";
-            it.ports.forEach((port) => {
-              const b = document.createElement("button");
-              b.className = "ask-opt"; b.type = "button"; b.textContent = port;
-              b.addEventListener("click", () => {
-                pendingEnvPick = port;
-                p.querySelectorAll(".ask-opt").forEach((x) => { x.disabled = true; });
-                b.classList.add("chosen");
-                vscode.postMessage({ type: "select_device", port });
-              });
-              p.appendChild(b);
-            });
-            body.appendChild(p);
-          } else if (it.ports && it.ports.length) {
-            // Defensive fallback: runDoctor only ever attaches ports alongside
-            // device_selection_required today, but a future errorKind carrying ports
-            // still gets a readable (non-clickable) list instead of silently dropping it.
+            body.appendChild(buildPortSelector(it.ports, null));
+          } else if (it.ports && it.ports.length && !okWithPorts) {
+            // Defensive fallback: a future errorKind carrying ports still gets a readable
+            // (non-clickable) list instead of silently dropping it. The connected-with-ports
+            // case is handled by the "change board" action below, not here.
             const p = document.createElement("div"); p.className = "doc-hint"; p.textContent = it.ports.join(sep()); body.appendChild(p);
+          }
+          if (okWithPorts) {
+            // Connected, but several ports are present: a "change board" button reveals the
+            // selector (current port marked, the others clickable) so the user can switch
+            // without unplugging. Lives in the body (below the connected line) so it can't
+            // collide with the row heading. One-shot: it removes itself once the selector shows.
+            const change = document.createElement("button");
+            change.className = "doc-change"; change.type = "button"; change.textContent = tr("doc_change_board");
+            change.addEventListener("click", () => {
+              change.remove();
+              body.appendChild(buildPortSelector(it.ports, it.selectedPort));
+            });
+            body.appendChild(change);
           }
           row.appendChild(body);
           const actions = document.createElement("div");

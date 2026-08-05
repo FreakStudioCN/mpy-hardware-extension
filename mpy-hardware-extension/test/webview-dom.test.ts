@@ -899,6 +899,45 @@ test("multiple boards on the Doctor tab offer a clickable port selector that pos
   );
 });
 
+test("a connected board with several ports offers a change-board switch that reveals the selector", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+
+  post(dom, {
+    type: "doctor_results",
+    items: [
+      { id: "python", status: "ok", messageKey: "doc_python_ok", detail: "Python 3.12.1" },
+      { id: "deps", status: "ok", messageKey: "doc_deps_ok" },
+      { id: "device", status: "ok", messageKey: "doc_device_ok", detail: "COM48", ports: ["COM5", "COM48"], selectedPort: "COM48" },
+      { id: "micropython", status: "warn", messageKey: "doc_mpy_recheck" },
+    ],
+  });
+
+  // Connected: the selector stays hidden behind a "change board" button, not shown outright.
+  assert.equal(view.querySelectorAll(".doc-ports .ask-opt").length, 0, "the selector is hidden until the user asks to change");
+  const change = [...view.querySelectorAll("button.doc-change")].find((b) => b.textContent === "Change board") as HTMLButtonElement;
+  assert.ok(change, "a connected board with several ports offers a change-board switch");
+
+  change.click();
+
+  const buttons = [...view.querySelectorAll(".doc-ports .ask-opt")] as HTMLButtonElement[];
+  assert.deepEqual(buttons.map((b) => b.textContent), ["COM5", "COM48"], "clicking change reveals every port");
+  assert.ok(buttons.find((b) => b.textContent === "COM48")!.classList.contains("chosen"), "the port in use is marked as the current choice");
+  assert.equal(
+    [...view.querySelectorAll("button.doc-change")].some((b) => b.textContent === "Change board"),
+    false,
+    "the change button removes itself once the selector is shown",
+  );
+
+  posted.length = 0;
+  buttons.find((b) => b.textContent === "COM5")!.click();
+  const picks = posted.filter((m) => m.type === "select_device");
+  assert.equal(picks.length, 1, "picking a different port posts select_device");
+  assert.equal(picks[0].port, "COM5");
+});
+
 test("a device_selected confirmation re-checks the Doctor tab after an Env port pick", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

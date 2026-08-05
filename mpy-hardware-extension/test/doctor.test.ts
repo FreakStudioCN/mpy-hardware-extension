@@ -173,6 +173,24 @@ test("runDoctor probes the already-selected port when several boards are connect
   assert.equal(r.device.errorKind, undefined);
   assert.equal(probedWith, "COM8");
   assert.equal(r.micropython.status, "ok");
+  // The connected item keeps the full port list + the selected one so the Env panel can offer
+  // a "change board" switch. Mutation guard: dropping ports/selectedPort here removes the only
+  // way to re-pick without an unplug/replug.
+  assert.deepEqual(r.device.ports, ["COM7", "COM8"]);
+  assert.equal(r.device.selectedPort, "COM8");
+});
+
+test("runDoctor attaches no port list when a single board is connected", async () => {
+  const items = await runDoctor(
+    healthyDeps({ scan: async () => ["COM7"], probeMicroPython: async () => true, getPort: () => "COM7" }),
+    { probe: true },
+  );
+  const r = byId(items);
+
+  assert.equal(r.device.status, "ok");
+  // One board needs no switch — no ports/selectedPort, so the panel shows no "change board".
+  assert.equal(r.device.ports, undefined);
+  assert.equal(r.device.selectedPort, undefined);
 });
 
 test("runDoctor ignores a selected port that has vanished from the scan", async () => {
