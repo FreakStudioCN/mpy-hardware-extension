@@ -188,6 +188,7 @@
       .doc-body { flex: 1; min-width: 0; }
       .doc-msg { font-weight: 600; }
       .doc-hint { margin-top: 2px; font-size: 12px; opacity: 0.75; }
+      .doc-ports { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
       .doc-actions { flex: none; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
       .doc-fix { background: #2d7d46; color: #fff; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
       .doc-fix:disabled { opacity: 0.6; cursor: default; }

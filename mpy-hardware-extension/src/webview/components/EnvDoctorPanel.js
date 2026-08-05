@@ -22,6 +22,11 @@
       };
       function docHint(kind) { const m = DOC_HINTS[LOCALE] || DOC_HINTS.en; return m[kind] || DOC_HINTS.en[kind] || ""; }
       const DOC_ICON = { ok: "✓", warn: "⚠", error: "✗" };
+      // The port the user just clicked in the Env selector, awaiting the host's
+      // device_selected confirmation (message-bus.js) before triggering a re-check.
+      // Cleared once consumed, so an unrelated device_selected (e.g. from the deploy
+      // card) never fires a surprise Env re-check.
+      let pendingEnvPick = null;
       function renderDoctor(items) {
         if (!Array.isArray(items)) return;
         const view = $("doctor");
@@ -41,7 +46,27 @@
           body.appendChild(msg);
           const hintText = it.errorKind ? docHint(it.errorKind) : "";
           if (hintText) { const h = document.createElement("div"); h.className = "doc-hint"; h.textContent = hintText; body.appendChild(h); }
-          if (it.ports && it.ports.length) { const p = document.createElement("div"); p.className = "doc-hint"; p.textContent = it.ports.join(sep()); body.appendChild(p); }
+          if (it.ports && it.ports.length && it.errorKind === "device_selection_required") {
+            // A clickable port selector: click posts select_device (same host path the
+            // deploy/flash confirmation cards already use), then waits for device_selected
+            // before re-checking — the host sets the port asynchronously, so re-checking
+            // right after the click would race it.
+            const p = document.createElement("div"); p.className = "doc-ports";
+            it.ports.forEach((port) => {
+              const b = document.createElement("button");
+              b.className = "ask-opt"; b.type = "button"; b.textContent = port;
+              b.addEventListener("click", () => {
+                pendingEnvPick = port;
+                p.querySelectorAll(".ask-opt").forEach((x) => { x.disabled = true; x.classList.remove("chosen"); });
+                b.classList.add("chosen");
+                vscode.postMessage({ type: "select_device", port });
+              });
+              p.appendChild(b);
+            });
+            body.appendChild(p);
+          } else if (it.ports && it.ports.length) {
+            const p = document.createElement("div"); p.className = "doc-hint"; p.textContent = it.ports.join(sep()); body.appendChild(p);
+          }
           row.appendChild(body);
           const actions = document.createElement("div");
           actions.className = "doc-actions";

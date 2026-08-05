@@ -862,6 +862,44 @@ test("a failing Doctor check offers an install button and guide links wired to t
   );
 });
 
+function postMultiPortDoctorResults(dom: JSDOM) {
+  post(dom, {
+    type: "doctor_results",
+    items: [
+      { id: "python", status: "ok", messageKey: "doc_python_ok", detail: "Python 3.12.1" },
+      { id: "deps", status: "ok", messageKey: "doc_deps_ok" },
+      { id: "device", status: "warn", messageKey: "doc_device_multiple", errorKind: "device_selection_required", ports: ["COM5", "COM48"] },
+      { id: "micropython", status: "warn", messageKey: "doc_mpy_need_port" },
+    ],
+  });
+}
+
+test("multiple boards on the Doctor tab offer a clickable port selector that posts select_device", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+
+  postMultiPortDoctorResults(dom);
+
+  const buttons = [...view.querySelectorAll(".doc-ports .ask-opt")] as HTMLButtonElement[];
+  assert.equal(buttons.length, 2, "one clickable button per candidate port");
+  assert.deepEqual(buttons.map((b) => b.textContent), ["COM5", "COM48"]);
+
+  posted.length = 0;
+  const com48 = buttons.find((b) => b.textContent === "COM48")!;
+  com48.click();
+  const picks = posted.filter((m) => m.type === "select_device");
+  assert.equal(picks.length, 1, "clicking a port posts select_device through the existing host pick path");
+  assert.equal(picks[0].port, "COM48");
+  assert.equal(
+    posted.some((m) => m.type === "run_doctor_check"),
+    false,
+    "must not re-check immediately — the host sets the port asynchronously (races)",
+  );
+});
+
+
 test("code streams into the activity feed and finalizes as highlighted MicroPython (no Code tab)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
