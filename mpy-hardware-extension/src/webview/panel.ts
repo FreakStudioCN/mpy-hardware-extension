@@ -1891,7 +1891,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         probeMicroPython: (port: string) => shim.probeMicroPython(port),
         getPort: () => shim.getPort?.() ?? null,
       }, { probe: message.probe === true }); // probe only on an explicit Re-check — it interrupts a running board
-      webview.postMessage({ type: "doctor_results", items });
+      // Echo the request's seq so the webview can drop a stale check whose result arrives after
+      // a newer one (results render in completion order, not send order).
+      webview.postMessage({ type: "doctor_results", items, seq: message.seq });
     }
     if (message.type === "open_path" && typeof message.path === "string") {
       // Reveal the fallback project folder in the OS file manager so the user can

@@ -29,6 +29,12 @@
       // A pick that never gets a device_selected at all (session_error, a cancelled
       // QuickPick) is a known ceiling documented in message-bus.js, not fixed here.
       let pendingEnvPick = null;
+      // Every doctor request (on-load, Re-check, the post-pick re-check, install-deps) carries
+      // a monotonic seq. doctor_results echoes it back, and renderDoctor ignores anything but
+      // the latest, so two in-flight checks that finish out of order cannot let the stale one
+      // clobber the newer result (or stop the spin early).
+      let doctorSeq = 0;
+      function nextDoctorSeq() { doctorSeq += 1; return doctorSeq; }
       // Builds the clickable port list. selectedPort, when given, marks the port currently in
       // use and stays enabled so the user can switch to another. A click posts select_device
       // and waits for the host's device_selected before re-checking — the host sets the port
@@ -50,7 +56,15 @@
         });
         return p;
       }
-      function renderDoctor(items) {
+      function renderDoctor(items, seq) {
+        // Ignore a superseded check: a newer request has been sent since this result's, so
+        // rendering it (or clearing the spin on it) would clobber the newer one. A result with
+        // no seq (legacy) always renders.
+        // ponytail: request-order wins, not completion-order. If a slow install-deps was issued
+        // before a newer Re-check, the install's own result is dropped even when it finishes
+        // later; the user sees it on the next check. Acceptable — the alternative is the stale
+        // clobber this guard exists to prevent.
+        if (seq != null && seq !== doctorSeq) return;
         // Results are in — stop the Re-check refresh icon spinning. Cleared before the shape
         // guard so a malformed payload can't strand the spin.
         $("doctorRecheck").classList.remove("spinning");
@@ -103,7 +117,7 @@
             btn.textContent = tr("doc_install");
             btn.addEventListener("click", () => {
               btn.disabled = true; btn.textContent = tr("doc_installing");
-              vscode.postMessage({ type: "doctor_action", action: "install_deps" });
+              vscode.postMessage({ type: "doctor_action", action: "install_deps", seq: nextDoctorSeq() });
             });
             actions.appendChild(btn);
           }
@@ -126,5 +140,5 @@
         // Spin the refresh icon until the fresh results land (renderDoctor clears it). The
         // doctor always resolves with items, so the spin can't get stuck on a normal run.
         $("doctorRecheck").classList.add("spinning");
-        vscode.postMessage({ type: "run_doctor_check", probe: true });
+        vscode.postMessage({ type: "run_doctor_check", probe: true, seq: nextDoctorSeq() });
       });

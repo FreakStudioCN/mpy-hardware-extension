@@ -5,7 +5,7 @@
       // Pull the real device list + credit balance from the extension host on load.
       vscode.postMessage({ type: "request_boards" });
       // Run the environment preflight on load so issues surface before the first deploy.
-      vscode.postMessage({ type: "run_doctor_check" });
+      vscode.postMessage({ type: "run_doctor_check", seq: nextDoctorSeq() });
       // Load the gen-driver input tabs from the host (schema is the source of truth).
       vscode.postMessage({ type: "request_gen_driver_config" });
       // Load the support contacts + diagnostics fields (config is the source of truth).

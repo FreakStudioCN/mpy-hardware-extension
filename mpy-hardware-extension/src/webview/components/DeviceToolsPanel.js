@@ -523,7 +523,7 @@
         const envBtn = $("dtEnvSetupBtn");
         if (envBtn) envBtn.addEventListener("click", () => {
           envBtn.disabled = true; envBtn.textContent = tr("doc_installing");
-          vscode.postMessage({ type: "doctor_action", action: "install_deps" });
+          vscode.postMessage({ type: "doctor_action", action: "install_deps", seq: nextDoctorSeq() });
           // Device Tools is a global-tool surface that hides .tabwrap while open, so the tab
           // switch alone would leave the Doctor progress covered — close the surface first.
           closeGlobalTool();

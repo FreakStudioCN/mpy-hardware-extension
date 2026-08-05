@@ -971,6 +971,37 @@ test("the Re-check refresh icon survives a locale switch", async () => {
   assert.equal(recheck.querySelector("span")!.textContent, "重新检测", "the label still localizes to zh");
 });
 
+test("a stale doctor check result does not clobber a newer one or stop the spin", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+  const recheck = document.getElementById("doctorRecheck")!;
+
+  // Click Re-check: it stamps the latest seq and starts the spin.
+  recheck.click();
+  const latest = posted.filter((m) => m.type === "run_doctor_check").pop()!.seq as number;
+
+  // A stale result (an earlier check finishing last) must be ignored: it neither renders nor
+  // stops the spin. Mutation guard: dropping the seq check in renderDoctor fails both asserts.
+  post(dom, {
+    type: "doctor_results",
+    seq: latest - 1,
+    items: [{ id: "device", status: "warn", messageKey: "doc_device_multiple", errorKind: "device_selection_required", ports: ["COM5", "COM48"] }],
+  });
+  assert.equal(view.querySelectorAll(".doc-ports .ask-opt").length, 0, "the stale result does not render");
+  assert.ok(recheck.classList.contains("spinning"), "the stale result does not stop the spin");
+
+  // The latest result renders and stops the spin.
+  post(dom, {
+    type: "doctor_results",
+    seq: latest,
+    items: [{ id: "device", status: "ok", messageKey: "doc_device_ok", detail: "COM48" }],
+  });
+  assert.match(view.textContent || "", /Board connected/, "the latest result renders");
+  assert.equal(recheck.classList.contains("spinning"), false, "the latest result stops the spin");
+});
+
 test("a device_selected confirmation re-checks the Doctor tab after an Env port pick", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

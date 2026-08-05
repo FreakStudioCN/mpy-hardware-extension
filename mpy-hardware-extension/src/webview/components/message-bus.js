@@ -6,7 +6,7 @@
       window.addEventListener("message", (event) => {
         const msg = event.data;
         if (msg.type === "recipe_imported") { prefillImportedRecipe(msg.payload); }
-        if (msg.type === "doctor_results") { renderDoctor(msg.items); }
+        if (msg.type === "doctor_results") { renderDoctor(msg.items, msg.seq); }
         if (msg.type === "gen_driver_config") { renderGenDriver(msg.tabs); }
         if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
         if (msg.type === "gen_driver_required") { showDriverRequiredOffer(msg.blocks); }
@@ -135,7 +135,7 @@
           const hadPendingPick = pendingEnvPick != null;
           pendingEnvPick = null;
           if (hadPendingPick) {
-            vscode.postMessage({ type: "run_doctor_check", probe: false });
+            vscode.postMessage({ type: "run_doctor_check", probe: false, seq: nextDoctorSeq() });
           }
         }
         // support_feedback_opened / support_diagnostics_exported are recorded host-side (session log +

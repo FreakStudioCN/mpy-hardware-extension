@@ -421,13 +421,16 @@ test("run_doctor_check probes the port select_device already picked, with severa
   assert.equal(shim.getPort(), "COM8", "select_device persisted the chosen port on the shim");
 
   posted.length = 0;
-  await handler?.({ type: "run_doctor_check", probe: true });
+  await handler?.({ type: "run_doctor_check", probe: true, seq: 7 });
   const results = posted.find((m) => m.type === "doctor_results");
   const device = results?.items.find((i: any) => i.id === "device");
 
   assert.equal(device?.status, "ok");
   assert.equal(device?.detail, "COM8", "the already-selected port is reported, not ports[0] (COM7)");
   assert.deepEqual(probedWith, ["COM8"], "the MicroPython probe ran against the selected port");
+  // The host echoes the request seq so the webview can drop a stale check. Mutation guard:
+  // dropping `seq: message.seq` on the host post re-opens the race end to end.
+  assert.equal(results?.seq, 7, "doctor_results echoes the request seq");
 });
 
 test("deploy confirm sets the chosen port on the prompt response, before the agent is unblocked", async () => {
