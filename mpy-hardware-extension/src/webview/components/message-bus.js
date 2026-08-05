@@ -116,7 +116,10 @@
         if (msg.type === "artifacts_index") { renderArtifacts(msg.artifacts); renderOptionalFlowImages(msg.artifacts); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
         if (msg.type === "device_selected") {
-          addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) });
+          // Not rendered into the build feed: device_selected only ever answers a select_device
+          // sent by the Env port picker (panel.ts is the sole emitter), so it is environment
+          // setup, not build progress — the same reason support-panel navigation is kept out
+          // below. Re-picking a board would otherwise spam the feed with one line per switch.
           // Re-check whenever THIS confirmation resolves an Env selector click — not only
           // when the confirmed port matches the one clicked. EnvDoctorPanel.js is the only
           // sender of select_device today, so any device_selected that arrives while a pick

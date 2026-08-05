@@ -955,6 +955,22 @@ test("clicking Re-check spins the refresh icon until fresh results arrive", asyn
   assert.equal(recheck.classList.contains("spinning"), false, "the spin stops once results render");
 });
 
+test("the Re-check refresh icon survives a locale switch", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const recheck = document.getElementById("doctorRecheck")!;
+  assert.ok(recheck.querySelector(".doc-recheck-ico"), "the refresh icon renders");
+
+  // Flip the UI language like a real session (submit a Chinese intent → setLocale →
+  // applyStaticI18n re-applies via textContent). If data-i18n sat on the button instead of
+  // the inner label span, that re-apply would wipe the sibling icon. Mutation guard.
+  (document.getElementById("intent") as any).value = "用 OLED 显示温度";
+  (document.getElementById("generate") as any).click();
+
+  assert.ok(recheck.querySelector(".doc-recheck-ico"), "the icon survives re-localization");
+  assert.equal(recheck.querySelector("span")!.textContent, "重新检测", "the label still localizes to zh");
+});
+
 test("a device_selected confirmation re-checks the Doctor tab after an Env port pick", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -971,9 +987,16 @@ test("a device_selected confirmation re-checks the Doctor tab after an Env port 
     posted.some((m) => m.type === "run_doctor_check" && m.probe === false),
     "the device_selected confirmation triggers a non-invasive re-check",
   );
+  // Env device selection is setup, not build progress: it must NOT add a line to the activity
+  // feed. Mutation guard: re-adding the addActivity("Device selected") call fails this.
+  assert.equal(
+    /Device selected/.test(document.getElementById("activity")!.textContent || ""),
+    false,
+    "an Env port pick leaves no trace in the build activity feed",
+  );
 
-  // A second device_selected (e.g. the deploy card later confirms a port too) has no
-  // pending pick left to consume — the trace still records it, but no second re-check.
+  // A second device_selected (e.g. a later confirm) has no pending pick left to consume — no
+  // second re-check, and still no feed line.
   posted.length = 0;
   post(dom, { type: "device_selected", port: "COM48" });
   assert.equal(

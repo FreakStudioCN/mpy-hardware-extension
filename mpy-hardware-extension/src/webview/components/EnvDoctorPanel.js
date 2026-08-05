@@ -51,9 +51,10 @@
         return p;
       }
       function renderDoctor(items) {
-        if (!Array.isArray(items)) return;
-        // Results are in — stop the Re-check refresh icon spinning.
+        // Results are in — stop the Re-check refresh icon spinning. Cleared before the shape
+        // guard so a malformed payload can't strand the spin.
         $("doctorRecheck").classList.remove("spinning");
+        if (!Array.isArray(items)) return;
         const view = $("doctor");
         view.innerHTML = "";
         for (const it of items) {
