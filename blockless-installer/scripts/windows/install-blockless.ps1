@@ -25,8 +25,13 @@ $ProgressPreference = "SilentlyContinue"
 
 # --- pins (the executable spec the Rust installer-core will mirror) ---
 $PROFILE_NAME     = "Blockless"
+$PROFILE_LOCATION = "blockless"             # the on-disk profiles/<loc> id we seed for our profile
 $EXT_ID           = "blockless.mpy-hardware-extension"
 $PY_EXT_ID        = "ms-python.python"
+# Pylance ships as an extensionDependency of ms-python.python (VS Code auto-installs it). verify asserts
+# all three, so the install idempotency check must require all three too, else a re-run skips step 2
+# forever while verify fails permanently (no repair path).
+$PYLANCE_ID       = "ms-python.vscode-pylance"
 $UV_VERSION       = "0.11.29"
 # sha256 of the version-pinned uv install script. We download it, verify this digest, then run it,
 # rather than piping `irm | iex`: a compromised astral.sh response would otherwise be arbitrary code
@@ -52,6 +57,13 @@ $script:VSCODE_PRODUCT_VERSION = ""
 $script:VSCODE_INSTALLED_BY_US = $false   # "we installed VS Code" vs "it was already present"
 $script:CODE = ""
 $script:WE_STARTED_CODE = $false          # did WE spawn a VS Code this run? only such instances may be torn down
+# Did THIS installer create the branded profile (vs adopt a user's pre-existing profile of the same
+# name)? The uninstaller only deletes the profile dir when this is true, so it never destroys a user's
+# own "Blockless" profile.
+$script:PROFILE_CREATED_BY_US = $false
+# sha256 of the VSIX our extension was installed from. Recorded so a re-run reinstalls when the bundled
+# build changes, and so a stale Marketplace build of the same version number is never mistaken for ours.
+$script:VSIX_SHA256 = ""; $script:EXT_VSIX_SHA256 = ""; $script:PRIOR_EXT_VSIX_SHA256 = ""
 
 function log($m) { Write-Host "[blockless] $m" }
 function die($m) { Write-Host "[blockless] ERROR: $m" -ForegroundColor Red; exit 1 }
@@ -79,6 +91,15 @@ function Read-PriorState {
   if (-not (Test-Path $STATE)) { return }
   try { $st = Get-Content $STATE -Raw | ConvertFrom-Json } catch { return }
   if ($st.vscodeInstalledByUs) { $script:VSCODE_INSTALLED_BY_US = $true }
+  # Preserve "we created the profile" across re-runs: on a repair run the profile already exists (WE
+  # made it last time), so without this the current run would record false and the uninstaller would
+  # then refuse to remove a profile it should own.
+  if ($st.profileCreatedByUs) { $script:PROFILE_CREATED_BY_US = $true }
+  if ($st.extVsixSha256) {
+    $script:PRIOR_EXT_VSIX_SHA256 = [string]$st.extVsixSha256
+    # Carry it forward so the incremental Write-State before step 2 does not transiently blank it.
+    $script:EXT_VSIX_SHA256 = [string]$st.extVsixSha256
+  }
 }
 
 function Write-State {
@@ -86,13 +107,26 @@ function Write-State {
   $s = [ordered]@{
     productVersion      = $script:VSCODE_PRODUCT_VERSION
     vscodeInstalledByUs = $script:VSCODE_INSTALLED_BY_US
+    profileCreatedByUs  = $script:PROFILE_CREATED_BY_US
+    profileLocation     = $PROFILE_LOCATION
     steps               = [ordered]@{ vscode = $script:STEP_VSCODE; extension = $script:STEP_EXT; python = $script:STEP_PY; settings = $script:STEP_SETTINGS }
     mpremoteVersion     = $MPREMOTE_VERSION
     envPython           = $ENVPY
+    extVsixSha256       = $script:EXT_VSIX_SHA256
     settingsMechanism   = "A"
     updatedAt           = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   }
   ($s | ConvertTo-Json -Depth 5) | Set-Content -Path $STATE -Encoding UTF8
+}
+
+# Atomic, BOM-free JSON write for storage.json (VS Code's global state). WriteAllText in place would
+# truncate the whole file if interrupted mid-write; write a temp then rename (Move-Item -Force is a
+# same-volume rename on NTFS). Depth 100 preserves VS Code's deeply nested window state -- the install
+# and uninstall paths MUST use the same depth or one flattens state the other keeps.
+function Write-StorageAtomic($obj) {
+  $tmp = "$STORAGE.tmp"
+  [System.IO.File]::WriteAllText($tmp, ($obj | ConvertTo-Json -Depth 100))
+  Move-Item -LiteralPath $tmp -Destination $STORAGE -Force
 }
 
 # --- profile helpers (PowerShell has native JSON, so no python is needed for this) ---
@@ -153,9 +187,9 @@ function Register-ProfileOffline {
   if ($d.PSObject.Properties["userDataProfiles"]) { $list = @($d.userDataProfiles) }
   $list += [pscustomobject]@{ location = "blockless"; name = $PROFILE_NAME }
   $d | Add-Member -Force -NotePropertyName "userDataProfiles" -NotePropertyValue $list
-  # WriteAllText, not Set-Content: VS Code's state reader is strict JSON and PS 5.1's
-  # `Set-Content -Encoding UTF8` prepends a BOM, which would corrupt storage.json.
-  [System.IO.File]::WriteAllText($STORAGE, ($d | ConvertTo-Json -Depth 30))
+  # Atomic, BOM-free, depth-100 write (see Write-StorageAtomic): PS 5.1's `Set-Content -Encoding UTF8`
+  # prepends a BOM, an in-place WriteAllText can truncate, and a shallow depth flattens VS Code state.
+  Write-StorageAtomic $d
   if (Test-ProfileRegistered) { log "step2: profile '$PROFILE_NAME' registered offline (no VS Code launch)" }
 }
 
@@ -212,9 +246,19 @@ function Step-VSCode {
 }
 
 # --- step 2: extension into the "Blockless" profile ---
-function Test-BothExt {
+function Test-Ext($id) {
   $list = & $script:CODE --profile $PROFILE_NAME --list-extensions 2>$null
-  return (($list -contains $EXT_ID) -and ($list -contains $PY_EXT_ID))
+  return ($list -contains $id)
+}
+# Our extension is "current" only if present AND installed from the exact VSIX we bundle now (matched by
+# the sha256 journaled in state.json). Presence alone is not enough: a Marketplace build with the SAME
+# version number but built before mpyhw.autoOpenPanel would pass an id/version check yet break auto-open,
+# and verify (which checks the SETTING we write, not the build) would not catch it.
+function Test-OurExtBundled {
+  return ((Test-Ext $EXT_ID) -and $script:VSIX_SHA256 -and ($script:PRIOR_EXT_VSIX_SHA256 -eq $script:VSIX_SHA256))
+}
+function Test-AllExtCurrent {
+  return ((Test-OurExtBundled) -and (Test-Ext $PY_EXT_ID) -and (Test-Ext $PYLANCE_ID))
 }
 function Install-Ext($id) {
   # OUR extension: install ONLY the bundled vsix -- the exact build this installer ships + verifies.
@@ -233,7 +277,12 @@ function Install-Ext($id) {
   return ($LASTEXITCODE -eq 0)
 }
 function Step-Extension {
-  if (Test-BothExt) { $script:STEP_EXT = $true; log "step2 extension: present, skip"; return }
+  if ($Vsix -and (Test-Path $Vsix)) { $script:VSIX_SHA256 = (Get-FileHash $Vsix -Algorithm SHA256).Hash }
+  # Record whether WE create the profile (vs adopt a user's pre-existing profile of the same name),
+  # BEFORE we seed it. Read-PriorState may have already set this true from an earlier run of ours.
+  if (($script:PROFILE_CREATED_BY_US -eq $false) -and (-not (Test-ProfileRegistered))) { $script:PROFILE_CREATED_BY_US = $true }
+
+  if (Test-AllExtCurrent) { $script:STEP_EXT = $true; $script:EXT_VSIX_SHA256 = $script:VSIX_SHA256; log "step2 extension: present (matching bundled build), skip"; return }
   log "step2 extension: installing into profile '$PROFILE_NAME'"
   Register-ProfileOffline   # headless registration first: no window may run before the final launch
   if ((-not (Install-Ext $EXT_ID)) -or (-not (Install-Ext $PY_EXT_ID))) {
@@ -242,7 +291,11 @@ function Step-Extension {
     if (-not (Install-Ext $EXT_ID))    { die "failed to install $EXT_ID" }
     if (-not (Install-Ext $PY_EXT_ID)) { die "failed to install $PY_EXT_ID" }
   }
-  if (-not (Test-BothExt)) { die "extensions missing after install" }
+  # Pylance ships as a dependency of ms-python.python; if it did not resolve, install it explicitly so
+  # verify (which requires it) has a repair path instead of failing forever.
+  if (-not (Test-Ext $PYLANCE_ID)) { if (-not (Install-Ext $PYLANCE_ID)) { die "failed to install $PYLANCE_ID" } }
+  if (-not ((Test-Ext $EXT_ID) -and (Test-Ext $PY_EXT_ID) -and (Test-Ext $PYLANCE_ID))) { die "extensions missing after install" }
+  $script:EXT_VSIX_SHA256 = $script:VSIX_SHA256
   $script:STEP_EXT = $true; log "step2 extension: installed"
 }
 
@@ -334,6 +387,10 @@ function Open-Blockless {
 # --- main ---
 New-Item -ItemType Directory -Force -Path $DL, $LOGS | Out-Null
 Read-PriorState
+# Our extension is only ever installed from the bundled VSIX (never the Marketplace, see Install-Ext),
+# so -Vsix is required on every run, including repairs. Fail fast here rather than after downloading
+# VS Code and launching a throwaway window in step 2.
+if (-not ($Vsix -and (Test-Path $Vsix))) { die "-Vsix <path> to the bundled Blockless extension is required; re-run with: -Vsix C:\path\to\mpy-hardware-extension.vsix" }
 Step-VSCode;    Write-State
 Step-Extension; Write-State
 Step-Python;    Write-State

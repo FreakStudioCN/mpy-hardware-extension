@@ -1,12 +1,14 @@
 #!/usr/bin/env zsh
 # Blockless uninstaller (macOS). Removes everything the installer created:
-#   1. the branded "Blockless" VS Code profile (profile dir + its storage.json entry)
+#   1. the branded "Blockless" VS Code profile (dir + its storage.json entry) -- ONLY when the
+#      installer recorded creating it (state.json profileCreatedByUs), never a user's pre-existing
+#      profile that merely shares the name
 #   2. the contained runtime under ~/Library/Application Support/Blockless (uv, python, env,
 #      downloads, logs, state.json)
 # VS Code itself and its OTHER profiles are left untouched by default. VS Code is removed ONLY when
 # the installer recorded that it installed it (state.json vscodeInstalledByUs) — never a user's
 # pre-existing editor. --all forces removal, --keep-vscode prevents it. The shared VS Code user
-# data (~/Library/Application Support/Code) is never touched.
+# data (~/Library/Application Support/Code) is never touched. Requires VS Code to be closed.
 #
 # Doubles as the test reset: run this in the VM to get back to a clean slate without re-cloning
 # (use --all for a true cold reset so a re-run exercises the VS Code install path again).
@@ -16,9 +18,10 @@ PROFILE_NAME="Blockless"
 BLK="$HOME/Library/Application Support/Blockless"
 CODE_USER="$HOME/Library/Application Support/Code/User"
 STORAGE="$CODE_USER/globalStorage/storage.json"
-ENVPY="$BLK/env/bin/python"
+STATE="$BLK/state.json"
 
 log() { print -r -- "[blockless-uninstall] $*"; }
+get_json() { grep -oE "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$STATE" 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/'; }
 
 # --- options ---
 FORCE_VSCODE=false; KEEP_VSCODE=false
@@ -30,57 +33,55 @@ for arg in "$@"; do
   esac
 done
 
-# Read BEFORE we delete $BLK: did the installer put VS Code here? Default is to remove VS Code only
-# when we installed it.
-INSTALLED_BY_US=false
-[[ -f "$BLK/state.json" ]] && grep -Eq '"vscodeInstalledByUs"[[:space:]]*:[[:space:]]*true' "$BLK/state.json" && INSTALLED_BY_US=true
+# Read state BEFORE any deletion ($BLK holds state.json). We only remove what the installer recorded
+# creating: VS Code iff vscodeInstalledByUs, the profile iff profileCreatedByUs -- never a user's
+# pre-existing editor or a "Blockless" profile that already existed when we ran. profileLocation is the
+# installer-journaled on-disk id, so the delete target is never derived from user-writable storage.json.
+INSTALLED_BY_US=false; PROFILE_CREATED_BY_US=false; PROFILE_LOCATION=""
+if [[ -f "$STATE" ]]; then
+  grep -Eq '"vscodeInstalledByUs"[[:space:]]*:[[:space:]]*true' "$STATE" && INSTALLED_BY_US=true
+  grep -Eq '"profileCreatedByUs"[[:space:]]*:[[:space:]]*true' "$STATE" && PROFILE_CREATED_BY_US=true
+  PROFILE_LOCATION="$(get_json profileLocation)"
+fi
 
-# A running VS Code holds storage.json in memory and will clobber our edit: it can restore the
-# deleted Blockless entry after we remove the profile dir, or overwrite concurrently-changed shared
-# state. So skip the profile removal entirely while VS Code is running and tell the user to close it.
-vscode_running=0
-if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then vscode_running=1; fi
+# A running VS Code holds storage.json in memory and would clobber our edit; removing $BLK now would
+# also drop state.json before a re-run could finish the profile cleanup. So if VS Code is running, do
+# NOTHING and ask the user to quit it and re-run -- a clean all-or-nothing uninstall.
+if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then
+  log "VS Code is running; quit it and re-run to uninstall. Nothing was removed."
+  exit 0
+fi
 
-# 1. Remove the Blockless profile FIRST (uses the provisioned python to rewrite storage.json, which
-# only exists until step 2 deletes $BLK). Fall back to python3 if the env is already gone.
-py=""
-[[ -x "$ENVPY" ]] && py="$ENVPY"
-[[ -z "$py" ]] && command -v python3 >/dev/null 2>&1 && py="python3"
-
-if [[ "$vscode_running" -eq 1 ]]; then
-  log "VS Code is running; leaving the '$PROFILE_NAME' profile untouched to avoid racing storage.json (quit VS Code and re-run to remove the profile). Removing the contained runtime only."
+# 1. Remove the branded profile -- ONLY if this installer created it (never a user's own). All
+# storage.json editing uses JXA (osascript -l JavaScript): no Python, so a stock Mac's /usr/bin/python3
+# stub can never pop the Xcode CLT dialog, and the write is atomic (writeToFileAtomicallyEncodingError).
+if [[ "$PROFILE_CREATED_BY_US" != true ]]; then
+  log "leaving the '$PROFILE_NAME' profile in place (not created by this installer, or state.json already gone); remove it from VS Code's picker manually if you want it gone"
 else
-  loc=""
-  if [[ -n "$py" && -f "$STORAGE" ]]; then
-    loc="$("$py" - "$STORAGE" "$PROFILE_NAME" <<'PY'
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(0)
-print(next((p.get("location", "") for p in d.get("userDataProfiles", []) if p.get("name") == sys.argv[2]), ""))
-PY
-)"
-    # Drop the profile's entry so no orphan is left behind in the picker.
-    "$py" - "$STORAGE" "$PROFILE_NAME" <<'PY'
-import json, sys
-path, name = sys.argv[1], sys.argv[2]
-try:
-    d = json.load(open(path))
-except Exception:
-    sys.exit(0)
-before = d.get("userDataProfiles", [])
-d["userDataProfiles"] = [x for x in before if x.get("name") != name]
-json.dump(d, open(path, "w"))
-PY
-    log "removed '$PROFILE_NAME' from storage.json"
-  else
-    log "no python available to edit storage.json; the profile entry may remain in the picker"
+  if [[ -f "$STORAGE" ]]; then
+    osascript -l JavaScript - "$STORAGE" "$PROFILE_NAME" >/dev/null 2>&1 <<'JXA' || true
+ObjC.import('Foundation');
+function run(argv) {
+  var path = argv[0], name = argv[1];
+  var raw = $.NSString.stringWithContentsOfFileEncodingError($(path), $.NSUTF8StringEncoding, $()).js;
+  var obj;
+  try { obj = JSON.parse(raw); } catch (e) { return; }   // never clobber an unparseable storage.json
+  if (Object.prototype.toString.call(obj.userDataProfiles) !== '[object Array]') return;
+  obj.userDataProfiles = obj.userDataProfiles.filter(function (p) { return !(p && p.name === name); });
+  $(JSON.stringify(obj)).writeToFileAtomicallyEncodingError($(path), true, $.NSUTF8StringEncoding, $());
+}
+JXA
+    # The JXA ends in `|| true` (it skips a corrupt/unreadable storage.json rather than clobber it), so
+    # confirm the entry is actually gone before claiming success -- don't report a skip as a removal.
+    if grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$PROFILE_NAME\"" "$STORAGE" 2>/dev/null; then
+      log "could not remove '$PROFILE_NAME' from storage.json (unparseable/locked?); the entry may remain in the picker"
+    else
+      log "removed '$PROFILE_NAME' from storage.json"
+    fi
   fi
 
-  # `loc` comes from a user-writable storage.json and feeds a recursive delete. Allowlist the exact
-  # shape VS Code uses (hex-ish token; ours is "blockless"), not a blocklist, so "." / ".." / slashes
-  # are all rejected by construction rather than enumerated.
+  # profileLocation is installer-journaled, still allowlisted to VS Code's id shape before a recursive delete.
+  loc="$PROFILE_LOCATION"
   if [[ -n "$loc" && "$loc" =~ '^[A-Za-z0-9_-]+$' && -d "$CODE_USER/profiles/$loc" ]]; then
     rm -rf "$CODE_USER/profiles/$loc"
     log "removed profile directory ($loc)"

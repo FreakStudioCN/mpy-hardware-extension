@@ -1,11 +1,14 @@
 #!/usr/bin/env pwsh
 # Blockless uninstaller (Windows). Mirror of scripts/macos/uninstall-blockless.zsh. Removes:
-#   1. the "Blockless" VS Code profile (profile dir + its storage.json entry)
+#   1. the "Blockless" VS Code profile (dir + its storage.json entry) -- ONLY when the installer
+#      recorded creating it (state.json profileCreatedByUs), never a user's pre-existing profile that
+#      merely shares the name
 #   2. the contained runtime under %LOCALAPPDATA%\Blockless (uv, python, env, downloads, logs, state)
 # VS Code and its OTHER profiles are left alone by default. VS Code is removed ONLY when the installer
 # recorded that it installed it (state.json vscodeInstalledByUs) -- never a user's pre-existing editor.
 # -All forces removal, -KeepVSCode prevents it. The shared VS Code user data (%APPDATA%\Code) is never
-# touched. (Windows Sandbox discards state on close, so this is mainly the real-user uninstaller.)
+# touched. Requires VS Code to be closed. (Windows Sandbox discards state on close, so this is mainly
+# the real-user uninstaller.)
 #
 #   .\uninstall-blockless.ps1              # VS Code removed only if we installed it
 #   .\uninstall-blockless.ps1 -All         # also force-remove VS Code
@@ -25,41 +28,49 @@ $VSCODE_DIR = Join-Path $env:LOCALAPPDATA "Programs\Microsoft VS Code"
 
 function log($m) { Write-Host "[blockless-uninstall] $m" }
 
-# Read BEFORE we delete $BLK: did the installer install VS Code?
-$installedByUs = $false
+# Read state BEFORE any deletion ($BLK holds state.json). We only remove what the installer recorded
+# creating: VS Code iff vscodeInstalledByUs, the profile iff profileCreatedByUs -- never a user's
+# pre-existing editor or a "Blockless" profile that already existed. profileLocation is the installer-
+# journaled on-disk id, so the delete target is never derived from the user-writable storage.json.
+$installedByUs = $false; $profileCreatedByUs = $false; $profileLocation = ""
 if (Test-Path $STATE) {
-  try { $st = Get-Content $STATE -Raw | ConvertFrom-Json; if ($st.vscodeInstalledByUs) { $installedByUs = $true } } catch {}
+  try {
+    $st = Get-Content $STATE -Raw | ConvertFrom-Json
+    if ($st.vscodeInstalledByUs) { $installedByUs = $true }
+    if ($st.profileCreatedByUs) { $profileCreatedByUs = $true }
+    if ($st.profileLocation) { $profileLocation = [string]$st.profileLocation }
+  } catch {}
 }
 
-# A running VS Code holds storage.json in memory and will clobber our edit (restore the deleted
-# Blockless entry after we remove its dir, or overwrite concurrently-changed shared state). Skip the
-# profile removal entirely while VS Code is running; remove only the contained runtime.
-$vscodeRunning = [bool](Get-Process -Name "Code" -ErrorAction SilentlyContinue)
+# A running VS Code holds storage.json in memory and would clobber our edit; removing $BLK now would
+# also drop state.json before a re-run could finish the profile cleanup. So if VS Code is running, do
+# NOTHING and ask the user to quit it and re-run -- a clean all-or-nothing uninstall.
+if (Get-Process -Name "Code" -ErrorAction SilentlyContinue) {
+  log "VS Code is running; quit it and re-run to uninstall. Nothing was removed."
+  exit 0
+}
 
-# 1. Remove the Blockless profile: its dir + its storage.json entry (so no orphan lingers in the
-# picker). -Depth 100 avoids truncating the (deeply nested) storage.json on the JSON round-trip.
-if ($vscodeRunning) {
-  log "VS Code is running; leaving the '$PROFILE_NAME' profile untouched to avoid racing storage.json (quit VS Code and re-run to remove it). Removing the contained runtime only."
+# 1. Remove the branded profile -- ONLY if this installer created it (never a user's own).
+if (-not $profileCreatedByUs) {
+  log "leaving the '$PROFILE_NAME' profile in place (not created by this installer, or state.json already gone); remove it from VS Code's picker manually if you want it gone"
 } else {
-  $loc = ""
+  # Drop the profile's entry so no orphan lingers in the picker. Atomic + BOM-free + depth-100 write
+  # (temp then rename), matching the installer's Write-StorageAtomic. Skip a corrupt/unreadable file.
   if (Test-Path $STORAGE) {
     try {
-      $d = Get-Content $STORAGE -Raw | ConvertFrom-Json
-      $p = $d.userDataProfiles | Where-Object { $_.name -eq $PROFILE_NAME } | Select-Object -First 1
-      if ($p) { $loc = [string]$p.location }
+      $d = Get-Content $STORAGE -Raw -ErrorAction Stop | ConvertFrom-Json
       if ($d.PSObject.Properties.Name -contains "userDataProfiles") {
         $d.userDataProfiles = @($d.userDataProfiles | Where-Object { $_.name -ne $PROFILE_NAME })
-        # WriteAllText, not Set-Content: PS 5.1's `Set-Content -Encoding UTF8` prepends a BOM, and VS
-        # Code's state reader needs BOM-free strict JSON (install seeds it with WriteAllText for this).
-        [System.IO.File]::WriteAllText($STORAGE, ($d | ConvertTo-Json -Depth 100))
+        $tmp = "$STORAGE.tmp"
+        [System.IO.File]::WriteAllText($tmp, ($d | ConvertTo-Json -Depth 100))
+        Move-Item -LiteralPath $tmp -Destination $STORAGE -Force
         log "removed '$PROFILE_NAME' from storage.json"
       }
-    } catch { log "could not edit storage.json; the profile entry may remain in the picker" }
+    } catch { log "could not edit storage.json ($($_.Exception.Message)); the profile entry may remain in the picker" }
   }
-  # `$loc` comes from a user-writable storage.json and feeds a recursive delete. Allowlist the exact
-  # shape VS Code uses (hex-ish token; ours is "blockless"), not a blocklist: a blocklist misses "."
-  # (resolves to the profiles dir itself) and wildcards like "*" (Remove-Item -Path glob-expands and
-  # deletes every profile). -LiteralPath disables globbing so a literal name is treated literally.
+  # profileLocation is installer-journaled, still allowlisted to VS Code's id shape before a recursive
+  # delete. -LiteralPath disables globbing so "." / "*" cannot escape to sibling profiles.
+  $loc = $profileLocation
   if ($loc -and ($loc -match '^[A-Za-z0-9_-]+$')) {
     $pdir = Join-Path $CODE_USER "profiles\$loc"
     if (Test-Path -LiteralPath $pdir) {

@@ -13,8 +13,13 @@ set -euo pipefail
 
 # --- pins (the executable spec the Rust installer-core will mirror) ---
 PROFILE_NAME="Blockless"
+PROFILE_LOCATION="blockless"          # the on-disk profiles/<loc> id we seed for our profile
 EXT_ID="blockless.mpy-hardware-extension"
 PY_EXT_ID="ms-python.python"
+# Pylance ships as an extensionDependency of ms-python.python (VS Code auto-installs it). verify asserts
+# all three, so the install idempotency check must require all three too, else a re-run skips step 2
+# forever while verify fails permanently (no repair path).
+PYLANCE_ID="ms-python.vscode-pylance"
 UV_VERSION="0.11.29"
 # sha256 of the version-pinned uv install script. We download it to a file, verify this digest, then
 # run it, rather than piping curl straight to sh: a compromised astral.sh response would otherwise be
@@ -36,6 +41,13 @@ ENVPY="$BLK/env/bin/python"
 # --- mutable state (written to state.json as we go; strings are JSON booleans) ---
 STEP_VSCODE=false; STEP_EXT=false; STEP_PY=false; STEP_SETTINGS=false
 VSCODE_PRODUCT_VERSION=""; SETTINGS_MECHANISM="A"; VSIX_PATH=""; CODE=""
+# Did THIS installer create the branded profile (vs adopt a user's pre-existing profile of the same
+# name)? The uninstaller only deletes the profile dir when this is true, so it never destroys a user's
+# own "Blockless" profile. PROFILE_LOCATION is journaled so uninstall need not re-read storage.json.
+PROFILE_CREATED_BY_US=false
+# sha256 of the VSIX our extension was installed from. Recorded so a re-run reinstalls when the bundled
+# build changes, and so a stale Marketplace build of the same version number is never mistaken for ours.
+EXT_VSIX_SHA256=""; VSIX_SHA256=""; PRIOR_EXT_VSIX_SHA256=""
 # "We installed VS Code" (step 1 ran) vs "it was already present" (skipped). The uninstaller reads
 # this so it only removes VS Code when WE put it there, never a user's pre-existing editor.
 VSCODE_INSTALLED_BY_US=false
@@ -59,9 +71,12 @@ write_state() {
 {
   "productVersion": "$VSCODE_PRODUCT_VERSION",
   "vscodeInstalledByUs": $VSCODE_INSTALLED_BY_US,
+  "profileCreatedByUs": $PROFILE_CREATED_BY_US,
+  "profileLocation": "$PROFILE_LOCATION",
   "steps": { "vscode": $STEP_VSCODE, "extension": $STEP_EXT, "python": $STEP_PY, "settings": $STEP_SETTINGS },
   "mpremoteVersion": "$MPREMOTE_VERSION",
   "envPython": "$ENVPY",
+  "extVsixSha256": "$EXT_VSIX_SHA256",
   "settingsMechanism": "$SETTINGS_MECHANISM",
   "updatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -73,9 +88,16 @@ EOF
 # leaves VSCODE_INSTALLED_BY_US at its false default -- clobbering a true recorded earlier and making
 # the uninstaller refuse to remove a VS Code we installed. Seed the flag from any existing state.json.
 read_prior_state() {
-  if [[ -f "$STATE" ]] && grep -q '"vscodeInstalledByUs"[[:space:]]*:[[:space:]]*true' "$STATE"; then
-    VSCODE_INSTALLED_BY_US=true
-  fi
+  [[ -f "$STATE" ]] || return 0
+  grep -q '"vscodeInstalledByUs"[[:space:]]*:[[:space:]]*true' "$STATE" && VSCODE_INSTALLED_BY_US=true
+  # Preserve "we created the profile" across re-runs: on a repair run the profile already exists (WE
+  # made it last time), so without this the current run would record false and the uninstaller would
+  # then refuse to remove a profile it should own.
+  grep -q '"profileCreatedByUs"[[:space:]]*:[[:space:]]*true' "$STATE" && PROFILE_CREATED_BY_US=true
+  PRIOR_EXT_VSIX_SHA256="$(get_json extVsixSha256 "$STATE" || true)"
+  # Carry the recorded sha forward so the incremental write_state before step 2 does not transiently
+  # blank it (a crash mid-run would otherwise force one redundant reinstall on the next run).
+  EXT_VSIX_SHA256="$PRIOR_EXT_VSIX_SHA256"
 }
 
 # Resolve the `code` CLI explicitly -- never trust PATH on a fresh machine.
@@ -116,9 +138,22 @@ step1_vscode() {
   VSCODE_INSTALLED_BY_US=true; STEP_VSCODE=true; log "step1 VS Code: installed ($VSCODE_PRODUCT_VERSION)"
 }
 
-has_both_ext() {
-  local list; list="$("$CODE" --profile "$PROFILE_NAME" --list-extensions 2>/dev/null)" || return 1
-  print -r -- "$list" | grep -qi "^${EXT_ID}\$" && print -r -- "$list" | grep -qi "^${PY_EXT_ID}\$"
+has_ext() {
+  local id="$1" list
+  list="$("$CODE" --profile "$PROFILE_NAME" --list-extensions 2>/dev/null)" || return 1
+  print -r -- "$list" | grep -qi "^${id}\$"
+}
+
+# Our extension is "current" only if it is present AND was installed from the exact VSIX we bundle now
+# (matched by the sha256 journaled in state.json). Presence alone is not enough: a Marketplace build
+# with the SAME version number but built before mpyhw.autoOpenPanel would pass an id/version check yet
+# break auto-open, and verify (which checks the SETTING we write, not the build) would not catch it.
+our_ext_is_bundled_build() {
+  has_ext "$EXT_ID" && [[ -n "$VSIX_SHA256" && "$PRIOR_EXT_VSIX_SHA256" == "$VSIX_SHA256" ]]
+}
+
+all_ext_current() {
+  our_ext_is_bundled_build && has_ext "$PY_EXT_ID" && has_ext "$PYLANCE_ID"
 }
 
 # Install one extension id. For OUR extension, install ONLY the bundled vsix (the exact build this
@@ -222,7 +257,15 @@ register_profile() {
 }
 
 step2_extension() {
-  if has_both_ext; then STEP_EXT=true; log "step2 extension: present, skip"; return; fi
+  [[ -n "$VSIX_PATH" && -f "$VSIX_PATH" ]] && VSIX_SHA256="$(shasum -a 256 "$VSIX_PATH" | awk '{print $1}')"
+  # Record whether WE create the profile (vs adopt a user's pre-existing profile of the same name),
+  # BEFORE we seed it. read_prior_state may have already set this true from an earlier run of ours.
+  if [[ "$PROFILE_CREATED_BY_US" == false ]] && ! profile_registered; then PROFILE_CREATED_BY_US=true; fi
+
+  if all_ext_current; then
+    STEP_EXT=true; EXT_VSIX_SHA256="$VSIX_SHA256"
+    log "step2 extension: present (matching bundled build), skip"; return
+  fi
   log "step2 extension: installing into profile '$PROFILE_NAME'"
   # Headless registration FIRST: no VS Code window may exist before the final launch (see
   # register_profile_offline for why -- it is the panel-auto-open fix).
@@ -235,7 +278,11 @@ step2_extension() {
     install_ext "$EXT_ID" || die "failed to install $EXT_ID"
     install_ext "$PY_EXT_ID" || die "failed to install $PY_EXT_ID"
   fi
-  has_both_ext || die "extensions missing after install"
+  # Pylance ships as a dependency of ms-python.python; if it did not resolve, install it explicitly so
+  # verify (which requires it) has a repair path instead of failing forever.
+  has_ext "$PYLANCE_ID" || install_ext "$PYLANCE_ID" || die "failed to install $PYLANCE_ID"
+  { has_ext "$EXT_ID" && has_ext "$PY_EXT_ID" && has_ext "$PYLANCE_ID"; } || die "extensions missing after install"
+  EXT_VSIX_SHA256="$VSIX_SHA256"
   STEP_EXT=true; log "step2 extension: installed"
 }
 
@@ -366,6 +413,10 @@ open_blockless() {
 main() {
   mkdir -p "$DL" "$LOGS"
   read_prior_state
+  # Our extension is only ever installed from the bundled VSIX (never the Marketplace, see install_ext),
+  # so --vsix is required on every run, including repairs. Fail fast here rather than after downloading
+  # VS Code and launching a throwaway window in step 2.
+  [[ -n "$VSIX_PATH" && -f "$VSIX_PATH" ]] || die "--vsix <path> to the bundled Blockless extension is required; re-run with: --vsix /path/to/mpy-hardware-extension.vsix"
   step1_vscode;    write_state
   step2_extension; write_state
   step3_python;    write_state

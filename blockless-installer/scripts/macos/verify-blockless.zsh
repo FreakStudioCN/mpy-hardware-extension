@@ -33,7 +33,6 @@ resolve_code() {
 
 CODE=""
 ENVPY="$(get_json envPython)"
-MECH="$(get_json settingsMechanism)"
 
 # 1. VS Code CLI runnable
 if resolve_code && "$CODE" --version >/dev/null 2>&1; then
@@ -66,33 +65,21 @@ fi
 # built off /opt/anaconda3 or /usr, uninstall-by-deleting-one-folder breaks and the env
 # depends on software we do not own. This is the guard for the --managed-python pin.
 BASE_HOME="$(grep -E '^home[[:space:]]*=' "$BLK/env/pyvenv.cfg" 2>/dev/null | head -1 | sed -E 's/^home[[:space:]]*=[[:space:]]*//')"
-if [[ -n "$BASE_HOME" && "$BASE_HOME" == "$BLK"* ]]; then
+# Require an exact match or a real path boundary ($BLK/...), not a bare prefix (which would also accept
+# a sibling like "${BLK}-foreign/python"). Compare case-folded: APFS is case-insensitive by default, so
+# a casing difference between the resolved home and $BLK is the same directory, not a containment breach.
+base_l="${BASE_HOME:l}"; blk_l="${BLK:l}"
+if [[ -n "$BASE_HOME" && ( "$base_l" == "$blk_l" || "$base_l" == "$blk_l/"* ) ]]; then
   pass "env base interpreter is contained ($BASE_HOME)"
 else
   fail "env base interpreter NOT contained (home='$BASE_HOME', expected under $BLK)"
 fi
 
-# 4. the settings file dictated by the recorded mechanism has our pythonPath -> real exe
+# 4. the profile's settings.json has our pythonPath -> a real exe. Mechanism A is the only shipped
+# path; the profile's on-disk location is journaled in state.json (no storage.json re-read needed).
+loc="$(get_json profileLocation)"
 target=""
-if [[ "$MECH" == "A" ]]; then
-  loc=""
-  if [[ -n "$ENVPY" && -x "$ENVPY" && -f "$STORAGE" ]]; then
-    loc="$("$ENVPY" - "$STORAGE" "$PROFILE_NAME" <<'PY'
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(0)
-for p in d.get("userDataProfiles", []):
-    if p.get("name") == sys.argv[2]:
-        print(p.get("location", "")); break
-PY
-)"
-  fi
-  [[ -n "$loc" ]] && target="$CODE_USER/profiles/$loc/settings.json"
-else
-  target="$CODE_USER/settings.json"
-fi
+[[ -n "$loc" ]] && target="$CODE_USER/profiles/$loc/settings.json"
 if [[ -n "$target" && -f "$target" && -n "$ENVPY" && -x "$ENVPY" ]] && "$ENVPY" - "$target" "$ENVPY" <<'PY'
 import json, os, sys
 try:
@@ -103,9 +90,9 @@ p = d.get("mpyhw.pythonPath")
 sys.exit(0 if p == sys.argv[2] and os.path.exists(p) else 1)
 PY
 then
-  pass "mpyhw.pythonPath set in mechanism-$MECH settings and points at a real exe"
+  pass "mpyhw.pythonPath set in the profile settings and points at a real exe"
 else
-  fail "mpyhw.pythonPath wrong/missing (mechanism $MECH, target='$target')"
+  fail "mpyhw.pythonPath wrong/missing (target='$target')"
 fi
 
 # 4b. the profile opts into auto-opening the panel (the extension reads mpyhw.autoOpenPanel on
@@ -119,9 +106,9 @@ except Exception:
 sys.exit(0 if d.get("mpyhw.autoOpenPanel") is True else 1)
 PY
 then
-  pass "mpyhw.autoOpenPanel enabled in mechanism-$MECH settings"
+  pass "mpyhw.autoOpenPanel enabled in the profile settings"
 else
-  fail "mpyhw.autoOpenPanel not enabled (mechanism $MECH, target='$target')"
+  fail "mpyhw.autoOpenPanel not enabled (target='$target')"
 fi
 
 # 5. state.json records every step ok

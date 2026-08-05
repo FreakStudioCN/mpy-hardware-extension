@@ -47,17 +47,17 @@ if (Test-Path $cfg) {
   $m = Select-String -Path $cfg -Pattern '^home\s*=\s*(.+)$' | Select-Object -First 1
   if ($m) { $baseHome = $m.Matches[0].Groups[1].Value.Trim() }
 }
-if ($baseHome -and $baseHome.StartsWith($BLK)) {
+# Require an exact match or a real path boundary ($BLK\...), not a bare prefix (which would also accept
+# a sibling like "${BLK}-foreign\python"). OrdinalIgnoreCase because Windows paths are case-insensitive,
+# so a casing difference between the resolved home and $BLK is the same directory, not a breach.
+$sep = [IO.Path]::DirectorySeparatorChar
+if ($baseHome -and ($baseHome.Equals($BLK, [StringComparison]::OrdinalIgnoreCase) -or $baseHome.StartsWith("$BLK$sep", [StringComparison]::OrdinalIgnoreCase))) {
   pass "env base interpreter is contained ($baseHome)"
 } else { fail "env base interpreter NOT contained (home='$baseHome', expected under $BLK)" }
 
-# resolve the profile settings target once (mechanism A)
+# resolve the profile settings target once (mechanism A); the on-disk location is journaled in state.json
 $loc = ""
-if (Test-Path $STORAGE) {
-  try { $d = Get-Content $STORAGE -Raw | ConvertFrom-Json
-        $p = $d.userDataProfiles | Where-Object { $_.name -eq $PROFILE_NAME } | Select-Object -First 1
-        if ($p) { $loc = [string]$p.location } } catch {}
-}
+if (Test-Path $STATE) { try { $loc = [string]((Get-Content $STATE -Raw | ConvertFrom-Json).profileLocation) } catch {} }
 $target = if ($loc) { Join-Path $CODE_USER "profiles\$loc\settings.json" } else { "" }
 $set = $null
 if ($target -and (Test-Path $target)) { try { $set = Get-Content $target -Raw | ConvertFrom-Json } catch {} }
