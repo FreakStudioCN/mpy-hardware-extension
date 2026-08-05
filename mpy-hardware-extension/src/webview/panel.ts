@@ -1887,6 +1887,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         venvReady: venvReadyFn,
         scan: () => shim.scan(),
         probeMicroPython: (port: string) => shim.probeMicroPython(port),
+        getPort: () => shim.getPort?.() ?? null,
       }, { probe: message.probe === true }); // probe only on an explicit Re-check — it interrupts a running board
       webview.postMessage({ type: "doctor_results", items });
     }

@@ -153,3 +153,57 @@ test("runDoctor lists the ports and skips the probe when several boards are conn
   assert.deepEqual(r.device.ports, ["COM7", "COM8"]);
   assert.equal(probed, false, "cannot auto-pick a port to probe");
 });
+
+test("runDoctor probes the already-selected port when several boards are connected", async () => {
+  // Mutation guard: a fallback to ports[0] ("COM7") instead of the selected port would
+  // make this probedWith assertion fail, since ports[0] !== the selected "COM8".
+  let probedWith: string | undefined;
+  const items = await runDoctor(
+    healthyDeps({
+      scan: async () => ["COM7", "COM8"],
+      probeMicroPython: async (port: string) => { probedWith = port; return true; },
+      getPort: () => "COM8",
+    }),
+    { probe: true },
+  );
+  const r = byId(items);
+
+  assert.equal(r.device.status, "ok");
+  assert.equal(r.device.detail, "COM8");
+  assert.equal(r.device.errorKind, undefined);
+  assert.equal(probedWith, "COM8");
+  assert.equal(r.micropython.status, "ok");
+});
+
+test("runDoctor ignores a selected port that has vanished from the scan", async () => {
+  let probed = false;
+  const items = await runDoctor(
+    healthyDeps({
+      scan: async () => ["COM7", "COM8"],
+      probeMicroPython: async () => { probed = true; return true; },
+      getPort: () => "COM9",
+    }),
+  );
+  const r = byId(items);
+
+  assert.equal(r.device.status, "warn");
+  assert.equal(r.device.errorKind, "device_selection_required");
+  assert.deepEqual(r.device.ports, ["COM7", "COM8"]);
+  assert.equal(probed, false, "a stale selection must not be probed");
+});
+
+test("runDoctor asks for a pick when several boards are connected and none is selected", async () => {
+  let probed = false;
+  const items = await runDoctor(
+    healthyDeps({
+      scan: async () => ["COM7", "COM8"],
+      probeMicroPython: async () => { probed = true; return true; },
+      getPort: () => null,
+    }),
+  );
+  const r = byId(items);
+
+  assert.equal(r.device.status, "warn");
+  assert.equal(r.device.errorKind, "device_selection_required");
+  assert.equal(probed, false, "no selection means nothing to probe");
+});
