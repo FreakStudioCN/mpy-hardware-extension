@@ -899,7 +899,7 @@ test("multiple boards on the Doctor tab offer a clickable port selector that pos
   );
 });
 
-test("a matching device_selected confirmation re-checks the Doctor tab after an Env port pick", async () => {
+test("a device_selected confirmation re-checks the Doctor tab after an Env port pick", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
   const { document } = dom.window;
@@ -913,12 +913,11 @@ test("a matching device_selected confirmation re-checks the Doctor tab after an 
   post(dom, { type: "device_selected", port: "COM48" });
   assert.ok(
     posted.some((m) => m.type === "run_doctor_check" && m.probe === false),
-    "the matching device_selected confirmation triggers a non-invasive re-check",
+    "the device_selected confirmation triggers a non-invasive re-check",
   );
 
-  // A second device_selected for the SAME port (e.g. the deploy card later confirms it
-  // too) has no pending pick left to consume — the trace still records it, but no
-  // second re-check fires.
+  // A second device_selected (e.g. the deploy card later confirms a port too) has no
+  // pending pick left to consume — the trace still records it, but no second re-check.
   posted.length = 0;
   post(dom, { type: "device_selected", port: "COM48" });
   assert.equal(
@@ -926,6 +925,33 @@ test("a matching device_selected confirmation re-checks the Doctor tab after an 
     false,
     "a device_selected with no pending Env pick must not re-check",
   );
+});
+
+test("a device_selected for a REASSIGNED port still re-checks and un-sticks the pending pick", async () => {
+  // The clicked port can vanish between the click and the host's scan; select_device then
+  // auto-picks the one port left and confirms THAT port instead (panel.ts). The Doctor tab
+  // must still re-check (against whatever port the host actually settled on) rather than
+  // leaving the selector's buttons disabled forever with a stale candidate list.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+
+  postMultiPortDoctorResults(dom);
+  const com48 = [...view.querySelectorAll(".doc-ports .ask-opt")].find((b) => b.textContent === "COM48") as HTMLButtonElement;
+  com48.click();
+
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM5" }); // reassigned — not the clicked COM48
+  assert.ok(
+    posted.some((m) => m.type === "run_doctor_check" && m.probe === false),
+    "a reassigned-port confirmation still triggers a re-check",
+  );
+
+  // The pick is now consumed — a later, unrelated device_selected must not re-check again.
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM48" });
+  assert.equal(posted.some((m) => m.type === "run_doctor_check"), false, "the pending pick was already consumed");
 });
 
 test("a device_selected from an unrelated pick (no pending Env selection) does not re-check", async () => {

@@ -345,6 +345,43 @@ test("webview lets the user choose a device port when multiple devices are conne
   assert.deepEqual(posted.find((message) => message.type === "device_selected"), { type: "device_selected", port: "COM8" });
 });
 
+test("select_device WITH a port (the Env selector's click) is honored directly, no QuickPick shown", async () => {
+  // The Env button posts select_device with the port it was clicked for — this must
+  // take the message.port branch (panel.ts's `message.port && ports.includes(...)`)
+  // and never fall through to the interactive QuickPick fallback.
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const selectedPorts: Array<string | null> = [];
+  let quickPickShown = false;
+  const panel = {
+    webview: {
+      cspSource: "vscode-resource:",
+      html: "",
+      postMessage: (message: any) => posted.push(message),
+      onDidReceiveMessage: (next: any) => { handler = next; },
+    },
+  };
+  const shim = {
+    scan: async () => ["COM7", "COM8"],
+    setPort: (port: string | null) => selectedPorts.push(port),
+  };
+  const vscode = {
+    ViewColumn: { One: 1 },
+    window: {
+      createWebviewPanel: () => panel,
+      showQuickPick: async (items: string[]) => { quickPickShown = true; return items[0]; },
+      showWarningMessage: async () => "Cancel",
+    },
+  };
+
+  createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); }, shim });
+  await handler?.({ type: "select_device", port: "COM8" });
+
+  assert.equal(quickPickShown, false, "an explicitly named, scanned port must not open the QuickPick");
+  assert.deepEqual(selectedPorts, ["COM8"]);
+  assert.deepEqual(posted.find((message) => message.type === "device_selected"), { type: "device_selected", port: "COM8" });
+});
+
 test("run_doctor_check probes the port select_device already picked, with several boards connected", async () => {
   const posted: any[] = [];
   let handler: ((message: any) => Promise<void>) | undefined;

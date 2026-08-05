@@ -117,11 +117,21 @@
         if (msg.type === "serial_output") { addSerial(msg.lines); }
         if (msg.type === "device_selected") {
           addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) });
-          // Only a pick made FROM the Env selector re-checks the Doctor tab — a deploy/flash
-          // card's own device_selected (an unrelated port, or no pending Env pick at all)
-          // must not trigger a surprise re-check.
-          if (pendingEnvPick && pendingEnvPick === msg.port) {
-            pendingEnvPick = null;
+          // Re-check whenever THIS confirmation resolves an Env selector click — not only
+          // when the confirmed port matches the one clicked. EnvDoctorPanel.js is the only
+          // sender of select_device today, so any device_selected that arrives while a pick
+          // is pending is its answer, even when the clicked port vanished and select_device
+          // auto-picked the one port left instead (panel.ts): that reassignment still needs
+          // the Doctor tab re-checked against the port the host actually settled on, or the
+          // row stays stuck showing the old candidate list.
+          // ponytail: a select_device that yields no scanned ports (session_error) or an
+          // interactively-cancelled QuickPick posts no device_selected at all, so the flag
+          // is left set and the selector's buttons stay disabled — Re-check re-enables the
+          // buttons (renderDoctor rebuilds them), and the next Env pick overwrites the flag,
+          // but neither one explicitly clears it in the meantime.
+          const hadPendingPick = pendingEnvPick != null;
+          pendingEnvPick = null;
+          if (hadPendingPick) {
             vscode.postMessage({ type: "run_doctor_check", probe: false });
           }
         }
