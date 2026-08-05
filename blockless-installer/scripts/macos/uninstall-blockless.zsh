@@ -71,16 +71,19 @@ function run(argv) {
   $(JSON.stringify(obj)).writeToFileAtomicallyEncodingError($(path), true, $.NSUTF8StringEncoding, $());
 }
 JXA
-    # The JXA ends in `|| true` (it skips a corrupt/unreadable storage.json rather than clobber it), so
-    # confirm the entry is actually gone before claiming success -- don't report a skip as a removal.
+    # The JXA ends in `|| true` (it skips a corrupt/unreadable/unwritable storage.json rather than
+    # clobber it), so the entry may still be there. If it is, ABORT before deleting anything: removing
+    # the profile dir now would orphan a registered profile with no backing dir, and removing $BLK
+    # (below) would destroy state.json -- the ownership journal a re-run needs to finish the job.
     if grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$PROFILE_NAME\"" "$STORAGE" 2>/dev/null; then
-      log "could not remove '$PROFILE_NAME' from storage.json (unparseable/locked?); the entry may remain in the picker"
-    else
-      log "removed '$PROFILE_NAME' from storage.json"
+      log "could not remove '$PROFILE_NAME' from storage.json (corrupt or unwritable). Leaving the profile and the contained runtime intact so a re-run can finish after you fix storage.json. Nothing was removed."
+      exit 1
     fi
+    log "removed '$PROFILE_NAME' from storage.json"
   fi
 
-  # profileLocation is installer-journaled, still allowlisted to VS Code's id shape before a recursive delete.
+  # Entry gone (or storage.json absent): safe to remove the profile dir. profileLocation is installer-
+  # journaled, still allowlisted to VS Code's id shape before a recursive delete.
   loc="$PROFILE_LOCATION"
   if [[ -n "$loc" && "$loc" =~ '^[A-Za-z0-9_-]+$' && -d "$CODE_USER/profiles/$loc" ]]; then
     rm -rf "$CODE_USER/profiles/$loc"

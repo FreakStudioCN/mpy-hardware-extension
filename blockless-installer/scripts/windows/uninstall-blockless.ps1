@@ -56,6 +56,7 @@ if (-not $profileCreatedByUs) {
 } else {
   # Drop the profile's entry so no orphan lingers in the picker. Atomic + BOM-free + depth-100 write
   # (temp then rename), matching the installer's Write-StorageAtomic. Skip a corrupt/unreadable file.
+  $entryRemoved = $true
   if (Test-Path $STORAGE) {
     try {
       $d = Get-Content $STORAGE -Raw -ErrorAction Stop | ConvertFrom-Json
@@ -66,10 +67,18 @@ if (-not $profileCreatedByUs) {
         Move-Item -LiteralPath $tmp -Destination $STORAGE -Force
         log "removed '$PROFILE_NAME' from storage.json"
       }
-    } catch { log "could not edit storage.json ($($_.Exception.Message)); the profile entry may remain in the picker" }
+    } catch { $entryRemoved = $false; log "could not edit storage.json ($($_.Exception.Message))" }
   }
-  # profileLocation is installer-journaled, still allowlisted to VS Code's id shape before a recursive
-  # delete. -LiteralPath disables globbing so "." / "*" cannot escape to sibling profiles.
+  if (-not $entryRemoved) {
+    # ABORT before deleting anything: removing the profile dir now would orphan a registered profile
+    # with no backing dir, and removing $BLK (below) would destroy state.json -- the ownership journal
+    # a re-run needs to finish the job. Leave everything intact and stop.
+    log "could not remove '$PROFILE_NAME' from storage.json (corrupt or unwritable). Leaving the profile and the contained runtime intact so a re-run can finish after you fix storage.json. Nothing was removed."
+    exit 1
+  }
+  # Entry gone (or storage.json absent): safe to remove the profile dir. profileLocation is installer-
+  # journaled, still allowlisted to VS Code's id shape before a recursive delete. -LiteralPath disables
+  # globbing so "." / "*" cannot escape to sibling profiles.
   $loc = $profileLocation
   if ($loc -and ($loc -match '^[A-Za-z0-9_-]+$')) {
     $pdir = Join-Path $CODE_USER "profiles\$loc"
