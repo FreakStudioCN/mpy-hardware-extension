@@ -112,10 +112,16 @@ JXA
   log "removed the '$PROFILE_NAME' profile (storage.json entry + directory)"
 fi
 
-# 2. Remove the whole contained runtime.
+# 2. Remove the whole contained runtime. Report honestly if it does not fully delete (a locked,
+# protected, or immutable file): don't claim success and don't imply completion. state.json living here
+# survives such a failure, which is fine -- a re-run re-reads ownership and retries -- but the log must
+# say so rather than print "removed" over a partial delete (matches the Windows uninstaller).
 if [[ -d "$BLK" ]]; then
-  rm -rf "$BLK"
-  log "removed $BLK"
+  if rm -rf "$BLK" && [[ ! -d "$BLK" ]]; then
+    log "removed $BLK"
+  else
+    log "could not fully remove $BLK (a file is likely locked or protected); some Blockless files remain. Close any running Python/mpremote and re-run to finish."
+  fi
 else
   log "$BLK not present"
 fi

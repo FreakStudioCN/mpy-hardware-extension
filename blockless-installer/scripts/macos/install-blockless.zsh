@@ -130,7 +130,21 @@ step1_vscode() {
   local target="/Applications"
   [[ -w "$target" ]] || { target="$HOME/Applications"; mkdir -p "$target"; }
   ditto -x -k "$zip" "$target" || die "VS Code extract failed"
-  xattr -dr com.apple.quarantine "$target/Visual Studio Code.app" 2>/dev/null || true
+  local app="$target/Visual Studio Code.app"
+  # Independently AUTHENTICATE the artifact, not just its integrity. The sha256 above only matches the
+  # digest the update API returned over TLS (trust-on-first-use): it catches a corrupt/MITM'd download
+  # but not a compromised API response that serves a malicious URL + its matching digest. The code
+  # signature + notarization chain to Apple and Microsoft, independent of that response, so verify them
+  # and pin Microsoft's Team ID before we ever run the binary.
+  # `--verify` alone only checks the signature's INTERNAL consistency (an ad-hoc/self-signed bundle
+  # passes it), and grepping `codesign -dvvv` for the Team ID is defeatable by a crafted bundle
+  # identifier. Use a codesign REQUIREMENT instead: it inspects the actual certificate chain -- anchored
+  # to Apple's root AND pinned to Microsoft's Team ID (leaf OU) -- so a compromised update API cannot
+  # substitute a differently-signed binary. Verified to accept the real VS Code.app and reject an
+  # ad-hoc build with a spoofed identifier.
+  codesign --verify -R '=anchor apple generic and certificate leaf[subject.OU] = UBF8T346G9' "$app" 2>/dev/null \
+    || die "VS Code is not authentically signed by Microsoft (refusing to run)"
+  xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
   resolve_code || die "VS Code CLI not found after install"
   "$CODE" --version >/dev/null 2>&1 || die "VS Code CLI not runnable after install"
   VSCODE_PRODUCT_VERSION="$("$CODE" --version | head -1)"
