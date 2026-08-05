@@ -17,9 +17,15 @@ import time
 # blocking flash/deploy with no way to unplug the built-ins.
 _MACOS_NON_BOARD = ("Bluetooth-Incoming-Port", "debug-console", "wlan-debug")
 
+# `mpremote connect list` prints "{port} {serial} {vid:04x}:{pid:04x} {mfr} {product}".
+# A device with no USB descriptor at all (e.g. an HC-05 Bluetooth virtual serial port)
+# reports 0000:0000 for both fields.
+_NO_USB_DESCRIPTOR = "0000:0000"
+_VID_PID_RE = re.compile(r"\b([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\b")
+
 
 def parse_scan_output(output: str) -> list[str]:
-    ports: list[str] = []
+    ports: list[tuple[str, str | None]] = []
     for line in output.splitlines():
         first = line.split(maxsplit=1)[0] if line.split() else ""
         # COM* (Windows), /dev/tty* (Linux ttyUSB/ttyACM + macOS tty.*),
@@ -28,8 +34,18 @@ def parse_scan_output(output: str) -> list[str]:
             continue
         if any(name in first for name in _MACOS_NON_BOARD):
             continue
-        ports.append(first)
-    return ports
+        match = _VID_PID_RE.search(line)
+        ports.append((first, match.group(0).lower() if match else None))
+
+    # A descriptorless port (vid:pid 0000:0000, e.g. the HC-05 virtual serial port) is
+    # dropped ONLY when at least one OTHER listed port has a real USB descriptor -- so a
+    # board plugged in alongside the HC-05 no longer forces "pick one of COM5, COM48" on
+    # a port the user can't actually flash. ponytail: a lone descriptorless port (no real
+    # USB port present at all) still shows, since dropping it would leave nothing to pick.
+    has_usb_descriptor = any(vid_pid and vid_pid != _NO_USB_DESCRIPTOR for _, vid_pid in ports)
+    if has_usb_descriptor:
+        ports = [(port, vid_pid) for port, vid_pid in ports if vid_pid != _NO_USB_DESCRIPTOR]
+    return [port for port, _ in ports]
 
 
 def map_install_error(stderr: str) -> str:

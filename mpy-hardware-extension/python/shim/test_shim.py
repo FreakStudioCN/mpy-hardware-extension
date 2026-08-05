@@ -84,6 +84,27 @@ def test_scan_excludes_macos_builtin_pseudo_ports():
     assert ports == ["/dev/cu.wchusbserial57280348821"]
 
 
+def test_scan_drops_descriptorless_port_when_a_real_usb_port_is_present():
+    # Real 5-field `mpremote connect list` shape: "{port} {serial} {vid:04x}:{pid:04x}
+    # {mfr} {product}". COM5 is an HC-05 Bluetooth virtual serial port (no USB
+    # descriptor, so vid:pid reads 0000:0000) that always exists alongside the real
+    # board on COM48 -- it must not be offered as a pickable device.
+    ports = parse_scan_output(
+        "COM5 None 0000:0000 Microsoft None\n"
+        "COM48 abc123 303a:1001 Espressif Systems ESP32-S3\n"
+    )
+
+    assert ports == ["COM48"]
+
+
+def test_scan_keeps_lone_descriptorless_port_with_no_real_usb_port_present():
+    # Same HC-05 line, but with no other port on the scan -- dropping it would leave
+    # nothing to pick, so the lone descriptorless port still shows.
+    ports = parse_scan_output("COM5 None 0000:0000 Microsoft None\n")
+
+    assert ports == ["COM5"]
+
+
 def test_install_command_uses_mpremote_mip_package_json_url():
     shim = Shim(runner=lambda cmd, **_kwargs: subprocess.CompletedProcess(cmd, 0, "", ""))
 
