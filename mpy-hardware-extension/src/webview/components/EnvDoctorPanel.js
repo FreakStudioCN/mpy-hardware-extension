@@ -52,6 +52,8 @@
       }
       function renderDoctor(items) {
         if (!Array.isArray(items)) return;
+        // Results are in — stop the Re-check refresh icon spinning.
+        $("doctorRecheck").classList.remove("spinning");
         const view = $("doctor");
         view.innerHTML = "";
         for (const it of items) {
@@ -119,4 +121,9 @@
       }
       // Re-check is the explicit opt-in for the invasive MicroPython probe (it enters the
       // board's REPL); the on-load check stays non-invasive and skips it.
-      $("doctorRecheck").addEventListener("click", () => vscode.postMessage({ type: "run_doctor_check", probe: true }));
+      $("doctorRecheck").addEventListener("click", () => {
+        // Spin the refresh icon until the fresh results land (renderDoctor clears it). The
+        // doctor always resolves with items, so the spin can't get stuck on a normal run.
+        $("doctorRecheck").classList.add("spinning");
+        vscode.postMessage({ type: "run_doctor_check", probe: true });
+      });

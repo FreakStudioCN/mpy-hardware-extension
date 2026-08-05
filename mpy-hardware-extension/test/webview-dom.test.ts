@@ -938,6 +938,23 @@ test("a connected board with several ports offers a change-board switch that rev
   assert.equal(picks[0].port, "COM5");
 });
 
+test("clicking Re-check spins the refresh icon until fresh results arrive", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const recheck = document.getElementById("doctorRecheck")!;
+
+  recheck.click();
+  assert.ok(recheck.classList.contains("spinning"), "the refresh icon spins while the check runs");
+  assert.ok(
+    posted.some((m) => m.type === "run_doctor_check" && m.probe === true),
+    "Re-check posts an invasive doctor check",
+  );
+
+  postMultiPortDoctorResults(dom);
+  assert.equal(recheck.classList.contains("spinning"), false, "the spin stops once results render");
+});
+
 test("a device_selected confirmation re-checks the Doctor tab after an Env port pick", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
