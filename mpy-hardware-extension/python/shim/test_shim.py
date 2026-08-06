@@ -3,6 +3,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
@@ -698,6 +700,117 @@ def test_serial_read_until_drives_a_real_pyserial_loopback_port():
 
     assert result["ok"] is True
     assert result["lines"] == ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]
+
+
+def test_monitor_start_streams_lines_via_notify_until_stopped(monkeypatch):
+    # The monitor pushes each line through _notify (a serial.data JSON-RPC
+    # notification), not through the bounded serial_read_until response.
+    # Mutation: drop the _notify call in _monitor_read_loop -> calls stays empty, fails.
+    calls = []
+    monkeypatch.setattr("serve._notify", lambda method, params: calls.append((method, params)))
+    shim = Shim(serial_factory=lambda *_a, **_k: FakeSerial(["boot", "MPYHW_READY"]))
+
+    result = shim.monitor_start("COM3")
+    assert result == {"status": "ok"}
+
+    deadline = time.monotonic() + 2.0
+    while len(calls) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert shim.monitor_stop() == {"status": "ok"}
+    assert calls == [
+        ("serial.data", {"lines": ["boot"]}),
+        ("serial.data", {"lines": ["MPYHW_READY"]}),
+    ]
+
+
+def test_monitor_start_refuses_a_second_start_while_one_is_running():
+    # The host enforces one monitor at a time via port ownership; the shim refusing a
+    # second start (instead of silently replacing the session) keeps both sides honest
+    # if they ever disagree. Mutation: drop the is_alive() guard -> this fails.
+    shim = Shim(serial_factory=lambda *_a, **_k: FakeSerial([]))
+    try:
+        first = shim.monitor_start("COM3")
+        second = shim.monitor_start("COM3")
+        assert first == {"status": "ok"}
+        assert second == {"status": "error", "error_kind": "monitor_already_running"}
+    finally:
+        shim.monitor_stop()
+
+
+def test_monitor_start_port_open_failure_returns_an_error_never_silent_empty():
+    # A closed/busy/nonexistent port must be reported, never look like "connected,
+    # nothing to see yet" (spec: "Port-open failure -> error, never silent empty").
+    def factory(*_a, **_k):
+        raise OSError("could not open port COM99")
+
+    shim = Shim(serial_factory=factory)
+
+    result = shim.monitor_start("COM99")
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "port_open_failed"
+    assert "COM99" in result["message"]
+
+
+def test_monitor_stop_with_nothing_running_is_an_idempotent_no_op():
+    shim = Shim(serial_factory=lambda *_a, **_k: FakeSerial([]))
+
+    assert shim.monitor_stop() == {"status": "ok"}
+
+
+def test_stdout_writes_are_lock_serialized_so_notifications_cannot_corrupt_a_response():
+    # serial.data notifications are pushed from the monitor's background thread while
+    # the main thread may be mid-_respond for an unrelated RPC. Without a shared lock
+    # around every stdout write, two threads' write() calls can interleave mid-line and
+    # corrupt the newline-delimited JSON framing the extension's reader depends on.
+    # This drives both write paths concurrently against a stream double that flags any
+    # write() call that overlaps another (a deliberate sleep widens the window so a
+    # missing lock reliably overlaps rather than depending on GIL scheduling luck).
+    # Mutation: remove the `with _stdout_lock:` in _write_line -> overlap is detected, fails.
+    import serve
+
+    guard = threading.Lock()
+    state = {"active": 0, "overlap": False}
+    written = []
+
+    class RaceDetectingStream:
+        def write(self, s):
+            with guard:
+                state["active"] += 1
+                if state["active"] > 1:
+                    state["overlap"] = True
+            time.sleep(0.002)
+            written.append(s)
+            with guard:
+                state["active"] -= 1
+
+        def flush(self):
+            pass
+
+    monkeypatch_stdout = RaceDetectingStream()
+    real_stdout = serve.sys.stdout
+    serve.sys.stdout = monkeypatch_stdout
+    try:
+        def hammer_notify():
+            for _ in range(15):
+                serve._notify("serial.data", {"lines": ["x"]})
+
+        def hammer_respond():
+            for i in range(15):
+                serve._respond({"jsonrpc": "2.0", "id": i, "result": {}})
+
+        t1 = threading.Thread(target=hammer_notify)
+        t2 = threading.Thread(target=hammer_respond)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+    finally:
+        serve.sys.stdout = real_stdout
+
+    assert state["overlap"] is False
+    assert len(written) == 30
 
 
 def test_run_script_builds_a_python_command_with_args():
