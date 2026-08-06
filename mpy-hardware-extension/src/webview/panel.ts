@@ -1767,8 +1767,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
           webview.postMessage({ type: "session_error", error: "device_unavailable" });
           return;
         }
-        // The deploy card may already have picked a port; honor it and skip the
-        // quickpick. Otherwise auto-pick the only one, or prompt for a choice.
+        // A caller (the Env selector's button click) may already name the port to use;
+        // honor it and skip the quickpick. Otherwise auto-pick the only one, or prompt
+        // for a choice. The deploy/flash confirmation cards don't go through this
+        // message at all — they carry their own picked port on their reply instead.
         const port = (message.port && ports.includes(message.port)) ? message.port
           : ports.length === 1 ? ports[0]
           : await vscode.window.showQuickPick?.(ports, { placeHolder: "Select MicroPython device" });
@@ -1887,8 +1889,11 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         venvReady: venvReadyFn,
         scan: () => shim.scan(),
         probeMicroPython: (port: string) => shim.probeMicroPython(port),
+        getPort: () => shim.getPort?.() ?? null,
       }, { probe: message.probe === true }); // probe only on an explicit Re-check — it interrupts a running board
-      webview.postMessage({ type: "doctor_results", items });
+      // Echo the request's seq so the webview can drop a stale check whose result arrives after
+      // a newer one (results render in completion order, not send order).
+      webview.postMessage({ type: "doctor_results", items, seq: message.seq });
     }
     if (message.type === "open_path" && typeof message.path === "string") {
       // Reveal the fallback project folder in the OS file manager so the user can

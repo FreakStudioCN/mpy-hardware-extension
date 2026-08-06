@@ -177,8 +177,10 @@
       .tabwrap::-webkit-scrollbar-thumb { background: #ffffff1a; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
       .tabwrap::-webkit-scrollbar-thumb:hover { background: #ffffff33; background-clip: padding-box; }
       .doc-head { display: flex; justify-content: flex-end; padding: 10px 12px 0; }
-      .doc-recheck { background: #ffffff14; color: inherit; border: 1px solid #ffffff26; border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
+      .doc-recheck { background: #ffffff14; color: inherit; border: 1px solid #ffffff26; border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; display: inline-flex; align-items: center; gap: 6px; }
       .doc-recheck:hover { background: #ffffff22; }
+      .doc-recheck-ico { flex: 0 0 auto; }
+      .doc-recheck.spinning .doc-recheck-ico { animation: spin .7s linear infinite; }
       #doctor { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
       .doc-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: #ffffff0a; border: 1px solid #ffffff14; }
       .doc-ico { flex: none; width: 18px; text-align: center; font-weight: 700; }
@@ -186,11 +188,19 @@
       .doc-row.doc-warn .doc-ico { color: #e2c08d; }
       .doc-row.doc-error .doc-ico { color: #f48771; }
       .doc-body { flex: 1; min-width: 0; }
-      .doc-msg { font-weight: 600; }
+      .doc-msg { font-weight: 600; overflow-wrap: anywhere; }
       .doc-hint { margin-top: 2px; font-size: 12px; opacity: 0.75; }
+      .doc-ports { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      /* Long port names (e.g. /dev/cu.usbmodem…) must wrap inside the button and never exceed
+         the panel width, or the overflow-x:hidden tab/tool body clips them instead of wrapping. */
+      .doc-ports .ask-opt { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
       .doc-actions { flex: none; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
       .doc-fix { background: #2d7d46; color: #fff; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; }
       .doc-fix:disabled { opacity: 0.6; cursor: default; }
+      /* "Change board" sits inside the body, below the connected line — a subtle secondary
+         button so it can't collide with the row heading the way a right-column action did. */
+      .doc-change { margin-top: 8px; background: transparent; color: var(--accent); border: 1px solid var(--vsc-input-border); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
+      .doc-change:hover { border-color: var(--accent); }
       .doc-link { color: #4daafc; text-decoration: none; font-size: 12px; white-space: nowrap; }
       .doc-link:hover { text-decoration: underline; }
       .hidden { display: none !important; }
@@ -645,7 +655,7 @@
       .board-page-btn:disabled { opacity: .45; cursor: default; }
       .fade-in { animation: fadeIn .28s ease both; }
       @keyframes fadeIn { from { transform: translateY(5px); } to { transform: none; } }
-      @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .feed-spin { animation: none; } }
+      @media (prefers-reduced-motion: reduce) { .fade-in { animation: none; } .feed-spin { animation: none; } .doc-recheck.spinning .doc-recheck-ico { animation: none; } }
       .gd-tabgroup { margin-bottom: 10px; }
       .gd-tabgroup:first-child { padding-top: 8px; }
       .gd-tabgroup-label { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-dim); margin-bottom: 4px; }

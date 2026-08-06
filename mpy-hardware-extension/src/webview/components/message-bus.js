@@ -6,7 +6,7 @@
       window.addEventListener("message", (event) => {
         const msg = event.data;
         if (msg.type === "recipe_imported") { prefillImportedRecipe(msg.payload); }
-        if (msg.type === "doctor_results") { renderDoctor(msg.items); }
+        if (msg.type === "doctor_results") { renderDoctor(msg.items, msg.seq); }
         if (msg.type === "gen_driver_config") { renderGenDriver(msg.tabs); }
         if (msg.type === "gen_driver_status") { setGenDriverStatus(msg.status, msg.detail); }
         if (msg.type === "gen_driver_required") { showDriverRequiredOffer(msg.blocks); }
@@ -115,7 +115,29 @@
         if (msg.type === "diagram_updated") { renderDiagram(msg.diagram); }
         if (msg.type === "artifacts_index") { renderArtifacts(msg.artifacts); renderOptionalFlowImages(msg.artifacts); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
-        if (msg.type === "device_selected") { addActivity({ type: "trace", text: tr("device_selected", { p: msg.port }) }); }
+        if (msg.type === "device_selected") {
+          // Not rendered into the build feed: device_selected only ever answers a select_device
+          // sent by the Env port picker (panel.ts is the sole emitter), so it is environment
+          // setup, not build progress — the same reason support-panel navigation is kept out
+          // below. Re-picking a board would otherwise spam the feed with one line per switch.
+          // Re-check whenever THIS confirmation resolves an Env selector click — not only
+          // when the confirmed port matches the one clicked. EnvDoctorPanel.js is the only
+          // sender of select_device today, so any device_selected that arrives while a pick
+          // is pending is its answer, even when the clicked port vanished and select_device
+          // auto-picked the one port left instead (panel.ts): that reassignment still needs
+          // the Doctor tab re-checked against the port the host actually settled on, or the
+          // row stays stuck showing the old candidate list.
+          // ponytail: a select_device that yields no scanned ports (session_error) or an
+          // interactively-cancelled QuickPick posts no device_selected at all, so the flag
+          // is left set and the selector's buttons stay disabled — Re-check re-enables the
+          // buttons (renderDoctor rebuilds them), and the next Env pick overwrites the flag,
+          // but neither one explicitly clears it in the meantime.
+          const hadPendingPick = pendingEnvPick != null;
+          pendingEnvPick = null;
+          if (hadPendingPick) {
+            vscode.postMessage({ type: "run_doctor_check", probe: false, seq: nextDoctorSeq() });
+          }
+        }
         // support_feedback_opened / support_diagnostics_exported are recorded host-side (session log +
         // recent_activity, surfaced in the diagnostics snapshot) for section 08 §6.3 / §8.1 traceability.
         // They are deliberately NOT rendered into the build feed: opening the support panel or copying a

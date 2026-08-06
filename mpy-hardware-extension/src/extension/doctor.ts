@@ -15,6 +15,9 @@ export interface DoctorResult {
   action?: "install_deps";
   link?: string;
   ports?: string[];
+  // Set on a connected ("ok") device item when more than one port was scanned: the port
+  // currently in use, so the Env panel can offer a "change board" switch among `ports`.
+  selectedPort?: string;
 }
 
 export interface DoctorDeps {
@@ -23,6 +26,10 @@ export interface DoctorDeps {
   scan: () => Promise<string[]>;
   probeMicroPython: (port: string) => Promise<boolean>;
   board?: string; // matched board slug, for the firmware download link
+  // The port the user already picked (Env selector or the deploy/flash confirmation
+  // card), if any. When >1 port is scanned and this one is among them, the doctor
+  // probes it directly instead of asking the user to pick again.
+  getPort?: () => string | null;
 }
 
 const PYTHON_DOWNLOAD = "https://www.python.org/downloads/";
@@ -80,13 +87,27 @@ export async function runDoctor(deps: DoctorDeps, opts: { probe?: boolean } = {}
     results.push({ id: "micropython", status: "warn", messageKey: "doc_mpy_need_device", link: firmwareLink(deps.board) });
     return results;
   }
-  if (ports.length > 1) {
-    results.push({ id: "device", status: "warn", messageKey: "doc_device_multiple", errorKind: "device_selection_required", ports });
-    results.push({ id: "micropython", status: "warn", messageKey: "doc_mpy_need_port" });
-    return results;
+  let devicePort: string;
+  const multiPort = ports.length > 1;
+  if (multiPort) {
+    const selected = deps.getPort?.();
+    if (!selected || !ports.includes(selected)) {
+      results.push({ id: "device", status: "warn", messageKey: "doc_device_multiple", errorKind: "device_selection_required", ports });
+      results.push({ id: "micropython", status: "warn", messageKey: "doc_mpy_need_port" });
+      return results;
+    }
+    devicePort = selected;
+  } else {
+    devicePort = ports[0];
   }
 
-  results.push({ id: "device", status: "ok", messageKey: "doc_device_ok", detail: ports[0] });
+  // Keep the port list on the connected item when several ports exist, so the Env panel can
+  // offer a "change board" switch to the other ports without forcing an unplug/replug.
+  results.push(
+    multiPort
+      ? { id: "device", status: "ok", messageKey: "doc_device_ok", detail: devicePort, ports, selectedPort: devicePort }
+      : { id: "device", status: "ok", messageKey: "doc_device_ok", detail: devicePort },
+  );
   // The probe enters the board's raw REPL, which interrupts any running program. That's
   // too invasive to do automatically on every panel load, so it's opt-in (the Re-check
   // button) — a default run just reports the board is connected.
@@ -96,7 +117,7 @@ export async function runDoctor(deps: DoctorDeps, opts: { probe?: boolean } = {}
   }
   let hasMpy: boolean;
   try {
-    hasMpy = await deps.probeMicroPython(ports[0]);
+    hasMpy = await deps.probeMicroPython(devicePort);
   } catch {
     results.push({ id: "micropython", status: "warn", messageKey: "doc_mpy_probe_failed", errorKind: "no_micropython" });
     return results;

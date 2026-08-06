@@ -862,6 +862,220 @@ test("a failing Doctor check offers an install button and guide links wired to t
   );
 });
 
+function postMultiPortDoctorResults(dom: JSDOM) {
+  post(dom, {
+    type: "doctor_results",
+    items: [
+      { id: "python", status: "ok", messageKey: "doc_python_ok", detail: "Python 3.12.1" },
+      { id: "deps", status: "ok", messageKey: "doc_deps_ok" },
+      { id: "device", status: "warn", messageKey: "doc_device_multiple", errorKind: "device_selection_required", ports: ["COM5", "COM48"] },
+      { id: "micropython", status: "warn", messageKey: "doc_mpy_need_port" },
+    ],
+  });
+}
+
+test("multiple boards on the Doctor tab offer a clickable port selector that posts select_device", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+
+  postMultiPortDoctorResults(dom);
+
+  const buttons = [...view.querySelectorAll(".doc-ports .ask-opt")] as HTMLButtonElement[];
+  assert.equal(buttons.length, 2, "one clickable button per candidate port");
+  assert.deepEqual(buttons.map((b) => b.textContent), ["COM5", "COM48"]);
+
+  posted.length = 0;
+  const com48 = buttons.find((b) => b.textContent === "COM48")!;
+  com48.click();
+  const picks = posted.filter((m) => m.type === "select_device");
+  assert.equal(picks.length, 1, "clicking a port posts select_device through the existing host pick path");
+  assert.equal(picks[0].port, "COM48");
+  assert.equal(
+    posted.some((m) => m.type === "run_doctor_check"),
+    false,
+    "must not re-check immediately — the host sets the port asynchronously (races)",
+  );
+});
+
+test("a connected board with several ports offers a change-board switch that reveals the selector", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+
+  post(dom, {
+    type: "doctor_results",
+    items: [
+      { id: "python", status: "ok", messageKey: "doc_python_ok", detail: "Python 3.12.1" },
+      { id: "deps", status: "ok", messageKey: "doc_deps_ok" },
+      { id: "device", status: "ok", messageKey: "doc_device_ok", detail: "COM48", ports: ["COM5", "COM48"], selectedPort: "COM48" },
+      { id: "micropython", status: "warn", messageKey: "doc_mpy_recheck" },
+    ],
+  });
+
+  // Connected: the selector stays hidden behind a "change board" button, not shown outright.
+  assert.equal(view.querySelectorAll(".doc-ports .ask-opt").length, 0, "the selector is hidden until the user asks to change");
+  const change = [...view.querySelectorAll("button.doc-change")].find((b) => b.textContent === "Change board") as HTMLButtonElement;
+  assert.ok(change, "a connected board with several ports offers a change-board switch");
+
+  change.click();
+
+  const buttons = [...view.querySelectorAll(".doc-ports .ask-opt")] as HTMLButtonElement[];
+  assert.deepEqual(buttons.map((b) => b.textContent), ["COM5", "COM48"], "clicking change reveals every port");
+  assert.ok(buttons.find((b) => b.textContent === "COM48")!.classList.contains("chosen"), "the port in use is marked as the current choice");
+  assert.equal(
+    [...view.querySelectorAll("button.doc-change")].some((b) => b.textContent === "Change board"),
+    false,
+    "the change button removes itself once the selector is shown",
+  );
+
+  posted.length = 0;
+  buttons.find((b) => b.textContent === "COM5")!.click();
+  const picks = posted.filter((m) => m.type === "select_device");
+  assert.equal(picks.length, 1, "picking a different port posts select_device");
+  assert.equal(picks[0].port, "COM5");
+});
+
+test("clicking Re-check spins the refresh icon until fresh results arrive", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const recheck = document.getElementById("doctorRecheck")!;
+
+  recheck.click();
+  assert.ok(recheck.classList.contains("spinning"), "the refresh icon spins while the check runs");
+  assert.ok(
+    posted.some((m) => m.type === "run_doctor_check" && m.probe === true),
+    "Re-check posts an invasive doctor check",
+  );
+
+  postMultiPortDoctorResults(dom);
+  assert.equal(recheck.classList.contains("spinning"), false, "the spin stops once results render");
+});
+
+test("the Re-check refresh icon survives a locale switch", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const recheck = document.getElementById("doctorRecheck")!;
+  assert.ok(recheck.querySelector(".doc-recheck-ico"), "the refresh icon renders");
+
+  // Flip the UI language like a real session (submit a Chinese intent → setLocale →
+  // applyStaticI18n re-applies via textContent). If data-i18n sat on the button instead of
+  // the inner label span, that re-apply would wipe the sibling icon. Mutation guard.
+  (document.getElementById("intent") as any).value = "用 OLED 显示温度";
+  (document.getElementById("generate") as any).click();
+
+  assert.ok(recheck.querySelector(".doc-recheck-ico"), "the icon survives re-localization");
+  assert.equal(recheck.querySelector("span")!.textContent, "重新检测", "the label still localizes to zh");
+});
+
+test("a stale doctor check result does not clobber a newer one or stop the spin", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+  const recheck = document.getElementById("doctorRecheck")!;
+
+  // Click Re-check: it stamps the latest seq and starts the spin.
+  recheck.click();
+  const latest = posted.filter((m) => m.type === "run_doctor_check").pop()!.seq as number;
+
+  // A stale result (an earlier check finishing last) must be ignored: it neither renders nor
+  // stops the spin. Mutation guard: dropping the seq check in renderDoctor fails both asserts.
+  post(dom, {
+    type: "doctor_results",
+    seq: latest - 1,
+    items: [{ id: "device", status: "warn", messageKey: "doc_device_multiple", errorKind: "device_selection_required", ports: ["COM5", "COM48"] }],
+  });
+  assert.equal(view.querySelectorAll(".doc-ports .ask-opt").length, 0, "the stale result does not render");
+  assert.ok(recheck.classList.contains("spinning"), "the stale result does not stop the spin");
+
+  // The latest result renders and stops the spin.
+  post(dom, {
+    type: "doctor_results",
+    seq: latest,
+    items: [{ id: "device", status: "ok", messageKey: "doc_device_ok", detail: "COM48" }],
+  });
+  assert.match(view.textContent || "", /Board connected/, "the latest result renders");
+  assert.equal(recheck.classList.contains("spinning"), false, "the latest result stops the spin");
+});
+
+test("a device_selected confirmation re-checks the Doctor tab after an Env port pick", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+
+  postMultiPortDoctorResults(dom);
+  const com48 = [...view.querySelectorAll(".doc-ports .ask-opt")].find((b) => b.textContent === "COM48") as HTMLButtonElement;
+  com48.click();
+
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM48" });
+  assert.ok(
+    posted.some((m) => m.type === "run_doctor_check" && m.probe === false),
+    "the device_selected confirmation triggers a non-invasive re-check",
+  );
+  // Env device selection is setup, not build progress: it must NOT add a line to the activity
+  // feed. Mutation guard: re-adding the addActivity("Device selected") call fails this.
+  assert.equal(
+    /Device selected/.test(document.getElementById("activity")!.textContent || ""),
+    false,
+    "an Env port pick leaves no trace in the build activity feed",
+  );
+
+  // A second device_selected (e.g. a later confirm) has no pending pick left to consume — no
+  // second re-check, and still no feed line.
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM48" });
+  assert.equal(
+    posted.some((m) => m.type === "run_doctor_check"),
+    false,
+    "a device_selected with no pending Env pick must not re-check",
+  );
+});
+
+test("a device_selected for a REASSIGNED port still re-checks and un-sticks the pending pick", async () => {
+  // The clicked port can vanish between the click and the host's scan; select_device then
+  // auto-picks the one port left and confirms THAT port instead (panel.ts). The Doctor tab
+  // must still re-check (against whatever port the host actually settled on) rather than
+  // leaving the selector's buttons disabled forever with a stale candidate list.
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const view = document.getElementById("doctor")!;
+
+  postMultiPortDoctorResults(dom);
+  const com48 = [...view.querySelectorAll(".doc-ports .ask-opt")].find((b) => b.textContent === "COM48") as HTMLButtonElement;
+  com48.click();
+
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM5" }); // reassigned — not the clicked COM48
+  assert.ok(
+    posted.some((m) => m.type === "run_doctor_check" && m.probe === false),
+    "a reassigned-port confirmation still triggers a re-check",
+  );
+
+  // The pick is now consumed — a later, unrelated device_selected must not re-check again.
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM48" });
+  assert.equal(posted.some((m) => m.type === "run_doctor_check"), false, "the pending pick was already consumed");
+});
+
+test("a device_selected from an unrelated pick (no pending Env selection) does not re-check", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+
+  postMultiPortDoctorResults(dom);
+  // No Env button was ever clicked — this device_selected models the deploy/flash
+  // card's own pick path, which must not surprise-trigger an Env re-check.
+  posted.length = 0;
+  post(dom, { type: "device_selected", port: "COM48" });
+  assert.equal(posted.some((m) => m.type === "run_doctor_check"), false);
+});
+
 test("code streams into the activity feed and finalizes as highlighted MicroPython (no Code tab)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

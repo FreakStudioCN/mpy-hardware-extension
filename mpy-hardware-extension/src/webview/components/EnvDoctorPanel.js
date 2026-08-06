@@ -22,7 +22,52 @@
       };
       function docHint(kind) { const m = DOC_HINTS[LOCALE] || DOC_HINTS.en; return m[kind] || DOC_HINTS.en[kind] || ""; }
       const DOC_ICON = { ok: "✓", warn: "⚠", error: "✗" };
-      function renderDoctor(items) {
+      // The port the user just clicked in the Env selector, awaiting the host's
+      // device_selected confirmation (message-bus.js) before triggering a re-check. The
+      // NEXT device_selected resolves this pick — even when it carries a different port
+      // than the one clicked (the clicked port can vanish and get reassigned by the host).
+      // A pick that never gets a device_selected at all (session_error, a cancelled
+      // QuickPick) is a known ceiling documented in message-bus.js, not fixed here.
+      let pendingEnvPick = null;
+      // Every doctor request (on-load, Re-check, the post-pick re-check, install-deps) carries
+      // a monotonic seq. doctor_results echoes it back, and renderDoctor ignores anything but
+      // the latest, so two in-flight checks that finish out of order cannot let the stale one
+      // clobber the newer result (or stop the spin early).
+      let doctorSeq = 0;
+      function nextDoctorSeq() { doctorSeq += 1; return doctorSeq; }
+      // Builds the clickable port list. selectedPort, when given, marks the port currently in
+      // use and stays enabled so the user can switch to another. A click posts select_device
+      // and waits for the host's device_selected before re-checking — the host sets the port
+      // asynchronously, so re-checking right after the click would race it. The deploy/flash
+      // confirmation cards reach the same shim.setPort by their own reply, never this message.
+      function buildPortSelector(ports, selectedPort) {
+        const p = document.createElement("div"); p.className = "doc-ports";
+        ports.forEach((port) => {
+          const b = document.createElement("button");
+          b.className = port === selectedPort ? "ask-opt chosen" : "ask-opt";
+          b.type = "button"; b.textContent = port;
+          b.addEventListener("click", () => {
+            pendingEnvPick = port;
+            p.querySelectorAll(".ask-opt").forEach((x) => { x.disabled = true; });
+            b.classList.add("chosen");
+            vscode.postMessage({ type: "select_device", port });
+          });
+          p.appendChild(b);
+        });
+        return p;
+      }
+      function renderDoctor(items, seq) {
+        // Ignore a superseded check: a newer request has been sent since this result's, so
+        // rendering it (or clearing the spin on it) would clobber the newer one. A result with
+        // no seq (legacy) always renders.
+        // ponytail: request-order wins, not completion-order. If a slow install-deps was issued
+        // before a newer Re-check, the install's own result is dropped even when it finishes
+        // later; the user sees it on the next check. Acceptable — the alternative is the stale
+        // clobber this guard exists to prevent.
+        if (seq != null && seq !== doctorSeq) return;
+        // Results are in — stop the Re-check refresh icon spinning. Cleared before the shape
+        // guard so a malformed payload can't strand the spin.
+        $("doctorRecheck").classList.remove("spinning");
         if (!Array.isArray(items)) return;
         const view = $("doctor");
         view.innerHTML = "";
@@ -41,7 +86,28 @@
           body.appendChild(msg);
           const hintText = it.errorKind ? docHint(it.errorKind) : "";
           if (hintText) { const h = document.createElement("div"); h.className = "doc-hint"; h.textContent = hintText; body.appendChild(h); }
-          if (it.ports && it.ports.length) { const p = document.createElement("div"); p.className = "doc-hint"; p.textContent = it.ports.join(sep()); body.appendChild(p); }
+          const okWithPorts = it.status === "ok" && it.ports && it.ports.length && it.selectedPort;
+          if (it.ports && it.ports.length && it.errorKind === "device_selection_required") {
+            body.appendChild(buildPortSelector(it.ports, null));
+          } else if (it.ports && it.ports.length && !okWithPorts) {
+            // Defensive fallback: a future errorKind carrying ports still gets a readable
+            // (non-clickable) list instead of silently dropping it. The connected-with-ports
+            // case is handled by the "change board" action below, not here.
+            const p = document.createElement("div"); p.className = "doc-hint"; p.textContent = it.ports.join(sep()); body.appendChild(p);
+          }
+          if (okWithPorts) {
+            // Connected, but several ports are present: a "change board" button reveals the
+            // selector (current port marked, the others clickable) so the user can switch
+            // without unplugging. Lives in the body (below the connected line) so it can't
+            // collide with the row heading. One-shot: it removes itself once the selector shows.
+            const change = document.createElement("button");
+            change.className = "doc-change"; change.type = "button"; change.textContent = tr("doc_change_board");
+            change.addEventListener("click", () => {
+              change.remove();
+              body.appendChild(buildPortSelector(it.ports, it.selectedPort));
+            });
+            body.appendChild(change);
+          }
           row.appendChild(body);
           const actions = document.createElement("div");
           actions.className = "doc-actions";
@@ -51,7 +117,7 @@
             btn.textContent = tr("doc_install");
             btn.addEventListener("click", () => {
               btn.disabled = true; btn.textContent = tr("doc_installing");
-              vscode.postMessage({ type: "doctor_action", action: "install_deps" });
+              vscode.postMessage({ type: "doctor_action", action: "install_deps", seq: nextDoctorSeq() });
             });
             actions.appendChild(btn);
           }
@@ -70,4 +136,9 @@
       }
       // Re-check is the explicit opt-in for the invasive MicroPython probe (it enters the
       // board's REPL); the on-load check stays non-invasive and skips it.
-      $("doctorRecheck").addEventListener("click", () => vscode.postMessage({ type: "run_doctor_check", probe: true }));
+      $("doctorRecheck").addEventListener("click", () => {
+        // Spin the refresh icon until the fresh results land (renderDoctor clears it). The
+        // doctor always resolves with items, so the spin can't get stuck on a normal run.
+        $("doctorRecheck").classList.add("spinning");
+        vscode.postMessage({ type: "run_doctor_check", probe: true, seq: nextDoctorSeq() });
+      });
