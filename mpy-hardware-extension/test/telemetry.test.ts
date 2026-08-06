@@ -369,3 +369,34 @@ test("phase_stalled carries the blocking tool calls into the DB payload", () => 
   // Without this the DB says a phase ran out of turns and nothing about why.
   assert.deepEqual(t?.payload.detail, detail);
 });
+
+test("a string-shaped gate report reaches the DB readable, not as empty objects", () => {
+  // select_hw_manifest.py collects `errors: list[str]`. Mapping only code+path stored the
+  // entire report as [{}, {}, {}]: present, and carrying nothing.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      ok: true,
+      success: false,
+      exit_code: 1,
+      structured_errors: ["selected_board.display_name is required", "board definition not found: esp32-c6-devkitc-1.json"],
+    },
+  });
+
+  assert.equal(t?.payload.ok, false);
+  assert.deepEqual(t?.payload.errors, [
+    { message: "selected_board.display_name is required" },
+    { message: "board definition not found: esp32-c6-devkitc-1.json" },
+  ]);
+});
+
+test("an object-shaped gate entry with a message but no code keeps the message", () => {
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: { ok: true, success: false, structured_errors: [{ message: "pinout must include a ground pin", path: "manifest.json" }] },
+  });
+
+  assert.deepEqual(t?.payload.errors, [{ message: "pinout must include a ground pin", path: "manifest.json" }]);
+});

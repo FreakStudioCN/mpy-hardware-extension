@@ -1212,3 +1212,32 @@ test("a phase that succeeds reports no stall detail at all", async () => {
   assert.equal(result.terminal, "complete");
   assert.equal(events.some((e) => e.type === "phase_stalled"), false);
 });
+
+test("a stall detail reads a string-shaped gate report, not just {code} objects", async () => {
+  // REAL shape: select_hw_manifest.py collects `errors: list[str]`, one plain string per
+  // problem. Reading only `.code` reported the blocker as a bare "failed".
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "select_hw_manifest.py" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 2, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => ({
+        ok: true,
+        exit_code: 1,
+        stdout: JSON.stringify({ errors: ["selected_board.display_name is required", "hardware_plan.mcu.model is required"] }),
+        stderr: "",
+      }),
+    },
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled.detail[0].error, "selected_board.display_name is required", "the first real problem, not 'failed'");
+  assert.equal(stalled.detail[0].path, "select_hw_manifest.py");
+});

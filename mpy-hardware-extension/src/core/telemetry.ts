@@ -245,9 +245,16 @@ function compactToolResult(name: string, obs: any): { eventType: string; payload
 // aggregates with their granular entries). Messages are dropped: the code identifies the
 // check and the path identifies the entry, and a repeated pair across turns is the whole
 // signal a retry loop gives you.
-function gateErrors(entries: any): Array<{ code?: string; path?: string }> | undefined {
+function gateErrors(entries: any): Array<{ code?: string; path?: string; message?: string }> | undefined {
   if (!Array.isArray(entries) || entries.length === 0) return undefined;
-  return entries.map((entry: any) => ({ code: entry?.code, path: entry?.path }));
+  // Two REAL entry shapes: run_quality_gates.py emits {code, path}; the select-hw / analyze
+  // validators emit one plain string per problem. Reading only code+path stored the whole
+  // string-shaped report as `errors: [{}, {}, {}]` -- present in the DB, and useless.
+  return entries.map((entry: any) => {
+    if (typeof entry === "string") return { message: entry };
+    if (entry?.code) return { code: entry.code, path: entry.path };
+    return { message: entry?.message, path: entry?.path };
+  });
 }
 
 function traceEventPayload(event: any): { eventType: string; payload: Record<string, any> } | null {

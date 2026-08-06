@@ -186,6 +186,16 @@ function compactToolInput(input: any): Record<string, any> {
 // How many recent tool failures a stalled phase reports as its detail.
 const STALL_DETAIL_LIMIT = 3;
 
+// One gate-report entry, read in BOTH real shapes. run_quality_gates.py emits objects
+// ({code, path}); the select-hw / analyze validators emit a plain string per problem
+// ("selected_board.display_name is required"). Reading only `.code` turned every
+// string-shaped report into an empty object, so a stalled phase reported "failed" and the
+// DB stored `errors: [{}, {}, {}]` -- the report was there and unreadable.
+function gateEntryReason(entry: any): string {
+  if (typeof entry === "string") return entry;
+  return String(entry?.code ?? entry?.message ?? "");
+}
+
 // The one-line "what actually blocked this call" for a failing tool result, or null when it
 // succeeded. A stalled phase carries the last few of these so the stall names its blocker
 // instead of a bare "max_turns" the user reads as transient.
@@ -196,8 +206,8 @@ const STALL_DETAIL_LIMIT = 3;
 function toolFailure(tu: StreamEvent, result: any): { tool: string; error: string; path?: string } | null {
   const failed = result?.ok === false || (result?.ok === true && result?.success === false);
   if (!failed) return null;
-  const codes = (result?.structured_errors ?? []).map((e: any) => e?.code).filter(Boolean);
-  const error = result?.error_kind ?? result?.error ?? codes[0] ?? "failed";
+  const reasons = (result?.structured_errors ?? []).map(gateEntryReason).filter(Boolean);
+  const error = result?.error_kind ?? result?.error ?? reasons[0] ?? "failed";
   const target = (tu.input as any)?.path ?? (tu.input as any)?.script;
   return { tool: tu.name ?? "", error: String(error), ...(target ? { path: String(target) } : {}) };
 }
