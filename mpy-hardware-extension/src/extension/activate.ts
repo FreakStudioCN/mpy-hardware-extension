@@ -17,7 +17,9 @@ export function activate(context: any, vscode: any = undefined) {
   let pendingRecipeImport: any;
   const deliverRecipeImport = (payload: any) => {
     pendingRecipeImport = payload;
-    api.commands?.executeCommand?.("mpyhw.panel.focus");
+    // Same Thenable-rejection hazard as revealPanelIfEnabled: guard it the same way
+    // so a failed focus never surfaces as an unhandled rejection.
+    void Promise.resolve(api.commands?.executeCommand?.("mpyhw.panel.focus")).catch(() => {});
     if (activeWebview) {
       activeWebview.postMessage({ type: "recipe_imported", payload });
       pendingRecipeImport = undefined;
