@@ -2345,15 +2345,17 @@ test("welcome telemetry: a rejected POST is swallowed — the click's primary ac
 });
 
 function restorePanel(ws: string) {
-  const posted: any[] = []; const infos: string[] = []; const errors: string[] = [];
+  const posted: any[] = []; const infos: string[] = []; const errors: string[] = []; const commands: Array<{ cmd: string; path?: string }> = [];
   let handler: ((m: any) => Promise<void>) | undefined;
   const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
   const vscode = {
     ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
     window: { createWebviewPanel: () => panel, showInformationMessage: async (m: string) => { infos.push(m); }, showErrorMessage: async (m: string) => { errors.push(m); } },
+    commands: { executeCommand: async (cmd: string, arg: any) => { commands.push({ cmd, path: arg?.fsPath }); } },
+    Uri: { file: (p: string) => ({ fsPath: p }) },
   };
   createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
-  return { handler: handler!, posted, infos, errors };
+  return { handler: handler!, posted, infos, errors, commands };
 }
 
 test("restore_session rehydrates the tabs from a saved snapshot (wiring/diagram/sha-verified code) and confirms", async () => {
@@ -2603,6 +2605,156 @@ test("restore_session replays the RICH narration in file order via ungated messa
     const serialAt = at((m) => m.type === "serial_output");
     const errAt = at((m) => m.type === "restore_line" && m.kind === "error");
     assert.ok(userAt < traceAt && traceAt < sumAt && sumAt < serialAt && serialAt < errAt, "replays in transcript file order");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+// ----- View-only (no-snapshot) restore renders the transcript READ-ONLY, not the raw log (D1a/D2) -----
+
+test("restore_session on a NO-snapshot dir replays the transcript read-only: feed, tabs (last-of-each artifact), terminal — never opens the raw log", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, infos, commands } = restorePanel(ws);
+    const sid = "session-viewonly-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    // No checkpoints/snapshot.json — only the transcript. Two of each artifact kind, so "last wins" is real.
+    const jsonl = [
+      { type: "user_message", intent: "blink an LED" },
+      { type: "status_update", payload: { message: "Generating code…" } },
+      { type: "artifact", kind: "manifest", manifest: { devices: [{ pin: 0 }] } },
+      { type: "artifact", kind: "diagram", diagram: { nodes: ["stale"] } },
+      { type: "artifact", kind: "code", code: "print('first')", path: "main.py" },
+      { type: "ui_prompt", promptId: "p1", question: "Which board?" },
+      { type: "ui_prompt_answer", promptId: "p1", answer: "ESP32-C6" },
+      { type: "phase_complete", payload: { summary: "Generated main.py" } },
+      { type: "artifact", kind: "manifest", manifest: { devices: [{ pin: 1 }] } },
+      { type: "artifact", kind: "diagram", diagram: { nodes: ["led"] } },
+      { type: "artifact", kind: "code", code: "print('final')", path: "main.py" },
+      { type: "serial_output", lines: ["LED on"] },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    posted.length = 0; infos.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    // Feed replays exactly as the rich (snapshot) path does — same mapRestoreEvent, same messages.
+    assert.equal(posted[0]?.type, "restore_reset", "the feed is cleared first");
+    assert.ok(posted.some((m) => m.type === "restore_user" && /blink an LED/.test(m.text)), "the user's request replays");
+    assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "trace"), "status narration replays");
+    assert.ok(posted.some((m) => m.type === "summary" && /main\.py/.test(m.text)), "the phase summary replays");
+    assert.ok(posted.some((m) => m.type === "restore_prompt" && m.kind === "ui_prompt" && /ESP32-C6/.test(m.answer)), "the past prompt replays as an inert card with its answer");
+    assert.ok(posted.some((m) => m.type === "serial_output"), "serial output replays");
+    // Tabs (D2): the LAST inline artifact of each kind, not the first.
+    const manifestMsgs = posted.filter((m) => m.type === "manifest_updated");
+    assert.equal(manifestMsgs.length, 1, "manifest posted once (the last one)");
+    assert.deepEqual(manifestMsgs[0].manifest, { devices: [{ pin: 1 }] }, "the LAST manifest artifact wins");
+    const diagramMsgs = posted.filter((m) => m.type === "diagram_updated");
+    assert.equal(diagramMsgs.length, 1, "diagram posted once (the last one)");
+    assert.deepEqual(diagramMsgs[0].diagram, { nodes: ["led"] }, "the LAST authored diagram wins over the derived one");
+    const codeMsgs = posted.filter((m) => m.type === "code_updated");
+    assert.equal(codeMsgs.length, 1, "code posted once (the last one)");
+    assert.match(codeMsgs[0].code, /final/, "the LAST code artifact wins");
+    // Terminal + honest read-only messaging.
+    assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line comes from the last session_finished");
+    assert.ok(infos.some((m) => /read-only/i.test(m)), "the info message is honest that this is a read-only view");
+    // The core of the fix: never falls back to opening the raw log when the transcript replayed fine.
+    assert.ok(!commands.some((c) => c.cmd === "revealFileInOS"), "never opens the raw session.jsonl when it replayed");
+    // No live/gated messages — mirrors the rich-narration test's mutation-sensitive live-type sweep.
+    for (const live of ["user_message", "status_update", "ui_prompt_needed", "plan_needed"]) {
+      assert.ok(!posted.some((m) => m.type === live), `no live ${live} is posted`);
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session on a NO-snapshot dir derives the Diagram tab from the manifest when no diagram artifact was recorded", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-viewonly-2";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    const jsonl = [
+      { type: "user_message", intent: "read a sensor" },
+      { type: "artifact", kind: "manifest", manifest: { devices: [{ pin: 4, role: "sensor" }] } },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    posted.length = 0;
+    await handler({ type: "restore_session", id: sid });
+    const diagram = posted.find((m) => m.type === "diagram_updated");
+    assert.ok(diagram, "a manifest-only session still gets a Diagram tab (derived, not empty)");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session on a NO-snapshot dir does not adopt any re-savable state (Save Version reports nothing_to_save, not the prior session's residue)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-chimera-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    const jsonl = [
+      { type: "user_message", intent: "blink" },
+      { type: "artifact", kind: "manifest", manifest: { devices: [{ pin: 1 }] } },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    await handler({ type: "restore_session", id: sid });
+    posted.length = 0;
+    await handler({ type: "save_version_open" });
+    // Not busy, not workspace_unavailable — a view-only replay must look exactly like nothing was ever
+    // seeded, so a later Save Version can never snapshot this view-only render into ANY session's dir
+    // (the #88 #49-6 chimera regression class: seedFromSnapshot's minimal {traceId} seed keeps
+    // hasSnapshotState() false even though the feed/tabs are full of the replayed session's content).
+    assert.ok(posted.some((m) => m.type === "save_version_status" && m.status === "nothing_to_save"), "Save Version honestly reports nothing to save after a view-only replay");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session on a NO-snapshot dir is refused while a build is running — no restore_reset (live feed not wiped)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = []; const infos: string[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showInformationMessage: async (m: string) => { infos.push(m); }, showErrorMessage: async () => {} },
+    };
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {} };
+    // Same gated-fetch pattern as "device tools are refused with device_busy while a session run owns
+    // the port": protocol/toolchain checks resolve, the loop's first real call blocks on a gate so
+    // controller.isRunning() stays true for the window we need, deterministically (no fs-timing guess).
+    let releaseFetch: () => void = () => {};
+    let reachedBlock: () => void = () => {};
+    const fetchGate = new Promise<void>((res) => { releaseFetch = res; });
+    const blocked = new Promise<void>((res) => { reachedBlock = res; });
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      reachedBlock();
+      await fetchGate;
+      throw new Error("stop");
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    const running = handler!({ type: "start_session", intent: "x", boardId: "esp32-s3-devkitc-1" });
+    await blocked; // the run is now in-flight — controller.isRunning() is true
+
+    const noSnapSid = "session-nosnaprun-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", noSnapSid);
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(join(sessionDir, "session.jsonl"), JSON.stringify({ type: "user_message", intent: "x" }) + "\n");
+
+    posted.length = 0; infos.length = 0;
+    await handler!({ type: "restore_session", id: noSnapSid });
+    // The EXACT panel-level busy message, not the looser controller-side seedFromSnapshot-refused one
+    // ("Finish the current build before restoring a session.") — pins this to the `!snap` branch's own
+    // busy checks (entry + the TOCTOU re-check after the snapshot read), not just the controller's
+    // independent this.abort guard, which would otherwise mask a panel-level regression.
+    assert.ok(infos.some((m) => m === "Finish the current build or Save Version before restoring a session."), "a snapshot-less restore is refused by the panel's OWN busy gate while a build is running");
+    assert.ok(!posted.some((m) => m.type === "restore_reset"), "the refused restore never cleared the live run's feed");
+
+    releaseFetch(); // unblock the loop so the session errors out and the run finishes
+    await running.catch(() => {});
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
