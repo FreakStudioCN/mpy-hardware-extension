@@ -22,6 +22,12 @@
       // heartbeat ticks its label, and any real content clears it.
       let pendingCard = null, pendingLabel = "";
       function setPending(label) {
+        // Arming the working spinner settles any open thinking card. Every other
+        // transition already pairs the two (addSummary, the approval handlers,
+        // session_done); this one appended its card and left the thinking card live, so
+        // an uncategorized status line followed by a phase_start put two spinners on
+        // screen at once.
+        finalizeThinking();
         pendingLabel = label;
         if (!pendingCard) {
           $("activityEmpty").classList.add("hidden");

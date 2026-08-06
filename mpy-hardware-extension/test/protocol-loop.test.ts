@@ -1040,3 +1040,103 @@ test("the MaixPy export short tokens resolve instead of failing as an unknown ne
     assert.deepEqual(seen, ["analyze", "upy-maixpy-export-plugin"], `${token} normalizes to the plugin dir name`);
   }
 });
+
+// A phase that runs its whole turn budget without a phase_complete is reported as
+// phase_stalled/max_turns and nothing else. Without a tool-level trace beside it, the DB
+// records that a build looped and not which tool it looped on -- which is what made a
+// real upy-generate-plugin stall undiagnosable.
+test("protocol loop records a tool_use and a tool_result for every tool it executes", async () => {
+  const events: any[] = [];
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls++;
+      const ev = calls === 1
+        ? [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py", args: ["--project-dir", "."] }), stop]
+        : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+  const runScript = async () => ({
+    ok: true,
+    exit_code: 2,
+    stdout: "",
+    stderr: "",
+    structured_errors: [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }],
+  });
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript },
+  );
+
+  assert.equal(result.terminal, "complete");
+  const toolEvents = events.filter((e) => e.type === "tool_use" || e.type === "tool_result");
+  assert.deepEqual(
+    toolEvents.map((e) => `${e.type}:${e.name}`),
+    ["tool_use:script_run", "tool_result:script_run", "tool_use:phase_complete", "tool_result:phase_complete"],
+    "each tool is recorded before it runs and after it returns, in execution order",
+  );
+  // The result must be the REAL one, or the trace says a gate ran and not that it failed.
+  const gateResult = toolEvents[1].observation;
+  assert.equal(gateResult.success, false);
+  assert.deepEqual(gateResult.structured_errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
+});
+
+test("recorded tool input keeps the call identity and replaces a file body with its length", async () => {
+  const events: any[] = [];
+  const content = "x".repeat(5000);
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls++;
+      const ev = calls === 1
+        ? [tu("f0", "file_operation", { operation: "write", path: "firmware/main.py", content }), stop]
+        : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async (path: string) => ({ ok: true, path }) },
+  );
+
+  const dispatched = events.find((e) => e.type === "tool_use" && e.name === "file_operation");
+  // Short fields survive verbatim: WHICH file was rewritten is the whole signal a
+  // rewrite loop gives you.
+  assert.equal(dispatched.input.path, "firmware/main.py");
+  assert.equal(dispatched.input.operation, "write");
+  // The file body does not. A phase can burn 60 turns rewriting the same files, so
+  // emitting content verbatim would bury the trace under file bodies.
+  assert.equal(dispatched.input.content, "<5000 chars>");
+});
+
+test("recorded tool input compacts arrays and nested objects but keeps scalars", async () => {
+  const events: any[] = [];
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls++;
+      const ev = calls === 1
+        ? [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "gate.py", args: ["--a", "--b", "--c"], timeout_ms: 30000, stdin_json: { plan: { entries: [] } } }), stop]
+        : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: "", stderr: "" }) },
+  );
+
+  const dispatched = events.find((e) => e.type === "tool_use" && e.name === "script_run");
+  assert.deepEqual(dispatched.input, {
+    script_id: "q",
+    interpreter: "python",
+    script: "gate.py",
+    args: "<3 items>",
+    timeout_ms: 30000,
+    stdin_json: "<object>",
+  });
+});

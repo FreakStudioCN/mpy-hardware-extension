@@ -160,6 +160,29 @@ function buildContext(input: ProtocolInput, absorbedSupplements: string[]): Reco
   return Object.keys(ctx).length ? ctx : null;
 }
 
+// Longest string field kept verbatim in the tool_use telemetry payload.
+const TELEMETRY_INPUT_STRING_BUDGET = 200;
+
+// Shrink a tool input down to the IDENTITY of the call (tool, path, script_id, flags)
+// for telemetry. A file_operation write carries a whole generated file, and a phase can burn
+// its full 60-turn budget rewriting the same files, so emitting inputs verbatim would
+// bury every other event in the trace under file bodies. The size guard in telemetry.ts
+// truncates such a field but does not shrink it, and the content is not what a stall
+// triage reads: WHICH file was rewritten how many times is.
+// ponytail: one level deep. A nested object is recorded as "<object>", not walked, so an
+// input that hides its path inside a sub-object shows nothing useful -- walk it only if a
+// real trace needs it.
+function compactToolInput(input: any): Record<string, any> {
+  const compact: Record<string, any> = {};
+  for (const [key, value] of Object.entries(input ?? {})) {
+    if (typeof value === "string") compact[key] = value.length > TELEMETRY_INPUT_STRING_BUDGET ? `<${value.length} chars>` : value;
+    else if (Array.isArray(value)) compact[key] = `<${value.length} items>`;
+    else if (value && typeof value === "object") compact[key] = "<object>";
+    else compact[key] = value;
+  }
+  return compact;
+}
+
 // Drive one phase to its phase_complete (or stall/cancel). Returns the control the
 // notify executor captured from phase_complete.
 async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps, absorbedSupplements: string[]) {
@@ -222,7 +245,13 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     for (const tu of toolUses) {
       // Honor a cancel that lands between tools in the same streamed batch.
       if (input.signal?.aborted) return { done: false, cancelled: true };
+      // The failure spine. Without these two the cloud recorder knew a phase ran its turn
+      // cap and nothing about WHICH tool ran or why its result was rejected, so a
+      // phase_stalled/max_turns was undiagnosable from the DB. The recorder already maps
+      // both shapes and the server already allowlists both event types.
+      input.onEvent?.({ type: "tool_use", name: tu.name, input: compactToolInput(tu.input) });
       const { result, phaseControl } = await executeProtocolTool(tu, input, deps, { phase, turn });
+      input.onEvent?.({ type: "tool_result", name: tu.name, observation: result });
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
       if (tu.name === "phase_complete" && phaseControl) control = phaseControl;
       // A host script result carrying GENERATE_PLAN_* structured errors gets a

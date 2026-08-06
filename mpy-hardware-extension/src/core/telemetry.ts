@@ -220,10 +220,32 @@ function compactToolResult(name: string, obs: any): { eventType: string; payload
   if (errorKind === "audit_failed") {
     return { eventType: "audit_failed", payload: { error_kind: errorKind, disallowed_imports: obs.disallowed_imports ?? out.disallowed_imports, tool: name } };
   }
+  const gate = gateErrors(obs?.structured_errors ?? out.structured_errors);
   if (obs?.ok === false) {
-    return { eventType: "tool_result", payload: { tool: name, ok: false, error_kind: errorKind, error: detail } };
+    return { eventType: "tool_result", payload: { tool: name, ok: false, error_kind: errorKind, error: detail, errors: gate } };
+  }
+  // A host script reports TWO outcomes: `ok` says the script ran, `success` says the gate
+  // it wraps passed (protocol-loop.ts run_script). A failing quality gate therefore
+  // returns ok:true/success:false, which fell through to the bare success below, so a
+  // phase that rewrote the same files for its whole turn budget recorded 60 identical
+  // "tool_result ok" rows and the rejection that drove the retry was never stored.
+  if (obs?.ok === true && obs?.success === false) {
+    return {
+      eventType: "tool_result",
+      payload: { tool: name, ok: false, error_kind: "script_gate_failed", script_id: obs.script_id, exit_code: obs.exit_code, errors: gate },
+    };
   }
   return { eventType: "tool_result", payload: { tool: name, ok: true } };
+}
+
+// The actionable pair from a flattened gate report: the same code+path the loop's own
+// corrective message enumerates (structuredErrorsFromStdout has already replaced
+// aggregates with their granular entries). Messages are dropped: the code identifies the
+// check and the path identifies the entry, and a repeated pair across turns is the whole
+// signal a retry loop gives you.
+function gateErrors(entries: any): Array<{ code?: string; path?: string }> | undefined {
+  if (!Array.isArray(entries) || entries.length === 0) return undefined;
+  return entries.map((entry: any) => ({ code: entry?.code, path: entry?.path }));
 }
 
 function traceEventPayload(event: any): { eventType: string; payload: Record<string, any> } | null {

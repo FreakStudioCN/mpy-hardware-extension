@@ -285,3 +285,76 @@ test("credit_usage is local-only — it never becomes a second cloud event", () 
 
   assert.equal(event, null);
 });
+
+test("maps a failed gate (a script that RAN but did not PASS) to a failed tool_result with its codes", () => {
+  // The host script route returns ok:true/success:false for a non-zero gate exit
+  // (protocol-loop.ts run_script). Reading only `ok` recorded 60 retry turns of a stalled
+  // generate phase as identical successes, so the rejection driving the loop was lost.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      ok: true,
+      success: false,
+      script_id: "q",
+      exit_code: 2,
+      stdout: "a very long gate report",
+      structured_errors: [
+        { code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py", message: "no such entry" },
+        { code: "GENERATE_PLAN_DRIVER_UNRESOLVED", path: "firmware/drivers/led" },
+      ],
+    },
+  });
+
+  assert.equal(t?.event_type, "tool_result");
+  assert.equal(t?.payload.ok, false, "a gate that rejected is not a success");
+  assert.equal(t?.payload.error_kind, "script_gate_failed");
+  assert.equal(t?.payload.script_id, "q");
+  assert.equal(t?.payload.exit_code, 2);
+  // Code + path only: enough to see the same entry rejected turn after turn, without
+  // carrying the report text.
+  assert.deepEqual(t?.payload.errors, [
+    { code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" },
+    { code: "GENERATE_PLAN_DRIVER_UNRESOLVED", path: "firmware/drivers/led" },
+  ]);
+  assert.equal("stdout" in (t?.payload ?? {}), false);
+});
+
+test("maps a passing gate to a plain successful tool_result", () => {
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: { ok: true, success: true, script_id: "q", exit_code: 0, stdout: "all checks passed" },
+  });
+
+  assert.equal(t?.event_type, "tool_result");
+  assert.deepEqual(t?.payload, { tool: "script_run", ok: true });
+});
+
+test("a call that never ran carries its gate codes too", () => {
+  // ok:false is the call itself failing; protocol-loop forwards structured_errors on that
+  // branch as well, so the codes must survive there and not only on the gate branch.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      ok: false,
+      error_kind: "script_error",
+      structured_errors: [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }],
+    },
+  });
+
+  assert.equal(t?.payload.ok, false);
+  assert.equal(t?.payload.error_kind, "script_error");
+  assert.deepEqual(t?.payload.errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
+});
+
+test("a tool result with no gate report omits the errors field entirely", () => {
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "file_operation",
+    observation: { ok: false, error_kind: "workspace_unavailable" },
+  });
+
+  assert.equal(t?.payload.errors, undefined);
+});

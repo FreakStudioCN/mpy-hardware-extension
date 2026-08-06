@@ -5727,3 +5727,28 @@ test("the Sipeed surface tells the user exactly what the envelope pins", async (
     assert.ok(shown.includes(pinned), `the surface must show the pinned value ${pinned}`);
   }
 });
+
+test("arming the working spinner settles the open Thinking card — never two spinners at once", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "x"; // no CJK -> en locale
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // classifyActivity defaults an uncategorized line to `thinking`, so a plain status
+  // update opens a LIVE thinking card (spinner + heading) while the run is going.
+  post(dom, { type: "status_update", payload: { message: "Searching for drivers... (1/1)" } });
+  assert.ok(activity.querySelector(".think-live"), "the status line opens a live thinking card");
+  assert.ok(activity.querySelector(".think-head"), "the live card carries the Thinking heading");
+
+  // The next phase arms the working spinner. That must close the thinking card, not
+  // stack a second spinner beneath it.
+  post(dom, { type: "phase_start", phase: "select-hw" });
+  assert.ok(activity.querySelector(".feed-pending"), "the working spinner is armed");
+  assert.equal(activity.querySelector(".think-live"), null, "the thinking card stopped spinning");
+  assert.equal(activity.querySelector(".think-head"), null, "the Thinking heading is gone");
+  assert.equal(activity.querySelectorAll(".feed-spin").length, 1, "exactly one spinner on screen");
+
+  post(dom, { type: "session_done", terminal: "generated" });
+});
