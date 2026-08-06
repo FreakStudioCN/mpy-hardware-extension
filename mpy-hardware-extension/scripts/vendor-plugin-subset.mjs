@@ -23,9 +23,17 @@ const EXCLUDE_DIRS = new Set(["test", "tests", "sample", "samples", "mock-messag
 // Curation cruft that must never ship: the board-source staging area and
 // its dated archives carry the maintainer's local paths + fetch-failure traces (a CSV, a
 // ZIP of OCR reports, cleanup manifests). None is read at runtime.
+//
+// Bundled Python environments must never ship either: a plugin builds its own runtime venv
+// ON THE USER'S MACHINE (e.g. flash's bootstrap_esptool.py creates scripts/.venv-esptool and
+// pip-installs esptool into it). A maintainer's local copy of that env is dead weight — it is
+// platform-specific (macOS bin/python vs Windows Scripts/python.exe), bakes the base
+// interpreter's absolute path so it is broken on any other machine, and bootstrap rebuilds it
+// regardless. Skip any `.venv*` dir and any `site-packages` (a checked-in one leaked 50MB of
+// native binaries into the VSIX).
 function shouldSkip(relPosix) {
   const parts = relPosix.split("/");
-  if (parts.some((p) => EXCLUDE_DIRS.has(p) || p === "_official_pending" || p.startsWith("_archive_"))) return true;
+  if (parts.some((p) => EXCLUDE_DIRS.has(p) || p === "_official_pending" || p.startsWith("_archive_") || p.startsWith(".venv") || p === "site-packages")) return true;
   if (MAINTENANCE_SCRIPTS.includes(parts[parts.length - 1])) return true;
   return relPosix.endsWith(".md") || relPosix.endsWith(".pyc") || relPosix.endsWith(".csv") || relPosix.endsWith(".zip");
 }

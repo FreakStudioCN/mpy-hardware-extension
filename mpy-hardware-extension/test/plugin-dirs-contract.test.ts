@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
 import test from "node:test";
 
 import { MAINTENANCE_SCRIPTS, PLUGIN_DIRS } from "../scripts/plugin-dirs.mjs";
+import { vendorPluginSubset } from "../scripts/vendor-plugin-subset.mjs";
 
 // Ask the REAL shim module for its indexed dirs (not a source scan): whatever serve.py indexes at
 // runtime is what a run can resolve scripts from. Uses the project venv when present so the shim
@@ -58,4 +60,33 @@ test("every excluded maintenance script still matches a real bundled-dir file", 
   assert.ok(present.size > 0, "no plugin scripts on disk — is the submodule checked out?");
   const dangling = MAINTENANCE_SCRIPTS.filter((s) => !present.has(s));
   assert.deepEqual(dangling, [], `MAINTENANCE_SCRIPTS entries no longer match any bundled script (dead exclusion): ${dangling.join(", ")}`);
+});
+
+test("the vendored VSIX subset ships no Python virtualenv or native binaries", () => {
+  // A plugin builds its runtime venv ON THE USER's machine (flash's bootstrap_esptool.py creates
+  // scripts/.venv-esptool and pip-installs esptool). A maintainer's local copy committed upstream
+  // must never leak into the VSIX — it once shipped ~50MB of macOS binaries. Run the REAL vendoring
+  // against the real submodule and assert the produced file set is env-free. Mutation: drop the
+  // `.venv`/site-packages skip in vendor-plugin-subset and the .venv-esptool tree reappears here.
+  const upstreamRoot = resolve("..", "third_party", "MicroPython_Skills");
+  const dest = mkdtempSync(join(tmpdir(), "vendor-subset-"));
+  try {
+    const vendored = vendorPluginSubset(upstreamRoot, dest);
+    assert.ok(vendored > 0, "nothing vendored — is the submodule checked out?");
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else files.push(relative(dest, full).replaceAll("\\", "/"));
+      }
+    };
+    walk(dest);
+    const offenders = files.filter((f) =>
+      f.split("/").some((p) => p.startsWith(".venv") || p === "site-packages")
+      || f.endsWith(".so") || f.endsWith(".dylib") || f.endsWith(".pyd"));
+    assert.deepEqual(offenders, [], `virtualenv/native artifacts leaked into the VSIX subset: ${offenders.slice(0, 5).join(", ")}`);
+  } finally {
+    rmSync(dest, { recursive: true, force: true });
+  }
 });

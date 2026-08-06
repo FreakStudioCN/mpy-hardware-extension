@@ -200,3 +200,42 @@ test("extension registers a URI handler that forwards website recipes to the web
     payload: { recipe_id: "", prompt: "Build a MicroPython project for: a desk light that turns red when I'm on a call", source: "website" },
   });
 });
+
+test("the Blockless panel auto-opens on every startup only when mpyhw.autoOpenPanel is set", () => {
+  // Installer-only + stateless: onStartupFinished wakes the extension, but the panel is focused
+  // ONLY when the profile has mpyhw.autoOpenPanel:true (the installer writes it), and then on
+  // EVERY startup — no first-run flag. Mutation A: drop revealPanelIfEnabled -> the enabled case
+  // focuses nothing. Mutation B: reveal unconditionally -> the disabled case focuses the panel.
+  // Mutation C: re-add a globalState first-run gate -> the second enabled startup stops focusing.
+  const activateWith = (autoOpen: boolean, store: Map<string, unknown>) => {
+    const commands: string[] = [];
+    const vscode = {
+      commands: { registerCommand: () => ({}), executeCommand: (c: string) => { commands.push(c); } },
+      window: {
+        createOutputChannel: () => ({ appendLine: () => {}, dispose: () => {} }),
+        registerWebviewViewProvider: () => ({}),
+        registerUriHandler: () => ({}),
+      },
+      workspace: {
+        getConfiguration: (section: string) => ({ get: (k: string) => (section === "mpyhw" && k === "autoOpenPanel" ? autoOpen : undefined) }),
+      },
+    };
+    const context = {
+      extensionUri: {},
+      globalStorageUri: { fsPath: "C:/tmp/blockless-autoopen" },
+      subscriptions: [] as unknown[],
+      globalState: { get: (k: string) => store.get(k), update: (k: string, v: unknown) => { store.set(k, v); } },
+    };
+    activate(context, vscode);
+    return commands;
+  };
+
+  // Default / Marketplace user: the setting is off, so nothing opens.
+  assert.deepEqual(activateWith(false, new Map()), [], "auto-open stays off unless the profile enables it");
+
+  // Installer profile: the panel opens, and re-opens on the next startup even with a persistent
+  // store present (proves it is setting-driven, not a one-time first-run flag).
+  const shared = new Map<string, unknown>();
+  assert.deepEqual(activateWith(true, shared), ["mpyhw.panel.focus"], "the opted-in profile opens the panel");
+  assert.deepEqual(activateWith(true, shared), ["mpyhw.panel.focus"], "stateless: it re-opens on every startup");
+});
