@@ -4,6 +4,7 @@ import test from "node:test";
 import { SessionController } from "../src/extension/session-controller.ts";
 import { isNetworkRenderDenied } from "../src/core/optional-flow-schema.ts";
 import { buildGenDriverDispatch } from "../src/core/gen-driver-schema.ts";
+import { sessionEventToTelemetry } from "../src/core/telemetry.ts";
 
 // Let a loop that awaits one gate advance to the next: after resolving the first
 // prompt, the loop's continuation (and the next gate's message/record) runs on a
@@ -2319,4 +2320,64 @@ test("a session inside the cap carries no truncation marker", async () => {
   await controller.start({ intent: "x", boardId: "esp32" });
 
   assert.equal(controller.getDiagnostics().credit_usage, "upy-generate-plugin/generate: 1 credit over 1 turn, remaining 46");
+});
+
+// The wire between the protocol loop and the DB. Emitting the events and mapping them
+// correctly is not enough on its own: the controller sits between the two, and an event
+// with no branch of its own falls to the generic trace_event catch-all, which is shaped by
+// a DIFFERENT mapper. That gap put 53 content-free rows in the DB while both ends passed
+// their own tests, so this asserts the SHAPE THAT REACHES THE CLOUD, not just that
+// something was recorded.
+test("a protocol tool call reaches the cloud as tool_dispatch with its tool name", async () => {
+  const recorded: any[] = [];
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m) => posted.push(m),
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "tool_use", name: "script_run", input: { script: "run_quality_gates.py" } });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const event = recorded.find((e) => e.type === "tool_use");
+  assert.ok(event, "recorded as itself, not buried in a trace_event wrapper");
+  const mapped = sessionEventToTelemetry("trace-1", event);
+  assert.equal(mapped?.event_type, "tool_dispatch");
+  assert.equal(mapped?.payload.tool, "script_run", "the tool name survives the trip to the DB");
+  assert.equal(posted.some((m) => m.type === "trace_event"), false, "diagnostics do not arm the webview spinner");
+});
+
+test("a failed gate reaches the cloud with its error codes, not a bare ok", async () => {
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({
+        type: "tool_result",
+        name: "script_run",
+        observation: {
+          ok: true,
+          success: false,
+          script_id: "q",
+          exit_code: 2,
+          structured_errors: [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }],
+        },
+      });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const event = recorded.find((e) => e.type === "tool_result");
+  assert.ok(event, "recorded as itself");
+  const mapped = sessionEventToTelemetry("trace-1", event);
+  assert.equal(mapped?.event_type, "tool_result");
+  assert.equal(mapped?.payload.tool, "script_run");
+  assert.equal(mapped?.payload.ok, false, "a rejected gate is not stored as a success");
+  assert.deepEqual(mapped?.payload.errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
 });

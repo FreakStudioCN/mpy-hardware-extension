@@ -939,6 +939,19 @@ export class SessionController {
       this.deps.postMessage({ type: "phase_error", error_kind: event.error_kind, next_phase: event.next_phase });
       return;
     }
+    if (event.type === "tool_use" || event.type === "tool_result") {
+      // The protocol loop's per-tool spine, recorded as itself so sessionEventToTelemetry
+      // maps it through its tool_use/tool_result cases (-> tool_dispatch / a compacted
+      // result carrying any gate error codes). It needs its OWN branch for the same reason
+      // phase_error above does: the catch-all wraps anything unhandled as a trace_event,
+      // which is shaped by a DIFFERENT mapper reading `tool` instead of `name` and treating
+      // the wrapper as the observation -- so tool_use was dropped outright and every
+      // tool_result reached the DB as a bare { ok: true }.
+      // Record-only: the webview arms its working spinner off trace_event, and the feed
+      // already narrates progress through status_update + phase_start.
+      this.record(event);
+      return;
+    }
     this.record({ type: "trace_event", event });
     this.deps.postMessage({ type: "trace_event", event });
   }
