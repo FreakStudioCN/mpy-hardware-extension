@@ -195,6 +195,39 @@ profile_registered() {
   [[ -f "$STORAGE" ]] && grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$PROFILE_NAME\"" "$STORAGE"
 }
 
+# Read the profile's ACTUAL on-disk id out of storage.json. Only the offline seed puts our profile
+# at "blockless"; when that seed is skipped (a VS Code was already running) the window fallback lets
+# VS CODE create the profile, and it names the directory hash(randomUUID()).toString(16) -- so the
+# seeded constant is then wrong. The journal must carry what is really on disk: verify reads it to
+# find settings.json, and the uninstaller deletes exactly that directory (a stale "blockless" makes
+# verify fail on a good install, and makes uninstall report a profile removed while orphaning the
+# real directory). JXA, not python: step 2 runs before $ENVPY exists.
+resolve_profile_location() {
+  [[ -f "$STORAGE" ]] || return 1
+  osascript -l JavaScript - "$STORAGE" "$PROFILE_NAME" 2>/dev/null <<'JXA'
+ObjC.import('Foundation');
+function run(argv) {
+  var path = argv[0], name = argv[1];
+  var raw = $.NSString.stringWithContentsOfFileEncodingError($(path), $.NSUTF8StringEncoding, $()).js;
+  var obj;
+  try { obj = JSON.parse(raw); } catch (e) { return ""; }
+  var list = obj.userDataProfiles;
+  if (Object.prototype.toString.call(list) !== '[object Array]') return "";
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].name === name) return String(list[i].location || "");
+  }
+  return "";
+}
+JXA
+}
+
+# Adopt the resolved id into the journal. Never blank a known-good value on a transient read failure.
+journal_profile_location() {
+  local resolved; resolved="$(resolve_profile_location || true)"
+  [[ -n "$resolved" ]] && PROFILE_LOCATION="$resolved"
+  return 0
+}
+
 # Register the profile WITHOUT launching VS Code, by seeding storage.json's userDataProfiles entry
 # ourselves (the internal name->location mapping mechanism A already reads).
 # WHY (root cause of "panel never auto-opens", found + fixed on Windows): registering via a live
@@ -405,6 +438,9 @@ step4_settings() {
   # for THIS profile, and the default settings.json is the user's own file (JSONC, likely with
   # comments) that we must never own or overwrite. If the profile still can't be resolved, fail loudly.
   [[ -n "$loc" ]] || die "could not resolve the '$PROFILE_NAME' profile settings location"
+  # step 4 already holds the resolved id -- journal THIS one, not the seeded constant (see
+  # resolve_profile_location). Covers the case where step 4 is what finally registered the profile.
+  PROFILE_LOCATION="$loc"
   local target="$CODE_USER/profiles/$loc/settings.json"
   if settings_already "$target"; then
     STEP_SETTINGS=true; log "step4 settings: already applied, skip"; return
@@ -432,7 +468,9 @@ main() {
   # VS Code and launching a throwaway window in step 2.
   [[ -n "$VSIX_PATH" && -f "$VSIX_PATH" ]] || die "--vsix <path> to the bundled Blockless extension is required; re-run with: --vsix /path/to/mpy-hardware-extension.vsix"
   step1_vscode;    write_state
-  step2_extension; write_state
+  # Journal the profile's REAL on-disk id right after step 2 registers it, so a run that aborts in
+  # step 3/4 still leaves the uninstaller a correct delete target (see resolve_profile_location).
+  step2_extension; journal_profile_location; write_state
   step3_python;    write_state
   step4_settings;  write_state
   log "setup complete. run verify-blockless.zsh to check."

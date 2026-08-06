@@ -139,6 +139,18 @@ function Get-ProfileLocation {
 }
 function Test-ProfileRegistered { return [bool](Get-ProfileLocation) }
 
+# Adopt the profile's ACTUAL on-disk id into the journal. Only the offline seed puts our profile at
+# "blockless"; when that seed is skipped (a VS Code was already running) the window fallback lets
+# VS CODE create the profile, and it names the directory hash(randomUUID()).toString(16) -- so the
+# seeded constant is then wrong. The journal must carry what is really on disk: verify reads it to
+# find settings.json, and the uninstaller deletes exactly that directory (a stale "blockless" makes
+# verify fail on a good install, and makes uninstall report a profile removed while orphaning the
+# real directory). Never blank a known-good value on a transient read failure.
+function Update-ProfileLocationJournal {
+  $resolved = Get-ProfileLocation
+  if ($resolved) { $script:PROFILE_LOCATION = $resolved }
+}
+
 function Get-CodePids { @(Get-Process -Name "Code" -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }) }
 
 # Close ONLY the VS Code processes WE spawned this run (tracked in $script:OUR_CODE_PIDS), never every
@@ -343,9 +355,16 @@ function Step-Python {
   # system/py-launcher python), and keep uv from writing shims elsewhere.
   $env:UV_PYTHON_INSTALL_DIR = (Join-Path $BLK "python")
   log "step3 python: provisioning Python $PYTHON_SERIES + mpremote $MPREMOTE_VERSION"
+  # Check each exit code (the macOS mirror has `|| die` on all three). This script runs at
+  # ErrorActionPreference=Continue by necessity, so a failing native command is otherwise silent and
+  # the run limps on to report the generic "mpremote verify failed" -- naming which uv step broke is
+  # the difference between a fixable error and a shrug.
   & $uv python install --no-bin $PYTHON_SERIES
+  if ($LASTEXITCODE -ne 0) { die "uv python install failed (exit $LASTEXITCODE)" }
   & $uv venv (Join-Path $BLK "env") --managed-python --python $PYTHON_SERIES
+  if ($LASTEXITCODE -ne 0) { die "uv venv failed (exit $LASTEXITCODE)" }
   & $uv pip install --python $ENVPY "mpremote==$MPREMOTE_VERSION"
+  if ($LASTEXITCODE -ne 0) { die "mpremote install failed (exit $LASTEXITCODE)" }
   if (-not ((& $ENVPY -m mpremote version 2>$null) -match $MPREMOTE_VERSION)) { die "mpremote verify failed" }
   $script:STEP_PY = $true; log "step3 python: ready ($ENVPY)"
 }
@@ -377,6 +396,9 @@ function Step-Settings {
   $loc = Get-ProfileLocation
   if (-not $loc) { log "step4: profile not registered yet, registering"; Register-Profile; $loc = Get-ProfileLocation }
   if (-not $loc) { die "could not resolve the '$PROFILE_NAME' profile location" }
+  # step 4 already holds the resolved id -- journal THIS one, not the seeded constant (see
+  # Update-ProfileLocationJournal). Covers the case where step 4 is what finally registered the profile.
+  $script:PROFILE_LOCATION = $loc
   $target = Join-Path $CODE_USER "profiles\$loc\settings.json"
   if (Test-Path $target) {
     try { $cur = Get-Content $target -Raw | ConvertFrom-Json } catch { $cur = $null }
@@ -419,7 +441,9 @@ Read-PriorState
 # VS Code and launching a throwaway window in step 2.
 if (-not ($Vsix -and (Test-Path $Vsix))) { die "-Vsix <path> to the bundled Blockless extension is required; re-run with: -Vsix C:\path\to\mpy-hardware-extension.vsix" }
 Step-VSCode;    Write-State
-Step-Extension; Write-State
+# Journal the profile's REAL on-disk id right after step 2 registers it, so a run that aborts in
+# step 3/4 still leaves the uninstaller a correct delete target (see Update-ProfileLocationJournal).
+Step-Extension; Update-ProfileLocationJournal; Write-State
 Step-Python;    Write-State
 Step-Settings;  Write-State
 log "setup complete. run verify-blockless.ps1 to check."

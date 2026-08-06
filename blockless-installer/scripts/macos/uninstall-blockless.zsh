@@ -21,6 +21,12 @@ STORAGE="$CODE_USER/globalStorage/storage.json"
 STATE="$BLK/state.json"
 
 log() { print -r -- "[blockless-uninstall] $*"; }
+# Must exist: this script runs WITHOUT errexit (set -uo pipefail, deliberately -- a best-effort
+# cleanup should not abort on the first non-zero), so an undefined `die` would print
+# "command not found" and the script would CARRY ON into section 2 and rm -rf $BLK, destroying the
+# ownership journal the caller had just refused to act without. The exit here is what makes the
+# fail-closed guard below actually closed.
+die() { print -ru2 -- "[blockless-uninstall] ERROR: $*"; exit 1; }
 get_json() { grep -oE "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$STATE" 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/'; }
 
 # --- options ---
