@@ -410,6 +410,12 @@ class Shim:
             factory = self.serial_factory
         deadline = time.monotonic() + timeout_s
         matched: list[str] = []
+        # Every complete line seen during the read window, matched or not — the deploy
+        # verification read is the only thing that ever reads the port, so a print()
+        # between markers would otherwise be silently dropped instead of reaching the
+        # Serial page. `matched`/`lines` (the marker-grading contract the agent loop
+        # reads via lines.at(-1)+ok) stays exactly as before.
+        all_lines: list[str] = []
         buffer = ""
         with factory(port, 115200, timeout=0.05) as ser:
             # Drop bytes left in the OS buffer from a previous run so we do not
@@ -425,22 +431,24 @@ class Shim:
                 if not chunk:
                     continue
                 buffer += chunk
-                while "\n" in buffer and len(matched) < len(markers):
+                while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
                     line = line.strip()
-                    if line and markers[len(matched)] in line:
+                    if not line:
+                        continue
+                    all_lines.append(line)
+                    if len(matched) < len(markers) and markers[len(matched)] in line:
                         matched.append(line)
-            # Flush trailing markers emitted without a newline before the deadline.
-            while len(matched) < len(markers):
-                tail = buffer.strip()
-                if tail and markers[len(matched)] in tail:
+            # Flush a trailing marker (or trailing print output) emitted without a
+            # newline before the deadline.
+            tail = buffer.strip()
+            if tail:
+                all_lines.append(tail)
+                if len(matched) < len(markers) and markers[len(matched)] in tail:
                     matched.append(tail)
-                    buffer = ""
-                else:
-                    break
         if len(matched) < len(markers):
-            return {"ok": False, "error": "timeout", "lines": matched}
-        return {"ok": True, "lines": matched}
+            return {"ok": False, "error": "timeout", "lines": matched, "all_lines": all_lines}
+        return {"ok": True, "lines": matched, "all_lines": all_lines}
 
     def run_script(self, script_path: str, args: list[str], timeout: float = 300):
         # Run a vendored upstream toolchain script with the shim's own Python

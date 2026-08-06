@@ -630,6 +630,23 @@ def test_serial_read_until_matches_or_times_out():
     assert result["lines"] == ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]
 
 
+def test_serial_read_until_all_lines_captures_the_full_window_lines_stays_markers_only():
+    # The Serial page needs every line the deploy-verification read sees (a print()
+    # between markers), not just the matched markers themselves. `all_lines` carries
+    # the full window; `lines` (what the agent loop grades pass/fail on via
+    # lines.at(-1)+ok) must stay exactly the matched-markers list it always was.
+    # Mutation: revert to only appending matched markers -> all_lines == lines, fails.
+    shim = Shim(serial_factory=lambda *_a, **_k: FakeSerial(
+        ["noise", "MPYHW_READY", "print output", "TEMP_C=31.2 LED=ON"]
+    ))
+
+    result = shim.serial_read_until("COM3", ["MPYHW_READY", "TEMP_C="], timeout_s=0.5)
+
+    assert result["ok"] is True
+    assert result["lines"] == ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]
+    assert result["all_lines"] == ["noise", "MPYHW_READY", "print output", "TEMP_C=31.2 LED=ON"]
+
+
 def test_serial_read_until_reassembles_markers_split_across_reads():
     # A real serial readline() with a short timeout can return a partial line; the
     # reader must buffer fragments and still match a marker split across reads.
@@ -649,7 +666,7 @@ def test_serial_read_until_times_out_when_markers_never_appear():
 
     result = shim.serial_read_until("COM3", ["MPYHW_READY"], timeout_s=0.1)
 
-    assert result == {"ok": False, "error": "timeout", "lines": []}
+    assert result == {"ok": False, "error": "timeout", "lines": [], "all_lines": ["noise", "still booting"]}
 
 
 @pytest.mark.slow

@@ -48,7 +48,11 @@ def test_stdio_dispatches_real_methods_with_jsonrpc_envelope():
     # Full envelope on a result: jsonrpc + id + the real _dispatch response shape.
     assert by_id[1] == {"jsonrpc": "2.0", "id": 1, "result": {"status": "ok", "devices": [{"port": "COM3"}]}}
     # serial_read_until's markers cross the wire under the real param key + are matched.
-    assert by_id[2]["result"] == {"ok": True, "lines": ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]}
+    assert by_id[2]["result"] == {
+        "ok": True,
+        "lines": ["MPYHW_READY", "TEMP_C=31.2 LED=ON"],
+        "all_lines": ["MPYHW_READY", "TEMP_C=31.2 LED=ON"],
+    }
 
 
 @pytest.mark.subprocess

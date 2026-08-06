@@ -142,10 +142,12 @@ export class DeviceShim {
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "deploy_failed");
   }
 
-  async serialReadUntil(markers: string[]): Promise<{ ok: boolean; lines: string[] }> {
+  async serialReadUntil(markers: string[]): Promise<{ ok: boolean; lines: string[]; allLines: string[] }> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.serial_read_until", { port, markers });
-    return { ok: r?.ok ?? r?.status === "ok", lines: r?.lines ?? [] };
+    // allLines is the full read window (every line the shim saw, matched or not);
+    // lines stays the matched-markers-only list the agent loop grades pass/fail on.
+    return { ok: r?.ok ?? r?.status === "ok", lines: r?.lines ?? [], allLines: r?.all_lines ?? r?.lines ?? [] };
   }
 
   // ---- Device filesystem (#6 bridge): generic ls / rm / mkdir / cp-from-device ----

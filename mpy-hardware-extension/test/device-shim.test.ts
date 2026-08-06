@@ -87,11 +87,24 @@ test("DeviceShim resolves+caches the port from device.scan and maps loop methods
   await shim.flashAndRun("main.py");
   const serial = await shim.serialReadUntil(["MPYHW_READY", "TEMP_C="]);
 
-  assert.deepEqual(serial, { ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"] });
+  // No all_lines on the wire (an older/stub shim response): allLines falls back to lines.
+  assert.deepEqual(serial, { ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"], allLines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"] });
   const install = calls.find((c) => c.method === "device.install_package");
   assert.equal(install.params.port, "COM7"); // first scanned port, cached
   assert.equal(install.params.url, "https://upypi.net/pkgs/aht20/1.0.0/package.json");
   assert.equal(calls.find((c) => c.method === "device.write_main_py").params.code, "print('hi')");
+});
+
+test("DeviceShim.serialReadUntil returns the shim's all_lines (full read window), not just the matched markers", async () => {
+  const rpc = async (method: string) => method === "device.scan"
+    ? { status: "ok", devices: [{ port: "COM9" }] }
+    : { ok: true, lines: ["MPYHW_READY"], all_lines: ["boot", "MPYHW_READY", "extra"] };
+  const shim = new DeviceShim(rpc);
+
+  const serial = await shim.serialReadUntil(["MPYHW_READY"]);
+
+  assert.deepEqual(serial, { ok: true, lines: ["MPYHW_READY"], allLines: ["boot", "MPYHW_READY", "extra"] });
+  // Mutation: read r?.lines instead of r?.all_lines -> allLines would equal lines, fails.
 });
 
 test("DeviceShim.uninstallPackage sends the package name + port and throws on a shim error", async () => {

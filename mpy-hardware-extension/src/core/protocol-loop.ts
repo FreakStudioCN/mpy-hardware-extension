@@ -16,6 +16,13 @@ const MAX_TURNS_PER_PHASE = 60;
 const MAX_TOOLLESS_TURNS = 3;
 const MAX_PHASES = PHASE_ORDER.length;
 
+// device_command actions whose stdout is real device/REPL output, worth surfacing on
+// the Serial page. Everything else the device route dispatches (ls, scan/devs, cp,
+// mkdir, rm, cp_from, ...) returns host-side bookkeeping (a file listing, a port
+// list) whose stdout is NOT REPL output — posting it as serial_output is what put
+// file lists on the Serial page instead of the device's actual output.
+const SERIAL_OUTPUT_ACTIONS = new Set(["stream", "read"]);
+
 export const PHASE_ALIASES: Record<string, string> = {
   "analyze": "analyze",
   "upy-analyze-plugin": "analyze",
@@ -446,8 +453,9 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
   if (route === "device") {
     if (typeof deps.device !== "function") return { result: { ok: false, error_kind: "device_unavailable" } };
     try {
-      const r = await deps.device(String(p.action ?? ""), p);
-      if (r.stdout) input.onEvent?.({ type: "serial_output", lines: String(r.stdout).split("\n").filter(Boolean) });
+      const action = String(p.action ?? "");
+      const r = await deps.device(action, p);
+      if (r.stdout && SERIAL_OUTPUT_ACTIONS.has(action)) input.onEvent?.({ type: "serial_output", lines: String(r.stdout).split("\n").filter(Boolean) });
       return { result: { ok: r.ok, cmd_id: p.cmd_id, success: r.ok, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error_kind: r.ok ? undefined : (r.error_kind ?? "runtime_error") } };
     } catch (error: any) {
       return { result: { ok: false, cmd_id: p.cmd_id, success: false, error_kind: "runtime_error", message: error?.message ?? "device_error" } };

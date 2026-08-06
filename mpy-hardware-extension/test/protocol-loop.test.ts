@@ -397,6 +397,21 @@ test("device_command routes to the device shim and surfaces serial output", asyn
   assert.ok(events.some((e) => e.type === "serial_output" && e.lines.includes("MPYHW_READY")));
 });
 
+test("device_command 'ls' stdout never surfaces as serial_output (decision 2: file lists stay off the Serial page)", async () => {
+  // Root cause (scope.md): the ls action's file listing rode the same serial_output
+  // event as real REPL output, so a file list landed on the Serial page. Only the
+  // runtime read actions (stream/read) may post serial_output.
+  const events: any[] = [];
+  const { result } = await executeProtocolTool(
+    tu("d", "device_command", { action: "ls", cmd_id: "c1", dst: "/" }) as any,
+    { intent: "x", onEvent: (e) => events.push(e) },
+    { llmClient: scriptedLlm({}), device: async () => ({ ok: true, stdout: "boot.py\nmain.py" }) },
+  );
+  assert.equal(result.ok, true);
+  assert.ok(!events.some((e) => e.type === "serial_output"), "ls output must not post as serial_output");
+  // Mutation: drop the SERIAL_OUTPUT_ACTIONS.has(action) guard -> this fails.
+});
+
 test("off-protocol and invalid tools return repair results, not crashes", async () => {
   // a dead 27-tool name
   const off = await executeProtocolTool(tu("o", "scan_device", {}) as any, { intent: "x" }, { llmClient: scriptedLlm({}) });
