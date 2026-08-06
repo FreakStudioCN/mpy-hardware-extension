@@ -72,9 +72,11 @@ export function activate(context: any, vscode: any = undefined) {
 // setting. The one-click installer writes this into its dedicated Blockless profile, so that
 // profile lands on the tool instead of a dormant Activity Bar icon. Stateless by design — no
 // first-run flag, so it re-reveals on EVERY startup (the installer's VS Code is a kiosk-like,
-// single-purpose environment). Off by default, so Marketplace users in their own profiles are
-// never affected; `onStartupFinished` only wakes the extension to check the flag and does nothing
-// visible when it is unset.
+// single-purpose environment). `onStartupFinished` activates the extension on every VS Code
+// launch for every user regardless of this setting — that activation cost (incl.
+// installHostTelemetry's backend sweepAbandonedSessions call below) is unavoidable and not
+// gated by the flag. Off by default only means the VISIBLE panel reveal does nothing, so
+// Marketplace users in their own profiles see no on-screen effect.
 function revealPanelIfEnabled(api: any) {
   try {
     if (api.workspace?.getConfiguration?.("mpyhw")?.get?.("autoOpenPanel") !== true) return;

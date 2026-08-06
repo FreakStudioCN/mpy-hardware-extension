@@ -100,7 +100,7 @@
           "type": "boolean",
           "scope": "machine",
           "default": false,
-          "description": "Open the Blockless panel automatically on VS Code startup. Off by default; the one-click installer enables this in its dedicated Blockless profile so that profile opens straight into the tool. Machine-scoped (User/Remote settings only) so an opened workspace cannot enable it."
+          "description": "Open the Blockless panel automatically on VS Code startup. Off by default; the one-click installer enables this in its dedicated Blockless profile so that profile opens straight into the tool. Machine-scoped (User/Remote settings only) so an opened workspace cannot enable it. Note: the extension activates on every VS Code startup regardless of this setting (via onStartupFinished); when off, that activation does no visible work."
         }
       }
     }
