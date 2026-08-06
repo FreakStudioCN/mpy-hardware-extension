@@ -239,3 +239,49 @@ test("the Blockless panel auto-opens on every startup only when mpyhw.autoOpenPa
   assert.deepEqual(activateWith(true, shared), ["mpyhw.panel.focus"], "the opted-in profile opens the panel");
   assert.deepEqual(activateWith(true, shared), ["mpyhw.panel.focus"], "stateless: it re-opens on every startup");
 });
+
+test("a rejected panel.focus never escapes activate as an unhandled rejection", async () => {
+  // Both call sites hand VS Code's executeCommand — a Thenable — to a synchronous try/catch
+  // (revealPanelIfEnabled) or no try/catch at all (deliverRecipeImport). A REJECTING
+  // executeCommand is the only mock shape that can catch a missing/removed .catch() guard;
+  // the resolving mock used by the tests above cannot.
+  const leaked: unknown[] = [];
+  const onLeak = (reason: unknown) => leaked.push(reason);
+  process.on("unhandledRejection", onLeak);
+
+  let uriHandler: any;
+  const vscode = {
+    commands: {
+      registerCommand: () => ({}),
+      executeCommand: () => Promise.reject(new Error("no view")),
+    },
+    window: {
+      createOutputChannel: () => ({ appendLine: () => {}, dispose: () => {} }),
+      registerWebviewViewProvider: () => ({}),
+      registerUriHandler: (handler: any) => {
+        uriHandler = handler;
+        return {};
+      },
+    },
+    workspace: {
+      getConfiguration: (section: string) => ({ get: (k: string) => (section === "mpyhw" && k === "autoOpenPanel" ? true : undefined) }),
+    },
+  };
+  const context = { extensionUri: {}, subscriptions: [] as any[] };
+
+  try {
+    // (a) activate() must complete even though the reveal it triggers rejects.
+    assert.doesNotThrow(() => activate(context, vscode));
+    // Exercises the deliverRecipeImport call site (activate.ts:20), the second unguarded spot.
+    uriHandler.handleUri({ path: "/importRecipe", query: "" });
+
+    // Let both rejected Thenables settle before checking for a leak.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    assert.deepEqual(leaked, [], "a rejected panel.focus must never surface as an unhandled rejection");
+  } finally {
+    process.off("unhandledRejection", onLeak);
+    for (const subscription of context.subscriptions) subscription?.dispose?.();
+  }
+});
