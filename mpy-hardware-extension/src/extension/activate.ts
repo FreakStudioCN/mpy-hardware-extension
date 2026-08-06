@@ -76,7 +76,11 @@ export function activate(context: any, vscode: any = undefined) {
 function revealPanelIfEnabled(api: any) {
   try {
     if (api.workspace?.getConfiguration?.("mpyhw")?.get?.("autoOpenPanel") !== true) return;
-    api.commands?.executeCommand?.("mpyhw.panel.focus");
+    // executeCommand returns a Thenable; a rejection would escape this synchronous
+    // try/catch and surface as an unhandled rejection (observed by the host error
+    // handlers installed just after activate()). Attach a catch so a failed reveal
+    // stays best-effort and never reports as a fault.
+    void Promise.resolve(api.commands?.executeCommand?.("mpyhw.panel.focus")).catch(() => {});
   } catch {
     // Best-effort UX only — a failed reveal must never break activation.
   }
