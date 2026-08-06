@@ -557,9 +557,12 @@ test("Recent Sessions opens the surface, lists host-served summaries, RESTORES t
 
   posted.length = 0;
   (cards[1] as HTMLButtonElement).click();
-  const view = posted.find((m) => m.type === "open_path");
-  assert.ok(view && /trace-b\/session\.jsonl$/.test(view.path), "a view-only session opens its log instead (no failed restore)");
-  assert.ok(!posted.some((m) => m.type === "restore_session"), "a view-only session does not attempt a restore");
+  // A view-only (snapshot-less) session also restores — the host replays its transcript read-only
+  // instead of opening the raw log (the reported bug: clicking used to open session.jsonl directly).
+  const viewOnlyRestore = posted.find((m) => m.type === "restore_session");
+  assert.ok(viewOnlyRestore && viewOnlyRestore.id === "trace-b", "a view-only session restores too (restore_session by id), not open_path");
+  assert.ok(!posted.some((m) => m.type === "open_path"), "a view-only click never opens the raw log");
+  assert.equal(document.getElementById("toolRecent")!.classList.contains("hidden"), true, "restoring a view-only session also closes the Recent surface");
 });
 
 test("session-restore feed rehydration: restore_done appends a terminal line, restore_reset clears", async () => {
