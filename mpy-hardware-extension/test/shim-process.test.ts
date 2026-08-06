@@ -81,6 +81,16 @@ test("a serial.data notification never resolves an in-flight RPC of the same sha
   assert.deepEqual(await pending, { devices: [] });
 });
 
+test("a serial.monitor_ended notification (the reader thread dying on its own) fires onEvent with the reason", () => {
+  const events: any[] = [];
+  const shim = new ShimProcess({ write: () => undefined, onEvent: (event) => events.push(event) });
+
+  shim.handleStdoutLine(JSON.stringify({ jsonrpc: "2.0", method: "serial.monitor_ended", params: { reason: "device reports readiness to read but returned no data" } }));
+
+  assert.deepEqual(events, [{ type: "monitor_ended", reason: "device reports readiness to read but returned no data" }]);
+  // Mutation: drop the "serial.monitor_ended" branch -> events stays empty, fails.
+});
+
 test("an unrecognized notification method is ignored, not thrown", () => {
   const events: any[] = [];
   const shim = new ShimProcess({ write: () => undefined, onEvent: (event) => events.push(event) });

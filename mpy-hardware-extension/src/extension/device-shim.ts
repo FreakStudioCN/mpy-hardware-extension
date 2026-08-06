@@ -160,7 +160,16 @@ export class DeviceShim {
   // monitor_stop), so a caller never needs to track whether one is actually live.
   async stopSerialMonitor(): Promise<void> {
     await this.ensure();
-    await this.rpc("serial.monitor_stop", {});
+    const r = await this.rpc("serial.monitor_stop", {});
+    // Throw on a failed stop (e.g. monitor_stop_timed_out, a wedged reader thread
+    // that did not exit) instead of treating any non-ok reply as a silent success —
+    // the caller (panel.ts's stopMonitorIfRunning) already wraps this in a best-effort
+    // try/catch, but that decision must see a REAL failure, not an unconditionally
+    // resolved promise that can never surface one.
+    if (r?.status !== "ok") {
+      const kind = r?.error_kind ?? "monitor_stop_failed";
+      throw new Error(r?.message ? `${kind}: ${r.message}` : kind);
+    }
   }
 
   async serialReadUntil(markers: string[]): Promise<{ ok: boolean; lines: string[]; allLines: string[] }> {

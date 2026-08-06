@@ -141,6 +141,15 @@ test("DeviceShim.stopSerialMonitor calls serial.monitor_stop with no port (idemp
   assert.deepEqual(calls, [{ method: "serial.monitor_stop", params: {} }]);
 });
 
+test("DeviceShim.stopSerialMonitor throws on a failed stop (e.g. monitor_stop_timed_out), never swallows it as a fake success (review round-2 fix)", async () => {
+  const rpc = async () => ({ status: "error", error_kind: "monitor_stop_timed_out" });
+  const shim = new DeviceShim(rpc);
+
+  await assert.rejects(() => shim.stopSerialMonitor(), /monitor_stop_timed_out/);
+  // Mutation: drop the `if (r?.status !== "ok") throw` check -> this resolves instead
+  // of rejecting, and panel.ts's best-effort catch can never see the real failure.
+});
+
 test("DeviceShim.uninstallPackage sends the package name + port and throws on a shim error", async () => {
   const calls: any[] = [];
   let response: any = { status: "ok", removed: true };

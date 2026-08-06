@@ -47,9 +47,10 @@
           empty_serial_h: "No output", empty_serial_p: "Device output streams here after flashing. Or start the monitor to see it live.",
           empty_wiring_h: "No wiring yet", empty_wiring_p: "After codegen, the hardware layout maps to friendly signals and pins here.",
           serial_monitor: "Serial monitor",
-          serial_monitor_start: "Start monitor", serial_monitor_stop: "Stop monitor", serial_monitor_starting: "Starting…",
+          serial_monitor_start: "Start monitor", serial_monitor_stop: "Stop monitor", serial_monitor_starting: "Starting…", serial_monitor_stopping: "Stopping…",
           serial_monitor_err_device_busy: "A build is running — try again once it finishes.",
-          serial_monitor_err_generic: "Couldn't start the serial monitor: {e}",
+          serial_monitor_err_ended: "The device disconnected — monitor stopped.",
+          serial_monitor_err_generic: "Serial monitor error: {e}",
           intent_ph: "I want to build… (e.g. light a red LED when the temperature goes above 30°C)",
           note_ph: "Add a note to this build — applied at the next safe point",
           ready: "Ready", generate: "Generate", stop: "Stop", working: "Working…", stopping: "Stopping…",
@@ -210,9 +211,10 @@
           empty_serial_h: "暂无输出", empty_serial_p: "烧录后，设备输出会显示在这里。或启动监视器实时查看。",
           empty_wiring_h: "暂无接线", empty_wiring_p: "生成代码后，硬件接线会在这里以信号和引脚的形式展示。",
           serial_monitor: "串口监视器",
-          serial_monitor_start: "启动监视器", serial_monitor_stop: "停止监视器", serial_monitor_starting: "启动中…",
+          serial_monitor_start: "启动监视器", serial_monitor_stop: "停止监视器", serial_monitor_starting: "启动中…", serial_monitor_stopping: "停止中…",
           serial_monitor_err_device_busy: "有构建正在运行，请稍后重试。",
-          serial_monitor_err_generic: "串口监视器启动失败：{e}",
+          serial_monitor_err_ended: "设备已断开连接——监视器已停止。",
+          serial_monitor_err_generic: "串口监视器出错：{e}",
           intent_ph: "我想做……（例如：温度超过 30°C 时点亮一颗红色 LED）",
           note_ph: "为当前构建添加备注 — 在下一个安全点应用",
           ready: "就绪", generate: "生成", stop: "停止", working: "处理中…", stopping: "正在停止…",
@@ -350,6 +352,12 @@
         LOCALE = loc;
         applyStaticI18n();
         if (!running) $("generate").textContent = tr("generate");
+        // applyStaticI18n() just overwrote the serial monitor button's textContent from
+        // its static data-i18n="serial_monitor_start" markup, which would relabel a
+        // LIVE monitor back to "Start monitor" — re-render it from the real running/busy
+        // state (defined in HomeWorkbench.js, loaded after this file; safe via hoisting,
+        // same pattern as clearConversation() calling resetSerialLineCount()).
+        setSerialMonitorButton();
       }
 
 

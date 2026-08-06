@@ -53,6 +53,11 @@ export class ShimProcess {
       if (message.method === "serial.data") {
         const lines = Array.isArray(message.params?.lines) ? message.params.lines : [];
         this.transport.onEvent?.({ type: "serial_data", lines });
+      } else if (message.method === "serial.monitor_ended") {
+        // The reader thread died on its own (an unplugged/errored port), not via a
+        // monitor_stop the host asked for — surface it so the UI doesn't sit on
+        // "Stop monitor" forever for a monitor that's already gone.
+        this.transport.onEvent?.({ type: "monitor_ended", reason: message.params?.reason });
       }
       return;
     }

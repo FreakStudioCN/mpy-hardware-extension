@@ -485,29 +485,66 @@ class Shim:
             self._monitor_thread.start()
             return {"status": "ok"}
 
-    def monitor_stop(self):
+    def monitor_stop(self, join_timeout: float = 2.0):
         with self._monitor_lock:
             thread = self._monitor_thread
             stop_event = self._monitor_stop
-            self._monitor_thread = None
-            self._monitor_stop = None
-            self._monitor_ser = None
+            ser = self._monitor_ser
         if stop_event is None:
             return {"status": "ok"}  # idempotent: nothing running is not an error
         stop_event.set()
+        # Force a blocked readline() to unblock: closing the port makes most serial
+        # backends raise immediately, so the reader thread exits even if it would
+        # otherwise sit past its own read timeout.
+        if ser is not None:
+            try:
+                ser.close()
+            except Exception:  # noqa: BLE001 — best-effort, the port may already be gone
+                pass
         if thread is not None:
-            thread.join(timeout=2.0)
+            thread.join(timeout=join_timeout)
+            if thread.is_alive():
+                # The reader thread did not exit in time. Do NOT clear the monitor
+                # state here: monitor_start's is_alive() guard must keep refusing a
+                # second open, or a new session would race a still-running thread for
+                # the same port instead of the caller retrying the stop.
+                return {"status": "error", "error_kind": "monitor_stop_timed_out"}
+        with self._monitor_lock:
+            self._monitor_thread = None
+            self._monitor_stop = None
+            self._monitor_ser = None
         return {"status": "ok"}
+
+    # A device that emits bytes with no newline (binary spew, a stuck print(end=""))
+    # must not grow this buffer without bound for the life of the monitor session.
+    # Flushed as a synthetic "line" past this size — matches nothing readable coming
+    # back, but bounds memory instead of accumulating forever.
+    _MONITOR_BUFFER_CAP = 8192
 
     def _monitor_read_loop(self, ser, stop_event):
         buffer = ""
+        died = None
         try:
             while not stop_event.is_set():
                 try:
                     chunk = ser.readline().decode(errors="ignore")
-                except Exception:  # noqa: BLE001 — an unplugged/errored port ends the loop, never crashes the shim
+                except Exception as exc:  # noqa: BLE001 — an unplugged/errored port ends the loop, not the shim
+                    # monitor_stop() sets stop_event BEFORE closing the port, and
+                    # closing a real pyserial port makes a readline() in progress
+                    # raise -- so an intentional stop routinely hits this except
+                    # branch too. Only a read failing while NOBODY asked to stop is a
+                    # genuine unplugged/errored death worth telling the host about;
+                    # otherwise every ordinary stop would misreport monitor_ended.
+                    if not stop_event.is_set():
+                        died = exc
                     break
                 if not chunk:
+                    # A real serial timeout (no data, no error) — not stop_event-driven,
+                    # so briefly wait on it instead of a bare `continue`, which would
+                    # otherwise busy-spin a full CPU core for the life of the session on
+                    # a port that returns b"" without raising (its read timeout is 0.1s,
+                    # but nothing guarantees every backend blocks for that long).
+                    stop_event.wait(0.01)
                     continue
                 buffer += chunk
                 while "\n" in buffer:
@@ -515,11 +552,22 @@ class Shim:
                     line = line.strip()
                     if line:
                         _notify("serial.data", {"lines": [line]})
+                if len(buffer) > self._MONITOR_BUFFER_CAP:
+                    line = buffer.strip()
+                    buffer = ""
+                    if line:
+                        _notify("serial.data", {"lines": [line]})
         finally:
             try:
                 ser.close()
             except Exception:  # noqa: BLE001 — best-effort close, the port may already be gone
                 pass
+            # A stop_event-driven exit is intentional (monitor_stop already told the
+            # host); only an unplugged/errored port dying on its own needs to notify
+            # the host, or the Start/Stop button is stuck showing a monitor that
+            # silently ended.
+            if died is not None:
+                _notify("serial.monitor_ended", {"reason": str(died)})
 
     def run_script(self, script_path: str, args: list[str], timeout: float = 300):
         # Run a vendored upstream toolchain script with the shim's own Python

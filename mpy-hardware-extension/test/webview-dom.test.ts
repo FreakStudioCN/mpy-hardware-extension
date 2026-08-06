@@ -3172,6 +3172,56 @@ test("a serial_monitor_status stop (e.g. the host auto-stopping the monitor for 
   assert.equal(btn.classList.contains("live"), false);
 });
 
+test("locking the UI locale (a Chinese intent) does not relabel a LIVE serial monitor button back to 'Start' (review round-2 test gap)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const btn = document.getElementById("serialMonitorToggle") as HTMLButtonElement;
+
+  post(dom, { type: "serial_monitor_status", running: true });
+  assert.match(btn.textContent ?? "", /Stop/);
+
+  // setLocale() calls applyStaticI18n(), which overwrites every [data-i18n] element's
+  // textContent from its STATIC markup attribute — including this button's
+  // data-i18n="serial_monitor_start" — regardless of whether the monitor is running.
+  const intent = document.getElementById("intent") as HTMLTextAreaElement;
+  intent.value = "超过30度亮红灯";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  assert.equal(btn.textContent, "停止监视器", "the button must still say Stop (in the new locale), not relabel to Start");
+  assert.equal(btn.classList.contains("live"), true);
+  // Mutation: drop the setSerialMonitorButton() call from setLocale() -> the button
+  // reads "启动监视器" (Start, mistranslated as stopped) while still actually running.
+});
+
+test("clicking the serial monitor button while RUNNING shows 'Stopping…', not 'Starting…' (review round-2 test gap)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const btn = document.getElementById("serialMonitorToggle") as HTMLButtonElement;
+
+  post(dom, { type: "serial_monitor_status", running: true });
+  btn.click();
+
+  assert.match(btn.textContent ?? "", /Stopping/);
+  assert.ok(posted.some((m) => m.type === "serial_monitor_stop"));
+  // Mutation: use one shared "starting" label for both directions -> this reads
+  // "Starting…" for a Stop click.
+});
+
+test("the Serial tab caps #serial at 2000 rows, trimming the OLDEST first (review round-2 test gap)", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const lines = Array.from({ length: 2005 }, (_, i) => `line-${i}`);
+
+  post(dom, { type: "serial_output", lines });
+
+  const rows = document.querySelectorAll("#serial .serial-line");
+  assert.equal(rows.length, 2000);
+  assert.equal((rows[0] as HTMLElement).textContent, "line-5", "the oldest 5 lines were trimmed to stay at the cap");
+  assert.equal((rows[rows.length - 1] as HTMLElement).textContent, "line-2004", "the newest line survives");
+  // Mutation: drop the SERIAL_LINE_CAP trim in addSerial() -> rows.length is 2005.
+});
+
 test("a single-phase artifact index shows no phase-filter chips", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

@@ -1156,6 +1156,339 @@ test("run start stops a live serial monitor before the run's first device op rea
   }
 });
 
+test("a device-tool command that arrives WHILE the monitor's own start RPC is still in flight still stops it first (review fix: TOCTOU on monitorRunning)", async () => {
+  // Regression-drives the exact window the reviewer found: startSerialMonitor only
+  // sets monitorRunning AFTER its RPC settles, so stopMonitorIfRunning's old
+  // `if (!monitorRunning) return` saw it still false for anything that arrived before
+  // the start resolved — and skipped stopping it. Driven through device_tool_list
+  // (runDeviceTool), which reaches stopMonitorIfRunning with NO async work first
+  // (unlike start_session, whose real checkProtocolVersion/ensureProjectGitRepo calls
+  // give the gated start plenty of incidental time to resolve on its own and mask the
+  // race — this is deliberately the tighter, more honest reproduction).
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const callOrder: string[] = [];
+    let releaseMonitorStart: () => void = () => {};
+    let reachedMonitorStart: () => void = () => {};
+    const monitorStartGate = new Promise<void>((res) => { releaseMonitorStart = res; });
+    const reachedMonitorStartGate = new Promise<void>((res) => { reachedMonitorStart = res; });
+    const shim = {
+      scan: async () => ["/dev/ttyX"],
+      setPort: () => {},
+      kill: () => {},
+      // Held open until the test releases it, so a device-tool command can arrive
+      // WHILE this is still pending — monitorRunning is not yet true at that moment
+      // (the bug: the old code set it only after this resolved).
+      startSerialMonitor: async () => {
+        callOrder.push("monitor_start_enter");
+        reachedMonitorStart();
+        await monitorStartGate;
+        callOrder.push("monitor_start_done");
+      },
+      stopSerialMonitor: async () => { callOrder.push("monitor_stop"); },
+      listDir: async () => { callOrder.push("device_op"); return ["boot.py"]; },
+    };
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); } });
+
+    const monitorStarting = handler!({ type: "serial_monitor_start" }); // NOT awaited — it's gated open
+    await reachedMonitorStartGate; // the start RPC has genuinely begun, but not resolved
+    assert.deepEqual(callOrder, ["monitor_start_enter"]);
+
+    const toolResult = handler!({ type: "device_tool_list", path: "/" }); // reaches stopMonitorIfRunning with no async gate first
+    releaseMonitorStart(); // let the start's RPC finally settle
+    await monitorStarting;
+    await toolResult;
+
+    const stopIndex = callOrder.indexOf("monitor_stop");
+    const deviceOpIndex = callOrder.indexOf("device_op");
+    assert.notEqual(stopIndex, -1, "the device-tool command must stop the monitor even though the start had not resolved when it arrived");
+    assert.notEqual(deviceOpIndex, -1, "the device-tool command must still reach the shim");
+    assert.ok(stopIndex < deviceOpIndex, "monitor stop must reach the shim before the device-tool command's own op");
+    // Mutation: revert stopMonitorIfRunning to `if (!monitorRunning) return` with no
+    // monitorStartInFlight await -> it sees monitorRunning still false, skips the
+    // stop entirely, and "monitor_stop" never appears in callOrder (verified: this
+    // reproduces the reviewer's exact PoC — callOrder without the fix is
+    // ["monitor_start_enter", "monitor_start_done", "device_op"], no stop).
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("two overlapping serial_monitor_start requests collapse into ONE RPC, not two racing attempts (round-2 review fix)", async () => {
+  // Reproduces the round-2 finding: the FIRST version of the TOCTOU fix gave each
+  // overlapping start its OWN attempt/guard pair, so the first one's `finally` could
+  // clear monitorStartInFlight while the SECOND attempt was still open on the port —
+  // a run/device-tool arriving right then would see no in-flight marker at all and
+  // never call stop. Reachable from the real UI: HomeWorkbench.js's conversation
+  // reset re-enables the Start button while a slow first start (venv/process spawn
+  // on the very first touch) is still pending.
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    let startCalls = 0;
+    let releaseFirstStart: () => void = () => {};
+    const firstStartGate = new Promise<void>((res) => { releaseFirstStart = res; });
+    const shim = {
+      scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {},
+      startSerialMonitor: async () => { startCalls++; await firstStartGate; },
+      stopSerialMonitor: async () => {},
+    };
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); } });
+
+    // Called back-to-back with no await between them: the first call's synchronous
+    // prefix (through setting monitorStartInFlight) runs to completion before it
+    // yields at its own first internal await, so by the time this second call is
+    // made, the in-flight marker is already set — no artificial timing needed.
+    const first = handler!({ type: "serial_monitor_start" });
+    const second = handler!({ type: "serial_monitor_start" });
+
+    releaseFirstStart();
+    await first;
+    await second;
+
+    assert.equal(startCalls, 1, "a second overlapping start must collapse into the first, never fire its own RPC");
+    const statuses = posted.filter((m) => m.type === "serial_monitor_status");
+    // The collapse path posts NOTHING of its own (round-3 fix): the in-flight
+    // attempt already posts its own terminal status, and a second bare status here
+    // would silently overwrite a real error with a plain "stopped" (L1).
+    assert.deepEqual(statuses, [{ type: "serial_monitor_status", running: true }]);
+    // Mutation: revert to a bare `if (monitorRunning) {...}` top guard (drop the
+    // `if (monitorStartInFlight) {...}` collapse) -> startCalls becomes 2.
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("a stop whose RPC never actually lands, then a start, reconciles via the shim's monitor_already_running instead of getting stuck showing 'stopped'", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    let startCalls = 0;
+    const shim = {
+      scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {},
+      startSerialMonitor: async () => { startCalls++; if (startCalls > 1) throw new Error("monitor_already_running"); },
+      // A stop that fails to actually reach a live monitor (e.g. a transient RPC
+      // error) — stopSerialMonitorRequested flips the host's own bookkeeping to
+      // "stopped" regardless (it surfaces the failure as an error field, but does not
+      // roll monitorRunning back), so the shim can still be running underneath.
+      stopSerialMonitor: async () => { throw new Error("shim_not_started"); },
+    };
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); } });
+
+    await handler!({ type: "serial_monitor_start" }); // host + shim agree: running
+    await handler!({ type: "serial_monitor_stop" }); // best-effort stop fails silently — host now (wrongly) thinks it's stopped
+    posted.length = 0;
+
+    await handler!({ type: "serial_monitor_start" }); // host tries to start again, believing it's stopped
+    assert.deepEqual(posted, [{ type: "serial_monitor_status", running: true }]);
+    assert.equal(startCalls, 2, "the second start really reached the shim, which refused it as already running");
+    // Mutation: drop the monitor_already_running reconciliation branch in
+    // startSerialMonitor's catch -> this posts { running: false, error:
+    // "monitor_already_running" } instead, leaving the UI stuck on Start.
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("a user-initiated Stop click surfaces a real stop failure instead of a false 'stopped' (round-3 review fix M2)", async () => {
+  // Unlike the internal auto-stop (a run/tool/probe needs the port regardless of
+  // whether the stop truly landed, so it stays best-effort and silent), a Stop CLICK
+  // is the one path where the user should see a real failure — e.g. a wedged reader
+  // thread the shim could not join in time (serve.py's monitor_stop_timed_out).
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const shim = {
+      scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {},
+      startSerialMonitor: async () => {},
+      stopSerialMonitor: async () => { throw new Error("monitor_stop_timed_out"); },
+    };
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); } });
+
+    await handler!({ type: "serial_monitor_start" });
+    posted.length = 0;
+
+    await handler!({ type: "serial_monitor_stop" });
+
+    assert.deepEqual(posted, [{ type: "serial_monitor_status", running: false, error: "monitor_stop_timed_out" }]);
+    // Mutation: drop the catch/error branch in stopSerialMonitorRequested (post a bare
+    // { running: false } unconditionally) -> the error field disappears and the user
+    // sees a plain "stopped" for a monitor that may still be running.
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("the Env Doctor probe stops a live serial monitor first — it opens the port too (review fix)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel } };
+    const callOrder: string[] = [];
+    const shim = {
+      scan: async () => ["COM7"],
+      setPort: () => {},
+      getPort: () => "COM7",
+      startSerialMonitor: async () => { callOrder.push("monitor_start"); },
+      stopSerialMonitor: async () => { callOrder.push("monitor_stop"); },
+      probeMicroPython: async () => { callOrder.push("probe"); return true; },
+    };
+    createPanel(vscode, {}, { shim, venvReady: () => true, apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); } });
+
+    await handler!({ type: "serial_monitor_start" });
+    assert.deepEqual(callOrder, ["monitor_start"]);
+
+    await handler!({ type: "run_doctor_check", probe: true, seq: 1 });
+
+    const stopIndex = callOrder.indexOf("monitor_stop");
+    const probeIndex = callOrder.indexOf("probe");
+    assert.notEqual(stopIndex, -1, "the Doctor Re-check must stop a live monitor before probing");
+    assert.notEqual(probeIndex, -1, "the probe must actually run");
+    assert.ok(stopIndex < probeIndex, "monitor stop must reach the shim before the probe opens the port");
+    // Mutation: drop the stopMonitorIfRunning() call before runDoctor -> "monitor_stop"
+    // never appears in callOrder and this fails.
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("a NON-probing doctor check (webview startup, install_deps, an Env device pick) does NOT stop a live monitor — it never opens the port (review round-2 fix)", async () => {
+  // run_doctor_check/doctor_action fires for far more than the explicit Re-check
+  // click: bootstrap.js sends one with no `probe` on webview startup, install_deps
+  // reruns the checks after installing deps, and picking a device from the Env
+  // selector re-checks too — none of those touch the port (shim.scan() only lists
+  // ports; probeMicroPython is what opens one, and only runs when probe===true).
+  // Stopping the monitor unconditionally here would silently kill a live session on
+  // every ordinary poll.
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, window: { createWebviewPanel: () => panel } };
+    let stopCalls = 0;
+    const shim = {
+      scan: async () => ["COM7"],
+      setPort: () => {},
+      getPort: () => "COM7",
+      startSerialMonitor: async () => {},
+      stopSerialMonitor: async () => { stopCalls++; },
+      probeMicroPython: async () => true,
+    };
+    createPanel(vscode, {}, { shim, venvReady: () => true, apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); } });
+
+    await handler!({ type: "serial_monitor_start" });
+    await handler!({ type: "run_doctor_check", seq: 1 }); // no `probe` field at all (bootstrap.js's shape)
+
+    assert.equal(stopCalls, 0, "a non-probing doctor check must not touch the monitor");
+    const statuses = posted.filter((m) => m.type === "serial_monitor_status");
+    assert.equal(statuses.at(-1)?.running, true, "the monitor's LAST reported state is still running, not stopped by the doctor check");
+    // Mutation: drop the `if (message.probe === true)` gate (call stopMonitorIfRunning
+    // unconditionally) -> stopCalls becomes 1 and the last status flips to running:false.
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("shim events (serial_data, shim_crash, monitor_ended) reach the webview via the same handler createDeviceShim would wire (review fix: this path had no test at all)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    let shimEventHandler: ((event: any) => void) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {}, startSerialMonitor: async () => {}, stopSerialMonitor: async () => {} };
+    const logged: string[] = [];
+    createPanel(vscode, {}, {
+      shim, apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); },
+      onShimEvent: (h: (event: any) => void) => { shimEventHandler = h; },
+      log: (message: string) => logged.push(message),
+    });
+    assert.ok(shimEventHandler, "panel.ts must expose the handler it would wire to createDeviceShim's onEvent");
+
+    shimEventHandler!({ type: "serial_data", lines: ["boot", "MPYHW_READY"] });
+    assert.ok(posted.some((m) => m.type === "serial_output" && m.lines.includes("MPYHW_READY")), "serial_data forwards as serial_output");
+    // Mutation: drop the webview.postMessage in handleShimEvent's serial_data branch -> fails.
+
+    shimEventHandler!({ type: "stderr", message: "pyserial: could not open port" });
+    assert.ok(logged.some((m) => m.includes("could not open port")), "shim stderr reaches deps.log instead of vanishing");
+
+    await handler!({ type: "serial_monitor_start" });
+    assert.ok(posted.some((m) => m.type === "serial_monitor_status" && m.running === true));
+    posted.length = 0;
+
+    shimEventHandler!({ type: "shim_crash", code: 1 });
+    assert.deepEqual(posted, [{ type: "serial_monitor_status", running: false, error: undefined }], "a shim crash resets a live monitor's UI state");
+    // Mutation: drop the shim_crash branch (or its monitorRunning guard) -> this fails
+    // (either no message, or one posted even when nothing was running).
+
+    await handler!({ type: "serial_monitor_start" });
+    posted.length = 0;
+    shimEventHandler!({ type: "monitor_ended", reason: "device disconnected" });
+    assert.deepEqual(posted, [{ type: "serial_monitor_status", running: false, error: "monitor_ended" }], "the reader thread dying on its own also resets the UI, with a distinct error");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("a monitor_ended that lands WHILE the start RPC is still in flight is not lost — the start never declares success over a monitor that already died (round-3 review fix M1)", async () => {
+  // handleShimEvent's usual `&& monitorRunning` guard can't see this: monitorRunning
+  // isn't set true until AFTER the start RPC resolves, so a port that dies the instant
+  // it opens (a common CH340/CDC re-enumeration case) would otherwise arrive while
+  // monitorRunning is still false, be silently dropped, and the start's own success
+  // path would then declare running:true over a monitor that's already gone.
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    let shimEventHandler: ((event: any) => void) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    let releaseStart: () => void = () => {};
+    const startGate = new Promise<void>((res) => { releaseStart = res; });
+    const shim = {
+      scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {},
+      startSerialMonitor: async () => { await startGate; }, // held open until released below
+      stopSerialMonitor: async () => {},
+    };
+    createPanel(vscode, {}, {
+      shim, apiBaseUrl: "http://api.test", fetchImpl: async () => { throw new Error("no network expected"); },
+      onShimEvent: (h: (event: any) => void) => { shimEventHandler = h; },
+    });
+
+    const starting = handler!({ type: "serial_monitor_start" }); // gated, not yet resolved
+    // The reader thread opened the port and immediately died — this reaches the shim
+    // BEFORE the monitor_start RPC's own response does, which is the real ordering
+    // (serve.py starts the reader thread, THEN writes the RPC response).
+    shimEventHandler!({ type: "monitor_ended", reason: "device reports readiness to read but returned no data" });
+    releaseStart();
+    await starting;
+
+    assert.deepEqual(posted, [{ type: "serial_monitor_status", running: false, error: "monitor_ended" }]);
+    // Mutation: drop the monitorEndedWhileStarting tracking (revert to the bare
+    // `&& monitorRunning` guard in handleShimEvent) -> posted becomes
+    // [{ running: true }], claiming success over a dead monitor.
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
 function jsonResponse(body: unknown, status = 200) {
   return {
     ok: status >= 200 && status < 300,

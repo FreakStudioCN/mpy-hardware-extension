@@ -36,7 +36,7 @@ import { GitUnavailableError, gitBranch, gitCommit, gitCommitCount, gitCurrentBr
 import { buildSessionSnapshot, listSessionSnapshots, readSessionSnapshot, writeSessionSnapshot } from "../extension/session-snapshot.ts";
 import type { SessionSnapshot, SnapshotArtifact } from "../extension/session-snapshot.ts";
 
-type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void; extensionVersion?: string; registerTelemetryFlush?: (flush: () => Promise<void>) => void };
+type PanelDeps = { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; venvReady?: () => boolean; venvExists?: () => boolean; loopMode?: "agent" | "template"; log?: (message: string) => void; globalStoragePath?: string; onWebviewReady?: (webview: any) => void; extensionVersion?: string; registerTelemetryFlush?: (flush: () => Promise<void>) => void; onShimEvent?: (handler: (event: any) => void) => void };
 
 const execFileAsync = promisify(execFile);
 
@@ -384,29 +384,59 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const fetchImpl = deps.fetchImpl ?? fetch;
   // Package browser (Device Tools): search standard sources + resolve uPyPI metadata.
   const packageBrowserClient = new PackageClient(apiBaseUrl, fetchImpl);
+  // Serial monitor (Start/Stop on the Serial tab) state, declared here (ahead of
+  // handleShimEvent and createDeviceShim below) so nothing referencing it can ever hit
+  // the temporal-dead-zone window a deps.onShimEvent test seam that invoked its handler
+  // synchronously would otherwise risk.
+  let monitorRunning = false;
+  // startSerialMonitor only sets monitorRunning AFTER its RPC settles — so a run/tool
+  // that arrives WHILE a start is still in flight would see monitorRunning still false
+  // and skip stopping it, then proceed onto the port the monitor is about to open.
+  // stopMonitorIfRunning awaits this (when set) before deciding, so it can never race
+  // the start's own RPC ordering — never resolving with the start's actual outcome, so
+  // a waiter is never left hanging on a failed start.
+  let monitorStartInFlight: Promise<void> | null = null;
+  // A monitor_ended/shim_crash landing WHILE monitorStartInFlight is set arrives before
+  // monitorRunning is ever true, so handleShimEvent's own `&& monitorRunning` guard
+  // would silently drop it — leaving the UI showing a live monitor for a port that
+  // already died the instant it opened. The in-flight attempt consults this once it
+  // resolves and refuses to declare success over a monitor that's already gone.
+  let monitorEndedWhileStarting: string | undefined;
+
+  // The shim's background serial monitor (serial.monitor_start) pushes events outside
+  // any request/response RPC; ShimProcess surfaces them here as { type }. Post STRAIGHT
+  // to the webview, never through controller.record — the monitor runs independently
+  // of any build session, and routing it through SessionController's serial_output
+  // handling would bloat every session's JSONL with device chatter that isn't part of
+  // the build. A named function (not an inline closure) so a test can drive it directly
+  // via deps.onShimEvent without spawning the real shim createDeviceShim would spawn —
+  // every existing panel test injects deps.shim, which bypasses createDeviceShim (and
+  // this handler) entirely.
+  function handleShimEvent(event: any) {
+    if (event?.type === "serial_data") webview.postMessage({ type: "serial_output", lines: event.lines });
+    if (event?.type === "stderr") deps.log?.(`shim stderr: ${event.message}`);
+    if (event?.type !== "shim_crash" && event?.type !== "monitor_ended") return;
+    // A killed/crashed shim takes the monitor's background thread down with it (the
+    // whole process group dies); monitor_ended is the reader thread dying on its own
+    // (an unplugged/errored port) without the host asking for a stop. Either way, the
+    // monitor is gone.
+    const reason = event.type === "monitor_ended" ? "monitor_ended" : "shim_crash";
+    if (monitorStartInFlight) {
+      // A start is still in flight — record it instead of posting now (monitorRunning
+      // isn't true yet, so there's nothing to "reset" here); the in-flight attempt
+      // checks this before ever declaring running:true.
+      monitorEndedWhileStarting = reason;
+      return;
+    }
+    if (monitorRunning) {
+      monitorRunning = false;
+      webview.postMessage({ type: "serial_monitor_status", running: false, error: event.type === "monitor_ended" ? "monitor_ended" : undefined });
+    }
+  }
+  deps.onShimEvent?.(handleShimEvent);
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
-  const shim = deps.shim ?? createDeviceShim({
-    vscode, extensionUri,
-    // The shim's background serial monitor (serial.monitor_start) pushes serial.data
-    // notifications outside any request/response RPC; ShimProcess surfaces them here
-    // as { type: "serial_data" }. Post STRAIGHT to the webview, never through
-    // controller.record — the monitor runs independently of any build session, and
-    // routing it through SessionController's serial_output handling would bloat every
-    // session's JSONL with device chatter that isn't part of the build.
-    onEvent: (event: any) => {
-      if (event?.type === "serial_data") webview.postMessage({ type: "serial_output", lines: event.lines });
-      // A killed/crashed shim takes the monitor's background thread down with it (the
-      // whole process group dies). monitorRunning is declared below but this closure
-      // only ever runs later (the shim spawns lazily), so the binding is settled by
-      // the time any event actually fires — reset the UI so Start isn't stuck showing
-      // a monitor that no longer exists.
-      if (event?.type === "shim_crash" && monitorRunning) {
-        monitorRunning = false;
-        webview.postMessage({ type: "serial_monitor_status", running: false });
-      }
-    },
-  });
+  const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri, onEvent: handleShimEvent });
   // Injectable so tests can drive the "broken venv" branch of the presence poll + doctor.
   const venvReadyFn = deps.venvReady ?? venvReady;
   // The presence poll fires every 2.5s and venvReadyFn() is a synchronous 7-import python
@@ -1047,21 +1077,46 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // overlap a run or a device-tool command — enforced in both directions: starting
   // refuses while a run owns the port (below), and a run/device-tool auto-stops the
   // monitor first (stopMonitorIfRunning, called from beginRun and runDeviceTool).
-  let monitorRunning = false;
+  // monitorRunning / monitorStartInFlight / monitorEndedWhileStarting are declared
+  // above, next to handleShimEvent, which also reads/writes them.
 
   async function stopMonitorIfRunning(): Promise<void> {
+    if (monitorStartInFlight) await monitorStartInFlight;
     if (!monitorRunning) return;
     monitorRunning = false;
-    try { await shim.stopSerialMonitor?.(); } catch { /* best-effort: the port is about to be reclaimed anyway */ }
+    // Best-effort: a failure here means the shim's monitor may still hold the port
+    // (ShimProcess bounds this RPC at 30s, so a wedged shim delays a run by at most
+    // that, not forever) — proceed anyway rather than block the caller on it, since
+    // the caller (a run/device-tool/probe) needs the port regardless.
+    try { await shim.stopSerialMonitor?.(); } catch { /* see above */ }
     webview.postMessage({ type: "serial_monitor_status", running: false });
   }
 
   async function startSerialMonitor(): Promise<void> {
+    if (monitorStartInFlight) {
+      // A start is ALREADY in progress — collapse into it instead of firing a second
+      // overlapping RPC. Without this, two overlapping starts (e.g. Start, then New
+      // Session re-enables the button while the first RPC is still pending, then
+      // Start again) each own a DIFFERENT attempt/guard pair; the first one's finally
+      // clears monitorStartInFlight out from under the second, and a run/device-tool
+      // arriving right then sees no in-flight marker at all — a real reproduced race,
+      // not hypothetical. Post NOTHING here: the in-flight attempt already posts its
+      // own terminal status (success or a specific error) when it resolves, and a
+      // second bare status here would silently overwrite a real error with a plain
+      // "stopped".
+      await monitorStartInFlight;
+      return;
+    }
+    if (monitorRunning) {
+      webview.postMessage({ type: "serial_monitor_status", running: true }); // already running: nothing to do
+      return;
+    }
     if (controller.isRunning()) {
       webview.postMessage({ type: "serial_monitor_status", running: false, error: "device_busy" });
       return;
     }
-    try {
+    monitorEndedWhileStarting = undefined;
+    const attempt = (async () => {
       // Re-check ownership at DEQUEUE (mirrors runDeviceTool): a start queued behind a
       // slow device-tool command must not fire if a session run took the port meanwhile.
       await deviceQueue.runExclusive(async () => {
@@ -1072,18 +1127,55 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         }
         await shim.startSerialMonitor();
       });
+      if (monitorEndedWhileStarting) {
+        // The port died (or the shim crashed) before this RPC even settled — never
+        // declare success over a monitor that's already gone.
+        const error = monitorEndedWhileStarting;
+        monitorEndedWhileStarting = undefined;
+        webview.postMessage({ type: "serial_monitor_status", running: false, error });
+        return;
+      }
       monitorRunning = true;
       webview.postMessage({ type: "serial_monitor_status", running: true });
+    })();
+    const guard = attempt.catch(() => {}); // never rejects: a waiter must not hang on a failed start
+    monitorStartInFlight = guard;
+    try {
+      await attempt;
     } catch (error: any) {
       if (error?.deviceBusy) { webview.postMessage({ type: "serial_monitor_status", running: false, error: "device_busy" }); return; }
-      webview.postMessage({ type: "serial_monitor_status", running: false, error: error?.message ?? "monitor_start_failed" });
+      const message = String(error?.message ?? "");
+      if (message.startsWith("monitor_already_running")) {
+        // The shim disagrees with our own bookkeeping (a UI double-click that slipped
+        // past the disabled button, or a previous failed stop) — reconcile to what the
+        // shim actually has running, rather than leaving the UI showing "stopped" for a
+        // monitor that is still live.
+        monitorRunning = true;
+        webview.postMessage({ type: "serial_monitor_status", running: true });
+        return;
+      }
+      webview.postMessage({ type: "serial_monitor_status", running: false, error: message || "monitor_start_failed" });
+    } finally {
+      // Guard by identity: with the top-of-function collapse above, only ONE attempt
+      // should ever be in flight at a time, but this keeps a future refactor from
+      // silently reintroducing the exact clobber this fixes if that guarantee slips.
+      if (monitorStartInFlight === guard) monitorStartInFlight = null;
     }
   }
 
   async function stopSerialMonitorRequested(): Promise<void> {
+    if (monitorStartInFlight) await monitorStartInFlight;
     monitorRunning = false;
-    try { await shim.stopSerialMonitor?.(); } catch { /* best-effort */ }
-    webview.postMessage({ type: "serial_monitor_status", running: false });
+    try {
+      await shim.stopSerialMonitor?.();
+      webview.postMessage({ type: "serial_monitor_status", running: false });
+    } catch (error: any) {
+      // Unlike stopMonitorIfRunning's internal auto-stop (which needs the port
+      // regardless of whether the stop truly landed, so it swallows the failure and
+      // proceeds), this is a user-initiated Stop click — surface a real failure (e.g.
+      // a wedged reader thread the shim couldn't join) instead of a false "stopped".
+      webview.postMessage({ type: "serial_monitor_status", running: false, error: error?.message ?? "monitor_stop_failed" });
+    }
   }
 
   // Device Tools (#54): run a user-initiated device command. Refuse while a session
@@ -1961,6 +2053,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       if (message.type === "doctor_action" && message.action === "install_deps") {
         await installVenvAsync({ vscode, extensionUri });
       }
+      // probeMicroPython opens the port for a real REPL exec (mpremote ... exec), same
+      // as any other device touch — a live monitor holding the port makes this probe
+      // fail and misreport "no MicroPython" exactly while the user is troubleshooting
+      // serial. Stop it first, same treatment device tools get. Gated on an explicit
+      // probe (message.probe === true, same condition runDoctor itself uses below):
+      // this handler also fires for the non-probing checks (webview startup, an Env
+      // device pick, install_deps) that never touch the port at all, and those must
+      // not silently kill a live monitor.
+      if (message.probe === true) await stopMonitorIfRunning();
       const items = await runDoctor({
         detectPython: () => detectPython(vscode),
         venvReady: venvReadyFn,
