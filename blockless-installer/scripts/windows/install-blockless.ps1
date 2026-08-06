@@ -96,6 +96,11 @@ function Read-PriorState {
   # made it last time), so without this the current run would record false and the uninstaller would
   # then refuse to remove a profile it should own.
   if ($st.profileCreatedByUs) { $script:PROFILE_CREATED_BY_US = $true }
+  # Same carry-forward for the profile's on-disk id: a repair run starts from the "blockless" seed
+  # constant, so if this run's resolve happens to fail (unreadable storage.json) Write-State would
+  # overwrite a CORRECT id recorded earlier with the wrong constant, breaking verify + uninstall for
+  # good. A previously journaled id is authoritative until a fresh resolve replaces it.
+  if ($st.profileLocation) { $script:PROFILE_LOCATION = [string]$st.profileLocation }
   if ($st.extVsixSha256) {
     $script:PRIOR_EXT_VSIX_SHA256 = [string]$st.extVsixSha256
     # Carry it forward so the incremental Write-State before step 2 does not transiently blank it.

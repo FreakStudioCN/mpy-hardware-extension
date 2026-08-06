@@ -94,6 +94,12 @@ read_prior_state() {
   # made it last time), so without this the current run would record false and the uninstaller would
   # then refuse to remove a profile it should own.
   grep -q '"profileCreatedByUs"[[:space:]]*:[[:space:]]*true' "$STATE" && PROFILE_CREATED_BY_US=true
+  # Same carry-forward for the profile's on-disk id: a repair run starts from the "blockless" seed
+  # constant, so if this run's resolve happens to fail (unreadable storage.json) write_state would
+  # overwrite a CORRECT id recorded earlier with the wrong constant, breaking verify + uninstall for
+  # good. A previously journaled id is authoritative until a fresh resolve replaces it.
+  local prior_loc; prior_loc="$(get_json profileLocation "$STATE" || true)"
+  [[ -n "$prior_loc" ]] && PROFILE_LOCATION="$prior_loc"
   PRIOR_EXT_VSIX_SHA256="$(get_json extVsixSha256 "$STATE" || true)"
   # Carry the recorded sha forward so the incremental write_state before step 2 does not transiently
   # blank it (a crash mid-run would otherwise force one redundant reinstall on the next run).
