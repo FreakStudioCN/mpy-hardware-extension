@@ -752,7 +752,11 @@ export class SessionController {
     }
     if (event.type === "code_updated") {
       this.latestFiles[event.path ?? "main.py"] = event.code;
-      this.record({ type: "artifact", kind: "code", code: event.code });
+      // path travels with the record too, not just the live post below — a view-only (no-snapshot)
+      // restore replays this record verbatim (panel.ts's replaySessionTabs) and has no other way to
+      // learn which file the code belongs to; without it every replayed card falls back to "main.py"
+      // regardless of the real path.
+      this.record({ type: "artifact", kind: "code", code: event.code, path: event.path });
       this.deps.postMessage({ type: "code_updated", code: event.code, path: event.path });
       return;
     }
@@ -1152,9 +1156,15 @@ export class SessionController {
   // The webview tabs (wiring/diagram/code/artifacts) are rehydrated separately by the panel; this is the
   // controller-side half. Wipes ALL prior-session state first (a restore is a fresh session — it must not
   // inherit the session that ran before it, or a later Save Version would write a chimera snapshot into the
-  // WRONG session's dir). traceId is set to the RESTORED session's id, so a post-restore Save Version
-  // targets that session's own dir and a subsequent start()/startPhase() records into its own transcript
-  // (they mint the appending recorder; retry() reuses whatever recorder exists).
+  // WRONG session's dir).
+  //
+  // A resumable (snapshot-having) restore passes traceId = the RESTORED session's id, so a post-restore
+  // Save Version targets that session's own dir and a subsequent start()/startPhase() records into its own
+  // transcript (they mint the appending recorder; retry() reuses whatever recorder exists). A READ-ONLY
+  // (no-snapshot) restore must do the OPPOSITE — omit traceId entirely, leaving it null — or the next
+  // start() (which only mints a fresh id `if (!this.traceId)`) would silently append that NEXT build's
+  // events into the VIEWED session's transcript instead of starting its own. traceId is the one field this
+  // function's two callers deliberately disagree on; every other field behaves the same for both.
   seedFromSnapshot(seed: {
     traceId?: string | null;
     state?: { manifest?: unknown; phase?: string; intent?: string };

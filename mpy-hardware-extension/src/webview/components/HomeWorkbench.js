@@ -321,8 +321,8 @@
           const when = s.date ? new Date(s.date).toLocaleString() : "";
           meta.textContent = s.finalPhase ? (when + " · " + s.finalPhase) : when;
           card.appendChild(title); card.appendChild(meta);
-          // A session with a saved snapshot RESTORES on click; a pre-Save-Version one has no snapshot,
-          // so it is view-only (mark it + open its log instead of a restore that would just fail).
+          // A session with a saved snapshot is resumable/re-savable; a pre-Save-Version one has no
+          // snapshot, so it is view-only — mark it, but it still restores (read-only) below.
           if (!s.restorable) {
             const tag = document.createElement("span"); tag.className = "recent-viewonly"; tag.textContent = tr("recent_view_only");
             card.appendChild(tag);

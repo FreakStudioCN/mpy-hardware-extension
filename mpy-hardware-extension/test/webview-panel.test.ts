@@ -1536,6 +1536,9 @@ test("with no workspace open, sessions record to globalStorage and appear in Rec
     assert.ok(recent, "recent_sessions posted");
     assert.equal(recent.sessions.length, 1, "the just-run session appears in Recent Sessions");
     assert.match(recent.sessions[0].id, /^session-/, "id is a real session dir");
+    // Every card restores via restore_session (by id) now, not open_path — the absolute filesystem
+    // path nothing in the webview reads anymore must not cross to it either.
+    assert.ok(!("path" in recent.sessions[0]), "the absolute session.jsonl path is stripped before posting to the webview");
   } finally {
     rmSync(gs, { recursive: true, force: true });
   }
@@ -2623,7 +2626,7 @@ test("restore_session on a NO-snapshot dir replays the transcript read-only: fee
       { type: "status_update", payload: { message: "Generating code…" } },
       { type: "artifact", kind: "manifest", manifest: { devices: [{ pin: 0 }] } },
       { type: "artifact", kind: "diagram", diagram: { nodes: ["stale"] } },
-      { type: "artifact", kind: "code", code: "print('first')", path: "main.py" },
+      { type: "artifact", kind: "code", code: "print('first')", path: "drivers/aht20.py" },
       { type: "ui_prompt", promptId: "p1", question: "Which board?" },
       { type: "ui_prompt_answer", promptId: "p1", answer: "ESP32-C6" },
       { type: "phase_complete", payload: { summary: "Generated main.py" } },
@@ -2653,6 +2656,13 @@ test("restore_session on a NO-snapshot dir replays the transcript read-only: fee
     const codeMsgs = posted.filter((m) => m.type === "code_updated");
     assert.equal(codeMsgs.length, 1, "code posted once (the last one)");
     assert.match(codeMsgs[0].code, /final/, "the LAST code artifact wins");
+    assert.equal(codeMsgs[0].path, "main.py", "the LAST code artifact's own path replays too, not a stale/first one");
+    // Wiring tab: posted [] unconditionally, same as the snapshot-restore path — a view-only replay
+    // never seeds optional flows, so a PRIOR session's stale "Generate wiring/diagram" buttons must
+    // not survive restore_reset (they are siblings of the tab panes, not cleared by it).
+    const flowsMsgs = posted.filter((m) => m.type === "optional_flows");
+    assert.equal(flowsMsgs.length, 1, "optional_flows posted once");
+    assert.deepEqual(flowsMsgs[0].phases, [], "no flow offers survive a view-only replay");
     // Terminal + honest read-only messaging.
     assert.ok(posted.some((m) => m.type === "restore_done" && m.terminal === "complete"), "the terminal line comes from the last session_finished");
     assert.ok(infos.some((m) => /read-only/i.test(m)), "the info message is honest that this is a read-only view");
@@ -2702,9 +2712,10 @@ test("restore_session on a NO-snapshot dir does not adopt any re-savable state (
     posted.length = 0;
     await handler({ type: "save_version_open" });
     // Not busy, not workspace_unavailable — a view-only replay must look exactly like nothing was ever
-    // seeded, so a later Save Version can never snapshot this view-only render into ANY session's dir
-    // (the #88 #49-6 chimera regression class: seedFromSnapshot's minimal {traceId} seed keeps
-    // hasSnapshotState() false even though the feed/tabs are full of the replayed session's content).
+    // seeded, so a later Save Version can never snapshot this view-only render into ANY session's dir,
+    // even though the feed/tabs are full of the replayed session's content (a cross-session-contamination
+    // regression class: seeding the controller with the VIEWED session's own id/state would make it look
+    // re-savable, and a subsequent save would write into that viewed session's directory).
     assert.ok(posted.some((m) => m.type === "save_version_status" && m.status === "nothing_to_save"), "Save Version honestly reports nothing to save after a view-only replay");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
@@ -2747,14 +2758,104 @@ test("restore_session on a NO-snapshot dir is refused while a build is running �
     posted.length = 0; infos.length = 0;
     await handler!({ type: "restore_session", id: noSnapSid });
     // The EXACT panel-level busy message, not the looser controller-side seedFromSnapshot-refused one
-    // ("Finish the current build before restoring a session.") — pins this to the `!snap` branch's own
-    // busy checks (entry + the TOCTOU re-check after the snapshot read), not just the controller's
-    // independent this.abort guard, which would otherwise mask a panel-level regression.
+    // ("Finish the current build before restoring a session.") — pins this to the panel's OWN busy
+    // check, not the controller's independent this.abort guard, which would otherwise mask a panel-level
+    // regression. This exercises the branch's ENTRY-level check (isRunning() is already true before the
+    // restore is even dispatched, so it never reaches the branch's own re-check after the snapshot read —
+    // covering THAT narrower TOCTOU window needs a run that starts mid-await, which this harness doesn't
+    // construct).
     assert.ok(infos.some((m) => m === "Finish the current build or Save Version before restoring a session."), "a snapshot-less restore is refused by the panel's OWN busy gate while a build is running");
     assert.ok(!posted.some((m) => m.type === "restore_reset"), "the refused restore never cleared the live run's feed");
 
     releaseFetch(); // unblock the loop so the session errors out and the run finishes
     await running.catch(() => {});
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session on a NO-snapshot dir never adopts the viewed session's id — the next build gets its own dir, and the viewed transcript is untouched", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "vscode-resource:", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = {
+      ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
+      window: { createWebviewPanel: () => panel, showWarningMessage: async () => "Cancel", showInformationMessage: async () => {}, showErrorMessage: async () => {} },
+    };
+    const fetchImpl = (async (url: string) => {
+      if (url === "http://api.test/v1/tools") return jsonResponse({ tools: [] });
+      if (url === "http://api.test/v1/skills") return jsonResponse({ toolchain_version: "1", skills: [] });
+      if (url === "http://api.test/v1/packages/resolve") return jsonResponse({ selected: { name: "aht20_driver", version: "1.0.0" }, candidates: [], needs_user_choice: false, questions: [] });
+      if (url === "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context") return jsonResponse(aht20Context());
+      if (url === "http://api.test/v1/boards/esp32-s3-devkitc-1") return jsonResponse(board());
+      return jsonResponse({});
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    // A viewed (no-snapshot) session, with its own transcript, sitting in the SAME sessions root the
+    // next build below will write into.
+    const viewedSid = "session-viewedold-1";
+    const viewedDir = join(ws, ".mpyhw", "sessions", viewedSid);
+    mkdirSync(viewedDir, { recursive: true });
+    const viewedTranscript = [
+      { type: "user_message", intent: "OLD blink an LED" },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(viewedDir, "session.jsonl"), viewedTranscript);
+
+    await handler!({ type: "restore_session", id: viewedSid });
+    // A brand-new build on the SAME controller instance, right after viewing the old one.
+    await handler!({ type: "start_session", intent: "NEW read a temperature sensor", boardId: "esp32-s3-devkitc-1" });
+
+    const dirs = readdirSync(join(ws, ".mpyhw", "sessions"));
+    assert.ok(dirs.some((d) => d !== viewedSid), "the new build gets its OWN session dir, not the viewed one's");
+    const viewedAfter = readFileSync(join(viewedDir, "session.jsonl"), "utf-8");
+    assert.equal(viewedAfter, viewedTranscript, "the viewed session's transcript is byte-identical after the new build — a view-only replay must never make the controller append the next build's events into it");
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session on a dir with an EMPTY or unparseable transcript falls back to opening the raw log, instead of blanking the view with an empty replay", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted, commands } = restorePanel(ws);
+    // "non-object" covers a transcript whose lines are all syntactically VALID JSON (so plain
+    // `.filter(Boolean)` would keep them) but none is a usable {type,...} record — a bare string,
+    // a number, and an array line each parse fine yet carry no `type` any consumer reads.
+    for (const [label, content] of [
+      ["empty", ""],
+      ["garbage", "not json\n{{{\n"],
+      ["non-object", '"hello"\n123\n[1,2]\n'],
+    ] as const) {
+      const sid = `session-${label.replace(/[^a-z0-9]/gi, "")}xscript-1`;
+      const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+      mkdirSync(sessionDir, { recursive: true });
+      writeFileSync(join(sessionDir, "session.jsonl"), content);
+      posted.length = 0; commands.length = 0;
+      await handler({ type: "restore_session", id: sid });
+      assert.ok(!posted.some((m) => m.type === "restore_reset"), `${label} transcript: the current view is not blanked`);
+      assert.ok(commands.some((c) => c.cmd === "revealFileInOS"), `${label} transcript: falls back to revealing the raw log`);
+    }
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("restore_session on a NO-snapshot dir never replays a code_updated with no actual code content (a recorded code artifact can have code:undefined)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
+  try {
+    const { handler, posted } = restorePanel(ws);
+    const sid = "session-nocodecontent-1";
+    const sessionDir = join(ws, ".mpyhw", "sessions", sid);
+    mkdirSync(sessionDir, { recursive: true });
+    // JSON.stringify drops an undefined `code` key entirely — this is the REAL shape the recorder
+    // writes when postEvent's code_updated fires with event.code undefined (the pipeline produced no
+    // main.py): {"type":"artifact","kind":"code"} with no `code` field at all.
+    const jsonl = [
+      { type: "user_message", intent: "x" },
+      { type: "artifact", kind: "code" },
+      { type: "session_finished", terminal: "complete" },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
+    await handler({ type: "restore_session", id: sid });
+    assert.ok(!posted.some((m) => m.type === "code_updated"), "no code_updated for a code artifact with no actual code content");
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
