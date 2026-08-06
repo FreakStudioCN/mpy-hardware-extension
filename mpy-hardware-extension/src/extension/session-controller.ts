@@ -922,8 +922,10 @@ export class SessionController {
       // render a stuck/retry state instead of a frozen step with no error.
       this.keyErrors.push(`stalled: ${event.phase} (${event.reason})`);
       this.lastErrorCode = event.reason;
-      this.record({ type: "phase_stalled", phase: event.phase, reason: event.reason });
-      this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason });
+      // `detail` is the loop's last few failing tool calls. It is what turns "stuck mid-way,
+      // usually transient" into the actual blocker, so it must reach BOTH the DB and the feed.
+      this.record({ type: "phase_stalled", phase: event.phase, reason: event.reason, detail: event.detail });
+      this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason, detail: event.detail });
       return;
     }
     if (event.type === "phase_error") {

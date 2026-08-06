@@ -1140,3 +1140,75 @@ test("recorded tool input compacts arrays and nested objects but keeps scalars",
     stdin_json: "<object>",
   });
 });
+
+test("a phase that exhausts its budget reports the tool calls that blocked it, not a bare max_turns", async () => {
+  // The real shape of the generate stall: the phase finishes its work and then cannot persist
+  // its artifact, retrying a rejected write until the turns run out. "max_turns" alone reads as
+  // transient; the blocker is what makes it diagnosable.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("f0", "file_operation", { op: "write", path: "sessions/x/phase_complete.json", content: "{}" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async () => ({ ok: false, error_kind: "invalid_generated_path" }) },
+  );
+
+  assert.equal(result.terminal, "stalled");
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled.reason, "max_turns");
+  // Only the most recent few, so a long phase does not ship its whole failure history.
+  assert.equal(stalled.detail.length, 3);
+  assert.deepEqual(stalled.detail[2], {
+    tool: "file_operation",
+    error: "invalid_generated_path",
+    path: "sessions/x/phase_complete.json",
+  });
+});
+
+test("a stall detail names a rejected gate by its code, and omits a path when the call has none", async () => {
+  // A script that RAN but whose gate REJECTED returns ok:true/success:false — read only `ok` and
+  // the blocker looks like a success.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 2, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, exit_code: 2, stdout: "", stderr: "", structured_errors: [{ code: "CLOUD_OFFICIAL_LINKS_MISSING" }] }),
+    },
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled.detail[0].tool, "script_run");
+  assert.equal(stalled.detail[0].error, "CLOUD_OFFICIAL_LINKS_MISSING");
+  assert.equal(stalled.detail[0].path, "run_quality_gates.py", "a script call is identified by its script");
+});
+
+test("a phase that succeeds reports no stall detail at all", async () => {
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm },
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.equal(events.some((e) => e.type === "phase_stalled"), false);
+});

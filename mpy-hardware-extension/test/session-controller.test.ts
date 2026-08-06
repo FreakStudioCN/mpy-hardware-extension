@@ -2381,3 +2381,29 @@ test("a failed gate reaches the cloud with its error codes, not a bare ok", asyn
   assert.equal(mapped?.payload.ok, false, "a rejected gate is not stored as a success");
   assert.deepEqual(mapped?.payload.errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
 });
+
+test("the stall blocker survives to the shape that reaches the cloud", async () => {
+  // The routing lesson: assert what arrives at the far end, not that each end does its half.
+  const recorded: any[] = [];
+  const posted: any[] = [];
+  const detail = [{ tool: "file_operation", error: "invalid_generated_path", path: "sessions/x/phase_complete.json" }];
+  const controller = new SessionController({
+    postMessage: (m) => posted.push(m),
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "phase_stalled", phase: "upy-generate-plugin", reason: "max_turns", detail });
+      return { terminal: "stalled" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const event = recorded.find((e) => e.type === "phase_stalled");
+  assert.deepEqual(event.detail, detail, "the blocker is recorded, not dropped at the controller");
+  const mapped = sessionEventToTelemetry("trace-1", event);
+  assert.equal(mapped?.event_type, "phase_stalled");
+  assert.equal(mapped?.payload.reason, "max_turns");
+  assert.deepEqual(mapped?.payload.detail, detail, "and it survives into the DB payload");
+  // The feed needs it too, or the user still reads "usually transient".
+  assert.deepEqual(posted.find((m) => m.type === "phase_stalled")?.detail, detail);
+});

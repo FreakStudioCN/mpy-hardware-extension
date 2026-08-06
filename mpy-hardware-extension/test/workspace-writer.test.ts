@@ -212,3 +212,60 @@ test("post-loop batch writer keeps its narrow allowlist (no firmware/ tree leak)
     assert.equal(result.error_kind, "invalid_generated_path", name);
   }
 });
+
+test("write_project_file accepts the plugin's per-session bookkeeping under sessions/", async () => {
+  // upy-generate-plugin SKILL.md declares session_root as sessions/<session_id>/ and makes the
+  // phase_complete artifact a precondition of result=success. Rejecting these is what made a
+  // finished generate phase burn its turn budget on a write it could never land.
+  const written: string[] = [];
+  for (const path of [
+    "sessions/upy-generate-plugin/phase_complete.upy_generate_plugin.json",
+    "sessions/s1/session_state.upy_generate_plugin.json",
+    "sessions/s1/generate_phase_log.md",
+  ]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "{}",
+      writeFile: async (target: string) => { written.push(target); },
+    });
+    assert.equal(result.ok, true, path);
+  }
+  assert.deepEqual(written, [
+    "C:/project/sessions/upy-generate-plugin/phase_complete.upy_generate_plugin.json",
+    "C:/project/sessions/s1/session_state.upy_generate_plugin.json",
+    "C:/project/sessions/s1/generate_phase_log.md",
+  ]);
+});
+
+test("the sessions/ allowance carries bookkeeping only — never code, never an escape", async () => {
+  for (const path of [
+    "sessions/s1/evil.py",            // executable code must not ride in on a bookkeeping rule
+    "sessions/s1/payload.sh",
+    "sessions",                       // the dir itself is not a file
+    "sessions/../escape.json",        // traversal stays rejected
+    "/sessions/s1/abs.json",          // absolute stays rejected
+  ]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "x",
+      writeFile: async () => { throw new Error("must not be written"); },
+    });
+    assert.equal(result.ok, false, path);
+    assert.equal(result.error_kind, "invalid_generated_path", path);
+  }
+});
+
+test("the post-loop batch writer still rejects sessions/ (the allowance is project-tree only)", async () => {
+  const result = await writeGeneratedFiles({
+    workspaceFolder: "C:/project",
+    files: { "sessions/s1/phase_complete.json": "{}" },
+    exists: async () => false,
+    writeFile: async () => undefined,
+    confirmOverwrite: async () => true,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "invalid_generated_path");
+});

@@ -165,6 +165,16 @@ export function normalizeGeneratedArtifactPath(name: string, options: { allowMai
     // already rejected above, so any accepted path stays inside the project root.
     if (name === "project-manifest.json" || name === "generate_plan.json" || name === "wiring.json" || name === "diagram.json") return name;
     if (segments[0] === "docs" && segments.length >= 2 && name.endsWith(".json")) return name;
+    // The plugin's per-session bookkeeping under `sessions/<session_id>/`: phase_complete.*.json,
+    // session_state*.json and generate_phase_log.md (upy-generate-plugin SKILL.md declares
+    // session_root there, and makes the phase_complete artifact a precondition of result=success).
+    // Without this the generate phase finished ALL its work, failed the final write, and burned its
+    // turn budget reporting a bare max_turns stall. Note makeDir already allowed `sessions/...`, so
+    // the model could create the directory and then never write into it.
+    // .json/.md ONLY, deliberately: this widens where BOOKKEEPING may be written, never where
+    // executable code may be. Traversal/absolute/backslash and the segment charset are rejected
+    // above, and writeProjectFile still enforces real-path containment against symlink redirection.
+    if (segments[0] === "sessions" && segments.length >= 2 && (name.endsWith(".json") || name.endsWith(".md"))) return name;
     if ((segments[0] === "firmware" || segments[0] === "test") && segments.length >= 2 && name.endsWith(".py")) return name;
     // Scaffold skeleton infrastructure (upy-scaffold-plugin output): standard project config/docs at
     // the root, the tools/ deploy+log scripts, .upy toolchain resources, README markdown, and .gitkeep

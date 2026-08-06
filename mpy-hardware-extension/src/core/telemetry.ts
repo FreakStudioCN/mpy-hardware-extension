@@ -180,7 +180,9 @@ function mapSessionEvent(event: Record<string, any>): { eventType: string; paylo
     };
   }
   if (event.type === "phase_stalled") {
-    return { eventType: "phase_stalled", payload: { phase: event.phase, reason: event.reason } };
+    // `detail` carries the last failing tool calls. Without it a stall reads as a bare
+    // "max_turns" in the DB, which says the phase ran out of turns and nothing about why.
+    return { eventType: "phase_stalled", payload: { phase: event.phase, reason: event.reason, detail: event.detail } };
   }
   // Client self-observability (extension host, not the agent loop). extension_error is our
   // own caught fault; extension_host_error_observed is a process-wide fault we merely saw

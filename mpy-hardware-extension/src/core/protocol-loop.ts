@@ -183,6 +183,25 @@ function compactToolInput(input: any): Record<string, any> {
   return compact;
 }
 
+// How many recent tool failures a stalled phase reports as its detail.
+const STALL_DETAIL_LIMIT = 3;
+
+// The one-line "what actually blocked this call" for a failing tool result, or null when it
+// succeeded. A stalled phase carries the last few of these so the stall names its blocker
+// instead of a bare "max_turns" the user reads as transient.
+// Three result shapes have to be read, because three routes produce them: fs ops report
+// `error`, host/protocol failures report `error_kind`, and a script that RAN but whose gate
+// REJECTED reports ok:true/success:false with structured_errors.
+// Error kinds and paths only. Never content.
+function toolFailure(tu: StreamEvent, result: any): { tool: string; error: string; path?: string } | null {
+  const failed = result?.ok === false || (result?.ok === true && result?.success === false);
+  if (!failed) return null;
+  const codes = (result?.structured_errors ?? []).map((e: any) => e?.code).filter(Boolean);
+  const error = result?.error_kind ?? result?.error ?? codes[0] ?? "failed";
+  const target = (tu.input as any)?.path ?? (tu.input as any)?.script;
+  return { tool: tu.name ?? "", error: String(error), ...(target ? { path: String(target) } : {}) };
+}
+
 // Drive one phase to its phase_complete (or stall/cancel). Returns the control the
 // notify executor captured from phase_complete.
 async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps, absorbedSupplements: string[]) {
@@ -190,6 +209,8 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
   const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_PER_PHASE;
   const context = buildContext(input, absorbedSupplements);
   let toollessTurns = 0;
+  // Rolling window of the most recent failing tool calls, reported if the phase gives up.
+  const recentFailures: Array<{ tool: string; error: string; path?: string }> = [];
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
     const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId, ...(context ? { context } : {}) };
@@ -228,7 +249,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // froze the UI on the current step ("姝ｅ湪鎼滅储椹卞姩") with no error 鈥?so nudge the
       // model to emit a tool, bounded, and only give up after MAX_TOOLLESS_TURNS in a row.
       if (++toollessTurns >= MAX_TOOLLESS_TURNS) {
-        input.onEvent?.({ type: "phase_stalled", phase, reason: "no_tool_call" });
+        input.onEvent?.({ type: "phase_stalled", phase, reason: "no_tool_call", detail: [...recentFailures] });
         return { done: false, stalled: true };
       }
       messages.push({ role: "user", content: [{ type: "text", text: "You must call exactly one protocol tool to proceed. Respond with a tool call, not prose." }] });
@@ -252,6 +273,11 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       input.onEvent?.({ type: "tool_use", name: tu.name, input: compactToolInput(tu.input) });
       const { result, phaseControl } = await executeProtocolTool(tu, input, deps, { phase, turn });
       input.onEvent?.({ type: "tool_result", name: tu.name, observation: result });
+      const failure = toolFailure(tu, result);
+      if (failure) {
+        recentFailures.push(failure);
+        if (recentFailures.length > STALL_DETAIL_LIMIT) recentFailures.shift();
+      }
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
       if (tu.name === "phase_complete" && phaseControl) control = phaseControl;
       // A host script result carrying GENERATE_PLAN_* structured errors gets a
@@ -274,7 +300,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     for (const m of correctiveMessages) messages.push(m);
     if (control) return { done: true, control };
   }
-  input.onEvent?.({ type: "phase_stalled", phase, reason: "max_turns" });
+  input.onEvent?.({ type: "phase_stalled", phase, reason: "max_turns", detail: [...recentFailures] });
   return { done: false, stalled: true };
 }
 

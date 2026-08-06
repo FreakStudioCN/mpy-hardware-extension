@@ -5752,3 +5752,46 @@ test("arming the working spinner settles the open Thinking card — never two sp
 
   post(dom, { type: "session_done", terminal: "generated" });
 });
+
+test("a stalled phase names its blocker in the feed instead of only 'usually transient'", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "x"; // no CJK -> en locale
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // The host has always posted phase_stalled; nothing rendered it, so a deterministic failure
+  // reached the user as the generic transient/retry line only.
+  post(dom, {
+    type: "phase_stalled",
+    phase: "upy-generate-plugin",
+    reason: "max_turns",
+    detail: [{ tool: "file_operation", error: "invalid_generated_path", path: "sessions/x/phase_complete.json" }],
+  });
+
+  const text = activity.textContent!;
+  assert.match(text, /upy-generate-plugin/, "the phase that gave up is named");
+  assert.match(text, /invalid_generated_path/, "the blocking error is named");
+  assert.match(text, /sessions\/x\/phase_complete\.json/, "and the path it kept failing on");
+  // A discrete fault must be its own card, not concatenated into the open thinking stream.
+  assert.ok(activity.querySelector(".ev-ico.error"), "rendered as an error card, never text-classified");
+
+  post(dom, { type: "session_done", terminal: "stalled" });
+});
+
+test("a stall with no captured failures still names the phase and the reason", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "x";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  post(dom, { type: "phase_stalled", phase: "select-hw", reason: "no_tool_call", detail: [] });
+
+  assert.match(activity.textContent!, /select-hw/);
+  assert.match(activity.textContent!, /no_tool_call/);
+
+  post(dom, { type: "session_done", terminal: "stalled" });
+});

@@ -358,3 +358,14 @@ test("a tool result with no gate report omits the errors field entirely", () => 
 
   assert.equal(t?.payload.errors, undefined);
 });
+
+test("phase_stalled carries the blocking tool calls into the DB payload", () => {
+  const detail = [{ tool: "file_operation", error: "invalid_generated_path", path: "sessions/x/phase_complete.json" }];
+  const t = sessionEventToTelemetry("trace-1", { type: "phase_stalled", phase: "upy-generate-plugin", reason: "max_turns", detail });
+
+  assert.equal(t?.event_type, "phase_stalled");
+  assert.equal(t?.payload.phase, "upy-generate-plugin");
+  assert.equal(t?.payload.reason, "max_turns");
+  // Without this the DB says a phase ran out of turns and nothing about why.
+  assert.deepEqual(t?.payload.detail, detail);
+});
