@@ -396,6 +396,15 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     // session's JSONL with device chatter that isn't part of the build.
     onEvent: (event: any) => {
       if (event?.type === "serial_data") webview.postMessage({ type: "serial_output", lines: event.lines });
+      // A killed/crashed shim takes the monitor's background thread down with it (the
+      // whole process group dies). monitorRunning is declared below but this closure
+      // only ever runs later (the shim spawns lazily), so the binding is settled by
+      // the time any event actually fires — reset the UI so Start isn't stuck showing
+      // a monitor that no longer exists.
+      if (event?.type === "shim_crash" && monitorRunning) {
+        monitorRunning = false;
+        webview.postMessage({ type: "serial_monitor_status", running: false });
+      }
     },
   });
   // Injectable so tests can drive the "broken venv" branch of the presence poll + doctor.
@@ -1032,11 +1041,59 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     } finally { restoreInFlight = false; }
   }
 
+  // Serial monitor (Start/Stop on the Serial tab): a live REPL/stdout stream that
+  // stays open between/after runs, independent of any build session. It holds the
+  // port exclusively via the shim's background reader thread, so it must never
+  // overlap a run or a device-tool command — enforced in both directions: starting
+  // refuses while a run owns the port (below), and a run/device-tool auto-stops the
+  // monitor first (stopMonitorIfRunning, called from beginRun and runDeviceTool).
+  let monitorRunning = false;
+
+  async function stopMonitorIfRunning(): Promise<void> {
+    if (!monitorRunning) return;
+    monitorRunning = false;
+    try { await shim.stopSerialMonitor?.(); } catch { /* best-effort: the port is about to be reclaimed anyway */ }
+    webview.postMessage({ type: "serial_monitor_status", running: false });
+  }
+
+  async function startSerialMonitor(): Promise<void> {
+    if (controller.isRunning()) {
+      webview.postMessage({ type: "serial_monitor_status", running: false, error: "device_busy" });
+      return;
+    }
+    try {
+      // Re-check ownership at DEQUEUE (mirrors runDeviceTool): a start queued behind a
+      // slow device-tool command must not fire if a session run took the port meanwhile.
+      await deviceQueue.runExclusive(async () => {
+        if (controller.isRunning()) {
+          const busy: any = new Error("device_busy");
+          busy.deviceBusy = true;
+          throw busy;
+        }
+        await shim.startSerialMonitor();
+      });
+      monitorRunning = true;
+      webview.postMessage({ type: "serial_monitor_status", running: true });
+    } catch (error: any) {
+      if (error?.deviceBusy) { webview.postMessage({ type: "serial_monitor_status", running: false, error: "device_busy" }); return; }
+      webview.postMessage({ type: "serial_monitor_status", running: false, error: error?.message ?? "monitor_start_failed" });
+    }
+  }
+
+  async function stopSerialMonitorRequested(): Promise<void> {
+    monitorRunning = false;
+    try { await shim.stopSerialMonitor?.(); } catch { /* best-effort */ }
+    webview.postMessage({ type: "serial_monitor_status", running: false });
+  }
+
   // Device Tools (#54): run a user-initiated device command. Refuse while a session
   // run owns the port (device_busy — never silently compete with flash/deploy/
   // gen-driver, spec §41); otherwise serialize on deviceQueue, log it, and post the
   // result. `fn` returns the payload sent back with device_tool_result.
   async function runDeviceTool(command: string, params: any, fn: () => Promise<any>) {
+    // A live monitor holds the port; a device-tool command needs it, so stop the
+    // monitor first rather than let the two race for the same serial connection.
+    await stopMonitorIfRunning();
     if (controller.isRunning()) {
       webview.postMessage({ type: "device_busy", command, phase: controller.runningPhase() });
       return;
@@ -1151,6 +1208,9 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   // flips isRunning() synchronously before its first await, so this post-acquire point is the
   // airtight barrier — a build that finds a save in flight releases the queue and bails as busy.
   async function beginRun(): Promise<(() => void) | null> {
+    // A live monitor holds the port; stop it BEFORE taking run ownership so the run's
+    // first device op never races the monitor's background reader for the same port.
+    await stopMonitorIfRunning();
     const release = await acquireRunOwnership();
     // A Save Version act may have started during the entry's pre-run awaits (protocol / auth /
     // ensureGitRepo) — refuse the run so its add -A can't race the save. The caller posts the
@@ -1800,6 +1860,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } catch {
         webview.postMessage({ type: "deploy_ports_updated", ports: [] });
       }
+    }
+    if (message.type === "serial_monitor_start") {
+      await startSerialMonitor();
+    }
+    if (message.type === "serial_monitor_stop") {
+      await stopSerialMonitorRequested();
     }
     if (message.type === "device_tool_list") {
       const path = typeof message.path === "string" ? message.path : "";

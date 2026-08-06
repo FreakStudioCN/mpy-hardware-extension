@@ -107,6 +107,40 @@ test("DeviceShim.serialReadUntil returns the shim's all_lines (full read window)
   // Mutation: read r?.lines instead of r?.all_lines -> allLines would equal lines, fails.
 });
 
+test("DeviceShim.startSerialMonitor resolves the port then calls serial.monitor_start", async () => {
+  const calls: any[] = [];
+  const rpc = async (method: string, params: any) => {
+    calls.push({ method, params });
+    if (method === "device.scan") return { status: "ok", devices: [{ port: "COM7" }] };
+    return { status: "ok" };
+  };
+  const shim = new DeviceShim(rpc);
+
+  await shim.startSerialMonitor();
+
+  assert.deepEqual(calls.map((c) => c.method), ["device.scan", "serial.monitor_start"]);
+  assert.deepEqual(calls[1].params, { port: "COM7", baud: 115200 });
+});
+
+test("DeviceShim.startSerialMonitor throws the shim's error_kind + message on a refused/failed start (never fakes ok)", async () => {
+  const rpc = async (method: string) => method === "device.scan"
+    ? { status: "ok", devices: [{ port: "COM7" }] }
+    : { status: "error", error_kind: "port_open_failed", message: "could not open port COM7" };
+  const shim = new DeviceShim(rpc);
+
+  await assert.rejects(() => shim.startSerialMonitor(), /port_open_failed: could not open port COM7/);
+});
+
+test("DeviceShim.stopSerialMonitor calls serial.monitor_stop with no port (idempotent, mirrors the shim's no-op)", async () => {
+  const calls: any[] = [];
+  const rpc = async (method: string, params: any) => { calls.push({ method, params }); return { status: "ok" }; };
+  const shim = new DeviceShim(rpc);
+
+  await shim.stopSerialMonitor();
+
+  assert.deepEqual(calls, [{ method: "serial.monitor_stop", params: {} }]);
+});
+
 test("DeviceShim.uninstallPackage sends the package name + port and throws on a shim error", async () => {
   const calls: any[] = [];
   let response: any = { status: "ok", removed: true };

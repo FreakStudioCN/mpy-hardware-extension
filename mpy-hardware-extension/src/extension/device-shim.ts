@@ -142,6 +142,27 @@ export class DeviceShim {
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "deploy_failed");
   }
 
+  // Start the shim's background serial monitor (a live REPL/stdout stream that stays
+  // open between/after runs, distinct from the bounded serialReadUntil RPC). Throws
+  // the shim's error_kind on a failed/refused start (never a faked ok) — the host
+  // enforces port ownership (device-lock.ts) so a start reaching here while something
+  // else legitimately holds the port is a real error, not routine.
+  async startSerialMonitor(baud = 115200): Promise<void> {
+    const port = await this.ensurePort();
+    const r = await this.rpc("serial.monitor_start", { port, baud });
+    if (r?.status !== "ok") {
+      const kind = r?.error_kind ?? "monitor_start_failed";
+      throw new Error(r?.message ? `${kind}: ${r.message}` : kind);
+    }
+  }
+
+  // Idempotent: stopping with nothing running is a normal no-op (mirrors the shim's
+  // monitor_stop), so a caller never needs to track whether one is actually live.
+  async stopSerialMonitor(): Promise<void> {
+    await this.ensure();
+    await this.rpc("serial.monitor_stop", {});
+  }
+
   async serialReadUntil(markers: string[]): Promise<{ ok: boolean; lines: string[]; allLines: string[] }> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.serial_read_until", { port, markers });

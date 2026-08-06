@@ -1075,6 +1075,87 @@ test("device tools run again after a session releases the queue — PR #31 findi
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
+test("serial monitor start is refused with device_busy while a session run owns the port", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    let monitorStartCalled = 0;
+    const shim = { scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {}, startSerialMonitor: async () => { monitorStartCalled++; } };
+    let releaseFetch: () => void = () => {};
+    let reachedBlock: () => void = () => {};
+    const fetchGate = new Promise<void>((res) => { releaseFetch = res; });
+    const blocked = new Promise<void>((res) => { reachedBlock = res; });
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      reachedBlock();
+      await fetchGate;
+      throw new Error("stop");
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    const running = handler!({ type: "start_session", intent: "x", boardId: "esp32-s3-devkitc-1" });
+    await blocked; // the run is now in-flight, owning the device
+
+    await handler!({ type: "serial_monitor_start" });
+    assert.ok(posted.some((m) => m.type === "serial_monitor_status" && m.running === false && m.error === "device_busy"));
+    assert.equal(monitorStartCalled, 0, "the shim is not touched while a run owns the port");
+
+    releaseFetch();
+    await running.catch(() => {});
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("run start stops a live serial monitor before the run's first device op reaches the shim (ordering, work item 4)", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const callOrder: string[] = [];
+    const shim = {
+      scan: async () => ["/dev/ttyX"],
+      setPort: () => {},
+      kill: () => {},
+      startSerialMonitor: async () => { callOrder.push("monitor_start"); },
+      stopSerialMonitor: async () => { callOrder.push("monitor_stop"); },
+      serialReadUntil: async () => { callOrder.push("device_op"); return { ok: true, lines: ["MPYHW_READY"], allLines: ["MPYHW_READY"] }; },
+    };
+    let calls = 0;
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      calls++;
+      const sse = calls === 1
+        ? sseToolCall("d1", "device_command", { action: "stream", cmd_id: "c1" })
+        : sseToolCall("done", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} });
+      return { ok: true, status: 200, text: async () => sse } as unknown as Response;
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl });
+
+    await handler!({ type: "serial_monitor_start" });
+    assert.deepEqual(callOrder, ["monitor_start"]);
+
+    await handler!({ type: "start_session", intent: "x", boardId: "esp32-s3-devkitc-1" });
+
+    const monitorStopIndex = callOrder.indexOf("monitor_stop");
+    const deviceOpIndex = callOrder.indexOf("device_op");
+    assert.notEqual(monitorStopIndex, -1, "the run must stop the live monitor");
+    assert.notEqual(deviceOpIndex, -1, "the run must reach its device op");
+    assert.ok(monitorStopIndex < deviceOpIndex, "monitor stop must reach the shim before the run's first device op");
+    // Mutation: drop the stopMonitorIfRunning() call from beginRun -> monitor_stop never
+    // appears in callOrder and this fails.
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
 function jsonResponse(body: unknown, status = 200) {
   return {
     ok: status >= 200 && status < 300,
