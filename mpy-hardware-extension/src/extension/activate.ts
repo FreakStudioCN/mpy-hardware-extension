@@ -17,9 +17,7 @@ export function activate(context: any, vscode: any = undefined) {
   let pendingRecipeImport: any;
   const deliverRecipeImport = (payload: any) => {
     pendingRecipeImport = payload;
-    // Same Thenable-rejection hazard as revealPanelIfEnabled: guard it the same way
-    // so a failed focus never surfaces as an unhandled rejection.
-    void Promise.resolve(api.commands?.executeCommand?.("mpyhw.panel.focus")).catch(() => {});
+    focusPanel(api);
     if (activeWebview) {
       activeWebview.postMessage({ type: "recipe_imported", payload });
       pendingRecipeImport = undefined;
@@ -68,23 +66,27 @@ export function activate(context: any, vscode: any = undefined) {
   installHostTelemetry(context, api, (message: string) => output?.appendLine(message));
 }
 
+// executeCommand returns a Thenable; a rejection would escape a synchronous try/catch and
+// surface as an unhandled rejection (observed by the host error handlers installed just after
+// activate()). Attach a catch so a failed focus stays best-effort and never reports as a fault.
+function focusPanel(api: any) {
+  void Promise.resolve(api.commands?.executeCommand?.("mpyhw.panel.focus")).catch(() => {});
+}
+
 // Open straight into the Blockless panel when the profile opted in via the `mpyhw.autoOpenPanel`
 // setting. The one-click installer writes this into its dedicated Blockless profile, so that
 // profile lands on the tool instead of a dormant Activity Bar icon. Stateless by design — no
 // first-run flag, so it re-reveals on EVERY startup (the installer's VS Code is a kiosk-like,
 // single-purpose environment). `onStartupFinished` activates the extension on every VS Code
 // launch for every user regardless of this setting — that activation cost (incl.
-// installHostTelemetry's backend sweepAbandonedSessions call below) is unavoidable and not
-// gated by the flag. Off by default only means the VISIBLE panel reveal does nothing, so
-// Marketplace users in their own profiles see no on-screen effect.
+// installHostTelemetry's filesystem scan for abandoned sessions, which posts to the backend
+// only when it finds one) is unavoidable and not gated by the flag. Off by default only means
+// the VISIBLE panel reveal does nothing, so Marketplace users in their own profiles see no
+// on-screen effect.
 function revealPanelIfEnabled(api: any) {
   try {
     if (api.workspace?.getConfiguration?.("mpyhw")?.get?.("autoOpenPanel") !== true) return;
-    // executeCommand returns a Thenable; a rejection would escape this synchronous
-    // try/catch and surface as an unhandled rejection (observed by the host error
-    // handlers installed just after activate()). Attach a catch so a failed reveal
-    // stays best-effort and never reports as a fault.
-    void Promise.resolve(api.commands?.executeCommand?.("mpyhw.panel.focus")).catch(() => {});
+    focusPanel(api);
   } catch {
     // Best-effort UX only — a failed reveal must never break activation.
   }

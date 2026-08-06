@@ -240,7 +240,7 @@ test("the Blockless panel auto-opens on every startup only when mpyhw.autoOpenPa
   assert.deepEqual(activateWith(true, shared), ["mpyhw.panel.focus"], "stateless: it re-opens on every startup");
 });
 
-test("a rejected panel.focus never escapes activate as an unhandled rejection", async () => {
+test("a rejected panel.focus never escapes activate as an unhandled rejection", async (t) => {
   // Both call sites hand VS Code's executeCommand — a Thenable — to a synchronous try/catch
   // (revealPanelIfEnabled) or no try/catch at all (deliverRecipeImport). A REJECTING
   // executeCommand is the only mock shape that can catch a missing/removed .catch() guard;
@@ -269,19 +269,27 @@ test("a rejected panel.focus never escapes activate as an unhandled rejection", 
   };
   const context = { extensionUri: {}, subscriptions: [] as any[] };
 
-  try {
-    // (a) activate() must complete even though the reveal it triggers rejects.
-    assert.doesNotThrow(() => activate(context, vscode));
-    // Exercises the deliverRecipeImport call site (activate.ts:20), the second unguarded spot.
-    uriHandler.handleUri({ path: "/importRecipe", query: "" });
-
-    // Let both rejected Thenables settle before checking for a leak.
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-
-    assert.deepEqual(leaked, [], "a rejected panel.focus must never surface as an unhandled rejection");
-  } finally {
+  // Registered via t.after (not a try/finally around the awaits below) because on the exact
+  // failure this test exists to catch, the leaked rejection fails the test while it is
+  // suspended at an await — the async function doesn't resume until after the runner has
+  // already moved on to later tests, so a try/finally here would clean up too late and leak
+  // the listener + subscriptions into them.
+  t.after(() => {
     process.off("unhandledRejection", onLeak);
     for (const subscription of context.subscriptions) subscription?.dispose?.();
-  }
+  });
+
+  // (a) activate() must complete even though the reveal it triggers rejects.
+  assert.doesNotThrow(() => activate(context, vscode));
+  // Exercises deliverRecipeImport, the second unguarded call site.
+  uriHandler.handleUri({ path: "/importRecipe", query: "" });
+
+  // Let both rejected Thenables settle before checking for a leak.
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+
+  // Filtered to this test's own rejection message so a stray rejection from elsewhere in the
+  // (process-global) unhandledRejection stream can't fail this assertion spuriously.
+  const ownLeaks = leaked.filter((reason) => reason instanceof Error && reason.message === "no view");
+  assert.deepEqual(ownLeaks, [], "a rejected panel.focus must never surface as an unhandled rejection");
 });
