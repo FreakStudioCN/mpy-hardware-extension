@@ -106,11 +106,14 @@
         </div>
         <!-- Serial -->
         <div class="view hidden" data-view="serial">
+          <div class="serial-head" id="serialHead">
+            <span class="dot"></span><span data-i18n="serial_monitor">Serial monitor</span><span class="baud">115200</span>
+            <button class="doc-recheck" id="serialMonitorToggle" type="button" data-i18n="serial_monitor_start">Start monitor</button>
+          </div>
           <div id="serialFilled" class="hidden">
-            <div class="serial-head" id="serialHead"><span class="dot"></span><span data-i18n="serial_monitor">Serial monitor</span><span class="baud">115200</span></div>
             <div class="serial-body" id="serial"></div>
           </div>
-          <div class="empty" id="serialEmpty"><h4 data-i18n="empty_serial_h">No output</h4><p data-i18n="empty_serial_p">Device output streams here after flashing.</p></div>
+          <div class="empty" id="serialEmpty"><h4 data-i18n="empty_serial_h">No output</h4><p data-i18n="empty_serial_p">Device output streams here after flashing. Or start the monitor to see it live.</p></div>
         </div>
         <!-- Wiring -->
         <div class="view hidden" data-view="wiring">

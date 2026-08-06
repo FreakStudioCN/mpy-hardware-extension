@@ -3127,6 +3127,51 @@ test("a SELF_TEST_PASS serial line is highlighted as a verification result", asy
   assert.match((verify as HTMLElement).textContent ?? "", /SELF_TEST_PASS/);
 });
 
+test("a plain serial_output print reaches the Serial tab as its own .serial-line", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  post(dom, { type: "serial_output", lines: ["hello from the device"] });
+  const lines = document.querySelectorAll("#serial .serial-line");
+  assert.equal(lines.length, 1);
+  assert.equal((lines[0] as HTMLElement).textContent, "hello from the device");
+});
+
+test("clicking the serial monitor button posts serial_monitor_start; the reply flips it to Stop", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const btn = document.getElementById("serialMonitorToggle") as HTMLButtonElement;
+
+  btn.click();
+
+  assert.ok(posted.some((m) => m.type === "serial_monitor_start"), "the click posts serial_monitor_start");
+  assert.ok(btn.disabled, "the button disables itself while the request is in flight (no double-click)");
+
+  post(dom, { type: "serial_monitor_status", running: true });
+  assert.equal(btn.disabled, false);
+  assert.match(btn.textContent ?? "", /Stop/);
+
+  btn.click();
+  assert.ok(posted.some((m) => m.type === "serial_monitor_stop"), "a second click while running posts serial_monitor_stop");
+  // Mutation: drop the serialMonitorRunning ? "stop" : "start" branch -> the second
+  // click would post serial_monitor_start again, failing this assertion.
+});
+
+test("a serial_monitor_status stop (e.g. the host auto-stopping the monitor for a run) flips the button back to Start", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const btn = document.getElementById("serialMonitorToggle") as HTMLButtonElement;
+
+  post(dom, { type: "serial_monitor_status", running: true });
+  assert.match(btn.textContent ?? "", /Stop/);
+
+  // beginRun() stops a live monitor before a run's first device op (work item 4); the
+  // webview only ever sees this as a serial_monitor_status running:false push.
+  post(dom, { type: "serial_monitor_status", running: false });
+  assert.match(btn.textContent ?? "", /Start/);
+  assert.equal(btn.classList.contains("live"), false);
+});
+
 test("a single-phase artifact index shows no phase-filter chips", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
