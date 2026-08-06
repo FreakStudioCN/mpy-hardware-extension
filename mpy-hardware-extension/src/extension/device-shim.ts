@@ -320,7 +320,7 @@ export function killProcessTree(child: { pid?: number; kill: (signal?: any) => v
 //   2. Every child handler is guarded by instance (thisChild/thisProc): after kill(), a NEW
 //      shim may already be running when the OLD child's late "exit" event finally fires —
 //      an unguarded handler would wipe the new shim's state and orphan it.
-export function createShimLifecycle(spawnShim: () => any): DeviceShim {
+export function createShimLifecycle(spawnShim: () => any, onEvent?: (event: any) => void): DeviceShim {
   let proc: ShimProcess | null = null;
   let child: any = null;
   // Lazy single-flight start. runStart() runs start() at most once concurrently AND clears
@@ -337,7 +337,7 @@ export function createShimLifecycle(spawnShim: () => any): DeviceShim {
 
   async function start(): Promise<void> {
     const thisChild = spawnShim();
-    const thisProc = new ShimProcess({ write: (line: string) => thisChild.stdin.write(line) });
+    const thisProc = new ShimProcess({ write: (line: string) => thisChild.stdin.write(line), onEvent });
     child = thisChild;
     proc = thisProc;
     // Feed handlers bind to THIS child's proc, never the module-level slot: after a kill,
@@ -400,7 +400,7 @@ export function createShimLifecycle(spawnShim: () => any): DeviceShim {
 // Spawn the Python shim and wire a DeviceShim to it. Everything is lazy: Python
 // discovery, venv creation, and the process spawn only happen the first time the
 // loop actually touches a device.
-export function createDeviceShim(opts: { vscode: any; extensionUri: any }): DeviceShim {
+export function createDeviceShim(opts: { vscode: any; extensionUri: any; onEvent?: (event: any) => void }): DeviceShim {
   return createShimLifecycle(() => {
     const python = resolvePython(opts.vscode);
     const shimDir = join(opts.extensionUri?.fsPath ?? process.cwd(), "python", "shim");
@@ -419,7 +419,7 @@ export function createDeviceShim(opts: { vscode: any; extensionUri: any }): Devi
     // stdio stays piped and we keep the reference (no unref), so lifecycle is unchanged.
     const detached = process.platform !== "win32";
     return spawn(venvPython, [scriptPath], { stdio: ["pipe", "pipe", "pipe"], env, detached, windowsHide: true });
-  });
+  }, opts.onEvent);
 }
 
 // Single-flight lazy runner with retry-on-failure. A naive `if (!p) p = start()` memoizes

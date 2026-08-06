@@ -475,6 +475,23 @@ class FakeShimChild extends EventEmitter {
   kill() { this.dead = true; }
 }
 
+test("createShimLifecycle threads onEvent through to the ShimProcess transport (serial.data reaches the caller)", async () => {
+  const children: FakeShimChild[] = [];
+  const events: any[] = [];
+  const shim = createShimLifecycle(() => {
+    const c = new FakeShimChild(`c${children.length}`);
+    children.push(c);
+    return c;
+  }, (event: any) => events.push(event));
+
+  await shim.scan(); // force the lazy spawn so a child exists to emit on
+  children[0].stdout.emit("data", Buffer.from(JSON.stringify({ jsonrpc: "2.0", method: "serial.data", params: { lines: ["boot"] } }) + "\n"));
+
+  assert.deepEqual(events, [{ type: "serial_data", lines: ["boot"] }]);
+  // Mutation: drop the `onEvent` arg when building `new ShimProcess({write, ...})` in
+  // createShimLifecycle -> events stays empty, fails.
+});
+
 test("kill() clears the shim state SYNCHRONOUSLY: the next device touch respawns instead of using the dying process", async () => {
   const children: FakeShimChild[] = [];
   const shim = createShimLifecycle(() => {

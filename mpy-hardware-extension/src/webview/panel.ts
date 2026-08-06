@@ -386,7 +386,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
   const packageBrowserClient = new PackageClient(apiBaseUrl, fetchImpl);
   // Real device shim (Python serve.py). Lazy: nothing spawns until the agent
   // actually touches a device. Tests can inject deps.shim to bypass it.
-  const shim = deps.shim ?? createDeviceShim({ vscode, extensionUri });
+  const shim = deps.shim ?? createDeviceShim({
+    vscode, extensionUri,
+    // The shim's background serial monitor (serial.monitor_start) pushes serial.data
+    // notifications outside any request/response RPC; ShimProcess surfaces them here
+    // as { type: "serial_data" }. Post STRAIGHT to the webview, never through
+    // controller.record — the monitor runs independently of any build session, and
+    // routing it through SessionController's serial_output handling would bloat every
+    // session's JSONL with device chatter that isn't part of the build.
+    onEvent: (event: any) => {
+      if (event?.type === "serial_data") webview.postMessage({ type: "serial_output", lines: event.lines });
+    },
+  });
   // Injectable so tests can drive the "broken venv" branch of the presence poll + doctor.
   const venvReadyFn = deps.venvReady ?? venvReady;
   // The presence poll fires every 2.5s and venvReadyFn() is a synchronous 7-import python

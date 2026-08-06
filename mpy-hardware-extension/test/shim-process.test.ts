@@ -55,3 +55,36 @@ test("late shim response after timeout is ignored", async () => {
   assert.doesNotThrow(() => shim.handleStdoutLine(JSON.stringify({ id: 1, result: { devices: [] } })));
   assert.equal(shim.pending.size, 0);
 });
+
+test("a serial.data notification (method, no matching pending id) fires onEvent, not a pending RPC", () => {
+  const events: any[] = [];
+  const shim = new ShimProcess({ write: () => undefined, onEvent: (event) => events.push(event) });
+
+  // No pending map entries at all — the monitor can push before/between any RPC.
+  assert.doesNotThrow(() => shim.handleStdoutLine(JSON.stringify({ jsonrpc: "2.0", method: "serial.data", params: { lines: ["boot", "MPYHW_READY"] } })));
+
+  assert.deepEqual(events, [{ type: "serial_data", lines: ["boot", "MPYHW_READY"] }]);
+  assert.equal(shim.pending.size, 0);
+});
+
+test("a serial.data notification never resolves an in-flight RPC of the same shape", async () => {
+  // Regression: a naive dispatch keyed only on `id` could treat a notification (id
+  // undefined) as a response to whatever pending entry happens to key on undefined.
+  // Mutation: drop the `message.method !== undefined` branch -> this test still passes
+  // today (no entry keys on undefined), but guards the invariant explicitly.
+  const shim = new ShimProcess({ write: () => undefined });
+  const pending = shim.request("device.scan", {});
+
+  shim.handleStdoutLine(JSON.stringify({ jsonrpc: "2.0", method: "serial.data", params: { lines: ["x"] } }));
+  shim.handleStdoutLine(JSON.stringify({ id: 1, result: { devices: [] } }));
+
+  assert.deepEqual(await pending, { devices: [] });
+});
+
+test("an unrecognized notification method is ignored, not thrown", () => {
+  const events: any[] = [];
+  const shim = new ShimProcess({ write: () => undefined, onEvent: (event) => events.push(event) });
+
+  assert.doesNotThrow(() => shim.handleStdoutLine(JSON.stringify({ jsonrpc: "2.0", method: "future.thing", params: {} })));
+  assert.deepEqual(events, []);
+});

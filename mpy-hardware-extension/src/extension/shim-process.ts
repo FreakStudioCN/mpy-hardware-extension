@@ -45,6 +45,17 @@ export class ShimProcess {
 
   handleStdoutLine(line: string) {
     const message = JSON.parse(line);
+    // A JSON-RPC notification (method set, no id): the monitor's serial.data push,
+    // never a response to a pending RPC. Route it to onEvent and stop — there is no
+    // pending entry to resolve. An unrecognized notification method is ignored rather
+    // than thrown, so a future shim adding a new notification can't crash the reader.
+    if (message.method !== undefined) {
+      if (message.method === "serial.data") {
+        const lines = Array.isArray(message.params?.lines) ? message.params.lines : [];
+        this.transport.onEvent?.({ type: "serial_data", lines });
+      }
+      return;
+    }
     const pending = this.pending.get(message.id);
     if (!pending) return;
     this.pending.delete(message.id);
