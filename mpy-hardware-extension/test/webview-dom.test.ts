@@ -2639,6 +2639,186 @@ test("the REAL generate_behavior sample posts exactly one next_phase id despite 
   assert.ok(ids.includes("next_deploy"), "the chosen next_phase id is posted");
 });
 
+function deviceConfirmCard(overrides: any = {}) {
+  return {
+    approval_id: "device_confirm",
+    question: "以下器件是否正确？",
+    items: [
+      { id: "d1", name: "GL5516", subtitle: "光敏电阻", selected: true },
+      { id: "d2", name: "继电器", subtitle: "输出", selected: true },
+    ],
+    allow_add: true,
+    actions: [
+      { label: "确认，开始搜索驱动", value: "confirm", primary: true },
+      { label: "修改器件清单", value: "modify" },
+    ],
+    ...overrides,
+  };
+}
+
+test("allow_add:true renders an add row; typing a name and confirming posts it as added_items", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add1", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add1"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  assert.ok(addInput, "allow_add renders a text input for the new component name");
+
+  addInput.value = "OLED显示屏";
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+  assert.ok(addBtn, "an Add button renders next to the input");
+  addBtn.click();
+
+  posted.length = 0;
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.deepStrictEqual([...resp.added_items].map((i: any) => ({ ...i })), [
+    { name: "OLED显示屏", type: "user_added", interface: "unknown", source: "user_specified" },
+  ], "the typed name rides as a full added_items entry, matching the reference host's shape");
+});
+
+test("the report's exact path: an added item plus the non-primary modify action both ride added_items and selected_ids", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add2", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add2"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  addInput.value = "OLED显示屏";
+  addInput.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter" }));
+
+  posted.length = 0;
+  (card.querySelector('button[data-answer="modify"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.equal(resp.answer, "modify");
+  assert.equal(resp.added_items.length, 1, "the add rides on modify, not just confirm");
+  assert.equal(resp.added_items[0].name, "OLED显示屏");
+  assert.deepStrictEqual([...resp.selected_ids].sort(), ["d1", "d2"], "the pre-selected items still ride alongside the add");
+});
+
+test("allow_add absent or false renders no add input; the response still carries an empty added_items", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-noadd", card: deviceConfirmCard({ allow_add: undefined }) });
+  const card = document.querySelector('[data-prompt-id="p-noadd"]')!;
+  assert.equal(card.querySelectorAll(".ask-input").length, 0, "no add input without allow_add:true");
+
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.deepStrictEqual([...resp.added_items], [], "added_items is present and empty, never omitted");
+});
+
+test("adding two names then removing one via the ✕ button sends only the remaining name", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add3", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add3"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+
+  addInput.value = "OLED显示屏"; addBtn.click();
+  addInput.value = "蜂鸣器"; addBtn.click();
+  const rows = [...card.querySelectorAll(".ask-added-row")];
+  assert.equal(rows.length, 2, "both added names render their own row");
+  (rows[0].querySelector("button") as HTMLButtonElement).click(); // remove the first
+
+  posted.length = 0;
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.equal(resp.added_items.length, 1, "only the remaining name is sent");
+  assert.equal(resp.added_items[0].name, "蜂鸣器");
+});
+
+test("empty or whitespace-only input to the add row appends nothing", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add4", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add4"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+
+  addInput.value = "   "; addBtn.click();
+  addInput.value = ""; addBtn.click();
+  assert.equal(card.querySelectorAll(".ask-added-row").length, 0, "no empty-name rows appended");
+});
+
+test("Enter in the add input adds the item and does not answer the card", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add5", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add5"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  addInput.value = "OLED显示屏";
+  addInput.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter" }));
+
+  assert.equal(card.querySelectorAll(".ask-added-row").length, 1, "the item is added");
+  assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "Enter in the add row never answers the card");
+});
+
+test("after answering, the add input and Add button are disabled; a late ✕ click mutates nothing and posts nothing", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add6", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add6"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+  addInput.value = "OLED显示屏"; addBtn.click();
+  const removeBtn = card.querySelector(".ask-added-row button") as HTMLButtonElement;
+
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  assert.equal(addInput.disabled, true, "the add input is disabled after answering");
+  assert.equal(addBtn.disabled, true, "the Add button is disabled after answering");
+
+  posted.length = 0;
+  // dispatchEvent bypasses the browser's own disabled-button click gate (unlike .click()),
+  // so this exercises the handler's own `answered` guard, not just the disabled attribute.
+  removeBtn.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  assert.equal(card.querySelectorAll(".ask-added-row").length, 1, "the answered-card's added row is untouched by a late ✕ click");
+  assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "no second ui_prompt_response posts");
+});
+
+test("unchecking an item on an allow_add card drops its id from selected_ids", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add7", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add7"]')!;
+  (card.querySelector('input[data-id="d2"]') as HTMLInputElement).click();
+
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.deepStrictEqual([...resp.selected_ids], ["d1"], "the unchecked item's id is absent");
+});
+
+test("a restored inert allow_add card renders its add input already disabled", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "restore_prompt",
+    kind: "approval_requested",
+    payload: { promptId: "p-add8", card: deviceConfirmCard() },
+    answer: "confirm",
+  });
+  const card = document.querySelector(".ev-card.ask")!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  assert.ok(addInput, "the inert restore still renders the add input");
+  assert.equal(addInput.disabled, true, "finalizeInertCard's generic disable covers the add input");
+});
+
 test("an ungrouped approval card renders flat checkboxes with no group headers (back-compat)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
