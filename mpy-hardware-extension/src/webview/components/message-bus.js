@@ -45,7 +45,10 @@
         // DURABLE content from the transcript — the AI's summaries + an INERT "asked -> answered" line per
         // past prompt (never a live, clickable prompt) — then a terminal line. Transient trace/spinner is
         // not replayed (it isn't durable), so no live-run guard is touched.
-        if (msg.type === "restore_reset") { clearConversation(); }
+        // clearConversation() clears viewOnlyReplay, so the set has to come after it, not before.
+        // viewOnly marks a session with no saved snapshot: the feed becomes a read-only replay, and the
+        // next Generate wipes it rather than appending a different session's run underneath it.
+        if (msg.type === "restore_reset") { clearConversation(); if (msg.viewOnly) viewOnlyReplay = true; }
         // Rich feed replay (Stage 1): the host maps DURABLE transcript events to these ungated messages, so
         // the past run's narration re-renders on restore without touching the live-run gates. A user request
         // renders as its own card; a mapped line renders as a trace line, or an error line (kind:"error").

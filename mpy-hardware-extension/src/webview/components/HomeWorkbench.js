@@ -161,6 +161,15 @@
         if (running) { vscode.postMessage({ type: "cancel_session" }); setPending(tr("stopping")); return; }
         const intent = $("intent").value.trim();
         if (!intent) return;
+        // Read the board choice BEFORE the wipe below: clearConversation() calls clearBoardChoice(),
+        // so a board picked while reading a replayed session would be dropped without a trace.
+        const preSelectedBoard = selectedOfficialBoard;
+        // A view-only replay leaves a PAST session's feed on screen, but this build gets its own fresh
+        // session dir (the replay seeds no traceId). Leaving that history above the new run would show
+        // two unrelated sessions as one conversation, and a later Save Version would cover only the
+        // new half of what the user can see. Wipe the replay first. clearConversation() clears the flag
+        // itself, so this fires once per replay and a normal follow-up request still appends.
+        if (viewOnlyReplay) clearConversation();
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
         // Lock the session's UI language to the FIRST request's language before
@@ -173,7 +182,6 @@
         $("intent").value = "";
         $("intent").style.height = "auto";
         setTab("activity"); setBoardPickerVisible(false); setRunning(true);
-        const preSelectedBoard = selectedOfficialBoard;
         const boardId = preSelectedBoard && preSelectedBoard.local_board_id ? preSelectedBoard.local_board_id : "auto";
         const msg = { type: "start_session", intent, boardId, pre_selected_board: preSelectedBoard || null, preferences: { mode: selectedMode } };
         if (!preSelectedBoard) msg.board_selection_mode = "recommend"; // board-selector doc §6 recommend path
@@ -235,6 +243,11 @@
       // its durable state in parallel (reset_session), so the next request is a
       // brand-new build, not a continuation. The locked UI language is left as-is —
       // the next intent re-locks it (setLocale is a no-op when unchanged).
+      //
+      // True while the feed shows a READ-ONLY replay of a past session (a Recent Sessions card with no
+      // saved snapshot). The set lives in the restore_reset handler; every wipe path clears it below, so
+      // the flag can never outlive the feed it describes.
+      let viewOnlyReplay = false;
       function clearConversation() {
         $("activity").innerHTML = "";
         $("activityEmpty").classList.remove("hidden");
@@ -265,6 +278,7 @@
         finalizeThinking(); currentCode = null; currentSummary = null;
         currentDeployCard = null; pendingCard = null; pendingLabel = "";
         localeLocked = false; // next project re-detects its language (LOCALE left as-is until then)
+        viewOnlyReplay = false; // the replayed feed is gone, so nothing on screen is read-only any more
         document.querySelectorAll(".newdot").forEach((d) => d.remove());
         document.querySelectorAll(".tab .pulse").forEach((p) => p.remove());
         setBoardPickerVisible(true);

@@ -565,6 +565,73 @@ test("Recent Sessions opens the surface, lists host-served summaries, RESTORES t
   assert.equal(document.getElementById("toolRecent")!.classList.contains("hidden"), true, "restoring a view-only session also closes the Recent surface");
 });
 
+// A view-only replay shows a PAST session that the next build cannot join: the replay seeds no traceId,
+// so start_session mints a fresh id and writes to its own directory. If the replayed feed survived the
+// new request, one scrollback would show two unrelated sessions as a single conversation, and a later
+// Save Version would cover only the newer half of what is on screen.
+test("a new request after a view-only replay wipes the replayed feed instead of appending to it", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "restore_reset", viewOnly: true });
+  post(dom, { type: "restore_user", text: "blink an LED on the old board" });
+  post(dom, { type: "restore_done", terminal: "completed" });
+  assert.match(document.getElementById("activity")!.textContent!, /blink an LED on the old board/, "the replay put the past session in the feed");
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "read a DHT22 sensor";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  const activity = document.getElementById("activity")!.textContent!;
+  assert.doesNotMatch(activity, /blink an LED on the old board/, "the replayed session is gone once a new build starts");
+  assert.match(activity, /read a DHT22 sensor/, "the new request is in the feed");
+  assert.ok(posted.some((m) => m.type === "start_session"), "the new build still starts");
+});
+
+// The wipe is keyed on the replay flag, not on restore in general. A snapshot restore adopts the restored
+// session's id, so the run that follows IS that session continuing and its feed must survive.
+test("a new request after a normal snapshot restore keeps the restored feed", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "restore_reset" });
+  post(dom, { type: "restore_user", text: "blink an LED on the old board" });
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "now add a buzzer";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  const activity = document.getElementById("activity")!.textContent!;
+  assert.match(activity, /blink an LED on the old board/, "a continued session keeps its restored history");
+  assert.match(activity, /now add a buzzer/, "and appends the new request under it");
+});
+
+// clearConversation() also calls clearBoardChoice(), so the wipe above runs AFTER the board choice is
+// read. A board picked while reading the replay is part of the new request, not of the session being
+// discarded, and must reach start_session.
+test("a board picked during a view-only replay survives the wipe", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "restore_reset", viewOnly: true });
+  post(dom, { type: "restore_user", text: "the old session" });
+  post(dom, {
+    type: "micropython_boards",
+    source_url: "https://micropython.org/download/",
+    boards: [{ id: "esp32-s3-devkitc", official_id: "ESP32_GENERIC_S3", display_name: "ESP32-S3", vendor: "Espressif", port: "esp32", mcu: "esp32s3", features: [], firmware: { url: "u", board_name: "ESP32_GENERIC_S3" }, download_slug: "ESP32_GENERIC_S3", support_status: "builtin_pin_layout", local_board_id: "esp32-s3-devkitc-1", skill_board_id: "esp32-s3-devkitc" }],
+  });
+  (document.querySelector('[data-board-id="esp32-s3-devkitc"]') as HTMLButtonElement).click();
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "read a DHT22 sensor";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  const start = posted.find((m) => m.type === "start_session");
+  assert.equal(start.boardId, "esp32-s3-devkitc-1", "the picked board reaches the new build");
+  assert.equal(start.pre_selected_board.id, "esp32-s3-devkitc", "and its full record does too");
+  assert.doesNotMatch(document.getElementById("activity")!.textContent!, /the old session/, "the replay is still wiped");
+});
+
 test("session-restore feed rehydration: restore_done appends a terminal line, restore_reset clears", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

@@ -1078,7 +1078,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // a later Save Version honestly reports nothing_to_save rather than snapshotting into any dir.
         const seeded = controller.seedFromSnapshot({});
         if (!seeded) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
-        webview.postMessage({ type: "restore_reset" });
+        // viewOnly tells the webview this feed is a replay, not a session it can add to: the next Generate
+        // clears it instead of appending. Without the flag the new build (which gets its own fresh dir)
+        // would render underneath this session's history as if the two were one conversation.
+        webview.postMessage({ type: "restore_reset", viewOnly: true });
         replaySessionFeed(events);
         replaySessionTabs(events);
         // Wiring tab: post [] unconditionally, same as the snapshot path below — the flow-offer entries

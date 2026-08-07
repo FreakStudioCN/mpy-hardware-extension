@@ -3031,6 +3031,9 @@ test("restore_session replays the durable activity feed: summaries + INERT promp
     posted.length = 0;
     await handler({ type: "restore_session", id: sid });
     assert.ok(posted.some((m) => m.type === "restore_reset"), "clears the view before replay");
+    // The snapshot path adopts the restored session's id, so the run that follows IS this session
+    // continuing. It must NOT carry viewOnly, or the webview would wipe a feed the user is adding to.
+    assert.ok(!posted.some((m) => m.type === "restore_reset" && m.viewOnly), "a resumable restore is not flagged read-only");
     assert.ok(posted.some((m) => m.type === "summary" && /pin 4/.test(m.text)), "the AI summary is replayed");
     const prompt = posted.find((m) => m.type === "restore_prompt");
     assert.ok(prompt && prompt.kind === "ui_prompt" && /Which board\?/.test(prompt.payload.question) && /ESP32-C6/.test(prompt.answer), "a past prompt replays as its INERT card carrying the answer it got");
@@ -3132,6 +3135,10 @@ test("restore_session on a NO-snapshot dir replays the transcript read-only: fee
     await handler({ type: "restore_session", id: sid });
     // Feed replays exactly as the rich (snapshot) path does — same mapRestoreEvent, same messages.
     assert.equal(posted[0]?.type, "restore_reset", "the feed is cleared first");
+    // viewOnly marks the replayed feed as one the next build cannot join (this restore seeds no traceId,
+    // so that build gets its own dir). The webview clears the feed on the next request rather than
+    // rendering two unrelated sessions as one conversation.
+    assert.equal(posted[0]?.viewOnly, true, "the reset flags the feed as a read-only replay");
     assert.ok(posted.some((m) => m.type === "restore_user" && /blink an LED/.test(m.text)), "the user's request replays");
     assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "trace"), "status narration replays");
     assert.ok(posted.some((m) => m.type === "summary" && /main\.py/.test(m.text)), "the phase summary replays");
