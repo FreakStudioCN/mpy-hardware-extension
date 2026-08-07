@@ -769,6 +769,44 @@ test("session controller records UI prompts, the deploy gate, artifacts, and ter
   assert.equal(recorded[9].terminal, "success");
 });
 
+test("resolvePrompt records the approval edit payload (selected_ids/added_items/text_values/notes) verbatim", async () => {
+  const recorded: any[] = [];
+  const controller = new SessionController({ postMessage: () => { }, loop: async () => ({ terminal: "success" }) });
+  // confirmApproval is the real producer of an approval promptId; call it directly (it
+  // needs no running build) rather than reimplementing pendingPrompts bookkeeping. The
+  // recorder is normally wired up by start(); stub it directly since this test never starts.
+  (controller as any).recorder = { record: async (event: any) => void recorded.push(event) };
+  const pending = controller.confirmApproval({ question: "Device list?" });
+  const promptId = recorded.find((e) => e.type === "approval_requested")!.promptId;
+
+  const extra = { selected_ids: ["d1"], added_items: [{ name: "OLED", type: "user_added", interface: "unknown", source: "user_specified" }], text_values: { note: "x" }, notes: "REVISE_REQUEST::add OLED" };
+  controller.resolvePrompt(promptId, "modify", extra);
+  await pending;
+
+  const answer = recorded.find((e) => e.type === "ui_prompt_answer")!;
+  assert.deepEqual(answer.selected_ids, extra.selected_ids);
+  assert.deepEqual(answer.added_items, extra.added_items);
+  assert.deepEqual(answer.text_values, extra.text_values);
+  assert.equal(answer.notes, extra.notes);
+});
+
+test("resolvePrompt with no extra records a plain ui_prompt_answer — no undefined-key noise", async () => {
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    loop: async () => ({ terminal: "success" }),
+  });
+  (controller as any).recorder = { record: async (event: any) => void recorded.push(event) };
+  const pending = controller.confirmApproval({ question: "Device list?" });
+  const promptId = recorded.find((e) => e.type === "approval_requested")!.promptId;
+
+  controller.resolvePrompt(promptId, "confirm");
+  await pending;
+
+  const answer = recorded.find((e) => e.type === "ui_prompt_answer")!;
+  assert.deepEqual(Object.keys(answer).sort(), ["answer", "promptId", "type"], "shape unchanged from today — no extra keys, not even as undefined");
+});
+
 test("session controller carries agent state into the next user message", async () => {
   const statesSeen: any[] = [];
   const returnedStates = [
