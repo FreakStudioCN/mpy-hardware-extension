@@ -140,6 +140,35 @@ export async function writeGeneratedFiles(input: {
   return { ok: true, paths };
 }
 
+// Every pattern the project-tree allowlist accepts, each paired with a path that must satisfy
+// it. WRITABLE_PATHS_HINT is built from the labels, so a claim cannot be added to the hint
+// without adding an example, and the drift guard in workspace-writer.test.ts asserts every
+// example is genuinely accepted. That closes the loop: the hint cannot advertise a path the
+// writer then refuses, which would send the model into a confident loop -- worse than no hint.
+const WRITABLE_PATTERNS: ReadonlyArray<{ label: string; example: string }> = [
+  { label: "any *.json at the project root", example: "manifest_draft.json" },
+  { label: "firmware/**.py and firmware/**.md", example: "firmware/main.py" },
+  { label: "test/**.py and test/**.md", example: "test/pc/test_x.py" },
+  { label: "tools/**.py", example: "tools/flash_device.py" },
+  { label: "lib/**.py", example: "lib/helper.py" },
+  { label: "docs/**.json", example: "docs/wiring.json" },
+  { label: "sessions/**.json and sessions/**.md", example: "sessions/s1/phase_complete.json" },
+  { label: ".upy/**.py and .upy/**.json", example: ".upy/scripts/validate.py" },
+  { label: "any **/.gitkeep", example: "firmware/assets/.gitkeep" },
+  { label: ".flake8, .gitignore, .gitattributes, README.md and LICENSE at the root", example: ".flake8" },
+];
+
+// Fed back on every rejected path so a wrong guess costs ONE turn instead of a phase.
+// `invalid_generated_path` on its own told the model nothing, so it probed: 12 rejected paths
+// in a single run before the turn cap ended the phase.
+export const WRITABLE_PATHS_HINT =
+  `Writable: ${WRITABLE_PATTERNS.map((p) => p.label).join("; ")}. ` +
+  "Executable code must live under firmware/, test/, tools/, lib/ or .upy/, not at the project root.";
+
+// Test-only view of the table above, so the drift guard iterates the SAME source the hint is
+// built from rather than a hand-copied list that could fall out of step with it.
+export const WRITABLE_PATH_EXAMPLES: readonly string[] = WRITABLE_PATTERNS.map((p) => p.example);
+
 export function normalizeGeneratedArtifactPath(name: string, options: { allowMain?: boolean; allowManifest?: boolean; allowLib?: boolean; allowFirmware?: boolean; allowProjectTree?: boolean; allowedPaths?: readonly string[] } = {}) {
   const { allowMain = true, allowManifest = true, allowLib = true, allowFirmware = false, allowProjectTree = false, allowedPaths } = options;
   if (typeof name !== "string" || !name || name.includes("\\") || name.includes("\0")) return null;
@@ -163,7 +192,14 @@ export function normalizeGeneratedArtifactPath(name: string, options: { allowMai
     // files anywhere under the firmware/ and test/ trees (drivers, tasks, lib,
     // test/pc, test/device). Path traversal, absolute paths, and backslashes are
     // already rejected above, so any accepted path stays inside the project root.
-    if (name === "project-manifest.json" || name === "generate_plan.json" || name === "wiring.json" || name === "diagram.json") return name;
+    // Any JSON at the project root. The plugin flow hands off between phases through root
+    // working files (manifest_draft.json, phase_complete_draft.json, current_manifest.json,
+    // ...), and permitting only a fixed four sent the model guessing: one run burned its whole
+    // turn budget on 12 rejected paths, including a literal `test_write.json` probe. Data only,
+    // so this never widens where executable code may land; traversal, absolute paths and the
+    // segment charset are already rejected above, and writeProjectFile still enforces real-path
+    // containment. Keep WRITABLE_PATHS_HINT in step with any change here.
+    if (segments.length === 1 && name.endsWith(".json")) return name;
     if (segments[0] === "docs" && segments.length >= 2 && name.endsWith(".json")) return name;
     // The plugin's per-session bookkeeping under `sessions/<session_id>/`: phase_complete.*.json,
     // session_state*.json and generate_phase_log.md (upy-generate-plugin SKILL.md declares
@@ -228,7 +264,7 @@ export async function writeProjectFile(input: {
 }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   const safe = normalizeGeneratedArtifactPath(input.path, input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true });
-  if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path };
+  if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path, allowed: WRITABLE_PATHS_HINT };
   const target = joinPath(root, safe);
   // normalizeGeneratedArtifactPath already rejects `..`/absolute, but a symlinked dir in the
   // project tree could still redirect the write outside root — refuse via real-path containment.

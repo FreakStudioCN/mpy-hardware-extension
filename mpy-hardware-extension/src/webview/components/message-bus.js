@@ -223,19 +223,11 @@
           if (t === "llm_unreachable" || t === "sse_stream_interrupted") addRetryCard();
         }
         if (msg.type === "phase_stalled") {
-          // WHY a phase gave up. The host has always posted this and nothing rendered it, so a
-          // deterministic failure (a rejected write the model retried until its turns ran out)
-          // surfaced only as the generic "stuck mid-way, usually transient, click retry" — which
-          // is wrong twice over, because retry re-runs the same phase into the same wall.
-          const failures = Array.isArray(msg.detail) ? msg.detail : [];
-          const blockers = failures.map((f) => (f && f.path ? `${f.tool}: ${f.error} (${f.path})` : `${f && f.tool}: ${f && f.error}`)).join("; ");
-          const text = blockers
-            ? tr("phase_stalled_blocked", { p: String(msg.phase), b: blockers })
-            : tr("phase_stalled_reason", { p: String(msg.phase), r: String(msg.reason) });
-          // Forced "error", never text-classified: classifyActivity() keys off the words
-          // fail/error/crash/exhaust, which this wording need not contain, and a misclassified
-          // line gets CONCATENATED into the open thinking card instead of standing alone.
-          addActivity({ text: text }, "error");
+          // WHICH step gave up, and that it is not worth retrying blindly. The failing tool
+          // calls behind it are deliberately NOT here: tool names, script filenames and error
+          // kinds are diagnosis material and go to the support export and the cloud record
+          // instead (session-controller). Point the user at that export rather than printing it.
+          addActivity({ text: tr("phase_stalled_reason", { p: String(msg.phase) }) }, "error");
         }
         if (msg.type === "phase_error") {
           // WHY the run is about to end "failed" — the terminal line alone can't say, because

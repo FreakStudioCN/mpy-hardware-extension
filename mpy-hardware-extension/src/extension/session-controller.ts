@@ -920,12 +920,18 @@ export class SessionController {
       // A phase gave up (the model never emitted a tool, or the turn budget ran out).
       // Record + post it as itself so the cloud DB shows the stall and the webview can
       // render a stuck/retry state instead of a frozen step with no error.
-      this.keyErrors.push(`stalled: ${event.phase} (${event.reason})`);
+      // `detail` is the loop's last few failing tool calls: tool names, script filenames and
+      // error kinds. That is diagnosis material, so it goes to the support export (via
+      // keyErrors -> getDiagnostics) and to the cloud record, and NOT to the webview — the
+      // end user has no use for `script_run: invalid_generated_path (phase_complete_draft.json)`.
+      const blockers = (event.detail ?? [])
+        .map((f: any) => (f?.path ? `${f.tool}: ${f.error} (${f.path})` : `${f?.tool}: ${f?.error}`))
+        .join(", ");
+      this.keyErrors.push(`stalled: ${event.phase} (${event.reason})${blockers ? ` [${blockers}]` : ""}`);
       this.lastErrorCode = event.reason;
-      // `detail` is the loop's last few failing tool calls. It is what turns "stuck mid-way,
-      // usually transient" into the actual blocker, so it must reach BOTH the DB and the feed.
       this.record({ type: "phase_stalled", phase: event.phase, reason: event.reason, detail: event.detail });
-      this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason, detail: event.detail });
+      // Phase + reason only over the wire to the UI. The blockers stay out of the feed.
+      this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason });
       return;
     }
     if (event.type === "phase_error") {

@@ -1241,3 +1241,39 @@ test("a stall detail reads a string-shaped gate report, not just {code} objects"
   assert.equal(stalled.detail[0].error, "selected_board.display_name is required", "the first real problem, not 'failed'");
   assert.equal(stalled.detail[0].path, "select_hw_manifest.py");
 });
+
+test("a rejected write tells the model what IS writable, so it corrects instead of guessing", async () => {
+  const results: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("f0", "file_operation", { op: "write", path: "phase_complete_draft.json", content: "{}" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 1, onEvent: (e: any) => { if (e.type === "tool_result") results.push(e.observation); } },
+    { llmClient: llm, writeFile: async () => ({ ok: false, error_kind: "invalid_generated_path", allowed: "Writable: any *.json at the project root; ..." }) },
+  );
+
+  assert.equal(results[0].error, "invalid_generated_path");
+  assert.match(results[0].allowed, /Writable: any \*\.json at the project root/, "the hint reaches the model's tool result");
+});
+
+test("a successful write carries no allowance hint (it is only for rejections)", async () => {
+  const results: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("f0", "file_operation", { op: "write", path: "project-manifest.json", content: "{}" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 1, onEvent: (e: any) => { if (e.type === "tool_result") results.push(e.observation); } },
+    { llmClient: llm, writeFile: async (path: string) => ({ ok: true, path }) },
+  );
+
+  assert.equal(results[0].ok, true);
+  assert.equal("allowed" in results[0], false);
+});

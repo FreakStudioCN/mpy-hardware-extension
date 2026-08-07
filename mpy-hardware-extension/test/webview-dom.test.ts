@@ -5753,7 +5753,7 @@ test("arming the working spinner settles the open Thinking card — never two sp
   post(dom, { type: "session_done", terminal: "generated" });
 });
 
-test("a stalled phase names its blocker in the feed instead of only 'usually transient'", async () => {
+test("a stalled phase names the step but never leaks tool internals into the feed", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
   const activity = document.getElementById("activity")!;
@@ -5761,8 +5761,8 @@ test("a stalled phase names its blocker in the feed instead of only 'usually tra
   (document.getElementById("intent") as HTMLTextAreaElement).value = "x"; // no CJK -> en locale
   (document.getElementById("generate") as HTMLButtonElement).click();
 
-  // The host has always posted phase_stalled; nothing rendered it, so a deterministic failure
-  // reached the user as the generic transient/retry line only.
+  // The host no longer sends `detail` to the webview, but post it anyway: if the renderer ever
+  // starts reading it again, this test fails rather than silently leaking internals to users.
   post(dom, {
     type: "phase_stalled",
     phase: "upy-generate-plugin",
@@ -5771,27 +5771,14 @@ test("a stalled phase names its blocker in the feed instead of only 'usually tra
   });
 
   const text = activity.textContent!;
-  assert.match(text, /upy-generate-plugin/, "the phase that gave up is named");
-  assert.match(text, /invalid_generated_path/, "the blocking error is named");
-  assert.match(text, /sessions\/x\/phase_complete\.json/, "and the path it kept failing on");
-  // A discrete fault must be its own card, not concatenated into the open thinking stream.
+  assert.match(text, /upy-generate-plugin/, "the step that gave up is named");
+  assert.match(text, /diagnostics/i, "and the user is pointed at the support export");
+  // Tool names, script filenames, error kinds and raw reason codes are diagnosis material.
+  assert.doesNotMatch(text, /invalid_generated_path/, "no error kind in the feed");
+  assert.doesNotMatch(text, /file_operation/, "no tool name in the feed");
+  assert.doesNotMatch(text, /phase_complete\.json/, "no script or artifact filename in the feed");
+  assert.doesNotMatch(text, /max_turns/, "no raw reason code in the feed");
   assert.ok(activity.querySelector(".ev-ico.error"), "rendered as an error card, never text-classified");
-
-  post(dom, { type: "session_done", terminal: "stalled" });
-});
-
-test("a stall with no captured failures still names the phase and the reason", async () => {
-  const dom = await loadWebview();
-  const { document } = dom.window;
-  const activity = document.getElementById("activity")!;
-
-  (document.getElementById("intent") as HTMLTextAreaElement).value = "x";
-  (document.getElementById("generate") as HTMLButtonElement).click();
-
-  post(dom, { type: "phase_stalled", phase: "select-hw", reason: "no_tool_call", detail: [] });
-
-  assert.match(activity.textContent!, /select-hw/);
-  assert.match(activity.textContent!, /no_tool_call/);
 
   post(dom, { type: "session_done", terminal: "stalled" });
 });

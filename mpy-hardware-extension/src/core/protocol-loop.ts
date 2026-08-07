@@ -88,7 +88,9 @@ export type ProtocolDeps = {
   // Device I/O (mpremote). action -> result; the host wires this to the real shim.
   device?: (action: string, payload: any) => Promise<{ ok: boolean; stdout?: string; stderr?: string; error_kind?: string }>;
   // Workspace file I/O (host enforces path containment).
-  writeFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>;
+  // `allowed` (present on a rejected path) describes what the workspace WILL accept. Forwarded
+  // to the model so a wrong path is corrected next turn instead of guessed at repeatedly.
+  writeFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string; allowed?: string }>;
   readFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
   listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>;
   // mkdir / delete (host enforces containment). The generate phase deletes
@@ -537,7 +539,7 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
     if (typeof deps.writeFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
     const r = await deps.writeFile(path, String(p.content ?? ""));
     if (r.ok) input.onEvent?.({ type: "file_written", path: r.path ?? path });
-    return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "write_failed") };
+    return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "write_failed"), ...(r.allowed ? { allowed: r.allowed } : {}) };
   }
   if (op === "read") {
     if (typeof deps.readFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };

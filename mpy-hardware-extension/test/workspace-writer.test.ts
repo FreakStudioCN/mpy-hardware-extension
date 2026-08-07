@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { isRealContained, planWorkspaceWrites, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
+import { WRITABLE_PATHS_HINT, WRITABLE_PATH_EXAMPLES, isRealContained, normalizeGeneratedArtifactPath, planWorkspaceWrites, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
 
 test("isRealContained allows the root and contained paths, refuses ../ escapes", () => {
   const root = mkdtempSync(join(tmpdir(), "mpyhw-contain-"));
@@ -261,6 +261,67 @@ test("the post-loop batch writer still rejects sessions/ (the allowance is proje
   const result = await writeGeneratedFiles({
     workspaceFolder: "C:/project",
     files: { "sessions/s1/phase_complete.json": "{}" },
+    exists: async () => false,
+    writeFile: async () => undefined,
+    confirmOverwrite: async () => true,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "invalid_generated_path");
+});
+
+test("root-level JSON working files are writable (the plugin hands off through them)", async () => {
+  // One run burned its whole turn budget on 12 rejected paths because only four exact root
+  // names were permitted. These are the real ones it tried.
+  for (const path of ["manifest_draft.json", "phase_complete_draft.json", "current_manifest.json", "phase_complete.select_hw.json"]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "{}",
+      writeFile: async () => undefined,
+    });
+    assert.equal(result.ok, true, path);
+  }
+});
+
+test("the root-JSON allowance is data only — code at the root is still refused, with a hint", async () => {
+  for (const path of ["_run_lint.py", "evil.sh", "setup.cfg"]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "x",
+      writeFile: async () => { throw new Error("must not be written"); },
+    });
+    assert.equal(result.ok, false, path);
+    assert.equal(result.error_kind, "invalid_generated_path", path);
+    // The rejection must say what WOULD work, or the model can only guess.
+    assert.equal(result.allowed, WRITABLE_PATHS_HINT, path);
+  }
+});
+
+test("the writable-paths hint cannot lie — every pattern it advertises is accepted", () => {
+  // The hint and these examples are built from ONE table, so a claim cannot be added to the
+  // hint without adding an example here, and each example is checked against the real writer.
+  // A hint advertising a path the writer refuses is worse than no hint: it sends the model
+  // into a confident loop.
+  assert.ok(WRITABLE_PATH_EXAMPLES.length >= 10, "every advertised pattern contributes an example");
+  for (const path of WRITABLE_PATH_EXAMPLES) {
+    assert.equal(
+      normalizeGeneratedArtifactPath(path, { allowProjectTree: true }), path,
+      `hint advertises a pattern that "${path}" should satisfy, but the writer refuses it`,
+    );
+  }
+  // And the claim the hint makes about code is true.
+  assert.match(WRITABLE_PATHS_HINT, /Executable code must live under/);
+  for (const rejected of ["main_loop.py", "run.sh"]) {
+    assert.equal(normalizeGeneratedArtifactPath(rejected, { allowProjectTree: true }), null, rejected);
+  }
+});
+
+test("the post-loop batch writer does not inherit the root-JSON allowance", async () => {
+  const result = await writeGeneratedFiles({
+    workspaceFolder: "C:/project",
+    files: { "manifest_draft.json": "{}" },
     exists: async () => false,
     writeFile: async () => undefined,
     confirmOverwrite: async () => true,
