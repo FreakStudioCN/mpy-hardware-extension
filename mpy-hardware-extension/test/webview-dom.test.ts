@@ -2679,6 +2679,46 @@ test("allow_add:true renders an add row; typing a name and confirming posts it a
   ], "the typed name rides as a full added_items entry, matching the reference host's shape");
 });
 
+test("the acceptance demo's exact path: typing a name then confirming directly (no Add click, no Enter) still rides added_items", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add1b", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add1b"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  // The primary action sits right below the add row — type, then Confirm directly, the way
+  // /scope.md's own acceptance demo describes it ("type OLED into the add row, confirm").
+  addInput.value = "OLED显示屏";
+
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.deepStrictEqual([...resp.added_items].map((i: any) => ({ ...i })), [
+    { name: "OLED显示屏", type: "user_added", interface: "unknown", source: "user_specified" },
+  ], "a typed-but-never-explicitly-added name is flushed into added_items on answer");
+});
+
+test("adding a duplicate name is a no-op — the input clears but no second row or entry appears", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add1c", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add1c"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+  addInput.value = "OLED显示屏"; addBtn.click();
+  addInput.value = "OLED显示屏"; addBtn.click();
+  assert.equal(card.querySelectorAll(".ask-added-row").length, 1, "the duplicate name adds no second row");
+
+  // Retype the same name but leave it un-Added — this exercises the SEPARATE dedup check in
+  // respond()'s flush (the one that catches a typed-but-never-Added name), not just doAdd's.
+  addInput.value = "OLED显示屏";
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.equal(resp.added_items.length, 1, "the duplicate is not posted twice, whether typed via Add or left pending at Confirm");
+});
+
 test("the report's exact path: an added item plus the non-primary modify action both ride added_items and selected_ids", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

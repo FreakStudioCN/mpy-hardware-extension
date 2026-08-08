@@ -618,11 +618,13 @@ export class SessionController {
     const resolve = this.pendingPrompts.get(promptId);
     if (resolve) {
       this.pendingPrompts.delete(promptId);
-      // The approval card's edit payload (selected_ids/added_items/text_values/notes) is the
-      // only durable proof an in-product edit reached the backend — without it, no session
-      // log can show whether an "add OLED" actually rode on the answer. Each field is added
-      // only when present so a plain ask_user/deploy answer keeps its existing shape (no
-      // undefined-key noise for the telemetry mapper or the restore-path reader to trip on).
+      // The approval card's edit payload (selected_ids/added_items/text_values) is the only
+      // durable proof an in-product edit reached the backend — without it, no session log
+      // can show whether an "add OLED" actually rode on the answer. `notes` is recorded too
+      // (confirmApproval has unpacked extra.notes since before this change) though no live
+      // webview control sets it today — it rides only if a future caller passes one. Each
+      // field is added only when present so a plain ask_user/deploy answer keeps its existing
+      // shape (no undefined-key noise for the telemetry mapper or the restore-path reader).
       const event: Record<string, any> = { type: "ui_prompt_answer", promptId, answer };
       if (extra?.selected_ids !== undefined) event.selected_ids = extra.selected_ids;
       if (extra?.added_items !== undefined) event.added_items = extra.added_items;

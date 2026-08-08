@@ -237,12 +237,13 @@
           const doAdd = () => {
             if (answered) return;
             const name = addInput.value.trim();
-            if (!name) return;
+            if (!name || added.includes(name)) { addInput.value = ""; addInput.focus(); return; }
             added.push(name);
             addInput.value = "";
+            addInput.focus();
             const row = document.createElement("div"); row.className = "ask-added-row";
             const span = document.createElement("span"); span.textContent = name; row.appendChild(span);
-            const rm = document.createElement("button"); rm.type = "button"; rm.className = "ask-added-remove"; rm.textContent = "✕";
+            const rm = document.createElement("button"); rm.type = "button"; rm.className = "ask-opt ask-added-remove"; rm.textContent = "✕";
             rm.addEventListener("click", () => {
               if (answered) return;
               const idx = added.indexOf(name);
@@ -304,6 +305,10 @@
           if (answered) return; answered = true;
           const selected_ids = checks.filter((c) => c.checked).map((c) => c.dataset.id).filter(Boolean);
           const text_values = {}; Object.keys(textEls).forEach((k) => { text_values[k] = textEls[k].value; });
+          // Flush a name typed but never explicitly "Added" (Enter/button click) -- the primary
+          // action sits right below the add row, so typing then hitting Confirm directly is the
+          // likely path (the acceptance demo itself: "type OLED into the add row, confirm").
+          if (addInputEl) { const pending = addInputEl.value.trim(); if (pending && !added.includes(pending)) added.push(pending); }
           const added_items = added.map((name) => ({ name, type: "user_added", interface: "unknown", source: "user_specified" }));
           const msg = { type: "ui_prompt_response", promptId, answer: action, selected_ids, text_values, added_items };
           // Ride the chosen port so the host sets it before the agent's flash tool runs (same
