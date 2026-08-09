@@ -548,6 +548,65 @@ test("file_operation mkdir/delete run the real host deps (no faked no-op success
   assert.deepEqual(calls, [["mkdir", "firmware/lib"], ["delete", "firmware/tools"]]);
 });
 
+// A rejection the model cannot act on stalls the phase: it re-guesses, burns turns, and
+// the run dies on max_turns or a text-only no_tool_call turn. Both malformed shapes below
+// were observed against real upstreams, so each rejection has to name what is accepted.
+test("a file_operation with no op is refused with the supported ops named", async () => {
+  const r = await executeProtocolTool(
+    tu("n", "file_operation", { path: "firmware/main.py", op_id: "o1" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}) },
+  );
+  assert.equal(r.result.ok, false);
+  assert.equal(r.result.error_kind, "missing_file_op");
+  // The key must SURVIVE serialization: spreading a bare undefined `op` dropped it, so the
+  // model received a bare error_kind and had nothing to correct from.
+  assert.ok("op" in JSON.parse(JSON.stringify(r.result)), "op key survives JSON round-trip");
+  assert.deepEqual(r.result.supported_ops, ["read", "write", "append", "list", "mkdir", "delete"]);
+  for (const op of ["read", "write", "append", "list", "mkdir", "delete"]) {
+    assert.match(r.result.detail, new RegExp(op), `detail names ${op}`);
+  }
+});
+
+test("an unknown file_operation op is refused, echoed back, and told what is valid", async () => {
+  const r = await executeProtocolTool(
+    tu("u", "file_operation", { op: "touch", path: "firmware/main.py" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}) },
+  );
+  assert.equal(r.result.ok, false);
+  assert.equal(r.result.error_kind, "unsupported_file_op");
+  assert.equal(r.result.op, "touch", "the rejected op is echoed so the model sees what it sent");
+  assert.match(r.result.detail, /touch/);
+  assert.match(r.result.detail, /append/);
+});
+
+// Coercing an ABSENT content to "" wrote an empty file and reported success, so the model
+// was told it had written real code with nothing on disk.
+test("write with no content is refused instead of silently writing an empty file", async () => {
+  const writes: any[] = [];
+  const r = await executeProtocolTool(
+    tu("w", "file_operation", { op: "write", path: "firmware/main.py", op_id: "o2" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), writeFile: async (p: string, c: string) => { writes.push([p, c]); return { ok: true }; } },
+  );
+  assert.equal(r.result.ok, false);
+  assert.equal(r.result.error_kind, "missing_content");
+  assert.equal(writes.length, 0, "nothing reached the workspace");
+  assert.match(r.result.detail, /content/);
+});
+
+test("write with an explicitly empty content still writes (a deliberate empty file)", async () => {
+  const writes: any[] = [];
+  const r = await executeProtocolTool(
+    tu("e", "file_operation", { op: "write", path: "firmware/lib/__init__.py", content: "" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), writeFile: async (p: string, c: string) => { writes.push([p, c]); return { ok: true }; } },
+  );
+  assert.equal(r.result.ok, true);
+  assert.deepEqual(writes, [["firmware/lib/__init__.py", ""]]);
+});
+
 test("file_operation mkdir/delete/list fail loud when the host dep is absent (not faked ok)", async () => {
   for (const op of ["mkdir", "delete", "list"]) {
     const r = await executeProtocolTool(tu("f", "file_operation", { op, path: "firmware/tools" }) as any, { intent: "x" }, { llmClient: scriptedLlm({}) });

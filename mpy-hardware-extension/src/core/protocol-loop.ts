@@ -532,12 +532,27 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
   return { result: { ok: false, error_kind: "unrouted_tool", detail: name } };
 }
 
+// Every op execFileOperation routes. Named once so the rejection below can TELL the
+// model what it may send instead of leaving it to guess.
+const SUPPORTED_FILE_OPS = ["read", "write", "append", "list", "mkdir", "delete"] as const;
+
 async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInput) {
   const op = p.op;
   const path = String(p.path ?? "");
   if ((op === "write" || op === "append")) {
     if (typeof deps.writeFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
-    const r = await deps.writeFile(path, String(p.content ?? ""));
+    // The protocol requires content on write/append. Coercing an ABSENT content to ""
+    // wrote an empty file and reported success, so the model was told it had written
+    // real code and moved on with nothing on disk. Refuse instead, and say why.
+    // An explicitly empty string still writes: that is a deliberate empty file, and
+    // only the missing key is the malformed call.
+    if (p.content === undefined || p.content === null) {
+      return {
+        ok: false, op_id: p.op_id, success: false, error_kind: "missing_content",
+        detail: `file_operation "${op}" requires a "content" string. Received none for path "${path}". Send the full file body in "content"; use "" only for a deliberately empty file.`,
+      };
+    }
+    const r = await deps.writeFile(path, String(p.content));
     if (r.ok) input.onEvent?.({ type: "file_written", path: r.path ?? path });
     return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "write_failed"), ...(r.allowed ? { allowed: r.allowed } : {}) };
   }
@@ -564,5 +579,19 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
     const r = await deps.deletePath(path);
     return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "delete_failed") };
   }
-  return { ok: false, op_id: p.op_id, error_kind: "unsupported_file_op", op };
+  // A rejection the model cannot act on is a stalled phase: it re-guesses, burns turns,
+  // and the run dies on max_turns or a text-only no_tool_call turn. `op` was spread in
+  // bare, so a call with NO op serialized to {ok:false,error_kind:"unsupported_file_op"}
+  // (JSON.stringify drops undefined) and told the model nothing at all. Separate the two
+  // cases, keep the key with an explicit null, and always name what is accepted.
+  const missing = op === undefined || op === null || op === "";
+  return {
+    ok: false, op_id: p.op_id, success: false,
+    error_kind: missing ? "missing_file_op" : "unsupported_file_op",
+    op: op ?? null,
+    supported_ops: [...SUPPORTED_FILE_OPS],
+    detail: missing
+      ? `file_operation requires an "op". Send one of: ${SUPPORTED_FILE_OPS.join(", ")}.`
+      : `file_operation "${String(op)}" is not a supported op. Send one of: ${SUPPORTED_FILE_OPS.join(", ")}.`,
+  };
 }
