@@ -826,17 +826,26 @@ def _readme_inline_text(value):
     return text.replace("<", "").replace(">", "").strip()
 
 
-def _remove_export_scratch(path: str) -> None:
+def _remove_export_scratch(path: str, *, best_effort: bool = False) -> None:
     """Drop a staging/backup sibling of upload_ready/, if one is there.
 
     Only ever called on the two scratch paths the export owns, and only after the caller
     has refused a symlink or a non-directory at them, so this cannot delete through a link
     or remove a user file. A leftover from an interrupted earlier run is expected, not an
     error: the caller clears staging before building and backup after a successful swap.
+
+    best_effort is for cleanup on an ALREADY-failing path, where an rmtree error would
+    replace the real diagnosis with a confusing one about a scratch directory. It is never
+    used on the success path: there, a failure to remove the backup is a real problem and
+    must surface.
     """
     if os.path.islink(path) or not os.path.isdir(path):
         return
-    shutil.rmtree(path)
+    try:
+        shutil.rmtree(path)
+    except OSError:
+        if not best_effort:
+            raise
 
 
 def _build_upload_ready_readme(manifest, timestamp):
@@ -965,7 +974,9 @@ def _export_upload_ready(project_dir: str):
             handle.write(readme_body)
     except OSError as exc:
         # The previous export was never touched, so the user still has a working folder.
-        _remove_export_scratch(staging_dir)
+        # Cleanup is best-effort HERE only: letting an rmtree error escape would replace the
+        # real diagnosis with a confusing one about a scratch directory.
+        _remove_export_scratch(staging_dir, best_effort=True)
         return {"status": "error", "error_kind": "export_write_failed", "message": str(exc)}
     # Swap. The old tree moves aside rather than being deleted first, so a failed rename
     # can put it back: at no point is the user left with neither a complete old export nor
@@ -977,9 +988,22 @@ def _export_upload_ready(project_dir: str):
             os.rename(export_dir, backup_dir)
         os.rename(staging_dir, export_dir)
     except OSError as exc:
+        # The rollback can itself fail (a race recreating export_dir, a permission change).
+        # Letting THAT escape would strand the user's only complete export under a name they
+        # have never heard of and hand them a generic RPC error, so it gets its own handler
+        # and its own error_kind that says where the folder is.
+        stranded_at = None
         if had_previous and not os.path.exists(export_dir) and os.path.isdir(backup_dir):
-            os.rename(backup_dir, export_dir)
-        _remove_export_scratch(staging_dir)
+            try:
+                os.rename(backup_dir, export_dir)
+            except OSError:
+                stranded_at = backup_dir
+        _remove_export_scratch(staging_dir, best_effort=True)
+        if stranded_at is not None:
+            return {
+                "status": "error", "error_kind": "export_rollback_failed", "path": stranded_at,
+                "message": f"Could not restore the previous export. It is intact at {stranded_at}; rename it back to upload_ready. Original failure: {exc}",
+            }
         return {"status": "error", "error_kind": "export_swap_failed", "message": str(exc)}
     _remove_export_scratch(backup_dir)
     return {"status": "ok", "path": export_dir, "file_count": file_count, "mip_count": len(mip_entries)}

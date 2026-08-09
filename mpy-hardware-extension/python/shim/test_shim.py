@@ -1047,6 +1047,56 @@ def test_export_upload_ready_keeps_the_previous_export_when_a_copy_fails(monkeyp
     assert not (project / "upload_ready.staging").exists(), "the failed attempt cleans up after itself"
 
 
+def test_export_upload_ready_names_where_the_export_is_when_rollback_also_fails(monkeypatch, tmp_path):
+    """The swap moves the old export aside, so if BOTH the install and the rollback rename
+    fail the user's only complete folder is sitting under a name they have never heard of.
+    Letting that OSError escape would hand them a generic RPC error and no way to find it."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    assert _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})["status"] == "ok"
+
+    import serve
+    real_rename = serve.os.rename
+
+    def failing_rename(src, dst, *args, **kwargs):
+        # Let the "move the old aside" rename through, fail the install AND the rollback.
+        if str(src).endswith("upload_ready") and str(dst).endswith(".previous"):
+            return real_rename(src, dst, *args, **kwargs)
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(serve.os, "rename", failing_rename)
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "export_rollback_failed", "not the generic swap failure, and not an escaped OSError"
+    backup = project / "upload_ready.previous"
+    assert result["path"] == str(backup), "the result names where the folder actually is"
+    assert "upload_ready" in result["message"], "and the message says what to do about it"
+    assert (backup / "main.py").exists(), "the user's complete export still exists, under the backup name"
+
+
+def test_export_upload_ready_cleanup_failure_does_not_mask_the_real_error(monkeypatch, tmp_path):
+    """Cleanup runs on an already-failing path. An rmtree error there would replace the real
+    diagnosis with a confusing one about a scratch directory."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+
+    import serve
+    real_copy2 = serve.shutil.copy2
+
+    def failing_copy2(src, dst, *args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    def failing_rmtree(path, *args, **kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(serve.shutil, "copy2", failing_copy2)
+    monkeypatch.setattr(serve.shutil, "rmtree", failing_rmtree)
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "export_write_failed", "the copy failure is what gets reported"
+    assert "No space left" in result["message"]
+
+
 def test_export_upload_ready_leaves_no_scratch_directories_behind(tmp_path):
     project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
     _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
