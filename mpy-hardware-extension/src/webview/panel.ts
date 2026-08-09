@@ -28,7 +28,7 @@ import { CloudTelemetryRecorder, CompositeSessionRecorder, JsonlSessionRecorder 
 import { createGithubAuth } from "../extension/github-auth.ts";
 import { postWelcomeEvent } from "../extension/web-telemetry.ts";
 import { BUNDLED_TOOLCHAIN_VERSION, EXTENSION_VERSION, toolchainOutdated } from "../core/toolchain-version.ts";
-import { canonicalPathKey, deleteProjectPath, isRealContained, sanitizeDevicePath, snapshotExistingPaths, writeGeneratedFiles, writeProjectFile, type WriteRestriction } from "../extension/workspace-writer.ts";
+import { canonicalPathKey, deleteProjectPath, isRealContained, sanitizeDevicePath, snapshotExistingPaths, stripRedundantPathRoot, writeGeneratedFiles, writeProjectFile, type WriteRestriction } from "../extension/workspace-writer.ts";
 import { artifactOpenAction, buildArtifactIndex, classifyArtifactKind, resolveArtifactPath, resolveContainedArtifactPath, toRelativeDisplayPath } from "../extension/artifact-index.ts";
 import type { Artifact, ArtifactSource } from "../extension/artifact-index.ts";
 import { resolveApiBaseUrl } from "../extension/api-base-url.ts";
@@ -2310,6 +2310,20 @@ function makeWorkspaceReader(workspaceFolder?: string) {
     try {
       return { ok: true as const, content: readFileSync(target, "utf-8") };
     } catch {
+      // The writer accepts ONE redundant leading segment (see stripRedundantPathRoot), so a
+      // read has to resolve the same way or the model cannot read back the file it just
+      // wrote: it would write project/firmware/main.py, land on firmware/main.py, then read
+      // project/firmware/main.py and be told file_not_found. Containment is re-checked here,
+      // and this only runs after the literal path has already failed.
+      const stripped = stripRedundantPathRoot(relPath);
+      if (stripped) {
+        const alternate = resolve(root, stripped);
+        if (isRealContained(root, alternate)) {
+          try {
+            return { ok: true as const, content: readFileSync(alternate, "utf-8") };
+          } catch { /* fall through to file_not_found */ }
+        }
+      }
       return { ok: false as const, error_kind: "file_not_found" };
     }
   };

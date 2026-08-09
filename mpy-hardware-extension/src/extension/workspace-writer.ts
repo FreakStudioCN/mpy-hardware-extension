@@ -177,16 +177,25 @@ const REDUNDANT_PATH_ROOTS: readonly string[] = ["project", "blockless-project",
 // rejected path valid. Deliberately not a general search: stripping arbitrary leading
 // segments would happily turn docs/firmware/main.py into firmware/main.py and send the model
 // somewhere it never asked to go. Undefined when there is nothing safe to suggest.
-export function suggestWritablePath(
-  name: string,
-  options: Parameters<typeof normalizeGeneratedArtifactPath>[1] = {},
-): string | undefined {
+// The path with ONE known-redundant leading segment removed, or undefined when there is
+// none. Shared so the writer and the reader resolve a model-supplied path the SAME way: the
+// writer accepts `project/firmware/main.py`, so a read of that path has to find the file the
+// write just created, or the model cannot read back its own work.
+export function stripRedundantPathRoot(name: string): string | undefined {
   const raw = String(name ?? "").replace(/\\/g, "/").replace(/^\/+/, "");
   const segments = raw.split("/");
   if (segments.length < 2) return undefined;
   const [head, ...rest] = segments;
   if (!REDUNDANT_PATH_ROOTS.includes(head)) return undefined;
-  const candidate = rest.join("/");
+  return rest.join("/");
+}
+
+export function suggestWritablePath(
+  name: string,
+  options: Parameters<typeof normalizeGeneratedArtifactPath>[1] = {},
+): string | undefined {
+  const candidate = stripRedundantPathRoot(name);
+  if (!candidate) return undefined;
   return normalizeGeneratedArtifactPath(candidate, options) ? candidate : undefined;
 }
 
@@ -288,14 +297,16 @@ export async function writeProjectFile(input: {
   allowedPaths?: readonly string[];
 }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
-  const safe = normalizeGeneratedArtifactPath(input.path, input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true });
+  const pathOptions = input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true };
+  // Telling the model the corrected path did NOT work: a measured run was handed
+  // did_you_mean on 12 of 12 rejections and re-sent `project/firmware/main.py` nine times
+  // anyway, then died on max_turns. Refusing a path whose meaning is unambiguous costs the
+  // whole phase to make a point, so accept it and write where it meant. This is not a guess:
+  // the corrected path is re-validated against the SAME allowlist before it is used, and only
+  // ONE known-redundant leading segment is ever dropped. Anything else is still refused.
+  const safe = normalizeGeneratedArtifactPath(input.path, pathOptions) || suggestWritablePath(input.path, pathOptions);
   if (!safe) {
-    const options = input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true };
-    const didYouMean = suggestWritablePath(input.path, options);
-    return {
-      ok: false as const, error_kind: "invalid_generated_path", path: input.path, allowed: WRITABLE_PATHS_HINT,
-      ...(didYouMean ? { did_you_mean: didYouMean } : {}),
-    };
+    return { ok: false as const, error_kind: "invalid_generated_path", path: input.path, allowed: WRITABLE_PATHS_HINT };
   }
   const target = joinPath(root, safe);
   // normalizeGeneratedArtifactPath already rejects `..`/absolute, but a symlinked dir in the

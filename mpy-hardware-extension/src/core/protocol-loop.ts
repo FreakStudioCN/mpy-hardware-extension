@@ -90,10 +90,7 @@ export type ProtocolDeps = {
   // Workspace file I/O (host enforces path containment).
   // `allowed` (present on a rejected path) describes what the workspace WILL accept. Forwarded
   // to the model so a wrong path is corrected next turn instead of guessed at repeatedly.
-  // allowed = what IS writable; did_you_mean = the path the model probably meant, when a
-  // redundant leading segment is all that made this one invalid. Both are hints the writer
-  // produces and the result below forwards by name.
-  writeFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string; allowed?: string; did_you_mean?: string }>;
+  writeFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string; allowed?: string }>;
   readFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
   listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>;
   // mkdir / delete (host enforces containment). The generate phase deletes
@@ -620,10 +617,7 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
     }
     const r = await deps.writeFile(path, String(p.content));
     if (r.ok) input.onEvent?.({ type: "file_written", path: r.path ?? path });
-    // did_you_mean rides alongside `allowed`: the hint lists what is writable, this names the
-    // path the model probably meant. Forwarded explicitly, like `allowed`, because the result
-    // is field-picked rather than spread.
-    return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "write_failed"), ...(r.allowed ? { allowed: r.allowed } : {}), ...(r.did_you_mean ? { did_you_mean: r.did_you_mean } : {}) };
+    return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "write_failed"), ...(r.allowed ? { allowed: r.allowed } : {}) };
   }
   if (op === "read") {
     if (typeof deps.readFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };

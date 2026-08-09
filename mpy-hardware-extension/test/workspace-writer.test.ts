@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { WRITABLE_PATHS_HINT, WRITABLE_PATH_EXAMPLES, isRealContained, normalizeGeneratedArtifactPath, planWorkspaceWrites, suggestWritablePath, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
+import { WRITABLE_PATHS_HINT, WRITABLE_PATH_EXAMPLES, isRealContained, normalizeGeneratedArtifactPath, planWorkspaceWrites, stripRedundantPathRoot, suggestWritablePath, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
 
 test("isRealContained allows the root and contained paths, refuses ../ escapes", () => {
   const root = mkdtempSync(join(tmpdir(), "mpyhw-contain-"));
@@ -303,33 +303,38 @@ test("the root-JSON allowance is data only — code at the root is still refused
 // redundant `project/` prefix AFTER being told what was writable, then died on max_turns.
 // The Skill documents the layout as sessions/<id>/project/firmware/, while a write path here
 // is relative to the project dir, so the model is following the docs and the guard is right.
-test("a redundant project/ prefix is answered with the path the model meant", async () => {
+// Telling the model the corrected path did not work. A measured run was handed did_you_mean
+// on 12 of 12 rejections and re-sent `project/firmware/main.py` nine times regardless, then
+// died on max_turns. So accept the unambiguous case and write where it meant.
+test("a redundant project/ prefix is accepted and written to the corrected path", async () => {
   const cases: Array<[string, string]> = [
-    ["project/firmware/main.py", "firmware/main.py"],
-    ["project/generate_plan.json", "generate_plan.json"],
-    ["project/.flake8", ".flake8"],
-    ["blockless-project/firmware/main.py", "firmware/main.py"],
-    ["./firmware/main.py", "firmware/main.py"],
-    ["project\\firmware\\main.py", "firmware/main.py"],
+    ["project/firmware/main.py", "C:/project/firmware/main.py"],
+    ["project/generate_plan.json", "C:/project/generate_plan.json"],
+    ["project/.flake8", "C:/project/.flake8"],
+    ["blockless-project/firmware/main.py", "C:/project/firmware/main.py"],
+    ["./firmware/main.py", "C:/project/firmware/main.py"],
+    ["project\\firmware\\main.py", "C:/project/firmware/main.py"],
   ];
-  for (const [sent, meant] of cases) {
+  for (const [sent, target] of cases) {
+    const written: string[] = [];
     const result = await writeProjectFile({
       workspaceFolder: "C:/project",
       path: sent,
       content: "x",
-      writeFile: async () => { throw new Error("must not be written"); },
+      writeFile: async (p: string) => { written.push(p); },
     });
-    assert.equal(result.ok, false, sent);
-    assert.equal(result.error_kind, "invalid_generated_path", sent);
-    assert.equal(result.did_you_mean, meant, sent);
-    assert.equal(result.allowed, WRITABLE_PATHS_HINT, `${sent} still carries the full hint`);
+    assert.equal(result.ok, true, sent);
+    assert.deepEqual(written, [target], sent);
+    // The result reports where it ACTUALLY landed, so the model is not misled.
+    assert.equal(result.path, target, sent);
   }
 });
 
-test("no suggestion is invented when stripping the prefix would still be refused", async () => {
-  // Silence is the correct answer here. A confident wrong suggestion is worse than none:
-  // it would send the model down a path it never asked for and cost another turn.
-  for (const path of ["project/secrets/key.pem", "docs/firmware/main.py", "evil.sh", "firmware/main.py/../../x.sh"]) {
+test("only one redundant segment is dropped, and never into a path the allowlist refuses", async () => {
+  // Accepting the unambiguous case must not become a general search. Stripping arbitrary
+  // leading segments would turn docs/firmware/main.py into firmware/main.py and write
+  // somewhere the model never asked for.
+  for (const path of ["project/secrets/key.pem", "docs/firmware/main.py", "evil.sh", "project/project/firmware/main.py"]) {
     const result = await writeProjectFile({
       workspaceFolder: "C:/project",
       path,
@@ -337,8 +342,20 @@ test("no suggestion is invented when stripping the prefix would still be refused
       writeFile: async () => { throw new Error("must not be written"); },
     });
     assert.equal(result.ok, false, path);
-    assert.equal(result.did_you_mean, undefined, `${path} must not get a suggestion`);
+    assert.equal(result.error_kind, "invalid_generated_path", path);
+    assert.equal(result.allowed, WRITABLE_PATHS_HINT, `${path} still says what would work`);
   }
+});
+
+test("stripRedundantPathRoot drops exactly one known root, or nothing", () => {
+  assert.equal(stripRedundantPathRoot("project/firmware/main.py"), "firmware/main.py");
+  assert.equal(stripRedundantPathRoot("blockless-project/lib/a.py"), "lib/a.py");
+  assert.equal(stripRedundantPathRoot("./firmware/main.py"), "firmware/main.py");
+  assert.equal(stripRedundantPathRoot("project\\firmware\\main.py"), "firmware/main.py");
+  // Not a known root, a bare name, or nothing left after the strip.
+  assert.equal(stripRedundantPathRoot("docs/firmware/main.py"), undefined);
+  assert.equal(stripRedundantPathRoot("firmware/main.py"), undefined);
+  assert.equal(stripRedundantPathRoot("project"), undefined);
 });
 
 test("suggestWritablePath never proposes a path the writer would refuse", () => {

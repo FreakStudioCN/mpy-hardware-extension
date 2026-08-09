@@ -612,9 +612,6 @@ test("the cap reaches the model, while structured_errors are still parsed from t
   );
 });
 
-// The write result is field-picked, not spread, so a hint the writer produces reaches the
-// model only if it is forwarded by name. `allowed` already was; `did_you_mean` is useless
-// unless it travels the same way.
 // A turn where the model returns NOTHING used to be recorded as an empty assistant message.
 // History is replayed on every later request, so one of those poisons the rest of the phase:
 // the api renders it as {"role":"assistant","content":""} with no tool_calls, and at least one
@@ -681,21 +678,6 @@ test("repeated empty turns leave no assistant messages behind before the stall",
       `request ${i + 1} carries no empty assistant message`,
     );
   }
-});
-
-test("a rejected write forwards both the allowed hint and the suggested path to the model", async () => {
-  const r = await executeProtocolTool(
-    tu("w", "file_operation", { op: "write", path: "project/firmware/main.py", content: "print(1)" }) as any,
-    { intent: "x" },
-    {
-      llmClient: scriptedLlm({}),
-      writeFile: async () => ({ ok: false, error_kind: "invalid_generated_path", allowed: "Writable: …", did_you_mean: "firmware/main.py" }),
-    },
-  );
-  assert.equal(r.result.ok, false);
-  assert.equal(r.result.error, "invalid_generated_path");
-  assert.equal(r.result.allowed, "Writable: …");
-  assert.equal(r.result.did_you_mean, "firmware/main.py", "the correction must reach the model, not just the host");
 });
 
 test("file_operation mkdir/delete run the real host deps (no faked no-op success)", async () => {
