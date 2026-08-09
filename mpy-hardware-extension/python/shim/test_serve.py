@@ -405,3 +405,74 @@ if __name__ == "__main__":
                 print(f"FAIL {name}: {exc}")
     print(f"\n{('ALL PASS' if not failures else str(failures) + ' FAILED')}")
     sys.exit(1 if failures else 0)
+
+
+def test_run_v0_shell_allows_the_read_only_git_forms_the_contract_needs():
+    # The generate contract requires session_state.git_commit to record project HEAD, and a
+    # fresh project needs `git init`. Refusing these stalled the phase.
+    for command, expected in (
+        ("git rev-parse HEAD", [["git", "rev-parse", "HEAD"]]),
+        ("git status --short", [["git", "status", "--short"]]),
+        ("git init", [["git", "init"]]),
+        (
+            'git init && git add -A && git commit -m "generate: initial"',
+            [["git", "init"], ["git", "add", "-A"], ["git", "commit", "-m", "generate: initial"]],
+        ),
+    ):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "shell", "script": command, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "ok", (command, res)
+        assert [entry["cmd"] for entry in record] == expected, command
+        assert all(entry["kwargs"].get("shell") is None for entry in record), command
+
+
+def test_run_v0_shell_refusal_names_the_permitted_commands():
+    # Without this the model only learned that its guess was wrong, so it kept guessing until
+    # the phase ran out of turns. The message reaches it as the tool result's stderr.
+    shim = _shim_with([])
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "shell", "script": "git log --oneline", "project_dir": "/tmp/proj",
+    })
+    assert res["error_kind"] == "shell_command_not_allowed"
+    assert res["message"] == serve.ALLOWED_SHELL_COMMANDS_HINT
+    assert "git rev-parse HEAD" in res["message"]
+    # The refusal must not send the model to a route that does not exist. interpreter=python
+    # resolves BUNDLED plugin scripts only, so "just use interpreter=python" would turn one
+    # dead end into a second (script_not_found) for something like `python -m flake8`.
+    assert "run_quality_gates.py" in res["message"], "name where linting actually happens"
+    assert "not arbitrary modules" in res["message"], "do not imply a module route exists"
+
+
+def test_allowed_shell_hint_cannot_lie():
+    # The hint and the parser are built from one table, so a form cannot be advertised without
+    # being runnable. A hint naming a command the shim then refuses would send the model into
+    # a confident loop -- worse than no hint.
+    for argv in serve._ALLOWED_SHELL_ARGV:
+        command = " ".join(argv)
+        assert command in serve.ALLOWED_SHELL_COMMANDS_HINT, command
+        assert serve._parse_v0_shell_command(command) == [list(argv)], command
+    assert serve._parse_v0_shell_command('git commit -m "x"') == [["git", "commit", "-m", "x"]]
+
+
+def test_run_v0_shell_still_refuses_an_over_long_chain_and_a_disallowed_part():
+    # Every part is validated on its own, so a permitted command cannot carry an unpermitted
+    # one along by position, and the chain length is bounded.
+    record = []
+    shim = _shim_with(record)
+    for cmd in (
+        "git rev-parse HEAD && rm -rf /tmp/proj",
+        # Every part here is individually PERMITTED, so this is refused purely on chain length.
+        # Without an all-allowed case the bound is never exercised: a chain containing a
+        # disallowed part is refused by the allowlist whatever the limit is.
+        "git init && git init && git init && git init",
+        "git commit -m ''",
+        "git log",
+    ):
+        res = serve._dispatch(shim, "script.run_v0", {"interpreter": "shell", "script": cmd, "project_dir": "/tmp/proj"})
+        assert res["status"] == "error" and res.get("error_kind") == "shell_command_not_allowed", (cmd, res)
+    assert not record, "nothing may reach subprocess when any part is disallowed"
