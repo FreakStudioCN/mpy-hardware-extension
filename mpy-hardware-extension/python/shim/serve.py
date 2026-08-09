@@ -335,8 +335,15 @@ _FIRMWARE_EXCLUDE_PATH_GLOBS = ("drivers/*/mock.py", "drivers/*/mock.mpy")
 
 def iter_uploadable_firmware(firmware_dir: str):
     """Walk firmware_dir yielding (src, rel) for every file that belongs on the device.
-    rel is posix-normalized (relative to firmware_dir) so it matches both the mpremote
-    ':' target path and the exclusion globs identically on Windows and POSIX."""
+    rel is posix-normalized (relative to firmware_dir) so the SEPARATORS match both the
+    mpremote ':' target path and the exclusion globs identically on Windows and POSIX.
+
+    Case does NOT match across platforms: fnmatch folds through os.path.normcase, so a
+    top-level FIRMWARE.BIN is excluded on Windows and kept on macOS/Linux. Left as-is
+    deliberately -- flash images and mock files ship lowercase in every tree this filters,
+    and forcing one behavior would either start excluding user files on POSIX or start
+    shipping flash images on Windows. Both sinks (export and deploy) use this one iterator,
+    so the two can never disagree with each other on the same machine."""
     for root, dirs, files in os.walk(firmware_dir):
         dirs[:] = [d for d in dirs if d not in _FIRMWARE_EXCLUDE_DIR_NAMES]
         for name in files:
@@ -717,7 +724,11 @@ def _read_project_manifest(project_dir: str):
             raw = json.load(handle)
     except FileNotFoundError:
         return None, None
-    except (OSError, json.JSONDecodeError) as exc:
+    # UnicodeDecodeError is a ValueError, NOT an OSError and NOT a JSONDecodeError, so a
+    # non-UTF-8 manifest used to escape this handler entirely and surface as a generic shim
+    # error instead of manifest_read_failed. Nothing destructive has run at that point, so
+    # the export was safe either way -- what was lost was the error KIND the caller reports.
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         return None, str(exc)
     return _unwrap_manifest(raw), None
 
@@ -794,7 +805,12 @@ def _mip_entries(manifest):
 # charset (a newline, a shell metacharacter, a markdown fence) is refused rather than
 # embedded verbatim in the README's copy-paste command block -- the manifest is
 # model-written, and the README is a document a user is instructed to run as-is.
-_MIP_SPEC_SAFE_RE = re.compile(r"^[A-Za-z0-9_.:/@-]+$")
+#
+# \Z, not $: `$` also matches immediately BEFORE a single trailing newline, so "aioble\n"
+# satisfied the charset and carried a stray blank line into the fenced block. That could
+# never form a fence or a second command (nothing may follow the newline), so this is the
+# claim above being made true rather than a hole being closed.
+_MIP_SPEC_SAFE_RE = re.compile(r"\A[A-Za-z0-9_.:/@-]+\Z")
 
 
 def _mip_install_line(entry):

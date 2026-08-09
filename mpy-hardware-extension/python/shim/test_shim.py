@@ -1202,6 +1202,43 @@ def test_export_upload_ready_regeneration_removes_stale_files(tmp_path):
     assert not (export_dir / "lib" / "a.py").exists(), "a source file deleted from firmware/ must vanish from the export too"
 
 
+def test_export_upload_ready_non_utf8_manifest_reports_manifest_read_failed(tmp_path):
+    """UnicodeDecodeError is a ValueError, so it is neither an OSError nor a
+    JSONDecodeError: it used to escape the manifest handler and surface as a generic shim
+    error. Nothing destructive has run at that point, so the export was always safe -- what
+    was lost was the error KIND, and with it any chance of the UI explaining itself."""
+    project = _minimal_firmware_project(tmp_path / "project")
+    (project / "project-manifest.json").write_bytes(b"\xff\xfe{\x00b\x00a\x00d\x00")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "manifest_read_failed"
+    assert not (project / "upload_ready").exists(), "the export never started, so nothing was destroyed"
+
+
+def test_export_upload_ready_rejects_a_mip_version_with_a_trailing_newline(tmp_path):
+    """`$` also matches before a single trailing newline, so "1.3.4\\n" satisfied the charset
+    and carried a stray blank line into the fenced command block a user is told to run.
+
+    VERSION, not package: _normalize_mip_entry strips the package in both the string and
+    dict forms (serve.py:764,770), so a newline can never reach the charset test through it.
+    version is the field that is NOT stripped, which is what makes this reachable at all."""
+    manifest = {"runtime_dependencies": {"mip": [{"package": "aioble", "version": "1.3.4\n"}]}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    # No device README in this fixture, so the generated instructions keep the README.md name.
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    assert "aioble@1.3.4" not in readme, "the newline version is never embedded in a command"
+    # Every line inside every fenced block is one intact command: a rejected spec cannot
+    # have split one across two lines, which is what the trailing newline would have done.
+    for block in readme.split("```")[1::2]:
+        for line in (l for l in block.splitlines() if l.strip()):
+            assert line.startswith("mpremote "), f"stray line in a command block: {line!r}"
+
+
 def test_export_upload_ready_malformed_json_manifest_errors_not_silently_no_deps(tmp_path):
     # A truncated write or a merge-conflict-marked manifest is invalid JSON, not a
     # missing file -- json.JSONDecodeError is a ValueError, not an OSError, so it must
