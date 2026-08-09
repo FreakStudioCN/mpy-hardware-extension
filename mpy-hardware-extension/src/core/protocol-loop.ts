@@ -374,6 +374,57 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
 // error arrays, or a success report with empty arrays) returns undefined and changes
 // nothing about existing behavior. A parse failure here is NOT an error condition: it
 // just means "not a JSON report".
+// A tool result is read back by the model, so an oversized one does not merely cost
+// tokens: it pushes the conversation past the upstream's context window and kills the
+// run. One scaffold report measured 652,869 chars (43 file bodies carried twice, once
+// under `files` and again under `file_operations`) and added 206k tokens to the context
+// in a single turn; three turns later the request was rejected for exceeding the model's
+// limit. Cap what reaches the model here, so no single script can do that again.
+const TOOL_OUTPUT_MAX_CHARS = 80_000;
+// Per embedded string, applied inside a JSON report. File bodies are the bulk, and the
+// model does not need one read back to it: it just wrote it.
+const EMBEDDED_STRING_MAX_CHARS = 500;
+
+const truncationNote = (removed: number) =>
+  `…[${removed} chars removed by the host: output too large to send. Do not re-run the script to see the rest.]`;
+
+// Keep the head AND the tail. A report's verdict and its handoff payload sit at the END
+// (a scaffold report ends with manifest_content and phase_complete_payload), so a
+// head-only cut throws away exactly what the phase needs to continue.
+function clampKeepingTail(text: string): string {
+  const half = Math.floor(TOOL_OUTPUT_MAX_CHARS / 2);
+  return text.slice(0, half) + truncationNote(text.length - TOOL_OUTPUT_MAX_CHARS) + text.slice(-half);
+}
+
+function shrinkLongStrings(value: any): any {
+  if (typeof value === "string") {
+    return value.length <= EMBEDDED_STRING_MAX_CHARS
+      ? value
+      : value.slice(0, EMBEDDED_STRING_MAX_CHARS) + truncationNote(value.length - EMBEDDED_STRING_MAX_CHARS);
+  }
+  if (Array.isArray(value)) return value.map(shrinkLongStrings);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, inner] of Object.entries(value)) out[key] = shrinkLongStrings(inner);
+    return out;
+  }
+  return value;
+}
+
+// Shrink the oversized STRINGS inside a JSON report rather than cutting the text, so
+// every key survives and the result stays parseable. Falls back to a head+tail clamp for
+// output that is not JSON, or that is still too large once the strings are shrunk.
+export function capToolOutput(output: unknown): string {
+  const text = typeof output === "string" ? output : "";
+  if (text.length <= TOOL_OUTPUT_MAX_CHARS) return text;
+  try {
+    const shrunk = JSON.stringify(shrinkLongStrings(JSON.parse(text)));
+    return shrunk.length <= TOOL_OUTPUT_MAX_CHARS ? shrunk : clampKeepingTail(shrunk);
+  } catch {
+    return clampKeepingTail(text);
+  }
+}
+
 function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; path?: string; message?: string }> | undefined {
   const text = typeof stdout === "string" ? stdout.trim() : "";
   if (!text.startsWith("{")) return undefined;
@@ -506,15 +557,17 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // ok:false = the call itself failed (host_runner_absent / script_not_found /
     // ambiguous_script_name) 鈥?surface it, forwarding any candidate qualified names so the
     // model can retry an ambiguous bare script name instead of re-sending it.
-    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: r.stderr ?? "", candidates: r.candidates, structured_errors: r.structured_errors } };
+    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: capToolOutput(r.stderr), candidates: r.candidates, structured_errors: r.structured_errors } };
     // The script RAN: success keys on its exit code (a non-zero gate is a real, fixable result).
     const exit = r.exit_code ?? 0;
     // The real host shim doesn't populate structured_errors -- it returns the script's
     // JSON report (run_quality_gates.py etc.) as a stdout STRING. Parse that shape
     // defensively so the loop's corrective path fires in production too; anything that
     // isn't a JSON report leaves the result exactly as before.
+    // Parsed from the FULL stdout, BEFORE the cap: a report's error detail can sit past
+    // the cap, and the corrective path must still see it even when the model cannot.
     const structuredErrors = r.structured_errors ?? structuredErrorsFromStdout(r.stdout);
-    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit_code: exit, structured_errors: structuredErrors } };
+    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: capToolOutput(r.stdout), stderr: capToolOutput(r.stderr), exit_code: exit, structured_errors: structuredErrors } };
   }
 
   if (route === "device") {
@@ -522,8 +575,10 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     try {
       const action = String(p.action ?? "");
       const r = await deps.device(action, p);
+      // The serial event carries the FULL stdout: it feeds the Serial tab, which the user
+      // reads, and only the model-facing result below is capped.
       if (r.stdout && SERIAL_OUTPUT_ACTIONS.has(action)) input.onEvent?.({ type: "serial_output", lines: String(r.stdout).split("\n").filter(Boolean) });
-      return { result: { ok: r.ok, cmd_id: p.cmd_id, success: r.ok, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error_kind: r.ok ? undefined : (r.error_kind ?? "runtime_error") } };
+      return { result: { ok: r.ok, cmd_id: p.cmd_id, success: r.ok, stdout: capToolOutput(r.stdout), stderr: capToolOutput(r.stderr), error_kind: r.ok ? undefined : (r.error_kind ?? "runtime_error") } };
     } catch (error: any) {
       return { result: { ok: false, cmd_id: p.cmd_id, success: false, error_kind: "runtime_error", message: error?.message ?? "device_error" } };
     }

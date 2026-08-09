@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { PROTOCOL_TOOLS } from "../src/core/protocol-registry.ts";
-import { PHASE_ORDER, runProtocolBuild, executeProtocolTool } from "../src/core/protocol-loop.ts";
+import { PHASE_ORDER, runProtocolBuild, executeProtocolTool, capToolOutput } from "../src/core/protocol-loop.ts";
 import { micropythonLibDriver, micropythonLibManifest } from "./micropython-lib-manifest.ts";
 
 // A scripted LLM: per phase, an array of turns; each turn is an array of SSE events.
@@ -530,6 +530,86 @@ test("script_run routes to the host runner, forwards stdin, maps a failed gate t
   assert.equal(result.success, false);  // but the gate FAILED (exit 1) 鈥?not faked
   assert.equal(result.exit_code, 1);
   assert.equal(result.script_id, "q");
+});
+
+// An oversized tool result does not just cost tokens: it pushes the conversation past the
+// upstream's context window and kills the run. A real scaffold report was 652,869 chars
+// (43 file bodies carried twice) and added 206k tokens in one turn.
+function scaffoldShapedReport(fileCount: number, bodyChars: number) {
+  const files = Array.from({ length: fileCount }, (_, i) => ({
+    path: `firmware/f${i}.py`, content: "x".repeat(bodyChars), encoding: "utf-8",
+  }));
+  return JSON.stringify({
+    phase: "scaffold",
+    files,
+    // The same bodies a second time, which is what made the real report enormous.
+    file_operations: files.map((f, i) => ({ type: "file_operation", payload: { op_id: `o${i}`, op: "write", ...f } })),
+    // The fields the phase actually needs come LAST, so a head-only cut would lose them.
+    manifest_content: { schema_version: "1.0", project_name: "T" },
+    phase_complete_payload: { result: "success", next_phase: "upy-generate-plugin" },
+  });
+}
+
+test("a small tool output is passed through untouched", () => {
+  const small = JSON.stringify({ ok: true, note: "short" });
+  assert.equal(capToolOutput(small), small);
+  assert.equal(capToolOutput(""), "");
+  assert.equal(capToolOutput(undefined), "", "a missing stdout is still an empty string, as before");
+});
+
+test("an oversized JSON report is shrunk but keeps every key, including the trailing payload", () => {
+  const raw = scaffoldShapedReport(43, 7000);
+  assert.ok(raw.length > 500_000, "the fixture reproduces the real report's scale");
+  const capped = capToolOutput(raw);
+
+  assert.ok(capped.length < raw.length / 5, `capped to ${capped.length} from ${raw.length}`);
+  // Still parseable: shrinking STRINGS rather than cutting text is what preserves this.
+  const parsed = JSON.parse(capped);
+  // The trailing keys are the ones a head-only truncation would have destroyed.
+  assert.equal(parsed.phase_complete_payload.next_phase, "upy-generate-plugin");
+  assert.equal(parsed.manifest_content.schema_version, "1.0");
+  assert.equal(parsed.files.length, 43, "no file is dropped, only its body is shortened");
+  assert.equal(parsed.file_operations.length, 43);
+  // The body is gone but the path survives, which is what the model needs to reason about.
+  assert.equal(parsed.files[0].path, "firmware/f0.py");
+  assert.ok(parsed.files[0].content.length < 1000);
+  assert.match(parsed.files[0].content, /chars removed by the host/);
+  assert.match(parsed.files[0].content, /Do not re-run the script/, "the marker tells the model not to retry for the rest");
+});
+
+test("oversized output that is not JSON keeps its head AND its tail", () => {
+  const text = "HEAD-MARKER" + "y".repeat(200_000) + "TAIL-MARKER";
+  const capped = capToolOutput(text);
+  assert.ok(capped.length < text.length);
+  assert.match(capped, /^HEAD-MARKER/, "the head survives");
+  assert.match(capped, /TAIL-MARKER$/, "the tail survives, where a report's verdict usually is");
+  assert.match(capped, /chars removed by the host/);
+});
+
+test("the cap reaches the model, while structured_errors are still parsed from the FULL stdout", async () => {
+  // A report big enough to exceed the budget even AFTER its strings are shrunk falls back
+  // to the head+tail clamp, which leaves the model unparseable JSON. That is the case that
+  // pins the ordering: parse the errors from the raw stdout, or the corrective path goes
+  // blind exactly when the report is worst.
+  const files = Array.from({ length: 200 }, (_, i) => ({ path: `firmware/f${i}.py`, content: "x".repeat(2000) }));
+  const stdout = JSON.stringify({
+    check: "quality_gates",
+    files,
+    file_operations: files.map((f) => ({ type: "file_operation", payload: { op: "write", ...f } })),
+    errors: [{ code: "FLAKE8_FAILED", path: "firmware/main.py", message: "E501 line too long" }],
+  });
+  const r = await executeProtocolTool(
+    tu("s", "script_run", { interpreter: "python", script: "scripts/run_quality_gates.py", script_id: "s1" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), runScript: async () => ({ ok: true, exit_code: 1, stdout, stderr: "" }) },
+  );
+  assert.ok(r.result.stdout.length < stdout.length, "what the model sees is capped");
+  assert.throws(() => JSON.parse(r.result.stdout), "this report is past rescue: the model gets a clamped, unparseable string");
+  assert.deepEqual(
+    r.result.structured_errors,
+    [{ code: "FLAKE8_FAILED", path: "firmware/main.py", message: "E501 line too long" }],
+    "the corrective path still sees the error, because it parses the raw stdout, not the capped one",
+  );
 });
 
 test("file_operation mkdir/delete run the real host deps (no faked no-op success)", async () => {
