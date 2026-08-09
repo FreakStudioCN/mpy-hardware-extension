@@ -257,7 +257,15 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     if (thinking) blocks.push({ type: "thinking", thinking });
     if (text) blocks.push({ type: "text", text });
     for (const tu of toolUses) blocks.push({ type: "tool_use", id: tu.id, name: tu.name, input: tu.input });
-    messages.push({ role: "assistant", content: blocks });
+    // A turn where the model returned NOTHING (no text, no thinking, no tool call) is not
+    // recorded. An empty assistant message carries no information, and it is not harmless:
+    // the api translates it to {"role":"assistant","content":""} with no tool_calls, which
+    // at least one upstream rejects outright ("the message at position N with role
+    // 'assistant' must not be empty"). Because history is replayed on EVERY later request,
+    // one such turn poisons the rest of the phase rather than costing a single turn, and the
+    // nudge loop below would append one per empty turn. Skipping it changes nothing for an
+    // upstream that tolerates the empty message: there was nothing in it to lose.
+    if (blocks.length > 0) messages.push({ role: "assistant", content: blocks });
 
     if (toolUses.length === 0) {
       // A prose-only turn can't advance the protocol. Stalling on the FIRST chatty reply

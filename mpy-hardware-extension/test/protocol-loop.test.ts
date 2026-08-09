@@ -615,6 +615,74 @@ test("the cap reaches the model, while structured_errors are still parsed from t
 // The write result is field-picked, not spread, so a hint the writer produces reaches the
 // model only if it is forwarded by name. `allowed` already was; `did_you_mean` is useless
 // unless it travels the same way.
+// A turn where the model returns NOTHING used to be recorded as an empty assistant message.
+// History is replayed on every later request, so one of those poisons the rest of the phase:
+// the api renders it as {"role":"assistant","content":""} with no tool_calls, and at least one
+// upstream rejects the whole conversation for it rather than just that turn.
+test("a turn that returned nothing is not recorded in the conversation", async () => {
+  const sent: any[] = [];
+  const base = scriptedLlm({
+    analyze: [
+      [stop],                                                                   // nothing at all
+      [tu("a", "phase_complete", { result: "success", summary: "ok", next_phase: null }), stop],
+    ],
+  });
+  const llm = { streamMessages: async (body: any) => { sent.push(structuredClone(body)); return base.streamMessages(body); } };
+
+  await runProtocolBuild({ intent: "blink", startPhase: "analyze" }, { llmClient: llm });
+
+  assert.equal(sent.length, 2, "the empty turn is nudged, not fatal");
+  const second = sent[1].messages;
+  assert.equal(
+    second.filter((m: any) => m.role === "assistant").length, 0,
+    "no assistant message is recorded for a turn that produced nothing",
+  );
+  assert.ok(
+    second.some((m: any) => JSON.stringify(m).includes("must call exactly one protocol tool")),
+    "the nudge still goes, so the model is told what to do",
+  );
+});
+
+test("a thinking-only or text-only turn IS still recorded", async () => {
+  // The guard must key on "no blocks at all", not on "no tool call". A turn that reasoned or
+  // spoke did produce something, and dropping it would lose real conversation history.
+  for (const [label, ev] of [
+    ["thinking", { type: "thinking_delta", text: "weighing options" }],
+    ["text", { type: "text_delta", text: "let me look" }],
+  ] as const) {
+    const sent: any[] = [];
+    const base = scriptedLlm({
+      analyze: [
+        [ev, stop],
+        [tu("a", "phase_complete", { result: "success", summary: "ok", next_phase: null }), stop],
+      ],
+    });
+    const llm = { streamMessages: async (body: any) => { sent.push(structuredClone(body)); return base.streamMessages(body); } };
+    await runProtocolBuild({ intent: "blink", startPhase: "analyze" }, { llmClient: llm });
+    const assistants = sent[1].messages.filter((m: any) => m.role === "assistant");
+    assert.equal(assistants.length, 1, `${label}: the turn is kept`);
+    assert.ok(assistants[0].content.length > 0, `${label}: with its block`);
+  }
+});
+
+test("repeated empty turns leave no assistant messages behind before the stall", async () => {
+  // The nudge loop runs MAX_TOOLLESS_TURNS times, so the old behavior appended one empty
+  // assistant message per empty turn — the failure compounds rather than staying at one.
+  const sent: any[] = [];
+  const base = scriptedLlm({ analyze: [[stop], [stop], [stop]] });
+  const llm = { streamMessages: async (body: any) => { sent.push(structuredClone(body)); return base.streamMessages(body); } };
+
+  const result = await runProtocolBuild({ intent: "blink", startPhase: "analyze" }, { llmClient: llm });
+
+  assert.equal(result.terminal, "stalled");
+  for (const [i, body] of sent.entries()) {
+    assert.equal(
+      body.messages.filter((m: any) => m.role === "assistant").length, 0,
+      `request ${i + 1} carries no empty assistant message`,
+    );
+  }
+});
+
 test("a rejected write forwards both the allowed hint and the suggested path to the model", async () => {
   const r = await executeProtocolTool(
     tu("w", "file_operation", { op: "write", path: "project/firmware/main.py", content: "print(1)" }) as any,
