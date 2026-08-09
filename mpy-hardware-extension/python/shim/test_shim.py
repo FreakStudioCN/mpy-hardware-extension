@@ -948,6 +948,139 @@ def test_probe_micropython_uses_a_short_timeout():
     assert calls[0][1]["timeout"] == 5
 
 
+def _build_upload_ready_project(project_dir, manifest=None):
+    """The project tree the export tests share: a firmware/ carrying one of every
+    excluded shape (mock.py/mock.mpy, __pycache__/*.pyc, tasks/.gitkeep) alongside the
+    real device files, plus sibling tools/ and test/pc/ that must never reach the
+    export. `manifest`, when given, is written to project-manifest.json."""
+    fw = project_dir / "firmware"
+    (fw / "lib").mkdir(parents=True)
+    (fw / "lib" / "a.py").write_text("a", encoding="utf-8")
+    (fw / "drivers" / "foo_driver").mkdir(parents=True)
+    (fw / "drivers" / "foo_driver" / "__init__.py").write_text("class Foo: pass", encoding="utf-8")
+    (fw / "drivers" / "foo_driver" / "mock.py").write_text("class MockFoo: pass", encoding="utf-8")
+    (fw / "drivers" / "foo_driver" / "mock.mpy").write_bytes(b"\x00")
+    (fw / "__pycache__").mkdir()
+    (fw / "__pycache__" / "x.pyc").write_bytes(b"\x00")
+    (fw / "tasks").mkdir()
+    (fw / "tasks" / ".gitkeep").write_text("", encoding="utf-8")
+    (fw / "main.py").write_text("m", encoding="utf-8")
+    (fw / "boot.py").write_text("b", encoding="utf-8")
+    (fw / "README.md").write_text("device notes", encoding="utf-8")
+    (project_dir / "tools").mkdir()
+    (project_dir / "tools" / "flash_device.py").write_text("# host helper", encoding="utf-8")
+    (project_dir / "test" / "pc").mkdir(parents=True)
+    (project_dir / "test" / "pc" / "test_a.py").write_text("def test_x(): pass", encoding="utf-8")
+    if manifest is not None:
+        (project_dir / "project-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return project_dir
+
+
+def _two_mip_manifest():
+    return {
+        "mcu": {"model": "ESP32-C3-MINI-1"},
+        "generate": {
+            "runtime_dependencies": {
+                "mip": [
+                    {"package": "aht20", "version": "1.0.0", "target": "/lib", "verify_import": "aht20", "install_phase": "deploy"},
+                    {"package": "aioble", "version": "latest", "target": "/lib", "verify_import": "aioble", "install_phase": "deploy", "asset_files": ["extra.bin"]},
+                ],
+            },
+        },
+    }
+
+
+def _noop_shim():
+    # project.export_upload_ready is filesystem-only; the shim instance is never
+    # touched, but _dispatch's signature still takes one.
+    return Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "", ""))
+
+
+def test_export_upload_ready_copies_firmware_excluding_mocks_pycache_gitkeep_and_siblings(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok"
+    export_dir = project / "upload_ready"
+    rels = set()
+    for root, _dirs, files in os.walk(export_dir):
+        for name in files:
+            rels.add(os.path.relpath(os.path.join(root, name), export_dir).replace("\\", "/"))
+    # Mocks, __pycache__, .gitkeep, and the sibling tools/ + test/pc/ trees never appear.
+    assert rels == {"main.py", "boot.py", "README.md", "lib/a.py", "drivers/foo_driver/__init__.py"}
+    assert result["file_count"] == 5
+    assert result["mip_count"] == 2
+    assert result["path"] == str(export_dir)
+
+
+def test_export_upload_ready_readme_lists_pinned_and_latest_mip_installs(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    assert "mip install aht20@1.0.0" in readme  # pinned version appended
+    assert "mip install aioble" in readme
+    assert "aioble@latest" not in readme  # "latest" is never appended
+    assert "extra.bin" in readme  # asset_files noted
+
+
+def test_export_upload_ready_readme_says_no_packages_without_runtime_dependencies(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest={"mcu": {"model": "ESP32-S3"}})
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    assert "No external packages required." in readme
+    assert "mip install" not in readme
+
+
+def test_export_upload_ready_regeneration_removes_stale_files(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+    export_dir = project / "upload_ready"
+    stale = export_dir / "stale.py"
+    stale.write_text("leftover", encoding="utf-8")
+    (project / "firmware" / "lib" / "a.py").unlink()
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok"
+    assert not stale.exists(), "a file that only ever existed in a PRIOR export must not survive regeneration"
+    assert not (export_dir / "lib" / "a.py").exists(), "a source file deleted from firmware/ must vanish from the export too"
+
+
+def test_export_upload_ready_manifest_read_failure_errors_not_silently_no_deps(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project")
+    manifest_path = project / "project-manifest.json"
+    manifest_path.write_text("{}", encoding="utf-8")
+    manifest_path.chmod(0o000)
+    try:
+        result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+    finally:
+        manifest_path.chmod(0o644)  # restore so pytest's tmp_path cleanup can remove it
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "manifest_read_failed"
+    assert not (project / "upload_ready").exists(), "an unreadable manifest must fail BEFORE the old export is touched"
+
+
+def test_export_upload_ready_refuses_a_preexisting_symlink_export_dir_target_untouched(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    outside = tmp_path / "outside-target"
+    outside.mkdir()
+    (outside / "keepme.txt").write_text("do not touch", encoding="utf-8")
+    (project / "upload_ready").symlink_to(outside, target_is_directory=True)
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "export_dir_is_symlink"
+    assert (outside / "keepme.txt").exists(), "rmtree must never run through the symlink"
+    assert (project / "upload_ready").is_symlink(), "the symlink itself is left in place, not replaced"
+
+
 class FakeSerial:
     def __init__(self, lines):
         self.lines = [f"{line}\n".encode() for line in lines]

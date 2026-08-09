@@ -142,6 +142,20 @@ export class DeviceShim {
     if (r?.status !== "ok") throw new Error(r?.error_kind ?? "deploy_failed");
   }
 
+  // Regenerate <projectDir>/upload_ready/ from the on-disk firmware/ tree (same
+  // exclusion the deploy above uses) plus a README documenting the project's mip
+  // installs. Filesystem-only on the Python side — ensure() spins up the shim/venv,
+  // but ensurePort() is deliberately NOT called: this works with no device connected.
+  async exportUploadReady(projectDir: string): Promise<{ path: string; fileCount: number; mipCount: number }> {
+    await this.ensure();
+    const r = await this.rpc("project.export_upload_ready", { project_dir: projectDir });
+    if (r?.status !== "ok") {
+      const kind = r?.error_kind ?? "export_failed";
+      throw new Error(r?.message ? `${kind}: ${r.message}` : kind);
+    }
+    return { path: r.path, fileCount: r.file_count ?? 0, mipCount: r.mip_count ?? 0 };
+  }
+
   async serialReadUntil(markers: string[]): Promise<{ ok: boolean; lines: string[] }> {
     const port = await this.ensurePort();
     const r = await this.rpc("device.serial_read_until", { port, markers });
