@@ -60,7 +60,25 @@
       // While a run owns the port, opening the tool must not poll presence or re-list: the list
       // would be refused (device_busy) and a mid-run scan is unreliable. The listing is preserved
       // and refreshed by dtRefreshAfterRun on session_done.
-      function dtOnOpen() { if (running) return; dtRelistOnNextPresence = true; dtCheckDevice(); }
+      // Two peers inside Device Tools: the CONNECTED board's filesystem, and the host-side
+      // upload_ready export. Board files is the default because it is the panel's primary
+      // purpose; the export needs no board, so it is never behind the no-device gate and stays
+      // one click away. The presence poll keeps running whichever view is showing, so switching
+      // never has to re-check the device.
+      function dtSetView(view) {
+        const onExport = view === "export";
+        const filesView = $("dtFilesView"); if (filesView) filesView.classList.toggle("hidden", onExport);
+        const exportView = $("dtExportView"); if (exportView) exportView.classList.toggle("hidden", !onExport);
+        for (const [id, active] of [["dtViewFiles", !onExport], ["dtViewExport", onExport]]) {
+          const seg = $(id);
+          if (!seg) continue;
+          seg.classList.toggle("active", active);
+          seg.setAttribute("aria-pressed", active ? "true" : "false");
+        }
+      }
+      // Opening the panel always lands on Board files, so a reopen is never left on whichever
+      // view the previous visit happened to end on.
+      function dtOnOpen() { dtSetView("files"); if (running) return; dtRelistOnNextPresence = true; dtCheckDevice(); }
       // A run just released the port. Only refresh if the tool is actually open (else the next
       // dtOnOpen handles it). Re-checks presence (shim.scan reconciles the cached port, so a board
       // that re-enumerated to a new port across the flash is healed, not left stale) and re-lists
@@ -569,6 +587,8 @@
           vscode.postMessage({ type: "device_tool_mkdir", path: dtJoin(dtCurrentPath(), name) });
         });
         $("dtUpload").addEventListener("click", () => { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_upload", dir: dtCurrentPath() }); });
+        if ($("dtViewFiles")) $("dtViewFiles").addEventListener("click", () => dtSetView("files"));
+        if ($("dtViewExport")) $("dtViewExport").addEventListener("click", () => dtSetView("export"));
         if ($("dtExport")) $("dtExport").addEventListener("click", () => { dtExportStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_export_upload_ready" }); });
         $("dtMipInstall").addEventListener("click", () => {
           const url = $("dtMipUrl").value.trim(); if (!url) return;

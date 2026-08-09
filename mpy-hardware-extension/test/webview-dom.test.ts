@@ -3487,6 +3487,59 @@ test("device tools: shows a no-device state until a board is present, and revert
   assert.equal(document.getElementById("dtEntries").children.length, 0, "the file list is cleared on unplug");
 });
 
+// Board files and the upload_ready export are peers with different preconditions: the browser
+// needs a connected board, the export never does. Stacking them put a project-level action on
+// top of device UI, so they are two views behind one segmented toggle.
+test("device tools: the view toggle switches between board files and the upload-ready export", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+
+  const files = document.getElementById("dtFilesView")!;
+  const exportView = document.getElementById("dtExportView")!;
+  const segFiles = document.getElementById("dtViewFiles") as HTMLButtonElement;
+  const segExport = document.getElementById("dtViewExport") as HTMLButtonElement;
+
+  // Board files is the default: it is the panel's primary purpose.
+  assert.equal(files.classList.contains("hidden"), false, "board files shows on open");
+  assert.equal(exportView.classList.contains("hidden"), true, "the export view is hidden on open");
+  assert.equal(segFiles.getAttribute("aria-pressed"), "true");
+  assert.equal(segExport.getAttribute("aria-pressed"), "false");
+
+  segExport.click();
+  assert.equal(exportView.classList.contains("hidden"), false, "the export view shows");
+  assert.equal(files.classList.contains("hidden"), true, "board files hides");
+  assert.ok(segExport.classList.contains("active"), "the active segment drives the sliding indicator");
+  assert.equal(segExport.getAttribute("aria-pressed"), "true");
+  assert.equal(segFiles.getAttribute("aria-pressed"), "false");
+
+  segFiles.click();
+  assert.equal(files.classList.contains("hidden"), false, "switching back restores board files");
+  assert.equal(exportView.classList.contains("hidden"), true);
+});
+
+test("device tools: the export is reachable with NO board, and reopening returns to board files", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+  // No board: the files view shows its empty state, but the export must NOT be gated by it —
+  // it is a filesystem-only operation and works with nothing plugged in.
+  post(dom, { type: "device_present", present: false });
+  assert.equal(document.getElementById("dtNoDev")!.classList.contains("hidden"), false, "the no-device state shows in the files view");
+
+  (document.getElementById("dtViewExport") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("dtExportView")!.classList.contains("hidden"), false, "the export view opens without a board");
+  (document.getElementById("dtExport") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "device_tool_export_upload_ready"), "the export runs with no device connected");
+
+  // Reopening the panel lands on board files again, never on whichever view was last used.
+  document.getElementById("deviceToolsBack")!.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("dtFilesView")!.classList.contains("hidden"), false, "a reopen returns to board files");
+  assert.equal(document.getElementById("dtExportView")!.classList.contains("hidden"), true);
+});
+
 test("device tools: an ABSENT venv shows the set-up-environment affordance; its button installs deps + opens Env", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

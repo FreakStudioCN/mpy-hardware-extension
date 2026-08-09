@@ -197,14 +197,17 @@
           <span class="tool-title" data-i18n="device_tools">Device Tools</span>
         </div>
         <div class="tool-body">
-          <!-- Regenerate the upload_ready/ export: a filesystem-only operation (no mpremote,
-               no port), so it stays available whether or not a board is connected. -->
-          <section class="dt-section">
-            <div class="dt-section-h" data-i18n="dt_sec_export">Upload-ready folder</div>
-            <p data-i18n="dt_export_p">Regenerate a single folder you can upload as-is to restore the board's program.</p>
-            <button type="button" class="dt-act" id="dtExport" data-i18n="dt_export">Export upload_ready</button>
-            <div class="dt-status" id="dtExportStatus"></div>
-          </section>
+          <!-- Two peers, not a stack: browsing the CONNECTED board versus producing a
+               host-side folder to upload later. They have different preconditions (the
+               browser needs a board, the export never does), so stacking them put a
+               project-level action on top of device UI and left the distinction to be
+               inferred from what was hidden. Same segmented control as the composer's
+               Recommend/Browse and the Packages source toggle. -->
+          <div class="dt-view-toggle" role="group" data-i18n-aria="device_tools" aria-label="Device Tools view">
+            <button type="button" class="dt-view-seg active" id="dtViewFiles" aria-pressed="true" data-i18n="dt_sec_files">Board files</button>
+            <button type="button" class="dt-view-seg" id="dtViewExport" aria-pressed="false" data-i18n="dt_sec_export">Upload-ready folder</button>
+          </div>
+          <div id="dtFilesView">
           <!-- The whole control set only makes sense with a board attached; hidden until
                a device is present (dtNoDev shows instead). -->
           <div id="dtDeviceUi" class="hidden">
@@ -269,6 +272,18 @@
           </div>
           <div class="empty" id="dtNoDev"><h4 data-i18n="dt_nodev_h">No device connected</h4><p data-i18n="dt_nodev_p">Plug in a MicroPython board to browse its files.</p></div>
           <div class="empty hidden" id="dtEnvSetup"><h4 data-i18n="dt_env_setup_h">Set up environment</h4><p data-i18n="dt_env_setup_p">Blockless needs to install device tools before it can detect your board.</p><button type="button" class="dt-act" id="dtEnvSetupBtn" data-i18n="doc_install">Install dependencies</button></div>
+          </div>
+          <!-- Regenerate the upload_ready/ export: a filesystem-only operation (no mpremote,
+               no port), so it works whether or not a board is connected. It lives in its own
+               view for that reason, and never behind the no-device gate above. -->
+          <div id="dtExportView" class="hidden">
+            <section class="dt-section">
+              <div class="dt-section-h" data-i18n="dt_sec_export">Upload-ready folder</div>
+              <p data-i18n="dt_export_p">Regenerate a single folder you can upload as-is to restore the board's program.</p>
+              <button type="button" class="dt-act" id="dtExport" data-i18n="dt_export">Export upload_ready</button>
+              <div class="dt-status" id="dtExportStatus"></div>
+            </section>
+          </div>
         </div>
       </div>
 
