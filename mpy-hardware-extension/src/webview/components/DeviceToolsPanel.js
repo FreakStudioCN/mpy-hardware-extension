@@ -29,6 +29,7 @@
       }
       function dtFilesStatus(text) { const n = $("dtFilesStatus"); if (n) n.textContent = text || ""; }
       function dtPkgStatus(text) { const n = $("dtPkgStatus"); if (n) n.textContent = text || ""; }
+      function dtExportStatus(text) { const n = $("dtExportStatus"); if (n) n.textContent = text || ""; }
       function dtListCurrent() { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
 
       // How long a Delete stays armed ("Confirm?") before disarming.
@@ -187,6 +188,13 @@
       var DT_INSTALL_CMDS = { mip_install: true, uninstall: true };
       function onDeviceToolResult(command, result) {
         dtSetBusy(null);
+        if (command === "export_upload_ready") {
+          // Not a device mutation (no board files changed) -- report the counts and stop,
+          // never fall through to dtRefreshSilently's device_tool_list (would error with no
+          // board connected, which the export explicitly does not require).
+          dtExportStatus(tr("dt_export_ok", { n: (result && result.fileCount) || 0, m: (result && result.mipCount) || 0 }));
+          return;
+        }
         if (command === "list") {
           dtRenderEntries((result && result.path) || "", result && result.entries);
           if (dtSilentList) dtSilentList = false; else dtFilesStatus("");
@@ -213,6 +221,10 @@
       }
       function onDeviceToolError(command, error) {
         dtSetBusy(null);
+        // The export never touches the device, so its failures are never "board is gone" --
+        // check this BEFORE the no-device heuristic below so an unrelated error message can
+        // never mistakenly hide the whole device UI.
+        if (command === "export_upload_ready") { dtExportStatus(tr("dt_err", { c: command, e: error })); return; }
         // A command that failed because the board is gone -> revert to the no-device state
         // immediately (don't wait for the next poll), instead of a confusing error.
         if (/device_unavailable|no device|could not open|failed to access/i.test(String(error))) { dtShowNoDevice(); return; }
@@ -228,7 +240,7 @@
         dtFilesStatus(tr("dt_err", { c: command, e: error }));
       }
       function onDeviceBusy(phase) {
-        dtSetBusy(phase || tr("dt_busy_generic")); dtFilesStatus(""); dtPkgStatus("");
+        dtSetBusy(phase || tr("dt_busy_generic")); dtFilesStatus(""); dtPkgStatus(""); dtExportStatus("");
         if (dtActiveInstall) { dtActiveInstall.status.classList.remove("installing"); dtActiveInstall.status.textContent = ""; dtActiveInstall = null; }
         dtInstallInFlight = false;
       }
@@ -536,6 +548,7 @@
           vscode.postMessage({ type: "device_tool_mkdir", path: dtJoin(dtCurrentPath(), name) });
         });
         $("dtUpload").addEventListener("click", () => { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_upload", dir: dtCurrentPath() }); });
+        if ($("dtExport")) $("dtExport").addEventListener("click", () => { dtExportStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_export_upload_ready" }); });
         $("dtMipInstall").addEventListener("click", () => {
           const url = $("dtMipUrl").value.trim(); if (!url) return;
           if (dtInstallInFlight) return;

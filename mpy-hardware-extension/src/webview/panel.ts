@@ -1856,6 +1856,19 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (message.type === "device_tool_download" && typeof message.path === "string") {
       await handleDeviceDownload(message.path);
     }
+    if (message.type === "device_tool_export_upload_ready") {
+      // Regenerate projectFolder/upload_ready/: goes through runDeviceTool for the
+      // device_busy gate + activity log even though the export itself never touches
+      // the device, so it can't race a run that's mid-write to firmware/. No device
+      // presence check — the export is portless (see DeviceShim.exportUploadReady).
+      if (!projectFolder) {
+        webview.postMessage({ type: "device_tool_error", command: "export_upload_ready", error: "no_workspace_folder" });
+      } else if (!isRealContained(projectFolder, join(projectFolder, "upload_ready"))) {
+        webview.postMessage({ type: "device_tool_error", command: "export_upload_ready", error: "invalid_export_path" });
+      } else {
+        await runDeviceTool("export_upload_ready", {}, () => shim.exportUploadReady(projectFolder));
+      }
+    }
     if (message.type === "device_presence") {
       // Device Tools presence poll: a host-side port scan (lists ports, never opens one, so
       // it's safe during a flash) lets the tab show "no device" and revert on unplug. Carry the

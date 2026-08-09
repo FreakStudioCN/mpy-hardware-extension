@@ -3640,6 +3640,50 @@ test("device tools: Install (mip) posts device_tool_mip with the url + version",
   assert.ok(mip); assert.equal(mip.url, "github:org/repo/pkg"); assert.equal(mip.version, "1.2.3");
 });
 
+test("device tools: Export upload_ready is visible with no device connected and posts device_tool_export_upload_ready", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // No device_present event fired at all -- the export section lives outside dtDeviceUi,
+  // so it must not be hidden behind the "no device connected" gate the rest of the panel uses.
+  assert.ok(document.getElementById("dtExport"), "the export button renders unconditionally");
+  assert.equal((document.getElementById("dtExport") as any).disabled, false, "not disabled while no device is present");
+
+  document.getElementById("dtExport").click();
+
+  const msg = posted.find((m) => m.type === "device_tool_export_upload_ready");
+  assert.ok(msg, "click posts device_tool_export_upload_ready");
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /working/i);
+});
+
+test("device tools: an export result reports file + package counts under its own status, without refreshing the board listing", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "device_tool_result", command: "export_upload_ready", result: { path: "/proj/upload_ready", fileCount: 5, mipCount: 2 } });
+
+  const status = document.getElementById("dtExportStatus")!.textContent || "";
+  assert.match(status, /5/);
+  assert.match(status, /2/);
+  assert.equal((document.getElementById("dtFilesStatus")!.textContent || "").trim(), "", "Board files status is untouched by an export result");
+  // Mutation: dropping the export-specific early return in onDeviceToolResult falls through to
+  // dtRefreshSilently, which posts device_tool_list — the export must never trigger that.
+  assert.ok(!posted.some((m) => m.type === "device_tool_list"), "export never re-lists the board (it never touched it)");
+});
+
+test("device tools: an export error reports under its own status without triggering the no-device state", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py"] } });
+  post(dom, { type: "device_present", present: true });
+
+  post(dom, { type: "device_tool_error", command: "export_upload_ready", error: "manifest_read_failed: permission denied" });
+
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /manifest_read_failed/);
+  assert.ok(document.getElementById("dtNoDev").classList.contains("hidden"), "an export error must not flip the panel to the no-device state");
+});
+
 test("device tools: Delete is host-armed two-step — first click requests an arm (no nonce), second echoes the host nonce", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
