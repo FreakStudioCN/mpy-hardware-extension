@@ -3629,6 +3629,43 @@ test("device tools: device_busy shows the busy banner naming the owning phase", 
   assert.match(banner.textContent, /flash/);
 });
 
+test("device tools: device_busy names the reason under the export status even with no device present (its banner is hidden then)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // No device_present event at all -- #dtBusy lives inside the device-gated #dtDeviceUi,
+  // which stays hidden, so the export's OWN status line is the only visible explanation
+  // for why its button just greyed out.
+  post(dom, { type: "device_busy", phase: "generate" });
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /generate/, "the export status names the busy reason, not a blank line");
+});
+
+test("device tools: the export's busy explanation is cleared once the run ends, not left stale", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_busy", phase: "generate" });
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /generate/);
+
+  // dtSetBusy(null) fires at the top of onDeviceToolResult for EVERY command (any device
+  // tool reply signals "the run ended"), not just export_upload_ready.
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+
+  assert.equal((document.getElementById("dtExportStatus")!.textContent || "").trim(), "", "the busy explanation does not survive the run ending");
+});
+
+test("device tools: a real export result that follows a busy explanation is not wiped by a later unrelated device-tool reply", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // A busy explanation sets dtExportBusyShown -- the export result that follows it must
+  // clear that flag itself, or the NEXT unrelated dtSetBusy(null) would blank the result
+  // (this is the exact sequence the fix protects: click -> busy -> run ends -> result).
+  post(dom, { type: "device_busy", phase: "generate" });
+  post(dom, { type: "device_tool_result", command: "export_upload_ready", result: { fileCount: 5, mipCount: 2 } });
+
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /5/, "the real result survives an unrelated reply's busy-clear");
+});
+
 test("device tools: Install (mip) posts device_tool_mip with the url + version", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -3666,6 +3703,7 @@ test("device tools: an export result reports file + package counts under its own
   const status = document.getElementById("dtExportStatus")!.textContent || "";
   assert.match(status, /5/);
   assert.match(status, /2/);
+  assert.match(status, /\/proj\/upload_ready/, "the result line names the path, per scope.md's result-line requirement");
   assert.equal((document.getElementById("dtFilesStatus")!.textContent || "").trim(), "", "Board files status is untouched by an export result");
   // Mutation: dropping the export-specific early return in onDeviceToolResult falls through to
   // dtRefreshSilently, which posts device_tool_list — the export must never trigger that.

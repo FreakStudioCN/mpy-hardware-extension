@@ -30,6 +30,11 @@
       function dtFilesStatus(text) { const n = $("dtFilesStatus"); if (n) n.textContent = text || ""; }
       function dtPkgStatus(text) { const n = $("dtPkgStatus"); if (n) n.textContent = text || ""; }
       function dtExportStatus(text) { const n = $("dtExportStatus"); if (n) n.textContent = text || ""; }
+      // True only while dtExportStatus holds a device_busy explanation, not a real
+      // result/error/working message -- so dtSetBusy(null) (fired on EVERY device tool
+      // reply, including ones for other commands, and on session_done) knows whether
+      // it's safe to clear the line versus wiping a legitimate "Exported N files…".
+      var dtExportBusyShown = false;
       function dtListCurrent() { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
 
       // How long a Delete stays armed ("Confirm?") before disarming.
@@ -119,9 +124,17 @@
       // phase set => a session run owns the port; null hides the banner. While busy, disable
       // the controls too so a click can't queue a command that will just be refused.
       function dtSetBusy(phase) {
-        const banner = $("dtBusy"); if (!banner) return;
         const busy = !!phase;
         document.querySelectorAll("#toolDeviceTools .dt-act, #toolDeviceTools .dt-input, #toolDeviceTools .dt-pkg-seg").forEach((el) => { el.disabled = busy; });
+        if (!busy) {
+          // Runs on every device-tool reply (any command) and on session_done -- the one
+          // place "busy ended" is known. Only clear dtExportStatus if it still holds the
+          // busy explanation onDeviceBusy set: onDeviceToolResult/onDeviceToolError call
+          // dtSetBusy(null) BEFORE writing a real export status, so by the time either
+          // writes it the flag is already false and this can't wipe their message out.
+          if (dtExportBusyShown) { dtExportStatus(""); dtExportBusyShown = false; }
+        }
+        const banner = $("dtBusy"); if (!banner) return;
         if (!busy) { banner.classList.add("hidden"); return; }
         banner.textContent = tr("dt_busy", { p: phase });
         banner.classList.remove("hidden");
@@ -192,7 +205,7 @@
           // Not a device mutation (no board files changed) -- report the counts and stop,
           // never fall through to dtRefreshSilently's device_tool_list (would error with no
           // board connected, which the export explicitly does not require).
-          dtExportStatus(tr("dt_export_ok", { n: (result && result.fileCount) || 0, m: (result && result.mipCount) || 0 }));
+          dtExportStatus(tr("dt_export_ok", { n: (result && result.fileCount) || 0, m: (result && result.mipCount) || 0, p: (result && result.path) || "" }));
           return;
         }
         if (command === "list") {
@@ -240,7 +253,15 @@
         dtFilesStatus(tr("dt_err", { c: command, e: error }));
       }
       function onDeviceBusy(phase) {
-        dtSetBusy(phase || tr("dt_busy_generic")); dtFilesStatus(""); dtPkgStatus(""); dtExportStatus("");
+        const reason = phase || tr("dt_busy_generic");
+        dtSetBusy(reason); dtFilesStatus(""); dtPkgStatus("");
+        // #dtBusy (the banner dtSetBusy fills) lives inside #dtDeviceUi, hidden whenever
+        // no board is present -- but Export is available with no board, so its own status
+        // line is the only place a user watching just that section ever sees the reason
+        // its button just greyed out. Set it instead of clearing it (a stale "Exported…"
+        // giving way to why the button is currently disabled is more useful than a blank).
+        dtExportStatus(tr("dt_busy", { p: reason }));
+        dtExportBusyShown = true;
         if (dtActiveInstall) { dtActiveInstall.status.classList.remove("installing"); dtActiveInstall.status.textContent = ""; dtActiveInstall = null; }
         dtInstallInFlight = false;
       }
