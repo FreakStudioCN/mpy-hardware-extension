@@ -165,6 +165,31 @@ export const WRITABLE_PATHS_HINT =
   `Writable: ${WRITABLE_PATTERNS.map((p) => p.label).join("; ")}. ` +
   "Executable code must live under firmware/, test/, tools/, lib/ or .upy/, not at the project root.";
 
+// Roots the model prefixes when it describes the project from OUTSIDE the workspace. The
+// Skill documents the layout as sessions/<id>/project/firmware/, but a write path here is
+// relative to the project dir itself, so these segments are redundant rather than wrong.
+// Observed cost: one run spent 5 of its turns re-sending `project/firmware/main.py` and
+// `project/generate_plan.json` AFTER the allowlist hint had already been returned, then
+// ended on max_turns. The hint says what is allowed; this says what the model probably meant.
+const REDUNDANT_PATH_ROOTS: readonly string[] = ["project", "blockless-project", "."];
+
+// The corrected path, when dropping ONE redundant leading segment makes an otherwise
+// rejected path valid. Deliberately not a general search: stripping arbitrary leading
+// segments would happily turn docs/firmware/main.py into firmware/main.py and send the model
+// somewhere it never asked to go. Undefined when there is nothing safe to suggest.
+export function suggestWritablePath(
+  name: string,
+  options: Parameters<typeof normalizeGeneratedArtifactPath>[1] = {},
+): string | undefined {
+  const raw = String(name ?? "").replace(/\\/g, "/").replace(/^\/+/, "");
+  const segments = raw.split("/");
+  if (segments.length < 2) return undefined;
+  const [head, ...rest] = segments;
+  if (!REDUNDANT_PATH_ROOTS.includes(head)) return undefined;
+  const candidate = rest.join("/");
+  return normalizeGeneratedArtifactPath(candidate, options) ? candidate : undefined;
+}
+
 // Test-only view of the table above, so the drift guard iterates the SAME source the hint is
 // built from rather than a hand-copied list that could fall out of step with it.
 export const WRITABLE_PATH_EXAMPLES: readonly string[] = WRITABLE_PATTERNS.map((p) => p.example);
@@ -264,7 +289,14 @@ export async function writeProjectFile(input: {
 }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   const safe = normalizeGeneratedArtifactPath(input.path, input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true });
-  if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path, allowed: WRITABLE_PATHS_HINT };
+  if (!safe) {
+    const options = input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true };
+    const didYouMean = suggestWritablePath(input.path, options);
+    return {
+      ok: false as const, error_kind: "invalid_generated_path", path: input.path, allowed: WRITABLE_PATHS_HINT,
+      ...(didYouMean ? { did_you_mean: didYouMean } : {}),
+    };
+  }
   const target = joinPath(root, safe);
   // normalizeGeneratedArtifactPath already rejects `..`/absolute, but a symlinked dir in the
   // project tree could still redirect the write outside root — refuse via real-path containment.

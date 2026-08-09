@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { WRITABLE_PATHS_HINT, WRITABLE_PATH_EXAMPLES, isRealContained, normalizeGeneratedArtifactPath, planWorkspaceWrites, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
+import { WRITABLE_PATHS_HINT, WRITABLE_PATH_EXAMPLES, isRealContained, normalizeGeneratedArtifactPath, planWorkspaceWrites, suggestWritablePath, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
 
 test("isRealContained allows the root and contained paths, refuses ../ escapes", () => {
   const root = mkdtempSync(join(tmpdir(), "mpyhw-contain-"));
@@ -296,6 +296,58 @@ test("the root-JSON allowance is data only — code at the root is still refused
     assert.equal(result.error_kind, "invalid_generated_path", path);
     // The rejection must say what WOULD work, or the model can only guess.
     assert.equal(result.allowed, WRITABLE_PATHS_HINT, path);
+  }
+});
+
+// The hint alone was not enough. One measured run spent 5 turns re-sending paths under a
+// redundant `project/` prefix AFTER being told what was writable, then died on max_turns.
+// The Skill documents the layout as sessions/<id>/project/firmware/, while a write path here
+// is relative to the project dir, so the model is following the docs and the guard is right.
+test("a redundant project/ prefix is answered with the path the model meant", async () => {
+  const cases: Array<[string, string]> = [
+    ["project/firmware/main.py", "firmware/main.py"],
+    ["project/generate_plan.json", "generate_plan.json"],
+    ["project/.flake8", ".flake8"],
+    ["blockless-project/firmware/main.py", "firmware/main.py"],
+    ["./firmware/main.py", "firmware/main.py"],
+    ["project\\firmware\\main.py", "firmware/main.py"],
+  ];
+  for (const [sent, meant] of cases) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path: sent,
+      content: "x",
+      writeFile: async () => { throw new Error("must not be written"); },
+    });
+    assert.equal(result.ok, false, sent);
+    assert.equal(result.error_kind, "invalid_generated_path", sent);
+    assert.equal(result.did_you_mean, meant, sent);
+    assert.equal(result.allowed, WRITABLE_PATHS_HINT, `${sent} still carries the full hint`);
+  }
+});
+
+test("no suggestion is invented when stripping the prefix would still be refused", async () => {
+  // Silence is the correct answer here. A confident wrong suggestion is worse than none:
+  // it would send the model down a path it never asked for and cost another turn.
+  for (const path of ["project/secrets/key.pem", "docs/firmware/main.py", "evil.sh", "firmware/main.py/../../x.sh"]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "x",
+      writeFile: async () => { throw new Error("must not be written"); },
+    });
+    assert.equal(result.ok, false, path);
+    assert.equal(result.did_you_mean, undefined, `${path} must not get a suggestion`);
+  }
+});
+
+test("suggestWritablePath never proposes a path the writer would refuse", () => {
+  // The same closed loop the hint has: a suggestion that is itself rejected would send the
+  // model into a confident retry of something that cannot work.
+  for (const sent of ["project/firmware/main.py", "project/generate_plan.json", "project/.flake8", "blockless-project/lib/helper.py"]) {
+    const meant = suggestWritablePath(sent, { allowProjectTree: true });
+    assert.ok(meant, sent);
+    assert.ok(normalizeGeneratedArtifactPath(meant!, { allowProjectTree: true }), `${meant} must actually be writable`);
   }
 });
 
