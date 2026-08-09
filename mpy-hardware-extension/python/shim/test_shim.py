@@ -1017,6 +1017,81 @@ def _minimal_firmware_project(project_dir, manifest=None):
     return project_dir
 
 
+def test_export_upload_ready_keeps_the_previous_export_when_a_copy_fails(monkeypatch, tmp_path):
+    """The folder's whole purpose is restoring a board, so a half-written one that LOOKS
+    complete is worse than a failed export: it would be uploaded and brick the device.
+    A mid-copy failure must leave the previous, complete export exactly as it was."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    assert _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})["status"] == "ok"
+    export_dir = project / "upload_ready"
+    before = {p.name: p.read_bytes() for p in export_dir.rglob("*") if p.is_file()}
+    assert before, "the first export produced something to protect"
+
+    import serve
+    real_copy2 = serve.shutil.copy2
+    calls = {"n": 0}
+
+    def failing_copy2(src, dst, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:  # part-way through, so a partial tree exists in staging
+            raise OSError(28, "No space left on device")
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(serve.shutil, "copy2", failing_copy2)
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "export_write_failed"
+    after = {p.name: p.read_bytes() for p in export_dir.rglob("*") if p.is_file()}
+    assert after == before, "the previous export is untouched, not wiped or half-replaced"
+    assert not (project / "upload_ready.staging").exists(), "the failed attempt cleans up after itself"
+
+
+def test_export_upload_ready_leaves_no_scratch_directories_behind(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})  # regenerate
+
+    siblings = {p.name for p in project.iterdir() if p.is_dir()}
+    assert "upload_ready.staging" not in siblings
+    assert "upload_ready.previous" not in siblings, "the old tree is dropped once the swap succeeds"
+
+
+def test_export_upload_ready_clears_a_leftover_staging_tree_from_an_interrupted_run(tmp_path):
+    """A killed process can leave staging behind. It is scratch the export owns, so the
+    next run reclaims it rather than failing or, worse, merging into it."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    staging = project / "upload_ready.staging"
+    staging.mkdir()
+    (staging / "junk_from_a_dead_run.py").write_text("x", encoding="utf-8")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok"
+    assert not staging.exists()
+    assert not (project / "upload_ready" / "junk_from_a_dead_run.py").exists(), "the leftover never leaks into the export"
+
+
+def test_export_upload_ready_refuses_a_symlink_planted_at_the_scratch_paths(tmp_path):
+    """Same reasoning as the export path itself: this routine rmtree-s the scratch dirs,
+    so a symlink there would delete whatever it points at."""
+    for scratch_name in ("upload_ready.staging", "upload_ready.previous"):
+        project = _build_upload_ready_project(tmp_path / scratch_name, manifest=_two_mip_manifest())
+        outside = tmp_path / f"outside-{scratch_name}"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("precious", encoding="utf-8")
+        try:
+            os.symlink(str(outside), str(project / scratch_name), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlink creation requires privilege on this platform")
+
+        result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+        assert result["status"] == "error", scratch_name
+        assert result["error_kind"] == "export_dir_is_symlink", scratch_name
+        assert (outside / "keep.txt").exists(), f"{scratch_name}: the symlink target is untouched"
+
+
 def test_export_upload_ready_copies_firmware_excluding_mocks_pycache_gitkeep_and_siblings(tmp_path):
     project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
 

@@ -826,6 +826,19 @@ def _readme_inline_text(value):
     return text.replace("<", "").replace(">", "").strip()
 
 
+def _remove_export_scratch(path: str) -> None:
+    """Drop a staging/backup sibling of upload_ready/, if one is there.
+
+    Only ever called on the two scratch paths the export owns, and only after the caller
+    has refused a symlink or a non-directory at them, so this cannot delete through a link
+    or remove a user file. A leftover from an interrupted earlier run is expected, not an
+    error: the caller clears staging before building and backup after a successful swap.
+    """
+    if os.path.islink(path) or not os.path.isdir(path):
+        return
+    shutil.rmtree(path)
+
+
 def _build_upload_ready_readme(manifest, timestamp):
     mcu_field = manifest.get("mcu") if isinstance(manifest, dict) else None
     mcu_model = mcu_field.get("model") if isinstance(mcu_field, dict) else None
@@ -889,11 +902,25 @@ def _export_upload_ready(project_dir: str):
         return {"status": "error", "error_kind": "export_dir_is_symlink"}
     if os.path.exists(export_dir) and not os.path.isdir(export_dir):
         return {"status": "error", "error_kind": "export_dir_not_a_directory"}
+    # The staging/backup siblings get the SAME refusal: this routine rmtree-s them, and a
+    # pre-planted symlink at either path would delete whatever it points at.
+    for scratch in (export_dir + ".staging", export_dir + ".previous"):
+        if os.path.islink(scratch):
+            return {"status": "error", "error_kind": "export_dir_is_symlink"}
+        if os.path.exists(scratch) and not os.path.isdir(scratch):
+            return {"status": "error", "error_kind": "export_dir_not_a_directory"}
     # Real-path containment (mirrors isRealContained on the TS side): firmware_dir and
     # export_dir must both resolve under project_dir even through symlinks, checked
     # BEFORE anything destructive touches export_dir.
+    # Staging and backup siblings of the export. The new tree is built in staging and only
+    # swapped in once it is COMPLETE, so a failure mid-copy leaves the previous export intact
+    # instead of a partial folder that looks whole. That matters more here than for most
+    # tools: this folder's whole purpose is restoring a board, and uploading a silently
+    # partial one produces a broken device. Siblings, so the renames stay on one filesystem.
+    staging_dir = export_dir + ".staging"
+    backup_dir = export_dir + ".previous"
     project_real = os.path.realpath(project_dir)
-    for candidate in (firmware_dir, export_dir):
+    for candidate in (firmware_dir, export_dir, staging_dir, backup_dir):
         candidate_real = os.path.realpath(candidate)
         if candidate_real != project_real and not candidate_real.startswith(project_real + os.sep):
             return {"status": "error", "error_kind": "path_outside_project"}
@@ -907,15 +934,18 @@ def _export_upload_ready(project_dir: str):
     # on a malformed manifest), so this can't leave upload_ready/ wiped-then-half-written.
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
     readme_body = _build_upload_ready_readme(manifest, timestamp)
-    if os.path.exists(export_dir):
-        shutil.rmtree(export_dir)
-    os.makedirs(export_dir, exist_ok=True)
+    # Build the whole tree in staging first. Everything below this point that can raise
+    # (a full disk, EACCES, a source file removed mid-walk) now costs only the staging
+    # copy: the previous export is not touched until the swap at the end.
+    _remove_export_scratch(staging_dir)
     file_count = 0
-    for src, rel in iter_uploadable_firmware(firmware_dir):
-        dest = os.path.join(export_dir, rel)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.copy2(src, dest)
-        file_count += 1
+    try:
+        os.makedirs(staging_dir, exist_ok=True)
+        for src, rel in iter_uploadable_firmware(firmware_dir):
+            dest = os.path.join(staging_dir, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy2(src, dest)
+            file_count += 1
     # firmware/README.md is a legitimate device file (never excluded -- it is what
     # deploy_firmware_tree uploads); the generated instructions must not clobber it, or
     # the export stops being "folder == device image". Checked via os.path.exists (not a
@@ -924,15 +954,34 @@ def _export_upload_ready(project_dir: str):
     # UPLOAD_INSTRUCTIONS.md, and a firmware/README.md/ that is itself a directory (the
     # copy loop above would have created export_dir/README.md as a directory via a
     # nested file inside it -- opening "w" over that raises IsADirectoryError).
-    readme_name = "README.md"
-    if os.path.exists(os.path.join(export_dir, readme_name)):
-        readme_name = "UPLOAD_INSTRUCTIONS.md"
-        suffix = 2
-        while os.path.exists(os.path.join(export_dir, readme_name)):
-            readme_name = f"UPLOAD_INSTRUCTIONS ({suffix}).md"
-            suffix += 1
-    with open(os.path.join(export_dir, readme_name), "w", encoding="utf-8") as handle:
-        handle.write(readme_body)
+        readme_name = "README.md"
+        if os.path.exists(os.path.join(staging_dir, readme_name)):
+            readme_name = "UPLOAD_INSTRUCTIONS.md"
+            suffix = 2
+            while os.path.exists(os.path.join(staging_dir, readme_name)):
+                readme_name = f"UPLOAD_INSTRUCTIONS ({suffix}).md"
+                suffix += 1
+        with open(os.path.join(staging_dir, readme_name), "w", encoding="utf-8") as handle:
+            handle.write(readme_body)
+    except OSError as exc:
+        # The previous export was never touched, so the user still has a working folder.
+        _remove_export_scratch(staging_dir)
+        return {"status": "error", "error_kind": "export_write_failed", "message": str(exc)}
+    # Swap. The old tree moves aside rather than being deleted first, so a failed rename
+    # can put it back: at no point is the user left with neither a complete old export nor
+    # a complete new one.
+    had_previous = os.path.isdir(export_dir)
+    try:
+        if had_previous:
+            _remove_export_scratch(backup_dir)
+            os.rename(export_dir, backup_dir)
+        os.rename(staging_dir, export_dir)
+    except OSError as exc:
+        if had_previous and not os.path.exists(export_dir) and os.path.isdir(backup_dir):
+            os.rename(backup_dir, export_dir)
+        _remove_export_scratch(staging_dir)
+        return {"status": "error", "error_kind": "export_swap_failed", "message": str(exc)}
+    _remove_export_scratch(backup_dir)
     return {"status": "ok", "path": export_dir, "file_count": file_count, "mip_count": len(mip_entries)}
 
 
