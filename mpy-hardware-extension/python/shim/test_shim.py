@@ -11,6 +11,7 @@ from serve import (
     Shim,
     _dispatch,
     _list_files,
+    iter_uploadable_firmware,
     map_install_error,
     parse_scan_output,
     resolve_schema,
@@ -457,6 +458,47 @@ def test_deploy_firmware_tree_skips_gitkeep_and_only_walks_firmware(tmp_path):
     targets = [c[-1] for c in shim.commands if c[4] == "fs" and c[5] == "cp"]
     # Only the firmware/ .py file ships — no .gitkeep, no manifest/docs siblings.
     assert targets == [":tasks/sensor.py"]
+
+
+def test_deploy_firmware_tree_excludes_mocks_pycache_and_flash_images(tmp_path):
+    # The contract bug this fixes: previously only .gitkeep was skipped here, so a
+    # driver's mock.py/mock.mpy test double, a __pycache__ .pyc, and a flash image all
+    # shipped to the board (the reported "takes up the board's memory" complaint).
+    fw = tmp_path / "firmware"
+    (fw / "drivers" / "foo_driver").mkdir(parents=True)
+    (fw / "drivers" / "foo_driver" / "__init__.py").write_text("class Foo: pass", encoding="utf-8")
+    (fw / "drivers" / "foo_driver" / "mock.py").write_text("class MockFoo: pass", encoding="utf-8")
+    (fw / "drivers" / "foo_driver" / "mock.mpy").write_bytes(b"\x00")
+    (fw / "__pycache__").mkdir()
+    (fw / "__pycache__" / "boot.cpython-312.pyc").write_bytes(b"\x00")
+    (fw / "RPI_PICO-20260406-v1.28.0.uf2").write_bytes(b"\x00")
+    (fw / "main.py").write_text("m", encoding="utf-8")
+    shim = Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "", ""))
+
+    result = shim.deploy_firmware_tree("COM3", str(fw))
+
+    assert result == {"status": "ok"}
+    targets = [c[-1] for c in shim.commands if c[4] == "fs" and c[5] == "cp"]
+    assert ":drivers/foo_driver/__init__.py" in targets
+    assert ":drivers/foo_driver/mock.py" not in targets
+    assert ":drivers/foo_driver/mock.mpy" not in targets
+    assert not any(t.endswith(".pyc") for t in targets)
+    assert not any(t.endswith(".uf2") for t in targets)
+    assert targets[-1] == ":main.py"
+
+
+def test_iter_uploadable_firmware_excludes_bin_and_hex_anywhere_in_tree(tmp_path):
+    # *.bin and *.hex (the other two interpreter/flash-image extensions) must be excluded
+    # regardless of where under firmware/ they sit, not just at the top level.
+    fw = tmp_path / "firmware"
+    (fw / "lib").mkdir(parents=True)
+    (fw / "lib" / "keep.py").write_text("k", encoding="utf-8")
+    (fw / "lib" / "image.bin").write_bytes(b"\x00")
+    (fw / "firmware.hex").write_text(":00000001FF", encoding="utf-8")
+
+    rels = sorted(rel for _src, rel in iter_uploadable_firmware(str(fw)))
+
+    assert rels == ["lib/keep.py"]
 
 
 def test_install_errors_are_classified():

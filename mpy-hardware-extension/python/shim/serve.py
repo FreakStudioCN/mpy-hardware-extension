@@ -1,4 +1,5 @@
 import base64
+import fnmatch
 import json
 import os
 import platform
@@ -311,6 +312,38 @@ def _parse_v0_git_commit_shell(command: str) -> list[list[str]] | None:
         return None
     return [["git", "add", "-A"], ["git", "commit", "-m", message]]
 
+
+# ---------- firmware/ upload exclusion (shared by device.deploy_firmware_tree and
+# project.export_upload_ready) ----------
+# Defined ONCE so a device deploy and the upload_ready/ export can never drift on what
+# belongs on the board: driver test doubles, Python bytecode caches, directory
+# placeholders, and flash/interpreter images. A .uf2/.bin/.hex is a flash-phase input
+# (mpremote never touches it), never a device-fs file -- shipping it wastes the board's
+# tiny flash for nothing importable.
+_FIRMWARE_EXCLUDE_DIR_NAMES = ("__pycache__",)
+_FIRMWARE_EXCLUDE_EXACT_NAMES = (".gitkeep",)
+_FIRMWARE_EXCLUDE_NAME_GLOBS = ("*.pyc", "*.uf2", "*.bin", "*.hex")
+_FIRMWARE_EXCLUDE_PATH_GLOBS = ("drivers/*/mock.py", "drivers/*/mock.mpy")
+
+
+def iter_uploadable_firmware(firmware_dir: str):
+    """Walk firmware_dir yielding (src, rel) for every file that belongs on the device.
+    rel is posix-normalized (relative to firmware_dir) so it matches both the mpremote
+    ':' target path and the exclusion globs identically on Windows and POSIX."""
+    for root, dirs, files in os.walk(firmware_dir):
+        dirs[:] = [d for d in dirs if d not in _FIRMWARE_EXCLUDE_DIR_NAMES]
+        for name in files:
+            if name in _FIRMWARE_EXCLUDE_EXACT_NAMES:
+                continue
+            if any(fnmatch.fnmatch(name, pattern) for pattern in _FIRMWARE_EXCLUDE_NAME_GLOBS):
+                continue
+            src = os.path.join(root, name)
+            rel = os.path.relpath(src, firmware_dir).replace("\\", "/")
+            if any(fnmatch.fnmatch(rel, pattern) for pattern in _FIRMWARE_EXCLUDE_PATH_GLOBS):
+                continue
+            yield src, rel
+
+
 class Shim:
     def __init__(self, runner=None, serial_factory=None):
         self.runner = runner or subprocess.run
@@ -371,16 +404,12 @@ class Shim:
         # Walking the on-disk tree (not state.files) also captures files written by
         # scaffold/download_drivers that never pass through write_device_file. main.py
         # is copied LAST so its imports already exist when the next reset autoruns it.
+        # iter_uploadable_firmware (not a bare os.walk) so mock.py/mock.mpy driver test
+        # doubles, __pycache__/*.pyc, and flash images (*.uf2/*.bin/*.hex) never reach the
+        # board -- previously only .gitkeep was skipped here, shipping all of those.
         if not os.path.isdir(firmware_dir):
             return {"status": "error", "error_kind": "firmware_dir_missing"}
-        entries = []
-        for root, _dirs, files in os.walk(firmware_dir):
-            for name in files:
-                if name == ".gitkeep":
-                    continue
-                src = os.path.join(root, name)
-                rel = os.path.relpath(src, firmware_dir).replace("\\", "/")
-                entries.append((src, rel))
+        entries = list(iter_uploadable_firmware(firmware_dir))
         # Stable sort: every dependency (key False) keeps its order, main.py (key True)
         # moves to the end.
         entries.sort(key=lambda entry: entry[1] == "main.py")
