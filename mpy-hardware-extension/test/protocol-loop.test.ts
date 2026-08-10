@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
+import { writeProjectFile } from "../src/extension/workspace-writer.ts";
 
 import { PROTOCOL_TOOLS } from "../src/core/protocol-registry.ts";
 import { PHASE_ORDER, runProtocolBuild, executeProtocolTool, capToolOutput } from "../src/core/protocol-loop.ts";
@@ -744,6 +749,63 @@ test("write with no content is refused instead of silently writing an empty file
   assert.match(r.result.detail, /content/);
 });
 
+// Same failure, different input: String({}) writes a file containing "[object Object]" and
+// reports success, so the guard has to refuse every non-string, not only an absent key.
+test("write with a non-string content is refused, not coerced onto disk", async () => {
+  for (const content of [{}, [], 42, true]) {
+    const writes: any[] = [];
+    const r = await executeProtocolTool(
+      tu("w", "file_operation", { op: "write", path: "firmware/main.py", content }) as any,
+      { intent: "x" },
+      { llmClient: scriptedLlm({}), writeFile: async (p: string, c: string) => { writes.push([p, c]); return { ok: true }; } },
+    );
+    assert.equal(r.result.ok, false, String(content));
+    assert.equal(r.result.error_kind, "missing_content", String(content));
+    assert.equal(writes.length, 0, `a ${typeof content} reached the workspace`);
+  }
+});
+
+// The writer accepts a redundant leading segment and writes to the CORRECTED target. A bare
+// success left the model believing its own prefixed path existed, so it kept the prefix for
+// every later list, mkdir and delete. Driven through the REAL writeProjectFile, because the
+// path it reports is the whole point: a mock returning a tidy relative path would pass while
+// production returned the absolute host path, which this same allowlist refuses on re-use.
+test("a write reports the path it landed on, project-relative and re-writable", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-writepath-"));
+  try {
+    const writeFile = (path: string, content: string) =>
+      writeProjectFile({
+        workspaceFolder: ws,
+        path,
+        content,
+        writeFile: async (target: string, body: string) => {
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, body, "utf-8");
+        },
+      });
+
+    const first = await executeProtocolTool(
+      tu("w", "file_operation", { op: "write", path: "project/firmware/main.py", content: "print(1)" }) as any,
+      { intent: "x" },
+      { llmClient: scriptedLlm({}), writeFile },
+    );
+    assert.equal(first.result.ok, true);
+    assert.equal(first.result.path, "firmware/main.py", "the model is told where the file landed");
+    assert.equal(first.result.path.includes(ws), false, "an absolute host path leaks the user's tree");
+
+    // The reported path has to be one the model can actually reuse. An absolute path is
+    // refused by the same allowlist, which would restart the prefix loop this feature ends.
+    const second = await executeProtocolTool(
+      tu("w2", "file_operation", { op: "write", path: first.result.path, content: "print(2)" }) as any,
+      { intent: "x" },
+      { llmClient: scriptedLlm({}), writeFile },
+    );
+    assert.equal(second.result.ok, true, "the path the model was told is refused when it sends it back");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
 test("write with an explicitly empty content still writes (a deliberate empty file)", async () => {
   const writes: any[] = [];
   const r = await executeProtocolTool(
@@ -1402,6 +1464,9 @@ test("a stall detail names a rejected gate by its code, and omits a path when th
   assert.equal(stalled.detail[0].path, "run_quality_gates.py", "a script call is identified by its script");
 });
 
+// Negative control for the stall-detail feature: the happy path must stay silent. Not
+// mutation-sensitive on its own, kept because it is the only assertion anywhere that a
+// successful phase emits no phase_stalled event.
 test("a phase that succeeds reports no stall detail at all", async () => {
   const events: any[] = [];
   const llm = {

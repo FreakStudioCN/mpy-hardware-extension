@@ -145,7 +145,9 @@ export async function writeGeneratedFiles(input: {
 // without adding an example, and the drift guard in workspace-writer.test.ts asserts every
 // example is genuinely accepted. That closes the loop: the hint cannot advertise a path the
 // writer then refuses, which would send the model into a confident loop -- worse than no hint.
-const WRITABLE_PATTERNS: ReadonlyArray<{ label: string; example: string }> = [
+// Exported so the drift guard iterates the SAME source the hint is built from, rather than a
+// hand-copied list that could fall out of step with it.
+export const WRITABLE_PATTERNS: ReadonlyArray<{ label: string; example: string }> = [
   { label: "any *.json at the project root", example: "manifest_draft.json" },
   { label: "firmware/**.py and firmware/**.md", example: "firmware/main.py" },
   { label: "test/**.py and test/**.md", example: "test/pc/test_x.py" },
@@ -173,20 +175,20 @@ export const WRITABLE_PATHS_HINT =
 // ended on max_turns. The hint says what is allowed; this says what the model probably meant.
 const REDUNDANT_PATH_ROOTS: readonly string[] = ["project", "blockless-project", "."];
 
-// The corrected path, when dropping ONE redundant leading segment makes an otherwise
-// rejected path valid. Deliberately not a general search: stripping arbitrary leading
-// segments would happily turn docs/firmware/main.py into firmware/main.py and send the model
-// somewhere it never asked to go. Undefined when there is nothing safe to suggest.
-// The path with ONE known-redundant leading segment removed, or undefined when there is
-// none. Shared so the writer and the reader resolve a model-supplied path the SAME way: the
-// writer accepts `project/firmware/main.py`, so a read of that path has to find the file the
-// write just created, or the model cannot read back its own work.
+// The path with ONE known-redundant leading segment removed, or undefined when there is none.
+// Deliberately not a general search: stripping arbitrary leading segments would happily turn
+// docs/firmware/main.py into firmware/main.py and send the model somewhere it never asked to
+// go. Shared so that every fs op resolves a model-supplied path the SAME way. The writer
+// accepts `project/firmware/main.py`, so a read, list, mkdir or delete of that path has to
+// reach the file the write created, or the model cannot act on its own work.
 export function stripRedundantPathRoot(name: string): string | undefined {
-  const raw = String(name ?? "").replace(/\\/g, "/").replace(/^\/+/, "");
+  const raw = String(name ?? "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
   const segments = raw.split("/");
-  if (segments.length < 2) return undefined;
   const [head, ...rest] = segments;
   if (!REDUNDANT_PATH_ROOTS.includes(head)) return undefined;
+  // "" when the path IS a bare redundant root: `project` means the project root itself. Callers
+  // must test `=== undefined`, not truthiness. suggestWritablePath treats "" as no suggestion,
+  // so a bare root is still not a writable target.
   return rest.join("/");
 }
 
@@ -198,10 +200,6 @@ export function suggestWritablePath(
   if (!candidate) return undefined;
   return normalizeGeneratedArtifactPath(candidate, options) ? candidate : undefined;
 }
-
-// Test-only view of the table above, so the drift guard iterates the SAME source the hint is
-// built from rather than a hand-copied list that could fall out of step with it.
-export const WRITABLE_PATH_EXAMPLES: readonly string[] = WRITABLE_PATTERNS.map((p) => p.example);
 
 export function normalizeGeneratedArtifactPath(name: string, options: { allowMain?: boolean; allowManifest?: boolean; allowLib?: boolean; allowFirmware?: boolean; allowProjectTree?: boolean; allowedPaths?: readonly string[] } = {}) {
   const { allowMain = true, allowManifest = true, allowLib = true, allowFirmware = false, allowProjectTree = false, allowedPaths } = options;
@@ -299,7 +297,7 @@ export async function writeProjectFile(input: {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
   const pathOptions = input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true };
   // Telling the model the corrected path did NOT work: a measured run was handed
-  // did_you_mean on 12 of 12 rejections and re-sent `project/firmware/main.py` nine times
+  // the exact corrected path on 12 of 12 rejections and re-sent `project/firmware/main.py` nine times
   // anyway, then died on max_turns. Refusing a path whose meaning is unambiguous costs the
   // whole phase to make a point, so accept it and write where it meant. This is not a guess:
   // the corrected path is re-validated against the SAME allowlist before it is used, and only
@@ -322,7 +320,10 @@ export async function writeProjectFile(input: {
   } catch {
     return { ok: false as const, error_kind: "file_write_failed", path: target };
   }
-  return { ok: true as const, path: target };
+  // `path` is absolute: the file_written event feeds the artifact index, which wants an
+  // absolute path. `relative_path` is what the MODEL may be told, because an absolute path
+  // is refused by this very allowlist if the model sends it back on the next write.
+  return { ok: true as const, path: target, relative_path: safe };
 }
 
 // file_operation(delete) core: containment (refuse the workspace root itself and any path

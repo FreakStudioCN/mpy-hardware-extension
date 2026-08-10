@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { WRITABLE_PATHS_HINT, WRITABLE_PATH_EXAMPLES, isRealContained, normalizeGeneratedArtifactPath, planWorkspaceWrites, stripRedundantPathRoot, suggestWritablePath, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
+import { WRITABLE_PATHS_HINT, WRITABLE_PATTERNS, isRealContained, normalizeGeneratedArtifactPath, planWorkspaceWrites, stripRedundantPathRoot, suggestWritablePath, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
 
 test("isRealContained allows the root and contained paths, refuses ../ escapes", () => {
   const root = mkdtempSync(join(tmpdir(), "mpyhw-contain-"));
@@ -299,13 +299,11 @@ test("the root-JSON allowance is data only — code at the root is still refused
   }
 });
 
-// The hint alone was not enough. One measured run spent 5 turns re-sending paths under a
-// redundant `project/` prefix AFTER being told what was writable, then died on max_turns.
-// The Skill documents the layout as sessions/<id>/project/firmware/, while a write path here
-// is relative to the project dir, so the model is following the docs and the guard is right.
-// Telling the model the corrected path did not work. A measured run was handed did_you_mean
-// on 12 of 12 rejections and re-sent `project/firmware/main.py` nine times regardless, then
-// died on max_turns. So accept the unambiguous case and write where it meant.
+// The hint alone was not enough, and naming the corrected path did not work either: a measured
+// run was told the exact correction on 12 of 12 rejections and re-sent `project/firmware/main.py`
+// nine times regardless, then died on max_turns. The Skill documents the layout as
+// sessions/<id>/project/firmware/, while a write path here is relative to the project dir, so
+// the model is following its own docs. Accept the unambiguous case and write where it meant.
 test("a redundant project/ prefix is accepted and written to the corrected path", async () => {
   const cases: Array<[string, string]> = [
     ["project/firmware/main.py", "C:/project/firmware/main.py"],
@@ -355,7 +353,16 @@ test("stripRedundantPathRoot drops exactly one known root, or nothing", () => {
   // Not a known root, a bare name, or nothing left after the strip.
   assert.equal(stripRedundantPathRoot("docs/firmware/main.py"), undefined);
   assert.equal(stripRedundantPathRoot("firmware/main.py"), undefined);
-  assert.equal(stripRedundantPathRoot("project"), undefined);
+  // A BARE redundant root means the project root itself, so it strips to "". Callers test for
+  // undefined, not truthiness: `mkdir project` must not create a stray project/ tree, and
+  // `list project` must list the real root instead of reporting not_found.
+  assert.equal(stripRedundantPathRoot("project"), "");
+  assert.equal(stripRedundantPathRoot("project/"), "");
+  // Fails without the trailing-slash strip: "firmware/" is not a path the writer accepts.
+  assert.equal(stripRedundantPathRoot("project/firmware/"), "firmware");
+  assert.equal(stripRedundantPathRoot("docs"), undefined);
+  // A bare root is still not a writable target: "" is no suggestion.
+  assert.equal(suggestWritablePath("project", { allowProjectTree: true }), undefined);
 });
 
 test("suggestWritablePath never proposes a path the writer would refuse", () => {
@@ -373,8 +380,8 @@ test("the writable-paths hint cannot lie — every pattern it advertises is acce
   // hint without adding an example here, and each example is checked against the real writer.
   // A hint advertising a path the writer refuses is worse than no hint: it sends the model
   // into a confident loop.
-  assert.ok(WRITABLE_PATH_EXAMPLES.length >= 10, "every advertised pattern contributes an example");
-  for (const path of WRITABLE_PATH_EXAMPLES) {
+  assert.ok(WRITABLE_PATTERNS.length >= 10, "every advertised pattern contributes an example");
+  for (const { example: path } of WRITABLE_PATTERNS) {
     assert.equal(
       normalizeGeneratedArtifactPath(path, { allowProjectTree: true }), path,
       `hint advertises a pattern that "${path}" should satisfy, but the writer refuses it`,

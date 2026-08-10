@@ -24,7 +24,7 @@ type BuildDeps = {
   connectRetryDelaysMs?: number[];
   getAuthToken?: () => Promise<string | undefined>;
   readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
-  writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>;
+  writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; relative_path?: string; error_kind?: string }>;
   // Lists the project tree so the model can introspect what scaffold already wrote
   // (e.g. resume into generate). Without a real lister the model is blind and can
   // wrongly conclude the project is empty and bail to analyze.

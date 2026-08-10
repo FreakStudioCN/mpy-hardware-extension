@@ -90,7 +90,7 @@ export type ProtocolDeps = {
   // Workspace file I/O (host enforces path containment).
   // `allowed` (present on a rejected path) describes what the workspace WILL accept. Forwarded
   // to the model so a wrong path is corrected next turn instead of guessed at repeatedly.
-  writeFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string; allowed?: string }>;
+  writeFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; relative_path?: string; error_kind?: string; allowed?: string }>;
   readFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
   listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>;
   // mkdir / delete (host enforces containment). The generate phase deletes
@@ -609,15 +609,24 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
     // real code and moved on with nothing on disk. Refuse instead, and say why.
     // An explicitly empty string still writes: that is a deliberate empty file, and
     // only the missing key is the malformed call.
-    if (p.content === undefined || p.content === null) {
+    // Any non-string is refused for the same reason, not just an absent key: String({})
+    // writes a file containing "[object Object]" and reports success, which is the same
+    // silent-wrong-file-on-disk failure with a different input.
+    if (typeof p.content !== "string") {
+      const received = p.content === undefined || p.content === null ? "none" : `a ${typeof p.content}`;
       return {
         ok: false, op_id: p.op_id, success: false, error_kind: "missing_content",
-        detail: `file_operation "${op}" requires a "content" string. Received none for path "${path}". Send the full file body in "content"; use "" only for a deliberately empty file.`,
+        detail: `file_operation "${op}" requires a "content" string. Received ${received} for path "${path}". Send the full file body in "content"; use "" only for a deliberately empty file.`,
       };
     }
-    const r = await deps.writeFile(path, String(p.content));
+    const r = await deps.writeFile(path, p.content);
     if (r.ok) input.onEvent?.({ type: "file_written", path: r.path ?? path });
-    return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "write_failed"), ...(r.allowed ? { allowed: r.allowed } : {}) };
+    // Report the path actually written, PROJECT-RELATIVE. The writer accepts a redundant
+    // leading segment and writes to the corrected target, so a bare success would leave the
+    // model believing its own prefixed path exists and reusing it for every later op. Never
+    // report r.path: that one is absolute, for the artifact index, and this same allowlist
+    // refuses an absolute path if the model sends it back.
+    return { ok: r.ok, op_id: p.op_id, success: r.ok, ...(r.ok && r.relative_path ? { path: r.relative_path } : {}), error: r.ok ? null : (r.error_kind ?? "write_failed"), ...(r.allowed ? { allowed: r.allowed } : {}) };
   }
   if (op === "read") {
     if (typeof deps.readFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };

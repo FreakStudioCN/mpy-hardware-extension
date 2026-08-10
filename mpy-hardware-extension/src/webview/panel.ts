@@ -2284,7 +2284,7 @@ async function fetchToolchainVersion(apiBaseUrl: string, fetchImpl: typeof fetch
 
 // Default to the real LLM-driven agent loop. The deterministic template
 // pipeline stays available via MPYHW_LOOP=template for offline/no-key demos.
-function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; confirmDeviceDelete?: (devicePath: string) => Promise<boolean>; confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>; denyDeviceCommands?: () => boolean; allowedScripts?: () => readonly string[] | null; projectRoot?: string }) {
+function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?: any; loopMode?: "agent" | "template"; getAuthToken?: () => Promise<string | undefined>; readWorkspaceFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>; writeProjectFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; relative_path?: string; error_kind?: string }>; listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>; makeProjectDir?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; deleteProjectPath?: (path: string) => Promise<{ ok: boolean; error_kind?: string }>; confirmDeviceDelete?: (devicePath: string) => Promise<boolean>; confirmDeviceCopyOverwrite?: (hostPath: string) => Promise<boolean>; denyDeviceCommands?: () => boolean; allowedScripts?: () => readonly string[] | null; projectRoot?: string }) {
   const mode = deps.loopMode ?? process.env.MPYHW_LOOP;
   if (mode === "template") {
     return createApiPipelineLoop(deps);
@@ -2295,11 +2295,34 @@ function createLoop(deps: { apiBaseUrl?: string; fetchImpl?: typeof fetch; shim?
   return createProtocolLoop(deps);
 }
 
+// The writer accepts ONE redundant leading segment and writes to the CORRECTED target (see
+// stripRedundantPathRoot), so every other fs op has to resolve a model-supplied path the same
+// way. A model that has adopted the prefix otherwise gets not_found from list, a stray
+// project/ tree from mkdir, and worst of all ok:true from delete while the real directory
+// survives, because rm runs with force:true and an absent path counts as success. Returns the
+// corrected RELATIVE path, containment re-checked, or undefined when there is nothing to strip.
+// "" is a real answer here, not "nothing": a bare `project` means the project root itself, so
+// this tests for undefined rather than truthiness.
+function redundantRootAlternative(root: string, relPath: string): string | undefined {
+  const stripped = stripRedundantPathRoot(relPath);
+  if (stripped === undefined) return undefined;
+  return isRealContained(root, resolve(root, stripped)) ? stripped : undefined;
+}
+
+// Only a missing file may read as "not found". Anything with another errno (EACCES, EPERM,
+// EISDIR) is a real fault and must not be reported to the model as an absent file. A throw
+// with NO code is counted as missing so a non-errno failure degrades to the previous
+// behavior rather than inventing a new error kind; the sync fs calls here always set one.
+function isMissingFileError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ENOTDIR" || code === undefined;
+}
+
 // read_workspace_file backing: reads a workspace-relative file, refusing any path
 // that escapes the workspace root (path containment is the host's responsibility,
 // mirroring the future run_host_tool design). Returns undefined reader when there
 // is no workspace folder, so the loop reports workspace_unavailable.
-function makeWorkspaceReader(workspaceFolder?: string) {
+export function makeWorkspaceReader(workspaceFolder?: string) {
   if (!workspaceFolder) return undefined;
   const root = resolve(workspaceFolder);
   return async (relPath: string) => {
@@ -2309,19 +2332,17 @@ function makeWorkspaceReader(workspaceFolder?: string) {
     }
     try {
       return { ok: true as const, content: readFileSync(target, "utf-8") };
-    } catch {
-      // The writer accepts ONE redundant leading segment (see stripRedundantPathRoot), so a
-      // read has to resolve the same way or the model cannot read back the file it just
-      // wrote: it would write project/firmware/main.py, land on firmware/main.py, then read
-      // project/firmware/main.py and be told file_not_found. Containment is re-checked here,
-      // and this only runs after the literal path has already failed.
-      const stripped = stripRedundantPathRoot(relPath);
-      if (stripped) {
-        const alternate = resolve(root, stripped);
-        if (isRealContained(root, alternate)) {
-          try {
-            return { ok: true as const, content: readFileSync(alternate, "utf-8") };
-          } catch { /* fall through to file_not_found */ }
+    } catch (err) {
+      if (!isMissingFileError(err)) return { ok: false as const, error_kind: "read_failed" };
+      // Resolve the same way the writer did, or the model cannot read back its own work: it
+      // writes project/firmware/main.py, lands on firmware/main.py, then reads the path it
+      // sent and is told file_not_found. Only runs after the literal path has failed.
+      const stripped = redundantRootAlternative(root, relPath);
+      if (stripped !== undefined) {
+        try {
+          return { ok: true as const, content: readFileSync(resolve(root, stripped), "utf-8") };
+        } catch (alternateErr) {
+          if (!isMissingFileError(alternateErr)) return { ok: false as const, error_kind: "read_failed" };
         }
       }
       return { ok: false as const, error_kind: "file_not_found" };
@@ -2366,7 +2387,7 @@ function makeWorkspaceWriter(
 // file_operation(list) backing: lists the project tree (relative POSIX paths, dirs
 // suffixed with "/") so the model can introspect what scaffold already wrote and not
 // wrongly conclude the project is empty. Same containment as makeWorkspaceReader.
-function makeWorkspaceLister(workspaceFolder?: string) {
+export function makeWorkspaceLister(workspaceFolder?: string) {
   if (!workspaceFolder) return undefined;
   const root = resolve(workspaceFolder);
   return async (relPath: string) => {
@@ -2385,17 +2406,33 @@ function makeWorkspaceLister(workspaceFolder?: string) {
       }
     };
     try { walk(base); return { ok: true as const, entries }; }
-    catch { return { ok: false as const, error_kind: "not_found" }; }
+    catch (err) {
+      if (!isMissingFileError(err)) return { ok: false as const, error_kind: "list_failed" };
+      // Same resolution as the reader: a model that wrote project/firmware/main.py must be
+      // able to list project/firmware and see it, or it concludes its own write vanished.
+      const stripped = relPath ? redundantRootAlternative(root, relPath) : undefined;
+      if (stripped !== undefined) {
+        entries.length = 0;
+        try { walk(resolve(root, stripped)); return { ok: true as const, entries }; }
+        catch (alternateErr) {
+          if (!isMissingFileError(alternateErr)) return { ok: false as const, error_kind: "list_failed" };
+        }
+      }
+      return { ok: false as const, error_kind: "not_found" };
+    }
   };
 }
 
 // file_operation(mkdir) backing: creates a project-tree directory (recursive).
 // Same containment as makeWorkspaceReader — a path escaping the root is refused.
-function makeWorkspaceMkdir(workspaceFolder?: string, getRestriction: () => WriteRestriction | null = () => null) {
+export function makeWorkspaceMkdir(workspaceFolder?: string, getRestriction: () => WriteRestriction | null = () => null) {
   if (!workspaceFolder) return undefined;
   const root = resolve(workspaceFolder);
   return async (relPath: string) => {
-    const target = resolve(root, relPath);
+    // mkdir CREATES its target, so "is the literal path absent" cannot decide here the way it
+    // does for read and list. Correct the path up front, exactly as the writer does, or a
+    // redundant leading segment silently materializes a stray project/ tree beside the real one.
+    const target = resolve(root, redundantRootAlternative(root, relPath) ?? relPath);
     if (!isRealContained(root, target)) {
       return { ok: false as const, error_kind: "path_outside_workspace" };
     }
@@ -2413,19 +2450,27 @@ function makeWorkspaceMkdir(workspaceFolder?: string, getRestriction: () => Writ
 // file_operation(delete) backing: removes a project-tree path (recursive). The
 // generate phase deletes firmware/tools/ before the mpy_imports gate. Containment
 // refuses anything outside the root AND the root itself (never wipe the workspace).
-// force:true makes "delete an already-absent path" succeed — the desired end-state
-// (path gone) holds — which is not a fake success.
-function makeWorkspaceDeleter(
+// force:true makes "delete an already-absent path" succeed, because the desired end-state
+// (path gone) holds. That is only true once the path has been resolved the same way the
+// writer resolves it — see the redundant-root fallback below.
+export function makeWorkspaceDeleter(
   workspaceFolder: string | undefined,
   isPreExisting: (target: string) => boolean,
   confirmDelete: (target: string) => Promise<boolean>,
   getRestriction: () => WriteRestriction | null = () => null,
 ) {
   if (!workspaceFolder) return undefined;
-  return (relPath: string) =>
-    deleteProjectPath({
+  const root = resolve(workspaceFolder);
+  return (relPath: string) => {
+    // force:true makes an absent path succeed, which is right for a genuine re-delete but
+    // dangerous for a prefixed one: delete project/firmware/tools would resolve to nothing,
+    // report ok, and leave the real firmware/tools in place, so the gate that runs next fails
+    // for a reason nothing explains. Fall back to the corrected path only when the literal
+    // one is absent, so a real project/ directory is still deleted literally if it exists.
+    const stripped = existsSync(resolve(root, relPath)) ? undefined : redundantRootAlternative(root, relPath);
+    return deleteProjectPath({
       workspaceFolder,
-      path: relPath,
+      path: stripped ?? relPath,
       removePath: (target) => rm(target, { recursive: true, force: true }),
       // Same late binding as the writer: during a fixed-output run the recursive delete may not
       // leave that run's own output subtree.
@@ -2436,6 +2481,7 @@ function makeWorkspaceDeleter(
       guardDelete: async (target) =>
         isPreExisting(target) && existsSync(target) ? confirmDelete(target) : true,
     });
+  };
 }
 
 // Read a committed partner logo and inline it as a data URI. Reuses the readWebviewHtml
