@@ -3,6 +3,7 @@
 Hermetic: resolution is checked against the real vendored submodule; execution is
 checked with an injected fake runner (no venv, no real subprocess).
 """
+import inspect
 import os
 import sys
 import types
@@ -393,20 +394,6 @@ def test_maintenance_scripts_are_not_runnable_from_a_phase():
     assert os.path.isfile(os.path.join(serve.scripts_root(), "upy-maixpy-export-plugin", "scripts", "crawl_sipeed_maixpy_docs.py"))
 
 
-if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except Exception as exc:  # noqa: BLE001
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    print(f"\n{('ALL PASS' if not failures else str(failures) + ' FAILED')}")
-    sys.exit(1 if failures else 0)
-
-
 def test_run_v0_shell_allows_the_read_only_git_forms_the_contract_needs():
     # The generate contract requires session_state.git_commit to record project HEAD, and a
     # fresh project needs `git init`. Refusing these stalled the phase.
@@ -476,3 +463,28 @@ def test_run_v0_shell_still_refuses_an_over_long_chain_and_a_disallowed_part():
         res = serve._dispatch(shim, "script.run_v0", {"interpreter": "shell", "script": cmd, "project_dir": "/tmp/proj"})
         assert res["status"] == "error" and res.get("error_kind") == "shell_command_not_allowed", (cmd, res)
     assert not record, "nothing may reach subprocess when any part is disallowed"
+
+
+# Every test must be DEFINED above this block. A test defined below it is never bound when the
+# file runs as a script, so this runner would print ALL PASS while silently skipping it.
+if __name__ == "__main__":
+    failures = 0
+    skipped = 0
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            # A test that takes a parameter wants a pytest fixture (tmp_path). This runner
+            # cannot supply one, so report the skip instead of a misleading failure. The
+            # baseline gate runs pytest, which does supply them.
+            if inspect.signature(fn).parameters:
+                skipped += 1
+                print(f"SKIP {name} (needs a pytest fixture)")
+                continue
+            try:
+                fn()
+                print(f"PASS {name}")
+            except Exception as exc:  # noqa: BLE001
+                failures += 1
+                print(f"FAIL {name}: {exc}")
+    verdict = "ALL PASS" if not failures else f"{failures} FAILED"
+    print(f"\n{verdict}{f' ({skipped} skipped, run pytest for those)' if skipped else ''}")
+    sys.exit(1 if failures else 0)
