@@ -3,8 +3,49 @@
 // `loop(input)` the SessionController invokes. Replaces createAgentBackedLoop.
 import { resolve, sep, basename } from "node:path";
 
+import { isRealContained, stripRedundantPathRoot } from "../extension/workspace-writer.ts";
 import { createLlmClient } from "./llm-client.ts";
 import { runProtocolBuild, type ProtocolDeps } from "./protocol-loop.ts";
+
+// The Skill documents the project root as `sessions/<id>/project`, so the model prefixes
+// `project/` onto everything. Writes and reads already drop that segment and resolve to the
+// real root, but script ARGUMENTS were passed through verbatim, so a gate the model ran against
+// its own path looked one level too deep. Measured: the plan was written four times while
+// run_quality_gates.py answered GENERATE_PLAN_MISSING each time, and the phase died on
+// max_turns. Correct the arguments the same way, so one spelling works everywhere.
+//
+// The literal path is deliberately NOT respected, even when it exists. The writer never puts a
+// generated file under `project/`, so such a directory is always a product of this same
+// confusion — in the measured run the model had passed `--project-dir project`, and the
+// scaffold dutifully built the whole tree one level down. Honouring it would preserve the split.
+const PATH_FLAG = /(dir|path|root|file|plan)$/i;
+
+function correctedArg(projectDir: string, value: string, precedingFlag: string): string {
+  const corrected = stripRedundantPathRoot(value);
+  if (corrected === undefined) return value;
+  // A BARE redundant root ("project") means the root itself, but it is also a plausible
+  // non-path value, so correct it only as the value of a path-ish flag: `--project-dir project`.
+  if (corrected === "") {
+    return precedingFlag.startsWith("-") && PATH_FLAG.test(precedingFlag) ? "." : value;
+  }
+  return isRealContained(projectDir, resolve(projectDir, corrected)) ? corrected : value;
+}
+
+export function correctRedundantArgPaths(projectDir: string, args: readonly string[]): string[] {
+  return args.map((arg, index) => {
+    if (typeof arg !== "string" || !arg) return arg;
+    // `--flag=value` carries both halves in one argv entry; correct only the value.
+    const equals = arg.startsWith("-") ? arg.indexOf("=") : -1;
+    if (equals > 0) {
+      const flag = arg.slice(0, equals);
+      const value = arg.slice(equals + 1);
+      const fixed = correctedArg(projectDir, value, flag);
+      return fixed === value ? arg : `${flag}=${fixed}`;
+    }
+    if (arg.startsWith("-")) return arg;
+    return correctedArg(projectDir, arg, index > 0 ? String(args[index - 1] ?? "") : "");
+  });
+}
 
 // cp_from pulls a device file to the HOST, so the model-supplied local destination must be
 // contained to the project root — a leading slash is treated as project-relative, an empty
@@ -174,7 +215,10 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
     }
     if (!shim || !projectDir) return { ok: false, error_kind: "host_runner_absent" as string };
     try {
-      const res = await shim.runV0Script({ interpreter, script, args, project_dir: projectDir, stdin_content: extra?.stdin_content, stdin_json: extra?.stdin_json, timeout_ms: extra?.timeout_ms, phase: extra?.phase });
+      // Scripts run with cwd = the project root (serve.py ignores any model-supplied cwd), so a
+      // corrected argument resolves the same way the writer resolved the file it names.
+      const correctedArgs = correctRedundantArgPaths(projectDir, args);
+      const res = await shim.runV0Script({ interpreter, script, args: correctedArgs, project_dir: projectDir, stdin_content: extra?.stdin_content, stdin_json: extra?.stdin_json, timeout_ms: extra?.timeout_ms, phase: extra?.phase });
       if (!res || res.status !== "ok") return { ok: false, error_kind: res?.error_kind ?? "script_error", stderr: res?.message ?? "", candidates: res?.candidates };
       // serve.py returns parsed JSON in result_json (with stdout blanked); re-serialize
       // it so the model still sees the script's output.
