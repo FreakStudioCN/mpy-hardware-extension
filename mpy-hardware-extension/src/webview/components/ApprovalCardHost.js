@@ -230,7 +230,13 @@
         if (card.allow_add === true) {
           const addRow = document.createElement("div"); addRow.className = "ask-row";
           const addInput = document.createElement("input"); addInput.className = "ask-input"; addInput.type = "text";
-          addInput.placeholder = tr("ask_add_ph");
+          // "component" wording is true only for the device-list cards. scaffold_config also
+          // ships allow_add:true (upy-scaffold-plugin SKILL.md — there the user adds custom
+          // files/modules), so other cards get neutral copy. The added_items payload shape is
+          // shared on purpose: it byte-matches the reference host and every consumer reads
+          // item.name, so only the visible wording is card-aware.
+          const isDeviceListCard = card.approval_id === "device_confirm" || card.approval_id === "alternative_device";
+          addInput.placeholder = tr(isDeviceListCard ? "ask_add_ph" : "ask_add_ph_generic");
           const addBtn = document.createElement("button"); addBtn.className = "ask-opt"; addBtn.type = "button"; addBtn.textContent = tr("ask_add_btn");
           addRow.appendChild(addInput); addRow.appendChild(addBtn); main.appendChild(addRow);
           const addedList = document.createElement("div"); addedList.className = "ask-added-list"; main.appendChild(addedList);
