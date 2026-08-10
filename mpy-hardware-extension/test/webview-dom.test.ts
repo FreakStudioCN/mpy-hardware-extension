@@ -3707,6 +3707,59 @@ test("device tools: shows a no-device state until a board is present, and revert
   assert.equal(document.getElementById("dtEntries").children.length, 0, "the file list is cleared on unplug");
 });
 
+// Board files and the upload_ready export are peers with different preconditions: the browser
+// needs a connected board, the export never does. Stacking them put a project-level action on
+// top of device UI, so they are two views behind one segmented toggle.
+test("device tools: the view toggle switches between board files and the upload-ready export", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+
+  const files = document.getElementById("dtFilesView")!;
+  const exportView = document.getElementById("dtExportView")!;
+  const segFiles = document.getElementById("dtViewFiles") as HTMLButtonElement;
+  const segExport = document.getElementById("dtViewExport") as HTMLButtonElement;
+
+  // Board files is the default: it is the panel's primary purpose.
+  assert.equal(files.classList.contains("hidden"), false, "board files shows on open");
+  assert.equal(exportView.classList.contains("hidden"), true, "the export view is hidden on open");
+  assert.equal(segFiles.getAttribute("aria-pressed"), "true");
+  assert.equal(segExport.getAttribute("aria-pressed"), "false");
+
+  segExport.click();
+  assert.equal(exportView.classList.contains("hidden"), false, "the export view shows");
+  assert.equal(files.classList.contains("hidden"), true, "board files hides");
+  assert.ok(segExport.classList.contains("active"), "the active segment drives the sliding indicator");
+  assert.equal(segExport.getAttribute("aria-pressed"), "true");
+  assert.equal(segFiles.getAttribute("aria-pressed"), "false");
+
+  segFiles.click();
+  assert.equal(files.classList.contains("hidden"), false, "switching back restores board files");
+  assert.equal(exportView.classList.contains("hidden"), true);
+});
+
+test("device tools: the export is reachable with NO board, and reopening returns to board files", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+  // No board: the files view shows its empty state, but the export must NOT be gated by it —
+  // it is a filesystem-only operation and works with nothing plugged in.
+  post(dom, { type: "device_present", present: false });
+  assert.equal(document.getElementById("dtNoDev")!.classList.contains("hidden"), false, "the no-device state shows in the files view");
+
+  (document.getElementById("dtViewExport") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("dtExportView")!.classList.contains("hidden"), false, "the export view opens without a board");
+  (document.getElementById("dtExport") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "device_tool_export_upload_ready"), "the export runs with no device connected");
+
+  // Reopening the panel lands on board files again, never on whichever view was last used.
+  document.getElementById("deviceToolsBack")!.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("dtFilesView")!.classList.contains("hidden"), false, "a reopen returns to board files");
+  assert.equal(document.getElementById("dtExportView")!.classList.contains("hidden"), true);
+});
+
 test("device tools: an ABSENT venv shows the set-up-environment affordance; its button installs deps + opens Env", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -3849,6 +3902,43 @@ test("device tools: device_busy shows the busy banner naming the owning phase", 
   assert.match(banner.textContent, /flash/);
 });
 
+test("device tools: device_busy names the reason under the export status even with no device present (its banner is hidden then)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // No device_present event at all -- #dtBusy lives inside the device-gated #dtDeviceUi,
+  // which stays hidden, so the export's OWN status line is the only visible explanation
+  // for why its button just greyed out.
+  post(dom, { type: "device_busy", phase: "generate" });
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /generate/, "the export status names the busy reason, not a blank line");
+});
+
+test("device tools: the export's busy explanation is cleared once the run ends, not left stale", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_busy", phase: "generate" });
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /generate/);
+
+  // dtSetBusy(null) fires at the top of onDeviceToolResult for EVERY command (any device
+  // tool reply signals "the run ended"), not just export_upload_ready.
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+
+  assert.equal((document.getElementById("dtExportStatus")!.textContent || "").trim(), "", "the busy explanation does not survive the run ending");
+});
+
+test("device tools: a real export result that follows a busy explanation is not wiped by a later unrelated device-tool reply", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // A busy explanation sets dtExportBusyShown -- the export result that follows it must
+  // clear that flag itself, or the NEXT unrelated dtSetBusy(null) would blank the result
+  // (this is the exact sequence the fix protects: click -> busy -> run ends -> result).
+  post(dom, { type: "device_busy", phase: "generate" });
+  post(dom, { type: "device_tool_result", command: "export_upload_ready", result: { fileCount: 5, mipCount: 2 } });
+
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /5/, "the real result survives an unrelated reply's busy-clear");
+});
+
 test("device tools: Install (mip) posts device_tool_mip with the url + version", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -3858,6 +3948,51 @@ test("device tools: Install (mip) posts device_tool_mip with the url + version",
   document.getElementById("dtMipInstall").click();
   const mip = posted.find((m) => m.type === "device_tool_mip");
   assert.ok(mip); assert.equal(mip.url, "github:org/repo/pkg"); assert.equal(mip.version, "1.2.3");
+});
+
+test("device tools: Export upload_ready is visible with no device connected and posts device_tool_export_upload_ready", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // No device_present event fired at all -- the export section lives outside dtDeviceUi,
+  // so it must not be hidden behind the "no device connected" gate the rest of the panel uses.
+  assert.ok(document.getElementById("dtExport"), "the export button renders unconditionally");
+  assert.equal((document.getElementById("dtExport") as any).disabled, false, "not disabled while no device is present");
+
+  document.getElementById("dtExport").click();
+
+  const msg = posted.find((m) => m.type === "device_tool_export_upload_ready");
+  assert.ok(msg, "click posts device_tool_export_upload_ready");
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /working/i);
+});
+
+test("device tools: an export result reports file + package counts under its own status, without refreshing the board listing", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "device_tool_result", command: "export_upload_ready", result: { path: "/proj/upload_ready", fileCount: 5, mipCount: 2 } });
+
+  const status = document.getElementById("dtExportStatus")!.textContent || "";
+  assert.match(status, /5/);
+  assert.match(status, /2/);
+  assert.match(status, /\/proj\/upload_ready/, "the result line names the path, per scope.md's result-line requirement");
+  assert.equal((document.getElementById("dtFilesStatus")!.textContent || "").trim(), "", "Board files status is untouched by an export result");
+  // Mutation: dropping the export-specific early return in onDeviceToolResult falls through to
+  // dtRefreshSilently, which posts device_tool_list — the export must never trigger that.
+  assert.ok(!posted.some((m) => m.type === "device_tool_list"), "export never re-lists the board (it never touched it)");
+});
+
+test("device tools: an export error reports under its own status without triggering the no-device state", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py"] } });
+  post(dom, { type: "device_present", present: true });
+
+  post(dom, { type: "device_tool_error", command: "export_upload_ready", error: "manifest_read_failed: permission denied" });
+
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /manifest_read_failed/);
+  assert.ok(document.getElementById("dtNoDev").classList.contains("hidden"), "an export error must not flip the panel to the no-device state");
 });
 
 test("device tools: Delete is host-armed two-step — first click requests an arm (no nonce), second echoes the host nonce", async () => {

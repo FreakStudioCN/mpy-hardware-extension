@@ -29,6 +29,12 @@
       }
       function dtFilesStatus(text) { const n = $("dtFilesStatus"); if (n) n.textContent = text || ""; }
       function dtPkgStatus(text) { const n = $("dtPkgStatus"); if (n) n.textContent = text || ""; }
+      function dtExportStatus(text) { const n = $("dtExportStatus"); if (n) n.textContent = text || ""; }
+      // True only while dtExportStatus holds a device_busy explanation, not a real
+      // result/error/working message -- so dtSetBusy(null) (fired on EVERY device tool
+      // reply, including ones for other commands, and on session_done) knows whether
+      // it's safe to clear the line versus wiping a legitimate "Exported N files…".
+      var dtExportBusyShown = false;
       function dtListCurrent() { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_list", path: dtCurrentPath() }); }
 
       // How long a Delete stays armed ("Confirm?") before disarming.
@@ -54,7 +60,25 @@
       // While a run owns the port, opening the tool must not poll presence or re-list: the list
       // would be refused (device_busy) and a mid-run scan is unreliable. The listing is preserved
       // and refreshed by dtRefreshAfterRun on session_done.
-      function dtOnOpen() { if (running) return; dtRelistOnNextPresence = true; dtCheckDevice(); }
+      // Two peers inside Device Tools: the CONNECTED board's filesystem, and the host-side
+      // upload_ready export. Board files is the default because it is the panel's primary
+      // purpose; the export needs no board, so it is never behind the no-device gate and stays
+      // one click away. The presence poll keeps running whichever view is showing, so switching
+      // never has to re-check the device.
+      function dtSetView(view) {
+        const onExport = view === "export";
+        const filesView = $("dtFilesView"); if (filesView) filesView.classList.toggle("hidden", onExport);
+        const exportView = $("dtExportView"); if (exportView) exportView.classList.toggle("hidden", !onExport);
+        for (const [id, active] of [["dtViewFiles", !onExport], ["dtViewExport", onExport]]) {
+          const seg = $(id);
+          if (!seg) continue;
+          seg.classList.toggle("active", active);
+          seg.setAttribute("aria-pressed", active ? "true" : "false");
+        }
+      }
+      // Opening the panel always lands on Board files, so a reopen is never left on whichever
+      // view the previous visit happened to end on.
+      function dtOnOpen() { dtSetView("files"); if (running) return; dtRelistOnNextPresence = true; dtCheckDevice(); }
       // A run just released the port. Only refresh if the tool is actually open (else the next
       // dtOnOpen handles it). Re-checks presence (shim.scan reconciles the cached port, so a board
       // that re-enumerated to a new port across the flash is healed, not left stale) and re-lists
@@ -118,9 +142,17 @@
       // phase set => a session run owns the port; null hides the banner. While busy, disable
       // the controls too so a click can't queue a command that will just be refused.
       function dtSetBusy(phase) {
-        const banner = $("dtBusy"); if (!banner) return;
         const busy = !!phase;
         document.querySelectorAll("#toolDeviceTools .dt-act, #toolDeviceTools .dt-input, #toolDeviceTools .dt-pkg-seg").forEach((el) => { el.disabled = busy; });
+        if (!busy) {
+          // Runs on every device-tool reply (any command) and on session_done -- the one
+          // place "busy ended" is known. Only clear dtExportStatus if it still holds the
+          // busy explanation onDeviceBusy set: onDeviceToolResult/onDeviceToolError call
+          // dtSetBusy(null) BEFORE writing a real export status, so by the time either
+          // writes it the flag is already false and this can't wipe their message out.
+          if (dtExportBusyShown) { dtExportStatus(""); dtExportBusyShown = false; }
+        }
+        const banner = $("dtBusy"); if (!banner) return;
         if (!busy) { banner.classList.add("hidden"); return; }
         banner.textContent = tr("dt_busy", { p: phase });
         banner.classList.remove("hidden");
@@ -187,6 +219,13 @@
       var DT_INSTALL_CMDS = { mip_install: true, uninstall: true };
       function onDeviceToolResult(command, result) {
         dtSetBusy(null);
+        if (command === "export_upload_ready") {
+          // Not a device mutation (no board files changed) -- report the counts and stop,
+          // never fall through to dtRefreshSilently's device_tool_list (would error with no
+          // board connected, which the export explicitly does not require).
+          dtExportStatus(tr("dt_export_ok", { n: (result && result.fileCount) || 0, m: (result && result.mipCount) || 0, p: (result && result.path) || "" }));
+          return;
+        }
         if (command === "list") {
           dtRenderEntries((result && result.path) || "", result && result.entries);
           if (dtSilentList) dtSilentList = false; else dtFilesStatus("");
@@ -213,6 +252,10 @@
       }
       function onDeviceToolError(command, error) {
         dtSetBusy(null);
+        // The export never touches the device, so its failures are never "board is gone" --
+        // check this BEFORE the no-device heuristic below so an unrelated error message can
+        // never mistakenly hide the whole device UI.
+        if (command === "export_upload_ready") { dtExportStatus(tr("dt_err", { c: command, e: error })); return; }
         // A command that failed because the board is gone -> revert to the no-device state
         // immediately (don't wait for the next poll), instead of a confusing error.
         if (/device_unavailable|no device|could not open|failed to access/i.test(String(error))) { dtShowNoDevice(); return; }
@@ -228,7 +271,15 @@
         dtFilesStatus(tr("dt_err", { c: command, e: error }));
       }
       function onDeviceBusy(phase) {
-        dtSetBusy(phase || tr("dt_busy_generic")); dtFilesStatus(""); dtPkgStatus("");
+        const reason = phase || tr("dt_busy_generic");
+        dtSetBusy(reason); dtFilesStatus(""); dtPkgStatus("");
+        // #dtBusy (the banner dtSetBusy fills) lives inside #dtDeviceUi, hidden whenever
+        // no board is present -- but Export is available with no board, so its own status
+        // line is the only place a user watching just that section ever sees the reason
+        // its button just greyed out. Set it instead of clearing it (a stale "Exported…"
+        // giving way to why the button is currently disabled is more useful than a blank).
+        dtExportStatus(tr("dt_busy", { p: reason }));
+        dtExportBusyShown = true;
         if (dtActiveInstall) { dtActiveInstall.status.classList.remove("installing"); dtActiveInstall.status.textContent = ""; dtActiveInstall = null; }
         dtInstallInFlight = false;
       }
@@ -536,6 +587,9 @@
           vscode.postMessage({ type: "device_tool_mkdir", path: dtJoin(dtCurrentPath(), name) });
         });
         $("dtUpload").addEventListener("click", () => { dtFilesStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_upload", dir: dtCurrentPath() }); });
+        if ($("dtViewFiles")) $("dtViewFiles").addEventListener("click", () => dtSetView("files"));
+        if ($("dtViewExport")) $("dtViewExport").addEventListener("click", () => dtSetView("export"));
+        if ($("dtExport")) $("dtExport").addEventListener("click", () => { dtExportStatus(tr("dt_working")); vscode.postMessage({ type: "device_tool_export_upload_ready" }); });
         $("dtMipInstall").addEventListener("click", () => {
           const url = $("dtMipUrl").value.trim(); if (!url) return;
           if (dtInstallInFlight) return;

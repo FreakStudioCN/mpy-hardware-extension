@@ -1,4 +1,6 @@
 import base64
+import datetime
+import fnmatch
 import json
 import os
 import platform
@@ -311,6 +313,53 @@ def _parse_v0_git_commit_shell(command: str) -> list[list[str]] | None:
         return None
     return [["git", "add", "-A"], ["git", "commit", "-m", message]]
 
+
+# ---------- firmware/ upload exclusion (shared by device.deploy_firmware_tree and
+# project.export_upload_ready) ----------
+# Defined ONCE so a device deploy and the upload_ready/ export can never drift on what
+# belongs on the board: driver test doubles, Python bytecode caches, and directory
+# placeholders never reach it, anywhere in the tree. A flash/interpreter image
+# (.uf2/.bin/.hex) is a flash-phase input, never a device-fs file -- but ONLY at
+# firmware/'s TOP LEVEL, where a flash image actually lands (the source screenshot this
+# rule was written from: a RPI_PICO-*.uf2 sitting directly in firmware/). A .bin/.hex
+# NESTED under firmware/ (firmware/lib/, firmware/drivers/) is a legitimate device-side
+# driver asset instead -- e.g. GraftSense-Drivers-MicroPython's bma423_driver ships
+# bma423conf.bin next to its .py and reads it back from the device filesystem at
+# runtime; excluding it anywhere in the tree silently breaks that driver post-deploy.
+_FIRMWARE_EXCLUDE_DIR_NAMES = ("__pycache__",)
+_FIRMWARE_EXCLUDE_EXACT_NAMES = (".gitkeep",)
+_FIRMWARE_EXCLUDE_NAME_GLOBS = ("*.pyc",)
+_FIRMWARE_EXCLUDE_TOP_LEVEL_GLOBS = ("*.uf2", "*.bin", "*.hex")
+_FIRMWARE_EXCLUDE_PATH_GLOBS = ("drivers/*/mock.py", "drivers/*/mock.mpy")
+
+
+def iter_uploadable_firmware(firmware_dir: str):
+    """Walk firmware_dir yielding (src, rel) for every file that belongs on the device.
+    rel is posix-normalized (relative to firmware_dir) so the SEPARATORS match both the
+    mpremote ':' target path and the exclusion globs identically on Windows and POSIX.
+
+    Case does NOT match across platforms: fnmatch folds through os.path.normcase, so a
+    top-level FIRMWARE.BIN is excluded on Windows and kept on macOS/Linux. Left as-is
+    deliberately -- flash images and mock files ship lowercase in every tree this filters,
+    and forcing one behavior would either start excluding user files on POSIX or start
+    shipping flash images on Windows. Both sinks (export and deploy) use this one iterator,
+    so the two can never disagree with each other on the same machine."""
+    for root, dirs, files in os.walk(firmware_dir):
+        dirs[:] = [d for d in dirs if d not in _FIRMWARE_EXCLUDE_DIR_NAMES]
+        for name in files:
+            if name in _FIRMWARE_EXCLUDE_EXACT_NAMES:
+                continue
+            if any(fnmatch.fnmatch(name, pattern) for pattern in _FIRMWARE_EXCLUDE_NAME_GLOBS):
+                continue
+            src = os.path.join(root, name)
+            rel = os.path.relpath(src, firmware_dir).replace("\\", "/")
+            if "/" not in rel and any(fnmatch.fnmatch(name, pattern) for pattern in _FIRMWARE_EXCLUDE_TOP_LEVEL_GLOBS):
+                continue
+            if any(fnmatch.fnmatch(rel, pattern) for pattern in _FIRMWARE_EXCLUDE_PATH_GLOBS):
+                continue
+            yield src, rel
+
+
 class Shim:
     def __init__(self, runner=None, serial_factory=None):
         self.runner = runner or subprocess.run
@@ -371,16 +420,12 @@ class Shim:
         # Walking the on-disk tree (not state.files) also captures files written by
         # scaffold/download_drivers that never pass through write_device_file. main.py
         # is copied LAST so its imports already exist when the next reset autoruns it.
+        # iter_uploadable_firmware (not a bare os.walk) so mock.py/mock.mpy driver test
+        # doubles, __pycache__/*.pyc, and flash images (*.uf2/*.bin/*.hex) never reach the
+        # board -- previously only .gitkeep was skipped here, shipping all of those.
         if not os.path.isdir(firmware_dir):
             return {"status": "error", "error_kind": "firmware_dir_missing"}
-        entries = []
-        for root, _dirs, files in os.walk(firmware_dir):
-            for name in files:
-                if name == ".gitkeep":
-                    continue
-                src = os.path.join(root, name)
-                rel = os.path.relpath(src, firmware_dir).replace("\\", "/")
-                entries.append((src, rel))
+        entries = list(iter_uploadable_firmware(firmware_dir))
         # Stable sort: every dependency (key False) keeps its order, main.py (key True)
         # moves to the end.
         entries.sort(key=lambda entry: entry[1] == "main.py")
@@ -638,6 +683,384 @@ def _fs_copy_from(port, remote_path, local_path):
     if r.returncode != 0:
         return {"status": "error", "error_kind": "mpremote_error", "message": (r.stderr or "").strip()}
     return {"status": "ok"}
+
+
+# ---------- project.export_upload_ready ----------
+# Regenerate <project_dir>/upload_ready/: a filter-copy of firmware/ (the same exclusion
+# predicate deploy_firmware_tree uses) plus a README documenting mip installs, so a user
+# who lost their board program can restore it from one folder without guessing which
+# files belong on the device. Filesystem-only -- no mpremote, no port, works with no
+# device connected.
+
+def _unwrap_manifest(data):
+    """A project-manifest.json read off disk is always the bare manifest, but some
+    callers pass through a phase-envelope shape (manifest_content / manifest, possibly
+    nested under payload). Mirrors upy-deploy-plugin/scripts/install_mip_dependencies.py's
+    unwrap_manifest so this reader and the canonical mip installer agree on where the
+    real manifest lives."""
+    if not isinstance(data, dict):
+        return {}
+    payload = data.get("payload")
+    if isinstance(payload, dict):
+        for key in ("manifest_content", "manifest"):
+            manifest = payload.get(key)
+            if isinstance(manifest, dict):
+                return manifest
+    for key in ("manifest_content", "manifest"):
+        manifest = data.get(key)
+        if isinstance(manifest, dict):
+            return manifest
+    return data
+
+
+def _read_project_manifest(project_dir: str):
+    """Read project-manifest.json. Returns (manifest_or_None, error_or_None). A missing
+    manifest is a normal "nothing generated yet" state (ENOENT swallowed -> no external
+    packages); any OTHER read failure (EACCES, a directory in its place, malformed JSON,
+    ...) must fail the export rather than silently reporting "no deps"."""
+    path = os.path.join(project_dir, "project-manifest.json")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except FileNotFoundError:
+        return None, None
+    # UnicodeDecodeError is a ValueError, NOT an OSError and NOT a JSONDecodeError, so a
+    # non-UTF-8 manifest used to escape this handler entirely and surface as a generic shim
+    # error instead of manifest_read_failed. Nothing destructive has run at that point, so
+    # the export was safe either way -- what was lost was the error KIND the caller reports.
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return None, str(exc)
+    return _unwrap_manifest(raw), None
+
+
+def _runtime_dependencies(manifest):
+    """Mirrors install_mip_dependencies.py's runtime_dependencies precedence: a
+    top-level runtime_dependencies wins when present (the mip installer's own merge can
+    promote it there); generate.runtime_dependencies is the fallback. Reading only the
+    nested location -- as this export originally did -- silently reports "no external
+    packages" for a manifest shaped the first way."""
+    if not isinstance(manifest, dict):
+        return {}
+    direct = manifest.get("runtime_dependencies")
+    if isinstance(direct, dict):
+        return direct
+    generate = manifest.get("generate")
+    if isinstance(generate, dict) and isinstance(generate.get("runtime_dependencies"), dict):
+        return generate["runtime_dependencies"]
+    return {}
+
+
+def _normalize_mip_entry(item):
+    """A raw mip[] entry is a bare package-name string OR an object (both are contract-
+    legal -- see install_mip_dependencies.py's normalize_mip_entry). Never raises: an
+    unrecognized shape (not a str, not a dict, or a dict with no usable package) returns
+    None and is dropped, so a malformed manifest degrades the README rather than crashing
+    the export after upload_ready/ has already been wiped. verify_import is always
+    coerced to a string (defaulting from package, exactly like the canonical) -- left
+    raw, a non-scalar value (a list/dict) is unhashable and crashes the dedup below, and
+    the string-vs-object form of the same package would fail to dedup against each other.
+    """
+    if isinstance(item, str):
+        package = item.strip()
+        if not package:
+            return None
+        return {"package": package, "target": "/lib", "version": "latest", "verify_import": package.replace("-", "_")}
+    if not isinstance(item, dict):
+        return None
+    package = str(item.get("package") or "").strip()
+    if not package:
+        return None
+    entry = dict(item)
+    entry["package"] = package
+    entry["target"] = str(item.get("target") or "/lib").strip() or "/lib"
+    # Stripped like every sibling field above and below. version was the ONE field left
+    # unstripped, and that asymmetry was the whole reachability of the trailing-newline
+    # case: "1.3.4\n" is a fully recoverable intent, so recover it rather than failing the
+    # charset and demoting the package to an "install manually" bullet. The charset stays
+    # as the gate for genuinely hostile input, which is what it is for.
+    entry["version"] = str(item.get("version") or "latest").strip() or "latest"
+    entry["verify_import"] = str(item.get("verify_import") or package.replace("-", "_")).strip()
+    return entry
+
+
+def _mip_entries(manifest):
+    raw = _runtime_dependencies(manifest).get("mip")
+    if not isinstance(raw, list):
+        return []
+    entries = []
+    seen = set()
+    for item in raw:
+        entry = _normalize_mip_entry(item)
+        if entry is None:
+            continue
+        # Matches install_mip_dependencies.py's dedup key: two mip[] entries for the same
+        # package are the same install regardless of a differing (often absent) version.
+        # verify_import is now always populated by _normalize_mip_entry, so the string
+        # and object forms of the same package dedup against each other correctly.
+        key = (entry["package"], entry.get("verify_import") or "", entry.get("target"))
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append(entry)
+    return entries
+
+
+# A mip package spec (or version) as it will be pasted into a terminal: a bare name, a
+# github:org/repo/pkg spec, a full URL, or a dotted/semver version. Anything outside this
+# charset (a newline, a shell metacharacter, a markdown fence) is refused rather than
+# embedded verbatim in the README's copy-paste command block -- the manifest is
+# model-written, and the README is a document a user is instructed to run as-is.
+#
+# \Z, not $: `$` also matches immediately BEFORE a single trailing newline, so "aioble\n"
+# satisfied the charset and carried a stray blank line into the fenced block. That could
+# never form a fence or a second command (nothing may follow the newline), so this is the
+# claim above being made true rather than a hole being closed.
+_MIP_SPEC_SAFE_RE = re.compile(r"\A[A-Za-z0-9_.:/@-]+\Z")
+
+
+def _mip_install_line(entry):
+    package = entry.get("package") or ""
+    if not _MIP_SPEC_SAFE_RE.match(package):
+        return None
+    version = entry.get("version")
+    # A URL-shaped package spec is used verbatim -- mip resolves its version from the
+    # URL itself, so appending "@version" to it would not be a valid mip argument.
+    if "://" not in package and version and version != "latest":
+        version = str(version)
+        if not _MIP_SPEC_SAFE_RE.match(version):
+            return None  # an unsafe version must not taint an otherwise-safe package
+        package = f"{package}@{version}"
+    return f"mpremote connect <port> mip install {package}"
+
+
+def _readme_inline_text(value):
+    """Any manifest-derived string rendered as README prose (mcu.model, a rejected mip
+    package spec, target/verify_import/asset_files) -- as opposed to a string validated
+    against _MIP_SPEC_SAFE_RE and placed inside a fenced command block. Strips every
+    character that could restructure the document around it: newlines/carriage returns
+    (a fresh markdown line, including a fresh ``` fence), backticks (open/close a fence
+    mid-line), and '<'/'>' (raw HTML/script that CommonMark passes through live in a
+    plain bullet -- an <img onerror=...> renders as a real tag, not text; removing both
+    characters entirely also means "-->" can no longer form at all, so it can't close
+    the header's own HTML comment early either -- no separate case for that)."""
+    text = str(value).replace("\r", " ").replace("\n", " ").replace("`", "'")
+    return text.replace("<", "").replace(">", "").strip()
+
+
+def _remove_export_scratch(path: str, *, best_effort: bool = False) -> None:
+    """Drop a staging/backup sibling of upload_ready/, if one is there.
+
+    Only ever called on the two scratch paths the export owns, and only after the caller
+    has refused a symlink or a non-directory at them, so this cannot delete through a link
+    or remove a user file. A leftover from an interrupted earlier run is expected, not an
+    error: the caller clears staging before building and backup after a successful swap.
+
+    best_effort is for cleanup on an ALREADY-failing path, where an rmtree error would
+    replace the real diagnosis with a confusing one about a scratch directory. It is never
+    used on the success path: there, a failure to remove the backup is a real problem and
+    must surface.
+    """
+    if os.path.islink(path) or not os.path.isdir(path):
+        return
+    try:
+        shutil.rmtree(path)
+    except OSError:
+        if not best_effort:
+            raise
+
+
+def _build_upload_ready_readme(manifest, timestamp, device_entries):
+    mcu_field = manifest.get("mcu") if isinstance(manifest, dict) else None
+    mcu_model = mcu_field.get("model") if isinstance(mcu_field, dict) else None
+    mcu = _readme_inline_text(mcu_model) if mcu_model else ""
+    mcu = mcu or "unknown"
+    lines = [
+        "<!-- Generated by Blockless. Do not edit -- regenerate from the extension instead. -->",
+        f"<!-- Generated: {timestamp} -->",
+        f"<!-- Board / MCU: {mcu} -->",
+        "",
+        "# upload_ready",
+        "",
+    ]
+    if device_entries:
+        # Name the device files explicitly instead of `./*`: the glob would also upload
+        # THIS instructions file onto the constrained device filesystem, and PowerShell/
+        # cmd never expanded it for mpremote anyway -- explicit names work in every shell.
+        command_entries = " ".join(
+            f'"{name}"' if any(ch.isspace() for ch in name) else name for name in device_entries
+        )
+        lines += [
+            "Upload the device files to the device root (run from inside this folder):",
+            "",
+            "```",
+            f"mpremote connect <port> fs cp -r {command_entries} :",
+            "```",
+            "",
+            "(Only the device files are named, so this instructions file stays on the PC.)",
+        ]
+    else:
+        lines += ["The firmware folder contained no uploadable device files."]
+    entries = _mip_entries(manifest)
+    if manifest is None:
+        # A missing manifest is a normal pre-manifest project, but "No external packages
+        # required." would be a claim the tool cannot make -- say what is actually known.
+        lines += [
+            "",
+            "No project-manifest.json was found, so the external-package list could not",
+            "be derived. If the code imports packages that are not on the board (e.g.",
+            "aioble), install them with `mpremote mip install <package>` first.",
+        ]
+    elif not entries:
+        lines += ["", "No external packages required."]
+    else:
+        lines += ["", "External packages (install after the copy above):"]
+        for entry in entries:
+            install_line = _mip_install_line(entry)
+            if install_line is None:
+                safe_spec = _readme_inline_text(entry["package"])
+                lines += ["", f"- {safe_spec}: unrecognized package spec -- install manually via mip."]
+                continue
+            lines += ["", "```", install_line, "```"]
+            details = []
+            target = entry.get("target")
+            if isinstance(target, str) and target:
+                details.append(f"target: {_readme_inline_text(target)}")
+            verify = entry.get("verify_import")
+            if isinstance(verify, str) and verify:
+                details.append(f"verify: import {_readme_inline_text(verify)}")
+            assets = entry.get("asset_files")
+            if isinstance(assets, list) and assets:
+                details.append("assets: " + ", ".join(_readme_inline_text(a) for a in assets))
+            if details:
+                lines.append("- " + "; ".join(details))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _export_upload_ready(project_dir: str):
+    firmware_dir = os.path.join(project_dir, "firmware")
+    export_dir = os.path.join(project_dir, "upload_ready")
+    if not os.path.isdir(firmware_dir):
+        return {"status": "error", "error_kind": "firmware_dir_missing"}
+    # A pre-planted symlink AT the export path is refused outright: rmtree-ing through
+    # it would delete whatever it points at, not a stale export -- the target must stay
+    # untouched, not just "not followed". A regular FILE where upload_ready/ should be a
+    # directory is refused the same way -- shutil.rmtree cannot remove it, and silently
+    # deleting an unrelated file the tool never created is not this tool's call to make.
+    if os.path.islink(export_dir):
+        return {"status": "error", "error_kind": "export_dir_is_symlink"}
+    if os.path.exists(export_dir) and not os.path.isdir(export_dir):
+        return {"status": "error", "error_kind": "export_dir_not_a_directory"}
+    # The staging/backup siblings get the SAME refusal: this routine rmtree-s them, and a
+    # pre-planted symlink at either path would delete whatever it points at.
+    for scratch in (export_dir + ".staging", export_dir + ".previous"):
+        if os.path.islink(scratch):
+            return {"status": "error", "error_kind": "export_dir_is_symlink"}
+        if os.path.exists(scratch) and not os.path.isdir(scratch):
+            return {"status": "error", "error_kind": "export_dir_not_a_directory"}
+    # Real-path containment (mirrors isRealContained on the TS side): firmware_dir and
+    # export_dir must both resolve under project_dir even through symlinks, checked
+    # BEFORE anything destructive touches export_dir.
+    # Staging and backup siblings of the export. The new tree is built in staging and only
+    # swapped in once it is COMPLETE, so a failure mid-copy leaves the previous export intact
+    # instead of a partial folder that looks whole. That matters more here than for most
+    # tools: this folder's whole purpose is restoring a board, and uploading a silently
+    # partial one produces a broken device. Siblings, so the renames stay on one filesystem.
+    staging_dir = export_dir + ".staging"
+    backup_dir = export_dir + ".previous"
+    project_real = os.path.realpath(project_dir)
+    for candidate in (firmware_dir, export_dir, staging_dir, backup_dir):
+        candidate_real = os.path.realpath(candidate)
+        if candidate_real != project_real and not candidate_real.startswith(project_real + os.sep):
+            return {"status": "error", "error_kind": "path_outside_project"}
+    # Resolve the manifest (and fail on a real read error) before touching the old
+    # export, so a broken manifest never leaves a half-destroyed upload_ready/ behind.
+    manifest, manifest_error = _read_project_manifest(project_dir)
+    if manifest_error is not None:
+        return {"status": "error", "error_kind": "manifest_read_failed", "message": manifest_error}
+    mip_entries = _mip_entries(manifest)
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    # Build the whole tree in staging first. Everything below this point that can raise
+    # (a full disk, EACCES, a source file removed mid-walk) now costs only the staging
+    # copy: the previous export is not touched until the swap at the end.
+    _remove_export_scratch(staging_dir)
+    file_count = 0
+    try:
+        os.makedirs(staging_dir, exist_ok=True)
+        for src, rel in iter_uploadable_firmware(firmware_dir):
+            dest = os.path.join(staging_dir, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy2(src, dest)
+            file_count += 1
+        # The staging top level at this moment is exactly the device files (the
+        # instructions file is only written below), so the README's upload command lists
+        # them explicitly and never itself. Building the body here is as safe as building
+        # it up front: every manifest field it reads is isinstance-guarded (never raises),
+        # and on any failure in this try the previous export is still untouched.
+        readme_body = _build_upload_ready_readme(manifest, timestamp, sorted(os.listdir(staging_dir)))
+    # firmware/README.md is a legitimate device file (never excluded -- it is what
+    # deploy_firmware_tree uploads); the generated instructions must not clobber it, or
+    # the export stops being "folder == device image". Checked via os.path.exists (not a
+    # single rel == "README.md" comparison from the copy loop above) so this also covers
+    # a case-INsensitive filesystem (Readme.md), a firmware/ that already ships its own
+    # UPLOAD_INSTRUCTIONS.md, and a firmware/README.md/ that is itself a directory (the
+    # copy loop above would have created export_dir/README.md as a directory via a
+    # nested file inside it -- opening "w" over that raises IsADirectoryError).
+        readme_name = "README.md"
+        if os.path.exists(os.path.join(staging_dir, readme_name)):
+            readme_name = "UPLOAD_INSTRUCTIONS.md"
+            suffix = 2
+            while os.path.exists(os.path.join(staging_dir, readme_name)):
+                readme_name = f"UPLOAD_INSTRUCTIONS ({suffix}).md"
+                suffix += 1
+        with open(os.path.join(staging_dir, readme_name), "w", encoding="utf-8") as handle:
+            handle.write(readme_body)
+    except OSError as exc:
+        # The previous export was never touched, so the user still has a working folder.
+        # Cleanup is best-effort HERE only: letting an rmtree error escape would replace the
+        # real diagnosis with a confusing one about a scratch directory.
+        _remove_export_scratch(staging_dir, best_effort=True)
+        return {"status": "error", "error_kind": "export_write_failed", "message": str(exc)}
+    # Swap. The old tree moves aside rather than being deleted first, so a failed rename
+    # can put it back: at no point is the user left with neither a complete old export nor
+    # a complete new one.
+    had_previous = os.path.isdir(export_dir)
+    try:
+        if had_previous:
+            _remove_export_scratch(backup_dir)
+            os.rename(export_dir, backup_dir)
+        os.rename(staging_dir, export_dir)
+    except OSError as exc:
+        # The rollback can itself fail (a race recreating export_dir, a permission change).
+        # Letting THAT escape would strand the user's only complete export under a name they
+        # have never heard of and hand them a generic RPC error, so it gets its own handler
+        # and its own error_kind that says where the folder is.
+        stranded_at = None
+        if had_previous and not os.path.exists(export_dir) and os.path.isdir(backup_dir):
+            try:
+                os.rename(backup_dir, export_dir)
+            except OSError:
+                stranded_at = backup_dir
+        _remove_export_scratch(staging_dir, best_effort=True)
+        if stranded_at is not None:
+            return {
+                "status": "error", "error_kind": "export_rollback_failed", "path": stranded_at,
+                "message": f"Could not restore the previous export. It is intact at {stranded_at}; rename it back to upload_ready. Original failure: {exc}",
+            }
+        return {"status": "error", "error_kind": "export_swap_failed", "message": str(exc)}
+    # The export IS installed by this point: both renames succeeded and upload_ready/ is
+    # complete. Dropping the backup is housekeeping, so a failure here must not turn a
+    # successful export into export_failed and send the user to retry something that already
+    # worked. Reported instead of swallowed: the leftover is a real directory they may want
+    # to remove, it is just not a failure of what they asked for.
+    leftover = None
+    try:
+        _remove_export_scratch(backup_dir)
+    except OSError:
+        leftover = backup_dir
+    result = {"status": "ok", "path": export_dir, "file_count": file_count, "mip_count": len(mip_entries)}
+    if leftover is not None:
+        result["leftover"] = leftover
+    return result
 
 
 def _health_check():
@@ -976,6 +1399,8 @@ def _dispatch(shim, method, params):
         return _write_code_to_device(payload, lambda tmp: shim.write_device_file(params["port"], params["path"], tmp))
     if method == "device.deploy_firmware_tree":
         return shim.deploy_firmware_tree(params["port"], os.path.join(params["project_dir"], "firmware"))
+    if method == "project.export_upload_ready":
+        return _export_upload_ready(params["project_dir"])
     if method == "device.flash_and_run":
         # Soft reset so the freshly-written main.py autoruns (non-blocking for
         # infinite loops); device.serial_read_until captures the output.
