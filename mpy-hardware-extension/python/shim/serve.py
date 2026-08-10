@@ -522,12 +522,25 @@ class Shim:
     _MONITOR_BUFFER_CAP = 8192
 
     def _monitor_read_loop(self, ser, stop_event):
-        buffer = ""
+        # Buffer BYTES and decode only complete lines: decoding per read chunk (the old
+        # `readline().decode(errors="ignore")`) silently dropped a multi-byte character
+        # split across the 0.1s read-timeout boundary -- both halves fail the decode and
+        # "ignore" eats them, which loses characters from exactly the non-ASCII print()
+        # output this product's users emit. A complete line decodes as one unit, and
+        # errors="replace" makes genuinely invalid bytes VISIBLE as U+FFFD instead of
+        # vanishing.
+        buffer = b""
         died = None
+
+        def emit(raw):
+            line = raw.decode(errors="replace").strip()
+            if line:
+                _notify("serial.data", {"lines": [line]})
+
         try:
             while not stop_event.is_set():
                 try:
-                    chunk = ser.readline().decode(errors="ignore")
+                    chunk = ser.readline()
                 except Exception as exc:  # noqa: BLE001 — an unplugged/errored port ends the loop, not the shim
                     # monitor_stop() sets stop_event BEFORE closing the port, and
                     # closing a real pyserial port makes a readline() in progress
@@ -547,17 +560,17 @@ class Shim:
                     stop_event.wait(0.01)
                     continue
                 buffer += chunk
-                while "\n" in buffer:
-                    line, buffer = buffer.split("\n", 1)
-                    line = line.strip()
-                    if line:
-                        _notify("serial.data", {"lines": [line]})
+                while b"\n" in buffer:
+                    raw, buffer = buffer.split(b"\n", 1)
+                    emit(raw)
                 if len(buffer) > self._MONITOR_BUFFER_CAP:
-                    line = buffer.strip()
-                    buffer = ""
-                    if line:
-                        _notify("serial.data", {"lines": [line]})
+                    raw, buffer = buffer, b""
+                    emit(raw)
         finally:
+            # Flush the trailing partial line BEFORE anything else: a board whose last
+            # output is sys.stdout.write("READY") -- no newline -- otherwise never shows
+            # it on the Serial page unless it happened to exceed the buffer cap.
+            emit(buffer)
             try:
                 ser.close()
             except Exception:  # noqa: BLE001 — best-effort close, the port may already be gone

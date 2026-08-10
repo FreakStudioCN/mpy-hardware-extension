@@ -724,6 +724,66 @@ def test_monitor_start_streams_lines_via_notify_until_stopped(monkeypatch):
     ]
 
 
+def test_monitor_flushes_the_trailing_unterminated_line_on_stop(monkeypatch):
+    """A board whose last output is sys.stdout.write("READY") -- no trailing newline --
+    must still reach the Serial page: stopping used to drop the partial-line buffer
+    unless it happened to exceed the cap. Mutation: drop the emit(buffer) flush in the
+    finally block -> READY never appears, fails."""
+    calls = []
+    monkeypatch.setattr("serve._notify", lambda method, params: calls.append((method, params)))
+    ser = ChunkedSerial(["boot\n", "READY"])
+    shim = Shim(serial_factory=lambda *_a, **_k: ser)
+
+    assert shim.monitor_start("COM3") == {"status": "ok"}
+    # Deterministic: wait until the reader has CONSUMED both fragments (READY is then
+    # sitting in the partial-line buffer), not merely until the first line arrived.
+    deadline = time.monotonic() + 2.0
+    while ser.fragments and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not ser.fragments, "the reader never consumed the fixture"
+    assert shim.monitor_stop() == {"status": "ok"}
+
+    assert calls == [
+        ("serial.data", {"lines": ["boot"]}),
+        ("serial.data", {"lines": ["READY"]}),
+    ]
+
+
+def test_monitor_reassembles_a_multibyte_char_split_across_reads(monkeypatch):
+    """A multi-byte character split across the 0.1s read boundary must survive: the old
+    per-chunk decode(errors="ignore") ate BOTH halves, silently losing characters from
+    exactly the non-ASCII print() output this product's users emit. Bytes are buffered
+    and a complete line decodes as one unit. Mutation: revert to per-chunk decode ->
+    the split character vanishes, fails."""
+
+    class ByteFragmentSerial:
+        """ChunkedSerial takes str fragments (it encodes whole characters); this feeds
+        RAW byte fragments so the split can land inside one character's encoding."""
+
+        def __init__(self, fragments):
+            self.fragments = list(fragments)
+
+        def readline(self):
+            return self.fragments.pop(0) if self.fragments else b""
+
+        def close(self):
+            pass
+
+    calls = []
+    monkeypatch.setattr("serve._notify", lambda method, params: calls.append((method, params)))
+    raw = "温度=31.2\n".encode()
+    ser = ByteFragmentSerial([raw[:4], raw[4:]])  # index 4 is inside 度 (bytes 3..5)
+    shim = Shim(serial_factory=lambda *_a, **_k: ser)
+
+    assert shim.monitor_start("COM3") == {"status": "ok"}
+    deadline = time.monotonic() + 2.0
+    while len(calls) < 1 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert shim.monitor_stop() == {"status": "ok"}
+
+    assert calls == [("serial.data", {"lines": ["温度=31.2"]})]
+
+
 def test_monitor_start_refuses_a_second_start_while_one_is_running():
     # The host enforces one monitor at a time via port ownership; the shim refusing a
     # second start (instead of silently replacing the session) keeps both sides honest
