@@ -869,7 +869,7 @@ def _remove_export_scratch(path: str, *, best_effort: bool = False) -> None:
             raise
 
 
-def _build_upload_ready_readme(manifest, timestamp):
+def _build_upload_ready_readme(manifest, timestamp, device_entries):
     mcu_field = manifest.get("mcu") if isinstance(manifest, dict) else None
     mcu_model = mcu_field.get("model") if isinstance(mcu_field, dict) else None
     mcu = _readme_inline_text(mcu_model) if mcu_model else ""
@@ -881,18 +881,36 @@ def _build_upload_ready_readme(manifest, timestamp):
         "",
         "# upload_ready",
         "",
-        "Upload this folder's CONTENTS to the device root:",
-        "",
-        "```",
-        "mpremote connect <port> fs cp -r ./* :",
-        "```",
-        "",
-        "(Windows PowerShell/cmd does not expand `*` for mpremote -- from inside this",
-        "folder, upload the files individually via the extension's Device Tools, or use",
-        "a shell that does, such as Git Bash or WSL.)",
     ]
+    if device_entries:
+        # Name the device files explicitly instead of `./*`: the glob would also upload
+        # THIS instructions file onto the constrained device filesystem, and PowerShell/
+        # cmd never expanded it for mpremote anyway -- explicit names work in every shell.
+        command_entries = " ".join(
+            f'"{name}"' if any(ch.isspace() for ch in name) else name for name in device_entries
+        )
+        lines += [
+            "Upload the device files to the device root (run from inside this folder):",
+            "",
+            "```",
+            f"mpremote connect <port> fs cp -r {command_entries} :",
+            "```",
+            "",
+            "(Only the device files are named, so this instructions file stays on the PC.)",
+        ]
+    else:
+        lines += ["The firmware folder contained no uploadable device files."]
     entries = _mip_entries(manifest)
-    if not entries:
+    if manifest is None:
+        # A missing manifest is a normal pre-manifest project, but "No external packages
+        # required." would be a claim the tool cannot make -- say what is actually known.
+        lines += [
+            "",
+            "No project-manifest.json was found, so the external-package list could not",
+            "be derived. If the code imports packages that are not on the board (e.g.",
+            "aioble), install them with `mpremote mip install <package>` first.",
+        ]
+    elif not entries:
         lines += ["", "No external packages required."]
     else:
         lines += ["", "External packages (install after the copy above):"]
@@ -960,10 +978,7 @@ def _export_upload_ready(project_dir: str):
     if manifest_error is not None:
         return {"status": "error", "error_kind": "manifest_read_failed", "message": manifest_error}
     mip_entries = _mip_entries(manifest)
-    # Built BEFORE the rmtree: every field read here is isinstance-guarded (never raises
-    # on a malformed manifest), so this can't leave upload_ready/ wiped-then-half-written.
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
-    readme_body = _build_upload_ready_readme(manifest, timestamp)
     # Build the whole tree in staging first. Everything below this point that can raise
     # (a full disk, EACCES, a source file removed mid-walk) now costs only the staging
     # copy: the previous export is not touched until the swap at the end.
@@ -976,6 +991,12 @@ def _export_upload_ready(project_dir: str):
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             shutil.copy2(src, dest)
             file_count += 1
+        # The staging top level at this moment is exactly the device files (the
+        # instructions file is only written below), so the README's upload command lists
+        # them explicitly and never itself. Building the body here is as safe as building
+        # it up front: every manifest field it reads is isinstance-guarded (never raises),
+        # and on any failure in this try the previous export is still untouched.
+        readme_body = _build_upload_ready_readme(manifest, timestamp, sorted(os.listdir(staging_dir)))
     # firmware/README.md is a legitimate device file (never excluded -- it is what
     # deploy_firmware_tree uploads); the generated instructions must not clobber it, or
     # the export stops being "folder == device image". Checked via os.path.exists (not a

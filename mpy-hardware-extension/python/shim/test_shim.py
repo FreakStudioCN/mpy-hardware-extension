@@ -1212,6 +1212,37 @@ def test_export_upload_ready_readme_says_no_packages_without_runtime_dependencie
     assert "mip install" not in readme
 
 
+def test_export_upload_ready_readme_command_names_device_files_and_not_itself(tmp_path):
+    """`./*` would upload the generated instructions file onto the device (it lives inside
+    the folder the command runs from). Explicit names keep it on the PC -- and work as-is
+    in PowerShell/cmd, which never expanded the glob for mpremote anyway."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "UPLOAD_INSTRUCTIONS.md").read_text(encoding="utf-8")
+    assert "./*" not in readme
+    prefix = "mpremote connect <port> fs cp -r "
+    command = next(line for line in readme.splitlines() if line.startswith(prefix))
+    assert command.endswith(" :")
+    named = command[len(prefix):-2].split()
+    # The fixture's device files, top level only -- and never the instructions file.
+    assert named == ["README.md", "boot.py", "drivers", "lib", "main.py"]
+
+
+def test_export_upload_ready_missing_manifest_says_unknown_not_no_deps(tmp_path):
+    """A pre-manifest project may well import external packages; 'No external packages
+    required.' is a claim the tool cannot make there. Say what is actually known."""
+    project = _minimal_firmware_project(tmp_path / "project")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok", "a missing manifest stays a normal, exportable state"
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    assert "No external packages required." not in readme
+    assert "No project-manifest.json was found" in readme
+
+
 def test_export_upload_ready_regeneration_removes_stale_files(tmp_path):
     project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
     _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
@@ -1300,6 +1331,8 @@ def test_export_upload_ready_malformed_json_manifest_errors_not_silently_no_deps
 
 
 def test_export_upload_ready_manifest_read_failure_errors_not_silently_no_deps(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("chmod(0o000) only sets read-only on Windows; the read succeeds and the premise never arises")
     project = _build_upload_ready_project(tmp_path / "project")
     manifest_path = project / "project-manifest.json"
     manifest_path.write_text("{}", encoding="utf-8")
