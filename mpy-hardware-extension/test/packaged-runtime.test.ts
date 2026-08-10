@@ -250,13 +250,14 @@ test("a rejected panel.focus never escapes activate as an unhandled rejection", 
   process.on("unhandledRejection", onLeak);
 
   let uriHandler: any;
+  const logged: string[] = [];
   const vscode = {
     commands: {
       registerCommand: () => ({}),
       executeCommand: () => Promise.reject(new Error("no view")),
     },
     window: {
-      createOutputChannel: () => ({ appendLine: () => {}, dispose: () => {} }),
+      createOutputChannel: () => ({ appendLine: (line: string) => logged.push(line), dispose: () => {} }),
       registerWebviewViewProvider: () => ({}),
       registerUriHandler: (handler: any) => {
         uriHandler = handler;
@@ -264,7 +265,17 @@ test("a rejected panel.focus never escapes activate as an unhandled rejection", 
       },
     },
     workspace: {
-      getConfiguration: (section: string) => ({ get: (k: string) => (section === "mpyhw" && k === "autoOpenPanel" ? true : undefined) }),
+      // apiBaseUrl answers loopback so the regression mode this test exists to catch (host
+      // error handlers observing the leak) posts its fault event at a closed local port
+      // instead of the production backend.
+      getConfiguration: (section: string) => ({
+        get: (k: string) => {
+          if (section !== "mpyhw") return undefined;
+          if (k === "autoOpenPanel") return true;
+          if (k === "apiBaseUrl") return "http://127.0.0.1:1";
+          return undefined;
+        },
+      }),
     },
   };
   const context = { extensionUri: {}, subscriptions: [] as any[] };
@@ -292,4 +303,10 @@ test("a rejected panel.focus never escapes activate as an unhandled rejection", 
   // (process-global) unhandledRejection stream can't fail this assertion spuriously.
   const ownLeaks = leaked.filter((reason) => reason instanceof Error && reason.message === "no view");
   assert.deepEqual(ownLeaks, [], "a rejected panel.focus must never surface as an unhandled rejection");
+
+  // Suppressed is not silent: each failed best-effort focus (the startup reveal AND the
+  // recipe-import delivery) must leave a trace in the output channel, or a genuinely broken
+  // panel registration becomes invisible everywhere.
+  const focusFailures = logged.filter((line) => line.includes("mpyhw.panel.focus failed"));
+  assert.equal(focusFailures.length, 2, `both failed focus call sites must log, got: ${JSON.stringify(logged)}`);
 });

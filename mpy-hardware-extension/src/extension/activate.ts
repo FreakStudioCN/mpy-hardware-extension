@@ -13,11 +13,12 @@ export function activate(context: any, vscode: any = undefined) {
   // pass it explicitly; the require fallback only runs in the bundled entry.
   const api = vscode ?? require("vscode");
   const output = api.window.createOutputChannel?.("Blockless");
+  const logLine = (message: string) => output?.appendLine(message);
   let activeWebview: any;
   let pendingRecipeImport: any;
   const deliverRecipeImport = (payload: any) => {
     pendingRecipeImport = payload;
-    focusPanel(api);
+    focusPanel(api, logLine);
     if (activeWebview) {
       activeWebview.postMessage({ type: "recipe_imported", payload });
       pendingRecipeImport = undefined;
@@ -62,15 +63,18 @@ export function activate(context: any, vscode: any = undefined) {
     }));
   }
   if (output) context.subscriptions.push(output);
-  revealPanelIfEnabled(api);
-  installHostTelemetry(context, api, (message: string) => output?.appendLine(message));
+  revealPanelIfEnabled(api, logLine);
+  installHostTelemetry(context, api, logLine);
 }
 
 // executeCommand returns a Thenable; a rejection would escape a synchronous try/catch and
-// surface as an unhandled rejection (observed by the host error handlers installed just after
-// activate()). Attach a catch so a failed focus stays best-effort and never reports as a fault.
-function focusPanel(api: any) {
-  void Promise.resolve(api.commands?.executeCommand?.("mpyhw.panel.focus")).catch(() => {});
+// surface as an unhandled rejection (observed by the host error handlers installed at the end
+// of activate()). Attach a catch so a failed focus stays best-effort and never reports as a
+// fault — but logged, not swallowed: a genuinely broken panel registration (e.g. view-id
+// drift) would otherwise leave zero trace anywhere.
+function focusPanel(api: any, log?: (message: string) => void) {
+  void Promise.resolve(api.commands?.executeCommand?.("mpyhw.panel.focus")).catch((error) =>
+    log?.(`[panel] mpyhw.panel.focus failed (best-effort reveal): ${String(error)}`));
 }
 
 // Open straight into the Blockless panel when the profile opted in via the `mpyhw.autoOpenPanel`
@@ -83,10 +87,10 @@ function focusPanel(api: any) {
 // only when it finds one) is unavoidable and not gated by the flag. Off by default only means
 // the VISIBLE panel reveal does nothing, so Marketplace users in their own profiles see no
 // on-screen effect.
-function revealPanelIfEnabled(api: any) {
+function revealPanelIfEnabled(api: any, log?: (message: string) => void) {
   try {
     if (api.workspace?.getConfiguration?.("mpyhw")?.get?.("autoOpenPanel") !== true) return;
-    focusPanel(api);
+    focusPanel(api, log);
   } catch {
     // Best-effort UX only — a failed reveal must never break activation.
   }
