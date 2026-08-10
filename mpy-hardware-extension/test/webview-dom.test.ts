@@ -2639,6 +2639,226 @@ test("the REAL generate_behavior sample posts exactly one next_phase id despite 
   assert.ok(ids.includes("next_deploy"), "the chosen next_phase id is posted");
 });
 
+function deviceConfirmCard(overrides: any = {}) {
+  return {
+    approval_id: "device_confirm",
+    question: "以下器件是否正确？",
+    items: [
+      { id: "d1", name: "GL5516", subtitle: "光敏电阻", selected: true },
+      { id: "d2", name: "继电器", subtitle: "输出", selected: true },
+    ],
+    allow_add: true,
+    actions: [
+      { label: "确认，开始搜索驱动", value: "confirm", primary: true },
+      { label: "修改器件清单", value: "modify" },
+    ],
+    ...overrides,
+  };
+}
+
+test("allow_add:true renders an add row; typing a name and confirming posts it as added_items", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add1", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add1"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  assert.ok(addInput, "allow_add renders a text input for the new component name");
+
+  addInput.value = "OLED显示屏";
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+  assert.ok(addBtn, "an Add button renders next to the input");
+  addBtn.click();
+
+  posted.length = 0;
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.deepStrictEqual([...resp.added_items].map((i: any) => ({ ...i })), [
+    { name: "OLED显示屏", type: "user_added", interface: "unknown", source: "user_specified" },
+  ], "the typed name rides as a full added_items entry, matching the reference host's shape");
+});
+
+test("the acceptance demo's exact path: typing a name then confirming directly (no Add click, no Enter) still rides added_items", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add1b", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add1b"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  // The primary action sits right below the add row — type, then Confirm directly, the way
+  // /scope.md's own acceptance demo describes it ("type OLED into the add row, confirm").
+  addInput.value = "OLED显示屏";
+
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.deepStrictEqual([...resp.added_items].map((i: any) => ({ ...i })), [
+    { name: "OLED显示屏", type: "user_added", interface: "unknown", source: "user_specified" },
+  ], "a typed-but-never-explicitly-added name is flushed into added_items on answer");
+});
+
+test("adding a duplicate name is a no-op — the input clears but no second row or entry appears", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add1c", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add1c"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+  addInput.value = "OLED显示屏"; addBtn.click();
+  addInput.value = "OLED显示屏"; addBtn.click();
+  assert.equal(card.querySelectorAll(".ask-added-row").length, 1, "the duplicate name adds no second row");
+
+  // Retype the same name but leave it un-Added — this exercises the SEPARATE dedup check in
+  // respond()'s flush (the one that catches a typed-but-never-Added name), not just doAdd's.
+  addInput.value = "OLED显示屏";
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.equal(resp.added_items.length, 1, "the duplicate is not posted twice, whether typed via Add or left pending at Confirm");
+});
+
+test("the report's exact path: an added item plus the non-primary modify action both ride added_items and selected_ids", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add2", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add2"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  addInput.value = "OLED显示屏";
+  addInput.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter" }));
+
+  posted.length = 0;
+  (card.querySelector('button[data-answer="modify"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.equal(resp.answer, "modify");
+  assert.equal(resp.added_items.length, 1, "the add rides on modify, not just confirm");
+  assert.equal(resp.added_items[0].name, "OLED显示屏");
+  assert.deepStrictEqual([...resp.selected_ids].sort(), ["d1", "d2"], "the pre-selected items still ride alongside the add");
+});
+
+test("allow_add absent or false renders no add input; the response still carries an empty added_items", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-noadd", card: deviceConfirmCard({ allow_add: undefined }) });
+  const card = document.querySelector('[data-prompt-id="p-noadd"]')!;
+  assert.equal(card.querySelectorAll(".ask-input").length, 0, "no add input without allow_add:true");
+
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.deepStrictEqual([...resp.added_items], [], "added_items is present and empty, never omitted");
+});
+
+test("adding two names then removing one via the ✕ button sends only the remaining name", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add3", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add3"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+
+  addInput.value = "OLED显示屏"; addBtn.click();
+  addInput.value = "蜂鸣器"; addBtn.click();
+  const rows = [...card.querySelectorAll(".ask-added-row")];
+  assert.equal(rows.length, 2, "both added names render their own row");
+  (rows[0].querySelector("button") as HTMLButtonElement).click(); // remove the first
+
+  posted.length = 0;
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.equal(resp.added_items.length, 1, "only the remaining name is sent");
+  assert.equal(resp.added_items[0].name, "蜂鸣器");
+});
+
+test("empty or whitespace-only input to the add row appends nothing", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add4", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add4"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+
+  addInput.value = "   "; addBtn.click();
+  addInput.value = ""; addBtn.click();
+  assert.equal(card.querySelectorAll(".ask-added-row").length, 0, "no empty-name rows appended");
+});
+
+test("Enter in the add input adds the item and does not answer the card", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add5", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add5"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  addInput.value = "OLED显示屏";
+  addInput.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter" }));
+
+  assert.equal(card.querySelectorAll(".ask-added-row").length, 1, "the item is added");
+  assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "Enter in the add row never answers the card");
+});
+
+test("after answering, the add input and Add button are disabled; a late ✕ click mutates nothing and posts nothing", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add6", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add6"]')!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  const addBtn = [...card.querySelectorAll("button.ask-opt")].find((b) => b.textContent === "Add") as HTMLButtonElement;
+  addInput.value = "OLED显示屏"; addBtn.click();
+  const removeBtn = card.querySelector(".ask-added-row button") as HTMLButtonElement;
+
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  assert.equal(addInput.disabled, true, "the add input is disabled after answering");
+  assert.equal(addBtn.disabled, true, "the Add button is disabled after answering");
+
+  posted.length = 0;
+  // dispatchEvent bypasses the browser's own disabled-button click gate (unlike .click()),
+  // so this exercises the handler's own `answered` guard, not just the disabled attribute.
+  removeBtn.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  assert.equal(card.querySelectorAll(".ask-added-row").length, 1, "the answered-card's added row is untouched by a late ✕ click");
+  assert.equal(posted.filter((m) => m.type === "ui_prompt_response").length, 0, "no second ui_prompt_response posts");
+});
+
+test("unchecking an item on an allow_add card drops its id from selected_ids", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "approval_request", promptId: "p-add7", card: deviceConfirmCard() });
+  const card = document.querySelector('[data-prompt-id="p-add7"]')!;
+  (card.querySelector('input[data-id="d2"]') as HTMLInputElement).click();
+
+  (card.querySelector('button[data-answer="confirm"]') as HTMLButtonElement).click();
+  const resp = posted.find((m) => m.type === "ui_prompt_response");
+  assert.deepStrictEqual([...resp.selected_ids], ["d1"], "the unchecked item's id is absent");
+});
+
+test("a restored inert allow_add card renders its add input already disabled", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "restore_prompt",
+    kind: "approval_requested",
+    payload: { promptId: "p-add8", card: deviceConfirmCard() },
+    answer: "confirm",
+  });
+  const card = document.querySelector(".ev-card.ask")!;
+  const addInput = card.querySelector(".ask-input") as HTMLInputElement;
+  assert.ok(addInput, "the inert restore still renders the add input");
+  assert.equal(addInput.disabled, true, "finalizeInertCard's generic disable covers the add input");
+});
+
 test("an ungrouped approval card renders flat checkboxes with no group headers (back-compat)", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;
@@ -3582,6 +3802,59 @@ test("device tools: shows a no-device state until a board is present, and revert
   assert.equal(document.getElementById("dtEntries").children.length, 0, "the file list is cleared on unplug");
 });
 
+// Board files and the upload_ready export are peers with different preconditions: the browser
+// needs a connected board, the export never does. Stacking them put a project-level action on
+// top of device UI, so they are two views behind one segmented toggle.
+test("device tools: the view toggle switches between board files and the upload-ready export", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+
+  const files = document.getElementById("dtFilesView")!;
+  const exportView = document.getElementById("dtExportView")!;
+  const segFiles = document.getElementById("dtViewFiles") as HTMLButtonElement;
+  const segExport = document.getElementById("dtViewExport") as HTMLButtonElement;
+
+  // Board files is the default: it is the panel's primary purpose.
+  assert.equal(files.classList.contains("hidden"), false, "board files shows on open");
+  assert.equal(exportView.classList.contains("hidden"), true, "the export view is hidden on open");
+  assert.equal(segFiles.getAttribute("aria-pressed"), "true");
+  assert.equal(segExport.getAttribute("aria-pressed"), "false");
+
+  segExport.click();
+  assert.equal(exportView.classList.contains("hidden"), false, "the export view shows");
+  assert.equal(files.classList.contains("hidden"), true, "board files hides");
+  assert.ok(segExport.classList.contains("active"), "the active segment drives the sliding indicator");
+  assert.equal(segExport.getAttribute("aria-pressed"), "true");
+  assert.equal(segFiles.getAttribute("aria-pressed"), "false");
+
+  segFiles.click();
+  assert.equal(files.classList.contains("hidden"), false, "switching back restores board files");
+  assert.equal(exportView.classList.contains("hidden"), true);
+});
+
+test("device tools: the export is reachable with NO board, and reopening returns to board files", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+  // No board: the files view shows its empty state, but the export must NOT be gated by it —
+  // it is a filesystem-only operation and works with nothing plugged in.
+  post(dom, { type: "device_present", present: false });
+  assert.equal(document.getElementById("dtNoDev")!.classList.contains("hidden"), false, "the no-device state shows in the files view");
+
+  (document.getElementById("dtViewExport") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("dtExportView")!.classList.contains("hidden"), false, "the export view opens without a board");
+  (document.getElementById("dtExport") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "device_tool_export_upload_ready"), "the export runs with no device connected");
+
+  // Reopening the panel lands on board files again, never on whichever view was last used.
+  document.getElementById("deviceToolsBack")!.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  (document.getElementById("deviceToolsOpen") as HTMLButtonElement).click();
+  assert.equal(document.getElementById("dtFilesView")!.classList.contains("hidden"), false, "a reopen returns to board files");
+  assert.equal(document.getElementById("dtExportView")!.classList.contains("hidden"), true);
+});
+
 test("device tools: an ABSENT venv shows the set-up-environment affordance; its button installs deps + opens Env", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -3724,6 +3997,43 @@ test("device tools: device_busy shows the busy banner naming the owning phase", 
   assert.match(banner.textContent, /flash/);
 });
 
+test("device tools: device_busy names the reason under the export status even with no device present (its banner is hidden then)", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // No device_present event at all -- #dtBusy lives inside the device-gated #dtDeviceUi,
+  // which stays hidden, so the export's OWN status line is the only visible explanation
+  // for why its button just greyed out.
+  post(dom, { type: "device_busy", phase: "generate" });
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /generate/, "the export status names the busy reason, not a blank line");
+});
+
+test("device tools: the export's busy explanation is cleared once the run ends, not left stale", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_busy", phase: "generate" });
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /generate/);
+
+  // dtSetBusy(null) fires at the top of onDeviceToolResult for EVERY command (any device
+  // tool reply signals "the run ended"), not just export_upload_ready.
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+
+  assert.equal((document.getElementById("dtExportStatus")!.textContent || "").trim(), "", "the busy explanation does not survive the run ending");
+});
+
+test("device tools: a real export result that follows a busy explanation is not wiped by a later unrelated device-tool reply", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  // A busy explanation sets dtExportBusyShown -- the export result that follows it must
+  // clear that flag itself, or the NEXT unrelated dtSetBusy(null) would blank the result
+  // (this is the exact sequence the fix protects: click -> busy -> run ends -> result).
+  post(dom, { type: "device_busy", phase: "generate" });
+  post(dom, { type: "device_tool_result", command: "export_upload_ready", result: { fileCount: 5, mipCount: 2 } });
+
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: [] } });
+
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /5/, "the real result survives an unrelated reply's busy-clear");
+});
+
 test("device tools: Install (mip) posts device_tool_mip with the url + version", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);
@@ -3733,6 +4043,51 @@ test("device tools: Install (mip) posts device_tool_mip with the url + version",
   document.getElementById("dtMipInstall").click();
   const mip = posted.find((m) => m.type === "device_tool_mip");
   assert.ok(mip); assert.equal(mip.url, "github:org/repo/pkg"); assert.equal(mip.version, "1.2.3");
+});
+
+test("device tools: Export upload_ready is visible with no device connected and posts device_tool_export_upload_ready", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  // No device_present event fired at all -- the export section lives outside dtDeviceUi,
+  // so it must not be hidden behind the "no device connected" gate the rest of the panel uses.
+  assert.ok(document.getElementById("dtExport"), "the export button renders unconditionally");
+  assert.equal((document.getElementById("dtExport") as any).disabled, false, "not disabled while no device is present");
+
+  document.getElementById("dtExport").click();
+
+  const msg = posted.find((m) => m.type === "device_tool_export_upload_ready");
+  assert.ok(msg, "click posts device_tool_export_upload_ready");
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /working/i);
+});
+
+test("device tools: an export result reports file + package counts under its own status, without refreshing the board listing", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "device_tool_result", command: "export_upload_ready", result: { path: "/proj/upload_ready", fileCount: 5, mipCount: 2 } });
+
+  const status = document.getElementById("dtExportStatus")!.textContent || "";
+  assert.match(status, /5/);
+  assert.match(status, /2/);
+  assert.match(status, /\/proj\/upload_ready/, "the result line names the path, per scope.md's result-line requirement");
+  assert.equal((document.getElementById("dtFilesStatus")!.textContent || "").trim(), "", "Board files status is untouched by an export result");
+  // Mutation: dropping the export-specific early return in onDeviceToolResult falls through to
+  // dtRefreshSilently, which posts device_tool_list — the export must never trigger that.
+  assert.ok(!posted.some((m) => m.type === "device_tool_list"), "export never re-lists the board (it never touched it)");
+});
+
+test("device tools: an export error reports under its own status without triggering the no-device state", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+  post(dom, { type: "device_tool_result", command: "list", result: { path: "/", entries: ["boot.py"] } });
+  post(dom, { type: "device_present", present: true });
+
+  post(dom, { type: "device_tool_error", command: "export_upload_ready", error: "manifest_read_failed: permission denied" });
+
+  assert.match(document.getElementById("dtExportStatus")!.textContent || "", /manifest_read_failed/);
+  assert.ok(document.getElementById("dtNoDev").classList.contains("hidden"), "an export error must not flip the panel to the no-device state");
 });
 
 test("device tools: Delete is host-armed two-step — first click requests an arm (no nonce), second echoes the host nonce", async () => {

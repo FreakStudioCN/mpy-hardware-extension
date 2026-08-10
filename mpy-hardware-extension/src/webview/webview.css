@@ -592,22 +592,22 @@
       /* inline-GRID with equal auto-columns so every segment is truly the same width (inline-flex
          sizes to content, which made "Recommend board" and "Browse boards ▾" unequal and mis-padded,
          and mis-aligned the half-width thumb). */
-      .mode-toggle, .board-toggle, .dt-pkg-toggle { position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; min-width: 0; max-width: 100%; padding: 2px; background: rgba(0, 0, 0, .22); border: 1px solid var(--vsc-input-border); border-radius: 8px; }
+      .mode-toggle, .board-toggle, .dt-pkg-toggle, .dt-view-toggle { position: relative; display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; min-width: 0; max-width: 100%; padding: 2px; background: rgba(0, 0, 0, .22); border: 1px solid var(--vsc-input-border); border-radius: 8px; }
       /* Sliding "thumb": one moving pill behind the segments (a real slide, not a per-segment
          crossfade). Segments are equal width, so the thumb is one half and :has() slides it to the
          active segment. All current toggles are 2-segment, so translateX(100%) lands on segment two. */
-      .mode-toggle::before, .board-toggle::before, .dt-pkg-toggle::before { content: ""; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / 2); border-radius: 6px; background: rgba(255, 255, 255, .16); box-shadow: 0 1px 3px rgba(0, 0, 0, .45); transition: transform .18s cubic-bezier(.4, 0, .2, 1); z-index: 0; pointer-events: none; }
-      .mode-toggle:has(.mode-chip:last-child.active)::before, .board-toggle:has(.board-seg:last-child.active)::before, .dt-pkg-toggle:has(.dt-pkg-seg:last-child.active)::before { transform: translateX(100%); }
-      .mode-toggle .mode-chip, .board-toggle .board-seg, .dt-pkg-toggle .dt-pkg-seg {
+      .mode-toggle::before, .board-toggle::before, .dt-pkg-toggle::before, .dt-view-toggle::before { content: ""; position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / 2); border-radius: 6px; background: rgba(255, 255, 255, .16); box-shadow: 0 1px 3px rgba(0, 0, 0, .45); transition: transform .18s cubic-bezier(.4, 0, .2, 1); z-index: 0; pointer-events: none; }
+      .mode-toggle:has(.mode-chip:last-child.active)::before, .board-toggle:has(.board-seg:last-child.active)::before, .dt-pkg-toggle:has(.dt-pkg-seg:last-child.active)::before, .dt-view-toggle:has(.dt-view-seg:last-child.active)::before { transform: translateX(100%); }
+      .mode-toggle .mode-chip, .board-toggle .board-seg, .dt-pkg-toggle .dt-pkg-seg, .dt-view-toggle .dt-view-seg {
         position: relative; z-index: 1; min-width: 0; text-align: center; white-space: nowrap;
         overflow: hidden; text-overflow: ellipsis;
         border: 0; border-radius: 6px; background: transparent; color: var(--fg-muted);
         padding: 5px 12px; font-size: 11px; cursor: pointer; transition: color .15s; }
-      .mode-toggle .mode-chip:hover, .board-toggle .board-seg:hover, .dt-pkg-toggle .dt-pkg-seg:hover { color: var(--fg-bright); }
+      .mode-toggle .mode-chip:hover, .board-toggle .board-seg:hover, .dt-pkg-toggle .dt-pkg-seg:hover, .dt-view-toggle .dt-view-seg:hover { color: var(--fg-bright); }
       /* Active segment: brighten the text only — NO weight change (bold reflows the text wider). The
          sliding thumb provides the fill/shadow that marks the selection. */
-      .mode-toggle .mode-chip.active, .board-toggle .board-seg.active, .dt-pkg-toggle .dt-pkg-seg.active { color: var(--fg-bright); }
-      @media (prefers-reduced-motion: reduce) { .mode-toggle::before, .board-toggle::before, .dt-pkg-toggle::before { transition: none; } }
+      .mode-toggle .mode-chip.active, .board-toggle .board-seg.active, .dt-pkg-toggle .dt-pkg-seg.active, .dt-view-toggle .dt-view-seg.active { color: var(--fg-bright); }
+      @media (prefers-reduced-motion: reduce) { .mode-toggle::before, .board-toggle::before, .dt-pkg-toggle::before, .dt-view-toggle::before { transition: none; } }
       .board-selected { order: -1; display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 8px; border: 1px dashed var(--fg-muted); border-radius: 6px; background: var(--vsc-input); font-size: 11px; color: var(--fg-bright); }
       .board-selected-ic { color: var(--green); font-size: 11px; }
       .board-selected-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

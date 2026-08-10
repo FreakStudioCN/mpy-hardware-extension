@@ -220,6 +220,48 @@
           if (ti.value != null) inp.value = String(ti.value);
           textEls[ti.id == null ? "" : String(ti.id)] = inp; row.appendChild(inp); main.appendChild(row);
         });
+        // allow_add (02-protocol.md): the card lets the user add components it didn't propose.
+        // Added names are kept OUT of checks[]/selected_ids -- they have no server id, so
+        // leaking one in would make the backend treat a fabricated id as a known device.
+        // They ride separately as added_items on every answer (confirm and modify alike),
+        // matching the Skill's own reference host (upy-analyze-plugin/test/interactive_local_session.py).
+        const added = [];
+        let addInputEl = null;
+        if (card.allow_add === true) {
+          const addRow = document.createElement("div"); addRow.className = "ask-row";
+          const addInput = document.createElement("input"); addInput.className = "ask-input"; addInput.type = "text";
+          // "component" wording is true only for the device-list cards. scaffold_config also
+          // ships allow_add:true (upy-scaffold-plugin SKILL.md — there the user adds custom
+          // files/modules), so other cards get neutral copy. The added_items payload shape is
+          // shared on purpose: it byte-matches the reference host and every consumer reads
+          // item.name, so only the visible wording is card-aware.
+          const isDeviceListCard = card.approval_id === "device_confirm" || card.approval_id === "alternative_device";
+          addInput.placeholder = tr(isDeviceListCard ? "ask_add_ph" : "ask_add_ph_generic");
+          const addBtn = document.createElement("button"); addBtn.className = "ask-opt"; addBtn.type = "button"; addBtn.textContent = tr("ask_add_btn");
+          addRow.appendChild(addInput); addRow.appendChild(addBtn); main.appendChild(addRow);
+          const addedList = document.createElement("div"); addedList.className = "ask-added-list"; main.appendChild(addedList);
+          const doAdd = () => {
+            if (answered) return;
+            const name = addInput.value.trim();
+            if (!name || added.includes(name)) { addInput.value = ""; addInput.focus(); return; }
+            added.push(name);
+            addInput.value = "";
+            addInput.focus();
+            const row = document.createElement("div"); row.className = "ask-added-row";
+            const span = document.createElement("span"); span.textContent = name; row.appendChild(span);
+            const rm = document.createElement("button"); rm.type = "button"; rm.className = "ask-opt ask-added-remove"; rm.textContent = "✕";
+            rm.addEventListener("click", () => {
+              if (answered) return;
+              const idx = added.indexOf(name);
+              if (idx !== -1) added.splice(idx, 1);
+              row.remove();
+            });
+            row.appendChild(rm); addedList.appendChild(row);
+          };
+          addBtn.addEventListener("click", doAdd);
+          addInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doAdd(); } });
+          addInputEl = addInput;
+        }
         // esp32_flash_confirm: a live serial-port + baud picker. The Skill card carries the
         // firmware path + esptool commands in summary/steps (rendered above); the port list
         // is scanned host-side (deploy_rescan -> deploy_ports_updated, routed to
@@ -269,7 +311,12 @@
           if (answered) return; answered = true;
           const selected_ids = checks.filter((c) => c.checked).map((c) => c.dataset.id).filter(Boolean);
           const text_values = {}; Object.keys(textEls).forEach((k) => { text_values[k] = textEls[k].value; });
-          const msg = { type: "ui_prompt_response", promptId, answer: action, selected_ids, text_values };
+          // Flush a name typed but never explicitly "Added" (Enter/button click) -- the primary
+          // action sits right below the add row, so typing then hitting Confirm directly is the
+          // likely path (the acceptance demo itself: "type OLED into the add row, confirm").
+          if (addInputEl) { const pending = addInputEl.value.trim(); if (pending && !added.includes(pending)) added.push(pending); }
+          const added_items = added.map((name) => ({ name, type: "user_added", interface: "unknown", source: "user_specified" }));
+          const msg = { type: "ui_prompt_response", promptId, answer: action, selected_ids, text_values, added_items };
           // Ride the chosen port so the host sets it before the agent's flash tool runs (same
           // no-race rationale as the deploy card's port passthrough). Baud is NOT sent: the picker
           // is gated on ruili (see FLASH_BAUDS note); restore `msg.baud = Number(selectedBaud)`
@@ -282,6 +329,7 @@
           // "chosen" button a restored inert card does — the picker/rescan buttons carry no data-answer.
           wrap.querySelectorAll("button").forEach((b) => { b.disabled = true; if (b.dataset.answer === action) b.classList.add("chosen"); });
           checks.forEach((c) => { c.disabled = true; });
+          if (addInputEl) addInputEl.disabled = true;
           currentDeployCard = null;
           setPending(tr("working"));
         };

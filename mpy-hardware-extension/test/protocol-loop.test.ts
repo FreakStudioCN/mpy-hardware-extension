@@ -500,6 +500,20 @@ test("approval: a confirmApproval decision carries serial_port + baud into the r
   assert.equal(res.result.baud, "460800", "the chosen baud rides into the approval_response");
 });
 
+// added_items is set by the webview's approval add-row (ApprovalCardHost.js). This pins
+// that a confirmApproval decision carrying it rides verbatim into the ui-route result —
+// the same no-code-change-needed passthrough already proven for serial_port/baud above.
+test("approval: a confirmApproval decision carries added_items into the result", async () => {
+  const addedItems = [{ name: "OLED显示屏", type: "user_added", interface: "unknown", source: "user_specified" }];
+  const res = await executeProtocolTool(
+    tu("ad", "approval_request", { approval_id: "device_confirm", allow_add: true, actions: [{ value: "confirm", primary: true }] }) as any,
+    { intent: "x", confirmApproval: async () => ({ action: "confirm", selected_ids: ["d1"], added_items: addedItems }) },
+    { llmClient: scriptedLlm({}) },
+  );
+  assert.equal(res.result.action, "confirm");
+  assert.deepStrictEqual([...res.result.added_items].map((i: any) => ({ ...i })), addedItems, "the added component rides verbatim into the approval_response");
+});
+
 test("script_run routes to the host runner, forwards stdin, maps a failed gate to success=false (not faked)", async () => {
   const calls: any[] = [];
   const { result } = await executeProtocolTool(

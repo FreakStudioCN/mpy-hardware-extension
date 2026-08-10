@@ -361,6 +361,25 @@ test("DeviceShim.deployFirmwareTree throws the shim's error_kind (e.g. firmware_
   await assert.rejects(() => shim.deployFirmwareTree("C:/proj/app"), /firmware_dir_missing/);
 });
 
+test("DeviceShim.exportUploadReady maps to project.export_upload_ready with no device scan (portless)", async () => {
+  const calls: any[] = [];
+  const shim = new DeviceShim(async (method: string, params: any) => {
+    calls.push({ method, params });
+    return { status: "ok", path: "C:/proj/app/upload_ready", file_count: 5, mip_count: 2 };
+  });
+
+  const result = await shim.exportUploadReady("C:/proj/app");
+
+  assert.deepEqual(result, { path: "C:/proj/app/upload_ready", fileCount: 5, mipCount: 2 });
+  assert.deepEqual(calls, [{ method: "project.export_upload_ready", params: { project_dir: "C:/proj/app" } }]);
+  assert.ok(!calls.some((c) => c.method === "device.scan"), "the export must never require a device");
+});
+
+test("DeviceShim.exportUploadReady throws the shim's error_kind (e.g. firmware_dir_missing)", async () => {
+  const shim = new DeviceShim(async () => ({ status: "error", error_kind: "firmware_dir_missing" }));
+  await assert.rejects(() => shim.exportUploadReady("C:/proj/app"), /firmware_dir_missing/);
+});
+
 test("DeviceShim runs upstream toolchain scripts via script.* RPC (no device/port)", async () => {
   const calls: any[] = [];
   const responses: Record<string, any> = {

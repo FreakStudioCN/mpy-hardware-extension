@@ -747,6 +747,83 @@ test("device tools download does not clobber an existing workspace file — N3",
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
 
+test("device tools export_upload_ready calls the shim with the project folder and posts the result", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    const exported: string[] = [];
+    const shim = { exportUploadReady: async (projectDir: string) => { exported.push(projectDir); return { path: join(projectDir, "upload_ready"), fileCount: 5, mipCount: 2 }; } };
+    const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    await handler!({ type: "device_tool_export_upload_ready" });
+
+    assert.equal(exported.length, 1, "the shim's export runs exactly once");
+    assert.equal(exported[0], join(ws, "blockless-project"), "the shim is called with the project folder, not the bare workspace");
+    const result = posted.find((m) => m.type === "device_tool_result" && m.command === "export_upload_ready");
+    assert.ok(result, "posts device_tool_result for export_upload_ready");
+    assert.deepEqual(result.result, { path: join(ws, "blockless-project", "upload_ready"), fileCount: 5, mipCount: 2 });
+  } finally { rmSync(ws, { recursive: true, force: true }); }
+});
+
+test("device tools export_upload_ready reports no_workspace_folder without touching the shim when no project folder exists", async () => {
+  const posted: any[] = [];
+  let handler: ((message: any) => Promise<void>) | undefined;
+  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [] }, window: { createWebviewPanel: () => panel } };
+  let calls = 0;
+  const shim = { exportUploadReady: async () => { calls++; return { path: "", fileCount: 0, mipCount: 0 }; } };
+  const fetchImpl = (async () => { throw new Error("no api"); }) as unknown as typeof fetch;
+  createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" }); // no globalStoragePath either -> no fallback root
+
+  await handler!({ type: "device_tool_export_upload_ready" });
+
+  assert.ok(posted.some((m) => m.type === "device_tool_error" && m.command === "export_upload_ready" && m.error === "no_workspace_folder"));
+  assert.equal(calls, 0, "the shim is never touched without a project folder");
+});
+
+test("device tools export_upload_ready is refused device_busy while a session run owns the port, and never reaches the shim", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
+  try {
+    const posted: any[] = [];
+    let handler: ((message: any) => Promise<void>) | undefined;
+    const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+    const vscode = { ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] }, window: { createWebviewPanel: () => panel } };
+    let exportCalled = 0;
+    const shim = {
+      scan: async () => ["/dev/ttyX"], setPort: () => {}, kill: () => {},
+      exportUploadReady: async () => { exportCalled++; return { path: "", fileCount: 0, mipCount: 0 }; },
+    };
+    let releaseFetch: () => void = () => {};
+    let reachedBlock: () => void = () => {};
+    const fetchGate = new Promise<void>((res) => { releaseFetch = res; });
+    const blocked = new Promise<void>((res) => { reachedBlock = res; });
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/v1/tools")) return jsonResponse({ tools: [] });
+      if (url.endsWith("/v1/skills")) return jsonResponse({ toolchain_version: "1", skills: [] });
+      reachedBlock();
+      await fetchGate;
+      throw new Error("stop");
+    }) as unknown as typeof fetch;
+    createPanel(vscode, {}, { shim, apiBaseUrl: "http://api.test", fetchImpl, loopMode: "template" });
+
+    const running = handler!({ type: "start_session", intent: "x", boardId: "esp32-s3-devkitc-1" });
+    await blocked; // the run is now in-flight, owning the device
+
+    await handler!({ type: "device_tool_export_upload_ready" });
+    assert.ok(posted.some((m) => m.type === "device_busy"), "export is refused device_busy during a run");
+    assert.equal(exportCalled, 0, "the shim's export RPC is never invoked while a run owns the port");
+
+    releaseFetch();
+    await running.catch(() => {});
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
 test("device tools delete is host-armed: a bare message only arms; the echoed nonce deletes once; a replay can't re-delete — §4", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-ws-"));
   try {
