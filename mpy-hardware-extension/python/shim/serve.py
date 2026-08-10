@@ -773,7 +773,12 @@ def _normalize_mip_entry(item):
     entry = dict(item)
     entry["package"] = package
     entry["target"] = str(item.get("target") or "/lib").strip() or "/lib"
-    entry["version"] = str(item.get("version") or "latest")
+    # Stripped like every sibling field above and below. version was the ONE field left
+    # unstripped, and that asymmetry was the whole reachability of the trailing-newline
+    # case: "1.3.4\n" is a fully recoverable intent, so recover it rather than failing the
+    # charset and demoting the package to an "install manually" bullet. The charset stays
+    # as the gate for genuinely hostile input, which is what it is for.
+    entry["version"] = str(item.get("version") or "latest").strip() or "latest"
     entry["verify_import"] = str(item.get("verify_import") or package.replace("-", "_")).strip()
     return entry
 

