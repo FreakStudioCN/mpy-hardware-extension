@@ -1026,8 +1026,20 @@ def _export_upload_ready(project_dir: str):
                 "message": f"Could not restore the previous export. It is intact at {stranded_at}; rename it back to upload_ready. Original failure: {exc}",
             }
         return {"status": "error", "error_kind": "export_swap_failed", "message": str(exc)}
-    _remove_export_scratch(backup_dir)
-    return {"status": "ok", "path": export_dir, "file_count": file_count, "mip_count": len(mip_entries)}
+    # The export IS installed by this point: both renames succeeded and upload_ready/ is
+    # complete. Dropping the backup is housekeeping, so a failure here must not turn a
+    # successful export into export_failed and send the user to retry something that already
+    # worked. Reported instead of swallowed: the leftover is a real directory they may want
+    # to remove, it is just not a failure of what they asked for.
+    leftover = None
+    try:
+        _remove_export_scratch(backup_dir)
+    except OSError:
+        leftover = backup_dir
+    result = {"status": "ok", "path": export_dir, "file_count": file_count, "mip_count": len(mip_entries)}
+    if leftover is not None:
+        result["leftover"] = leftover
+    return result
 
 
 def _health_check():

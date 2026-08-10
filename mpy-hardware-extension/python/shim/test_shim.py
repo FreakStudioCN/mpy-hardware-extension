@@ -1097,6 +1097,31 @@ def test_export_upload_ready_cleanup_failure_does_not_mask_the_real_error(monkey
     assert "No space left" in result["message"]
 
 
+def test_export_upload_ready_reports_ok_when_only_the_backup_cleanup_fails(monkeypatch, tmp_path):
+    """Both renames have succeeded by then, so upload_ready/ is complete and installed.
+    Dropping the backup is housekeeping: failing the whole export over it would tell the
+    user their export failed and send them to retry something that already worked."""
+    project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
+    assert _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})["status"] == "ok"
+
+    import serve
+    real_rmtree = serve.shutil.rmtree
+
+    def rmtree_failing_only_on_the_backup(path, *args, **kwargs):
+        if str(path).endswith("upload_ready.previous"):
+            raise OSError(13, "Permission denied")
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(serve.shutil, "rmtree", rmtree_failing_only_on_the_backup)
+    result = _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
+
+    assert result["status"] == "ok", "a housekeeping failure is not an export failure"
+    assert result["file_count"] == 5, "the export really was installed"
+    assert (project / "upload_ready" / "main.py").exists()
+    # Reported, not swallowed: it is a real directory the user may want to remove.
+    assert result["leftover"] == str(project / "upload_ready.previous")
+
+
 def test_export_upload_ready_leaves_no_scratch_directories_behind(tmp_path):
     project = _build_upload_ready_project(tmp_path / "project", manifest=_two_mip_manifest())
     _dispatch(_noop_shim(), "project.export_upload_ready", {"project_dir": str(project)})
