@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 
@@ -365,6 +366,14 @@ class Shim:
         self.runner = runner or subprocess.run
         self.serial_factory = serial_factory
         self.commands: list[list[str]] = []
+        # Background serial monitor session (serial.monitor_start/stop): a single open
+        # port read continuously on its own thread, pushing serial.data notifications
+        # instead of returning through the bounded request/response RPC. Guarded by its
+        # own lock so start/stop can't race a concurrent call from another RPC turn.
+        self._monitor_lock = threading.Lock()
+        self._monitor_thread: threading.Thread | None = None
+        self._monitor_stop: threading.Event | None = None
+        self._monitor_ser = None
 
     def scan(self):
         result = self._run(["mpremote", "connect", "list"])
@@ -455,6 +464,12 @@ class Shim:
             factory = self.serial_factory
         deadline = time.monotonic() + timeout_s
         matched: list[str] = []
+        # Every complete line seen during the read window, matched or not — the deploy
+        # verification read is the only thing that ever reads the port, so a print()
+        # between markers would otherwise be silently dropped instead of reaching the
+        # Serial page. `matched`/`lines` (the marker-grading contract the agent loop
+        # reads via lines.at(-1)+ok) stays exactly as before.
+        all_lines: list[str] = []
         buffer = ""
         with factory(port, 115200, timeout=0.05) as ser:
             # Drop bytes left in the OS buffer from a previous run so we do not
@@ -470,22 +485,147 @@ class Shim:
                 if not chunk:
                     continue
                 buffer += chunk
-                while "\n" in buffer and len(matched) < len(markers):
+                while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
                     line = line.strip()
-                    if line and markers[len(matched)] in line:
+                    if not line:
+                        continue
+                    all_lines.append(line)
+                    if len(matched) < len(markers) and markers[len(matched)] in line:
                         matched.append(line)
-            # Flush trailing markers emitted without a newline before the deadline.
-            while len(matched) < len(markers):
-                tail = buffer.strip()
-                if tail and markers[len(matched)] in tail:
+            # Flush a trailing marker (or trailing print output) emitted without a
+            # newline before the deadline.
+            tail = buffer.strip()
+            if tail:
+                all_lines.append(tail)
+                if len(matched) < len(markers) and markers[len(matched)] in tail:
                     matched.append(tail)
-                    buffer = ""
-                else:
-                    break
         if len(matched) < len(markers):
-            return {"ok": False, "error": "timeout", "lines": matched}
-        return {"ok": True, "lines": matched}
+            return {"ok": False, "error": "timeout", "lines": matched, "all_lines": all_lines}
+        return {"ok": True, "lines": matched, "all_lines": all_lines}
+
+    def monitor_start(self, port: str, baud: int = 115200):
+        # A live REPL/stdout stream between runs (the Serial page's Start/Stop monitor):
+        # unlike serial_read_until, this stays open until monitor_stop, pushing every
+        # line it reads as a serial.data notification. Refuse a second start rather than
+        # silently replacing the running session — the host enforces one monitor at a
+        # time via the port-ownership queue, so a second start here means the host state
+        # and the shim's are already out of sync.
+        with self._monitor_lock:
+            if self._monitor_thread is not None and self._monitor_thread.is_alive():
+                return {"status": "error", "error_kind": "monitor_already_running"}
+            factory = self.serial_factory
+            if factory is None:
+                import serial
+
+                factory = serial.Serial
+            try:
+                ser = factory(port, baud, timeout=0.1)
+            except Exception as exc:  # noqa: BLE001 — a closed/busy/nonexistent port must error, never hang
+                return {"status": "error", "error_kind": "port_open_failed", "message": str(exc)}
+            stop_event = threading.Event()
+            self._monitor_ser = ser
+            self._monitor_stop = stop_event
+            self._monitor_thread = threading.Thread(target=self._monitor_read_loop, args=(ser, stop_event), daemon=True)
+            self._monitor_thread.start()
+            return {"status": "ok"}
+
+    def monitor_stop(self, join_timeout: float = 2.0):
+        with self._monitor_lock:
+            thread = self._monitor_thread
+            stop_event = self._monitor_stop
+            ser = self._monitor_ser
+        if stop_event is None:
+            return {"status": "ok"}  # idempotent: nothing running is not an error
+        stop_event.set()
+        # Force a blocked readline() to unblock: closing the port makes most serial
+        # backends raise immediately, so the reader thread exits even if it would
+        # otherwise sit past its own read timeout.
+        if ser is not None:
+            try:
+                ser.close()
+            except Exception:  # noqa: BLE001 — best-effort, the port may already be gone
+                pass
+        if thread is not None:
+            thread.join(timeout=join_timeout)
+            if thread.is_alive():
+                # The reader thread did not exit in time. Do NOT clear the monitor
+                # state here: monitor_start's is_alive() guard must keep refusing a
+                # second open, or a new session would race a still-running thread for
+                # the same port instead of the caller retrying the stop.
+                return {"status": "error", "error_kind": "monitor_stop_timed_out"}
+        with self._monitor_lock:
+            self._monitor_thread = None
+            self._monitor_stop = None
+            self._monitor_ser = None
+        return {"status": "ok"}
+
+    # A device that emits bytes with no newline (binary spew, a stuck print(end=""))
+    # must not grow this buffer without bound for the life of the monitor session.
+    # Flushed as a synthetic "line" past this size — matches nothing readable coming
+    # back, but bounds memory instead of accumulating forever.
+    _MONITOR_BUFFER_CAP = 8192
+
+    def _monitor_read_loop(self, ser, stop_event):
+        # Buffer BYTES and decode only complete lines: decoding per read chunk (the old
+        # `readline().decode(errors="ignore")`) silently dropped a multi-byte character
+        # split across the 0.1s read-timeout boundary -- both halves fail the decode and
+        # "ignore" eats them, which loses characters from exactly the non-ASCII print()
+        # output this product's users emit. A complete line decodes as one unit, and
+        # errors="replace" makes genuinely invalid bytes VISIBLE as U+FFFD instead of
+        # vanishing.
+        buffer = b""
+        died = None
+
+        def emit(raw):
+            line = raw.decode(errors="replace").strip()
+            if line:
+                _notify("serial.data", {"lines": [line]})
+
+        try:
+            while not stop_event.is_set():
+                try:
+                    chunk = ser.readline()
+                except Exception as exc:  # noqa: BLE001 — an unplugged/errored port ends the loop, not the shim
+                    # monitor_stop() sets stop_event BEFORE closing the port, and
+                    # closing a real pyserial port makes a readline() in progress
+                    # raise -- so an intentional stop routinely hits this except
+                    # branch too. Only a read failing while NOBODY asked to stop is a
+                    # genuine unplugged/errored death worth telling the host about;
+                    # otherwise every ordinary stop would misreport monitor_ended.
+                    if not stop_event.is_set():
+                        died = exc
+                    break
+                if not chunk:
+                    # A real serial timeout (no data, no error) — not stop_event-driven,
+                    # so briefly wait on it instead of a bare `continue`, which would
+                    # otherwise busy-spin a full CPU core for the life of the session on
+                    # a port that returns b"" without raising (its read timeout is 0.1s,
+                    # but nothing guarantees every backend blocks for that long).
+                    stop_event.wait(0.01)
+                    continue
+                buffer += chunk
+                while b"\n" in buffer:
+                    raw, buffer = buffer.split(b"\n", 1)
+                    emit(raw)
+                if len(buffer) > self._MONITOR_BUFFER_CAP:
+                    raw, buffer = buffer, b""
+                    emit(raw)
+        finally:
+            # Flush the trailing partial line BEFORE anything else: a board whose last
+            # output is sys.stdout.write("READY") -- no newline -- otherwise never shows
+            # it on the Serial page unless it happened to exceed the buffer cap.
+            emit(buffer)
+            try:
+                ser.close()
+            except Exception:  # noqa: BLE001 — best-effort close, the port may already be gone
+                pass
+            # A stop_event-driven exit is intentional (monitor_stop already told the
+            # host); only an unplugged/errored port dying on its own needs to notify
+            # the host, or the Start/Stop button is stuck showing a monitor that
+            # silently ended.
+            if died is not None:
+                _notify("serial.monitor_ended", {"reason": str(died)})
 
     def run_script(self, script_path: str, args: list[str], timeout: float = 300):
         # Run a vendored upstream toolchain script with the shim's own Python
@@ -1416,12 +1556,34 @@ def _dispatch(shim, method, params):
     if method == "device.serial_read_until":
         markers = params.get("markers") or ([params["pattern"]] if params.get("pattern") else [])
         return shim.serial_read_until(params["port"], markers, float(params.get("timeout_sec", 10)))
+    if method == "serial.monitor_start":
+        return shim.monitor_start(params["port"], int(params.get("baud", 115200)))
+    if method == "serial.monitor_stop":
+        return shim.monitor_stop()
     return None  # unknown method
 
 
+# Every stdout write — an RPC response OR a serial.data notification pushed by the
+# monitor's background thread — goes through this one lock. Without it, a response
+# write racing a notification write can interleave their bytes on the pipe and
+# corrupt the newline-delimited JSON framing the extension's reader depends on.
+_stdout_lock = threading.Lock()
+
+
+def _write_line(message):
+    with _stdout_lock:
+        sys.stdout.write(json.dumps(message) + "\n")
+        sys.stdout.flush()
+
+
+def _notify(method, params):
+    # A JSON-RPC notification: method + params, no "id" — the extension's ShimProcess
+    # tells it apart from a request response by the absence of a matching pending id.
+    _write_line({"jsonrpc": "2.0", "method": method, "params": params})
+
+
 def _respond(message):
-    sys.stdout.write(json.dumps(message) + "\n")
-    sys.stdout.flush()
+    _write_line(message)
 
 
 def _ensure_utf8_io(stream):

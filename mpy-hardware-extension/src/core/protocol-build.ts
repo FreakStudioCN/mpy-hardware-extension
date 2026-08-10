@@ -101,9 +101,13 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
       }
       if (action === "stream" || action === "read") {
         const r = await shim.serialReadUntil(payload?.markers ?? ["MPYHW_READY"]);
+        // Surface the FULL read window (allLines), not just the matched markers — a
+        // print() between markers must reach the Serial page. Array-shaped r (an old
+        // test double) has no allLines; fall back to the array itself.
         const lines = Array.isArray(r) ? r : (r.lines ?? []);
+        const allLines = Array.isArray(r) ? r : (r.allLines ?? lines);
         const ok = Array.isArray(r) ? true : r.ok !== false;
-        return ok ? { ok: true, stdout: lines.join("\n") } : { ok: false, error_kind: "runtime_error", stdout: lines.join("\n") };
+        return ok ? { ok: true, stdout: allLines.join("\n") } : { ok: false, error_kind: "runtime_error", stdout: allLines.join("\n") };
       }
       if (action === "exec") {
         const code = String(payload?.code ?? "");

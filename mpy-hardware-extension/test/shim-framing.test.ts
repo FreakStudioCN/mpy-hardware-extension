@@ -50,3 +50,22 @@ test("two responses in one chunk both dispatch", () => {
   proc.feed(JSON.stringify({ id: 1, result: { a: 1 } }) + "\n" + JSON.stringify({ id: 2, result: { b: 2 } }) + "\n");
   assert.deepEqual(got, [{ a: 1 }, { b: 2 }]);
 });
+
+test("a throwing onEvent propagates out of feed() instead of being eaten as noise", () => {
+  // The feed() catch exists ONLY for non-JSON stdout noise. With dispatch inside it,
+  // a throwing notification path (a disposed webview's postMessage, a handler
+  // regression) was swallowed line by line: the Serial page went quiet with no trace.
+  // Fail-fast: the throw must escape to the stdout 'data' handler and surface.
+  const proc = new ShimProcess({
+    write: () => undefined,
+    onEvent: () => {
+      throw new Error("postMessage on disposed webview");
+    },
+  });
+  assert.throws(
+    () => proc.feed(JSON.stringify({ method: "serial.data", params: { lines: ["x"] } }) + "\n"),
+    /disposed webview/,
+  );
+  // And the same guard still swallows genuine noise afterwards.
+  assert.doesNotThrow(() => proc.feed("mpremote: diagnostic noise\n"));
+});

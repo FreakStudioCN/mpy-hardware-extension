@@ -87,11 +87,67 @@ test("DeviceShim resolves+caches the port from device.scan and maps loop methods
   await shim.flashAndRun("main.py");
   const serial = await shim.serialReadUntil(["MPYHW_READY", "TEMP_C="]);
 
-  assert.deepEqual(serial, { ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"] });
+  // No all_lines on the wire (an older/stub shim response): allLines falls back to lines.
+  assert.deepEqual(serial, { ok: true, lines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"], allLines: ["MPYHW_READY", "TEMP_C=31.2 LED=ON"] });
   const install = calls.find((c) => c.method === "device.install_package");
   assert.equal(install.params.port, "COM7"); // first scanned port, cached
   assert.equal(install.params.url, "https://upypi.net/pkgs/aht20/1.0.0/package.json");
   assert.equal(calls.find((c) => c.method === "device.write_main_py").params.code, "print('hi')");
+});
+
+test("DeviceShim.serialReadUntil returns the shim's all_lines (full read window), not just the matched markers", async () => {
+  const rpc = async (method: string) => method === "device.scan"
+    ? { status: "ok", devices: [{ port: "COM9" }] }
+    : { ok: true, lines: ["MPYHW_READY"], all_lines: ["boot", "MPYHW_READY", "extra"] };
+  const shim = new DeviceShim(rpc);
+
+  const serial = await shim.serialReadUntil(["MPYHW_READY"]);
+
+  assert.deepEqual(serial, { ok: true, lines: ["MPYHW_READY"], allLines: ["boot", "MPYHW_READY", "extra"] });
+  // Mutation: read r?.lines instead of r?.all_lines -> allLines would equal lines, fails.
+});
+
+test("DeviceShim.startSerialMonitor resolves the port then calls serial.monitor_start", async () => {
+  const calls: any[] = [];
+  const rpc = async (method: string, params: any) => {
+    calls.push({ method, params });
+    if (method === "device.scan") return { status: "ok", devices: [{ port: "COM7" }] };
+    return { status: "ok" };
+  };
+  const shim = new DeviceShim(rpc);
+
+  await shim.startSerialMonitor();
+
+  assert.deepEqual(calls.map((c) => c.method), ["device.scan", "serial.monitor_start"]);
+  assert.deepEqual(calls[1].params, { port: "COM7", baud: 115200 });
+});
+
+test("DeviceShim.startSerialMonitor throws the shim's error_kind + message on a refused/failed start (never fakes ok)", async () => {
+  const rpc = async (method: string) => method === "device.scan"
+    ? { status: "ok", devices: [{ port: "COM7" }] }
+    : { status: "error", error_kind: "port_open_failed", message: "could not open port COM7" };
+  const shim = new DeviceShim(rpc);
+
+  await assert.rejects(() => shim.startSerialMonitor(), /port_open_failed: could not open port COM7/);
+});
+
+test("DeviceShim.stopSerialMonitor calls serial.monitor_stop with no port (idempotent, mirrors the shim's no-op)", async () => {
+  const calls: any[] = [];
+  const rpc = async (method: string, params: any) => { calls.push({ method, params }); return { status: "ok" }; };
+  const shim = new DeviceShim(rpc);
+
+  await shim.stopSerialMonitor();
+
+  assert.deepEqual(calls, [{ method: "serial.monitor_stop", params: {} }]);
+});
+
+test("DeviceShim.stopSerialMonitor throws on a failed stop (e.g. monitor_stop_timed_out), never swallows it as a fake success (review round-2 fix)", async () => {
+  const rpc = async () => ({ status: "error", error_kind: "monitor_stop_timed_out" });
+  const shim = new DeviceShim(rpc);
+
+  await assert.rejects(() => shim.stopSerialMonitor(), /monitor_stop_timed_out/);
+  // Mutation: drop the `if (r?.status !== "ok") throw` check -> this resolves instead
+  // of rejecting, and panel.ts's best-effort catch can never see the real failure.
 });
 
 test("DeviceShim.uninstallPackage sends the package name + port and throws on a shim error", async () => {
@@ -480,6 +536,23 @@ class FakeShimChild extends EventEmitter {
   }
   kill() { this.dead = true; }
 }
+
+test("createShimLifecycle threads onEvent through to the ShimProcess transport (serial.data reaches the caller)", async () => {
+  const children: FakeShimChild[] = [];
+  const events: any[] = [];
+  const shim = createShimLifecycle(() => {
+    const c = new FakeShimChild(`c${children.length}`);
+    children.push(c);
+    return c;
+  }, (event: any) => events.push(event));
+
+  await shim.scan(); // force the lazy spawn so a child exists to emit on
+  children[0].stdout.emit("data", Buffer.from(JSON.stringify({ jsonrpc: "2.0", method: "serial.data", params: { lines: ["boot"] } }) + "\n"));
+
+  assert.deepEqual(events, [{ type: "serial_data", lines: ["boot"] }]);
+  // Mutation: drop the `onEvent` arg when building `new ShimProcess({write, ...})` in
+  // createShimLifecycle -> events stays empty, fails.
+});
 
 test("kill() clears the shim state SYNCHRONOUSLY: the next device touch respawns instead of using the dying process", async () => {
   const children: FakeShimChild[] = [];

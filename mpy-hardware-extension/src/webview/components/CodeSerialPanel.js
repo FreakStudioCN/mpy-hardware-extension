@@ -71,6 +71,13 @@
         if (/ok|complete|ready|MPYHW_READY/i.test(line)) return "ok";
         return "";
       }
+      // A monitor session can run for a long time between/after builds; without a cap
+      // #serial grows without bound (every line is its own DOM node), so trim the
+      // oldest rows once the count passes this so the tab stays a live scrollback,
+      // not a slow-growing memory leak.
+      const SERIAL_LINE_CAP = 2000;
+      let serialLineCount = 0;
+      function resetSerialLineCount() { serialLineCount = 0; }
       function addSerial(lines) {
         $("serialEmpty").classList.add("hidden");
         $("serialFilled").classList.remove("hidden");
@@ -80,6 +87,8 @@
           const row = document.createElement("div"); row.className = "serial-line " + serialClass(line);
           const txt = document.createElement("span"); txt.className = "txt"; txt.textContent = line;
           row.appendChild(txt); host.appendChild(row);
+          serialLineCount++;
+          if (serialLineCount > SERIAL_LINE_CAP) { host.removeChild(host.firstChild); serialLineCount--; }
         });
         host.parentElement.scrollTop = host.parentElement.scrollHeight;
         markNew("serial");

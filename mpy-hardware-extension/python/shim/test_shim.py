@@ -3,6 +3,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
@@ -681,6 +683,23 @@ def test_serial_read_until_matches_or_times_out():
     assert result["lines"] == ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]
 
 
+def test_serial_read_until_all_lines_captures_the_full_window_lines_stays_markers_only():
+    # The Serial page needs every line the deploy-verification read sees (a print()
+    # between markers), not just the matched markers themselves. `all_lines` carries
+    # the full window; `lines` (what the agent loop grades pass/fail on via
+    # lines.at(-1)+ok) must stay exactly the matched-markers list it always was.
+    # Mutation: revert to only appending matched markers -> all_lines == lines, fails.
+    shim = Shim(serial_factory=lambda *_a, **_k: FakeSerial(
+        ["noise", "MPYHW_READY", "print output", "TEMP_C=31.2 LED=ON"]
+    ))
+
+    result = shim.serial_read_until("COM3", ["MPYHW_READY", "TEMP_C="], timeout_s=0.5)
+
+    assert result["ok"] is True
+    assert result["lines"] == ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]
+    assert result["all_lines"] == ["noise", "MPYHW_READY", "print output", "TEMP_C=31.2 LED=ON"]
+
+
 def test_serial_read_until_reassembles_markers_split_across_reads():
     # A real serial readline() with a short timeout can return a partial line; the
     # reader must buffer fragments and still match a marker split across reads.
@@ -700,7 +719,7 @@ def test_serial_read_until_times_out_when_markers_never_appear():
 
     result = shim.serial_read_until("COM3", ["MPYHW_READY"], timeout_s=0.1)
 
-    assert result == {"ok": False, "error": "timeout", "lines": []}
+    assert result == {"ok": False, "error": "timeout", "lines": [], "all_lines": ["noise", "still booting"]}
 
 
 @pytest.mark.slow
@@ -732,6 +751,319 @@ def test_serial_read_until_drives_a_real_pyserial_loopback_port():
 
     assert result["ok"] is True
     assert result["lines"] == ["MPYHW_READY", "TEMP_C=31.2 LED=ON"]
+
+
+def test_monitor_start_streams_lines_via_notify_until_stopped(monkeypatch):
+    # The monitor pushes each line through _notify (a serial.data JSON-RPC
+    # notification), not through the bounded serial_read_until response.
+    # Mutation: drop the _notify call in _monitor_read_loop -> calls stays empty, fails.
+    calls = []
+    monkeypatch.setattr("serve._notify", lambda method, params: calls.append((method, params)))
+    shim = Shim(serial_factory=lambda *_a, **_k: FakeSerial(["boot", "MPYHW_READY"]))
+
+    result = shim.monitor_start("COM3")
+    assert result == {"status": "ok"}
+
+    deadline = time.monotonic() + 2.0
+    while len(calls) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert shim.monitor_stop() == {"status": "ok"}
+    assert calls == [
+        ("serial.data", {"lines": ["boot"]}),
+        ("serial.data", {"lines": ["MPYHW_READY"]}),
+    ]
+
+
+def test_monitor_flushes_the_trailing_unterminated_line_on_stop(monkeypatch):
+    """A board whose last output is sys.stdout.write("READY") -- no trailing newline --
+    must still reach the Serial page: stopping used to drop the partial-line buffer
+    unless it happened to exceed the cap. Mutation: drop the emit(buffer) flush in the
+    finally block -> READY never appears, fails."""
+    calls = []
+    monkeypatch.setattr("serve._notify", lambda method, params: calls.append((method, params)))
+    ser = ChunkedSerial(["boot\n", "READY"])
+    shim = Shim(serial_factory=lambda *_a, **_k: ser)
+
+    assert shim.monitor_start("COM3") == {"status": "ok"}
+    # Deterministic: wait until the reader has CONSUMED both fragments (READY is then
+    # sitting in the partial-line buffer), not merely until the first line arrived.
+    deadline = time.monotonic() + 2.0
+    while ser.fragments and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not ser.fragments, "the reader never consumed the fixture"
+    assert shim.monitor_stop() == {"status": "ok"}
+
+    assert calls == [
+        ("serial.data", {"lines": ["boot"]}),
+        ("serial.data", {"lines": ["READY"]}),
+    ]
+
+
+def test_monitor_reassembles_a_multibyte_char_split_across_reads(monkeypatch):
+    """A multi-byte character split across the 0.1s read boundary must survive: the old
+    per-chunk decode(errors="ignore") ate BOTH halves, silently losing characters from
+    exactly the non-ASCII print() output this product's users emit. Bytes are buffered
+    and a complete line decodes as one unit. Mutation: revert to per-chunk decode ->
+    the split character vanishes, fails."""
+
+    class ByteFragmentSerial:
+        """ChunkedSerial takes str fragments (it encodes whole characters); this feeds
+        RAW byte fragments so the split can land inside one character's encoding."""
+
+        def __init__(self, fragments):
+            self.fragments = list(fragments)
+
+        def readline(self):
+            return self.fragments.pop(0) if self.fragments else b""
+
+        def close(self):
+            pass
+
+    calls = []
+    monkeypatch.setattr("serve._notify", lambda method, params: calls.append((method, params)))
+    raw = "温度=31.2\n".encode()
+    ser = ByteFragmentSerial([raw[:4], raw[4:]])  # index 4 is inside 度 (bytes 3..5)
+    shim = Shim(serial_factory=lambda *_a, **_k: ser)
+
+    assert shim.monitor_start("COM3") == {"status": "ok"}
+    deadline = time.monotonic() + 2.0
+    while len(calls) < 1 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert shim.monitor_stop() == {"status": "ok"}
+
+    assert calls == [("serial.data", {"lines": ["温度=31.2"]})]
+
+
+def test_monitor_start_refuses_a_second_start_while_one_is_running():
+    # The host enforces one monitor at a time via port ownership; the shim refusing a
+    # second start (instead of silently replacing the session) keeps both sides honest
+    # if they ever disagree. Mutation: drop the is_alive() guard -> this fails.
+    shim = Shim(serial_factory=lambda *_a, **_k: FakeSerial([]))
+    try:
+        first = shim.monitor_start("COM3")
+        second = shim.monitor_start("COM3")
+        assert first == {"status": "ok"}
+        assert second == {"status": "error", "error_kind": "monitor_already_running"}
+    finally:
+        shim.monitor_stop()
+
+
+def test_monitor_start_port_open_failure_returns_an_error_never_silent_empty():
+    # A closed/busy/nonexistent port must be reported, never look like "connected,
+    # nothing to see yet" (spec: "Port-open failure -> error, never silent empty").
+    def factory(*_a, **_k):
+        raise OSError("could not open port COM99")
+
+    shim = Shim(serial_factory=factory)
+
+    result = shim.monitor_start("COM99")
+
+    assert result["status"] == "error"
+    assert result["error_kind"] == "port_open_failed"
+    assert "COM99" in result["message"]
+
+
+def test_monitor_stop_with_nothing_running_is_an_idempotent_no_op():
+    shim = Shim(serial_factory=lambda *_a, **_k: FakeSerial([]))
+
+    assert shim.monitor_stop() == {"status": "ok"}
+
+
+def test_monitor_read_loop_notifies_monitor_ended_when_the_port_dies_on_its_own(monkeypatch):
+    # An unplugged/errored port must tell the host, or the Start/Stop button is stuck
+    # showing a monitor that silently ended (review fix). Mutation: drop the `died`
+    # tracking / the finally-block _notify call -> calls stays empty, fails.
+    calls = []
+    monkeypatch.setattr("serve._notify", lambda method, params: calls.append((method, params)))
+
+    class DyingSerial:
+        def readline(self):
+            raise OSError("device reports readiness to read but returned no data")
+
+        def close(self):
+            pass
+
+    shim = Shim(serial_factory=lambda *_a, **_k: DyingSerial())
+    assert shim.monitor_start("COM3") == {"status": "ok"}
+
+    deadline = time.monotonic() + 2.0
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert len(calls) == 1
+    assert calls[0][0] == "serial.monitor_ended"
+    assert "device reports readiness" in calls[0][1]["reason"]
+    # The reader thread must have actually exited (not left running under a name the
+    # host no longer references) — monitor_stop's not-running path proves that.
+    assert shim.monitor_stop() == {"status": "ok"}
+
+
+def test_monitor_stop_after_a_normal_stop_does_not_notify_monitor_ended(monkeypatch):
+    # An intentional stop is not a failure; only the port dying on its OWN triggers
+    # monitor_ended. monitor_stop() closes the port to unblock a stuck readline(), and
+    # on a REAL pyserial port that makes readline() RAISE -- so the fixture here must
+    # reproduce that (unlike FakeSerial, whose close() is a no-op and readline() never
+    # raises, which would pass this test even with the bug it guards).
+    #
+    # This must deterministically land the reader thread INSIDE a blocking readline()
+    # call at the moment monitor_stop() runs, or the empty-read wait added alongside
+    # this fix (stop_event.wait(0.01)) can let the thread notice stop_event first and
+    # exit the loop before ever calling readline() again -- which would make this test
+    # pass regardless of the fix, without ever exercising the except branch at all.
+    calls = []
+    monkeypatch.setattr("serve._notify", lambda method, params: calls.append((method, params)))
+
+    class CloseMakesABlockedReadFailSerial:
+        def __init__(self, lines):
+            self.lines = [f"{line}\n".encode() for line in lines]
+            self._closed = False
+            self.entered_blocking_read = threading.Event()
+            self.released = threading.Event()
+
+        def readline(self):
+            if self.lines:
+                return self.lines.pop(0)
+            # No more data: block here (like a real serial read with nothing
+            # arriving) until close() releases it.
+            self.entered_blocking_read.set()
+            self.released.wait(timeout=2.0)
+            if self._closed:
+                raise OSError("read failed: device reports readiness to read but returned no data")
+            return b""
+
+        def close(self):
+            self._closed = True
+            self.released.set()
+
+    ser = CloseMakesABlockedReadFailSerial(["boot"])
+    shim = Shim(serial_factory=lambda *_a, **_k: ser)
+
+    assert shim.monitor_start("COM3") == {"status": "ok"}
+    # Wait until the reader thread has consumed "boot" and is now BLOCKED inside the
+    # next readline() call -- the exact moment monitor_stop()'s close() must interrupt.
+    assert ser.entered_blocking_read.wait(timeout=2.0), "the reader thread never reached its blocking read"
+
+    assert shim.monitor_stop() == {"status": "ok"}
+
+    assert not any(method == "serial.monitor_ended" for method, _ in calls)
+    # Mutation: drop `if not stop_event.is_set():` around `died = exc` in the except
+    # branch -> the close-induced read failure above is misread as the port dying on
+    # its own, and this fires spuriously on every ordinary stop.
+
+
+def test_monitor_stop_join_timeout_refuses_a_second_start_instead_of_double_opening():
+    # A reader thread that does not exit within the join window must NOT have its state
+    # cleared -- clearing it would let monitor_start's is_alive() guard pass and open the
+    # SAME port again while the stuck thread might still be using it (review fix).
+    class WedgedSerial:
+        def readline(self):
+            # Ignores close() entirely -- simulates a driver that does not unblock a
+            # stuck read, so the reader thread cannot exit within the (short) join
+            # window below. Long enough to outlast join_timeout, short enough to keep
+            # the suite fast; stop_event is already set by the time this returns, so
+            # the thread exits normally right after (no dangling thread past this test).
+            time.sleep(0.5)
+            return b""
+
+        def close(self):
+            pass
+
+    shim = Shim(serial_factory=lambda *_a, **_k: WedgedSerial())
+    assert shim.monitor_start("COM3") == {"status": "ok"}
+
+    result = shim.monitor_stop(join_timeout=0.1)
+
+    assert result == {"status": "error", "error_kind": "monitor_stop_timed_out"}
+    second = shim.monitor_start("COM3")
+    assert second == {"status": "error", "error_kind": "monitor_already_running"}
+    # Mutation: clear _monitor_thread/_monitor_stop/_monitor_ser unconditionally
+    # (before checking is_alive()) -> the second start above would return {"status":
+    # "ok"}, silently opening the port a second time.
+
+
+def test_monitor_read_loop_caps_an_unterminated_buffer_instead_of_growing_without_bound(monkeypatch):
+    # A device that emits bytes with no newline (binary spew, a stuck print(end=""))
+    # must not grow the reader's buffer forever for the life of a long monitor session.
+    # Mutation: drop the buffer-cap flush -> the fragments below never get force-flushed
+    # and no serial.data notification carries them.
+    calls = []
+    monkeypatch.setattr("serve._notify", lambda method, params: calls.append((method, params)))
+
+    class SpewingSerial:
+        def __init__(self):
+            self.chunks = [b"x" * 100 for _ in range(200)] + [b""]  # 20000 bytes, no '\n'
+
+        def readline(self):
+            return self.chunks.pop(0) if self.chunks else b""
+
+        def close(self):
+            pass
+
+    shim = Shim(serial_factory=lambda *_a, **_k: SpewingSerial())
+    assert shim.monitor_start("COM3") == {"status": "ok"}
+    deadline = time.monotonic() + 2.0
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+    shim.monitor_stop()
+
+    assert calls, "the over-cap buffer must be force-flushed as a notification"
+    flushed_len = len(calls[0][1]["lines"][0])
+    assert flushed_len <= Shim._MONITOR_BUFFER_CAP + 100  # one chunk beyond the cap at most
+
+
+def test_stdout_writes_are_lock_serialized_so_notifications_cannot_corrupt_a_response():
+    # serial.data notifications are pushed from the monitor's background thread while
+    # the main thread may be mid-_respond for an unrelated RPC. Without a shared lock
+    # around every stdout write, two threads' write() calls can interleave mid-line and
+    # corrupt the newline-delimited JSON framing the extension's reader depends on.
+    # This drives both write paths concurrently against a stream double that flags any
+    # write() call that overlaps another (a deliberate sleep widens the window so a
+    # missing lock reliably overlaps rather than depending on GIL scheduling luck).
+    # Mutation: remove the `with _stdout_lock:` in _write_line -> overlap is detected, fails.
+    import serve
+
+    guard = threading.Lock()
+    state = {"active": 0, "overlap": False}
+    written = []
+
+    class RaceDetectingStream:
+        def write(self, s):
+            with guard:
+                state["active"] += 1
+                if state["active"] > 1:
+                    state["overlap"] = True
+            time.sleep(0.002)
+            written.append(s)
+            with guard:
+                state["active"] -= 1
+
+        def flush(self):
+            pass
+
+    monkeypatch_stdout = RaceDetectingStream()
+    real_stdout = serve.sys.stdout
+    serve.sys.stdout = monkeypatch_stdout
+    try:
+        def hammer_notify():
+            for _ in range(15):
+                serve._notify("serial.data", {"lines": ["x"]})
+
+        def hammer_respond():
+            for i in range(15):
+                serve._respond({"jsonrpc": "2.0", "id": i, "result": {}})
+
+        t1 = threading.Thread(target=hammer_notify)
+        t2 = threading.Thread(target=hammer_respond)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+    finally:
+        serve.sys.stdout = real_stdout
+
+    assert state["overlap"] is False
+    assert len(written) == 30
 
 
 def test_run_script_builds_a_python_command_with_args():

@@ -188,7 +188,10 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
         scriptCalls.push(call);
         return { status: "ok", stdout: "{}", stderr: "", exit_code: 0 };
       },
-      serialReadUntil: async () => ({ ok: true, lines: ["MPYHW_READY", "temp=24.1"] }),
+      // all_lines carries lines beyond the matched markers (a print() the deploy
+      // verification read saw between them) — the posted serial_output event must
+      // carry those too, not just the matched markers.
+      serialReadUntil: async () => ({ ok: true, lines: ["MPYHW_READY", "temp=24.1"], allLines: ["booting", "MPYHW_READY", "temp=24.1"] }),
     },
     writeProjectFile: async (path, content) => {
       const target = contained(path);
@@ -246,6 +249,10 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
     // the generate flow silently regresses to ambiguous_script_name with no failing test.
     assert.equal(scriptCalls[0].phase, "upy-scaffold-plugin");
     assert.ok(events.some((event) => event.type === "serial_output" && event.lines.includes("MPYHW_READY")));
+    // The non-marker "booting" line (all_lines only, not in the matched `lines`) must
+    // reach the Serial page too — the whole point of forwarding the full read window.
+    // Mutation: join `lines` instead of `allLines` in protocol-build.ts -> this fails.
+    assert.ok(events.some((event) => event.type === "serial_output" && event.lines.includes("booting")));
   } finally {
     await rm(projectDir, { recursive: true, force: true });
   }

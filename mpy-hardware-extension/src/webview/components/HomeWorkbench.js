@@ -190,6 +190,47 @@
         $("intent").value = "";
         $("intent").style.height = "auto";
       });
+      // Serial monitor (Start/Stop on the Serial tab): a live REPL/stdout stream the
+      // host holds open independently of any build session. serialMonitorRunning
+      // mirrors the host's serial_monitor_status; serialMonitorBusy covers the gap
+      // between clicking and the host's reply so a double-click can't send two starts.
+      // serialMonitorBusyAction tracks WHICH request is in flight so the transient
+      // label matches the click (a Stop click must not show "Starting…").
+      let serialMonitorRunning = false;
+      let serialMonitorBusy = false;
+      let serialMonitorBusyAction = null;
+      function setSerialMonitorButton() {
+        const btn = $("serialMonitorToggle");
+        if (!btn) return;
+        btn.disabled = serialMonitorBusy;
+        btn.textContent = serialMonitorBusy
+          ? tr(serialMonitorBusyAction === "stop" ? "serial_monitor_stopping" : "serial_monitor_starting")
+          : tr(serialMonitorRunning ? "serial_monitor_stop" : "serial_monitor_start");
+        btn.classList.toggle("live", serialMonitorRunning);
+      }
+      function onSerialMonitorStatus(msg) {
+        serialMonitorBusy = false;
+        serialMonitorBusyAction = null;
+        serialMonitorRunning = !!msg.running;
+        const btn = $("serialMonitorToggle");
+        if (btn) {
+          const errKey = msg.error === "device_busy" ? "serial_monitor_err_device_busy"
+            : msg.error === "monitor_ended" ? "serial_monitor_err_ended"
+            : "serial_monitor_err_generic";
+          btn.title = (!msg.running && msg.error) ? tr(errKey, { e: String(msg.error) }) : "";
+        }
+        setSerialMonitorButton();
+      }
+      const serialMonitorToggle = $("serialMonitorToggle");
+      if (serialMonitorToggle) {
+        serialMonitorToggle.addEventListener("click", () => {
+          if (serialMonitorBusy) return;
+          serialMonitorBusyAction = serialMonitorRunning ? "stop" : "start";
+          serialMonitorBusy = true;
+          setSerialMonitorButton();
+          vscode.postMessage({ type: serialMonitorRunning ? "serial_monitor_stop" : "serial_monitor_start" });
+        });
+      }
       // Wipe every per-conversation surface back to its empty state. The host clears
       // its durable state in parallel (reset_session), so the next request is a
       // brand-new build, not a continuation. The locked UI language is left as-is —
@@ -198,9 +239,15 @@
         $("activity").innerHTML = "";
         $("activityEmpty").classList.remove("hidden");
         $("serial").innerHTML = "";
+        resetSerialLineCount();
         $("serialFilled").classList.add("hidden");
         $("serialEmpty").classList.remove("hidden");
         $("serialHead").classList.remove("live");
+        // A conversation reset does not stop the real monitor (the device connection
+        // outlives the chat) — only clear a stuck in-flight click, never the live flag.
+        serialMonitorBusy = false;
+        serialMonitorBusyAction = null;
+        setSerialMonitorButton();
         $("wiring").innerHTML = "";
         $("wiringEmpty").classList.remove("hidden");
         $("diagram").innerHTML = "";

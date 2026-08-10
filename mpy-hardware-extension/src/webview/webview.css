@@ -181,6 +181,8 @@
       .doc-recheck:hover { background: #ffffff22; }
       .doc-recheck-ico { flex: 0 0 auto; }
       .doc-recheck.spinning .doc-recheck-ico { animation: spin .7s linear infinite; }
+      .doc-recheck.live { background: #3fb95022; border-color: var(--green); color: var(--green); }
+      .doc-recheck:disabled { opacity: .6; cursor: default; }
       #doctor { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
       .doc-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: #ffffff0a; border: 1px solid #ffffff14; }
       .doc-ico { flex: none; width: 18px; text-align: center; font-weight: 700; }

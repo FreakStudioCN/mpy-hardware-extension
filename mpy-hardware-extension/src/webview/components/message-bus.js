@@ -115,6 +115,7 @@
         if (msg.type === "diagram_updated") { renderDiagram(msg.diagram); }
         if (msg.type === "artifacts_index") { renderArtifacts(msg.artifacts); renderOptionalFlowImages(msg.artifacts); }
         if (msg.type === "serial_output") { addSerial(msg.lines); }
+        if (msg.type === "serial_monitor_status") { onSerialMonitorStatus(msg); }
         if (msg.type === "device_selected") {
           // Not rendered into the build feed: device_selected only ever answers a select_device
           // sent by the Env port picker (panel.ts is the sole emitter), so it is environment

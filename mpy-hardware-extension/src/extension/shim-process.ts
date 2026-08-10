@@ -33,18 +33,42 @@ export class ShimProcess {
     while ((nl = this.buffer.indexOf("\n")) >= 0) {
       const line = this.buffer.slice(0, nl);
       this.buffer = this.buffer.slice(nl + 1);
-      if (line.trim()) {
-        try {
-          this.handleStdoutLine(line);
-        } catch {
-          // ignore non-JSON noise on stdout
-        }
+      if (!line.trim()) continue;
+      // The guard exists ONLY for non-JSON noise, so parse inside it and dispatch
+      // OUTSIDE it. With dispatch inside, every throw from the notification path
+      // (onEvent → panel → a disposed webview's postMessage) was eaten as "noise":
+      // the Serial page went quiet with no trace and nothing stopped the monitor.
+      let message: any;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        continue; // non-JSON noise on stdout
       }
+      this.dispatchMessage(message);
     }
   }
 
   handleStdoutLine(line: string) {
-    const message = JSON.parse(line);
+    this.dispatchMessage(JSON.parse(line));
+  }
+
+  private dispatchMessage(message: any) {
+    // A JSON-RPC notification (method set, no id): the monitor's serial.data push,
+    // never a response to a pending RPC. Route it to onEvent and stop — there is no
+    // pending entry to resolve. An unrecognized notification method is ignored rather
+    // than thrown, so a future shim adding a new notification can't crash the reader.
+    if (message.method !== undefined) {
+      if (message.method === "serial.data") {
+        const lines = Array.isArray(message.params?.lines) ? message.params.lines : [];
+        this.transport.onEvent?.({ type: "serial_data", lines });
+      } else if (message.method === "serial.monitor_ended") {
+        // The reader thread died on its own (an unplugged/errored port), not via a
+        // monitor_stop the host asked for — surface it so the UI doesn't sit on
+        // "Stop monitor" forever for a monitor that's already gone.
+        this.transport.onEvent?.({ type: "monitor_ended", reason: message.params?.reason });
+      }
+      return;
+    }
     const pending = this.pending.get(message.id);
     if (!pending) return;
     this.pending.delete(message.id);
