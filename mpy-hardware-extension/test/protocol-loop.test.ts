@@ -1595,6 +1595,115 @@ test("a phase that succeeds reports no stall detail at all", async () => {
   assert.equal(events.some((e) => e.type === "phase_stalled"), false);
 });
 
+// A phase spent all 60 of its turns on an unused variable and an unused import because the
+// corrective message only ever named GENERATE_PLAN entries: lint and test failures carry the
+// same structured shape and were filtered out, so the model had to find them in the raw blob.
+test("a failing lint gate is named back to the model, not just plan errors", async () => {
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("g", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    {
+      llmClient: llm,
+      runScript: async () => ({
+        ok: true,
+        stdout: JSON.stringify({
+          check: "quality_gates",
+          structured_errors: [{
+            code: "FLAKE8_FAILED",
+            details: { errors: [{ code: "FLAKE8_FAILED", message: "firmware/tasks/x.py:41:5: F841 local variable 'sensor' is assigned to but never used" }] },
+          }],
+        }),
+      }),
+    },
+  );
+
+  // Scope every assertion to the corrective message itself: the raw tool_result in the same
+  // array also contains FLAKE8_FAILED and the lint line, so asserting over the whole array
+  // would pass even if the corrective message were emitted empty.
+  const corrective = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("Quality gate failed")) ?? "";
+  assert.ok(corrective, "a failing gate must produce a corrective message");
+  assert.match(corrective, /FLAKE8_FAILED/);
+  assert.match(corrective, /F841 local variable/, "the model must be told the actual lint line, not just that a gate failed");
+});
+
+// apply_scaffold reports failures under the phase_complete payload it also emits, not at the
+// top level like run_quality_gates. That shape produced no corrective message at all, so a
+// scaffold lint failure was invisible to the model while a quality-gate one was named.
+test("a scaffold-shaped report, nested under phase_complete, still names its errors", async () => {
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("s", "script_run", { script_id: "s", interpreter: "python", script: "apply_scaffold.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-scaffold-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    {
+      llmClient: llm,
+      runScript: async () => ({
+        ok: true,
+        stdout: JSON.stringify({
+          status: "partial",
+          phase_complete: { payload: { structured_errors: [{ code: "SCAFFOLD_LINT_FAILED", message: "firmware/board.py:71:121: E501 line too long (181 > 120 characters)" }] } },
+        }),
+      }),
+    },
+  );
+
+  const corrective = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("Quality gate failed")) ?? "";
+  assert.ok(corrective, "a nested scaffold report must produce a corrective message too");
+  assert.match(corrective, /SCAFFOLD_LINT_FAILED/);
+  assert.match(corrective, /E501 line too long/);
+});
+
+test("a corrective message is capped so a hundred lint errors cannot flood the context", async () => {
+  const requests: any[] = [];
+  const many = Array.from({ length: 40 }, (_, i) => ({ code: "FLAKE8_FAILED", message: `f${i}.py:1:1: E501 ${"x".repeat(900)}` }));
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("g", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    { llmClient: llm, runScript: async () => ({ ok: true, stdout: JSON.stringify({ structured_errors: many }) }) },
+  );
+
+  const texts = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .filter((t: string) => t.startsWith("Quality gate failed"));
+  assert.equal(texts.length, 1, "exactly one corrective message for the failing gate");
+  assert.match(texts[0], /30 more/, "the tail is summarised rather than dropped silently");
+  assert.ok(texts[0].length < 6000, `corrective message is ${texts[0].length} chars, it must stay a nudge`);
+});
+
 test("a stall detail reads a string-shaped gate report, not just {code} objects", async () => {
   // REAL shape: select_hw_manifest.py collects `errors: list[str]`, one plain string per
   // problem. Reading only `.code` reported the blocker as a bare "failed".

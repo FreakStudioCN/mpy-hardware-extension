@@ -307,18 +307,28 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       }
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
       if (tu.name === "phase_complete" && phaseControl) control = phaseControl;
-      // A host script result carrying GENERATE_PLAN_* structured errors gets a
-      // deterministic corrective message enumerating code+path -- don't rely on the
-      // model parsing the raw JSON tool_result to find its own mistakes.
-      const planErrors = (result?.structured_errors ?? []).filter((e: any) => String(e?.code ?? "").startsWith("GENERATE_PLAN"));
-      if (planErrors.length > 0) {
+      // A host script result carrying structured gate errors gets a deterministic
+      // corrective message enumerating them -- don't rely on the model parsing the raw
+      // JSON tool_result to find its own mistakes. Measured: naming the plan gate's
+      // entries is what ended a loop that had run nine identical failures deep. Lint and
+      // test failures carry the same shape (run_quality_gates.py emits FLAKE8_FAILED /
+      // PC_UNITTEST_FAILED with the tool output as the message) and used to be filtered
+      // out here, so one phase spent all 60 turns on an unused variable and an unused
+      // import without ever being told which line either was on.
+      const gateErrors = (result?.structured_errors ?? []).filter((e: any) => String(e?.code ?? "").trim() !== "");
+      if (gateErrors.length > 0) {
         correctiveMessages.push({
           role: "user",
           content: [{
             type: "text",
             text:
-              "Quality gate failed on generate_plan.json. Fix exactly these entries, then re-run the gate:\n" +
-              planErrors.map((e: any) => `- ${e.code}: ${e.path ?? e.message ?? ""}`).join("\n"),
+              "Quality gate failed. Fix exactly these, then re-run the gate:\n" +
+              gateErrors.slice(0, MAX_CORRECTIVE_ENTRIES)
+                .map((e: any) => `- ${e.code}: ${clampCorrectiveDetail(e.path ?? e.message ?? "")}`)
+                .join("\n") +
+              (gateErrors.length > MAX_CORRECTIVE_ENTRIES
+                ? `\n- (${gateErrors.length - MAX_CORRECTIVE_ENTRIES} more; the full report is in the tool result)`
+                : ""),
           }],
         });
       }
@@ -469,6 +479,19 @@ export function capListEntries(entries: unknown[]): { entries: unknown[]; omitte
   return { entries: kept, omitted: entries.length - kept.length };
 }
 
+// A corrective message is a nudge, not a report: the full gate output is already in the
+// tool result the model just read. Cap both the entry count and each entry, so a hundred
+// lint errors cannot crowd out the conversation the cap above exists to protect.
+const MAX_CORRECTIVE_ENTRIES = 10;
+const MAX_CORRECTIVE_DETAIL_CHARS = 400;
+
+function clampCorrectiveDetail(value: unknown): string {
+  const text = String(value ?? "").trim();
+  return text.length <= MAX_CORRECTIVE_DETAIL_CHARS
+    ? text
+    : `${text.slice(0, MAX_CORRECTIVE_DETAIL_CHARS)}… (truncated, see the tool result)`;
+}
+
 function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; path?: string; message?: string }> | undefined {
   const text = typeof stdout === "string" ? stdout.trim() : "";
   if (!text.startsWith("{")) return undefined;
@@ -477,8 +500,14 @@ function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; pat
   if (!parsed || typeof parsed !== "object") return undefined;
   const flat: Array<{ code?: string; path?: string; message?: string }> = [];
   if (Array.isArray(parsed.errors)) flat.push(...parsed.errors);
-  if (Array.isArray(parsed.structured_errors)) {
-    for (const entry of parsed.structured_errors) {
+  // apply_scaffold reports its failures one level down, under the phase_complete payload it
+  // also emits, so a scaffold lint failure produced no corrective message at all while a
+  // quality-gate failure did. Read both shapes: the model should not have to notice which
+  // script it happened to run.
+  const sources = [parsed.structured_errors, parsed?.phase_complete?.payload?.structured_errors];
+  for (const source of sources) {
+    if (!Array.isArray(source)) continue;
+    for (const entry of source) {
       const nested = entry?.details?.errors;
       if (Array.isArray(nested) && nested.length > 0) flat.push(...nested);
       else flat.push(entry);
