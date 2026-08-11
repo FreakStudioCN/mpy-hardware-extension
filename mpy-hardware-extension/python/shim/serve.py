@@ -1383,6 +1383,29 @@ def _project_dir_from_args(args: list) -> str | None:
     return None
 
 
+# Scripts that fall back to <session_dir>/project when no project root is given:
+# apply_scaffold.py:280-286 (it WRITES the tree there) and check_session_state.py:138
+# (it reads it). Every other bundled script takes --project-dir outright.
+_PROJECT_ROOT_SCRIPTS = ("apply_scaffold.py", "check_session_state.py")
+
+
+def _assert_project_root(base: str, args: list, cwd: str | None) -> list:
+    # The scaffold SKILL keeps project_root=<session_root>/project "unless the caller
+    # explicitly provides another project root". We are that caller and we never said so,
+    # so the model sent --session-dir . and the scaffold built a SECOND tree one level
+    # down, while its own file_operation writes landed at our root. Deploy and the
+    # upload_ready export read our root, so everything scaffold-only (boot.py, lib/,
+    # drivers/) was silently missing from the device.
+    #
+    # Say it explicitly, and only when the model did not: argparse takes the last value,
+    # so appending over a model-supplied root would override a deliberate choice.
+    if not cwd or not base.endswith(_PROJECT_ROOT_SCRIPTS):
+        return args
+    if any(a == "--project-dir" or str(a).startswith("--project-dir=") for a in args):
+        return args
+    return [*args, "--project-dir", cwd]
+
+
 def _run_v0_script(shim, params):
     interpreter = params.get("interpreter", "python")
     script = params.get("script", "") or ""
@@ -1428,6 +1451,7 @@ def _run_v0_script(shim, params):
         project_dir = cwd or _project_dir_from_args(args)
         if project_dir:
             prepare_quality_gate_project(project_dir)
+    args = _assert_project_root(base, args, cwd)
     return _v0_result(shim.run_v0_python(candidates[0], args, cwd=cwd, stdin=stdin_content, timeout=timeout))
 
 

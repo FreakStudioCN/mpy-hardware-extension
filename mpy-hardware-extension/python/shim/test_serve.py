@@ -497,6 +497,70 @@ def test_run_v0_shell_still_refuses_an_over_long_chain_and_a_disallowed_part():
 
 # Every test must be DEFINED above this block. A test defined below it is never bound when the
 # file runs as a script, so this runner would print ALL PASS while silently skipping it.
+# The scaffold SKILL keeps project_root=<session_root>/project unless the CALLER provides a
+# root. We never did, so apply_scaffold built a second tree one level down while the model's
+# file_operation writes landed at our root, and deploy and upload_ready read the wrong one.
+def test_apply_scaffold_is_told_the_project_root():
+    record = []
+    record_stdout[0] = '{"status": "ok"}'
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "apply_scaffold.py",
+        "args": ["--session-dir", "."], "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+    cmd = record[0]["cmd"]
+    assert "--project-dir" in cmd, cmd
+    assert cmd[cmd.index("--project-dir") + 1] == "/tmp/proj", cmd
+    # the model's own args survive alongside it
+    assert "--session-dir" in cmd, cmd
+
+
+def test_check_session_state_is_told_the_project_root():
+    # Same <session_dir>/project fallback, on the reading side (check_session_state.py:138).
+    record = []
+    record_stdout[0] = '{"status": "ok"}'
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "check_session_state.py",
+        "args": ["--session-dir", "."], "project_dir": "/tmp/proj",
+    })
+    cmd = record[0]["cmd"]
+    assert cmd[cmd.index("--project-dir") + 1] == "/tmp/proj", cmd
+
+
+def test_a_model_supplied_project_root_is_not_overridden():
+    # argparse takes the LAST value, so appending over a deliberate choice would silently win.
+    for supplied in (["--project-dir", "/tmp/elsewhere"], ["--project-dir=/tmp/elsewhere"]):
+        record = []
+        record_stdout[0] = '{"status": "ok"}'
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": "apply_scaffold.py",
+            "args": list(supplied), "project_dir": "/tmp/proj",
+        })
+        cmd = record[0]["cmd"]
+        assert cmd.count("--project-dir") + sum(1 for a in cmd if str(a).startswith("--project-dir=")) == 1, cmd
+        assert "/tmp/proj" not in cmd, cmd
+
+
+def test_other_scripts_are_not_given_a_project_root_they_do_not_accept():
+    # Only the two scripts that fall back to <session_dir>/project get the flag; appending it
+    # to a script whose argparse does not define it would turn a working call into an error.
+    record = []
+    record_stdout[0] = '{"status": "ok"}'
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "check_generate_plan.py",
+        "args": ["--require-plan"], "project_dir": "/tmp/proj",
+    })
+    assert "--project-dir" not in record[0]["cmd"], record[0]["cmd"]
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
