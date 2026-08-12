@@ -3,6 +3,7 @@
 // on the user's machine, feeds results back, and auto-advances phases on
 // phase_complete. Mirrors the proven backend e2e harness, in TypeScript.
 import { PROTOCOL_TOOLS, PROTOCOL_TOOL_NAMES, routeForTool } from "./protocol-registry.ts";
+import { normalizeObservation } from "./observations.ts";
 
 export const PHASE_ORDER = ["analyze", "select-hw", "upy-flash-mpy-firmware-plugin", "upy-scaffold-plugin", "upy-generate-plugin", "upy-deploy-plugin"] as const;
 
@@ -292,7 +293,13 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // both shapes and the server already allowlists both event types.
       input.onEvent?.({ type: "tool_use", name: tu.name, input: compactToolInput(tu.input) });
       const { result, phaseControl } = await executeProtocolTool(tu, input, deps, { phase, turn });
-      input.onEvent?.({ type: "tool_result", name: tu.name, observation: result });
+      // Normalized, NOT raw. This event is recorded into session.jsonl, which the stall
+      // copy tells the user to export to support -- and a raw result carries absolute host
+      // paths (a Python traceback's C:\Users\<name>\...), raw mpremote commands, and up to
+      // the full 80,000-char cap per call. normalizeObservation is the redactor the
+      // agent-loop path already runs for exactly this reason; the asymmetry with tool_use
+      // (compacted just below) was the bug, not a deliberate difference.
+      input.onEvent?.({ type: "tool_result", name: tu.name, observation: normalizeObservation(tu.name ?? "", result) });
       const failure = toolFailure(tu, result);
       if (failure) {
         recentFailures.push(failure);
@@ -393,8 +400,20 @@ const TOOL_OUTPUT_MAX_CHARS = 80_000;
 // model does not need one read back to it: it just wrote it.
 const EMBEDDED_STRING_MAX_CHARS = 500;
 
+// One stable substring every host truncation carries. The write path below refuses any
+// body containing it, so a shortened value can never be transcribed back onto disk.
+export const HOST_TRUNCATION_MARKER = "removed by the host:";
+
 const truncationNote = (removed: number) =>
-  `…[${removed} chars removed by the host: output too large to send. Do not re-run the script to see the rest.]`;
+  `…[${removed} chars ${HOST_TRUNCATION_MARKER} output too large to send. Do not re-run the script to see the rest.]`;
+
+// A shrunk EMBEDDED string is not merely shortened output: a scaffold report's `files[]`
+// and `file_operations[].payload.content` are bodies the model re-emits as writes, so the
+// generic "don't re-run" note read as "this is all there is" and the model wrote the note
+// itself into main.py, reported ok:true, and left the gate failing on a syntax error with
+// nothing explaining it. Say what the value IS, and where the real body lives instead.
+const bodyOmittedNote = (removed: number) =>
+  `…[${removed} chars ${HOST_TRUNCATION_MARKER} this value is NOT the full body and must never be written to a file. Read the file itself to get its content.]`;
 
 // Keep the head AND the tail. A report's verdict and its handoff payload sit at the END
 // (a scaffold report ends with manifest_content and phase_complete_payload), so a
@@ -408,7 +427,7 @@ function shrinkLongStrings(value: any): any {
   if (typeof value === "string") {
     return value.length <= EMBEDDED_STRING_MAX_CHARS
       ? value
-      : value.slice(0, EMBEDDED_STRING_MAX_CHARS) + truncationNote(value.length - EMBEDDED_STRING_MAX_CHARS);
+      : value.slice(0, EMBEDDED_STRING_MAX_CHARS) + bodyOmittedNote(value.length - EMBEDDED_STRING_MAX_CHARS);
   }
   if (Array.isArray(value)) return value.map(shrinkLongStrings);
   if (value && typeof value === "object") {
@@ -431,6 +450,23 @@ export function capToolOutput(output: unknown): string {
   } catch {
     return clampKeepingTail(text);
   }
+}
+
+// A listing is a model-facing payload for the same reason stdout is, and a deep tree can
+// carry tens of thousands of entries. Keep the HEAD here (unlike stdout): entries arrive
+// shallowest-first, so the head is the part that describes the project. Report how many
+// were dropped, or the model reads a partial listing as the whole tree and concludes files
+// it just wrote are missing.
+export function capListEntries(entries: unknown[]): { entries: unknown[]; omitted: number } {
+  if (JSON.stringify(entries).length <= TOOL_OUTPUT_MAX_CHARS) return { entries, omitted: 0 };
+  const kept: unknown[] = [];
+  let used = 0;
+  for (const entry of entries) {
+    used += JSON.stringify(entry).length + 1;
+    if (used > TOOL_OUTPUT_MAX_CHARS) break;
+    kept.push(entry);
+  }
+  return { entries: kept, omitted: entries.length - kept.length };
 }
 
 function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; path?: string; message?: string }> | undefined {
@@ -619,7 +655,34 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
         detail: `file_operation "${op}" requires a "content" string. Received ${received} for path "${path}". Send the full file body in "content"; use "" only for a deliberately empty file.`,
       };
     }
-    const r = await deps.writeFile(path, p.content);
+    // The host's own truncation marker must never reach disk. Its presence means the model
+    // is transcribing a body this loop shortened, so writing it produces a file that is
+    // silently corrupt (a syntax error the next gate reports with nothing explaining it).
+    // Refuse loudly and point at the file, rather than accepting it and reporting ok:true.
+    if (p.content.includes(HOST_TRUNCATION_MARKER)) {
+      return {
+        ok: false, op_id: p.op_id, success: false, error_kind: "truncated_content",
+        detail: `file_operation "${op}" refused: the content for "${path}" contains a host truncation marker, so it is not the full body. Read the file with file_operation "read" to get its real content; never write a shortened value back.`,
+      };
+    }
+    // There is no append path anywhere in the writer tree -- deps.writeFile TRUNCATES -- so
+    // routing append to it destroyed the body it was asked to extend and returned ok:true.
+    // Compose the real thing from the two deps already wired.
+    let body = p.content;
+    if (op === "append") {
+      if (typeof deps.readFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
+      const existing = await deps.readFile(path);
+      // A missing file appends as a create. Any OTHER read failure must NOT degrade to an
+      // empty base: that is the same silent truncation, one level down.
+      if (!existing.ok && existing.error_kind !== "file_not_found") {
+        return {
+          ok: false, op_id: p.op_id, success: false, error_kind: existing.error_kind ?? "read_failed",
+          detail: `file_operation "append" could not read the existing "${path}" to extend it, so it refused rather than replacing the file with just the new fragment.`,
+        };
+      }
+      body = (existing.ok ? existing.content ?? "" : "") + p.content;
+    }
+    const r = await deps.writeFile(path, body);
     if (r.ok) input.onEvent?.({ type: "file_written", path: r.path ?? path });
     // Report the path actually written, PROJECT-RELATIVE. The writer accepts a redundant
     // leading segment and writes to the corrected target, so a bare success would leave the
@@ -631,7 +694,11 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
   if (op === "read") {
     if (typeof deps.readFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
     const r = await deps.readFile(path);
-    return { ok: r.ok, op_id: p.op_id, success: r.ok, content: r.content ?? "", error: r.ok ? null : (r.error_kind ?? "read_failed") };
+    // Capped for the SAME reason script stdout is: a read is a model-facing payload, and it
+    // is the one route that can pull an arbitrarily large file body into the conversation in
+    // a single turn. Leaving it uncapped meant moving a 650KB payload out of stdout and into
+    // a file bundle merely relocated the context-window kill instead of fixing it.
+    return { ok: r.ok, op_id: p.op_id, success: r.ok, content: capToolOutput(r.content ?? ""), error: r.ok ? null : (r.error_kind ?? "read_failed") };
   }
   if (op === "list") {
     // No lister wired = the workspace is unavailable. Faking ok:true with empty
@@ -639,7 +706,12 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
     // to analyze 鈥?so fail loud instead of fabricating an empty listing.
     if (typeof deps.listFiles !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
     const r = await deps.listFiles(path);
-    return { ok: r.ok, op_id: p.op_id, success: r.ok, entries: r.entries ?? [], error: r.ok ? null : (r.error_kind ?? "list_failed") };
+    const listed = capListEntries(r.entries ?? []);
+    return {
+      ok: r.ok, op_id: p.op_id, success: r.ok, entries: listed.entries,
+      ...(listed.omitted > 0 ? { entries_omitted: listed.omitted, detail: `${listed.omitted} further entries were omitted by the host: the listing was too large to send. List a narrower path to see them.` } : {}),
+      error: r.ok ? null : (r.error_kind ?? "list_failed"),
+    };
   }
   if (op === "mkdir") {
     if (typeof deps.makeDir !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };

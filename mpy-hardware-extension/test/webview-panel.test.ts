@@ -4317,6 +4317,29 @@ test("every fs op resolves a redundant project/ prefix the same way the writer d
   }
 });
 
+// Listing or reading the bare root is fine (above). DELETING it is not: `project` strips to
+// "", which resolves to the workspace root itself, and `??` does not catch "" because it is
+// neither null nor undefined. That left deleteProjectPath's `target === root` check as the
+// only thing between a plausible cleanup call and rm -rf on the user's whole project.
+test("a delete of the bare project root is refused, not rewritten onto the workspace root", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-delroot-"));
+  try {
+    mkdirSync(join(ws, "firmware"), { recursive: true });
+    writeFileSync(join(ws, "firmware", "main.py"), "print(1)\n");
+    const del = makeWorkspaceDeleter(ws, () => false, async () => true)!;
+
+    for (const bare of ["project", "project/", "blockless-project", "."]) {
+      const res = await del(bare);
+      assert.equal(res.ok, false, `${bare} must not delete anything`);
+      assert.equal(res.error_kind, "delete_project_root_refused", bare);
+    }
+
+    assert.equal(existsSync(join(ws, "firmware", "main.py")), true, "the project must still be there");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
 test("a read that fails for a reason other than a missing file is not reported as file_not_found", async () => {
   // Only ENOENT may read as "absent". EISDIR here stands in for the EACCES/EPERM class: a real
   // fault reported as file_not_found sends the model off to rewrite a file that already exists.

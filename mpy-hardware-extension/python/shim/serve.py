@@ -700,11 +700,39 @@ class Shim:
             raise ValueError("shell_command_not_allowed")
         last = None
         for cmd in commands:
+            if cmd == ["git", "init"] and self._inside_work_tree(cwd, timeout):
+                # The opened folder is commonly a SUBDIRECTORY of the user's own repo
+                # (repo/projects/my-blinky). `git init` there creates a nested repository,
+                # and the parent silently stops tracking that whole subtree -- a mutation of
+                # the user's version control that they never asked for and would not think
+                # to look for. Every other destructive host operation the model can reach is
+                # gated (guardOverwrite / guardDelete / confirmDeviceDelete); this one was
+                # not. The contract only needs the project to BE in a work tree, and it
+                # already is, so report that and move on instead of creating a second repo.
+                last = subprocess.CompletedProcess(
+                    cmd, 0,
+                    stdout="Skipped by the host: already inside a git work tree, so no repository was created.\n",
+                    stderr="",
+                )
+                continue
             self.commands.append(cmd)
             last = self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
             if getattr(last, "returncode", 1) != 0:
                 return last
         return last
+
+    def _inside_work_tree(self, cwd, timeout: float) -> bool:
+        """True when cwd already sits inside a git work tree.
+
+        Goes through self.runner like every other command, so the probe is visible to the
+        injected fake in tests. A probe that cannot run (git absent, non-zero, anything
+        unexpected) answers False: that is the pre-existing behaviour -- `git init` runs --
+        so a broken probe can never block a legitimate init on a fresh project.
+        """
+        cmd = ["git", "rev-parse", "--is-inside-work-tree"]
+        self.commands.append(cmd)
+        probe = self.runner(cmd, timeout=timeout, cwd=cwd, **_subprocess_text_kwargs())
+        return getattr(probe, "returncode", 1) == 0 and str(getattr(probe, "stdout", "")).strip() == "true"
 
     def _run(self, command: list[str], timeout: float = 30):
         self.commands.append(command)

@@ -2467,7 +2467,18 @@ export function makeWorkspaceDeleter(
     // report ok, and leave the real firmware/tools in place, so the gate that runs next fails
     // for a reason nothing explains. Fall back to the corrected path only when the literal
     // one is absent, so a real project/ directory is still deleted literally if it exists.
-    const stripped = existsSync(resolve(root, relPath)) ? undefined : redundantRootAlternative(root, relPath);
+    const literal = resolve(root, relPath);
+    const stripped = existsSync(literal) ? undefined : redundantRootAlternative(root, relPath);
+    // Refuse anything that resolves to the workspace ROOT, by EITHER route: "." reaches it
+    // literally, and "project"/"project/" reach it as a stripped "" — which `??` does not
+    // catch, because "" is neither null nor undefined. Reading or listing the root is fine;
+    // rewriting a DELETE onto it is not, and leaving deleteProjectPath's `target === root`
+    // as the only thing in the way put a plausible cleanup call one operator away from
+    // rm -rf on the user's whole project. Say why, too: `path_outside_workspace` for a path
+    // squarely inside the workspace tells the model to correct the wrong thing.
+    if (literal === root || stripped === "") {
+      return Promise.resolve({ ok: false as const, error_kind: "delete_project_root_refused" });
+    }
     return deleteProjectPath({
       workspaceFolder,
       path: stripped ?? relPath,

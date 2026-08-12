@@ -214,8 +214,19 @@ function compactToolResult(name: string, obs: any): { eventType: string; payload
   // there, not at the top level. Read through both, or a runtime_error landed in the DB
   // as a blank { tool, error_kind } and repair_exhausted was undiagnosable.
   const out = obs?.output ?? {};
-  const detail = obs?.error ?? out.error ?? out.message;
+  // `stderr` is where the protocol loop's host route and the shell refusal put their
+  // message (there is no `error` key on that shape), so reading only error/message stored
+  // every script_not_found and every refusal hint as `error: undefined` -- the most common
+  // failure in the loop, landing in the DB with no reason text.
+  const detail = obs?.error ?? out.error ?? out.message ?? out.stderr;
   const lines = obs?.lines ?? out.lines;
+  // Read `success`/`script_id`/`exit_code` through `output` as well, for the same reason
+  // the detail chain above does: the protocol loop now records a NORMALIZED observation,
+  // which nests the raw result under `output`, and a top-level-only read silently demoted
+  // every failing quality gate to a bare "tool_result ok".
+  const success = obs?.success ?? out.success;
+  const scriptId = obs?.script_id ?? out.script_id;
+  const exitCode = obs?.exit_code ?? out.exit_code;
   if (errorKind === "runtime_error") {
     return { eventType: "runtime_error", payload: { error_kind: errorKind, error: detail, lines, tool: name } };
   }
@@ -231,10 +242,10 @@ function compactToolResult(name: string, obs: any): { eventType: string; payload
   // returns ok:true/success:false, which fell through to the bare success below, so a
   // phase that rewrote the same files for its whole turn budget recorded 60 identical
   // "tool_result ok" rows and the rejection that drove the retry was never stored.
-  if (obs?.ok === true && obs?.success === false) {
+  if (obs?.ok === true && success === false) {
     return {
       eventType: "tool_result",
-      payload: { tool: name, ok: false, error_kind: "script_gate_failed", script_id: obs.script_id, exit_code: obs.exit_code, errors: gate },
+      payload: { tool: name, ok: false, error_kind: "script_gate_failed", script_id: scriptId, exit_code: exitCode, errors: gate },
     };
   }
   return { eventType: "tool_result", payload: { tool: name, ok: true } };

@@ -320,6 +320,55 @@ test("maps a failed gate (a script that RAN but did not PASS) to a failed tool_r
   assert.equal("stdout" in (t?.payload ?? {}), false);
 });
 
+test("maps a failed gate through the NORMALIZED observation the protocol loop actually emits", () => {
+  // The loop records normalizeObservation(...), which nests the raw result under `output`
+  // so absolute host paths are redacted before they reach session.jsonl. A mapper reading
+  // only the top level therefore saw no `success` at all and demoted every failing quality
+  // gate to a bare "tool_result ok" — the exact blindness the raw-shape test above covers.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      tool: "script_run",
+      ok: true,
+      truncated: false,
+      output: {
+        ok: true,
+        success: false,
+        script_id: "q",
+        exit_code: 2,
+        structured_errors: [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }],
+      },
+    },
+  });
+
+  assert.equal(t?.payload.ok, false, "a gate that rejected is not a success");
+  assert.equal(t?.payload.error_kind, "script_gate_failed");
+  assert.equal(t?.payload.script_id, "q");
+  assert.equal(t?.payload.exit_code, 2);
+  assert.deepEqual(t?.payload.errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
+});
+
+test("a script failure reaching the DB carries its reason, not error: undefined", () => {
+  // The host route puts its message in `stderr` (there is no `error` key on that shape), so
+  // a detail chain of error/message alone stored the most common failure in the loop —
+  // script_not_found, and every shell-refusal hint — as a row with no reason text.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      tool: "script_run",
+      ok: false,
+      error_kind: "script_not_found",
+      output: { ok: false, error_kind: "script_not_found", stderr: "Allowed shell commands: git init; git add -A" },
+    },
+  });
+
+  assert.equal(t?.payload.ok, false);
+  assert.equal(t?.payload.error_kind, "script_not_found");
+  assert.match(t?.payload.error, /Allowed shell commands/);
+});
+
 test("maps a passing gate to a plain successful tool_result", () => {
   const t = sessionEventToTelemetry("trace-1", {
     type: "tool_result",

@@ -5,7 +5,9 @@ checked with an injected fake runner (no venv, no real subprocess).
 """
 import inspect
 import os
+import pathlib
 import sys
+import tempfile
 import types
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -397,13 +399,16 @@ def test_maintenance_scripts_are_not_runnable_from_a_phase():
 def test_run_v0_shell_allows_the_read_only_git_forms_the_contract_needs():
     # The generate contract requires session_state.git_commit to record project HEAD, and a
     # fresh project needs `git init`. Refusing these stalled the phase.
+    # `git init` is preceded by an is-inside-work-tree probe (see the nesting test below).
+    # The fake runner answers "", i.e. not a work tree, so the init itself still runs.
+    probe = ["git", "rev-parse", "--is-inside-work-tree"]
     for command, expected in (
         ("git rev-parse HEAD", [["git", "rev-parse", "HEAD"]]),
         ("git status --short", [["git", "status", "--short"]]),
-        ("git init", [["git", "init"]]),
+        ("git init", [probe, ["git", "init"]]),
         (
             'git init && git add -A && git commit -m "generate: initial"',
-            [["git", "init"], ["git", "add", "-A"], ["git", "commit", "-m", "generate: initial"]],
+            [probe, ["git", "init"], ["git", "add", "-A"], ["git", "commit", "-m", "generate: initial"]],
         ),
     ):
         record = []
@@ -416,6 +421,31 @@ def test_run_v0_shell_allows_the_read_only_git_forms_the_contract_needs():
         assert res["status"] == "ok", (command, res)
         assert [entry["cmd"] for entry in record] == expected, command
         assert all(entry["kwargs"].get("shell") is None for entry in record), command
+
+
+def test_run_v0_shell_skips_git_init_inside_an_existing_work_tree():
+    # The folder the user opened is often a SUBDIRECTORY of their own repo
+    # (repo/projects/my-blinky). `git init` there creates a nested repository and the parent
+    # silently stops tracking that whole subtree. The contract only needs the project to be
+    # in a work tree, and it already is, so the init must be skipped -- while the rest of
+    # the chain still runs, or the phase stalls on a missing commit.
+    record = []
+
+    def runner(cmd, **kwargs):
+        record.append({"cmd": cmd, "kwargs": kwargs})
+        if cmd == ["git", "rev-parse", "--is-inside-work-tree"]:
+            return _fake_proc(stdout="true\n")
+        return _fake_proc(stdout="")
+
+    shim = serve.Shim(runner=runner)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "shell", "script": 'git init && git add -A && git commit -m "generate: initial"',
+        "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+    ran = [entry["cmd"] for entry in record]
+    assert ["git", "init"] not in ran, f"git init must not run inside an existing work tree: {ran}"
+    assert ["git", "add", "-A"] in ran and ["git", "commit", "-m", "generate: initial"] in ran, ran
 
 
 def test_run_v0_shell_refusal_names_the_permitted_commands():
@@ -469,22 +499,26 @@ def test_run_v0_shell_still_refuses_an_over_long_chain_and_a_disallowed_part():
 # file runs as a script, so this runner would print ALL PASS while silently skipping it.
 if __name__ == "__main__":
     failures = 0
-    skipped = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
-            # A test that takes a parameter wants a pytest fixture (tmp_path). This runner
-            # cannot supply one, so report the skip instead of a misleading failure. The
-            # baseline gate runs pytest, which does supply them.
-            if inspect.signature(fn).parameters:
-                skipped += 1
-                print(f"SKIP {name} (needs a pytest fixture)")
-                continue
             try:
-                fn()
+                # A test that takes `tmp_path` wants pytest's fixture. SUPPLY one (a fresh
+                # dir per test, cleaned up after) rather than skipping: skipping printed
+                # "ALL PASS" and exit 0 while the A3a firmware/tools-stripping gate was
+                # never executed, which is a green light for code nobody ran. Any OTHER
+                # signature is a real failure here, not something to pass over quietly.
+                params = list(inspect.signature(fn).parameters)
+                if params == ["tmp_path"]:
+                    with tempfile.TemporaryDirectory() as tmp:
+                        fn(pathlib.Path(tmp))
+                elif params:
+                    raise AssertionError(f"unsupported fixtures {params}; this runner only supplies tmp_path")
+                else:
+                    fn()
                 print(f"PASS {name}")
             except Exception as exc:  # noqa: BLE001
                 failures += 1
                 print(f"FAIL {name}: {exc}")
     verdict = "ALL PASS" if not failures else f"{failures} FAILED"
-    print(f"\n{verdict}{f' ({skipped} skipped, run pytest for those)' if skipped else ''}")
+    print(f"\n{verdict}")
     sys.exit(1 if failures else 0)

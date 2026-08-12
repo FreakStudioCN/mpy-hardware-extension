@@ -579,7 +579,115 @@ test("an oversized JSON report is shrunk but keeps every key, including the trai
   assert.equal(parsed.files[0].path, "firmware/f0.py");
   assert.ok(parsed.files[0].content.length < 1000);
   assert.match(parsed.files[0].content, /chars removed by the host/);
-  assert.match(parsed.files[0].content, /Do not re-run the script/, "the marker tells the model not to retry for the rest");
+  // A shrunk BODY is not merely shortened output: these are the bodies the model re-emits
+  // as file_operation(write) calls. The marker has to say the value is unusable and where
+  // the real content is, or the model writes the marker itself into firmware/main.py and
+  // the next gate fails on a syntax error with nothing explaining it.
+  assert.match(parsed.files[0].content, /must never be written to a file/, "the marker says the value is not writable content");
+  assert.match(parsed.files[0].content, /Read the file itself/, "and where to get the real body");
+});
+
+test("a body carrying the host truncation marker is refused at the write, not written", async () => {
+  const results: any[] = [];
+  const writes: Array<{ path: string; content: string }> = [];
+  // The real path: a scaffold report body the host shrank, transcribed back by the model.
+  const truncated = JSON.parse(capToolOutput(scaffoldShapedReport(43, 7000))).files[0].content;
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("f0", "file_operation", { op: "write", path: "firmware/main.py", content: truncated }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 1, onEvent: (e: any) => { if (e.type === "tool_result") results.push(e.observation); } },
+    { llmClient: llm, writeFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path }; } },
+  );
+
+  assert.equal(writes.length, 0, "nothing may reach disk: the body is a transcribed, shortened value");
+  assert.equal(results[0].output.error_kind, "truncated_content");
+  assert.match(results[0].output.detail, /Read the file/, "the refusal tells the model how to get the real body");
+});
+
+test("an oversized file_operation(read) is capped: moving a payload into a file does not dodge the cap", async () => {
+  // The scaffold bump stops the 650KB of file bodies riding in stdout by writing them to a
+  // bundle instead -- which the model then READS. Uncapped, that is the same context-window
+  // kill through a different door, so the read has to be capped like stdout is.
+  const huge = "z".repeat(300_000);
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "read", path: "firmware/bundle.txt" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: true, content: huge }) } as any,
+  );
+  assert.equal(result.ok, true);
+  assert.ok(result.content.length < huge.length / 2, `capped to ${result.content.length} from ${huge.length}`);
+  assert.match(result.content, /chars removed by the host/);
+});
+
+test("an oversized file_operation(list) is capped and SAYS how many entries it dropped", async () => {
+  const entries = Array.from({ length: 20_000 }, (_, i) => `firmware/generated/module_${i}/driver.py`);
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "list", path: "" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), listFiles: async () => ({ ok: true, entries }) } as any,
+  );
+  assert.ok(result.entries.length < entries.length, "the listing is capped");
+  assert.equal(result.entries_omitted, entries.length - result.entries.length);
+  // Silence here reads as "that is the whole tree", so the model concludes files it just
+  // wrote are missing. The count is what stops that.
+  assert.match(result.detail, /omitted by the host/);
+  assert.equal(result.entries[0], entries[0], "the head is kept: entries arrive shallowest-first");
+});
+
+test("append extends the existing body instead of replacing it", async () => {
+  const writes: Array<{ path: string; content: string }> = [];
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "append", path: "firmware/main.py", content: "\ndef extra():\n    pass\n" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async () => ({ ok: true, content: "def main():\n    pass\n" }),
+      writeFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path, relative_path: path }; },
+    } as any,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(writes.length, 1);
+  // The whole bug: `append` was routed to a writer that truncates, so the body it was
+  // asked to EXTEND was destroyed and replaced by the fragment -- reported as ok:true.
+  assert.match(writes[0].content, /^def main\(\):/, "the existing body survives");
+  assert.match(writes[0].content, /def extra\(\)/, "and the fragment is appended after it");
+});
+
+test("append to a file that does not exist yet creates it", async () => {
+  const writes: Array<{ path: string; content: string }> = [];
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "append", path: "firmware/new.py", content: "print(1)\n" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async () => ({ ok: false, error_kind: "file_not_found" }),
+      writeFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path, relative_path: path }; },
+    } as any,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(writes[0].content, "print(1)\n");
+});
+
+test("append refuses when the existing body cannot be read, instead of clobbering it", async () => {
+  const writes: any[] = [];
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "append", path: "firmware/main.py", content: "print(1)\n" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async () => ({ ok: false, error_kind: "read_failed" }),
+      writeFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path }; },
+    } as any,
+  );
+  // Degrading to an empty base here would be the same silent truncation one level down.
+  assert.equal(writes.length, 0, "nothing is written when the base cannot be established");
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "read_failed");
 });
 
 test("oversized output that is not JSON keeps its head AND its tail", () => {
@@ -1347,7 +1455,9 @@ test("protocol loop records a tool_use and a tool_result for every tool it execu
     "each tool is recorded before it runs and after it returns, in execution order",
   );
   // The result must be the REAL one, or the trace says a gate ran and not that it failed.
-  const gateResult = toolEvents[1].observation;
+  // Nested under `output`: the observation is NORMALIZED before it is recorded, because
+  // this event lands in session.jsonl and a raw result carries absolute host paths.
+  const gateResult = toolEvents[1].observation.output;
   assert.equal(gateResult.success, false);
   assert.deepEqual(gateResult.structured_errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
 });
@@ -1528,8 +1638,8 @@ test("a rejected write tells the model what IS writable, so it corrects instead 
     { llmClient: llm, writeFile: async () => ({ ok: false, error_kind: "invalid_generated_path", allowed: "Writable: any *.json at the project root; ..." }) },
   );
 
-  assert.equal(results[0].error, "invalid_generated_path");
-  assert.match(results[0].allowed, /Writable: any \*\.json at the project root/, "the hint reaches the model's tool result");
+  assert.equal(results[0].output.error, "invalid_generated_path");
+  assert.match(results[0].output.allowed, /Writable: any \*\.json at the project root/, "the hint reaches the model's tool result");
 });
 
 test("a successful write carries no allowance hint (it is only for rejections)", async () => {
@@ -1547,5 +1657,34 @@ test("a successful write carries no allowance hint (it is only for rejections)",
   );
 
   assert.equal(results[0].ok, true);
-  assert.equal("allowed" in results[0], false);
+  assert.equal("allowed" in results[0].output, false);
+});
+
+test("a recorded tool_result is redacted: no absolute host path reaches the session log", async () => {
+  const results: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+  // What a real failure looks like: a Python traceback naming the user's home directory.
+  const runScript = async () => ({
+    ok: false,
+    error_kind: "script_error",
+    stderr: 'Traceback (most recent call last):\n  File "C:\\Users\\Haipeng Wu\\Desktop\\proj\\firmware\\main.py", line 5\n    SyntaxError: invalid syntax\n',
+    project_dir: "C:\\Users\\Haipeng Wu\\Desktop\\proj",
+  });
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 1, onEvent: (e: any) => { if (e.type === "tool_result") results.push(e.observation); } },
+    { llmClient: llm, runScript },
+  );
+
+  const recorded = JSON.stringify(results[0]);
+  assert.ok(!recorded.includes("Haipeng Wu"), `the username must not reach the session log: ${recorded.slice(0, 400)}`);
+  assert.match(recorded, /redacted-path/, "the path is redacted rather than dropped");
+  // Redaction must not cost the diagnosis: the failure kind still has to survive it.
+  assert.equal(results[0].error_kind, "script_error");
+  assert.match(results[0].output.stderr, /SyntaxError: invalid syntax/);
 });
