@@ -1486,9 +1486,45 @@ test("recorded tool input keeps the call identity and replaces a file body with 
   // rewrite loop gives you.
   assert.equal(dispatched.input.path, "firmware/main.py");
   assert.equal(dispatched.input.operation, "write");
-  // The file body does not. A phase can burn 60 turns rewriting the same files, so
-  // emitting content verbatim would bury the trace under file bodies.
-  assert.equal(dispatched.input.content, "<5000 chars>");
+  // The body does not survive verbatim: a phase can burn 60 turns rewriting the same files,
+  // so emitting bodies whole would bury the trace under them. What IS kept is the length, a
+  // digest and a short head. The digest is the part that answers a question a bare
+  // "<5000 chars>" could not: six writes of main.py that all failed the same gate, and no way
+  // to tell whether the model changed anything between them.
+  const recorded = dispatched.input.content as string;
+  assert.match(recorded, /^<5000 chars [0-9a-f]{8}> /, recorded.slice(0, 60));
+  assert.ok(recorded.length < 700, `kept ${recorded.length} chars of a 5000 char body`);
+  assert.ok(recorded.endsWith("x".repeat(50)), "the head of the body is kept");
+});
+
+test("two different bodies get different digests, and identical ones match", async () => {
+  const digestsFor = async (bodies: string[]) => {
+    const events: any[] = [];
+    let calls = 0;
+    const llm = {
+      streamMessages: async () => {
+        calls++;
+        const body = bodies[calls - 1];
+        const ev = body !== undefined
+          ? [tu(`f${calls}`, "file_operation", { operation: "write", path: "firmware/main.py", content: body }), stop]
+          : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+        return (async function* () { for (const e of ev) yield e; })();
+      },
+    };
+    await runProtocolBuild(
+      { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+      { llmClient: llm, writeFile: async (path: string) => ({ ok: true, path }) },
+    );
+    return events.filter((e) => e.type === "tool_use" && e.name === "file_operation")
+      .map((e) => String(e.input.content).match(/^<\d+ chars ([0-9a-f]{8})>/)?.[1]);
+  };
+
+  const [a, b] = await digestsFor(["y".repeat(3000), "y".repeat(2999) + "z"]);
+  assert.ok(a && b, "both writes recorded a digest");
+  assert.notEqual(a, b, "a one character change must change the digest");
+
+  const [c, d] = await digestsFor(["same".repeat(800), "same".repeat(800)]);
+  assert.equal(c, d, "an unchanged rewrite must show the same digest");
 });
 
 test("recorded tool input compacts arrays and nested objects but keeps scalars", async () => {
@@ -1675,6 +1711,92 @@ test("a scaffold-shaped report, nested under phase_complete, still names its err
   assert.ok(corrective, "a nested scaffold report must produce a corrective message too");
   assert.match(corrective, /SCAFFOLD_LINT_FAILED/);
   assert.match(corrective, /E501 line too long/);
+});
+
+// path ?? message showed only the filename whenever a record carried both, which is the
+// common case: BOOT_DELAY_MISSING names firmware/main.py AND explains the three second delay,
+// and the model was shown the filename alone. It then rewrote main.py six times and failed the
+// same gate six times.
+// A mid-stream failure ended the phase and the build reported "stalled" with no phase_stalled
+// event anywhere: not in the panel, not in the session log, not in the DB. Observed on a real
+// run as 56 clean turns and then silence.
+test("a stream error stalls the phase OUT LOUD, naming itself", async () => {
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      yield { type: "text_delta", text: "working on it" };
+      yield { type: "stream_error", message: "upstream closed the connection" };
+    })(),
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm },
+  );
+
+  assert.equal(result.terminal, "stalled");
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.ok(stalled, "a stream error must emit phase_stalled like every other stall");
+  assert.equal(stalled.reason, "stream_error");
+  assert.match(JSON.stringify(stalled.detail), /upstream closed the connection/);
+});
+
+test("a stream that throws keeps the reason instead of ending silently", async () => {
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      yield { type: "text_delta", text: "partial" };
+      throw new Error("socket hang up");
+    })(),
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm },
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.ok(stalled, "a thrown stream must not end the phase silently");
+  assert.match(JSON.stringify(stalled.detail), /socket hang up/);
+});
+
+test("a corrective line carries the path AND the message, not just the path", async () => {
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("g", "script_run", { script_id: "q", interpreter: "python", script: "check_skeleton_compliance.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    {
+      llmClient: llm,
+      runScript: async () => ({
+        ok: true,
+        stdout: JSON.stringify({
+          errors: [{
+            code: "BOOT_DELAY_MISSING",
+            path: "firmware/main.py",
+            accepted: ["time.sleep(3)", "time.sleep_ms(3000)"],
+            message: "main.py must keep a 3 second boot delay for deploy/mpremote reconnect",
+          }],
+        }),
+      }),
+    },
+  );
+
+  const corrective = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("Quality gate failed")) ?? "";
+  assert.match(corrective, /firmware\/main\.py/, "the path must survive");
+  assert.match(corrective, /3 second boot delay/, "the message is the only part carrying the hint");
+  assert.match(corrective, /time\.sleep\(3\)/, "an accepted-value field must reach the model");
 });
 
 test("a corrective message is capped so a hundred lint errors cannot flood the context", async () => {

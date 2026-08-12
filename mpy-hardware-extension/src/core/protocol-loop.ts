@@ -165,6 +165,22 @@ function buildContext(input: ProtocolInput, absorbedSupplements: string[]): Reco
 
 // Longest string field kept verbatim in the tool_use telemetry payload.
 const TELEMETRY_INPUT_STRING_BUDGET = 200;
+// How much of an over-budget string still gets recorded, alongside its length and a digest.
+// The digest is what answers "did the model rewrite the same body six times or evolve it?",
+// which a bare "<2444 chars>" cannot: a stall triage could see six writes of main.py and not
+// whether any of them changed. The head is where a generated file states its intent.
+const TELEMETRY_INPUT_HEAD_CHARS = 400;
+
+function digest(value: string): string {
+  // FNV-1a, 32-bit. Not a security hash: it only has to differ when the body differs, without
+  // pulling node:crypto into the core loop, which runs in the webview bundle too.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
 
 // Shrink a tool input down to the IDENTITY of the call (tool, path, script_id, flags)
 // for telemetry. A file_operation write carries a whole generated file, and a phase can burn
@@ -178,7 +194,11 @@ const TELEMETRY_INPUT_STRING_BUDGET = 200;
 function compactToolInput(input: any): Record<string, any> {
   const compact: Record<string, any> = {};
   for (const [key, value] of Object.entries(input ?? {})) {
-    if (typeof value === "string") compact[key] = value.length > TELEMETRY_INPUT_STRING_BUDGET ? `<${value.length} chars>` : value;
+    if (typeof value === "string") {
+      compact[key] = value.length > TELEMETRY_INPUT_STRING_BUDGET
+        ? `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_HEAD_CHARS)}`
+        : value;
+    }
     else if (Array.isArray(value)) compact[key] = `<${value.length} items>`;
     else if (value && typeof value === "object") compact[key] = "<object>";
     else compact[key] = value;
@@ -235,7 +255,14 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     let streamError: string | null = null;
     while (true) {
       let next: IteratorResult<StreamEvent>;
-      try { next = await it.next(); } catch { try { await it.return?.(undefined); } catch { /* ignore */ } break; }
+      try { next = await it.next(); }
+      catch (err: any) {
+        // Keep WHY the stream died. Breaking silently left a phase that ended with no tool
+        // call and no reason, and the build then reported "stalled" with nothing to read.
+        streamError = String(err?.message ?? err ?? "stream_read_failed");
+        try { await it.return?.(undefined); } catch { /* ignore */ }
+        break;
+      }
       if (next.done) break;
       const ev = next.value;
       if (ev.type === "text_delta") text += ev.text ?? "";
@@ -249,7 +276,15 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     }
     // A mid-stream abort throws out of it.next() and lands here with the signal set 鈥?    // surface it as cancelled, not a normal (stalled) end.
     if (input.signal?.aborted) { try { await it.return?.(undefined); } catch { /* ignore */ } return { done: false, cancelled: true }; }
-    if (streamError) return { done: false, stalled: true, error: streamError };
+    if (streamError) {
+      // Every other stall path emits phase_stalled with a detail array; this one returned an
+      // `error` field nobody reads, so a mid-stream failure was invisible in the panel, in the
+      // session log and in the DB alike. Observed: 56 clean turns, then a silent "stalled".
+      recentFailures.push({ tool: "llm_stream", error: streamError });
+      if (recentFailures.length > STALL_DETAIL_LIMIT) recentFailures.shift();
+      input.onEvent?.({ type: "phase_stalled", phase, reason: "stream_error", detail: [...recentFailures] });
+      return { done: false, stalled: true, error: streamError };
+    }
 
     const blocks: any[] = [];
     if (thinking) blocks.push({ type: "thinking", thinking });
@@ -324,7 +359,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
             text:
               "Quality gate failed. Fix exactly these, then re-run the gate:\n" +
               gateErrors.slice(0, MAX_CORRECTIVE_ENTRIES)
-                .map((e: any) => `- ${e.code}: ${clampCorrectiveDetail(e.path ?? e.message ?? "")}`)
+                .map((e: any) => `- ${e.code}: ${clampCorrectiveDetail(correctiveDetail(e))}`)
                 .join("\n") +
               (gateErrors.length > MAX_CORRECTIVE_ENTRIES
                 ? `\n- (${gateErrors.length - MAX_CORRECTIVE_ENTRIES} more; the full report is in the tool result)`
@@ -484,6 +519,21 @@ export function capListEntries(entries: unknown[]): { entries: unknown[]; omitte
 // lint errors cannot crowd out the conversation the cap above exists to protect.
 const MAX_CORRECTIVE_ENTRIES = 10;
 const MAX_CORRECTIVE_DETAIL_CHARS = 400;
+
+// Everything the gate said about ONE failure, in the order the model needs it: where, what
+// would satisfy it, then why. `path ?? message` dropped the message whenever a record carried
+// both, which is the common case -- BOOT_DELAY_MISSING names firmware/main.py AND explains the
+// three second delay, and the model was shown only the filename. `accepted*` / `expected` are
+// what the gates carry once they name their accepted values, so pass them through too.
+function correctiveDetail(entry: any): string {
+  const accepted = entry?.accepted ?? entry?.accepted_url ?? entry?.accepted_urls ?? entry?.accepted_fields ?? entry?.expected;
+  const parts = [
+    entry?.path,
+    accepted === undefined ? "" : `accepted: ${typeof accepted === "string" ? accepted : JSON.stringify(accepted)}`,
+    entry?.message,
+  ];
+  return parts.map((p) => String(p ?? "").trim()).filter(Boolean).join(" — ");
+}
 
 function clampCorrectiveDetail(value: unknown): string {
   const text = String(value ?? "").trim();
