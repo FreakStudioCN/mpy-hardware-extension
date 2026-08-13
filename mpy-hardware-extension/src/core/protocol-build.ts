@@ -51,7 +51,12 @@ export function correctRedundantArgPaths(projectDir: string, args: readonly stri
 // contained to the project root — a leading slash is treated as project-relative, an empty
 // dst falls back to the device basename, and anything escaping the root returns null.
 export function containLocalPath(projectDir: string, dst: string, deviceSrc: string): string | null {
-  const rel = String(dst ?? "").replace(/^[/\\]+/, "") || basename(String(deviceSrc ?? ""));
+  // Strip the mpremote device marker before the slashes. `cp_from` names its source with a
+  // leading ":" (":log/run_3.log" = /log/run_3.log ON THE BOARD), and a model that passes the
+  // same string as the HOST destination used to create a directory literally called ":log".
+  // Cosmetic on macOS, fatal on Windows, where ":" is not legal in a path.
+  const rel = String(dst ?? "").replace(/^:+/, "").replace(/^[/\\]+/, "")
+    || basename(String(deviceSrc ?? "").replace(/^:+/, ""));
   const abs = resolve(projectDir, rel);
   if (abs !== projectDir && !abs.startsWith(projectDir + sep)) return null;
   return abs;

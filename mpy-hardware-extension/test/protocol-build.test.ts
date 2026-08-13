@@ -27,6 +27,22 @@ test("containLocalPath rejects a dst that escapes the project root", () => {
   assert.equal(containLocalPath(ROOT, "../../etc/passwd", "/x"), null);
 });
 
+// ":" is mpremote's marker for a path ON THE BOARD (":log/run_3.log" = /log/run_3.log there).
+// A real run passed that same string as the HOST destination and created a directory literally
+// named ":log" in the project. Harmless on macOS, invalid on Windows.
+test("containLocalPath strips the mpremote device marker from a host destination", () => {
+  assert.equal(containLocalPath(ROOT, ":log/run_3.log", ":log/run_3.log"), resolve(ROOT, "log/run_3.log"));
+  assert.equal(containLocalPath(ROOT, ":/log/run_0.log", ":/log/run_0.log"), resolve(ROOT, "log/run_0.log"));
+});
+
+test("containLocalPath strips the device marker from the basename fallback too", () => {
+  assert.equal(containLocalPath(ROOT, "", ":log/run_3.log"), resolve(ROOT, "run_3.log"));
+});
+
+test("containLocalPath still rejects an escape that hides behind the device marker", () => {
+  assert.equal(containLocalPath(ROOT, ":../../etc/passwd", ":x"), null);
+});
+
 function sseTool(id: string, name: string, input: any) {
   return [
     `data: ${JSON.stringify({ type: "content_block_start", content_block: { type: "tool_use", id, name } })}`,
