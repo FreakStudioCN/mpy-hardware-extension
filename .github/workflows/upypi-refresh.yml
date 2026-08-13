@@ -19,7 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+      # GraftSense upstream commits a corrupt symlink blob (a 12KB file stored with
+      # mode 120000); creating it as a real symlink fails on Linux with ENAMETOOLONG.
+      # Same treatment as every job in ci.yml — a `submodules: recursive` checkout
+      # dies here before the ingest runs.
+      - name: Check out submodules without symlinks
+        run: |
+          git config --global core.symlinks false
+          git submodule update --init --recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

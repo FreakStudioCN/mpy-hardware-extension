@@ -102,17 +102,35 @@ def version_key(version: str) -> tuple[tuple[int, int | str], ...]:
     return tuple(parts)
 
 
-def fetch_source(pkg: dict[str, Any], name: str, version: str, get_text=_http_get) -> str:
-    """Concatenate the package's source files (urls entries) for context extraction."""
+def fetch_source(pkg: dict[str, Any], name: str, version: str, get_text=_http_get) -> tuple[str, list[str]]:
+    """Concatenate the package's source files (urls entries) for context extraction.
+
+    Returns the text plus the entries that carried no text at all. upypi lists binary
+    assets in the same `urls` array as .py sources -- bma423_driver@1.0.0 ships a 6KB
+    `bma423conf.bin` (application/octet-stream, first bytes 80 2e 38 b1) -- and
+    _http_get decodes strict UTF-8, so one of those raised UnicodeDecodeError. That is
+    a ValueError, which the fetch guard below does not catch, so a single binary asset
+    aborted the whole weekly refresh partway through the catalog.
+
+    A binary blob has no Python source to extract, so it cannot contribute here. It is
+    skipped -- but REPORTED to the caller, never swallowed: the evidence block records
+    it, so a new binary in the registry shows up in the refresh PR instead of silently
+    shrinking a package's driver context. An unexpected non-UTF-8 *source* file is not
+    special-cased either; it lands in the same visible list.
+    """
     parts: list[str] = []
+    skipped: list[str] = []
     for entry in pkg.get("urls") or []:
         if not isinstance(entry, list) or len(entry) < 2:
             continue
+        url = f"{UPYPI_BASE}/pkgs/{name}/{version}/{entry[1]}"
         try:
-            parts.append(get_text(f"{UPYPI_BASE}/pkgs/{name}/{version}/{entry[1]}"))
+            parts.append(get_text(url))
+        except UnicodeDecodeError:
+            skipped.append(f"{name}@{version}:{entry[1]}")
         except (urllib.error.URLError, OSError):
             continue
-    return "\n".join(parts)
+    return "\n".join(parts), skipped
 
 
 def ingest_live(output_dir: str | Path, get_json=_http_get_json, get_text=_http_get) -> dict[str, Any]:
@@ -135,6 +153,7 @@ def ingest_live(output_dir: str | Path, get_json=_http_get_json, get_text=_http_
     existing = {(record["name"], record["version"]) for record in records}
     written = 0
     contexts: list[str] = []
+    binary_sources: list[str] = []
     discovered = discover_packages(get_json)
     # Deterministic fingerprint of the registry snapshot we ingested, so the
     # freshness guard can detect that upypi published new versions.
@@ -153,7 +172,8 @@ def ingest_live(output_dir: str | Path, get_json=_http_get_json, get_text=_http_
             continue
         package_json_url = f"{UPYPI_BASE}/pkgs/{name}/{version}/package.json"
         record = normalize_upypi_package({**pkg, "package_json_url": package_json_url})
-        source = fetch_source(pkg, name, version, get_text)
+        source, skipped_sources = fetch_source(pkg, name, version, get_text)
+        binary_sources.extend(skipped_sources)
         url_files = [entry[0] for entry in (pkg.get("urls") or []) if isinstance(entry, list) and entry]
         module_name = Path(url_files[0]).stem if url_files else name
         context = extract_driver_context({**pkg, "package_json_url": package_json_url}, pkg.get("description", ""), source, module_name=module_name)
@@ -173,6 +193,9 @@ def ingest_live(output_dir: str | Path, get_json=_http_get_json, get_text=_http_
         "records_written": written,
         "driver_contexts": sorted(contexts),
         "invalid_contexts": summary["invalid_contexts"],
+        # url entries that returned bytes no text extractor can read (binary assets).
+        # Recorded so the skip is reviewable in the refresh PR rather than invisible.
+        "undecodable_sources": sorted(binary_sources),
     }
     write_evidence(output_dir, "upypi", block)
     return block

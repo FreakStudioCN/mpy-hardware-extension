@@ -107,6 +107,46 @@ class AHT20:
     assert records[0]["support_level"] == "generatable"
 
 
+def test_ingest_live_records_a_binary_url_entry_instead_of_aborting(tmp_path):
+    # upypi lists binary assets alongside .py sources (bma423_driver ships a 6KB
+    # bma423conf.bin). _http_get decodes strict UTF-8, so such an entry raises
+    # UnicodeDecodeError -- a ValueError the fetch guard does not catch, which killed
+    # every scheduled refresh partway through the catalog.
+    package = {
+        "name": "bma423_driver",
+        "version": "1.0.0",
+        "description": "BMA423 accelerometer driver",
+        "urls": [["bma423.py", "bma423.py"], ["bma423conf.bin", "bma423conf.bin"]],
+    }
+
+    def get_json(url):
+        if url == "https://upypi.net/packages.json":
+            return {"packages": [{"name": "bma423_driver", "version": "1.0.0"}]}
+        if url == "https://upypi.net/pkgs/bma423_driver/1.0.0/package.json":
+            return package
+        raise AssertionError(f"unexpected URL {url}")
+
+    def get_text(url):
+        if url.endswith(".bin"):
+            raise UnicodeDecodeError("utf-8", b"\x80.8\xb1", 0, 1, "invalid start byte")
+        return """
+class BMA423:
+    def __init__(self, i2c):
+        self.i2c = i2c
+
+    def read(self):
+        return 1
+"""
+
+    result = ingest_live(tmp_path, get_json=get_json, get_text=get_text)
+
+    records = json.loads((tmp_path / "package_index.json").read_text(encoding="utf-8"))
+    assert result["records_written"] == 1
+    assert result["undecodable_sources"] == ["bma423_driver@1.0.0:bma423conf.bin"]
+    # Per ENTRY, not per package: the .py sibling still yielded a driver context.
+    assert records[0]["driver_context_ref"] == "driver_context/bma423_driver-1.0.0.json"
+
+
 def test_ingest_live_preserves_existing_upypi_record_when_package_fetch_fails(tmp_path):
     existing = normalize_upypi_package(
         {
