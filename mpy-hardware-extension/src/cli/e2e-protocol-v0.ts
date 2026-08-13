@@ -151,10 +151,21 @@ const confirmApproval = async (card: any) => {
 // Reconstruct the phase->result trail from loop events (createProtocolLoop only
 // returns the last phase). phase_start sets the current phase; phase_complete records it.
 const phases: Array<{ phase: string; result: string | null }> = [];
+const stalls: Array<{ phase: string; reason: string | null; detail: any[] }> = [];
 let current = "analyze";
 const onEvent = (e: any) => {
   if (e.type === "phase_start") { current = e.phase; console.log(`\n----- PHASE: ${e.phase} -----`); }
   else if (e.type === "phase_complete") { phases.push({ phase: current, result: e.payload?.result ?? null }); console.log(`  phase_complete: ${e.payload?.result} -> ${e.payload?.next_phase}`); if (e.payload?.result !== "success" && e.payload?.summary) console.log(`    reason: ${String(e.payload.summary).slice(0, 300)}`); }
+  // A stall is the most common way a run ends, and this harness printed nothing for it: the
+  // reason ("no_tool_call" / "max_turns" / "stream_error") and the detail array of recent
+  // failing tool calls both went to waste, so every diagnosis started from turn counts and
+  // leftover files instead of the loop's own account of why it gave up.
+  else if (e.type === "phase_stalled") {
+    console.log(`  !! phase_stalled: ${current} — reason: ${e.reason ?? "(none)"}`);
+    for (const d of Array.isArray(e.detail) ? e.detail : []) console.log(`       ${JSON.stringify(d)}`);
+    stalls.push({ phase: current, reason: e.reason ?? null, detail: e.detail ?? [] });
+  }
+  else if (e.type === "phase_error") console.log(`  !! phase_error: ${e.error_kind ?? "(none)"} ${e.next_phase ?? ""}`);
   else if (e.type === "file_written") console.log(`  [file] ${e.path}`);
   else if (e.type === "status_update") console.log(`  [status] ${e.payload?.message ?? ""}`.slice(0, 120));
 };
@@ -185,6 +196,12 @@ try { commits = Number(execFileSync("git", ["-C", projectDir, "rev-list", "--cou
 console.log("\n=== SUMMARY ===");
 console.log("phases:", phases.map((p) => `${p.phase}(${p.result})`).join(" -> ") || "(none)");
 console.log("terminal:", terminal);
+// In the summary as well as inline: a stall scrolls past under hundreds of [file] lines,
+// and the reason is the first thing anyone reading a failed run needs.
+for (const s of stalls) {
+  console.log(`stalled: ${s.phase} — ${s.reason ?? "(no reason recorded)"}`);
+  for (const d of s.detail) console.log(`         ${JSON.stringify(d)}`);
+}
 console.log("reached generate (success):", reachedGenerate);
 console.log("firmware/main.py nontrivial:", mainOk);
 console.log("real git commits in project:", commits);
