@@ -5785,3 +5785,29 @@ test("a stalled phase names the step but never leaks tool internals into the fee
 
   post(dom, { type: "session_done", terminal: "stalled" });
 });
+
+// The status line the real loop emits before a minutes-long gate run is
+// "Running quality gates to validate generated code". classifyActivity sees "generated"
+// and routes it to a STATIC result card instead of a live thinking card, and addActivity
+// clears the working spinner on the way. tool_use/tool_result are record-only on the host,
+// so nothing re-arms it until the next phase: the feed showed no activity for 25 minutes
+// while the build was still running, which reads as finished.
+test("a result-classified status line during a run keeps a working affordance", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "read a DHT11 on GPIO14";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.ok(posted.some((m) => m.type === "start_session"), "the run actually started");
+
+  post(dom, { type: "status_update", payload: { message: "Running quality gates to validate generated code" } });
+
+  assert.match(activity.textContent ?? "", /Running quality gates/, "the status line is rendered");
+  assert.equal(activity.querySelector(".think-live"), null, "this line classifies as a result, not thinking");
+  assert.ok(activity.querySelector(".feed-pending"), "a working spinner is still on screen");
+  assert.equal(activity.querySelectorAll(".feed-spin").length, 1, "exactly one spinner on screen");
+
+  post(dom, { type: "session_done", terminal: "generated" });
+});
