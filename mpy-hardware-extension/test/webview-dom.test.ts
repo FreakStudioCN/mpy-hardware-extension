@@ -5730,3 +5730,58 @@ test("the Sipeed surface tells the user exactly what the envelope pins", async (
     assert.ok(shown.includes(pinned), `the surface must show the pinned value ${pinned}`);
   }
 });
+
+test("arming the working spinner settles the open Thinking card — never two spinners at once", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "x"; // no CJK -> en locale
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // classifyActivity defaults an uncategorized line to `thinking`, so a plain status
+  // update opens a LIVE thinking card (spinner + heading) while the run is going.
+  post(dom, { type: "status_update", payload: { message: "Searching for drivers... (1/1)" } });
+  assert.ok(activity.querySelector(".think-live"), "the status line opens a live thinking card");
+  assert.ok(activity.querySelector(".think-head"), "the live card carries the Thinking heading");
+
+  // The next phase arms the working spinner. That must close the thinking card, not
+  // stack a second spinner beneath it.
+  post(dom, { type: "phase_start", phase: "select-hw" });
+  assert.ok(activity.querySelector(".feed-pending"), "the working spinner is armed");
+  assert.equal(activity.querySelector(".think-live"), null, "the thinking card stopped spinning");
+  assert.equal(activity.querySelector(".think-head"), null, "the Thinking heading is gone");
+  assert.equal(activity.querySelectorAll(".feed-spin").length, 1, "exactly one spinner on screen");
+
+  post(dom, { type: "session_done", terminal: "generated" });
+});
+
+test("a stalled phase names the step but never leaks tool internals into the feed", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+  const activity = document.getElementById("activity")!;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "x"; // no CJK -> en locale
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // The host no longer sends `detail` to the webview, but post it anyway: if the renderer ever
+  // starts reading it again, this test fails rather than silently leaking internals to users.
+  post(dom, {
+    type: "phase_stalled",
+    phase: "upy-generate-plugin",
+    reason: "max_turns",
+    detail: [{ tool: "file_operation", error: "invalid_generated_path", path: "sessions/x/phase_complete.json" }],
+  });
+
+  const text = activity.textContent!;
+  assert.match(text, /upy-generate-plugin/, "the step that gave up is named");
+  assert.match(text, /diagnostics/i, "and the user is pointed at the support export");
+  // Tool names, script filenames, error kinds and raw reason codes are diagnosis material.
+  assert.doesNotMatch(text, /invalid_generated_path/, "no error kind in the feed");
+  assert.doesNotMatch(text, /file_operation/, "no tool name in the feed");
+  assert.doesNotMatch(text, /phase_complete\.json/, "no script or artifact filename in the feed");
+  assert.doesNotMatch(text, /max_turns/, "no raw reason code in the feed");
+  assert.ok(activity.querySelector(".ev-ico.error"), "rendered as an error card, never text-classified");
+
+  post(dom, { type: "session_done", terminal: "stalled" });
+});

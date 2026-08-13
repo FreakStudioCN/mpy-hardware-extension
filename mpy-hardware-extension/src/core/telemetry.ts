@@ -180,7 +180,9 @@ function mapSessionEvent(event: Record<string, any>): { eventType: string; paylo
     };
   }
   if (event.type === "phase_stalled") {
-    return { eventType: "phase_stalled", payload: { phase: event.phase, reason: event.reason } };
+    // `detail` carries the last failing tool calls. Without it a stall reads as a bare
+    // "max_turns" in the DB, which says the phase ran out of turns and nothing about why.
+    return { eventType: "phase_stalled", payload: { phase: event.phase, reason: event.reason, detail: event.detail } };
   }
   // Client self-observability (extension host, not the agent loop). extension_error is our
   // own caught fault; extension_host_error_observed is a process-wide fault we merely saw
@@ -212,18 +214,58 @@ function compactToolResult(name: string, obs: any): { eventType: string; payload
   // there, not at the top level. Read through both, or a runtime_error landed in the DB
   // as a blank { tool, error_kind } and repair_exhausted was undiagnosable.
   const out = obs?.output ?? {};
-  const detail = obs?.error ?? out.error ?? out.message;
+  // `stderr` is where the protocol loop's host route and the shell refusal put their
+  // message (there is no `error` key on that shape), so reading only error/message stored
+  // every script_not_found and every refusal hint as `error: undefined` -- the most common
+  // failure in the loop, landing in the DB with no reason text.
+  const detail = obs?.error ?? out.error ?? out.message ?? out.stderr;
   const lines = obs?.lines ?? out.lines;
+  // Read `success`/`script_id`/`exit_code` through `output` as well, for the same reason
+  // the detail chain above does: the protocol loop now records a NORMALIZED observation,
+  // which nests the raw result under `output`, and a top-level-only read silently demoted
+  // every failing quality gate to a bare "tool_result ok".
+  const success = obs?.success ?? out.success;
+  const scriptId = obs?.script_id ?? out.script_id;
+  const exitCode = obs?.exit_code ?? out.exit_code;
   if (errorKind === "runtime_error") {
     return { eventType: "runtime_error", payload: { error_kind: errorKind, error: detail, lines, tool: name } };
   }
   if (errorKind === "audit_failed") {
     return { eventType: "audit_failed", payload: { error_kind: errorKind, disallowed_imports: obs.disallowed_imports ?? out.disallowed_imports, tool: name } };
   }
+  const gate = gateErrors(obs?.structured_errors ?? out.structured_errors);
   if (obs?.ok === false) {
-    return { eventType: "tool_result", payload: { tool: name, ok: false, error_kind: errorKind, error: detail } };
+    return { eventType: "tool_result", payload: { tool: name, ok: false, error_kind: errorKind, error: detail, errors: gate } };
+  }
+  // A host script reports TWO outcomes: `ok` says the script ran, `success` says the gate
+  // it wraps passed (protocol-loop.ts run_script). A failing quality gate therefore
+  // returns ok:true/success:false, which fell through to the bare success below, so a
+  // phase that rewrote the same files for its whole turn budget recorded 60 identical
+  // "tool_result ok" rows and the rejection that drove the retry was never stored.
+  if (obs?.ok === true && success === false) {
+    return {
+      eventType: "tool_result",
+      payload: { tool: name, ok: false, error_kind: "script_gate_failed", script_id: scriptId, exit_code: exitCode, errors: gate },
+    };
   }
   return { eventType: "tool_result", payload: { tool: name, ok: true } };
+}
+
+// The actionable pair from a flattened gate report: the same code+path the loop's own
+// corrective message enumerates (structuredErrorsFromStdout has already replaced
+// aggregates with their granular entries). Messages are dropped: the code identifies the
+// check and the path identifies the entry, and a repeated pair across turns is the whole
+// signal a retry loop gives you.
+function gateErrors(entries: any): Array<{ code?: string; path?: string; message?: string }> | undefined {
+  if (!Array.isArray(entries) || entries.length === 0) return undefined;
+  // Two REAL entry shapes: run_quality_gates.py emits {code, path}; the select-hw / analyze
+  // validators emit one plain string per problem. Reading only code+path stored the whole
+  // string-shaped report as `errors: [{}, {}, {}]` -- present in the DB, and useless.
+  return entries.map((entry: any) => {
+    if (typeof entry === "string") return { message: entry };
+    if (entry?.code) return { code: entry.code, path: entry.path };
+    return { message: entry?.message, path: entry?.path };
+  });
 }
 
 function traceEventPayload(event: any): { eventType: string; payload: Record<string, any> } | null {

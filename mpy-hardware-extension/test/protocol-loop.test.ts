@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
+import { writeProjectFile } from "../src/extension/workspace-writer.ts";
 
 import { PROTOCOL_TOOLS } from "../src/core/protocol-registry.ts";
-import { PHASE_ORDER, runProtocolBuild, executeProtocolTool } from "../src/core/protocol-loop.ts";
+import { PHASE_ORDER, runProtocolBuild, executeProtocolTool, capToolOutput } from "../src/core/protocol-loop.ts";
 import { micropythonLibDriver, micropythonLibManifest } from "./micropython-lib-manifest.ts";
 
 // A scripted LLM: per phase, an array of turns; each turn is an array of SSE events.
@@ -532,6 +537,262 @@ test("script_run routes to the host runner, forwards stdin, maps a failed gate t
   assert.equal(result.script_id, "q");
 });
 
+// An oversized tool result does not just cost tokens: it pushes the conversation past the
+// upstream's context window and kills the run. A real scaffold report was 652,869 chars
+// (43 file bodies carried twice) and added 206k tokens in one turn.
+function scaffoldShapedReport(fileCount: number, bodyChars: number) {
+  const files = Array.from({ length: fileCount }, (_, i) => ({
+    path: `firmware/f${i}.py`, content: "x".repeat(bodyChars), encoding: "utf-8",
+  }));
+  return JSON.stringify({
+    phase: "scaffold",
+    files,
+    // The same bodies a second time, which is what made the real report enormous.
+    file_operations: files.map((f, i) => ({ type: "file_operation", payload: { op_id: `o${i}`, op: "write", ...f } })),
+    // The fields the phase actually needs come LAST, so a head-only cut would lose them.
+    manifest_content: { schema_version: "1.0", project_name: "T" },
+    phase_complete_payload: { result: "success", next_phase: "upy-generate-plugin" },
+  });
+}
+
+test("a small tool output is passed through untouched", () => {
+  const small = JSON.stringify({ ok: true, note: "short" });
+  assert.equal(capToolOutput(small), small);
+  assert.equal(capToolOutput(""), "");
+  assert.equal(capToolOutput(undefined), "", "a missing stdout is still an empty string, as before");
+});
+
+test("an oversized JSON report is shrunk but keeps every key, including the trailing payload", () => {
+  const raw = scaffoldShapedReport(43, 7000);
+  assert.ok(raw.length > 500_000, "the fixture reproduces the real report's scale");
+  const capped = capToolOutput(raw);
+
+  assert.ok(capped.length < raw.length / 5, `capped to ${capped.length} from ${raw.length}`);
+  // Still parseable: shrinking STRINGS rather than cutting text is what preserves this.
+  const parsed = JSON.parse(capped);
+  // The trailing keys are the ones a head-only truncation would have destroyed.
+  assert.equal(parsed.phase_complete_payload.next_phase, "upy-generate-plugin");
+  assert.equal(parsed.manifest_content.schema_version, "1.0");
+  assert.equal(parsed.files.length, 43, "no file is dropped, only its body is shortened");
+  assert.equal(parsed.file_operations.length, 43);
+  // The body is gone but the path survives, which is what the model needs to reason about.
+  assert.equal(parsed.files[0].path, "firmware/f0.py");
+  assert.ok(parsed.files[0].content.length < 1000);
+  assert.match(parsed.files[0].content, /chars removed by the host/);
+  // A shrunk BODY is not merely shortened output: these are the bodies the model re-emits
+  // as file_operation(write) calls. The marker has to say the value is unusable and where
+  // the real content is, or the model writes the marker itself into firmware/main.py and
+  // the next gate fails on a syntax error with nothing explaining it.
+  assert.match(parsed.files[0].content, /must never be written to a file/, "the marker says the value is not writable content");
+  assert.match(parsed.files[0].content, /Read the file itself/, "and where to get the real body");
+});
+
+test("a body carrying the host truncation marker is refused at the write, not written", async () => {
+  const results: any[] = [];
+  const writes: Array<{ path: string; content: string }> = [];
+  // The real path: a scaffold report body the host shrank, transcribed back by the model.
+  const truncated = JSON.parse(capToolOutput(scaffoldShapedReport(43, 7000))).files[0].content;
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("f0", "file_operation", { op: "write", path: "firmware/main.py", content: truncated }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 1, onEvent: (e: any) => { if (e.type === "tool_result") results.push(e.observation); } },
+    { llmClient: llm, writeFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path }; } },
+  );
+
+  assert.equal(writes.length, 0, "nothing may reach disk: the body is a transcribed, shortened value");
+  assert.equal(results[0].output.error_kind, "truncated_content");
+  assert.match(results[0].output.detail, /Read the file/, "the refusal tells the model how to get the real body");
+});
+
+test("an oversized file_operation(read) is capped: moving a payload into a file does not dodge the cap", async () => {
+  // The scaffold bump stops the 650KB of file bodies riding in stdout by writing them to a
+  // bundle instead -- which the model then READS. Uncapped, that is the same context-window
+  // kill through a different door, so the read has to be capped like stdout is.
+  const huge = "z".repeat(300_000);
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "read", path: "firmware/bundle.txt" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: true, content: huge }) } as any,
+  );
+  assert.equal(result.ok, true);
+  assert.ok(result.content.length < huge.length / 2, `capped to ${result.content.length} from ${huge.length}`);
+  assert.match(result.content, /chars removed by the host/);
+});
+
+test("an oversized file_operation(list) is capped and SAYS how many entries it dropped", async () => {
+  const entries = Array.from({ length: 20_000 }, (_, i) => `firmware/generated/module_${i}/driver.py`);
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "list", path: "" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), listFiles: async () => ({ ok: true, entries }) } as any,
+  );
+  assert.ok(result.entries.length < entries.length, "the listing is capped");
+  assert.equal(result.entries_omitted, entries.length - result.entries.length);
+  // Silence here reads as "that is the whole tree", so the model concludes files it just
+  // wrote are missing. The count is what stops that.
+  assert.match(result.detail, /omitted by the host/);
+  assert.equal(result.entries[0], entries[0], "the head is kept: entries arrive shallowest-first");
+});
+
+test("append extends the existing body instead of replacing it", async () => {
+  const writes: Array<{ path: string; content: string }> = [];
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "append", path: "firmware/main.py", content: "\ndef extra():\n    pass\n" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async () => ({ ok: true, content: "def main():\n    pass\n" }),
+      writeFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path, relative_path: path }; },
+    } as any,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(writes.length, 1);
+  // The whole bug: `append` was routed to a writer that truncates, so the body it was
+  // asked to EXTEND was destroyed and replaced by the fragment -- reported as ok:true.
+  assert.match(writes[0].content, /^def main\(\):/, "the existing body survives");
+  assert.match(writes[0].content, /def extra\(\)/, "and the fragment is appended after it");
+});
+
+test("append to a file that does not exist yet creates it", async () => {
+  const writes: Array<{ path: string; content: string }> = [];
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "append", path: "firmware/new.py", content: "print(1)\n" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async () => ({ ok: false, error_kind: "file_not_found" }),
+      writeFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path, relative_path: path }; },
+    } as any,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(writes[0].content, "print(1)\n");
+});
+
+test("append refuses when the existing body cannot be read, instead of clobbering it", async () => {
+  const writes: any[] = [];
+  const { result } = await executeProtocolTool(
+    tu("f0", "file_operation", { op: "append", path: "firmware/main.py", content: "print(1)\n" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async () => ({ ok: false, error_kind: "read_failed" }),
+      writeFile: async (path: string, content: string) => { writes.push({ path, content }); return { ok: true, path }; },
+    } as any,
+  );
+  // Degrading to an empty base here would be the same silent truncation one level down.
+  assert.equal(writes.length, 0, "nothing is written when the base cannot be established");
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "read_failed");
+});
+
+test("oversized output that is not JSON keeps its head AND its tail", () => {
+  const text = "HEAD-MARKER" + "y".repeat(200_000) + "TAIL-MARKER";
+  const capped = capToolOutput(text);
+  assert.ok(capped.length < text.length);
+  assert.match(capped, /^HEAD-MARKER/, "the head survives");
+  assert.match(capped, /TAIL-MARKER$/, "the tail survives, where a report's verdict usually is");
+  assert.match(capped, /chars removed by the host/);
+});
+
+test("the cap reaches the model, while structured_errors are still parsed from the FULL stdout", async () => {
+  // A report big enough to exceed the budget even AFTER its strings are shrunk falls back
+  // to the head+tail clamp, which leaves the model unparseable JSON. That is the case that
+  // pins the ordering: parse the errors from the raw stdout, or the corrective path goes
+  // blind exactly when the report is worst.
+  const files = Array.from({ length: 200 }, (_, i) => ({ path: `firmware/f${i}.py`, content: "x".repeat(2000) }));
+  const stdout = JSON.stringify({
+    check: "quality_gates",
+    files,
+    file_operations: files.map((f) => ({ type: "file_operation", payload: { op: "write", ...f } })),
+    errors: [{ code: "FLAKE8_FAILED", path: "firmware/main.py", message: "E501 line too long" }],
+  });
+  const r = await executeProtocolTool(
+    tu("s", "script_run", { interpreter: "python", script: "scripts/run_quality_gates.py", script_id: "s1" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), runScript: async () => ({ ok: true, exit_code: 1, stdout, stderr: "" }) },
+  );
+  assert.ok(r.result.stdout.length < stdout.length, "what the model sees is capped");
+  assert.throws(() => JSON.parse(r.result.stdout), "this report is past rescue: the model gets a clamped, unparseable string");
+  assert.deepEqual(
+    r.result.structured_errors,
+    [{ code: "FLAKE8_FAILED", path: "firmware/main.py", message: "E501 line too long" }],
+    "the corrective path still sees the error, because it parses the raw stdout, not the capped one",
+  );
+});
+
+// A turn where the model returns NOTHING used to be recorded as an empty assistant message.
+// History is replayed on every later request, so one of those poisons the rest of the phase:
+// the api renders it as {"role":"assistant","content":""} with no tool_calls, and at least one
+// upstream rejects the whole conversation for it rather than just that turn.
+test("a turn that returned nothing is not recorded in the conversation", async () => {
+  const sent: any[] = [];
+  const base = scriptedLlm({
+    analyze: [
+      [stop],                                                                   // nothing at all
+      [tu("a", "phase_complete", { result: "success", summary: "ok", next_phase: null }), stop],
+    ],
+  });
+  const llm = { streamMessages: async (body: any) => { sent.push(structuredClone(body)); return base.streamMessages(body); } };
+
+  await runProtocolBuild({ intent: "blink", startPhase: "analyze" }, { llmClient: llm });
+
+  assert.equal(sent.length, 2, "the empty turn is nudged, not fatal");
+  const second = sent[1].messages;
+  assert.equal(
+    second.filter((m: any) => m.role === "assistant").length, 0,
+    "no assistant message is recorded for a turn that produced nothing",
+  );
+  assert.ok(
+    second.some((m: any) => JSON.stringify(m).includes("must call exactly one protocol tool")),
+    "the nudge still goes, so the model is told what to do",
+  );
+});
+
+test("a thinking-only or text-only turn IS still recorded", async () => {
+  // The guard must key on "no blocks at all", not on "no tool call". A turn that reasoned or
+  // spoke did produce something, and dropping it would lose real conversation history.
+  for (const [label, ev] of [
+    ["thinking", { type: "thinking_delta", text: "weighing options" }],
+    ["text", { type: "text_delta", text: "let me look" }],
+  ] as const) {
+    const sent: any[] = [];
+    const base = scriptedLlm({
+      analyze: [
+        [ev, stop],
+        [tu("a", "phase_complete", { result: "success", summary: "ok", next_phase: null }), stop],
+      ],
+    });
+    const llm = { streamMessages: async (body: any) => { sent.push(structuredClone(body)); return base.streamMessages(body); } };
+    await runProtocolBuild({ intent: "blink", startPhase: "analyze" }, { llmClient: llm });
+    const assistants = sent[1].messages.filter((m: any) => m.role === "assistant");
+    assert.equal(assistants.length, 1, `${label}: the turn is kept`);
+    assert.ok(assistants[0].content.length > 0, `${label}: with its block`);
+  }
+});
+
+test("repeated empty turns leave no assistant messages behind before the stall", async () => {
+  // The nudge loop runs MAX_TOOLLESS_TURNS times, so the old behavior appended one empty
+  // assistant message per empty turn — the failure compounds rather than staying at one.
+  const sent: any[] = [];
+  const base = scriptedLlm({ analyze: [[stop], [stop], [stop]] });
+  const llm = { streamMessages: async (body: any) => { sent.push(structuredClone(body)); return base.streamMessages(body); } };
+
+  const result = await runProtocolBuild({ intent: "blink", startPhase: "analyze" }, { llmClient: llm });
+
+  assert.equal(result.terminal, "stalled");
+  for (const [i, body] of sent.entries()) {
+    assert.equal(
+      body.messages.filter((m: any) => m.role === "assistant").length, 0,
+      `request ${i + 1} carries no empty assistant message`,
+    );
+  }
+});
+
 test("file_operation mkdir/delete run the real host deps (no faked no-op success)", async () => {
   const calls: any[] = [];
   const deps = {
@@ -546,6 +807,122 @@ test("file_operation mkdir/delete run the real host deps (no faked no-op success
   assert.equal(del.result.ok, true);
   assert.equal(del.result.success, true);
   assert.deepEqual(calls, [["mkdir", "firmware/lib"], ["delete", "firmware/tools"]]);
+});
+
+// A rejection the model cannot act on stalls the phase: it re-guesses, burns turns, and
+// the run dies on max_turns or a text-only no_tool_call turn. Both malformed shapes below
+// were observed against real upstreams, so each rejection has to name what is accepted.
+test("a file_operation with no op is refused with the supported ops named", async () => {
+  const r = await executeProtocolTool(
+    tu("n", "file_operation", { path: "firmware/main.py", op_id: "o1" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}) },
+  );
+  assert.equal(r.result.ok, false);
+  assert.equal(r.result.error_kind, "missing_file_op");
+  // The key must SURVIVE serialization: spreading a bare undefined `op` dropped it, so the
+  // model received a bare error_kind and had nothing to correct from.
+  assert.ok("op" in JSON.parse(JSON.stringify(r.result)), "op key survives JSON round-trip");
+  assert.deepEqual(r.result.supported_ops, ["read", "write", "append", "list", "mkdir", "delete"]);
+  for (const op of ["read", "write", "append", "list", "mkdir", "delete"]) {
+    assert.match(r.result.detail, new RegExp(op), `detail names ${op}`);
+  }
+});
+
+test("an unknown file_operation op is refused, echoed back, and told what is valid", async () => {
+  const r = await executeProtocolTool(
+    tu("u", "file_operation", { op: "touch", path: "firmware/main.py" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}) },
+  );
+  assert.equal(r.result.ok, false);
+  assert.equal(r.result.error_kind, "unsupported_file_op");
+  assert.equal(r.result.op, "touch", "the rejected op is echoed so the model sees what it sent");
+  assert.match(r.result.detail, /touch/);
+  assert.match(r.result.detail, /append/);
+});
+
+// Coercing an ABSENT content to "" wrote an empty file and reported success, so the model
+// was told it had written real code with nothing on disk.
+test("write with no content is refused instead of silently writing an empty file", async () => {
+  const writes: any[] = [];
+  const r = await executeProtocolTool(
+    tu("w", "file_operation", { op: "write", path: "firmware/main.py", op_id: "o2" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), writeFile: async (p: string, c: string) => { writes.push([p, c]); return { ok: true }; } },
+  );
+  assert.equal(r.result.ok, false);
+  assert.equal(r.result.error_kind, "missing_content");
+  assert.equal(writes.length, 0, "nothing reached the workspace");
+  assert.match(r.result.detail, /content/);
+});
+
+// Same failure, different input: String({}) writes a file containing "[object Object]" and
+// reports success, so the guard has to refuse every non-string, not only an absent key.
+test("write with a non-string content is refused, not coerced onto disk", async () => {
+  for (const content of [{}, [], 42, true]) {
+    const writes: any[] = [];
+    const r = await executeProtocolTool(
+      tu("w", "file_operation", { op: "write", path: "firmware/main.py", content }) as any,
+      { intent: "x" },
+      { llmClient: scriptedLlm({}), writeFile: async (p: string, c: string) => { writes.push([p, c]); return { ok: true }; } },
+    );
+    assert.equal(r.result.ok, false, String(content));
+    assert.equal(r.result.error_kind, "missing_content", String(content));
+    assert.equal(writes.length, 0, `a ${typeof content} reached the workspace`);
+  }
+});
+
+// The writer accepts a redundant leading segment and writes to the CORRECTED target. A bare
+// success left the model believing its own prefixed path existed, so it kept the prefix for
+// every later list, mkdir and delete. Driven through the REAL writeProjectFile, because the
+// path it reports is the whole point: a mock returning a tidy relative path would pass while
+// production returned the absolute host path, which this same allowlist refuses on re-use.
+test("a write reports the path it landed on, project-relative and re-writable", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-writepath-"));
+  try {
+    const writeFile = (path: string, content: string) =>
+      writeProjectFile({
+        workspaceFolder: ws,
+        path,
+        content,
+        writeFile: async (target: string, body: string) => {
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, body, "utf-8");
+        },
+      });
+
+    const first = await executeProtocolTool(
+      tu("w", "file_operation", { op: "write", path: "project/firmware/main.py", content: "print(1)" }) as any,
+      { intent: "x" },
+      { llmClient: scriptedLlm({}), writeFile },
+    );
+    assert.equal(first.result.ok, true);
+    assert.equal(first.result.path, "firmware/main.py", "the model is told where the file landed");
+    assert.equal(first.result.path.includes(ws), false, "an absolute host path leaks the user's tree");
+
+    // The reported path has to be one the model can actually reuse. An absolute path is
+    // refused by the same allowlist, which would restart the prefix loop this feature ends.
+    const second = await executeProtocolTool(
+      tu("w2", "file_operation", { op: "write", path: first.result.path, content: "print(2)" }) as any,
+      { intent: "x" },
+      { llmClient: scriptedLlm({}), writeFile },
+    );
+    assert.equal(second.result.ok, true, "the path the model was told is refused when it sends it back");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("write with an explicitly empty content still writes (a deliberate empty file)", async () => {
+  const writes: any[] = [];
+  const r = await executeProtocolTool(
+    tu("e", "file_operation", { op: "write", path: "firmware/lib/__init__.py", content: "" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), writeFile: async (p: string, c: string) => { writes.push([p, c]); return { ok: true }; } },
+  );
+  assert.equal(r.result.ok, true);
+  assert.deepEqual(writes, [["firmware/lib/__init__.py", ""]]);
 });
 
 test("file_operation mkdir/delete/list fail loud when the host dep is absent (not faked ok)", async () => {
@@ -1039,4 +1416,275 @@ test("the MaixPy export short tokens resolve instead of failing as an unknown ne
     assert.equal(result.terminal, "complete", `${token} resolves`);
     assert.deepEqual(seen, ["analyze", "upy-maixpy-export-plugin"], `${token} normalizes to the plugin dir name`);
   }
+});
+
+// A phase that runs its whole turn budget without a phase_complete is reported as
+// phase_stalled/max_turns and nothing else. Without a tool-level trace beside it, the DB
+// records that a build looped and not which tool it looped on -- which is what made a
+// real upy-generate-plugin stall undiagnosable.
+test("protocol loop records a tool_use and a tool_result for every tool it executes", async () => {
+  const events: any[] = [];
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls++;
+      const ev = calls === 1
+        ? [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py", args: ["--project-dir", "."] }), stop]
+        : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+  const runScript = async () => ({
+    ok: true,
+    exit_code: 2,
+    stdout: "",
+    stderr: "",
+    structured_errors: [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }],
+  });
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript },
+  );
+
+  assert.equal(result.terminal, "complete");
+  const toolEvents = events.filter((e) => e.type === "tool_use" || e.type === "tool_result");
+  assert.deepEqual(
+    toolEvents.map((e) => `${e.type}:${e.name}`),
+    ["tool_use:script_run", "tool_result:script_run", "tool_use:phase_complete", "tool_result:phase_complete"],
+    "each tool is recorded before it runs and after it returns, in execution order",
+  );
+  // The result must be the REAL one, or the trace says a gate ran and not that it failed.
+  // Nested under `output`: the observation is NORMALIZED before it is recorded, because
+  // this event lands in session.jsonl and a raw result carries absolute host paths.
+  const gateResult = toolEvents[1].observation.output;
+  assert.equal(gateResult.success, false);
+  assert.deepEqual(gateResult.structured_errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
+});
+
+test("recorded tool input keeps the call identity and replaces a file body with its length", async () => {
+  const events: any[] = [];
+  const content = "x".repeat(5000);
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls++;
+      const ev = calls === 1
+        ? [tu("f0", "file_operation", { operation: "write", path: "firmware/main.py", content }), stop]
+        : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async (path: string) => ({ ok: true, path }) },
+  );
+
+  const dispatched = events.find((e) => e.type === "tool_use" && e.name === "file_operation");
+  // Short fields survive verbatim: WHICH file was rewritten is the whole signal a
+  // rewrite loop gives you.
+  assert.equal(dispatched.input.path, "firmware/main.py");
+  assert.equal(dispatched.input.operation, "write");
+  // The file body does not. A phase can burn 60 turns rewriting the same files, so
+  // emitting content verbatim would bury the trace under file bodies.
+  assert.equal(dispatched.input.content, "<5000 chars>");
+});
+
+test("recorded tool input compacts arrays and nested objects but keeps scalars", async () => {
+  const events: any[] = [];
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls++;
+      const ev = calls === 1
+        ? [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "gate.py", args: ["--a", "--b", "--c"], timeout_ms: 30000, stdin_json: { plan: { entries: [] } } }), stop]
+        : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: "", stderr: "" }) },
+  );
+
+  const dispatched = events.find((e) => e.type === "tool_use" && e.name === "script_run");
+  assert.deepEqual(dispatched.input, {
+    script_id: "q",
+    interpreter: "python",
+    script: "gate.py",
+    args: "<3 items>",
+    timeout_ms: 30000,
+    stdin_json: "<object>",
+  });
+});
+
+test("a phase that exhausts its budget reports the tool calls that blocked it, not a bare max_turns", async () => {
+  // The real shape of the generate stall: the phase finishes its work and then cannot persist
+  // its artifact, retrying a rejected write until the turns run out. "max_turns" alone reads as
+  // transient; the blocker is what makes it diagnosable.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("f0", "file_operation", { op: "write", path: "sessions/x/phase_complete.json", content: "{}" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async () => ({ ok: false, error_kind: "invalid_generated_path" }) },
+  );
+
+  assert.equal(result.terminal, "stalled");
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled.reason, "max_turns");
+  // Only the most recent few, so a long phase does not ship its whole failure history.
+  assert.equal(stalled.detail.length, 3);
+  assert.deepEqual(stalled.detail[2], {
+    tool: "file_operation",
+    error: "invalid_generated_path",
+    path: "sessions/x/phase_complete.json",
+  });
+});
+
+test("a stall detail names a rejected gate by its code, and omits a path when the call has none", async () => {
+  // A script that RAN but whose gate REJECTED returns ok:true/success:false — read only `ok` and
+  // the blocker looks like a success.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 2, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, exit_code: 2, stdout: "", stderr: "", structured_errors: [{ code: "CLOUD_OFFICIAL_LINKS_MISSING" }] }),
+    },
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled.detail[0].tool, "script_run");
+  assert.equal(stalled.detail[0].error, "CLOUD_OFFICIAL_LINKS_MISSING");
+  assert.equal(stalled.detail[0].path, "run_quality_gates.py", "a script call is identified by its script");
+});
+
+// Negative control for the stall-detail feature: the happy path must stay silent. Not
+// mutation-sensitive on its own, kept because it is the only assertion anywhere that a
+// successful phase emits no phase_stalled event.
+test("a phase that succeeds reports no stall detail at all", async () => {
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm },
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.equal(events.some((e) => e.type === "phase_stalled"), false);
+});
+
+test("a stall detail reads a string-shaped gate report, not just {code} objects", async () => {
+  // REAL shape: select_hw_manifest.py collects `errors: list[str]`, one plain string per
+  // problem. Reading only `.code` reported the blocker as a bare "failed".
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "select_hw_manifest.py" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 2, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => ({
+        ok: true,
+        exit_code: 1,
+        stdout: JSON.stringify({ errors: ["selected_board.display_name is required", "hardware_plan.mcu.model is required"] }),
+        stderr: "",
+      }),
+    },
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled.detail[0].error, "selected_board.display_name is required", "the first real problem, not 'failed'");
+  assert.equal(stalled.detail[0].path, "select_hw_manifest.py");
+});
+
+test("a rejected write tells the model what IS writable, so it corrects instead of guessing", async () => {
+  const results: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("f0", "file_operation", { op: "write", path: "phase_complete_draft.json", content: "{}" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 1, onEvent: (e: any) => { if (e.type === "tool_result") results.push(e.observation); } },
+    { llmClient: llm, writeFile: async () => ({ ok: false, error_kind: "invalid_generated_path", allowed: "Writable: any *.json at the project root; ..." }) },
+  );
+
+  assert.equal(results[0].output.error, "invalid_generated_path");
+  assert.match(results[0].output.allowed, /Writable: any \*\.json at the project root/, "the hint reaches the model's tool result");
+});
+
+test("a successful write carries no allowance hint (it is only for rejections)", async () => {
+  const results: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("f0", "file_operation", { op: "write", path: "project-manifest.json", content: "{}" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 1, onEvent: (e: any) => { if (e.type === "tool_result") results.push(e.observation); } },
+    { llmClient: llm, writeFile: async (path: string) => ({ ok: true, path }) },
+  );
+
+  assert.equal(results[0].ok, true);
+  assert.equal("allowed" in results[0].output, false);
+});
+
+test("a recorded tool_result is redacted: no absolute host path reaches the session log", async () => {
+  const results: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("s0", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+  // What a real failure looks like: a Python traceback naming the user's home directory.
+  const runScript = async () => ({
+    ok: false,
+    error_kind: "script_error",
+    stderr: 'Traceback (most recent call last):\n  File "C:\\Users\\Haipeng Wu\\Desktop\\proj\\firmware\\main.py", line 5\n    SyntaxError: invalid syntax\n',
+    project_dir: "C:\\Users\\Haipeng Wu\\Desktop\\proj",
+  });
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 1, onEvent: (e: any) => { if (e.type === "tool_result") results.push(e.observation); } },
+    { llmClient: llm, runScript },
+  );
+
+  const recorded = JSON.stringify(results[0]);
+  assert.ok(!recorded.includes("Haipeng Wu"), `the username must not reach the session log: ${recorded.slice(0, 400)}`);
+  assert.match(recorded, /redacted-path/, "the path is redacted rather than dropped");
+  // Redaction must not cost the diagnosis: the failure kind still has to survive it.
+  assert.equal(results[0].error_kind, "script_error");
+  assert.match(results[0].output.stderr, /SyntaxError: invalid syntax/);
 });

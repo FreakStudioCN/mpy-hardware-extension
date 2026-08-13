@@ -285,3 +285,167 @@ test("credit_usage is local-only — it never becomes a second cloud event", () 
 
   assert.equal(event, null);
 });
+
+test("maps a failed gate (a script that RAN but did not PASS) to a failed tool_result with its codes", () => {
+  // The host script route returns ok:true/success:false for a non-zero gate exit
+  // (protocol-loop.ts run_script). Reading only `ok` recorded 60 retry turns of a stalled
+  // generate phase as identical successes, so the rejection driving the loop was lost.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      ok: true,
+      success: false,
+      script_id: "q",
+      exit_code: 2,
+      stdout: "a very long gate report",
+      structured_errors: [
+        { code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py", message: "no such entry" },
+        { code: "GENERATE_PLAN_DRIVER_UNRESOLVED", path: "firmware/drivers/led" },
+      ],
+    },
+  });
+
+  assert.equal(t?.event_type, "tool_result");
+  assert.equal(t?.payload.ok, false, "a gate that rejected is not a success");
+  assert.equal(t?.payload.error_kind, "script_gate_failed");
+  assert.equal(t?.payload.script_id, "q");
+  assert.equal(t?.payload.exit_code, 2);
+  // Code + path only: enough to see the same entry rejected turn after turn, without
+  // carrying the report text.
+  assert.deepEqual(t?.payload.errors, [
+    { code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" },
+    { code: "GENERATE_PLAN_DRIVER_UNRESOLVED", path: "firmware/drivers/led" },
+  ]);
+  assert.equal("stdout" in (t?.payload ?? {}), false);
+});
+
+test("maps a failed gate through the NORMALIZED observation the protocol loop actually emits", () => {
+  // The loop records normalizeObservation(...), which nests the raw result under `output`
+  // so absolute host paths are redacted before they reach session.jsonl. A mapper reading
+  // only the top level therefore saw no `success` at all and demoted every failing quality
+  // gate to a bare "tool_result ok" — the exact blindness the raw-shape test above covers.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      tool: "script_run",
+      ok: true,
+      truncated: false,
+      output: {
+        ok: true,
+        success: false,
+        script_id: "q",
+        exit_code: 2,
+        structured_errors: [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }],
+      },
+    },
+  });
+
+  assert.equal(t?.payload.ok, false, "a gate that rejected is not a success");
+  assert.equal(t?.payload.error_kind, "script_gate_failed");
+  assert.equal(t?.payload.script_id, "q");
+  assert.equal(t?.payload.exit_code, 2);
+  assert.deepEqual(t?.payload.errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
+});
+
+test("a script failure reaching the DB carries its reason, not error: undefined", () => {
+  // The host route puts its message in `stderr` (there is no `error` key on that shape), so
+  // a detail chain of error/message alone stored the most common failure in the loop —
+  // script_not_found, and every shell-refusal hint — as a row with no reason text.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      tool: "script_run",
+      ok: false,
+      error_kind: "script_not_found",
+      output: { ok: false, error_kind: "script_not_found", stderr: "Allowed shell commands: git init; git add -A" },
+    },
+  });
+
+  assert.equal(t?.payload.ok, false);
+  assert.equal(t?.payload.error_kind, "script_not_found");
+  assert.match(t?.payload.error, /Allowed shell commands/);
+});
+
+test("maps a passing gate to a plain successful tool_result", () => {
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: { ok: true, success: true, script_id: "q", exit_code: 0, stdout: "all checks passed" },
+  });
+
+  assert.equal(t?.event_type, "tool_result");
+  assert.deepEqual(t?.payload, { tool: "script_run", ok: true });
+});
+
+test("a call that never ran carries its gate codes too", () => {
+  // ok:false is the call itself failing; protocol-loop forwards structured_errors on that
+  // branch as well, so the codes must survive there and not only on the gate branch.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      ok: false,
+      error_kind: "script_error",
+      structured_errors: [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }],
+    },
+  });
+
+  assert.equal(t?.payload.ok, false);
+  assert.equal(t?.payload.error_kind, "script_error");
+  assert.deepEqual(t?.payload.errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
+});
+
+test("a tool result with no gate report omits the errors field entirely", () => {
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "file_operation",
+    observation: { ok: false, error_kind: "workspace_unavailable" },
+  });
+
+  assert.equal(t?.payload.errors, undefined);
+});
+
+test("phase_stalled carries the blocking tool calls into the DB payload", () => {
+  const detail = [{ tool: "file_operation", error: "invalid_generated_path", path: "sessions/x/phase_complete.json" }];
+  const t = sessionEventToTelemetry("trace-1", { type: "phase_stalled", phase: "upy-generate-plugin", reason: "max_turns", detail });
+
+  assert.equal(t?.event_type, "phase_stalled");
+  assert.equal(t?.payload.phase, "upy-generate-plugin");
+  assert.equal(t?.payload.reason, "max_turns");
+  // Without this the DB says a phase ran out of turns and nothing about why.
+  assert.deepEqual(t?.payload.detail, detail);
+});
+
+test("a string-shaped gate report reaches the DB readable, not as empty objects", () => {
+  // select_hw_manifest.py collects `errors: list[str]`. Mapping only code+path stored the
+  // entire report as [{}, {}, {}]: present, and carrying nothing.
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: {
+      ok: true,
+      success: false,
+      exit_code: 1,
+      structured_errors: ["selected_board.display_name is required", "board definition not found: esp32-c6-devkitc-1.json"],
+    },
+  });
+
+  assert.equal(t?.payload.ok, false);
+  assert.deepEqual(t?.payload.errors, [
+    { message: "selected_board.display_name is required" },
+    { message: "board definition not found: esp32-c6-devkitc-1.json" },
+  ]);
+});
+
+test("an object-shaped gate entry with a message but no code keeps the message", () => {
+  const t = sessionEventToTelemetry("trace-1", {
+    type: "tool_result",
+    name: "script_run",
+    observation: { ok: true, success: false, structured_errors: [{ message: "pinout must include a ground pin", path: "manifest.json" }] },
+  });
+
+  assert.deepEqual(t?.payload.errors, [{ message: "pinout must include a ground pin", path: "manifest.json" }]);
+});

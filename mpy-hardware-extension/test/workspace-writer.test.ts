@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { isRealContained, planWorkspaceWrites, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
+import { WRITABLE_PATHS_HINT, WRITABLE_PATTERNS, isRealContained, normalizeGeneratedArtifactPath, planWorkspaceWrites, stripRedundantPathRoot, suggestWritablePath, writeGeneratedFiles, writeProjectFile } from "../src/extension/workspace-writer.ts";
 
 test("isRealContained allows the root and contained paths, refuses ../ escapes", () => {
   const root = mkdtempSync(join(tmpdir(), "mpyhw-contain-"));
@@ -211,4 +211,198 @@ test("post-loop batch writer keeps its narrow allowlist (no firmware/ tree leak)
     assert.equal(result.ok, false, name);
     assert.equal(result.error_kind, "invalid_generated_path", name);
   }
+});
+
+test("write_project_file accepts the plugin's per-session bookkeeping under sessions/", async () => {
+  // upy-generate-plugin SKILL.md declares session_root as sessions/<session_id>/ and makes the
+  // phase_complete artifact a precondition of result=success. Rejecting these is what made a
+  // finished generate phase burn its turn budget on a write it could never land.
+  const written: string[] = [];
+  for (const path of [
+    "sessions/upy-generate-plugin/phase_complete.upy_generate_plugin.json",
+    "sessions/s1/session_state.upy_generate_plugin.json",
+    "sessions/s1/generate_phase_log.md",
+  ]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "{}",
+      writeFile: async (target: string) => { written.push(target); },
+    });
+    assert.equal(result.ok, true, path);
+  }
+  assert.deepEqual(written, [
+    "C:/project/sessions/upy-generate-plugin/phase_complete.upy_generate_plugin.json",
+    "C:/project/sessions/s1/session_state.upy_generate_plugin.json",
+    "C:/project/sessions/s1/generate_phase_log.md",
+  ]);
+});
+
+test("the sessions/ allowance carries bookkeeping only — never code, never an escape", async () => {
+  for (const path of [
+    "sessions/s1/evil.py",            // executable code must not ride in on a bookkeeping rule
+    "sessions/s1/payload.sh",
+    "sessions",                       // the dir itself is not a file
+    "sessions/../escape.json",        // traversal stays rejected
+    "/sessions/s1/abs.json",          // absolute stays rejected
+  ]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "x",
+      writeFile: async () => { throw new Error("must not be written"); },
+    });
+    assert.equal(result.ok, false, path);
+    assert.equal(result.error_kind, "invalid_generated_path", path);
+  }
+});
+
+test("the post-loop batch writer still rejects sessions/ (the allowance is project-tree only)", async () => {
+  const result = await writeGeneratedFiles({
+    workspaceFolder: "C:/project",
+    files: { "sessions/s1/phase_complete.json": "{}" },
+    exists: async () => false,
+    writeFile: async () => undefined,
+    confirmOverwrite: async () => true,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "invalid_generated_path");
+});
+
+test("root-level JSON working files are writable (the plugin hands off through them)", async () => {
+  // One run burned its whole turn budget on 12 rejected paths because only four exact root
+  // names were permitted. These are the real ones it tried.
+  for (const path of ["manifest_draft.json", "phase_complete_draft.json", "current_manifest.json", "phase_complete.select_hw.json"]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "{}",
+      writeFile: async () => undefined,
+    });
+    assert.equal(result.ok, true, path);
+  }
+});
+
+test("the root-JSON allowance is data only — code at the root is still refused, with a hint", async () => {
+  for (const path of ["_run_lint.py", "evil.sh", "setup.cfg"]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "x",
+      writeFile: async () => { throw new Error("must not be written"); },
+    });
+    assert.equal(result.ok, false, path);
+    assert.equal(result.error_kind, "invalid_generated_path", path);
+    // The rejection must say what WOULD work, or the model can only guess.
+    assert.equal(result.allowed, WRITABLE_PATHS_HINT, path);
+  }
+});
+
+// The hint alone was not enough, and naming the corrected path did not work either: a measured
+// run was told the exact correction on 12 of 12 rejections and re-sent `project/firmware/main.py`
+// nine times regardless, then died on max_turns. The Skill documents the layout as
+// sessions/<id>/project/firmware/, while a write path here is relative to the project dir, so
+// the model is following its own docs. Accept the unambiguous case and write where it meant.
+test("a redundant project/ prefix is accepted and written to the corrected path", async () => {
+  const cases: Array<[string, string]> = [
+    ["project/firmware/main.py", "C:/project/firmware/main.py"],
+    ["project/generate_plan.json", "C:/project/generate_plan.json"],
+    ["project/.flake8", "C:/project/.flake8"],
+    ["blockless-project/firmware/main.py", "C:/project/firmware/main.py"],
+    ["./firmware/main.py", "C:/project/firmware/main.py"],
+    ["project\\firmware\\main.py", "C:/project/firmware/main.py"],
+  ];
+  for (const [sent, target] of cases) {
+    const written: string[] = [];
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path: sent,
+      content: "x",
+      writeFile: async (p: string) => { written.push(p); },
+    });
+    assert.equal(result.ok, true, sent);
+    assert.deepEqual(written, [target], sent);
+    // The result reports where it ACTUALLY landed, so the model is not misled.
+    assert.equal(result.path, target, sent);
+  }
+});
+
+test("only one redundant segment is dropped, and never into a path the allowlist refuses", async () => {
+  // Accepting the unambiguous case must not become a general search. Stripping arbitrary
+  // leading segments would turn docs/firmware/main.py into firmware/main.py and write
+  // somewhere the model never asked for.
+  for (const path of ["project/secrets/key.pem", "docs/firmware/main.py", "evil.sh", "project/project/firmware/main.py"]) {
+    const result = await writeProjectFile({
+      workspaceFolder: "C:/project",
+      path,
+      content: "x",
+      writeFile: async () => { throw new Error("must not be written"); },
+    });
+    assert.equal(result.ok, false, path);
+    assert.equal(result.error_kind, "invalid_generated_path", path);
+    assert.equal(result.allowed, WRITABLE_PATHS_HINT, `${path} still says what would work`);
+  }
+});
+
+test("stripRedundantPathRoot drops exactly one known root, or nothing", () => {
+  assert.equal(stripRedundantPathRoot("project/firmware/main.py"), "firmware/main.py");
+  assert.equal(stripRedundantPathRoot("blockless-project/lib/a.py"), "lib/a.py");
+  assert.equal(stripRedundantPathRoot("./firmware/main.py"), "firmware/main.py");
+  assert.equal(stripRedundantPathRoot("project\\firmware\\main.py"), "firmware/main.py");
+  // Not a known root, a bare name, or nothing left after the strip.
+  assert.equal(stripRedundantPathRoot("docs/firmware/main.py"), undefined);
+  assert.equal(stripRedundantPathRoot("firmware/main.py"), undefined);
+  // A BARE redundant root means the project root itself, so it strips to "". Callers test for
+  // undefined, not truthiness: `mkdir project` must not create a stray project/ tree, and
+  // `list project` must list the real root instead of reporting not_found.
+  assert.equal(stripRedundantPathRoot("project"), "");
+  assert.equal(stripRedundantPathRoot("project/"), "");
+  // Fails without the trailing-slash strip: "firmware/" is not a path the writer accepts.
+  assert.equal(stripRedundantPathRoot("project/firmware/"), "firmware");
+  assert.equal(stripRedundantPathRoot("docs"), undefined);
+  // A bare root is still not a writable target: "" is no suggestion.
+  assert.equal(suggestWritablePath("project", { allowProjectTree: true }), undefined);
+});
+
+test("suggestWritablePath never proposes a path the writer would refuse", () => {
+  // The same closed loop the hint has: a suggestion that is itself rejected would send the
+  // model into a confident retry of something that cannot work.
+  for (const sent of ["project/firmware/main.py", "project/generate_plan.json", "project/.flake8", "blockless-project/lib/helper.py"]) {
+    const meant = suggestWritablePath(sent, { allowProjectTree: true });
+    assert.ok(meant, sent);
+    assert.ok(normalizeGeneratedArtifactPath(meant!, { allowProjectTree: true }), `${meant} must actually be writable`);
+  }
+});
+
+test("the writable-paths hint cannot lie — every pattern it advertises is accepted", () => {
+  // The hint and these examples are built from ONE table, so a claim cannot be added to the
+  // hint without adding an example here, and each example is checked against the real writer.
+  // A hint advertising a path the writer refuses is worse than no hint: it sends the model
+  // into a confident loop.
+  assert.ok(WRITABLE_PATTERNS.length >= 10, "every advertised pattern contributes an example");
+  for (const { example: path } of WRITABLE_PATTERNS) {
+    assert.equal(
+      normalizeGeneratedArtifactPath(path, { allowProjectTree: true }), path,
+      `hint advertises a pattern that "${path}" should satisfy, but the writer refuses it`,
+    );
+  }
+  // And the claim the hint makes about code is true.
+  assert.match(WRITABLE_PATHS_HINT, /Executable code must live under/);
+  for (const rejected of ["main_loop.py", "run.sh"]) {
+    assert.equal(normalizeGeneratedArtifactPath(rejected, { allowProjectTree: true }), null, rejected);
+  }
+});
+
+test("the post-loop batch writer does not inherit the root-JSON allowance", async () => {
+  const result = await writeGeneratedFiles({
+    workspaceFolder: "C:/project",
+    files: { "manifest_draft.json": "{}" },
+    exists: async () => false,
+    writeFile: async () => undefined,
+    confirmOverwrite: async () => true,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error_kind, "invalid_generated_path");
 });

@@ -3,8 +3,11 @@
 Hermetic: resolution is checked against the real vendored submodule; execution is
 checked with an injected fake runner (no venv, no real subprocess).
 """
+import inspect
 import os
+import pathlib
 import sys
+import tempfile
 import types
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -393,15 +396,129 @@ def test_maintenance_scripts_are_not_runnable_from_a_phase():
     assert os.path.isfile(os.path.join(serve.scripts_root(), "upy-maixpy-export-plugin", "scripts", "crawl_sipeed_maixpy_docs.py"))
 
 
+def test_run_v0_shell_allows_the_read_only_git_forms_the_contract_needs():
+    # The generate contract requires session_state.git_commit to record project HEAD, and a
+    # fresh project needs `git init`. Refusing these stalled the phase.
+    # `git init` is preceded by an is-inside-work-tree probe (see the nesting test below).
+    # The fake runner answers "", i.e. not a work tree, so the init itself still runs.
+    probe = ["git", "rev-parse", "--is-inside-work-tree"]
+    for command, expected in (
+        ("git rev-parse HEAD", [["git", "rev-parse", "HEAD"]]),
+        ("git status --short", [["git", "status", "--short"]]),
+        ("git init", [probe, ["git", "init"]]),
+        (
+            'git init && git add -A && git commit -m "generate: initial"',
+            [probe, ["git", "init"], ["git", "add", "-A"], ["git", "commit", "-m", "generate: initial"]],
+        ),
+    ):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "shell", "script": command, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "ok", (command, res)
+        assert [entry["cmd"] for entry in record] == expected, command
+        assert all(entry["kwargs"].get("shell") is None for entry in record), command
+
+
+def test_run_v0_shell_skips_git_init_inside_an_existing_work_tree():
+    # The folder the user opened is often a SUBDIRECTORY of their own repo
+    # (repo/projects/my-blinky). `git init` there creates a nested repository and the parent
+    # silently stops tracking that whole subtree. The contract only needs the project to be
+    # in a work tree, and it already is, so the init must be skipped -- while the rest of
+    # the chain still runs, or the phase stalls on a missing commit.
+    record = []
+
+    def runner(cmd, **kwargs):
+        record.append({"cmd": cmd, "kwargs": kwargs})
+        if cmd == ["git", "rev-parse", "--is-inside-work-tree"]:
+            return _fake_proc(stdout="true\n")
+        return _fake_proc(stdout="")
+
+    shim = serve.Shim(runner=runner)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "shell", "script": 'git init && git add -A && git commit -m "generate: initial"',
+        "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+    ran = [entry["cmd"] for entry in record]
+    assert ["git", "init"] not in ran, f"git init must not run inside an existing work tree: {ran}"
+    assert ["git", "add", "-A"] in ran and ["git", "commit", "-m", "generate: initial"] in ran, ran
+
+
+def test_run_v0_shell_refusal_names_the_permitted_commands():
+    # Without this the model only learned that its guess was wrong, so it kept guessing until
+    # the phase ran out of turns. The message reaches it as the tool result's stderr.
+    shim = _shim_with([])
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "shell", "script": "git log --oneline", "project_dir": "/tmp/proj",
+    })
+    assert res["error_kind"] == "shell_command_not_allowed"
+    assert res["message"] == serve.ALLOWED_SHELL_COMMANDS_HINT
+    assert "git rev-parse HEAD" in res["message"]
+    # The refusal must not send the model to a route that does not exist. interpreter=python
+    # resolves BUNDLED plugin scripts only, so "just use interpreter=python" would turn one
+    # dead end into a second (script_not_found) for something like `python -m flake8`.
+    assert "run_quality_gates.py" in res["message"], "name where linting actually happens"
+    assert "not arbitrary modules" in res["message"], "do not imply a module route exists"
+
+
+def test_allowed_shell_hint_cannot_lie():
+    # The hint and the parser are built from one table, so a form cannot be advertised without
+    # being runnable. A hint naming a command the shim then refuses would send the model into
+    # a confident loop -- worse than no hint.
+    for argv in serve._ALLOWED_SHELL_ARGV:
+        command = " ".join(argv)
+        assert command in serve.ALLOWED_SHELL_COMMANDS_HINT, command
+        assert serve._parse_v0_shell_command(command) == [list(argv)], command
+    assert serve._parse_v0_shell_command('git commit -m "x"') == [["git", "commit", "-m", "x"]]
+
+
+def test_run_v0_shell_still_refuses_an_over_long_chain_and_a_disallowed_part():
+    # Every part is validated on its own, so a permitted command cannot carry an unpermitted
+    # one along by position, and the chain length is bounded.
+    record = []
+    shim = _shim_with(record)
+    for cmd in (
+        "git rev-parse HEAD && rm -rf /tmp/proj",
+        # Every part here is individually PERMITTED, so this is refused purely on chain length.
+        # Without an all-allowed case the bound is never exercised: a chain containing a
+        # disallowed part is refused by the allowlist whatever the limit is.
+        "git init && git init && git init && git init",
+        "git commit -m ''",
+        "git log",
+    ):
+        res = serve._dispatch(shim, "script.run_v0", {"interpreter": "shell", "script": cmd, "project_dir": "/tmp/proj"})
+        assert res["status"] == "error" and res.get("error_kind") == "shell_command_not_allowed", (cmd, res)
+    assert not record, "nothing may reach subprocess when any part is disallowed"
+
+
+# Every test must be DEFINED above this block. A test defined below it is never bound when the
+# file runs as a script, so this runner would print ALL PASS while silently skipping it.
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
             try:
-                fn()
+                # A test that takes `tmp_path` wants pytest's fixture. SUPPLY one (a fresh
+                # dir per test, cleaned up after) rather than skipping: skipping printed
+                # "ALL PASS" and exit 0 while the A3a firmware/tools-stripping gate was
+                # never executed, which is a green light for code nobody ran. Any OTHER
+                # signature is a real failure here, not something to pass over quietly.
+                params = list(inspect.signature(fn).parameters)
+                if params == ["tmp_path"]:
+                    with tempfile.TemporaryDirectory() as tmp:
+                        fn(pathlib.Path(tmp))
+                elif params:
+                    raise AssertionError(f"unsupported fixtures {params}; this runner only supplies tmp_path")
+                else:
+                    fn()
                 print(f"PASS {name}")
             except Exception as exc:  # noqa: BLE001
                 failures += 1
                 print(f"FAIL {name}: {exc}")
-    print(f"\n{('ALL PASS' if not failures else str(failures) + ' FAILED')}")
+    verdict = "ALL PASS" if not failures else f"{failures} FAILED"
+    print(f"\n{verdict}")
     sys.exit(1 if failures else 0)

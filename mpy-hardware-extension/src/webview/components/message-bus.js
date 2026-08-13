@@ -222,6 +222,13 @@
           // interrupted turn can be re-issued verbatim — offer a one-click retry.
           if (t === "llm_unreachable" || t === "sse_stream_interrupted") addRetryCard();
         }
+        if (msg.type === "phase_stalled") {
+          // WHICH step gave up, and that it is not worth retrying blindly. The failing tool
+          // calls behind it are deliberately NOT here: tool names, script filenames and error
+          // kinds are diagnosis material and go to the support export and the cloud record
+          // instead (session-controller). Point the user at that export rather than printing it.
+          addActivity({ text: tr("phase_stalled_reason", { p: String(msg.phase) }) }, "error");
+        }
         if (msg.type === "phase_error") {
           // WHY the run is about to end "failed" — the terminal line alone can't say, because
           // "failed" is also what the model reports when it gives up on its own. Rendered as a

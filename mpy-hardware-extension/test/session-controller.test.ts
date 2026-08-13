@@ -4,6 +4,7 @@ import test from "node:test";
 import { SessionController } from "../src/extension/session-controller.ts";
 import { isNetworkRenderDenied } from "../src/core/optional-flow-schema.ts";
 import { buildGenDriverDispatch } from "../src/core/gen-driver-schema.ts";
+import { sessionEventToTelemetry } from "../src/core/telemetry.ts";
 
 // Let a loop that awaits one gate advance to the next: after resolving the first
 // prompt, the loop's continuation (and the next gate's message/record) runs on a
@@ -2320,4 +2321,117 @@ test("a session inside the cap carries no truncation marker", async () => {
   await controller.start({ intent: "x", boardId: "esp32" });
 
   assert.equal(controller.getDiagnostics().credit_usage, "upy-generate-plugin/generate: 1 credit over 1 turn, remaining 46");
+});
+
+// The wire between the protocol loop and the DB. Emitting the events and mapping them
+// correctly is not enough on its own: the controller sits between the two, and an event
+// with no branch of its own falls to the generic trace_event catch-all, which is shaped by
+// a DIFFERENT mapper. That gap put 53 content-free rows in the DB while both ends passed
+// their own tests, so this asserts the SHAPE THAT REACHES THE CLOUD, not just that
+// something was recorded.
+test("a protocol tool call reaches the cloud as tool_dispatch with its tool name", async () => {
+  const recorded: any[] = [];
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m) => posted.push(m),
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "tool_use", name: "script_run", input: { script: "run_quality_gates.py" } });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const event = recorded.find((e) => e.type === "tool_use");
+  assert.ok(event, "recorded as itself, not buried in a trace_event wrapper");
+  const mapped = sessionEventToTelemetry("trace-1", event);
+  assert.equal(mapped?.event_type, "tool_dispatch");
+  assert.equal(mapped?.payload.tool, "script_run", "the tool name survives the trip to the DB");
+  assert.equal(posted.some((m) => m.type === "trace_event"), false, "diagnostics do not arm the webview spinner");
+});
+
+test("a failed gate reaches the cloud with its error codes, not a bare ok", async () => {
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({
+        type: "tool_result",
+        name: "script_run",
+        observation: {
+          ok: true,
+          success: false,
+          script_id: "q",
+          exit_code: 2,
+          structured_errors: [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }],
+        },
+      });
+      return { terminal: "complete" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const event = recorded.find((e) => e.type === "tool_result");
+  assert.ok(event, "recorded as itself");
+  const mapped = sessionEventToTelemetry("trace-1", event);
+  assert.equal(mapped?.event_type, "tool_result");
+  assert.equal(mapped?.payload.tool, "script_run");
+  assert.equal(mapped?.payload.ok, false, "a rejected gate is not stored as a success");
+  assert.deepEqual(mapped?.payload.errors, [{ code: "GENERATE_PLAN_FILE_PATH_MISSING", path: "firmware/app/x.py" }]);
+});
+
+test("the stall blockers reach diagnostics and the cloud, but never the webview", async () => {
+  // Tool names, script filenames and error kinds are diagnosis material. They belong in the
+  // support export and the cloud record; the end user has no use for them.
+  const recorded: any[] = [];
+  const posted: any[] = [];
+  const detail = [{ tool: "file_operation", error: "invalid_generated_path", path: "sessions/x/phase_complete.json" }];
+  const controller = new SessionController({
+    postMessage: (m) => posted.push(m),
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "phase_stalled", phase: "upy-generate-plugin", reason: "max_turns", detail });
+      return { terminal: "stalled" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  // 1. the cloud record keeps the full detail
+  const event = recorded.find((e) => e.type === "phase_stalled");
+  assert.deepEqual(event.detail, detail, "the blocker is recorded, not dropped at the controller");
+  const mapped = sessionEventToTelemetry("trace-1", event);
+  assert.equal(mapped?.event_type, "phase_stalled");
+  assert.deepEqual(mapped?.payload.detail, detail, "and it survives into the DB payload");
+
+  // 2. the support export names the blocker
+  const diag = controller.getDiagnostics();
+  assert.match(diag.key_errors, /upy-generate-plugin/);
+  assert.match(diag.key_errors, /invalid_generated_path/, "the blocker is in the diagnostics export");
+  assert.match(diag.key_errors, /sessions\/x\/phase_complete\.json/);
+
+  // 3. the webview gets the step and reason ONLY
+  const post = posted.find((m) => m.type === "phase_stalled");
+  assert.equal(post.phase, "upy-generate-plugin");
+  assert.equal(post.detail, undefined, "internals must not be sent to the webview at all");
+});
+
+test("a stall with no captured blockers still records the phase and reason", async () => {
+  const recorded: any[] = [];
+  const controller = new SessionController({
+    postMessage: () => { },
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }) => {
+      onEvent({ type: "phase_stalled", phase: "select-hw", reason: "no_tool_call", detail: [] });
+      return { terminal: "stalled" };
+    },
+  });
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  assert.match(controller.getDiagnostics().key_errors, /stalled: select-hw \(no_tool_call\)/);
+  assert.doesNotMatch(controller.getDiagnostics().key_errors, /\[\]/, "no empty bracket noise when there are no blockers");
 });

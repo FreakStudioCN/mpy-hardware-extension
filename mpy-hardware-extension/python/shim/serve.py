@@ -293,26 +293,70 @@ def _subprocess_text_kwargs():
         "env": {**os.environ, "PYTHONIOENCODING": "utf-8"},
     }
 
-def _parse_v0_git_commit_shell(command: str) -> list[list[str]] | None:
+# Every shell form the V0 phases may run, as EXACT argv. `git rev-parse HEAD` is required by
+# the generate contract (session_state.git_commit must record project HEAD) and `git init`
+# by a project that is not a repo yet; refusing them stalled the phase, because
+# update_session_state.py then failed with SESSION_STATE_ARTIFACTS_MISSING and the model had
+# no way to learn what it was allowed to run.
+_ALLOWED_SHELL_ARGV: tuple[tuple[str, ...], ...] = (
+    ("git", "init"),
+    ("git", "add", "-A"),
+    ("git", "rev-parse", "HEAD"),
+    ("git", "status", "--short"),
+)
+# Forms whose LAST token is model-supplied text rather than a fixed word.
+_ALLOWED_SHELL_PREFIX: tuple[tuple[str, ...], ...] = (("git", "commit", "-m"),)
+# `git init && git add -A && git commit -m "..."` is the longest real chain.
+_MAX_SHELL_PARTS = 3
+
+# Returned on every refusal so the model corrects instead of guessing. Built from the tables
+# above, so a command cannot be permitted without the hint naming it, nor named without being
+# permitted; test_serve.py asserts every advertised form actually runs.
+ALLOWED_SHELL_COMMANDS_HINT = (
+    "Allowed shell commands: "
+    + "; ".join(" ".join(argv) for argv in _ALLOWED_SHELL_ARGV)
+    + '; git commit -m "<message>"'
+    + f". Chain at most {_MAX_SHELL_PARTS} of them with '&&'; no other operator is accepted."
+    " There is no shell route for Python: interpreter=python runs BUNDLED PLUGIN SCRIPTS by"
+    " name, not arbitrary modules. Linting is not yours to invoke either, run_quality_gates.py"
+    " already runs flake8 over firmware/, test/, device/ and tools/ and reports it back."
+)
+
+
+def _resolve_allowed_shell_argv(tokens: list[str]) -> list[str] | None:
+    """One `&&` part -> the argv to execute, or None when it is not permitted."""
+    if tuple(tokens) in _ALLOWED_SHELL_ARGV:
+        return list(tokens)
+    for prefix in _ALLOWED_SHELL_PREFIX:
+        # Exactly one argument after the prefix, and it must not be blank.
+        if len(tokens) == len(prefix) + 1 and tuple(tokens[: len(prefix)]) == prefix and tokens[-1].strip():
+            return [*prefix, tokens[-1].strip()]
+    return None
+
+
+def _parse_v0_shell_command(command: str) -> list[list[str]] | None:
+    """Split an allowed `&&` chain into argv lists, or None if ANY part is not permitted.
+
+    Each part is validated on its own and executed as argv, never handed to a shell, so a
+    chain cannot smuggle a command past the allowlist by position.
+    """
     cmd = str(command or "").strip()
     if not cmd or any(ch in cmd for ch in (";", "|", "<", ">", "`", "\n", "\r", "\0")):
         return None
-    if cmd.count("&&") != 1:
+    parts = [part.strip() for part in cmd.split("&&")]
+    if not 1 <= len(parts) <= _MAX_SHELL_PARTS:
         return None
-    add_part, commit_part = [part.strip() for part in cmd.split("&&", 1)]
-    try:
-        add_tokens = shlex.split(add_part, posix=True)
-        commit_tokens = shlex.split(commit_part, posix=True)
-    except ValueError:
-        return None
-    if add_tokens != ["git", "add", "-A"]:
-        return None
-    if len(commit_tokens) != 4 or commit_tokens[:3] != ["git", "commit", "-m"]:
-        return None
-    message = commit_tokens[3].strip()
-    if not message:
-        return None
-    return [["git", "add", "-A"], ["git", "commit", "-m", message]]
+    resolved: list[list[str]] = []
+    for part in parts:
+        try:
+            tokens = shlex.split(part, posix=True)
+        except ValueError:
+            return None
+        argv = _resolve_allowed_shell_argv(tokens)
+        if argv is None:
+            return None
+        resolved.append(argv)
+    return resolved
 
 
 # ---------- firmware/ upload exclusion (shared by device.deploy_firmware_tree and
@@ -648,19 +692,47 @@ class Shim:
         return self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
 
     def run_v0_shell(self, command: str, cwd=None, stdin=None, timeout: float = 300):
-        # V0 generate emits script_run(shell, 'git add -A && git commit -m "..."').
-        # Do not pass that string to a host shell; execute the two allowed git argv
-        # calls directly so chained shell metacharacters never run.
-        commands = _parse_v0_git_commit_shell(command)
+        # V0 generate emits script_run(shell, 'git add -A && git commit -m "..."') and a few
+        # other git forms. Do not pass that string to a host shell; execute each allowed argv
+        # directly so chained shell metacharacters never run.
+        commands = _parse_v0_shell_command(command)
         if commands is None:
             raise ValueError("shell_command_not_allowed")
         last = None
         for cmd in commands:
+            if cmd == ["git", "init"] and self._inside_work_tree(cwd, timeout):
+                # The opened folder is commonly a SUBDIRECTORY of the user's own repo
+                # (repo/projects/my-blinky). `git init` there creates a nested repository,
+                # and the parent silently stops tracking that whole subtree -- a mutation of
+                # the user's version control that they never asked for and would not think
+                # to look for. Every other destructive host operation the model can reach is
+                # gated (guardOverwrite / guardDelete / confirmDeviceDelete); this one was
+                # not. The contract only needs the project to BE in a work tree, and it
+                # already is, so report that and move on instead of creating a second repo.
+                last = subprocess.CompletedProcess(
+                    cmd, 0,
+                    stdout="Skipped by the host: already inside a git work tree, so no repository was created.\n",
+                    stderr="",
+                )
+                continue
             self.commands.append(cmd)
             last = self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
             if getattr(last, "returncode", 1) != 0:
                 return last
         return last
+
+    def _inside_work_tree(self, cwd, timeout: float) -> bool:
+        """True when cwd already sits inside a git work tree.
+
+        Goes through self.runner like every other command, so the probe is visible to the
+        injected fake in tests. A probe that cannot run (git absent, non-zero, anything
+        unexpected) answers False: that is the pre-existing behaviour -- `git init` runs --
+        so a broken probe can never block a legitimate init on a fresh project.
+        """
+        cmd = ["git", "rev-parse", "--is-inside-work-tree"]
+        self.commands.append(cmd)
+        probe = self.runner(cmd, timeout=timeout, cwd=cwd, **_subprocess_text_kwargs())
+        return getattr(probe, "returncode", 1) == 0 and str(getattr(probe, "stdout", "")).strip() == "true"
 
     def _run(self, command: list[str], timeout: float = 30):
         self.commands.append(command)
@@ -1324,9 +1396,11 @@ def _run_v0_script(shim, params):
     timeout = float(params.get("timeout_ms", 300000)) / 1000.0
     if interpreter == "shell":
         cmd = script if not args else script + " " + " ".join(args)
-        if _parse_v0_git_commit_shell(cmd) is None:
+        if _parse_v0_shell_command(cmd) is None:
+            # `message` reaches the model as the tool result's stderr (protocol-build maps it),
+            # so naming the permitted forms here is what stops it guessing for a whole phase.
             return {"status": "error", "error_kind": "shell_command_not_allowed",
-                    "message": "only the generate-phase git add/commit command is permitted"}
+                    "message": ALLOWED_SHELL_COMMANDS_HINT}
         return _v0_result(shim.run_v0_shell(cmd, cwd=cwd, stdin=stdin_content, timeout=timeout))
     if interpreter == "node":
         # Fail fast: no node toolchain is assumed in the host shim. Don't fake success.

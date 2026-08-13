@@ -3,6 +3,7 @@
 // on the user's machine, feeds results back, and auto-advances phases on
 // phase_complete. Mirrors the proven backend e2e harness, in TypeScript.
 import { PROTOCOL_TOOLS, PROTOCOL_TOOL_NAMES, routeForTool } from "./protocol-registry.ts";
+import { normalizeObservation } from "./observations.ts";
 
 export const PHASE_ORDER = ["analyze", "select-hw", "upy-flash-mpy-firmware-plugin", "upy-scaffold-plugin", "upy-generate-plugin", "upy-deploy-plugin"] as const;
 
@@ -88,7 +89,9 @@ export type ProtocolDeps = {
   // Device I/O (mpremote). action -> result; the host wires this to the real shim.
   device?: (action: string, payload: any) => Promise<{ ok: boolean; stdout?: string; stderr?: string; error_kind?: string }>;
   // Workspace file I/O (host enforces path containment).
-  writeFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; error_kind?: string }>;
+  // `allowed` (present on a rejected path) describes what the workspace WILL accept. Forwarded
+  // to the model so a wrong path is corrected next turn instead of guessed at repeatedly.
+  writeFile?: (path: string, content: string) => Promise<{ ok: boolean; path?: string; relative_path?: string; error_kind?: string; allowed?: string }>;
   readFile?: (path: string) => Promise<{ ok: boolean; content?: string; error_kind?: string }>;
   listFiles?: (path: string) => Promise<{ ok: boolean; entries?: string[]; error_kind?: string }>;
   // mkdir / delete (host enforces containment). The generate phase deletes
@@ -160,6 +163,58 @@ function buildContext(input: ProtocolInput, absorbedSupplements: string[]): Reco
   return Object.keys(ctx).length ? ctx : null;
 }
 
+// Longest string field kept verbatim in the tool_use telemetry payload.
+const TELEMETRY_INPUT_STRING_BUDGET = 200;
+
+// Shrink a tool input down to the IDENTITY of the call (tool, path, script_id, flags)
+// for telemetry. A file_operation write carries a whole generated file, and a phase can burn
+// its full 60-turn budget rewriting the same files, so emitting inputs verbatim would
+// bury every other event in the trace under file bodies. The size guard in telemetry.ts
+// truncates such a field but does not shrink it, and the content is not what a stall
+// triage reads: WHICH file was rewritten how many times is.
+// ponytail: one level deep. A nested object is recorded as "<object>", not walked, so an
+// input that hides its path inside a sub-object shows nothing useful -- walk it only if a
+// real trace needs it.
+function compactToolInput(input: any): Record<string, any> {
+  const compact: Record<string, any> = {};
+  for (const [key, value] of Object.entries(input ?? {})) {
+    if (typeof value === "string") compact[key] = value.length > TELEMETRY_INPUT_STRING_BUDGET ? `<${value.length} chars>` : value;
+    else if (Array.isArray(value)) compact[key] = `<${value.length} items>`;
+    else if (value && typeof value === "object") compact[key] = "<object>";
+    else compact[key] = value;
+  }
+  return compact;
+}
+
+// How many recent tool failures a stalled phase reports as its detail.
+const STALL_DETAIL_LIMIT = 3;
+
+// One gate-report entry, read in BOTH real shapes. run_quality_gates.py emits objects
+// ({code, path}); the select-hw / analyze validators emit a plain string per problem
+// ("selected_board.display_name is required"). Reading only `.code` turned every
+// string-shaped report into an empty object, so a stalled phase reported "failed" and the
+// DB stored `errors: [{}, {}, {}]` -- the report was there and unreadable.
+function gateEntryReason(entry: any): string {
+  if (typeof entry === "string") return entry;
+  return String(entry?.code ?? entry?.message ?? "");
+}
+
+// The one-line "what actually blocked this call" for a failing tool result, or null when it
+// succeeded. A stalled phase carries the last few of these so the stall names its blocker
+// instead of a bare "max_turns" the user reads as transient.
+// Three result shapes have to be read, because three routes produce them: fs ops report
+// `error`, host/protocol failures report `error_kind`, and a script that RAN but whose gate
+// REJECTED reports ok:true/success:false with structured_errors.
+// Error kinds and paths only. Never content.
+function toolFailure(tu: StreamEvent, result: any): { tool: string; error: string; path?: string } | null {
+  const failed = result?.ok === false || (result?.ok === true && result?.success === false);
+  if (!failed) return null;
+  const reasons = (result?.structured_errors ?? []).map(gateEntryReason).filter(Boolean);
+  const error = result?.error_kind ?? result?.error ?? reasons[0] ?? "failed";
+  const target = (tu.input as any)?.path ?? (tu.input as any)?.script;
+  return { tool: tu.name ?? "", error: String(error), ...(target ? { path: String(target) } : {}) };
+}
+
 // Drive one phase to its phase_complete (or stall/cancel). Returns the control the
 // notify executor captured from phase_complete.
 async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps, absorbedSupplements: string[]) {
@@ -167,6 +222,8 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
   const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_PER_PHASE;
   const context = buildContext(input, absorbedSupplements);
   let toollessTurns = 0;
+  // Rolling window of the most recent failing tool calls, reported if the phase gives up.
+  const recentFailures: Array<{ tool: string; error: string; path?: string }> = [];
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
     const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId, ...(context ? { context } : {}) };
@@ -198,14 +255,22 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     if (thinking) blocks.push({ type: "thinking", thinking });
     if (text) blocks.push({ type: "text", text });
     for (const tu of toolUses) blocks.push({ type: "tool_use", id: tu.id, name: tu.name, input: tu.input });
-    messages.push({ role: "assistant", content: blocks });
+    // A turn where the model returned NOTHING (no text, no thinking, no tool call) is not
+    // recorded. An empty assistant message carries no information, and it is not harmless:
+    // the api translates it to {"role":"assistant","content":""} with no tool_calls, which
+    // at least one upstream rejects outright ("the message at position N with role
+    // 'assistant' must not be empty"). Because history is replayed on EVERY later request,
+    // one such turn poisons the rest of the phase rather than costing a single turn, and the
+    // nudge loop below would append one per empty turn. Skipping it changes nothing for an
+    // upstream that tolerates the empty message: there was nothing in it to lose.
+    if (blocks.length > 0) messages.push({ role: "assistant", content: blocks });
 
     if (toolUses.length === 0) {
       // A prose-only turn can't advance the protocol. Stalling on the FIRST chatty reply
       // froze the UI on the current step ("姝ｅ湪鎼滅储椹卞姩") with no error 鈥?so nudge the
       // model to emit a tool, bounded, and only give up after MAX_TOOLLESS_TURNS in a row.
       if (++toollessTurns >= MAX_TOOLLESS_TURNS) {
-        input.onEvent?.({ type: "phase_stalled", phase, reason: "no_tool_call" });
+        input.onEvent?.({ type: "phase_stalled", phase, reason: "no_tool_call", detail: [...recentFailures] });
         return { done: false, stalled: true };
       }
       messages.push({ role: "user", content: [{ type: "text", text: "You must call exactly one protocol tool to proceed. Respond with a tool call, not prose." }] });
@@ -222,7 +287,24 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     for (const tu of toolUses) {
       // Honor a cancel that lands between tools in the same streamed batch.
       if (input.signal?.aborted) return { done: false, cancelled: true };
+      // The failure spine. Without these two the cloud recorder knew a phase ran its turn
+      // cap and nothing about WHICH tool ran or why its result was rejected, so a
+      // phase_stalled/max_turns was undiagnosable from the DB. The recorder already maps
+      // both shapes and the server already allowlists both event types.
+      input.onEvent?.({ type: "tool_use", name: tu.name, input: compactToolInput(tu.input) });
       const { result, phaseControl } = await executeProtocolTool(tu, input, deps, { phase, turn });
+      // Normalized, NOT raw. This event is recorded into session.jsonl, which the stall
+      // copy tells the user to export to support -- and a raw result carries absolute host
+      // paths (a Python traceback's C:\Users\<name>\...), raw mpremote commands, and up to
+      // the full 80,000-char cap per call. normalizeObservation is the redactor the
+      // agent-loop path already runs for exactly this reason; the asymmetry with tool_use
+      // (compacted just below) was the bug, not a deliberate difference.
+      input.onEvent?.({ type: "tool_result", name: tu.name, observation: normalizeObservation(tu.name ?? "", result) });
+      const failure = toolFailure(tu, result);
+      if (failure) {
+        recentFailures.push(failure);
+        if (recentFailures.length > STALL_DETAIL_LIMIT) recentFailures.shift();
+      }
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
       if (tu.name === "phase_complete" && phaseControl) control = phaseControl;
       // A host script result carrying GENERATE_PLAN_* structured errors gets a
@@ -245,7 +327,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     for (const m of correctiveMessages) messages.push(m);
     if (control) return { done: true, control };
   }
-  input.onEvent?.({ type: "phase_stalled", phase, reason: "max_turns" });
+  input.onEvent?.({ type: "phase_stalled", phase, reason: "max_turns", detail: [...recentFailures] });
   return { done: false, stalled: true };
 }
 
@@ -307,6 +389,86 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
 // error arrays, or a success report with empty arrays) returns undefined and changes
 // nothing about existing behavior. A parse failure here is NOT an error condition: it
 // just means "not a JSON report".
+// A tool result is read back by the model, so an oversized one does not merely cost
+// tokens: it pushes the conversation past the upstream's context window and kills the
+// run. One scaffold report measured 652,869 chars (43 file bodies carried twice, once
+// under `files` and again under `file_operations`) and added 206k tokens to the context
+// in a single turn; three turns later the request was rejected for exceeding the model's
+// limit. Cap what reaches the model here, so no single script can do that again.
+const TOOL_OUTPUT_MAX_CHARS = 80_000;
+// Per embedded string, applied inside a JSON report. File bodies are the bulk, and the
+// model does not need one read back to it: it just wrote it.
+const EMBEDDED_STRING_MAX_CHARS = 500;
+
+// One stable substring every host truncation carries. The write path below refuses any
+// body containing it, so a shortened value can never be transcribed back onto disk.
+export const HOST_TRUNCATION_MARKER = "removed by the host:";
+
+const truncationNote = (removed: number) =>
+  `…[${removed} chars ${HOST_TRUNCATION_MARKER} output too large to send. Do not re-run the script to see the rest.]`;
+
+// A shrunk EMBEDDED string is not merely shortened output: a scaffold report's `files[]`
+// and `file_operations[].payload.content` are bodies the model re-emits as writes, so the
+// generic "don't re-run" note read as "this is all there is" and the model wrote the note
+// itself into main.py, reported ok:true, and left the gate failing on a syntax error with
+// nothing explaining it. Say what the value IS, and where the real body lives instead.
+const bodyOmittedNote = (removed: number) =>
+  `…[${removed} chars ${HOST_TRUNCATION_MARKER} this value is NOT the full body and must never be written to a file. Read the file itself to get its content.]`;
+
+// Keep the head AND the tail. A report's verdict and its handoff payload sit at the END
+// (a scaffold report ends with manifest_content and phase_complete_payload), so a
+// head-only cut throws away exactly what the phase needs to continue.
+function clampKeepingTail(text: string): string {
+  const half = Math.floor(TOOL_OUTPUT_MAX_CHARS / 2);
+  return text.slice(0, half) + truncationNote(text.length - TOOL_OUTPUT_MAX_CHARS) + text.slice(-half);
+}
+
+function shrinkLongStrings(value: any): any {
+  if (typeof value === "string") {
+    return value.length <= EMBEDDED_STRING_MAX_CHARS
+      ? value
+      : value.slice(0, EMBEDDED_STRING_MAX_CHARS) + bodyOmittedNote(value.length - EMBEDDED_STRING_MAX_CHARS);
+  }
+  if (Array.isArray(value)) return value.map(shrinkLongStrings);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, inner] of Object.entries(value)) out[key] = shrinkLongStrings(inner);
+    return out;
+  }
+  return value;
+}
+
+// Shrink the oversized STRINGS inside a JSON report rather than cutting the text, so
+// every key survives and the result stays parseable. Falls back to a head+tail clamp for
+// output that is not JSON, or that is still too large once the strings are shrunk.
+export function capToolOutput(output: unknown): string {
+  const text = typeof output === "string" ? output : "";
+  if (text.length <= TOOL_OUTPUT_MAX_CHARS) return text;
+  try {
+    const shrunk = JSON.stringify(shrinkLongStrings(JSON.parse(text)));
+    return shrunk.length <= TOOL_OUTPUT_MAX_CHARS ? shrunk : clampKeepingTail(shrunk);
+  } catch {
+    return clampKeepingTail(text);
+  }
+}
+
+// A listing is a model-facing payload for the same reason stdout is, and a deep tree can
+// carry tens of thousands of entries. Keep the HEAD here (unlike stdout): entries arrive
+// shallowest-first, so the head is the part that describes the project. Report how many
+// were dropped, or the model reads a partial listing as the whole tree and concludes files
+// it just wrote are missing.
+export function capListEntries(entries: unknown[]): { entries: unknown[]; omitted: number } {
+  if (JSON.stringify(entries).length <= TOOL_OUTPUT_MAX_CHARS) return { entries, omitted: 0 };
+  const kept: unknown[] = [];
+  let used = 0;
+  for (const entry of entries) {
+    used += JSON.stringify(entry).length + 1;
+    if (used > TOOL_OUTPUT_MAX_CHARS) break;
+    kept.push(entry);
+  }
+  return { entries: kept, omitted: entries.length - kept.length };
+}
+
 function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; path?: string; message?: string }> | undefined {
   const text = typeof stdout === "string" ? stdout.trim() : "";
   if (!text.startsWith("{")) return undefined;
@@ -439,15 +601,17 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // ok:false = the call itself failed (host_runner_absent / script_not_found /
     // ambiguous_script_name) 鈥?surface it, forwarding any candidate qualified names so the
     // model can retry an ambiguous bare script name instead of re-sending it.
-    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: r.stderr ?? "", candidates: r.candidates, structured_errors: r.structured_errors } };
+    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: capToolOutput(r.stderr), candidates: r.candidates, structured_errors: r.structured_errors } };
     // The script RAN: success keys on its exit code (a non-zero gate is a real, fixable result).
     const exit = r.exit_code ?? 0;
     // The real host shim doesn't populate structured_errors -- it returns the script's
     // JSON report (run_quality_gates.py etc.) as a stdout STRING. Parse that shape
     // defensively so the loop's corrective path fires in production too; anything that
     // isn't a JSON report leaves the result exactly as before.
+    // Parsed from the FULL stdout, BEFORE the cap: a report's error detail can sit past
+    // the cap, and the corrective path must still see it even when the model cannot.
     const structuredErrors = r.structured_errors ?? structuredErrorsFromStdout(r.stdout);
-    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "", exit_code: exit, structured_errors: structuredErrors } };
+    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: capToolOutput(r.stdout), stderr: capToolOutput(r.stderr), exit_code: exit, structured_errors: structuredErrors } };
   }
 
   if (route === "device") {
@@ -455,8 +619,10 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     try {
       const action = String(p.action ?? "");
       const r = await deps.device(action, p);
+      // The serial event carries the FULL stdout: it feeds the Serial tab, which the user
+      // reads, and only the model-facing result below is capped.
       if (r.stdout && SERIAL_OUTPUT_ACTIONS.has(action)) input.onEvent?.({ type: "serial_output", lines: String(r.stdout).split("\n").filter(Boolean) });
-      return { result: { ok: r.ok, cmd_id: p.cmd_id, success: r.ok, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error_kind: r.ok ? undefined : (r.error_kind ?? "runtime_error") } };
+      return { result: { ok: r.ok, cmd_id: p.cmd_id, success: r.ok, stdout: capToolOutput(r.stdout), stderr: capToolOutput(r.stderr), error_kind: r.ok ? undefined : (r.error_kind ?? "runtime_error") } };
     } catch (error: any) {
       return { result: { ok: false, cmd_id: p.cmd_id, success: false, error_kind: "runtime_error", message: error?.message ?? "device_error" } };
     }
@@ -465,19 +631,74 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
   return { result: { ok: false, error_kind: "unrouted_tool", detail: name } };
 }
 
+// Every op execFileOperation routes. Named once so the rejection below can TELL the
+// model what it may send instead of leaving it to guess.
+const SUPPORTED_FILE_OPS = ["read", "write", "append", "list", "mkdir", "delete"] as const;
+
 async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInput) {
   const op = p.op;
   const path = String(p.path ?? "");
   if ((op === "write" || op === "append")) {
     if (typeof deps.writeFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
-    const r = await deps.writeFile(path, String(p.content ?? ""));
+    // The protocol requires content on write/append. Coercing an ABSENT content to ""
+    // wrote an empty file and reported success, so the model was told it had written
+    // real code and moved on with nothing on disk. Refuse instead, and say why.
+    // An explicitly empty string still writes: that is a deliberate empty file, and
+    // only the missing key is the malformed call.
+    // Any non-string is refused for the same reason, not just an absent key: String({})
+    // writes a file containing "[object Object]" and reports success, which is the same
+    // silent-wrong-file-on-disk failure with a different input.
+    if (typeof p.content !== "string") {
+      const received = p.content === undefined || p.content === null ? "none" : `a ${typeof p.content}`;
+      return {
+        ok: false, op_id: p.op_id, success: false, error_kind: "missing_content",
+        detail: `file_operation "${op}" requires a "content" string. Received ${received} for path "${path}". Send the full file body in "content"; use "" only for a deliberately empty file.`,
+      };
+    }
+    // The host's own truncation marker must never reach disk. Its presence means the model
+    // is transcribing a body this loop shortened, so writing it produces a file that is
+    // silently corrupt (a syntax error the next gate reports with nothing explaining it).
+    // Refuse loudly and point at the file, rather than accepting it and reporting ok:true.
+    if (p.content.includes(HOST_TRUNCATION_MARKER)) {
+      return {
+        ok: false, op_id: p.op_id, success: false, error_kind: "truncated_content",
+        detail: `file_operation "${op}" refused: the content for "${path}" contains a host truncation marker, so it is not the full body. Read the file with file_operation "read" to get its real content; never write a shortened value back.`,
+      };
+    }
+    // There is no append path anywhere in the writer tree -- deps.writeFile TRUNCATES -- so
+    // routing append to it destroyed the body it was asked to extend and returned ok:true.
+    // Compose the real thing from the two deps already wired.
+    let body = p.content;
+    if (op === "append") {
+      if (typeof deps.readFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
+      const existing = await deps.readFile(path);
+      // A missing file appends as a create. Any OTHER read failure must NOT degrade to an
+      // empty base: that is the same silent truncation, one level down.
+      if (!existing.ok && existing.error_kind !== "file_not_found") {
+        return {
+          ok: false, op_id: p.op_id, success: false, error_kind: existing.error_kind ?? "read_failed",
+          detail: `file_operation "append" could not read the existing "${path}" to extend it, so it refused rather than replacing the file with just the new fragment.`,
+        };
+      }
+      body = (existing.ok ? existing.content ?? "" : "") + p.content;
+    }
+    const r = await deps.writeFile(path, body);
     if (r.ok) input.onEvent?.({ type: "file_written", path: r.path ?? path });
-    return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "write_failed") };
+    // Report the path actually written, PROJECT-RELATIVE. The writer accepts a redundant
+    // leading segment and writes to the corrected target, so a bare success would leave the
+    // model believing its own prefixed path exists and reusing it for every later op. Never
+    // report r.path: that one is absolute, for the artifact index, and this same allowlist
+    // refuses an absolute path if the model sends it back.
+    return { ok: r.ok, op_id: p.op_id, success: r.ok, ...(r.ok && r.relative_path ? { path: r.relative_path } : {}), error: r.ok ? null : (r.error_kind ?? "write_failed"), ...(r.allowed ? { allowed: r.allowed } : {}) };
   }
   if (op === "read") {
     if (typeof deps.readFile !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
     const r = await deps.readFile(path);
-    return { ok: r.ok, op_id: p.op_id, success: r.ok, content: r.content ?? "", error: r.ok ? null : (r.error_kind ?? "read_failed") };
+    // Capped for the SAME reason script stdout is: a read is a model-facing payload, and it
+    // is the one route that can pull an arbitrarily large file body into the conversation in
+    // a single turn. Leaving it uncapped meant moving a 650KB payload out of stdout and into
+    // a file bundle merely relocated the context-window kill instead of fixing it.
+    return { ok: r.ok, op_id: p.op_id, success: r.ok, content: capToolOutput(r.content ?? ""), error: r.ok ? null : (r.error_kind ?? "read_failed") };
   }
   if (op === "list") {
     // No lister wired = the workspace is unavailable. Faking ok:true with empty
@@ -485,7 +706,12 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
     // to analyze 鈥?so fail loud instead of fabricating an empty listing.
     if (typeof deps.listFiles !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
     const r = await deps.listFiles(path);
-    return { ok: r.ok, op_id: p.op_id, success: r.ok, entries: r.entries ?? [], error: r.ok ? null : (r.error_kind ?? "list_failed") };
+    const listed = capListEntries(r.entries ?? []);
+    return {
+      ok: r.ok, op_id: p.op_id, success: r.ok, entries: listed.entries,
+      ...(listed.omitted > 0 ? { entries_omitted: listed.omitted, detail: `${listed.omitted} further entries were omitted by the host: the listing was too large to send. List a narrower path to see them.` } : {}),
+      error: r.ok ? null : (r.error_kind ?? "list_failed"),
+    };
   }
   if (op === "mkdir") {
     if (typeof deps.makeDir !== "function") return { ok: false, op_id: p.op_id, error_kind: "workspace_unavailable" };
@@ -497,5 +723,19 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
     const r = await deps.deletePath(path);
     return { ok: r.ok, op_id: p.op_id, success: r.ok, error: r.ok ? null : (r.error_kind ?? "delete_failed") };
   }
-  return { ok: false, op_id: p.op_id, error_kind: "unsupported_file_op", op };
+  // A rejection the model cannot act on is a stalled phase: it re-guesses, burns turns,
+  // and the run dies on max_turns or a text-only no_tool_call turn. `op` was spread in
+  // bare, so a call with NO op serialized to {ok:false,error_kind:"unsupported_file_op"}
+  // (JSON.stringify drops undefined) and told the model nothing at all. Separate the two
+  // cases, keep the key with an explicit null, and always name what is accepted.
+  const missing = op === undefined || op === null || op === "";
+  return {
+    ok: false, op_id: p.op_id, success: false,
+    error_kind: missing ? "missing_file_op" : "unsupported_file_op",
+    op: op ?? null,
+    supported_ops: [...SUPPORTED_FILE_OPS],
+    detail: missing
+      ? `file_operation requires an "op". Send one of: ${SUPPORTED_FILE_OPS.join(", ")}.`
+      : `file_operation "${String(op)}" is not a supported op. Send one of: ${SUPPORTED_FILE_OPS.join(", ")}.`,
+  };
 }

@@ -924,9 +924,17 @@ export class SessionController {
       // A phase gave up (the model never emitted a tool, or the turn budget ran out).
       // Record + post it as itself so the cloud DB shows the stall and the webview can
       // render a stuck/retry state instead of a frozen step with no error.
-      this.keyErrors.push(`stalled: ${event.phase} (${event.reason})`);
+      // `detail` is the loop's last few failing tool calls: tool names, script filenames and
+      // error kinds. That is diagnosis material, so it goes to the support export (via
+      // keyErrors -> getDiagnostics) and to the cloud record, and NOT to the webview — the
+      // end user has no use for `script_run: invalid_generated_path (phase_complete_draft.json)`.
+      const blockers = (event.detail ?? [])
+        .map((f: any) => (f?.path ? `${f.tool}: ${f.error} (${f.path})` : `${f?.tool}: ${f?.error}`))
+        .join(", ");
+      this.keyErrors.push(`stalled: ${event.phase} (${event.reason})${blockers ? ` [${blockers}]` : ""}`);
       this.lastErrorCode = event.reason;
-      this.record({ type: "phase_stalled", phase: event.phase, reason: event.reason });
+      this.record({ type: "phase_stalled", phase: event.phase, reason: event.reason, detail: event.detail });
+      // Phase + reason only over the wire to the UI. The blockers stay out of the feed.
       this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason });
       return;
     }
@@ -941,6 +949,19 @@ export class SessionController {
       this.lastErrorCode = event.error_kind;
       this.record({ type: "phase_error", error_kind: event.error_kind, next_phase: event.next_phase });
       this.deps.postMessage({ type: "phase_error", error_kind: event.error_kind, next_phase: event.next_phase });
+      return;
+    }
+    if (event.type === "tool_use" || event.type === "tool_result") {
+      // The protocol loop's per-tool spine, recorded as itself so sessionEventToTelemetry
+      // maps it through its tool_use/tool_result cases (-> tool_dispatch / a compacted
+      // result carrying any gate error codes). It needs its OWN branch for the same reason
+      // phase_error above does: the catch-all wraps anything unhandled as a trace_event,
+      // which is shaped by a DIFFERENT mapper reading `tool` instead of `name` and treating
+      // the wrapper as the observation -- so tool_use was dropped outright and every
+      // tool_result reached the DB as a bare { ok: true }.
+      // Record-only: the webview arms its working spinner off trace_event, and the feed
+      // already narrates progress through status_update + phase_start.
+      this.record(event);
       return;
     }
     this.record({ type: "trace_event", event });

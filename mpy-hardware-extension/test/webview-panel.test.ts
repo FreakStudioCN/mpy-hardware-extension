@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createPanel, createViewProvider, isSnapshotSelfPath, parseGitStatusRow } from "../src/webview/panel.ts";
+import { createPanel, createViewProvider, isSnapshotSelfPath, makeWorkspaceDeleter, makeWorkspaceLister, makeWorkspaceMkdir, makeWorkspaceReader, parseGitStatusRow } from "../src/webview/panel.ts";
 import { gitCommit, gitCommitCount, gitHasStagedChanges, gitLog, gitCurrentBranch, gitShowNameStatus, gitDiffText } from "../src/extension/project-git.ts";
 import { buildSessionSnapshot, writeSessionSnapshot } from "../src/extension/session-snapshot.ts";
 import { EXTENSION_VERSION } from "../src/core/toolchain-version.ts";
@@ -4520,4 +4520,95 @@ test("start_sipeed_vision host-refuses an unlisted task, a bad model path, and a
   posted.length = 0;
   await handler?.({ type: "start_sipeed_vision", visionTaskType: "yolo_detection" });
   assert.ok(posted.some((m) => m.type === "sipeed_vision_status" && m.status === "failed" && m.reason === "workspace_unavailable"), "no workspace is refused before dispatch");
+});
+
+// The writer accepts ONE redundant leading segment and writes to the corrected target. Every
+// other fs op has to resolve the same way. Before this, a model that had adopted the prefix
+// got not_found from list, a stray project/ tree from mkdir, and ok:true from a delete that
+// removed nothing, because rm runs with force:true and an absent path counts as success.
+test("every fs op resolves a redundant project/ prefix the same way the writer does", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-prefix-"));
+  try {
+    mkdirSync(join(ws, "firmware", "tools"), { recursive: true });
+    writeFileSync(join(ws, "firmware", "tools", "helper.py"), "x = 1\n");
+    writeFileSync(join(ws, "firmware", "main.py"), "print(1)\n");
+
+    const read = makeWorkspaceReader(ws)!;
+    const list = makeWorkspaceLister(ws)!;
+    const mkdirOp = makeWorkspaceMkdir(ws)!;
+    const del = makeWorkspaceDeleter(ws, () => false, async () => true)!;
+
+    // read: the model reads back the path it sent, not the corrected one.
+    assert.equal((await read("project/firmware/main.py")).ok, true);
+
+    // list: the prefixed directory lists its real contents instead of reporting not_found.
+    const listed = await list("project/firmware");
+    assert.equal(listed.ok, true);
+    assert.ok(listed.entries?.includes("firmware/tools/helper.py"), JSON.stringify(listed.entries));
+
+    // mkdir: creates the corrected directory and NO stray project/ tree beside it.
+    assert.equal((await mkdirOp("project/firmware/generated")).ok, true);
+    assert.equal(existsSync(join(ws, "firmware", "generated")), true);
+    assert.equal(existsSync(join(ws, "project")), false, "mkdir created a stray project/ tree");
+
+    // delete: the real directory is gone. Reporting ok while it survived is the failure this
+    // covers, because the generate phase deletes firmware/tools before the mpy_imports gate.
+    const deleted = await del("project/firmware/tools");
+    assert.equal(deleted.ok, true);
+    assert.equal(existsSync(join(ws, "firmware", "tools")), false, "delete reported ok but the directory survived");
+
+    // The BARE root is the same class one level up: a model creating parents first sends
+    // `project` before `project/firmware`, and listing its perceived root must not report
+    // that the project vanished.
+    const listedRoot = await list("project");
+    assert.equal(listedRoot.ok, true);
+    assert.ok(listedRoot.entries?.includes("firmware/main.py"), JSON.stringify(listedRoot.entries));
+    assert.equal((await mkdirOp("project")).ok, true);
+    assert.equal(existsSync(join(ws, "project")), false, "a bare project mkdir created a stray tree");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+// Listing or reading the bare root is fine (above). DELETING it is not: `project` strips to
+// "", which resolves to the workspace root itself, and `??` does not catch "" because it is
+// neither null nor undefined. That left deleteProjectPath's `target === root` check as the
+// only thing between a plausible cleanup call and rm -rf on the user's whole project.
+test("a delete of the bare project root is refused, not rewritten onto the workspace root", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-delroot-"));
+  try {
+    mkdirSync(join(ws, "firmware"), { recursive: true });
+    writeFileSync(join(ws, "firmware", "main.py"), "print(1)\n");
+    const del = makeWorkspaceDeleter(ws, () => false, async () => true)!;
+
+    for (const bare of ["project", "project/", "blockless-project", "."]) {
+      const res = await del(bare);
+      assert.equal(res.ok, false, `${bare} must not delete anything`);
+      assert.equal(res.error_kind, "delete_project_root_refused", bare);
+    }
+
+    assert.equal(existsSync(join(ws, "firmware", "main.py")), true, "the project must still be there");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test("a read that fails for a reason other than a missing file is not reported as file_not_found", async () => {
+  // Only ENOENT may read as "absent". EISDIR here stands in for the EACCES/EPERM class: a real
+  // fault reported as file_not_found sends the model off to rewrite a file that already exists.
+  const ws = mkdtempSync(join(tmpdir(), "mpyhw-readerr-"));
+  try {
+    mkdirSync(join(ws, "firmware"), { recursive: true });
+    const read = makeWorkspaceReader(ws)!;
+
+    const onDirectory = await read("firmware");
+    assert.equal(onDirectory.ok, false);
+    assert.equal(onDirectory.error_kind, "read_failed");
+
+    const onMissing = await read("firmware/absent.py");
+    assert.equal(onMissing.ok, false);
+    assert.equal(onMissing.error_kind, "file_not_found");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
 });

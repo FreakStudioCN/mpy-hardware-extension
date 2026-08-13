@@ -140,6 +140,67 @@ export async function writeGeneratedFiles(input: {
   return { ok: true, paths };
 }
 
+// Every pattern the project-tree allowlist accepts, each paired with a path that must satisfy
+// it. WRITABLE_PATHS_HINT is built from the labels, so a claim cannot be added to the hint
+// without adding an example, and the drift guard in workspace-writer.test.ts asserts every
+// example is genuinely accepted. That closes the loop: the hint cannot advertise a path the
+// writer then refuses, which would send the model into a confident loop -- worse than no hint.
+// Exported so the drift guard iterates the SAME source the hint is built from, rather than a
+// hand-copied list that could fall out of step with it.
+export const WRITABLE_PATTERNS: ReadonlyArray<{ label: string; example: string }> = [
+  { label: "any *.json at the project root", example: "manifest_draft.json" },
+  { label: "firmware/**.py and firmware/**.md", example: "firmware/main.py" },
+  { label: "test/**.py and test/**.md", example: "test/pc/test_x.py" },
+  { label: "tools/**.py", example: "tools/flash_device.py" },
+  { label: "lib/**.py", example: "lib/helper.py" },
+  { label: "docs/**.json", example: "docs/wiring.json" },
+  { label: "sessions/**.json and sessions/**.md", example: "sessions/s1/phase_complete.json" },
+  { label: ".upy/**.py and .upy/**.json", example: ".upy/scripts/validate.py" },
+  { label: "any **/.gitkeep", example: "firmware/assets/.gitkeep" },
+  { label: ".flake8, .gitignore, .gitattributes, README.md and LICENSE at the root", example: ".flake8" },
+];
+
+// Fed back on every rejected path so a wrong guess costs ONE turn instead of a phase.
+// `invalid_generated_path` on its own told the model nothing, so it probed: 12 rejected paths
+// in a single run before the turn cap ended the phase.
+export const WRITABLE_PATHS_HINT =
+  `Writable: ${WRITABLE_PATTERNS.map((p) => p.label).join("; ")}. ` +
+  "Executable code must live under firmware/, test/, tools/, lib/ or .upy/, not at the project root.";
+
+// Roots the model prefixes when it describes the project from OUTSIDE the workspace. The
+// Skill documents the layout as sessions/<id>/project/firmware/, but a write path here is
+// relative to the project dir itself, so these segments are redundant rather than wrong.
+// Observed cost: one run spent 5 of its turns re-sending `project/firmware/main.py` and
+// `project/generate_plan.json` AFTER the allowlist hint had already been returned, then
+// ended on max_turns. The hint says what is allowed; this says what the model probably meant.
+const REDUNDANT_PATH_ROOTS: readonly string[] = ["project", "blockless-project", "."];
+
+// The path with ONE known-redundant leading segment removed, or undefined when there is none.
+// Deliberately not a general search: stripping arbitrary leading segments would happily turn
+// docs/firmware/main.py into firmware/main.py and send the model somewhere it never asked to
+// go. Shared so that every fs op resolves a model-supplied path the SAME way. The writer
+// accepts `project/firmware/main.py`, so a read, list, mkdir or delete of that path has to
+// reach the file the write created, or the model cannot act on its own work.
+export function stripRedundantPathRoot(name: string): string | undefined {
+  const raw = String(name ?? "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+  const segments = raw.split("/");
+  const [head, ...rest] = segments;
+  if (!REDUNDANT_PATH_ROOTS.includes(head)) return undefined;
+  // "" when the path IS a bare redundant root: `project` means the project root itself. Callers
+  // must test `=== undefined`, not truthiness. suggestWritablePath treats "" as no suggestion,
+  // so a bare root is still not a writable target.
+  return rest.join("/");
+}
+
+export function suggestWritablePath(
+  name: string,
+  options: Parameters<typeof normalizeGeneratedArtifactPath>[1] = {},
+): string | undefined {
+  const candidate = stripRedundantPathRoot(name);
+  if (!candidate) return undefined;
+  return normalizeGeneratedArtifactPath(candidate, options) ? candidate : undefined;
+}
+
 export function normalizeGeneratedArtifactPath(name: string, options: { allowMain?: boolean; allowManifest?: boolean; allowLib?: boolean; allowFirmware?: boolean; allowProjectTree?: boolean; allowedPaths?: readonly string[] } = {}) {
   const { allowMain = true, allowManifest = true, allowLib = true, allowFirmware = false, allowProjectTree = false, allowedPaths } = options;
   if (typeof name !== "string" || !name || name.includes("\\") || name.includes("\0")) return null;
@@ -163,8 +224,25 @@ export function normalizeGeneratedArtifactPath(name: string, options: { allowMai
     // files anywhere under the firmware/ and test/ trees (drivers, tasks, lib,
     // test/pc, test/device). Path traversal, absolute paths, and backslashes are
     // already rejected above, so any accepted path stays inside the project root.
-    if (name === "project-manifest.json" || name === "generate_plan.json" || name === "wiring.json" || name === "diagram.json") return name;
+    // Any JSON at the project root. The plugin flow hands off between phases through root
+    // working files (manifest_draft.json, phase_complete_draft.json, current_manifest.json,
+    // ...), and permitting only a fixed four sent the model guessing: one run burned its whole
+    // turn budget on 12 rejected paths, including a literal `test_write.json` probe. Data only,
+    // so this never widens where executable code may land; traversal, absolute paths and the
+    // segment charset are already rejected above, and writeProjectFile still enforces real-path
+    // containment. Keep WRITABLE_PATHS_HINT in step with any change here.
+    if (segments.length === 1 && name.endsWith(".json")) return name;
     if (segments[0] === "docs" && segments.length >= 2 && name.endsWith(".json")) return name;
+    // The plugin's per-session bookkeeping under `sessions/<session_id>/`: phase_complete.*.json,
+    // session_state*.json and generate_phase_log.md (upy-generate-plugin SKILL.md declares
+    // session_root there, and makes the phase_complete artifact a precondition of result=success).
+    // Without this the generate phase finished ALL its work, failed the final write, and burned its
+    // turn budget reporting a bare max_turns stall. Note makeDir already allowed `sessions/...`, so
+    // the model could create the directory and then never write into it.
+    // .json/.md ONLY, deliberately: this widens where BOOKKEEPING may be written, never where
+    // executable code may be. Traversal/absolute/backslash and the segment charset are rejected
+    // above, and writeProjectFile still enforces real-path containment against symlink redirection.
+    if (segments[0] === "sessions" && segments.length >= 2 && (name.endsWith(".json") || name.endsWith(".md"))) return name;
     if ((segments[0] === "firmware" || segments[0] === "test") && segments.length >= 2 && name.endsWith(".py")) return name;
     // Scaffold skeleton infrastructure (upy-scaffold-plugin output): standard project config/docs at
     // the root, the tools/ deploy+log scripts, .upy toolchain resources, README markdown, and .gitkeep
@@ -217,8 +295,17 @@ export async function writeProjectFile(input: {
   allowedPaths?: readonly string[];
 }) {
   const root = input.workspaceFolder ?? input.generatedRoot ?? ".mpyhw/generated";
-  const safe = normalizeGeneratedArtifactPath(input.path, input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true });
-  if (!safe) return { ok: false as const, error_kind: "invalid_generated_path", path: input.path };
+  const pathOptions = input.allowedPaths ? { allowedPaths: input.allowedPaths } : { allowProjectTree: true };
+  // Telling the model the corrected path did NOT work: a measured run was handed
+  // the exact corrected path on 12 of 12 rejections and re-sent `project/firmware/main.py` nine times
+  // anyway, then died on max_turns. Refusing a path whose meaning is unambiguous costs the
+  // whole phase to make a point, so accept it and write where it meant. This is not a guess:
+  // the corrected path is re-validated against the SAME allowlist before it is used, and only
+  // ONE known-redundant leading segment is ever dropped. Anything else is still refused.
+  const safe = normalizeGeneratedArtifactPath(input.path, pathOptions) || suggestWritablePath(input.path, pathOptions);
+  if (!safe) {
+    return { ok: false as const, error_kind: "invalid_generated_path", path: input.path, allowed: WRITABLE_PATHS_HINT };
+  }
   const target = joinPath(root, safe);
   // normalizeGeneratedArtifactPath already rejects `..`/absolute, but a symlinked dir in the
   // project tree could still redirect the write outside root — refuse via real-path containment.
@@ -233,7 +320,10 @@ export async function writeProjectFile(input: {
   } catch {
     return { ok: false as const, error_kind: "file_write_failed", path: target };
   }
-  return { ok: true as const, path: target };
+  // `path` is absolute: the file_written event feeds the artifact index, which wants an
+  // absolute path. `relative_path` is what the MODEL may be told, because an absolute path
+  // is refused by this very allowlist if the model sends it back on the next write.
+  return { ok: true as const, path: target, relative_path: safe };
 }
 
 // file_operation(delete) core: containment (refuse the workspace root itself and any path

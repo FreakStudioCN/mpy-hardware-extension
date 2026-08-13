@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
-import { containLocalPath, createProtocolLoop } from "../src/core/protocol-build.ts";
+import { containLocalPath, correctRedundantArgPaths, createProtocolLoop } from "../src/core/protocol-build.ts";
 import { PROTOCOL_TOOLS } from "../src/core/protocol-registry.ts";
 
 // cp_from pulls a device file to the HOST, so the model-supplied local destination must be
@@ -325,4 +325,105 @@ test("device cp_from proceeds after an overwrite confirm and writes to the conta
   const payload = await runDeviceCommand({ action: "cp_from", src: "/main.py", dst: "main.py" }, { shim, projectRoot: ROOT, confirmDeviceCopyOverwrite: async () => true });
   assert.deepEqual(copied, [["/main.py", resolve(ROOT, "main.py")]]);
   assert.equal(payload.ok, true);
+});
+
+
+// The Skill documents the project root as sessions/<id>/project, so the model prefixes project/
+// onto everything. Writes and reads already drop that segment; arguments did not, so a gate ran
+// one level too deep and answered GENERATE_PLAN_MISSING while the plan sat at the real root.
+test("script arguments drop a redundant project/ segment", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-args-"));
+  try {
+    assert.deepEqual(
+      correctRedundantArgPaths(root, ["--plan", "project/generate_plan.json"]),
+      ["--plan", "generate_plan.json"],
+    );
+    // How it actually arrived in the measured run.
+    assert.deepEqual(correctRedundantArgPaths(root, ["--project-dir", "project"]), ["--project-dir", "."]);
+    // The equals form carries both halves in one entry; only the value is corrected.
+    assert.deepEqual(correctRedundantArgPaths(root, ["--project-dir=project"]), ["--project-dir=."]);
+    assert.deepEqual(
+      correctRedundantArgPaths(root, ["--plan=project/generate_plan.json"]),
+      ["--plan=generate_plan.json"],
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// The literal is NOT respected even when it exists. The writer never puts a generated file under
+// project/, so such a directory is a product of the same confusion: in the measured run the model
+// passed --project-dir project and the scaffold built the whole tree one level down. Honouring it
+// would keep the project split across two trees.
+test("an existing project/ directory does not stop the correction", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-args2-"));
+  try {
+    await mkdir(join(root, "project", "firmware"), { recursive: true });
+    assert.deepEqual(correctRedundantArgPaths(root, ["project/firmware"]), ["firmware"]);
+    assert.deepEqual(correctRedundantArgPaths(root, ["--project-dir", "project"]), ["--project-dir", "."]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an argument that is not a redundant path is left exactly as sent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mpyhw-args3-"));
+  try {
+    assert.deepEqual(
+      correctRedundantArgPaths(root, ["--require-plan", "--check-files", "firmware/main.py", "-v", "", "docs/x.json"]),
+      ["--require-plan", "--check-files", "firmware/main.py", "-v", "", "docs/x.json"],
+    );
+    // A bare "project" that is not a path flag's value stays put.
+    assert.deepEqual(correctRedundantArgPaths(root, ["--name", "project"]), ["--name", "project"]);
+    // And an escape attempt is refused rather than corrected.
+    assert.deepEqual(correctRedundantArgPaths(root, ["project/../../etc/passwd"]), ["project/../../etc/passwd"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// The tests above call the corrector directly, so they stay green if the WIRING is deleted. This
+// one drives the real loop with the arguments from the measured run and asserts what the shim
+// receives, which is the sink that matters.
+test("the loop hands the shim corrected script arguments", async () => {
+  const projectDir = await mkdtemp(join(tmpdir(), "mpyhw-argwire-"));
+  const scriptCalls: any[] = [];
+  const phaseTurns: Record<string, number> = {};
+  try {
+    const tool = (id: string, name: string, input: any) =>
+      new Response(sseTool(id, name, input), { status: 200, headers: { "content-type": "text/event-stream" } }) as any;
+    const fetchImpl = async (_url: any, init: any) => {
+      const body = JSON.parse(String(init.body));
+      const turn = phaseTurns[body.phase] ?? 0;
+      phaseTurns[body.phase] = turn + 1;
+      if (turn === 0) {
+        return tool("gate", "script_run", {
+          script_id: "g", interpreter: "python", script: "run_quality_gates.py",
+          args: ["--project-dir", "project", "--plan", "project/generate_plan.json"],
+        });
+      }
+      return tool("done", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} });
+    };
+
+    const loop = createProtocolLoop({
+      apiBaseUrl: "http://api.test",
+      fetchImpl: fetchImpl as any,
+      getAuthToken: async () => "token",
+      projectRoot: projectDir,
+      shim: {
+        runV0Script: async (call: any) => { scriptCalls.push(call); return { status: "ok", stdout: "{}", stderr: "", exit_code: 0 }; },
+      },
+    });
+
+    await loop({ intent: "x", traceId: "argwire", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 4, onEvent: () => {} });
+
+    assert.equal(scriptCalls.length, 1);
+    assert.deepEqual(
+      scriptCalls[0].args,
+      ["--project-dir", ".", "--plan", "generate_plan.json"],
+      "the gate must be handed paths that resolve to the tree the writer actually wrote",
+    );
+  } finally {
+    await rm(projectDir, { recursive: true, force: true });
+  }
 });
