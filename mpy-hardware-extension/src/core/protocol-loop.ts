@@ -209,6 +209,56 @@ function compactToolInput(input: any): Record<string, any> {
 // How many recent tool failures a stalled phase reports as its detail.
 const STALL_DETAIL_LIMIT = 3;
 
+// Ceiling on the REPLAYED conversation, in characters. capToolOutput bounds one tool result
+// at 80k chars; nothing bounded their sum, and the history is re-sent on every request, so a
+// long phase walks into the model's context limit and takes a NON-retryable 400 that kills
+// the run outright (measured: 264,708 tokens against a 262,144 ceiling on a scaffold phase,
+// and 539,335 on a larger project). ~4 chars per token, so 480k chars is ~120k tokens, which
+// leaves room for the system prompt, the tool schemas and the reply under every model we run.
+const HISTORY_MAX_CHARS = 480_000;
+// Newest messages never shrink: the model is repairing against the LAST gate report, and the
+// corrective message points at it. Only older results collapse.
+const HISTORY_KEEP_RECENT = 8;
+
+function blockTextLength(block: any): number {
+  if (typeof block?.content === "string") return block.content.length;
+  if (typeof block?.text === "string") return block.text.length;
+  return 0;
+}
+
+function historyChars(messages: any[]): number {
+  let total = 0;
+  for (const message of messages) {
+    const content = message?.content;
+    if (typeof content === "string") { total += content.length; continue; }
+    if (Array.isArray(content)) for (const block of content) total += blockTextLength(block);
+  }
+  return total;
+}
+
+/** Collapse the oldest tool RESULTS until the replayed history fits HISTORY_MAX_CHARS.
+ *
+ * Messages are never dropped and ids are never touched: an assistant `tool_use` must keep
+ * its matching `tool_result`, and breaking that pairing makes the upstream reject the whole
+ * conversation -- the same failure class as the empty-assistant turn. Only the TEXT inside an
+ * old tool_result is replaced, with its length and digest, so the model can still see that a
+ * call happened and what it was, just not the whole file body it returned.
+ */
+function boundHistory(messages: any[]): void {
+  if (historyChars(messages) <= HISTORY_MAX_CHARS) return;
+  const collapsible = Math.max(0, messages.length - HISTORY_KEEP_RECENT);
+  for (let i = 0; i < collapsible && historyChars(messages) > HISTORY_MAX_CHARS; i += 1) {
+    const content = messages[i]?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block?.type !== "tool_result" || typeof block.content !== "string") continue;
+      if (block.content.length <= TELEMETRY_INPUT_HEAD_CHARS) continue;
+      block.content = `<elided ${block.content.length} chars ${digest(block.content)}> `
+        + block.content.slice(0, TELEMETRY_INPUT_HEAD_CHARS);
+    }
+  }
+}
+
 // One gate-report entry, read in BOTH real shapes. run_quality_gates.py emits objects
 // ({code, path}); the select-hw / analyze validators emit a plain string per problem
 // ("selected_board.display_name is required"). Reading only `.code` turned every
@@ -246,6 +296,9 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
   const recentFailures: Array<{ tool: string; error: string; path?: string }> = [];
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
+    // Before the request, not after the push: the cap has to apply to what actually goes out,
+    // including the turn that would otherwise be the one to cross the model's limit.
+    boundHistory(messages);
     const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId, ...(context ? { context } : {}) };
     const source = await deps.llmClient.streamMessages(body, input.signal);
     const it = asyncEvents(source as AsyncIterable<StreamEvent>);

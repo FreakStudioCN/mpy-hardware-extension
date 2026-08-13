@@ -1919,3 +1919,53 @@ test("a recorded tool_result is redacted: no absolute host path reaches the sess
   assert.equal(results[0].error_kind, "script_error");
   assert.match(results[0].output.stderr, /SyntaxError: invalid syntax/);
 });
+
+// The replayed conversation is re-sent on EVERY request, so an unbounded history walks into
+// the model's context limit and takes a non-retryable 400 that kills the run outright
+// (measured: 264,708 tokens against a 262,144 ceiling). capToolOutput bounds ONE result;
+// this bounds their sum. The pairing assertion matters as much as the size one: dropping an
+// assistant tool_use without its tool_result makes the upstream reject the whole
+// conversation, which is the same failure class as the empty-assistant turn.
+test("a long phase bounds the replayed history without breaking tool_use/tool_result pairing", async () => {
+  const bodies: any[] = [];
+  const huge = "x".repeat(70_000);
+  const llm = {
+    streamMessages: async (body: any) => {
+      bodies.push(JSON.parse(JSON.stringify(body)));
+      return (async function* () {
+        yield tu(`call-${bodies.length}`, "script_run", { interpreter: "python", script: "check.py" });
+        yield stop;
+      })();
+    },
+  };
+  await runProtocolBuild(
+    { intent: "x", traceId: "t", maxTurnsPerPhase: 20 },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, success: false, stdout: huge }),
+    } as any,
+  );
+
+  const sizes = bodies.map((b) => JSON.stringify(b.messages).length);
+  const peak = Math.max(...sizes);
+  assert.ok(bodies.length >= 10, `expected a long phase, got ${bodies.length} turns`);
+  assert.ok(peak < 900_000, `replayed history grew unbounded: peak ${peak} chars`);
+
+  // Every tool_use in the final request must still have its tool_result, and vice versa.
+  const last = bodies[bodies.length - 1].messages;
+  const useIds = new Set<string>();
+  const resultIds = new Set<string>();
+  for (const message of last) {
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type === "tool_use") useIds.add(block.id);
+      if (block.type === "tool_result") resultIds.add(block.tool_use_id);
+    }
+  }
+  for (const id of useIds) assert.ok(resultIds.has(id), `tool_use ${id} lost its tool_result`);
+  for (const id of resultIds) assert.ok(useIds.has(id), `tool_result ${id} has no tool_use`);
+
+  // The newest result is never collapsed: the model repairs against the latest gate report.
+  const newest = JSON.stringify(last[last.length - 1]);
+  assert.ok(!newest.includes("<elided"), "the most recent tool result was elided");
+});
