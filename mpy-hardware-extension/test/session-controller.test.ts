@@ -764,6 +764,7 @@ test("session controller records UI prompts, the deploy gate, artifacts, and ter
   assert.equal(recorded[3].answer, "OLED");
   assert.equal(recorded[4].kind, "manifest");
   assert.equal(recorded[5].code, "print('MPYHW_READY')");
+  assert.equal(recorded[5].path, "main.py", "the code artifact record carries path too, not just code — a view-only restore has no other way to learn the file's real name");
   assert.equal(recorded[7].manifest.board_id, "esp32-s3-devkitc-1");
   assert.equal(recorded[8].answer, "confirm");
   assert.equal(recorded[9].terminal, "success");

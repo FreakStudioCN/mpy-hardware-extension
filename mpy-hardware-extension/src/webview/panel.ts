@@ -675,9 +675,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     if (sessionRoot && sessionId) {
       sources.push(...scanArtifactTree(join(sessionRoot, ".mpyhw", "sessions", sessionId), "session"));
     }
-    // Restore: also index the passed session dir. For a Recent-list restore this is the same id-scoped
-    // path the session_id scan above already covered (dedup absorbs the overlap); for an imported session
-    // it's a user-picked folder OUTSIDE the sessions root, which the session_id scan can't reach.
+    // Restore: also index the passed session dir. A resumable (snapshot-having) restore seeds traceId,
+    // so this is the same id-scoped path the session_id scan above already covered (dedup absorbs the
+    // overlap) — except for an imported session, a user-picked folder OUTSIDE the sessions root the
+    // session_id scan can't reach either way. A view-only (no-snapshot) restore deliberately leaves
+    // traceId null (so the next build doesn't inherit its id), which makes sessionId "" and skips the
+    // scan above entirely — there this parameter is the ONLY source for that session's own artifacts.
+    // It is a one-shot argument, not sticky state: a LATER bare refreshArtifacts() call (e.g. the
+    // webview's own request_artifacts on bootstrap, or save_version_open's internal refresh) won't pass
+    // it again, so the Artifacts tab can revert to empty for a still-visible view-only replay. Known,
+    // low-impact limitation — not fixed here.
     if (extraSessionDir) sources.push(...scanArtifactTree(extraSessionDir, "session"));
     artifactIndex = buildArtifactIndex(sources, artifactRoot, artifactIo);
     // The host keeps the full index (with absolute_path) to resolve opens; the webview
@@ -964,19 +971,32 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     }
   }
 
-  // Replay the DURABLE activity feed from the restored session's transcript (session.jsonl) in file order:
-  // the user's request, the model's status narration, phase summaries, serial output, tool-failure reasons,
-  // and one inert prompt-history line each (never a live prompt). No live-run guard is touched — every
-  // replayed message is ungated on the webview side. The caller clears the feed first (restore_reset).
-  function replaySessionFeed(sessionDir: string): void {
+  // Read + parse one session's transcript (session.jsonl) once, for every consumer below (the feed
+  // replay, the inline-tab replay, and the view-only terminal line) — a restore reads the file at most
+  // once, never once per consumer. Returns null when there is nothing to replay: a missing transcript
+  // (ENOENT — ordinary for a session that predates jsonl recording, or ended before its first flush) is
+  // silent, but any other read failure (EACCES, ...) is surfaced rather than silently treated as empty.
+  function readSessionEvents(sessionDir: string): any[] | null {
     let text: string;
     try { text = readFileSync(join(sessionDir, "session.jsonl"), "utf-8"); }
     catch (error: any) {
-      if (error?.code === "ENOENT") return; // no transcript — the tabs still restore; nothing to replay
-      deps.log?.(`restore: could not read session transcript: ${error?.message ?? error}`); // EACCES etc — surface, don't silently blank the feed
-      return;
+      if (error?.code === "ENOENT") return null;
+      deps.log?.(`restore: could not read session transcript: ${error?.message ?? error}`);
+      return null;
     }
-    const events = text.split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean) as any[];
+    // Keep only object records: a line can be syntactically valid JSON (a bare string, number, array)
+    // without being a usable event — every consumer below reads e?.type, so anything else is noise
+    // that would otherwise count toward "there's something to replay" without ever actually replaying.
+    return text.split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } })
+      .filter((e) => e !== null && typeof e === "object" && !Array.isArray(e)) as any[];
+  }
+
+  // Replay the DURABLE activity feed from the restored session's already-parsed transcript events, in
+  // file order: the user's request, the model's status narration, phase summaries, serial output,
+  // tool-failure reasons, and one inert prompt-history line each (never a live prompt). No live-run guard
+  // is touched — every replayed message is ungated on the webview side. The caller clears the feed first
+  // (restore_reset).
+  function replaySessionFeed(events: any[]): void {
     // The answer is recorded AFTER the prompt — collect answers by promptId across ALL events first.
     const answers = new Map<string, unknown>();
     for (const e of events) { if (e?.type === "ui_prompt_answer" && e.promptId != null) answers.set(String(e.promptId), e.answer); }
@@ -985,10 +1005,47 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
     for (const msg of out.slice(-RESTORE_FEED_MAX)) webview.postMessage(msg); // keep the newest tail
   }
 
+  // Rehydrate the Wiring/Diagram/Code tabs for a VIEW-ONLY (no-snapshot) restore straight from the
+  // transcript's own inline artifact records — the recorder writes a full "artifact" event (manifest,
+  // diagram, or code content inline) every time postEvent updates one (session-controller.ts:726/743/755),
+  // so the LAST one of each kind is exactly the tab state the live session ended with. This mirrors the
+  // snapshot-restore tab population below, but there is no snapshot object (and so no sha) here — the
+  // recorded content IS the source of truth, same as the live feed already trusts it.
+  function replaySessionTabs(events: any[]): void {
+    let manifest: unknown; let diagram: unknown; let code: unknown; let codePath: unknown;
+    for (const e of events) {
+      if (e?.type !== "artifact") continue;
+      if (e.kind === "manifest") manifest = e.manifest;
+      else if (e.kind === "diagram") diagram = e.diagram;
+      else if (e.kind === "code") { code = e.code; codePath = e.path; }
+    }
+    if (manifest) webview.postMessage({ type: "manifest_updated", manifest });
+    // Diagram tab: an authored diagram wins; otherwise derive it from the manifest, same truthy
+    // fallback the snapshot-restore path below uses — a manifest-only session never shows an empty
+    // Diagram tab.
+    if (diagram) webview.postMessage({ type: "diagram_updated", diagram });
+    else if (manifest) webview.postMessage({ type: "diagram_updated", diagram: deriveDiagram(manifest) });
+    // Test the CONTENT, not "was a code artifact ever recorded" — a code_updated with no code (the
+    // pipeline produced no main.py, so the live post-time event.code was already undefined) would
+    // otherwise replay as a card the webview crashes rendering (finalizeCode assumes a string).
+    if (typeof code === "string") webview.postMessage({ type: "code_updated", code, path: codePath });
+  }
+
+  // The session's terminal outcome ("ready" / "abandoned" / ...), from the LAST session_finished or
+  // session_abandoned event in its already-parsed transcript — the same pair readSessionSummary
+  // (session-recorder.ts:339) reads for the Recent Sessions list, so the view-only terminal line agrees
+  // with what that card already showed. `state` is the fallback readSessionSummary itself uses (:347):
+  // an abandoned/older event may carry only that field.
+  function lastSessionTerminal(events: any[]): string | null {
+    const finished = [...events].reverse().find((e) => e?.type === "session_finished" || e?.type === "session_abandoned");
+    const terminal = finished?.terminal ?? finished?.state;
+    return terminal ? String(terminal) : null;
+  }
+
   // Session restore (the consumer of the snapshot Save Version writes): read a saved snapshot and
   // rehydrate the session + the webview tabs from it. Refuses while a run is active (a live session owns
-  // the state). A session with NO snapshot (a pre-Save-Version session) is not an error — it just can't
-  // be restored, so the caller is told and degrades (view its log) rather than showing a broken restore.
+  // the state). A session with NO snapshot (a pre-Save-Version session) is not an error — it can't be
+  // resumed/re-saved, but its transcript alone renders the conversation read-only (see the `!snap` branch).
   async function doRestoreFromDir(sessionDir: string, knownId?: string): Promise<void> {
     if (controller.isRunning() || runPending || saveInFlight) { vscode.window?.showInformationMessage?.("Finish the current build or Save Version before restoring a session."); return; }
     if (restoreInFlight) return; // a restore is already replaying — ignore a double-clicked card
@@ -998,11 +1055,40 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       try { snap = await readSessionSnapshot(sessionDir); }
       catch (error: any) { vscode.window?.showErrorMessage?.(`Restore failed: ${String(error?.message ?? error)}`); return; }
       if (!snap) {
-        // No snapshot (a pre-Save-Version session, or one deleted since the list was built). Degrade to
-        // view-log: reveal the session.jsonl if it's there, so an old session isn't a dead end.
+        // No snapshot (a pre-Save-Version session, or one deleted since the list was built) — not
+        // restorable/re-savable, but the transcript alone (session.jsonl) is enough to re-render the
+        // conversation READ-ONLY (D1a/D2 — matches the doc's ask to VIEW, not resume). Re-check the busy
+        // gate here too: the snapshot read above awaited, so a run could have started meanwhile (the same
+        // TOCTOU the snapshot path guards below).
+        if (controller.isRunning() || runPending || saveInFlight) { vscode.window?.showInformationMessage?.("Finish the current build or Save Version before restoring a session."); return; }
         const log = join(sessionDir, "session.jsonl");
-        if (existsSync(log)) { try { await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(log)); } catch { /* headless host — ignore */ } }
-        vscode.window?.showInformationMessage?.("This session has no saved snapshot to restore (it predates Save Version) — showing its log instead.");
+        const events = readSessionEvents(sessionDir);
+        if (!events || events.length === 0) {
+          // No transcript, unreadable, or empty (0 bytes / every line unparseable) — fall back to the
+          // old view-log behavior rather than blanking the current view with an empty replay.
+          if (existsSync(log)) { try { await vscode.commands?.executeCommand?.("revealFileInOS", vscode.Uri.file(log)); } catch { /* headless host — ignore */ } }
+          vscode.window?.showInformationMessage?.("This session has no saved snapshot or readable transcript to show.");
+          return;
+        }
+        // Minimal seed: no traceId. The controller must NOT adopt the VIEWED session's id as its own —
+        // seedFromSnapshot({traceId}) would leave this.traceId set to it, so the next start() (this.traceId
+        // is already truthy) skips minting a fresh id and appends the NEXT build's events into the VIEWED
+        // session's transcript, silently merging two unrelated sessions into one dir. An empty seed keeps
+        // traceId null (the next start() mints its own), and hasSnapshotState() stays false either way, so
+        // a later Save Version honestly reports nothing_to_save rather than snapshotting into any dir.
+        const seeded = controller.seedFromSnapshot({});
+        if (!seeded) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
+        webview.postMessage({ type: "restore_reset" });
+        replaySessionFeed(events);
+        replaySessionTabs(events);
+        // Wiring tab: post [] unconditionally, same as the snapshot path below — the flow-offer entries
+        // are SIBLINGS of the tab panes, so restore_reset does not clear them, and a view-only replay
+        // (which never seeds optional_flows) must still hide a PRIOR session's stale Generate buttons.
+        webview.postMessage({ type: "optional_flows", phases: [] });
+        refreshArtifacts(sessionDir);
+        const terminal = lastSessionTerminal(events);
+        if (terminal) webview.postMessage({ type: "restore_done", terminal });
+        vscode.window?.showInformationMessage?.("Viewing a past session (read-only — no saved snapshot for it).");
         return;
       }
       // Controller-side: seed state/board/preferences so a later save()/retry() operates on the restored
@@ -1035,7 +1121,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // Clear the current view, then replay the durable activity feed from the transcript (D4). Done
       // BEFORE the tab replays below, because restore_reset (clearConversation) wipes the tabs too.
       webview.postMessage({ type: "restore_reset" });
-      replaySessionFeed(sessionDir);
+      replaySessionFeed(readSessionEvents(sessionDir) ?? []); // no jsonl (rare, pre-dates it) — tabs still restore from the snapshot below
       // Webview-side: replay the tabs (the inverse of clearConversation) — wiring, diagram, code.
       if (snap.manifest) webview.postMessage({ type: "manifest_updated", manifest: snap.manifest });
       // Diagram tab: an authored diagram wins; otherwise derive it from the manifest exactly as a live
@@ -2137,7 +2223,10 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // The list is scoped to the open folder (sessionRoot). Send the folder name + fallback flag so
       // the panel can make that scope visible instead of an empty list reading as data loss.
       const recentFolder = workspaceFolder ? (workspaceFolder.split(/[\\/]/).filter(Boolean).pop() || "") : "";
-      webview.postMessage({ type: "recent_sessions", sessions, folder: recentFolder, usingFallback });
+      // Every card now restores via restore_session (by id) rather than open_path — drop the absolute
+      // filesystem path from what crosses to the webview; nothing there reads it anymore.
+      const forWebview = sessions.map(({ path, ...rest }: any) => rest);
+      webview.postMessage({ type: "recent_sessions", sessions: forWebview, folder: recentFolder, usingFallback });
     }
     if (message.type === "copy_code") {
       // Copy the code card's source to the clipboard via the host (reliable in the

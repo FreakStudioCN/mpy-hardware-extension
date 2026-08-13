@@ -368,17 +368,18 @@
           const when = s.date ? new Date(s.date).toLocaleString() : "";
           meta.textContent = s.finalPhase ? (when + " · " + s.finalPhase) : when;
           card.appendChild(title); card.appendChild(meta);
-          // A session with a saved snapshot RESTORES on click; a pre-Save-Version one has no snapshot,
-          // so it is view-only (mark it + open its log instead of a restore that would just fail).
-          if (s.restorable) {
-            // Close the Recent surface so the restored feed/tabs (which render on the home workbench
-            // beneath it) are actually visible — otherwise the click looks like it did nothing until Back.
-            card.addEventListener("click", () => { closeGlobalTool(); vscode.postMessage({ type: "restore_session", id: s.id }); });
-          } else {
+          // A session with a saved snapshot is resumable/re-savable; a pre-Save-Version one has no
+          // snapshot, so it is view-only — mark it, but it still restores (read-only) below.
+          if (!s.restorable) {
             const tag = document.createElement("span"); tag.className = "recent-viewonly"; tag.textContent = tr("recent_view_only");
             card.appendChild(tag);
-            card.addEventListener("click", () => vscode.postMessage({ type: "open_path", path: s.path }));
           }
+          // Both a restorable and a view-only session go through restore_session — the host branches
+          // on snapshot presence and, for a view-only one, replays the transcript read-only instead of
+          // rehydrating from a snapshot (it can't be resumed/re-saved). Close the Recent surface first
+          // so the rehydrated feed/tabs (which render on the home workbench beneath it) are actually
+          // visible — otherwise the click looks like it did nothing until Back.
+          card.addEventListener("click", () => { closeGlobalTool(); vscode.postMessage({ type: "restore_session", id: s.id }); });
           box.appendChild(card);
         }
       }
