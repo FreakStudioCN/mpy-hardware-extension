@@ -170,6 +170,13 @@ const TELEMETRY_INPUT_STRING_BUDGET = 200;
 // which a bare "<2444 chars>" cannot: a stall triage could see six writes of main.py and not
 // whether any of them changed. The head is where a generated file states its intent.
 const TELEMETRY_INPUT_HEAD_CHARS = 400;
+// Fields that carry a FILE BODY rather than an identifier. Their head is never recorded:
+// telemetry reaches session.jsonl and the consented cloud tool_dispatch payload unredacted,
+// and firmware/conf.py is exactly where this product puts credentials -- a secret near the
+// top of a generated file would be captured verbatim. The length and digest still answer
+// what a stall triage asks (which file, how many times, did it change), so nothing needed
+// for diagnosis is lost.
+const TELEMETRY_BODY_FIELDS = new Set(["content", "code", "stdin_content", "text"]);
 
 function digest(value: string): string {
   // FNV-1a, 32-bit. Not a security hash: it only has to differ when the body differs, without
@@ -195,6 +202,13 @@ function compactToolInput(input: any): Record<string, any> {
   const compact: Record<string, any> = {};
   for (const [key, value] of Object.entries(input ?? {})) {
     if (typeof value === "string") {
+      // A body field is compacted at EVERY length, not only over the budget: a short
+      // conf.py is still a file body, and a credential in it would otherwise be recorded
+      // verbatim because it happened to be under 200 characters.
+      if (TELEMETRY_BODY_FIELDS.has(key)) {
+        compact[key] = `<${value.length} chars ${digest(value)}>`;
+        continue;
+      }
       compact[key] = value.length > TELEMETRY_INPUT_STRING_BUDGET
         ? `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_HEAD_CHARS)}`
         : value;

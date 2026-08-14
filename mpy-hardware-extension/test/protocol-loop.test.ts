@@ -1486,15 +1486,14 @@ test("recorded tool input keeps the call identity and replaces a file body with 
   // rewrite loop gives you.
   assert.equal(dispatched.input.path, "firmware/main.py");
   assert.equal(dispatched.input.operation, "write");
-  // The body does not survive verbatim: a phase can burn 60 turns rewriting the same files,
-  // so emitting bodies whole would bury the trace under them. What IS kept is the length, a
-  // digest and a short head. The digest is the part that answers a question a bare
-  // "<5000 chars>" could not: six writes of main.py that all failed the same gate, and no way
-  // to tell whether the model changed anything between them.
+  // The body does not survive at all: telemetry reaches session.jsonl and the consented
+  // cloud tool_dispatch payload unredacted, and firmware/conf.py is where this product puts
+  // credentials. What IS kept is the length and a digest. The digest answers a question a
+  // bare "<5000 chars>" could not: six writes of main.py that all failed the same gate, and
+  // no way to tell whether the model changed anything between them.
   const recorded = dispatched.input.content as string;
-  assert.match(recorded, /^<5000 chars [0-9a-f]{8}> /, recorded.slice(0, 60));
-  assert.ok(recorded.length < 700, `kept ${recorded.length} chars of a 5000 char body`);
-  assert.ok(recorded.endsWith("x".repeat(50)), "the head of the body is kept");
+  assert.match(recorded, /^<5000 chars [0-9a-f]{8}>$/, recorded.slice(0, 60));
+  assert.ok(!recorded.includes("x".repeat(50)), "no part of the body text is recorded");
 });
 
 test("two different bodies get different digests, and identical ones match", async () => {
@@ -1968,4 +1967,43 @@ test("a long phase bounds the replayed history without breaking tool_use/tool_re
   // The newest result is never collapsed: the model repairs against the latest gate report.
   const newest = JSON.stringify(last[last.length - 1]);
   assert.ok(!newest.includes("<elided"), "the most recent tool result was elided");
+});
+
+// Tool inputs reach session.jsonl and the consented cloud tool_dispatch payload without
+// redaction. A generated firmware/conf.py is where this product puts credentials, so the
+// raw head of a body field must never be recorded — at any length, since a short conf.py
+// is still a file body. The length and digest stay: they answer which file changed and
+// how often, which is what a stall triage reads.
+test("telemetry records a file body as length and digest only, never its text", async () => {
+  const SECRET = "WIFI_PASSWORD = \"hunter2-not-a-placeholder\"";
+  const events: any[] = [];
+  const llm = scriptedLlm({
+    analyze: [[tu("w1", "file_operation", { op: "write", path: "firmware/conf.py", content: `${SECRET}\n${"x".repeat(5000)}` }), stop]],
+  });
+  await runProtocolBuild(
+    { intent: "x", traceId: "t", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async () => ({ ok: true }) },
+  );
+
+  const toolUse = events.find((e) => e.type === "tool_use" && e.name === "file_operation");
+  assert.ok(toolUse, "a tool_use event was recorded");
+  const recorded = JSON.stringify(toolUse.input);
+  assert.ok(!recorded.includes("hunter2"), `the secret reached telemetry: ${recorded.slice(0, 120)}`);
+  assert.ok(!recorded.includes("WIFI_PASSWORD"), "the body text reached telemetry");
+  assert.match(recorded, /<\d+ chars [0-9a-f]{8}>/, "length and digest are still recorded");
+  assert.equal(toolUse.input.path, "firmware/conf.py", "the path stays readable");
+});
+
+// The same guard must hold for a SHORT body, which the length budget used to pass verbatim.
+test("telemetry compacts a short file body too", async () => {
+  const events: any[] = [];
+  const llm = scriptedLlm({
+    analyze: [[tu("w2", "file_operation", { op: "write", path: "firmware/conf.py", content: "API_KEY = \"sk-live-abc123\"" }), stop]],
+  });
+  await runProtocolBuild(
+    { intent: "x", traceId: "t", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async () => ({ ok: true }) },
+  );
+  const toolUse = events.find((e) => e.type === "tool_use" && e.name === "file_operation");
+  assert.ok(!JSON.stringify(toolUse.input).includes("sk-live-abc123"), "a short body leaked verbatim");
 });
