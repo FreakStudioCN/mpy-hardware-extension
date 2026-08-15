@@ -223,6 +223,14 @@ function compactToolInput(input: any): Record<string, any> {
 // How many recent tool failures a stalled phase reports as its detail.
 const STALL_DETAIL_LIMIT = 3;
 
+// Proof that apply_scaffold actually rendered: init_scaffold.py writes .flake8 at the
+// project root on EVERY render, whatever modules the manifest selected.
+const SCAFFOLD_APPLIED_MARKER = ".flake8";
+// The "it is not there" answers the wired readers produce: panel.ts returns file_not_found,
+// the e2e harness not_found. Anything else (read_failed, path_outside_workspace) is an ERROR,
+// and reading an error as absence would reject a scaffold that did run.
+const MISSING_FILE_KINDS = new Set(["file_not_found", "not_found"]);
+
 // Ceiling on the REPLAYED conversation, in characters. capToolOutput bounds one tool result
 // at 80k chars; nothing bounded their sum, and the history is re-sent on every request, so a
 // long phase walks into the model's context limit and takes a NON-retryable 400 that kills
@@ -661,6 +669,30 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // instead of silently ending the build with an undefined result.
     if (!p.result) {
       return { result: { ok: false, error_kind: "phase_complete_incomplete", detail: "phase_complete requires a result (success/partial/failed) and, on success, a next_phase" } };
+    }
+    // A scaffold `success` that rendered NOTHING. Measured on a real run: the model never
+    // called apply_scaffold, hand-wrote the tree, and reported success -- the project had no
+    // .flake8, no .upy/, no lib/. It then had to reproduce tools/flash_device.py by hand for
+    // the deploy-tool gate, wrote it 8 times, and matched 3 of the 12 required markers that
+    // the scaffold's own template satisfies outright. Reject it (no phaseControl) so the
+    // phase continues and the model runs apply_scaffold, instead of carrying a project with
+    // no scaffold contract into generate and deploy.
+    if (phaseCtx.phase === "upy-scaffold-plugin" && p.result === "success" && deps.readFile) {
+      const marker = await deps.readFile(SCAFFOLD_APPLIED_MARKER);
+      if (!marker.ok && MISSING_FILE_KINDS.has(marker.error_kind ?? "")) {
+        return {
+          result: {
+            ok: false,
+            error_kind: "scaffold_not_applied",
+            // Name what satisfies it. A gate that only says no costs a phase budget.
+            message:
+              `Rejected: scaffold reported success but ${SCAFFOLD_APPLIED_MARKER} is not in the project, ` +
+              "so apply_scaffold never rendered. Run the scaffold plugin's apply_scaffold script, then " +
+              "re-emit phase_complete. Do not hand-write the scaffold tree: it ships tools/flash_device.py " +
+              "and tools/read_device_log.py in the exact shape the deploy phase requires.",
+          },
+        };
+      }
     }
     // Turn 0 of the generate phase: upy-scaffold-plugin already ran, so the project is
     // never empty at this point. A failed bail back to analyze here is a hallucination,

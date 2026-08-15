@@ -77,7 +77,10 @@ const writeProjectFile = (path: string, content: string) =>
   });
 const readWorkspaceFile = async (path: string) => {
   try { return { ok: true, content: await fsReadFile(join(projectDir, path), "utf-8") }; }
-  catch { return { ok: false, error_kind: "not_found" }; }
+  // Only ENOENT is absence. A blanket "not_found" told the loop a file was missing when the
+  // read had actually failed (permissions, a directory), and the scaffold guard treats
+  // absence as proof the phase rendered nothing.
+  catch (err: any) { return { ok: false, error_kind: err?.code === "ENOENT" ? "file_not_found" : "read_failed" }; }
 };
 const listWorkspace = async (path: string) => {
   const base = path ? join(projectDir, path) : projectDir;
@@ -192,6 +195,9 @@ let mainOk = false;
 try { mainOk = (await stat(mainPy)).size > 100; } catch { mainOk = false; }
 let commits = 0;
 try { commits = Number(execFileSync("git", ["-C", projectDir, "rev-list", "--count", "HEAD"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim()) || 0; } catch { commits = 0; }
+let scaffoldApplied = false;
+try { scaffoldApplied = (await stat(join(projectDir, ".flake8"))).isFile(); } catch { scaffoldApplied = false; }
+const deployResult = phases.find((p) => p.phase === "upy-deploy-plugin")?.result;
 
 console.log("\n=== SUMMARY ===");
 console.log("phases:", phases.map((p) => `${p.phase}(${p.result})`).join(" -> ") || "(none)");
@@ -205,7 +211,14 @@ for (const s of stalls) {
 console.log("reached generate (success):", reachedGenerate);
 console.log("firmware/main.py nontrivial:", mainOk);
 console.log("real git commits in project:", commits);
+// A run whose scaffold rendered nothing used to PASS on generate alone: the model
+// hand-wrote the tree, no .flake8 / .upy / lib, and the deploy-tool interface was
+// unreproducible from there. apply_scaffold writes .flake8 on every render.
+console.log("scaffold applied (.flake8 present):", scaffoldApplied);
+// Not part of the gate: with no board attached, ending after generate is a legitimate
+// code-only delivery. Printed so a missing deploy is visible rather than inferred.
+console.log("deploy phase:", deployResult ?? "(never ran)");
 
-const passed = reachedGenerate && mainOk && commits > 0;
+const passed = reachedGenerate && mainOk && commits > 0 && scaffoldApplied;
 console.log("\nE2E-V0-FULLSTACK:", passed ? "PASS" : "REVIEW");
 process.exit(passed ? 0 : 1);

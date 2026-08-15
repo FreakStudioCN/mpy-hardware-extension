@@ -202,6 +202,10 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
     shim: {
       runV0Script: async (call: any) => {
         scriptCalls.push(call);
+        // init_scaffold.py renders the project, and .flake8 is part of every render. The
+        // stub has to produce it: the loop rejects a scaffold phase_complete whose project
+        // has no .flake8, because that is how a phase that never rendered anything looks.
+        if (call.script === "init_scaffold.py") await writeFile(join(projectDir, ".flake8"), "[flake8]\nmax-line-length = 120\n", "utf-8");
         return { status: "ok", stdout: "{}", stderr: "", exit_code: 0 };
       },
       // all_lines carries lines beyond the matched markers (a print() the deploy

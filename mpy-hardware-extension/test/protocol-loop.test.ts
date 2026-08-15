@@ -1168,6 +1168,66 @@ test("generate phase rejects a turn-0 failed bail to analyze and retries", async
   assert.ok(calls >= 2, "turn-0 hallucinated bail must not end the phase; the model must be re-prompted");
 });
 
+test("scaffold success is rejected when apply_scaffold rendered nothing", async () => {
+  // Measured on a real run: the model never called apply_scaffold, hand-wrote the tree and
+  // reported success. The project had no .flake8, and the deploy-tool interface it then had
+  // to reproduce by hand matched 3 of 12 required markers. apply_scaffold writes .flake8 on
+  // every render, so its absence is the cheapest proof the phase rendered nothing.
+  const reads: string[] = [];
+  const missing = await executeProtocolTool(
+    tu("s0", "phase_complete", { result: "success", next_phase: "upy-generate-plugin" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async (path: string) => { reads.push(path); return { ok: false, error_kind: "file_not_found" }; },
+    },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.deepEqual(reads, [".flake8"]);
+  assert.equal(missing.result.ok, false);
+  assert.equal(missing.result.error_kind, "scaffold_not_applied");
+  assert.equal(missing.phaseControl, undefined, "rejected phase_complete must not advance the phase");
+  assert.match(missing.result.message, /apply_scaffold/, "the refusal must name what would satisfy it");
+
+  // A scaffold that DID render passes through untouched.
+  const applied = await executeProtocolTool(
+    tu("s1", "phase_complete", { result: "success", next_phase: "upy-generate-plugin" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: true, content: "[flake8]\nmax-line-length = 120\n" }) },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.equal(applied.result.ok, true);
+  assert.ok(applied.phaseControl, "a rendered scaffold advances normally");
+
+  // A read that FAILED is not absence. Rejecting here would kill a scaffold that ran.
+  const unreadable = await executeProtocolTool(
+    tu("s2", "phase_complete", { result: "success", next_phase: "upy-generate-plugin" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: false, error_kind: "read_failed" }) },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.equal(unreadable.result.ok, true, "only a positive file_not_found may reject");
+  assert.ok(unreadable.phaseControl);
+
+  // Guard is scaffold-only and success-only: other phases and other results pass through
+  // even with the marker absent.
+  const otherPhase = await executeProtocolTool(
+    tu("s3", "phase_complete", { result: "success", next_phase: null }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: false, error_kind: "file_not_found" }) },
+    { phase: "upy-generate-plugin", turn: 3 },
+  );
+  assert.equal(otherPhase.result.ok, true, "guard is scaffold-phase-only");
+
+  const scaffoldPartial = await executeProtocolTool(
+    tu("s4", "phase_complete", { result: "partial", next_phase: null }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: false, error_kind: "file_not_found" }) },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.equal(scaffoldPartial.result.ok, true, "a partial scaffold already reports its own trouble");
+});
+
 test("quality-gate GENERATE_PLAN errors inject a deterministic corrective message", async () => {
   const bodies: any[] = [];
   let calls = 0;
