@@ -20,6 +20,7 @@ from serve import (
     resolve_script,
     scripts_root,
     _ensure_utf8_io,
+    _with_mpremote_launcher,
     _run_project_script,
     _run_flash_device,
     _run_render,
@@ -127,6 +128,50 @@ def test_install_command_uses_mpremote_mip_package_json_url():
     shim.install_package("COM3", "https://upypi.net/pkgs/aht20/1.0.0/package.json")
 
     assert shim.commands[-1] == ["mpremote", "connect", "COM3", "resume", "mip", "install", "https://upypi.net/pkgs/aht20/1.0.0/package.json"]
+
+
+def test_mpremote_runs_through_the_boot_settle_launcher():
+    # A USB-serial bridge resets the board when the port opens, so mpremote's ctrl-C /
+    # ctrl-A handshake lands mid-boot and every call dies with "could not enter raw repl"
+    # (seen on an ESP32-WROOM-32 behind a CP2102). The launcher adds the settle mpremote
+    # applies on Windows only. The swap must happen at the subprocess boundary.
+    argv = _with_mpremote_launcher(["mpremote", "connect", "COM3", "reset"])
+
+    assert argv[0] == sys.executable, "mpremote must be hosted by this interpreter"
+    assert argv[1].endswith("mpremote_launcher.py")
+    assert argv[2:] == ["connect", "COM3", "reset"], "the mpremote arguments must survive intact"
+
+    # Anything that is not an mpremote call is passed through untouched.
+    other = ["python", "-m", "esptool", "--chip", "esp32"]
+    assert _with_mpremote_launcher(other) == other
+    assert _with_mpremote_launcher([]) == []
+
+
+def test_launcher_only_delays_for_boards_that_reset_on_open():
+    import mpremote_launcher as launcher
+
+    class Port:
+        def __init__(self, device, vid):
+            self.device = device
+            self.vid = vid
+
+    ports = [
+        Port("/dev/cu.usbserial-0001", 0x10C4),  # CP2102 bridge: resets on open
+        Port("/dev/cu.usbmodem101", 0x2E8A),     # Pico native USB CDC: does not
+    ]
+    assert launcher.resets_on_open("/dev/cu.usbserial-0001", ports) is True
+    assert launcher.resets_on_open("/dev/cu.usbmodem101", ports) is False
+    # An unknown port must NOT pay the delay on every call of a deploy.
+    assert launcher.resets_on_open("/dev/cu.nothere", ports) is False
+    assert launcher.resets_on_open("/dev/cu.usbserial-0001", []) is False
+
+    # The port is read from the mpremote argument vector, including the port: prefix.
+    assert launcher.target_device(["connect", "COM7", "reset"]) == "COM7"
+    assert launcher.target_device(["connect", "port:/dev/ttyUSB0", "ls"]) == "/dev/ttyUSB0"
+    assert launcher.target_device(["connect", "auto", "ls"]) is None
+    assert launcher.target_device(["connect", "list"]) is None
+    assert launcher.target_device(["ls"]) is None
+    assert launcher.target_device(["connect"]) is None, "a trailing connect has no device to read"
 
 
 def test_uninstall_package_removes_lib_paths_guards_name_and_treats_absent_as_ok(monkeypatch):

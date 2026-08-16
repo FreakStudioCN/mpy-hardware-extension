@@ -405,9 +405,26 @@ def iter_uploadable_firmware(firmware_dir: str):
             yield src, rel
 
 
+# Every mpremote call goes through the launcher beside this file, which adds a boot settle
+# for boards that reset when the port is opened (see mpremote_launcher.py). The swap happens
+# HERE, at the subprocess boundary, so the command lists the shim builds and records stay
+# `["mpremote", ...]` -- what they name is the tool, not the interpreter that hosts it.
+_MPREMOTE_LAUNCHER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mpremote_launcher.py")
+
+
+def _with_mpremote_launcher(command):
+    if not command or command[0] != "mpremote":
+        return command
+    return [sys.executable, _MPREMOTE_LAUNCHER, *command[1:]]
+
+
+def _run_command(command, **kwargs):
+    return subprocess.run(_with_mpremote_launcher(command), **kwargs)
+
+
 class Shim:
     def __init__(self, runner=None, serial_factory=None):
-        self.runner = runner or subprocess.run
+        self.runner = runner or _run_command
         self.serial_factory = serial_factory
         self.commands: list[list[str]] = []
         # Background serial monitor session (serial.monitor_start/stop): a single open
@@ -743,7 +760,7 @@ class Shim:
 # Only newline-delimited JSON-RPC goes to stdout; diagnostics go to stderr.
 
 def _run_mpremote(args, timeout=30):
-    return subprocess.run(["mpremote", *args], capture_output=True, text=True, timeout=timeout)
+    return _run_command(["mpremote", *args], capture_output=True, text=True, timeout=timeout)
 
 
 def _list_files(port, path=None):
