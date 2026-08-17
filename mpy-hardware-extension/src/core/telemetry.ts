@@ -184,6 +184,14 @@ function mapSessionEvent(event: Record<string, any>): { eventType: string; paylo
     // "max_turns" in the DB, which says the phase ran out of turns and nothing about why.
     return { eventType: "phase_stalled", payload: { phase: event.phase, reason: event.reason, detail: event.detail } };
   }
+  if (event.type === "history_over_cap") {
+    // The replayed conversation could not be brought under its cap, so this request went out
+    // over budget. It needs its own mapping for the same reason phase_stalled does: without
+    // one it falls to the trace_event catch-all, whose mapper returns null for it, so it is
+    // counted as telemetry_dropped -- invisible in exactly the DB where the non-retryable 400
+    // it predicts has to be diagnosed.
+    return { eventType: "history_over_cap", payload: { phase: event.phase, chars: event.chars, turn: event.turn } };
+  }
   // Client self-observability (extension host, not the agent loop). extension_error is our
   // own caught fault; extension_host_error_observed is a process-wide fault we merely saw
   // (not necessarily ours); session_abandoned marks a crashed/never-finished session;

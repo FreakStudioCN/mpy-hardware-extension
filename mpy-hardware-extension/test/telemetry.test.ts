@@ -449,3 +449,17 @@ test("an object-shaped gate entry with a message but no code keeps the message",
 
   assert.deepEqual(t?.payload.errors, [{ message: "pinout must include a ground pin", path: "manifest.json" }]);
 });
+
+// The alarm the loop raises when the replayed conversation could not be brought under its cap.
+// Without its own mapping it falls to the trace_event catch-all, whose mapper returns null for
+// it -- so it is counted as telemetry_dropped and never reaches the cloud DB, which is the one
+// place the non-retryable 400 it predicts has to be diagnosed from.
+test("history_over_cap reaches the DB as itself, not as a dropped event", () => {
+  const t = sessionEventToTelemetry("trace-1", { type: "history_over_cap", phase: "upy-generate-plugin", chars: 512_345, turn: 41 });
+
+  assert.ok(t, "history_over_cap mapped to null (it would be counted as telemetry_dropped)");
+  assert.equal(t.event_type, "history_over_cap");
+  assert.equal(t.payload.phase, "upy-generate-plugin");
+  assert.equal(t.payload.chars, 512_345);
+  assert.equal(t.payload.turn, 41);
+});

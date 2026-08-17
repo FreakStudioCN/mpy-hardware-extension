@@ -129,3 +129,21 @@ test("a phase that cannot get under the cap emits history_over_cap", async () =>
   assert.ok(over[0].chars > HISTORY_MAX_CHARS, over[0]);
   assert.equal(over[0].phase, "upy-generate-plugin");
 });
+
+// The elision marker costs ~28 characters while the head keeps a full 400, so a value just over
+// the head budget comes out LONGER than it went in. Collapsing it would make boundHistory grow
+// the history it was called to shrink, one negative saving at a time.
+test("a body barely over the head budget is left alone, never enlarged", () => {
+  const justOver = "s".repeat(401);
+  const messages: any[] = [];
+  for (let i = 0; i < 12; i += 1) {
+    messages.push({ role: "assistant", content: [{ type: "tool_use", id: `t${i}`, name: "script_run", input: { script: "s.py" } }] });
+    messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: `t${i}`, content: i === 0 ? justOver : "q".repeat(100_000) }] });
+  }
+  const before = historyChars(messages);
+
+  boundHistory(messages);
+
+  assert.equal(messages[1].content[0].content, justOver, "a value that cannot shrink was rewritten anyway");
+  assert.ok(historyChars(messages) <= before, "boundHistory grew the history it was asked to shrink");
+});

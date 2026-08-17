@@ -182,3 +182,29 @@ test("a file read does not record the file's content in telemetry", async () => 
   assert.ok(!recorded.includes("hunter2"), recorded);
   assert.match(recorded, /chars [0-9a-f]{8}/, "the body was dropped without its length and digest");
 });
+
+// The over-cap alarm has to be recorded as ITSELF. The controller's catch-all wraps an unknown
+// event as a trace_event, and that mapper returns null for this one -- so without its own
+// branch the alarm is counted as telemetry_dropped and never reaches the cloud DB.
+test("the controller records history_over_cap instead of burying it in a trace_event", async () => {
+  const { SessionController } = await import("../src/extension/session-controller.ts");
+  const recorded: any[] = [];
+  const posted: any[] = [];
+  const controller = new SessionController({
+    postMessage: (m: any) => posted.push(m),
+    recorderFactory: () => ({ record: async (e: any) => { recorded.push(e); } }),
+    loop: async ({ onEvent }: any) => {
+      onEvent({ type: "history_over_cap", phase: "upy-generate-plugin", chars: 512_345, turn: 41 });
+      return { terminal: "complete" };
+    },
+  } as any);
+
+  await controller.start({ intent: "x", boardId: "auto" });
+
+  const alarm = recorded.find((e) => e.type === "history_over_cap");
+  assert.ok(alarm, "history_over_cap was not recorded as itself");
+  assert.equal(alarm.chars, 512_345);
+  assert.equal(alarm.phase, "upy-generate-plugin");
+  // Record-only: "487,320 chars on turn 41" is triage material, not something a user can act on.
+  assert.ok(!posted.some((m) => m.type === "history_over_cap"), "the alarm was pushed to the webview");
+});

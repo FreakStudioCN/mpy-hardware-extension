@@ -45,7 +45,11 @@ export const HISTORY_KEEP_RECENT = 8;
 const ELISION_PREFIX = "<elided ";
 
 function elide(value: string): string {
-  return `${ELISION_PREFIX}${value.length} chars ${digest(value)}> ` + value.slice(0, TELEMETRY_INPUT_HEAD_CHARS);
+  const elided = `${ELISION_PREFIX}${value.length} chars ${digest(value)}> ` + value.slice(0, TELEMETRY_INPUT_HEAD_CHARS);
+  // The marker costs ~28 characters and the head keeps a full 400, so anything in
+  // (400, ~428] comes out LONGER than it went in -- and boundHistory would then grow the
+  // history it was called to shrink, one negative saving at a time. Nothing to win here.
+  return elided.length < value.length ? elided : value;
 }
 
 function collapsible(value: unknown): value is string {
