@@ -303,9 +303,21 @@ _ALLOWED_SHELL_ARGV: tuple[tuple[str, ...], ...] = (
     ("git", "add", "-A"),
     ("git", "rev-parse", "HEAD"),
     ("git", "status", "--short"),
+    # The exact form models reach for after committing and then noticing a file was missed:
+    # observed on deepseek and on kimi, in different phases, each spending turns on a command
+    # that had no verb here. Fixed argv, no model-supplied text.
+    ("git", "commit", "--amend", "--no-edit"),
 )
-# Forms whose LAST token is model-supplied text rather than a fixed word.
-_ALLOWED_SHELL_PREFIX: tuple[tuple[str, ...], ...] = (("git", "commit", "-m"),)
+# Forms whose LAST token is model-supplied text rather than a fixed word. `--amend -m` is here
+# because a model that wants to correct the commit it just made has no other legal move: three
+# runs on two providers reached for `git commit --amend` and spent turns discovering there is
+# no verb for it, which is the same "refused without naming what would satisfy it" tax we have
+# been removing from the gates. Amending the project's own last commit is no more destructive
+# than the commit that created it, and the argv is executed directly, never through a shell.
+_ALLOWED_SHELL_PREFIX: tuple[tuple[str, ...], ...] = (
+    ("git", "commit", "-m"),
+    ("git", "commit", "--amend", "-m"),
+)
 # `git init && git add -A && git commit -m "..."` is the longest real chain.
 _MAX_SHELL_PARTS = 3
 
@@ -315,7 +327,7 @@ _MAX_SHELL_PARTS = 3
 ALLOWED_SHELL_COMMANDS_HINT = (
     "Allowed shell commands: "
     + "; ".join(" ".join(argv) for argv in _ALLOWED_SHELL_ARGV)
-    + '; git commit -m "<message>"'
+    + "; " + "; ".join(f'{" ".join(prefix)} "<message>"' for prefix in _ALLOWED_SHELL_PREFIX)
     + f". Chain at most {_MAX_SHELL_PARTS} of them with '&&'; no other operator is accepted."
     " There is no shell route for Python: interpreter=python runs BUNDLED PLUGIN SCRIPTS by"
     " name, not arbitrary modules. Linting is not yours to invoke either, run_quality_gates.py"

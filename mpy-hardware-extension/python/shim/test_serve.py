@@ -473,7 +473,25 @@ def test_allowed_shell_hint_cannot_lie():
         command = " ".join(argv)
         assert command in serve.ALLOWED_SHELL_COMMANDS_HINT, command
         assert serve._parse_v0_shell_command(command) == [list(argv)], command
-    assert serve._parse_v0_shell_command('git commit -m "x"') == [["git", "commit", "-m", "x"]]
+    # Every message-taking form too, not just the first one: `git commit --amend -m` was added
+    # after three runs on two providers burned turns on an amend the allowlist had no verb for,
+    # and a hand-written check for one prefix would have advertised it without proving it runs.
+    for prefix in serve._ALLOWED_SHELL_PREFIX:
+        advertised = f'{" ".join(prefix)} "<message>"'
+        assert advertised in serve.ALLOWED_SHELL_COMMANDS_HINT, advertised
+        assert serve._parse_v0_shell_command(f'{" ".join(prefix)} "x"') == [[*prefix, "x"]], prefix
+
+
+def test_amend_is_runnable_because_models_reach_for_it():
+    # Named explicitly rather than derived from the table: the hint-cannot-lie test above
+    # iterates the tables, so deleting an entry deletes its own assertion and passes. Three
+    # runs across deepseek and kimi tried to correct a commit with `git commit --amend` and
+    # spent turns learning there was no verb for it.
+    assert serve._parse_v0_shell_command('git commit --amend -m "fix"') == [["git", "commit", "--amend", "-m", "fix"]]
+    assert serve._parse_v0_shell_command("git commit --amend --no-edit") == [["git", "commit", "--amend", "--no-edit"]]
+    assert "--amend" in serve.ALLOWED_SHELL_COMMANDS_HINT, "a refusal must name the amend form"
+    # Still bounded: an amend that is not one of the two accepted shapes stays refused.
+    assert serve._parse_v0_shell_command("git commit --amend --allow-empty") is None
 
 
 def test_run_v0_shell_still_refuses_an_over_long_chain_and_a_disallowed_part():
