@@ -65,7 +65,14 @@ test("protocol build walks the full V0 plugin chain and sends the cloud envelope
     },
   };
 
-  const result = await runProtocolBuild({ intent: "x", traceId: "trace-v0" }, { llmClient: llm });
+  // A reader is required, not optional: the scaffold phase verifies that apply_scaffold really
+  // rendered before it accepts phase_complete(success), and a run with no reader never wrote
+  // the project at all. This chain walks straight through scaffold, so it supplies one that
+  // reports the marker present.
+  const result = await runProtocolBuild(
+    { intent: "x", traceId: "trace-v0" },
+    { llmClient: llm, readFile: async () => ({ ok: true, content: "" }) } as any,
+  );
 
   assert.equal(result.terminal, "complete");
   assert.deepEqual(result.phases.map((p) => p.phase), [...V0_PHASE_CHAIN]);
