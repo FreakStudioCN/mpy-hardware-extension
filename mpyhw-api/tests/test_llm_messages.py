@@ -1,4 +1,6 @@
 import json
+import logging
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,7 +33,7 @@ class _PassthroughProvider:
     def open_stream(self, body):
         return ["raw"]
 
-    def translate_stream(self, upstream, meter=None, codegen=None):
+    def translate_stream(self, upstream, meter=None, on_interrupt=None):
         yield 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fake-provider"}}\n\n'
         if meter is not None:
             yield 'data: {"type":"credits","remaining":49,"daily_grant":50,"resets_at":"2026-06-03T00:00:00+00:00"}\n\n'
@@ -358,7 +360,7 @@ def test_llm_messages_uses_selected_provider(monkeypatch):
             assert body["messages"][0]["content"] == "blink an ESP32 LED"
             return ["raw"]
 
-        def translate_stream(self, upstream, meter=None, codegen=None):
+        def translate_stream(self, upstream, meter=None, on_interrupt=None):
             assert upstream == ["raw"]
             yield 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fake-provider"}}\n\n'
             if meter is not None:
@@ -532,6 +534,92 @@ def test_llm_stream_emits_error_event_on_midstream_failure(monkeypatch):
     # mid-stream (unlike a pre-stream UpstreamError, which does refund). Lock it so a
     # refactor can't silently flip to refunding or double-charging on an upstream drop.
     assert client.get("/v1/credits").json()["balance"] == credit_store.DAILY_GRANT - 1
+
+
+def test_quiet_upstream_emits_keep_alive_instead_of_dying(monkeypatch):
+    # A reasoning model pauses between chunks. Every client puts an idle ceiling on that:
+    # undici, which backs fetch in Node and so in the extension host and the e2e harness,
+    # defaults bodyTimeout to 300s measured BETWEEN body chunks. Before the heartbeat, a
+    # long think produced no bytes at all, so whichever ceiling was smallest killed a
+    # healthy turn and reported it as a transport failure. The body must keep producing.
+    from app import sse_translate
+
+    monkeypatch.setattr(sse_translate, "HEARTBEAT_INTERVAL_SECONDS", 0.05)
+    monkeypatch.setattr(sse_translate, "UPSTREAM_IDLE_BUDGET_SECONDS", 5)
+
+    def slow_upstream():
+        time.sleep(0.2)  # several heartbeat intervals of silence, then real content
+        yield b'data: {"choices": [{"delta": {"content": "late"}}]}'
+        yield b'data: [DONE]'
+
+    out = "".join(sse_translate._translate_deepseek_stream(slow_upstream()))
+    assert ": keep-alive" in out, "a quiet upstream must still produce body chunks"
+    assert "late" in out, "the real content still arrives after the quiet period"
+    assert "message_stop" in out, "the stream completes normally"
+    assert "upstream_stream_interrupted" not in out
+
+
+def test_quiet_upstream_gives_up_after_the_idle_budget(monkeypatch):
+    # The heartbeat must not mask a genuinely dead upstream: past the budget it fails, and
+    # the failure names the cause instead of surfacing as an opaque client-side drop.
+    from app import sse_translate
+
+    monkeypatch.setattr(sse_translate, "HEARTBEAT_INTERVAL_SECONDS", 0.05)
+    monkeypatch.setattr(sse_translate, "UPSTREAM_IDLE_BUDGET_SECONDS", 0.2)
+
+    def dead_upstream():
+        time.sleep(5)
+        yield b'data: [DONE]'
+
+    out = "".join(sse_translate._translate_deepseek_stream(dead_upstream()))
+    assert "upstream_stream_interrupted" in out, "a dead upstream must still end the stream"
+
+
+def test_interrupted_stream_is_recorded_and_logged(monkeypatch, caplog):
+    # Two runs died mid-phase on one provider and llm_turns reported nothing wrong, because
+    # the only status="error" path is a failure to OPEN the stream, while meter() writes
+    # status="success" as soon as the usage chunk lands. A break after usage left a success
+    # row; a break before it left no row at all. The api log held nothing either: the
+    # handler swallowed the exception. Both halves are asserted here.
+    from app import db
+
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    def raising_stream(_body, _api_key):
+        def gen():
+            yield b'data: {"choices": [{"delta": {"content": "partial"}}]}'
+            yield b'data: {"choices": [], "usage": {"total_tokens": 25000}}'
+            raise ConnectionError("peer closed the connection")
+
+        return gen()
+
+    monkeypatch.setattr("app.routes_llm._open_deepseek_stream", raising_stream)
+
+    with caplog.at_level(logging.WARNING, logger="mpyhw.llm"):
+        response = client.post(
+            "/v1/llm/messages",
+            json={"messages": [{"role": "user", "content": "blink"}], "tools": [], "trace_id": "t-interrupt"},
+        )
+        assert response.status_code == 200
+        assert "upstream_stream_interrupted" in response.text  # drains the stream
+
+    with db.connect() as conn:
+        rows = db.fetchall(
+            conn,
+            "SELECT status, error_kind FROM llm_turns WHERE trace_id=? ORDER BY status",
+            ("t-interrupt",),
+        )
+    statuses = [row["status"] for row in rows]
+    assert "error" in statuses, f"a broken stream must leave an error row, got {statuses}"
+    error_row = next(row for row in rows if row["status"] == "error")
+    assert error_row["error_kind"] == "upstream_stream_interrupted"
+
+    # The cause has to be in the log, or a drop is undiagnosable after the fact.
+    interrupted = [r for r in caplog.records if "stream interrupted" in r.getMessage()]
+    assert interrupted, "the interruption must be logged"
+    assert getattr(interrupted[0], "error_type", "") == "ConnectionError"
+    assert "peer closed the connection" in getattr(interrupted[0], "detail", "")
 
 
 def test_successful_turn_is_persisted_to_llm_turns(monkeypatch):

@@ -288,9 +288,32 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
             raise HTTPException(status_code=502, detail={"error": "llm_upstream_error", "status": error.status})
         if breaker_enabled:
             _deepseek_breaker.record_success()
+        def on_interrupt(error: BaseException) -> None:
+            # A stream that dies mid-turn was invisible in llm_turns: meter() writes
+            # status="success" the moment the usage chunk lands, and a break before usage
+            # wrote no row at all. Either way the table reported a healthy run. Recording
+            # the break here is what makes "why did that phase stall" answerable from the
+            # data rather than from the client's error event alone.
+            analytics.record_llm_turn(
+                trace_id=body.get("trace_id"),
+                user_id=str(user["id"]),
+                kind="chat",
+                model=_provider_model(provider),
+                started_at=started_at,
+                total_tokens=None,
+                credits_charged=0,
+                status="error",
+                error_kind="upstream_stream_interrupted",
+            )
+
         # V0-pure: the model writes file content inline; the backend no longer
         # intercepts file_operation writes to synthesize code from an `intent`.
-        return StreamingResponse(_release_after(provider.translate_stream(upstream, meter), session_id), media_type="text/event-stream")
+        return StreamingResponse(
+            # Keyword, not positional: a provider that has not grown the parameter must fail
+            # by name rather than bind the callback to whatever its third argument is called.
+            _release_after(provider.translate_stream(upstream, meter, on_interrupt=on_interrupt), session_id),
+            media_type="text/event-stream",
+        )
     except Exception:
         llm_sessions.release(session_id, "setup_error")
         raise
