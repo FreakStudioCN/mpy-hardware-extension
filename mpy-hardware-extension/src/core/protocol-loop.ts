@@ -9,6 +9,7 @@ import {
   digest,
   historyChars,
   TELEMETRY_BODY_FIELDS,
+  TELEMETRY_INPUT_HEAD_CHARS,
   TELEMETRY_INPUT_STRING_BUDGET,
 } from "./history-window.ts";
 
@@ -22,6 +23,11 @@ const MAX_TURNS_PER_PHASE = 60;
 // tool rather than stalling the whole build on the first prose-only reply (which froze
 // the UI on the current step); only give up after this many CONSECUTIVE prose turns.
 const MAX_TOOLLESS_TURNS = 3;
+// Consecutive turns a phase may lose to a stream that died before producing anything. Two,
+// because the failure mode being covered is transient (a socket hang-up, an upstream that
+// goes quiet past the idle budget) while a provider that is genuinely down would burn the
+// whole turn budget retrying and hide the real reason behind a max_turns stall.
+const MAX_STREAM_RETRIES = 2;
 const MAX_PHASES = PHASE_ORDER.length;
 
 // device_command actions whose stdout is real device/REPL output, worth surfacing on
@@ -170,6 +176,16 @@ function buildContext(input: ProtocolInput, absorbedSupplements: string[]): Reco
   return Object.keys(ctx).length ? ctx : null;
 }
 
+// The string budgets, the body-field set and digest() now live in history-window.ts and are
+// imported at the top of this file; only the array rule below is local to the compaction.
+//
+// An argv array is flags and paths, not a body, so it is recorded verbatim: "<16 items>" made
+// "which arguments did the model actually pass" unanswerable, and that is the first question
+// asked of any failing script_run. Each element still goes through the string rules, so a long
+// element is clamped and a body-shaped one never rides in. The count is a hard cap on how much
+// an array can contribute at all.
+const TELEMETRY_ARRAY_ITEM_BUDGET = 40;
+
 // Shrink a tool input down to the IDENTITY of the call (tool, path, script_id, flags)
 // for telemetry. A file_operation write carries a whole generated file, and a phase can burn
 // its full 60-turn budget rewriting the same files, so emitting inputs verbatim would
@@ -179,6 +195,27 @@ function buildContext(input: ProtocolInput, absorbedSupplements: string[]): Reco
 // ponytail: one level deep. A nested object is recorded as "<object>", not walked, so an
 // input that hides its path inside a sub-object shows nothing useful -- walk it only if a
 // real trace needs it.
+// A body field is compacted at EVERY length, not only over the budget: a short conf.py is
+// still a file body, and a credential in it would otherwise be recorded verbatim because it
+// happened to be under 200 characters.
+function compactTelemetryString(key: string, value: string): string {
+  if (TELEMETRY_BODY_FIELDS.has(key)) return `<${value.length} chars ${digest(value)}>`;
+  return value.length > TELEMETRY_INPUT_STRING_BUDGET
+    ? `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_HEAD_CHARS)}`
+    : value;
+}
+
+// Elements go through the SAME rules as a top-level string under that key, so an args array
+// stays readable while a body-shaped element is still clamped or digested.
+function compactTelemetryArray(key: string, value: any[]): any[] {
+  const kept = value.slice(0, TELEMETRY_ARRAY_ITEM_BUDGET).map((item) => {
+    if (typeof item === "string") return compactTelemetryString(key, item);
+    return item && typeof item === "object" ? "<object>" : item;
+  });
+  const dropped = value.length - kept.length;
+  return dropped > 0 ? [...kept, `<${dropped} more items>`] : kept;
+}
+
 function compactToolInput(input: any): Record<string, any> {
   const compact: Record<string, any> = {};
   for (const [key, value] of Object.entries(input ?? {})) {
@@ -198,7 +235,12 @@ function compactToolInput(input: any): Record<string, any> {
       const compacted = `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_STRING_BUDGET)}`;
       compact[key] = compacted.length < value.length ? compacted : value;
     }
-    else if (Array.isArray(value)) compact[key] = `<${value.length} items>`;
+    // An array is walked rather than replaced with "<N items>", so "which arguments did the
+    // model actually pass" stays answerable from the trace. Elements go through the same
+    // per-key rules. Kept deliberately separate from the string branch above: the shared
+    // helper still slices to TELEMETRY_INPUT_HEAD_CHARS, which is the arithmetic that comment
+    // warns about, so routing top-level strings through it would undo the guard.
+    else if (Array.isArray(value)) compact[key] = compactTelemetryArray(key, value);
     else if (value && typeof value === "object") compact[key] = "<object>";
     else compact[key] = value;
   }
@@ -226,9 +268,19 @@ function compactResultBodies(result: any): any {
 // How many recent tool failures a stalled phase reports as its detail.
 const STALL_DETAIL_LIMIT = 3;
 
-// Proof that apply_scaffold actually rendered: init_scaffold.py writes .flake8 at the
-// project root on EVERY render, whatever modules the manifest selected.
-const SCAFFOLD_APPLIED_MARKER = ".flake8";
+// Proof that apply_scaffold actually rendered. A marker has to be something the SCRIPT
+// produces and the model has no reason to write by hand: .flake8 was the first choice and it
+// failed, because a run that skipped apply_scaffold hand-wrote its own .flake8 (along with a
+// fake lib/ and a 119-line imitation of the 466-line flash_device.py) and sailed through.
+//
+// scaffold_file_manifest.json is the scaffold's own record of what it wrote
+// (apply_scaffold.py), but it lands in --session-dir, which is the project root only when the
+// caller passes no session dir, and it is skipped entirely without --write-phase-complete.
+// So it CANNOT be the only marker. The .upy schema is copied unconditionally by
+// add_upy_resources (init_scaffold.py) as a required resource, at a fixed path.
+//
+// Absence must be unanimous: a project missing BOTH did not run the scaffold.
+const SCAFFOLD_APPLIED_MARKERS = ["scaffold_file_manifest.json", ".upy/schemas/project-manifest.schema.json"];
 // The "it is not there" answers the wired readers produce: both panel.ts and the e2e harness
 // return file_not_found; not_found is the older spelling still used by the harness's LIST op,
 // kept so a reader that answers either way is read as absence. Anything else (read_failed,
@@ -269,6 +321,9 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
   const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_PER_PHASE;
   const context = buildContext(input, absorbedSupplements);
   let toollessTurns = 0;
+  // Consecutive turns lost to a stream that died before producing anything. Reset on any turn
+  // that yields a tool call, so this bounds a run of bad luck, not the phase's whole lifetime.
+  let streamRetries = 0;
   // Rolling window of the most recent failing tool calls, reported if the phase gives up.
   const recentFailures: Array<{ tool: string; error: string; path?: string }> = [];
   for (let turn = 0; turn < maxTurns; turn++) {
@@ -325,6 +380,17 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // and all 50 turns before it over one transient socket hang-up. The failure stays in
       // recentFailures either way, so a phase that goes on to stall still names it.
       if (toolUses.length === 0) {
+        // Nothing arrived, so nothing was lost by asking again: no assistant message is
+        // appended here, so the retry re-issues the SAME turn against unchanged history.
+        // Measured: a real generate turn went silent for the full idle budget and the phase
+        // gave up with four phases of work behind it. Bounded, and reset by any turn that
+        // produces a tool call, so a genuinely dead upstream still stalls after
+        // MAX_STREAM_RETRIES rather than burning the whole turn budget on retries.
+        if (streamRetries < MAX_STREAM_RETRIES) {
+          streamRetries += 1;
+          input.onEvent?.({ type: "stream_retry", phase, attempt: streamRetries, of: MAX_STREAM_RETRIES, error: streamError });
+          continue;
+        }
         input.onEvent?.({ type: "phase_stalled", phase, reason: "stream_error", detail: [...recentFailures] });
         return { done: false, stalled: true, error: streamError };
       }
@@ -356,6 +422,9 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       continue;
     }
     toollessTurns = 0;
+    // A turn that produced a tool call clears the stream-retry budget: the two are meant to
+    // absorb a burst of bad luck, not to accumulate across a long healthy phase.
+    streamRetries = 0;
     // A mid-stream cancel may have ended the read with a partial tool list; don't
     // execute device/file side effects after the user aborted.
     if (input.signal?.aborted) return { done: false, cancelled: true };
@@ -673,18 +742,23 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
       if (typeof deps.readFile !== "function") {
         return { result: { ok: false, error_kind: "workspace_unavailable", message: "Cannot verify the scaffold rendered: no workspace reader is available, so the project was never written." } };
       }
-      const marker = await deps.readFile(SCAFFOLD_APPLIED_MARKER);
-      if (!marker.ok && MISSING_FILE_KINDS.has(marker.error_kind ?? "")) {
+      const reads = await Promise.all(SCAFFOLD_APPLIED_MARKERS.map((path) => deps.readFile!(path)));
+      // Every marker answered "not there". A read that FAILED for any other reason is an
+      // error, not absence, and leaves the phase alone -- rejecting on it would kill a
+      // scaffold that did run.
+      const allMissing = reads.every((r) => !r.ok && MISSING_FILE_KINDS.has(r.error_kind ?? ""));
+      if (allMissing) {
         return {
           result: {
             ok: false,
             error_kind: "scaffold_not_applied",
             // Name what satisfies it. A gate that only says no costs a phase budget.
             message:
-              `Rejected: scaffold reported success but ${SCAFFOLD_APPLIED_MARKER} is not in the project, ` +
+              `Rejected: scaffold reported success but the project has none of ${SCAFFOLD_APPLIED_MARKERS.join(", ")}, ` +
               "so apply_scaffold never rendered. Run the scaffold plugin's apply_scaffold script, then " +
               "re-emit phase_complete. Do not hand-write the scaffold tree: it ships tools/flash_device.py " +
-              "and tools/read_device_log.py in the exact shape the deploy phase requires.",
+              "and tools/read_device_log.py in the exact shape the deploy phase requires, and a hand-written " +
+              "copy fails the deploy-tool gate.",
           },
         };
       }

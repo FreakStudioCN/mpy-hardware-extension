@@ -325,6 +325,26 @@ test("the request body carries a context block (pre_selected_board + preferences
   assert.equal(sentBody.context.existing_hardware, "ESP32-C3 + DHT22");
 });
 
+test("an object-shaped pre-selected board reaches the server whole, not flattened to an id", async () => {
+  // The server only treats an OBJECT-shaped pre_selected_board as a board-profile candidate;
+  // a bare string is shown as a hint and never resolves a profile. Measured consequence of
+  // getting this wrong: select-hw is handed `Board profile: {}` and the model either refuses
+  // ("board definition not available in the accessible board library") or invents an id that
+  // exists in no library. The id fields are what the resolver reads, so they must survive.
+  let sentBody: any = null;
+  const llm = {
+    streamMessages: async (body: any) => {
+      sentBody = body;
+      return (async function* () { yield tu("p", "phase_complete", { result: "success", next_phase: null, manifest_content: {} }); yield stop; })();
+    },
+  };
+  const board = { id: "ESP32_GENERIC", local_board_id: "esp32-devkit-v1", skill_board_id: "esp32-devkit-v1", mcu: "ESP32-WROOM-32" };
+  await runProtocolBuild({ intent: "x", boardId: "auto", preSelectedBoard: board }, { llmClient: llm });
+
+  assert.deepEqual(sentBody.context.pre_selected_board, board, "the whole board object must reach the server");
+  assert.equal(sentBody.context.board_selection_mode, undefined, "a pre-selected board is not the recommend path");
+});
+
 test("the recommend path carries board_selection_mode in the context; a picked board omits it", async () => {
   // #43: when the user asks the system to recommend (no pre_selected_board), the server must
   // receive board_selection_mode: "recommend". When a board is picked, the flag is redundant and dropped.
@@ -1190,7 +1210,7 @@ test("scaffold success is rejected when apply_scaffold rendered nothing", async 
     },
     { phase: "upy-scaffold-plugin", turn: 3 },
   );
-  assert.deepEqual(reads, [".flake8"]);
+  assert.deepEqual(reads.sort(), [".upy/schemas/project-manifest.schema.json", "scaffold_file_manifest.json"]);
   assert.equal(missing.result.ok, false);
   assert.equal(missing.result.error_kind, "scaffold_not_applied");
   assert.equal(missing.phaseControl, undefined, "rejected phase_complete must not advance the phase");
@@ -1200,11 +1220,46 @@ test("scaffold success is rejected when apply_scaffold rendered nothing", async 
   const applied = await executeProtocolTool(
     tu("s1", "phase_complete", { result: "success", next_phase: "upy-generate-plugin" }) as any,
     { intent: "x" },
-    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: true, content: "[flake8]\nmax-line-length = 120\n" }) },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: true, content: "{}" }) },
     { phase: "upy-scaffold-plugin", turn: 3 },
   );
   assert.equal(applied.result.ok, true);
   assert.ok(applied.phaseControl, "a rendered scaffold advances normally");
+
+  // apply_scaffold writes scaffold_file_manifest.json into --session-dir, so a real render
+  // can leave the project root without it while the unconditional .upy schema is there.
+  // Absence has to be UNANIMOUS or this rejects a scaffold that ran.
+  const manifestElsewhere = await executeProtocolTool(
+    tu("s1b", "phase_complete", { result: "success", next_phase: "upy-generate-plugin" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async (path: string) => (path === "scaffold_file_manifest.json"
+        ? { ok: false, error_kind: "file_not_found" }
+        : { ok: true, content: "{}" }),
+    },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.equal(manifestElsewhere.result.ok, true, "one marker present is enough");
+  assert.ok(manifestElsewhere.phaseControl);
+
+  // The run this guard was rebuilt for: the model hand-wrote .flake8, .pylintrc and a fake
+  // lib/ tree, so a .flake8-only marker passed while apply_scaffold had never run. Neither
+  // scaffold-authored marker exists in that project.
+  const handWrittenTree = await executeProtocolTool(
+    tu("s1c", "phase_complete", { result: "success", next_phase: "upy-generate-plugin" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async (path: string) => (path === ".flake8"
+        ? { ok: true, content: "[flake8]\nmax-line-length = 120\n" }
+        : { ok: false, error_kind: "file_not_found" }),
+    },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.equal(handWrittenTree.result.ok, false, "a hand-written .flake8 must not satisfy the guard");
+  assert.equal(handWrittenTree.result.error_kind, "scaffold_not_applied");
+  assert.equal(handWrittenTree.phaseControl, undefined);
 
   // A read that FAILED is not absence. Rejecting here would kill a scaffold that ran.
   const unreadable = await executeProtocolTool(
@@ -1651,7 +1706,9 @@ test("recorded tool input compacts arrays and nested objects but keeps scalars",
     script_id: "q",
     interpreter: "python",
     script: "gate.py",
-    args: "<3 items>",
+    // argv verbatim: it is flags and paths, and "<3 items>" makes "what did it actually run"
+    // unanswerable. stdin_json stays "<object>" -- that one can carry a file body.
+    args: ["--a", "--b", "--c"],
     timeout_ms: 30000,
     stdin_json: "<object>",
   });
@@ -1840,6 +1897,94 @@ test("a stream error stalls the phase OUT LOUD, naming itself", async () => {
   assert.ok(stalled, "a stream error must emit phase_stalled like every other stall");
   assert.equal(stalled.reason, "stream_error");
   assert.match(JSON.stringify(stalled.detail), /upstream closed the connection/);
+});
+
+test("a stream that dies before producing anything is retried, not thrown away", async () => {
+  // Measured: a real generate turn went silent for the whole idle budget and the phase gave up
+  // with four phases of work behind it. Nothing arrived on that turn, so nothing is lost by
+  // asking again -- no assistant message is appended, so the retry re-issues the same turn.
+  const events: any[] = [];
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return (async function* () { yield { type: "stream_error", message: "upstream_stream_interrupted" }; })();
+      }
+      return (async function* () {
+        yield tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} });
+        yield stop;
+      })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm },
+  );
+
+  assert.equal(result.terminal, "complete", "a transient stream death must not end the phase");
+  assert.equal(calls, 2, "the same turn is re-issued exactly once");
+  const retry = events.find((e) => e.type === "stream_retry");
+  assert.ok(retry, "the retry must be visible, not silent");
+  assert.equal(retry.attempt, 1);
+  assert.ok(!events.some((e) => e.type === "phase_stalled"), "a recovered phase must not report a stall");
+});
+
+test("the stream-retry budget resets after a turn that produced a tool call", async () => {
+  // Without the reset the budget is a phase-lifetime allowance, so a long healthy phase that
+  // hits one blip early and two more much later dies on the third, having done all the work in
+  // between. It is meant to absorb a burst, so a productive turn clears it.
+  const script = ["error", "tool", "error", "error", "tool"];
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      const step = script[calls] ?? "tool";
+      calls += 1;
+      if (step === "error") {
+        return (async function* () { yield { type: "stream_error", message: "upstream_stream_interrupted" }; })();
+      }
+      return (async function* () {
+        // The first tool turn must NOT end the phase, or the later errors are never reached.
+        yield calls === 2
+          ? tu("s", "status_update", { message: "still working" })
+          : tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} });
+        yield stop;
+      })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 10 },
+    { llmClient: llm },
+  );
+
+  assert.equal(result.terminal, "complete", "two blips after a productive turn must not stall the phase");
+  assert.equal(calls, 5, "every scripted turn ran: the budget was reset, not accumulated");
+});
+
+test("a persistently dead stream still stalls, bounded by the retry budget", async () => {
+  // The other half: retrying forever would turn a dead provider into a max_turns stall that
+  // hides the real reason. It gives up after the budget and still names the cause.
+  const events: any[] = [];
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls += 1;
+      return (async function* () { yield { type: "stream_error", message: "upstream_stream_interrupted" }; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 20, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm },
+  );
+
+  assert.equal(result.terminal, "stalled");
+  assert.equal(calls, 3, "two retries then give up, not the whole turn budget");
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled.reason, "stream_error");
+  assert.match(JSON.stringify(stalled.detail), /upstream_stream_interrupted/);
 });
 
 test("a stream that throws keeps the reason instead of ending silently", async () => {
@@ -2108,4 +2253,43 @@ test("telemetry compacts a short file body too", async () => {
   );
   const toolUse = events.find((e) => e.type === "tool_use" && e.name === "file_operation");
   assert.ok(!JSON.stringify(toolUse.input).includes("sk-live-abc123"), "a short body leaked verbatim");
+});
+
+// An argv array is the first thing anyone asks about a failing script_run, and recording it
+// as "<16 items>" made the question unanswerable: a real request for the exact invocation of
+// deploy_result.py could not be answered from the session log, the cloud tool_dispatch rows
+// or the turn records, because all three carry this one compacted value.
+test("telemetry records script_run arguments verbatim, not as a count", async () => {
+  const events: any[] = [];
+  const ARGS = ["--strategy", "clean_then_upload", "--port", "/dev/cu.usbmodem101", "--output-json", "deploy_result.json"];
+  const llm = scriptedLlm({
+    analyze: [[tu("s1", "script_run", { script_id: "r", interpreter: "python", script: "deploy_result.py", args: ARGS }), stop]],
+  });
+  await runProtocolBuild(
+    { intent: "x", traceId: "t", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, stdout: "{}", exit_code: 0 }) },
+  );
+
+  const toolUse = events.find((e) => e.type === "tool_use" && e.name === "script_run");
+  assert.ok(toolUse, "a script_run tool_use event was recorded");
+  assert.deepEqual(toolUse.input.args, ARGS, "the exact argv must be recoverable from telemetry");
+  assert.equal(toolUse.input.script, "deploy_result.py");
+});
+
+test("a long or body-shaped array element is still clamped, and a huge array is bounded", async () => {
+  const events: any[] = [];
+  const HUGE = "y".repeat(5000);
+  const MANY = Array.from({ length: 60 }, (_, i) => `--flag-${i}`);
+  const llm = scriptedLlm({
+    analyze: [[tu("s2", "script_run", { script_id: "r", interpreter: "python", script: "x.py", args: [HUGE, ...MANY] }), stop]],
+  });
+  await runProtocolBuild(
+    { intent: "x", traceId: "t", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, stdout: "{}", exit_code: 0 }) },
+  );
+
+  const recorded = events.find((e) => e.type === "tool_use" && e.name === "script_run").input.args;
+  assert.match(recorded[0], /^<5000 chars [0-9a-f]{8}> y+/, "an over-budget element keeps its digest and head");
+  assert.ok(recorded.length <= 41, `the array must stay bounded, got ${recorded.length} entries`);
+  assert.match(recorded[recorded.length - 1], /^<\d+ more items>$/, "the tail says how many were dropped");
 });
