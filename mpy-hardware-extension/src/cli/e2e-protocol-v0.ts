@@ -164,10 +164,22 @@ const onEvent = (e: any) => {
   // failing tool calls both went to waste, so every diagnosis started from turn counts and
   // leftover files instead of the loop's own account of why it gave up.
   else if (e.type === "phase_stalled") {
-    console.log(`  !! phase_stalled: ${current} — reason: ${e.reason ?? "(none)"}`);
-    for (const d of Array.isArray(e.detail) ? e.detail : []) console.log(`       ${JSON.stringify(d)}`);
-    stalls.push({ phase: current, reason: e.reason ?? null, detail: e.detail ?? [] });
+    // The event's own `phase`, not the phase reconstructed from the last phase_start: a stall
+    // reported for any other phase would be printed under the wrong name, in the very output
+    // added to make a stall diagnosable. Guard `detail` once and use that ONE value for both
+    // the inline print and the stored record -- storing the raw value threw
+    // "s.detail is not iterable" out of the summary loop, losing the whole verdict of a run
+    // that had already finished.
+    const phase = e.phase ?? current;
+    const detail = Array.isArray(e.detail) ? e.detail : [];
+    console.log(`  !! phase_stalled: ${phase} — reason: ${e.reason ?? "(none)"}`);
+    for (const d of detail) console.log(`       ${JSON.stringify(d)}`);
+    stalls.push({ phase, reason: e.reason ?? null, detail });
   }
+  // The replayed history could not be brought under the cap. The request still went out, so
+  // the run may continue -- but if it dies on a non-retryable 400 a few turns later, this is
+  // the line that says why.
+  else if (e.type === "history_over_cap") console.log(`  !! history over cap: ${e.chars} chars on ${e.phase} turn ${e.turn}`);
   else if (e.type === "phase_error") console.log(`  !! phase_error: ${e.error_kind ?? "(none)"} ${e.next_phase ?? ""}`);
   else if (e.type === "file_written") console.log(`  [file] ${e.path}`);
   else if (e.type === "status_update") console.log(`  [status] ${e.payload?.message ?? ""}`.slice(0, 120));
