@@ -1383,10 +1383,14 @@ def _project_dir_from_args(args: list) -> str | None:
     return None
 
 
-# Scripts that fall back to <session_dir>/project when no project root is given:
-# apply_scaffold.py:280-286 (it WRITES the tree there) and check_session_state.py:138
-# (it reads it). Every other bundled script takes --project-dir outright.
-_PROJECT_ROOT_SCRIPTS = ("apply_scaffold.py", "check_session_state.py")
+# Scripts that fall back to <session_dir>/project when no project root is given, so they read
+# or write the WRONG tree unless we name ours: apply_scaffold.py (it WRITES the tree there),
+# check_session_state.py and session_chain_validate.py (they read it).
+# session_chain_validate.py is why this must not be maintained from memory -- it was missing
+# from this tuple, and its forbidden_project_artifacts() returns [] for a directory that does
+# not exist, so the chain validator reported a clean green about a tree it never looked at.
+# test_serve.py derives the same set from the bundled scripts and fails when this drifts.
+_PROJECT_ROOT_SCRIPTS = ("apply_scaffold.py", "check_session_state.py", "session_chain_validate.py")
 
 
 def _assert_project_root(base: str, args: list, cwd: str | None) -> list:

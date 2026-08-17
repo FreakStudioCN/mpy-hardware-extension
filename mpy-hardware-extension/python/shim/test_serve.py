@@ -547,8 +547,53 @@ def test_a_model_supplied_project_root_is_not_overridden():
         assert "/tmp/proj" not in cmd, cmd
 
 
+def test_session_chain_validate_is_told_the_project_root():
+    # Same fallback again (session_chain_validate.py:199). Without our root it validates
+    # <session_dir>/project, which does not exist -- and forbidden_project_artifacts() returns
+    # [] for a missing directory, so the chain validator reported a clean green about a tree it
+    # never looked at. A false green from a validator is worse than no validator.
+    record = []
+    record_stdout[0] = '{"status": "ok"}'
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "session_chain_validate.py",
+        "args": ["--session-dir", "."], "project_dir": "/tmp/proj",
+    })
+    cmd = record[0]["cmd"]
+    assert cmd[cmd.index("--project-dir") + 1] == "/tmp/proj", cmd
+
+
+def test_project_root_scripts_is_derived_from_the_scripts_not_from_memory():
+    # _PROJECT_ROOT_SCRIPTS is a hand-written tuple of names, and a hand-written list is exactly
+    # how session_chain_validate.py went missing from it -- silently, because the wrong-tree run
+    # still exits 0. Derive the set from the scripts the resolver ACTUALLY indexes and fail when
+    # the tuple drifts, so the next script with this fallback is caught here and not in a run.
+    here = os.path.dirname(os.path.abspath(__file__))
+    dev_root = os.path.abspath(os.path.join(here, "..", "..", "..", "third_party", "MicroPython_Skills"))
+    assert os.path.isdir(dev_root), dev_root
+    orig_root, orig_index = serve.scripts_root, serve._V0_SCRIPT_INDEX
+    serve.scripts_root, serve._V0_SCRIPT_INDEX = (lambda: dev_root), None
+    try:
+        needs_root = set()
+        for basename, paths in serve._build_v0_script_index().items():
+            for path in paths:
+                src = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
+                # Declares the flag AND falls back to <session_dir>/project when it is absent.
+                if '"--project-dir"' not in src:
+                    continue
+                if 'session_dir / "project"' in src or 'session_root / "project"' in src:
+                    needs_root.add(basename)
+    finally:
+        serve.scripts_root, serve._V0_SCRIPT_INDEX = orig_root, orig_index
+    assert needs_root == set(serve._PROJECT_ROOT_SCRIPTS), (
+        f"bundled scripts that fall back to <session_dir>/project: {sorted(needs_root)}; "
+        f"_PROJECT_ROOT_SCRIPTS: {sorted(serve._PROJECT_ROOT_SCRIPTS)}"
+    )
+
+
 def test_other_scripts_are_not_given_a_project_root_they_do_not_accept():
-    # Only the two scripts that fall back to <session_dir>/project get the flag; appending it
+    # Only the scripts that fall back to <session_dir>/project get the flag; appending it
     # to a script whose argparse does not define it would turn a working call into an error.
     record = []
     record_stdout[0] = '{"status": "ok"}'
