@@ -102,8 +102,299 @@ def test_resolve_board_uses_preselected_local_board_id_before_auto_or_official_i
         },
     })
 
-    assert board["board_id"] == "esp32-s3-devkitc-1"
-    assert "available_modules" in board
+    # skill_board_id wins over local_board_id: the skill library is the schema select-hw
+    # and select_hw_manifest.py consume (pin_layout.default_bus_pins / restricted_gpio),
+    # while our 6 content/boards copies are the older extension schema. Both beat the
+    # official-only tier, which is what this test was written for.
+    assert board["id"] == "esp32-s3-devkitc"
+    assert board["pin_layout"]["default_bus_pins"]["i2c0"]["sda"] == 5
+
+
+@pytest.mark.no_db
+def test_skill_library_board_resolves_to_the_real_submodule_profile():
+    # select-hw validates a pin plan against a board definition it CANNOT read: file_operation
+    # is project-confined. So whatever the server injects is the whole library as far as the
+    # model is concerned, and it has to be the skill's schema, loaded from the real files.
+    from app.routes_llm import _resolve_board
+
+    board = _resolve_board({"board_id": "esp32-devkit-v1"}, {})
+
+    # A load-bearing value, not key presence: this exact pin is what the SKILL's bus rules
+    # read (pin_layout.default_bus_pins), and it differs between the two schemas.
+    assert board["pin_layout"]["default_bus_pins"]["i2c0"]["sda"] == 21
+    assert board["mcu"] == "ESP32-WROOM-32"
+
+
+@pytest.mark.no_db
+def test_unreadable_board_library_is_not_reported_as_an_unknown_board(monkeypatch, caplog):
+    # An EACCES on the library used to be swallowed into the same None as "no such board",
+    # so the model was told the board does not exist and was invited to invent a layout.
+    # Absence and failure have to reach it as different states.
+    import pathlib
+    from app import prompt_assembly
+    from app.routes_llm import _resolve_board
+
+    real_read_text = pathlib.Path.read_text
+
+    def refuse(self, *args, **kwargs):
+        if self.name == "esp32-devkit-v1.json":
+            raise PermissionError(13, "Permission denied")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "read_text", refuse)
+    with caplog.at_level(logging.WARNING, logger="mpyhw.llm"):
+        board = _resolve_board({"board_id": "esp32-devkit-v1"}, {})
+
+    assert board["support_status"] == "board_library_unreadable"
+    assert board["support_status"] != "unknown_board"
+    assert board["pin_allocation_supported"] is False
+    assert any("board library unreadable" in r.getMessage() for r in caplog.records), \
+        "an unreadable library must be logged, not silently degraded"
+    assert prompt_assembly.BoardLibraryUnreadable is not None
+
+
+@pytest.mark.no_db
+def test_string_pre_selected_board_still_grounds_the_profile():
+    # The picker sends an object, but the intent path and older callers send a bare string.
+    # That used to resolve nothing, which is one of the two ways select-hw ended up with an
+    # empty profile.
+    from app.routes_llm import _resolve_board
+
+    board = _resolve_board({}, {"context": {"pre_selected_board": "esp32-devkit-v1"}})
+
+    assert board["pin_layout"]["restricted_gpio"]["input_only"] == [34, 35, 36, 39]
+
+
+@pytest.mark.no_db
+def test_select_hw_gets_board_candidates_matched_from_the_manifest_mcu():
+    # The auto path measured: analyze records requirements.mcu_specified and nothing else
+    # about the board, no candidate resolves, and the profile injected was {}. One model
+    # refused on that and the other invented esp32-devkitc-v4, which exists in no library.
+    from app.routes_llm import _deepseek_messages
+
+    system = _deepseek_messages({
+        "phase": "select-hw",
+        "manifest": {"requirements": {"mcu_specified": "ESP32-WROOM-32"}},
+        "messages": [{"role": "user", "content": "read a DHT11"}],
+    })[0]["content"]
+
+    assert "Board candidates:" in system
+    assert '"esp32-devkit-v1"' in system, "the board actually in the library must be offered"
+    assert '"sda": 21' in system, "the candidate must carry its pin layout, not just its name"
+    # And the empty profile is now an explicit state rather than a bare {}.
+    assert '"support_status": "no_board_selected"' in system
+
+
+@pytest.mark.no_db
+def test_an_unmatchable_mcu_offers_no_candidates_rather_than_a_wrong_board():
+    # Offering an arbitrary board with a confident profile is worse than offering none:
+    # the model has no way to tell a guess from a match.
+    from app.routes_llm import _deepseek_messages
+
+    system = _deepseek_messages({
+        "phase": "select-hw",
+        "manifest": {"requirements": {"mcu_specified": "definitely-not-a-real-mcu"}},
+        "messages": [{"role": "user", "content": "x"}],
+    })[0]["content"]
+
+    assert "Board candidates:\n[]" in system
+    assert '"support_status": "no_board_selected"' in system
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize("phrase,expected", [
+    # Every value here is one a real analyze phase wrote into requirements.mcu_specified.
+    # "Raspberry Pi Pico 2" is the one that cost a hardware run: the user's phrasing carries
+    # the vendor as a prefix while the library's name is the bare model, so matching only
+    # "token in name" found nothing and select-hw stopped partial with an empty list.
+    ("Raspberry Pi Pico 2", "rpi-pico2"),
+    ("Pico W", "rpi-pico-w"),
+    ("ESP32-WROOM-32", "esp32-devkit-v1"),
+    ("ESP32-S3-WROOM-1", "esp32-s3-devkitc"),
+])
+def test_board_names_as_the_user_writes_them_match_the_library(phrase, expected):
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids(phrase)[:1] == [expected]
+
+
+@pytest.mark.no_db
+def test_the_longest_matching_name_wins_a_suffix_match():
+    # With a vendor prefix in front, neither name is an exact match, so this really does
+    # exercise the ordering: "wiznetw5100sevbpico2" ends with both "w5100sevbpico2" and
+    # "pico2". The longer one is the board the user named, the shorter is a different board
+    # that merely shares a suffix, and the model takes the first candidate.
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids("WIZnet W5100S EVB Pico 2")[:2] == ["w5100s-evb-pico2", "rpi-pico2"]
+
+
+@pytest.mark.no_db
+def test_a_short_name_fragment_is_not_a_match():
+    # Tested on the rule rather than through the library, which today happens to hold no
+    # name shorter than four characters: every "-c3"/"-h7"/"-s3" suffix would otherwise
+    # match any token that ends in it, and a two-character coincidence is not a board.
+    from app.routes_llm import _match_phrases
+
+    phrases = {phrase for _, phrase in _match_phrases("a c3 board with pico 2")}
+    assert "c3" not in phrases, "a two-character run is a coincidence, not a board name"
+    assert "pico2" in phrases
+
+
+@pytest.mark.no_db
+def test_candidates_survive_an_analyze_that_dropped_the_mcu_field():
+    # Measured on two consecutive auto-path runs of the SAME intent and board: analyze wrote
+    # requirements.mcu_specified="Raspberry Pi Pico 2" the first time and the boolean False
+    # the second. Keying on that one field alone means the candidates are empty whenever
+    # analyze happens to drop it, which is what stalled select-hw at partial.
+    from app.routes_llm import _board_candidate_profiles
+
+    manifest = {
+        "requirements": {
+            "mcu_specified": False,
+            "description": "Blink the onboard LED on a Raspberry Pi Pico 2 using MicroPython.",
+        },
+    }
+    profiles = _board_candidate_profiles(manifest, {})
+
+    assert [p["id"] for p in profiles] == ["rpi-pico2"]
+
+
+@pytest.mark.no_db
+def test_the_user_intent_alone_can_ground_the_candidates():
+    # Last line of defence: even with a manifest that says nothing about the board, the
+    # user's own words are on the request and name it.
+    from app.routes_llm import _board_candidate_profiles
+
+    body = {"messages": [{"role": "user", "content": "blink the onboard LED on a Raspberry Pi Pico 2"}]}
+    profiles = _board_candidate_profiles({"requirements": {}}, body)
+
+    assert [p["id"] for p in profiles] == ["rpi-pico2"]
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize("intent,expected", [
+    # Chinese is most of our users, and a count follows the board with a character between
+    # that the tokenizer drops. The generation-digit rule then deleted the only board
+    # reference in the request and select-hw was handed no candidates at all.
+    ("用ESP32做2个LED交替闪烁", "esp32-devkit-v1"),
+    ("ESP32读取3个DHT11", "esp32-devkit-v1"),
+    ("用Pico 2控制3个舵机", "rpi-pico2"),
+    ("用Pico W每5秒记录温度", "rpi-pico-w"),
+    ("用ESP32-S3做4路继电器", "esp32-generic-s3"),
+])
+def test_a_chinese_request_with_a_count_still_finds_its_board(intent, expected):
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids(intent)[:1] == [expected]
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize("intent", ["Arduino Uno", "Wemos D1 Mini"])
+def test_a_board_the_library_does_not_have_returns_nothing(intent):
+    # "arduino" prefixes a dozen names, so a prefix match answered a board we do not support
+    # with a confident, complete profile for a different one. No candidate is the honest
+    # answer: the no_board_selected tier then tells the model to ask.
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids(intent) == []
+
+
+@pytest.mark.no_db
+def test_the_named_module_beats_a_board_that_merely_shares_the_family():
+    # "ESP32-S3-WROOM-1" is esp32-s3-devkitc's mcu across four words; esp32-generic-s3's own
+    # name matches only two of them. The longest match explains more of the request.
+    # Asking for the bare family the other way round: the board actually NAMED esp32s3 wins.
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids("ESP32-S3-WROOM-1")[0] == "esp32-s3-devkitc"
+    assert _skill_board_candidate_ids("ESP32-S3")[0] == "esp32-generic-s3"
+
+
+@pytest.mark.no_db
+def test_an_ambiguous_name_offers_both_boards_not_just_the_first():
+    # "pico" is the display name of espruino-pico (an STM32 board) AND rpi-pico. At a 24 KB
+    # budget only the first rode, so a user who wrote "my pico" was handed the wrong chip as
+    # their only option. Both fit now, and the model can choose.
+    from app.routes_llm import _board_candidate_profiles
+
+    ids = [p.get("id") for p in _board_candidate_profiles({}, {"messages": [{"role": "user", "content": "blink the led on my pico"}]})]
+
+    assert "rpi-pico" in ids, f"the RP2040 Pico must be offered, got {ids}"
+
+
+@pytest.mark.no_db
+def test_a_full_board_phrase_does_not_match_the_previous_generation():
+    # "raspberrypipico" is a PREFIX of "raspberrypipico2", so a longest-match rule that
+    # ignored direction would answer a Pico 2 request with the RP2040 Pico. Different chip,
+    # different firmware, and the pin plan would be built on it.
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert "raspberry-pi-pico" not in _skill_board_candidate_ids("Raspberry Pi Pico 2")
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize("unspecified", ["", "false", "auto", "unknown", "na"])
+def test_an_unspecified_mcu_offers_no_candidates(unspecified):
+    # What analyze actually writes when the user named no MCU, taken from saved runs:
+    # "", "false" and the like. Matching on those hands back a board nobody asked for.
+    from app.routes_llm import _board_candidate_profiles
+
+    assert _board_candidate_profiles({"requirements": {"mcu_specified": unspecified}}, {}) == []
+
+
+@pytest.mark.no_db
+def test_candidate_count_is_capped_for_a_family_with_many_boards():
+    # Two separate bounds, each tested where it actually binds — otherwise one masks the
+    # other and removing either still passes. The block is a prompt prefix paid on every
+    # select-hw turn, so both matter.
+    from app.routes_llm import _board_candidate_profiles
+
+    # rp2's top three profiles are 2 KB, 2 KB, 15 KB: all three fit the byte budget, so the
+    # COUNT cap is the only thing stopping a third.
+    cheap = _board_candidate_profiles({"requirements": {"mcu_specified": "rp2"}}, {})
+    assert len(cheap) == 2, "the count cap binds when the profiles are small"
+
+    # stm32h747's top two are 47 KB together, so the BYTE budget cuts the second even though
+    # the count would allow it. The first always rides, whatever it costs.
+    fat = _board_candidate_profiles({"requirements": {"mcu_specified": "stm32h747"}}, {})
+    assert len(fat) == 1, "the byte budget binds when a single profile is huge"
+    assert len(json.dumps(fat, ensure_ascii=False)) < 40000
+
+    # And the first candidate rides even when it alone blows the budget (this one is 26 KB
+    # against a 24 KB budget): offering nothing is the bug this whole block exists to fix.
+    oversized = _board_candidate_profiles({"requirements": {"mcu_specified": "portentah7"}}, {})
+    assert len(oversized) == 1, "one oversized candidate beats no candidate at all"
+
+
+@pytest.mark.no_db
+def test_candidates_are_byte_stable_and_only_on_select_hw():
+    # The system prompt is the cached prefix: two assemblies of the same body must be
+    # byte-equal or every select-hw turn pays full price. And no other phase carries the
+    # block, because only select-hw chooses a board.
+    from app.routes_llm import _deepseek_messages
+
+    body = {
+        "phase": "select-hw",
+        "manifest": {"requirements": {"mcu_specified": "rp2040"}},
+        "messages": [{"role": "user", "content": "blink"}],
+    }
+    assert _deepseek_messages(body)[0]["content"] == _deepseek_messages(body)[0]["content"]
+
+    other = _deepseek_messages({**body, "phase": "upy-generate-plugin"})[0]["content"]
+    assert "Board candidates:" not in other
+
+
+@pytest.mark.no_db
+def test_select_hw_phase_note_tells_the_model_where_the_board_data_is():
+    # The SKILL points the model at upy-analyze-plugin/boards/<id>.json, which it cannot
+    # read. Without this note the honest model refuses and the other one invents.
+    from app.routes_llm import _system_prompt
+
+    note = _system_prompt("select-hw")
+
+    assert "Board candidates" in note
+    assert "NEVER invent a board id" in note
 
 
 @pytest.mark.no_db
@@ -811,6 +1102,53 @@ def test_deepseek_messages_round_trips_reasoning_content():
     assert assistant["role"] == "assistant"
     assert assistant["reasoning_content"] == "Check the board first."
     assert assistant["tool_calls"][0]["function"]["name"] == "query_board_profile"
+
+
+@pytest.mark.no_db
+def test_a_thinking_only_turn_is_dropped_rather_than_sent_empty():
+    # A reasoning model produces these on its own: a turn with reasoning and nothing else.
+    # Translated literally it becomes {"role":"assistant","content":""} with no tool_calls,
+    # and the upstream rejects that with 400 "the message at position N with role 'assistant'
+    # must not be empty". A 400 is not retryable, and history is replayed on every later
+    # request, so one such turn ended a build three phases in.
+    from app import routes_llm
+
+    body = {
+        "messages": [
+            {"role": "user", "content": "blink an ESP32 LED"},
+            {"role": "assistant", "content": [{"type": "thinking", "thinking": "Let me think about the pins."}]},
+            {"role": "user", "content": "go on"},
+        ]
+    }
+
+    messages = routes_llm._deepseek_messages(body)
+
+    empty = [m for m in messages if m.get("role") == "assistant" and not m.get("content") and not m.get("tool_calls")]
+    assert empty == [], f"an empty assistant message would 400 the whole run: {empty}"
+    assert [m["content"] for m in messages if m["role"] == "user"] == ["blink an ESP32 LED", "go on"], \
+        "dropping the empty turn must not disturb the surrounding messages"
+
+
+@pytest.mark.no_db
+def test_a_thinking_turn_that_carries_a_tool_call_still_passes_its_reasoning_back():
+    # The case the drop must NOT touch: reasoning_content is a required passback for a
+    # thinking-mode turn that actually calls a tool.
+    from app import routes_llm
+
+    body = {
+        "messages": [
+            {"role": "user", "content": "blink"},
+            {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "Check the board first."},
+                {"type": "tool_use", "id": "call_1", "name": "file_operation", "input": {"op": "read", "path": "x"}},
+            ]},
+        ]
+    }
+
+    assistant = [m for m in routes_llm._deepseek_messages(body) if m["role"] == "assistant"][0]
+
+    assert assistant["reasoning_content"] == "Check the board first."
+    assert assistant["tool_calls"][0]["function"]["name"] == "file_operation"
 
 
 def test_system_prompt_is_delivered_to_the_provider_as_the_system_message():

@@ -23,12 +23,16 @@ from app.tool_registry import LLM_TOOL_NAMES  # noqa: F401 - re-exported: tests 
 # _call_deepseek_plain from this module. routes_llm remains the namespace of
 # record; the extracted modules resolve patched siblings back through it.
 from app.prompt_assembly import (  # noqa: F401
-    _BOARDS_DIR, _CONTEXT_BOARD_ID_RE, _V0_PHASE_NOTES_DIR, SLIM_V0_ADAPTER,
+    _BOARDS_DIR, _CONTEXT_BOARD_ID_RE, _SKILL_BOARDS_DIR, _V0_PHASE_NOTES_DIR,
+    BoardLibraryUnreadable, SLIM_V0_ADAPTER,
+    _board_candidate_profiles, _board_candidates_injection,
     _candidate_board_ids, _clip_context_value, _context_injection,
     _deepseek_messages, _first_user_text, _host_capabilities_note,
     _language_directive, _load_board_profile, _official_only_board_profile,
     _pair_tool_messages, _phase, _phase_data_injection,
-    _raw_board_id_candidates, _resolve_board, _resolve_driver_contexts,
+    _board_match_texts, _match_phrases, _raw_board_id_candidates,
+    _resolve_board, _resolve_driver_contexts, _skill_board_candidate_ids,
+    _skill_board_index,
     _safe_context_token, _safe_micropython_download_url,
     _sanitized_preselected_board, _system_prompt, _tool_result_content,
     _translate_blocks, _v0_phase_note,

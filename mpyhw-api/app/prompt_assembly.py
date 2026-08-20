@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import json
+from collections import Counter
 import logging
 import re
 from pathlib import Path
@@ -124,6 +125,10 @@ def _phase(body: dict[str, Any]) -> str:
     return phase if isinstance(phase, str) and phase else "analyze"
 
 
+# The one phase that CHOOSES a board (skill_catalog.PHASE_BY_SKILL["upy-select-hw-plugin"]).
+_SELECT_HW_PHASE = "select-hw"
+
+
 def _phase_data_injection(body: dict[str, Any]) -> str:
     """Server-resolved grounding (board profile + driver contexts + manifest) injected
     into the prompt for any phase that already has a manifest — i.e. every phase after
@@ -144,9 +149,27 @@ def _phase_data_injection(body: dict[str, Any]) -> str:
     return (
         "\n\n--- RESOLVED DATA (server-provided; do not re-fetch) ---\n"
         f"Board profile:\n{json.dumps(board, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"{_R()._board_candidates_injection(manifest, body)}"
         f"Driver contexts:\n{json.dumps(contexts, ensure_ascii=False, sort_keys=True)}\n\n"
         f"Current manifest:\n{json.dumps(manifest, ensure_ascii=False, sort_keys=True)}\n"
     )
+
+
+def _board_candidates_injection(manifest: dict[str, Any], body: dict[str, Any]) -> str:
+    """The 'Board candidates:' label, at select-hw only.
+
+    Only select-hw chooses a board, and only there is the block worth its bytes; every other
+    phase already has the chosen board in 'Board profile'. Emitted whenever the phase is
+    select-hw, even as an empty list, so the model never has to read absence as a signal.
+    """
+    if _phase(body) != _SELECT_HW_PHASE:
+        return ""
+    try:
+        candidates = _board_candidate_profiles(manifest, body)
+    except BoardLibraryUnreadable as error:
+        logger.warning("board candidates unavailable", extra={"detail": str(error)[:200]})
+        candidates = []
+    return f"Board candidates:\n{json.dumps(candidates, ensure_ascii=False, sort_keys=True)}\n\n"
 
 
 # --- Sipeed MaixPy export: task-specific reference grounding (Option A) ----------------------
@@ -467,6 +490,17 @@ def _translate_blocks(role: str, blocks: list[Any]) -> list[dict[str, Any]]:
 
     text = "\n".join(text_parts)
     if role == "assistant":
+        # A turn that produced ONLY thinking is dropped, not sent as an empty message. A
+        # reasoning model does this on its own: the loop records the thinking block, and this
+        # translated it to {"role":"assistant","content":""} with no tool_calls, which at
+        # least one upstream rejects outright ("the message at position N with role
+        # 'assistant' must not be empty"). That is a 400, so it is not retryable, and because
+        # history is replayed on every later request it kills the whole run rather than one
+        # turn: measured, it ended a build three phases in. reasoning_content is a required
+        # passback only for a thinking turn that CARRIES a tool call, and that case still
+        # goes out below with its tool_calls attached.
+        if not text and not tool_calls:
+            return list(tool_messages)
         assistant: dict[str, Any] = {"role": "assistant", "content": text}
         if reasoning_parts:
             assistant["reasoning_content"] = "\n".join(reasoning_parts)
@@ -496,6 +530,22 @@ def _tool_result_content(content: Any) -> str:
 
 
 _BOARDS_DIR = ROOT / "content" / "boards"
+# The skill's own board library: 243 profiles in the schema select-hw and its validator
+# actually consume (pin_layout.default_bus_pins, pin_layout.restricted_gpio,
+# onboard_peripherals). Our content/boards copies are the OLDER extension schema
+# (pin_capabilities, forbidden_pins), so they are the fallback, not the source of truth.
+# Readable in production: the image copies the submodule whole, and routes_content already
+# serves this directory.
+_SKILL_BOARDS_DIR = skill_catalog.SKILLS_ROOT / "upy-analyze-plugin" / "boards"
+
+
+class BoardLibraryUnreadable(Exception):
+    """A board file is present but could not be read or parsed.
+
+    Distinct from "no such board" on purpose: both used to collapse into None, so a
+    permission error on the library was indistinguishable from an unknown board and the
+    model was told the board does not exist. Only a missing file means absence.
+    """
 
 
 # --- Manifest grounding -----------------------------------------------------
@@ -505,12 +555,15 @@ _BOARDS_DIR = ROOT / "content" / "boards"
 
 
 def _load_board_profile(board_id: str) -> dict[str, Any] | None:
-    path = (_BOARDS_DIR / f"{board_id}.json").resolve()
-    try:
-        if path.is_relative_to(_BOARDS_DIR.resolve()) and path.is_file():
+    """The board's profile, preferring the skill library, or None if no library has it."""
+    for directory in (_SKILL_BOARDS_DIR, _BOARDS_DIR):
+        path = (directory / f"{board_id}.json").resolve()
+        try:
+            if not path.is_relative_to(directory.resolve()) or not path.is_file():
+                continue
             return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
+        except (OSError, ValueError) as error:  # JSONDecodeError is a ValueError
+            raise BoardLibraryUnreadable(f"{path.name}: {error}") from error
     return None
 
 
@@ -530,10 +583,18 @@ def _raw_board_id_candidates(manifest: dict[str, Any], body: dict[str, Any]) -> 
     board = manifest.get("board") if isinstance(manifest.get("board"), dict) else {}
     add(board.get("id"))
     ctx = body.get("context") if isinstance(body.get("context"), dict) else {}
-    pre = _sanitized_preselected_board(ctx.get("pre_selected_board"))
+    raw_pre = ctx.get("pre_selected_board")
+    pre = _sanitized_preselected_board(raw_pre)
     if pre:
-        add(pre.get("local_board_id"))
+        # skill_board_id first: it names a profile in the library select-hw validates
+        # against, while local_board_id names one of our 6 older-schema copies.
         add(pre.get("skill_board_id"))
+        add(pre.get("local_board_id"))
+    elif isinstance(raw_pre, str):
+        # A bare string is what the intent text and older callers produce. It is
+        # regex-checked downstream like every other candidate, so an id that does not
+        # name a real profile simply resolves to nothing.
+        add(raw_pre)
     add(body.get("board_id"))
     return ids
 
@@ -543,6 +604,208 @@ def _candidate_board_ids(manifest: dict[str, Any], body: dict[str, Any]) -> list
         value for value in _raw_board_id_candidates(manifest, body)
         if re.fullmatch(r"[A-Za-z0-9._-]{1,96}", value)
     ]
+
+
+# --- Board candidates (the auto path) ---------------------------------------
+# select-hw is asked to validate a pin plan against a board definition. On the auto path
+# nothing resolves a board id, so the profile injected was `{}`: one model refused honestly
+# ("board definition not available in the accessible board library") and the other invented
+# an id that exists in no library and carried on. The model cannot look the library up
+# itself (file_operation is project-confined), so what it is given IS the library.
+
+_MAX_BOARD_CANDIDATES = 2
+# Two bounds, and each binds in a different place: the count keeps the model's choice small
+# when profiles are cheap (rp2's top three are 2-15 KB), the byte budget stops two fat ones
+# (stm32h747's top two are 47 KB together, and the largest single profile is ~35 KB). The
+# block is byte-stable within the phase, so it is paid once per prefix, not per turn.
+# 32 KB fits two median profiles (~15 KB each), which matters when the request is genuinely
+# ambiguous: "my pico" names both espruino-pico (an STM32 board) and rpi-pico, and at 24 KB
+# only the first rode -- so the user got the wrong chip as their only option. It still binds
+# on a fat pair (stm32h747's top two are 47 KB together).
+_BOARD_CANDIDATES_BYTE_BUDGET = 32768
+# Values analyze writes into requirements.mcu_specified when the user named no MCU. Matching
+# on these would hand back an arbitrary board with a confident-looking profile.
+_UNSPECIFIED_MCU_TOKENS = frozenset({"", "auto", "none", "null", "false", "true", "unknown", "na"})
+
+
+def _normalized_board_token(value: Any) -> str:
+    """Lowercase alphanumerics only, so 'ESP32-WROOM-32' and 'esp32_wroom_32' compare equal."""
+    return re.sub(r"[^a-z0-9]", "", value.lower()) if isinstance(value, str) else ""
+
+
+@functools.cache
+def _skill_board_index() -> tuple[tuple[str, str, str, str, bool], ...]:
+    """(board_id, mcu, chip_family, display_name, beginner_friendly) for every skill profile,
+    normalized for matching. Built once per process: the library is deployment-stable, and
+    the alternative is re-reading 243 files on every select-hw turn.
+
+    A single unreadable profile is logged and skipped rather than failing the whole index,
+    but an unreadable DIRECTORY is raised: that is the difference between one bad file and
+    "the server cannot see the library at all".
+    """
+    try:
+        paths = sorted(p for p in _SKILL_BOARDS_DIR.glob("*.json") if not p.name.startswith("_"))
+    except OSError as error:
+        raise BoardLibraryUnreadable(f"{_SKILL_BOARDS_DIR}: {error}") from error
+    entries: list[tuple[str, str, str, str, bool]] = []
+    for path in paths:
+        try:
+            board = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            logger.warning("skill board profile unreadable", extra={"board": path.name, "detail": str(error)[:200]})
+            continue
+        if not isinstance(board, dict):
+            continue
+        entries.append((
+            path.stem,
+            _normalized_board_token(board.get("mcu")),
+            _normalized_board_token(board.get("chip_family")),
+            _normalized_board_token(board.get("display_name")),
+            bool(board.get("beginner_friendly")),
+        ))
+    return tuple(entries)
+
+
+# Shortest run that may match a name exactly. Three, because "rp2" is a real chip family;
+# two-character runs ("c3", "h7", "v1") are coincidences.
+_MIN_EXACT_MATCH_CHARS = 3
+# A partial name is only allowed to match the start of a longer one from this length up: at
+# three characters "esp" would claim every ESP32 board in the library.
+_MIN_PARTIAL_MATCH_CHARS = 4
+# How many boards one prefix may fit before it is read as a vendor word rather than a board.
+_MAX_PREFIX_MATCHES = 3
+# Longest board name worth looking for, in words: "w5100s evb pico 2" is 4.
+_MAX_NAME_WORDS = 4
+# Per source string, so a long description cannot make this quadratic.
+_MATCH_TEXT_BUDGET = 400
+
+
+def _match_phrases(text: str) -> list[tuple[int, str]]:
+    """(word count, normalized phrase) for every 1..4-word run in the text.
+
+    Word runs, not one flattened blob, because flattening loses the boundaries that decide
+    WHICH board: "Raspberry Pi Pico 2" flattens to raspberrypipico2, which CONTAINS the name
+    of the RP2040 Pico (raspberrypipico) and would answer a Pico 2 request with the previous
+    generation, on a different chip and a different firmware.
+
+    A run followed by a bare number is dropped for the same reason: that number is the
+    model's generation, so "raspberry pi pico" in "Raspberry Pi Pico 2" is a truncated name
+    rather than a board. The rule is position-independent, so it holds mid-sentence too
+    ("use a Raspberry Pi Pico 2 to blink an LED").
+
+    It applies ONLY when nothing but separators sit between the run and the number. In
+    Chinese, which is most of our users, a count follows the board with a character in
+    between that this tokenizer drops -- "用ESP32做2个LED" leaves "esp32" next to "2" and the
+    rule then deleted the only board reference in the request, injecting no candidates at
+    all. Measured across the common request shapes: two-thirds of them lost their board.
+    """
+    budgeted = text[:_MATCH_TEXT_BUDGET].lower()
+    matches = list(re.finditer(r"[a-z0-9]+", budgeted))
+    words = [m.group() for m in matches]
+    phrases: list[tuple[int, str]] = []
+    for size in range(1, _MAX_NAME_WORDS + 1):
+        for start in range(len(words) - size + 1):
+            after = start + size
+            if after < len(words) and words[after].isdigit():
+                # The gap as the user wrote it. A space or a dash means the number belongs to
+                # the name ("Pico 2"); anything else, CJK included, means it does not.
+                gap = budgeted[matches[after - 1].end():matches[after].start()]
+                if all(char in " \t-_/" for char in gap):
+                    continue
+            phrase = "".join(words[start:after])
+            if len(phrase) >= _MIN_EXACT_MATCH_CHARS and phrase not in _UNSPECIFIED_MCU_TOKENS:
+                phrases.append((size, phrase))
+    return phrases
+
+
+def _board_match_texts(manifest: dict[str, Any], body: dict[str, Any]) -> list[str]:
+    """Every place the board the user asked for actually turns up.
+
+    requirements.mcu_specified alone is not enough: analyze writes the board phrase there in
+    one run ("Raspberry Pi Pico 2") and the boolean False in the next, for the same intent
+    and the same board, while the description and the user's own words carry the name both
+    times. Measured on two consecutive runs of the same request.
+    """
+    requirements = manifest.get("requirements") if isinstance(manifest.get("requirements"), dict) else {}
+    texts = [requirements.get("mcu_specified"), requirements.get("description"), _R()._first_user_text(body)]
+    return [text for text in texts if isinstance(text, str) and text]
+
+
+def _skill_board_candidate_ids(*texts: str) -> list[str]:
+    """Board ids whose profile matches the hardware named in the given text, best first.
+
+    A board is matched when one of its names (display name, id, mcu, chip family) equals a
+    word run in the text. The longest matching run wins, because it is the most specific
+    ("w5100s evb pico 2" beats "pico 2"). A partial name that the library spells out in full
+    ("portenta" -> arduino-portenta-h7) falls to a last-resort containment tier. Ties go to
+    beginner-friendly, then id order, so the block stays byte-stable for the prompt prefix.
+    """
+    phrases = [phrase for text in texts for phrase in _match_phrases(text)]
+    if not phrases:
+        return []
+    exact = {phrase: size for size, phrase in sorted(phrases)}  # longest run per phrase wins
+    # Prefix matches are a FALLBACK, never a supplement: "Raspberry Pi Pico 2" matches
+    # rpi-pico2 exactly, and the same text prefix-matches raspberry-pi-pico, which is the
+    # RP2040 board. Offering that alongside is offering the wrong chip as an alternative.
+    ranked: list[tuple[tuple[int, int, int, bool, str], str]] = []
+    prefixed: list[tuple[str, tuple[int, int, int, bool, str], str]] = []
+    for board_id, mcu, family, display_name, beginner in _skill_board_index():
+        # A board's OWN name outranks a chip match. "esp32 s3" is the display name of
+        # esp32-generic-s3 and merely the family of 34 other boards, so without this split
+        # the request landed on whichever family member sorted first (arduino-nano-esp32).
+        own_names = {display_name, _normalized_board_token(board_id)}
+        chip_names = {mcu, family}
+        by_own = [exact[name] for name in own_names if name in exact]
+        by_chip = [exact[name] for name in chip_names if name in exact]
+        if by_own or by_chip:
+            own_run = max(by_own, default=0)
+            chip_run = max(by_chip, default=0)
+            # Longest matched run first: it explains more of what the user actually wrote.
+            # "ESP32-S3-WROOM-1" matches esp32-s3-devkitc's mcu across four words, while
+            # esp32-generic-s3's own name matches only "esp32 s3" -- the module the user
+            # named wins. Own-name-over-chip is the TIE-break, for the bare "ESP32-S3" case
+            # where both match two words and the named board should come first.
+            ranked.append((
+                (0, -max(own_run, chip_run), 0 if own_run >= chip_run else 1, not beginner, board_id),
+                board_id,
+            ))
+            continue
+        # The text named part of a longer board name. Length says nothing useful here
+        # (arduino-portenta-h7 vs -c33), so leave the order to beginner/id below.
+        for _, phrase in phrases:
+            if len(phrase) < _MIN_PARTIAL_MATCH_CHARS:
+                continue
+            if any(name and name.startswith(phrase) for name in own_names):
+                prefixed.append((phrase, (2, 0, 0, not beginner, board_id), board_id))
+                break
+    # A prefix that fits many boards is a vendor or family word, not a board: "arduino"
+    # prefixes a dozen names, so "Arduino Uno" -- a board this library does not have -- came
+    # back as arduino-giga with a full pin layout. Naming no board is the honest answer, and
+    # the no_board_selected tier already tells the model to ask.
+    counts = Counter(phrase for phrase, _, _ in prefixed)
+    ranked.extend((key, board_id) for phrase, key, board_id in prefixed
+                  if counts[phrase] <= _MAX_PREFIX_MATCHES)
+    exact_hits = [entry for entry in ranked if entry[0][0] < 2]
+    return [board_id for _, board_id in sorted(exact_hits or ranked)]
+
+
+def _board_candidate_profiles(manifest: dict[str, Any], body: dict[str, Any]) -> list[dict[str, Any]]:
+    """Full profiles for the best candidate ids, bounded by count and by bytes."""
+    board_ids = _skill_board_candidate_ids(*_board_match_texts(manifest, body))
+    profiles: list[dict[str, Any]] = []
+    spent = 0
+    for board_id in board_ids[:_MAX_BOARD_CANDIDATES]:
+        profile = _load_board_profile(board_id)
+        if profile is None:
+            continue
+        size = len(json.dumps(profile, ensure_ascii=False, sort_keys=True))
+        # The first candidate always rides, whatever it costs: injecting none of them is the
+        # bug this exists to fix.
+        if profiles and spent + size > _BOARD_CANDIDATES_BYTE_BUDGET:
+            break
+        profiles.append(profile)
+        spent += size
+    return profiles
 
 
 def _official_only_board_profile(body: dict[str, Any]) -> dict[str, Any]:
@@ -567,10 +830,24 @@ def _official_only_board_profile(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_board(manifest: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
-    for board_id in _candidate_board_ids(manifest, body):
-        profile = _load_board_profile(board_id)
-        if profile is not None:
-            return profile
+    try:
+        for board_id in _candidate_board_ids(manifest, body):
+            profile = _load_board_profile(board_id)
+            if profile is not None:
+                return profile
+    except BoardLibraryUnreadable as error:
+        logger.warning("board library unreadable", extra={"detail": str(error)[:200]})
+        # NOT unknown_board: the board may well exist. Saying "unknown" here would send the
+        # model off inventing a pin layout for a board the server simply failed to read.
+        return {
+            "support_status": "board_library_unreadable",
+            "pin_allocation_supported": False,
+            "note": (
+                "The server could not read the board library, so this is NOT a statement "
+                "that the board is unknown. Do NOT invent a board id or a pin layout: "
+                "report partial and say the board library is unavailable."
+            ),
+        }
     official = _official_only_board_profile(body)
     if official:
         return official
@@ -588,7 +865,18 @@ def _resolve_board(manifest: dict[str, Any], body: dict[str, Any]) -> dict[str, 
                 "builtin_pin_layout board."
             ),
         }
-    return {}
+    # The auto path: no id anywhere. This used to be a bare {}, which reads as "the library
+    # holds nothing about your board" — one model refused on it and the other invented an id.
+    return {
+        "support_status": "no_board_selected",
+        "pin_allocation_supported": False,
+        "note": (
+            "No board has been selected yet, and this is NOT a claim that the board library "
+            "is empty. Choose one of the profiles in 'Board candidates' below if it matches "
+            "the hardware, or ask the user which board they have with approval_request. Do "
+            "NOT invent a board id: only ids present in the library can be validated."
+        ),
+    }
 
 
 def _resolve_driver_contexts(manifest: dict[str, Any]) -> list[dict[str, Any]]:
