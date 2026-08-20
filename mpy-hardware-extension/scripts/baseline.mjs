@@ -104,6 +104,20 @@ runStep("test", "npm", ["test"], { shell: isWin, env: testEnv });
 
 if (existsSync(venvPython)) {
   runStep("shim pytest", venvPython, ["-m", "pytest", "python/shim", "-q"], {});
+  // Replays saved payloads from real phase stalls through the real validators and fails if any
+  // gate error stops being actionable. Five stalls, each costing an hour-long hardware run,
+  // were all one defect: a message stating a condition without naming where to act. Four
+  // seconds here is the cheapest place to catch the sixth.
+  // Guarded like every other cwd-relative step: the runner is also executed against synthetic
+  // fixtures that carry no scripts/ or test/ tree, and a step cannot demand files the caller
+  // never claimed to have. Announced when skipped, so a deleted script cannot pass as green.
+  const gateScript = resolve("scripts", "assert-gate-messages.mjs");
+  const gateFixtures = resolve("test", "fixtures", "gate-messages");
+  if (existsSync(gateScript) && existsSync(gateFixtures)) {
+    runStep("gate messages", "node", ["scripts/assert-gate-messages.mjs"], { shell: isWin });
+  } else {
+    console.log("SKIP gate messages (no scripts/assert-gate-messages.mjs + test/fixtures/gate-messages here)");
+  }
   for (const plugin of discoverPluginSmoke()) {
     runStep(`smoke:${plugin}`, venvPython, ["test/smoke_tests.py"], {
       cwd: join(skillsDir, plugin),

@@ -1,0 +1,31 @@
+{
+  "protocol_version": "1.0",
+  "type": "phase_complete",
+  "phase": "upy-diagram-plugin",
+  "payload": {
+    "phase": "upy-diagram-plugin",
+    "result": "success",
+    "summary": "rendered the block diagram",
+    "manifest_content": {
+      "diagrams": [
+        "docs/diagrams/block.mmd"
+      ]
+    },
+    "checks": {
+      "diagram_schema": {
+        "ok": true
+      },
+      "render_diagram": {
+        "ok": true
+      }
+    },
+    "session_state": {
+      "checkpoint": "phase_completed"
+    },
+    "session_id": "e2e-fixture"
+  },
+  "msg_id": "m-0001",
+  "session_id": "e2e-fixture",
+  "timestamp": "2026-08-20T12:00:00Z",
+  "idempotency_key": "k-0001"
+}

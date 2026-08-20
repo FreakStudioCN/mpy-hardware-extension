@@ -1,0 +1,49 @@
+{
+  "protocol_version": "1.0",
+  "type": "phase_complete",
+  "phase": "upy-gen-driver-plugin",
+  "payload": {
+    "phase": "gen-driver",
+    "result": "partial",
+    "summary": "driver generation stopped for hardware verification",
+    "checkpoint": {
+      "checkpoint_id": "c1",
+      "resume_step": "verify",
+      "resume_phase": "upy-generate-plugin"
+    },
+    "structured_errors": [
+      {
+        "code": "HARDWARE_NOT_VERIFIED",
+        "message": "no board attached",
+        "severity": "error",
+        "phase_step": "verify",
+        "retryable": true,
+        "details": {},
+        "next_action": "attach the board"
+      }
+    ],
+    "domain_phase": "gen-driver",
+    "runtime_context": {
+      "artifact_root": ".",
+      "session_root": "sessions/e2e-fixture",
+      "resource_root": "resources"
+    },
+    "file_manifest": {
+      "files": [
+        {
+          "path": "firmware/drivers/led/__init__.py",
+          "role": "driver",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ]
+    },
+    "artifacts": [],
+    "hardware_verified": false,
+    "verification_mode": "none",
+    "session_id": "e2e-fixture"
+  },
+  "msg_id": "m-0001",
+  "session_id": "e2e-fixture",
+  "timestamp": "2026-08-20T12:00:00Z",
+  "idempotency_key": "k-0001"
+}
