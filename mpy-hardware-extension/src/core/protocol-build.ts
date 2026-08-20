@@ -228,7 +228,12 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
       // serve.py returns parsed JSON in result_json (with stdout blanked); re-serialize
       // it so the model still sees the script's output.
       const stdout = res.stdout || (res.result_json != null ? JSON.stringify(res.result_json) : "");
-      return { ok: true, stdout, stderr: res.stderr ?? "", exit_code: res.exit_code ?? 0 };
+      // accepted_flags rides along: serve.py reads each script's own option list so the model
+      // never needs a `--help` turn. This return is a FIXED field list, and that is where the
+      // first two attempts at this fix died -- the shim attached the flags, and this line and
+      // its twin in protocol-loop.ts each threw them away. Three layers, one value, checked one
+      // boundary at a time.
+      return { ok: true, stdout, stderr: res.stderr ?? "", exit_code: res.exit_code ?? 0, ...((res as any).accepted_flags ? { accepted_flags: (res as any).accepted_flags } : {}) };
     } catch (error: any) {
       return { ok: false, error_kind: "script_error", stderr: error?.message ?? "script_error" };
     }

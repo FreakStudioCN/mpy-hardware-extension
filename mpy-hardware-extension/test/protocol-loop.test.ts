@@ -28,6 +28,10 @@ function scriptedLlm(script: Record<string, any[][]>) {
 
 const tu = (id: string, name: string, input: any) => ({ type: "tool_use_complete", id, name, input });
 const stop = { type: "message_stop" };
+// select-hw's verdict only counts from the full phase-complete validation. The script also
+// prints {"status":"ok"} from its DRAFT mode, and a draft pass must not stand in for one -- so a
+// test that means "the gate passed" has to invoke it the way a real run does.
+const SELECT_HW_GATE_ARGS = ["--validate-phase-complete", "--compare-manifest", "v.json", "--expected-artifact", "d.json"];
 
 const V0_PHASE_CHAIN = [
   "analyze",
@@ -1316,7 +1320,7 @@ test("quality-gate GENERATE_PLAN errors inject a deterministic corrective messag
   });
 
   const result = await runProtocolBuild(
-    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5 },
+    { intent: "x", startPhase: "upy-maixpy-export-plugin" /* neutral phase: this test is about loop mechanics, not gating or scaffold rendering */, maxTurnsPerPhase: 5 },
     { llmClient: llm, runScript },
   );
 
@@ -1351,7 +1355,10 @@ async function correctiveTextForGateStdout(gateStdout: string, scriptName: strin
   };
   const runScript = async () => ({ ok: true, exit_code: 2, stdout: gateStdout, stderr: "" });
   const result = await runProtocolBuild(
-    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5 },
+    // Neutral phase: what these two pin is the corrective built from a gate report, which is
+    // phase-agnostic. Running them in a gated phase would additionally require the phase's own
+    // validator to pass, testing gating a third time instead of the corrective shape.
+    { intent: "x", startPhase: "upy-maixpy-export-plugin", maxTurnsPerPhase: 5 },
     { llmClient: llm, runScript },
   );
   assert.equal(result.terminal, "complete");
@@ -1565,7 +1572,7 @@ test("protocol loop records a tool_use and a tool_result for every tool it execu
   });
 
   const result = await runProtocolBuild(
-    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { intent: "x", startPhase: "upy-maixpy-export-plugin" /* neutral phase: this test is about loop mechanics, not gating or scaffold rendering */, maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
     { llmClient: llm, runScript },
   );
 
@@ -1716,12 +1723,18 @@ test("recorded tool input compacts arrays and nested objects but keeps scalars",
 
 test("a phase that exhausts its budget reports the tool calls that blocked it, not a bare max_turns", async () => {
   // The real shape of the generate stall: the phase finishes its work and then cannot persist
-  // its artifact, retrying a rejected write until the turns run out. "max_turns" alone reads as
+  // its artifact, retrying rejected writes until the turns run out. "max_turns" alone reads as
   // transient; the blocker is what makes it diagnosable.
+  //
+  // The path VARIES per turn on purpose. Repeating one rejected path is a cycle and is now
+  // stopped as `repeating_calls`, which is the better answer for that shape -- this test is
+  // about the max_turns detail, so it drives a phase that keeps trying something new.
   const events: any[] = [];
+  let attempt = 0;
   const llm = {
     streamMessages: async () => {
-      const ev = [tu("f0", "file_operation", { op: "write", path: "sessions/x/phase_complete.json", content: "{}" }), stop];
+      attempt += 1;
+      const ev = [tu(`f${attempt}`, "file_operation", { op: "write", path: `sessions/x${attempt}/phase_complete.json`, content: "{}" }), stop];
       return (async function* () { for (const e of ev) yield e; })();
     },
   };
@@ -1739,8 +1752,74 @@ test("a phase that exhausts its budget reports the tool calls that blocked it, n
   assert.deepEqual(stalled.detail[2], {
     tool: "file_operation",
     error: "invalid_generated_path",
-    path: "sessions/x/phase_complete.json",
+    path: `sessions/x${attempt}/phase_complete.json`,
+    // The turn it happened on, which is what lets a reader tell a live failure from an old one.
+    turn: 3,
   });
+});
+
+test("a stall reports what failed NEAR ITS END, not a failure the phase moved past", async () => {
+  // The bug this pins: `recentFailures` was the last 3 failures of the WHOLE phase, unbounded in
+  // time. A phase that failed once at the start, fixed it, and then died 40 turns later still
+  // reported that first failure as its blocker -- which twice sent triage after a cause that had
+  // already been resolved. Here turn 0 fails, nothing after it does, and the phase runs to the
+  // cap: the stall must NOT name the turn-0 failure.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu(`f${turn}`, "file_operation", { op: "write", path: `notes/${turn}.md`, content: "x" }), stop];
+      turn += 1;
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 30, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      // Only the very first write fails. Every later one succeeds, so the phase burns its budget
+      // going nowhere -- with no recent failure to explain it.
+      writeFile: async (p: string) =>
+        p.endsWith("notes/0.md") ? { ok: false, error_kind: "invalid_generated_path" } : { ok: true },
+    } as any,
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.ok(stalled, "the phase must still stall");
+  assert.deepEqual(
+    stalled.detail,
+    [],
+    "a failure 30 turns stale is not the reason the phase died; reporting it is worse than reporting nothing",
+  );
+});
+
+test("a stall still reports a failure that is genuinely recent", async () => {
+  // The other half, so the fix above cannot be 'always report nothing'. Same shape, but the
+  // failure lands on the LAST turn instead of the first.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu(`f${turn}`, "file_operation", { op: "write", path: `notes/${turn}.md`, content: "x" }), stop];
+      turn += 1;
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 30, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (p: string) =>
+        p.endsWith("notes/29.md") ? { ok: false, error_kind: "invalid_generated_path" } : { ok: true },
+    } as any,
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled.detail.length, 1, "the failure that IS current must survive the recency bound");
+  assert.equal(stalled.detail[0].error, "invalid_generated_path");
+  assert.equal(stalled.detail[0].turn, 29);
 });
 
 test("a stall detail names a rejected gate by its code, and omits a path when the call has none", async () => {
@@ -2068,8 +2147,48 @@ test("a corrective message is capped so a hundred lint errors cannot flood the c
     .map((c: any) => String(c?.text ?? ""))
     .filter((t: string) => t.startsWith("Quality gate failed"));
   assert.equal(texts.length, 1, "exactly one corrective message for the failing gate");
-  assert.match(texts[0], /30 more/, "the tail is summarised rather than dropped silently");
-  assert.ok(texts[0].length < 6000, `corrective message is ${texts[0].length} chars, it must stay a nudge`);
+  assert.match(texts[0], /\d+ more/, "the tail is summarised rather than dropped silently");
+  assert.ok(texts[0].length < 6500, `corrective message is ${texts[0].length} chars, it must stay a nudge`);
+});
+
+test("every short gate code reaches the model, not just the first ten", async () => {
+  // Measured: check_phase_complete_consistency.py returned 18 codes in one attempt. Under a
+  // count cap the model saw 10, fixed those, met the remaining 8 next turn while its edits
+  // broke others, and generate spent 44 turns on that trade before dying on max_turns. These
+  // codes are short, so all of them fit the byte budget the lint wall is there to enforce.
+  const requests: any[] = [];
+  const codes = [
+    "CHECKPOINT_NOT_PHASE_COMPLETED", "FILE_MANIFEST_ARTIFACT_MISSING", "FILE_MANIFEST_MISSING_SESSION_STATE",
+    "GATE_SECTION_MISSING", "GIT_COMMIT_MISSING", "HARDWARE_SELECTION_CHANGED_IN_GENERATE",
+    "MANIFEST_BEHAVIOR_SPEC_MISSING", "MANIFEST_CONTENT_MISSING", "MANIFEST_DEVICES_MISSING",
+    "MANIFEST_GENERATE_SECTION_MISSING", "MANIFEST_GIT_COMMIT_ROLE_MISSING", "MANIFEST_PINOUT_MISSING",
+    "MANIFEST_REQUIRED_FIELD_MISSING", "NEW_HARDWARE_REQUIRES_UPSTREAM_SELECTION", "PERMISSIONS_MISSING",
+    "SESSION_STATE_CHECKPOINT_STATE_MISSING", "SESSION_STATE_MISSING", "DRIVER_READY_MARKER_MISSING",
+  ].map((code) => ({ code, message: `${code} must be satisfied` }));
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("g", "script_run", { script_id: "q", interpreter: "python", script: "scripts/check_phase_complete_consistency.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    { llmClient: llm, runScript: async () => ({ ok: true, stdout: JSON.stringify({ structured_errors: codes }) }) },
+  );
+
+  const corrective = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("Quality gate failed")) ?? "";
+
+  for (const { code } of codes) {
+    assert.ok(corrective.includes(code), `${code} was withheld from the model`);
+  }
+  assert.ok(!/more; the full report/.test(corrective), "nothing should be dropped for 18 short codes");
 });
 
 test("a stall detail reads a string-shaped gate report, not just {code} objects", async () => {
@@ -2184,11 +2303,22 @@ test("a long phase bounds the replayed history without breaking tool_use/tool_re
       })();
     },
   };
+  let gateRun = 0;
   await runProtocolBuild(
     { intent: "x", traceId: "t", maxTurnsPerPhase: 20 },
     {
       llmClient: llm,
-      runScript: async () => ({ ok: true, success: false, stdout: huge }),
+      // exit_code, not `success`: the loop derives success from the exit code, and a gate
+      // that keeps FAILING is what makes this phase legitimately long. Repeating a
+      // succeeding call instead would (rightly) be stopped as a loop.
+      // The reported error must CHANGE each turn, which is what an honest long phase looks
+      // like: a gate naming a new problem as each previous one is fixed. An unchanging error
+      // is now stopped at the fourth repeat, so a fixed body would end this phase at 4 turns
+      // and it would no longer be testing a long history at all.
+      runScript: async () => {
+        gateRun += 1;
+        return { ok: true, exit_code: 1, stdout: `{"status":"fail","errors":["gate step ${gateRun} failed"],"pad":"${huge}"}` };
+      },
     } as any,
   );
 
@@ -2292,4 +2422,1358 @@ test("a long or body-shaped array element is still clamped, and a huge array is 
   assert.match(recorded[0], /^<5000 chars [0-9a-f]{8}> y+/, "an over-budget element keeps its digest and head");
   assert.ok(recorded.length <= 41, `the array must stay bounded, got ${recorded.length} entries`);
   assert.match(recorded[recorded.length - 1], /^<\d+ more items>$/, "the tail says how many were dropped");
+});
+
+// The measured loop, reproduced: generate recorded project HEAD into project-manifest.json,
+// amended the commit to include that manifest (which changed HEAD), read the new HEAD, and
+// went round again. Ten times, every call returning ok, until the 60-turn cap killed the
+// phase with four phases of work behind it.
+const AMEND_COMMAND = ["git", "add", "-A", "&&", "git", "commit", "--amend", "--no-edit"].join(" ");
+
+function commitHashChasingLlm(counter: { turns: number }) {
+  return {
+    streamMessages: async () => {
+      counter.turns += 1;
+      const step = counter.turns % 3;
+      // A DIFFERENT body every turn (a new hash), which is what makes this invisible to any
+      // check that keys on the payload rather than on the identity of the call.
+      const event = step === 1
+        ? tu(`w${counter.turns}`, "file_operation", { op: "write", path: "project-manifest.json", content: `{"commit":"hash-${counter.turns}"}` })
+        : step === 2
+          ? tu(`c${counter.turns}`, "script_run", { interpreter: "shell", command: AMEND_COMMAND })
+          : tu(`r${counter.turns}`, "script_run", { interpreter: "shell", command: "git rev-parse HEAD" });
+      return (async function* () { yield event; yield stop; })();
+    },
+  };
+}
+
+test("a phase that repeats the same calls forever is stopped, not left to burn its budget", async () => {
+  const counter = { turns: 0 };
+  const events: any[] = [];
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 60, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: commitHashChasingLlm(counter),
+      writeFile: async () => ({ ok: true, success: true }),
+      // Every call SUCCEEDS. That is the whole point: nothing here is failing, so nothing
+      // is asking the model to try again, and it does anyway.
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: "" }),
+    } as any,
+  );
+
+  assert.equal(result.terminal, "stalled");
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled.reason, "repeating_calls", "the reason must name the loop, not max_turns");
+  assert.equal(stalled.cycle.length, 3, "the reported cycle is the real period: write -> commit -> rev-parse");
+  assert.ok(stalled.cycle.some((s: string) => s.includes("project-manifest.json")), stalled.cycle.join(","));
+
+  // The point of the guard: it costs a handful of turns, not the phase's whole budget.
+  assert.ok(counter.turns < 20, `stopped after ${counter.turns} turns, should be far below the 60-turn cap`);
+
+  // Nudged once before giving up, and the nudge names what is being repeated.
+  const nudge = events.find((e) => e.type === "repeating_calls");
+  assert.ok(nudge, "the model gets one chance to break out on its own");
+  assert.ok(nudge.turn < 12, `nudged at turn ${nudge?.turn}`);
+});
+
+test("uploading file after file with the same script is not a loop", async () => {
+  // Measured, and it killed a working deploy: the upload step runs ONE script with the same
+  // port over and over, and only the argv says which file is going up. A signature that
+  // dropped argv collapsed all four into one call and stalled the phase on the fourth file.
+  const uploads = [
+    ["--run", "--port", "/dev/cu.usbmodem1101", "--", "resume", "fs", "cp", "firmware/boot.py", ":boot.py"],
+    ["--run", "--port", "/dev/cu.usbmodem1101", "--", "resume", "fs", "cp", "firmware/conf.py", ":conf.py"],
+    ["--run", "--port", "/dev/cu.usbmodem1101", "--", "resume", "fs", "cp", "firmware/main.py", ":main.py"],
+    ["--run", "--port", "/dev/cu.usbmodem1101", "--", "resume", "fs", "cp", "-r", "firmware/lib", ":"],
+  ];
+  let turn = 0;
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const step = turn++;
+      const event = step >= uploads.length
+        ? tu("done", "phase_complete", { result: "success", summary: "deployed", next_phase: null })
+        : tu(`u${step}`, "script_run", { interpreter: "python", script: "scripts/mpremote_runtime.py", args: uploads[step] });
+      return (async function* () { yield event; yield stop; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-maixpy-export-plugin" /* neutral phase: this test is about loop mechanics, not gating or scaffold rendering */, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: "{}" }) } as any,
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.equal(events.filter((e) => e.type === "repeating_calls").length, 0, "different files are different work");
+});
+
+test("deploy's documented handoff ends the build instead of failing it", async () => {
+  // Measured: a six-phase run where every phase reported success and the board was running
+  // the firmware was marked terminal:"failed", because deploy handed off to
+  // project-library-upload -- which is deploy's OWN documented success next_phase, pinned by
+  // its sample payload and asserted in its smoke test. We do not serve that flow, and not
+  // serving it means the build is finished, not broken.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      yield tu("d", "phase_complete", { result: "success", summary: "deployed", next_phase: "project-library-upload" });
+      yield stop;
+    })(),
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-deploy-plugin", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm } as any,
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.equal(result.phases.at(-1)?.result, "success");
+  assert.ok(events.some((e) => e.type === "phase_handoff_unserved" && e.next_phase === "project-library-upload"),
+    "the handoff is still reported, so an unserved phase stays visible in the log");
+});
+
+test("an invented next phase is still a failure", async () => {
+  // The other side: a model that names a phase nobody serves and nobody documents is asking
+  // for work that will never happen. Completing the build there would hide it.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      yield tu("d", "phase_complete", { result: "success", summary: "done", next_phase: "upy-verify-plugin" });
+      yield stop;
+    })(),
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-deploy-plugin", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm } as any,
+  );
+
+  assert.equal(result.terminal, "failed");
+  assert.ok(events.some((e) => e.type === "phase_error" && e.error_kind === "unknown_next_phase"));
+});
+
+test("a passing consistency check tells the model to stop", async () => {
+  // Measured across three runs: the checker passed and the model kept going -- committing
+  // again, which moved HEAD, which staled the hash it had just recorded, which made the
+  // checker fail on the next attempt. One run died at the turn cap holding a verdict it had
+  // already earned. A failing gate was told what to fix; a passing one said nothing.
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("c", "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"ok":true,"errors":[]}' }) } as any,
+  );
+
+  const nudge = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("The consistency check PASSED"));
+
+  assert.ok(nudge, "a passing consistency check must tell the model it is done");
+  assert.match(nudge, /do not run git again/i, "the reason it kept going must be named");
+});
+
+test("the same call failing with the same error three times draws a nudge, four ends the phase", async () => {
+  // One phase ran the same validator 10 consecutive times for the byte-identical error and died
+  // at the turn cap. The cycle guard could not see it: that guard requires an all-SUCCESS window,
+  // on the reasoning that a failing gate names what to fix. True only while the failure CHANGES.
+  const events: any[] = [];
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      return (async function* () { for (const e of [tu(`g${requests.length}`, "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: SELECT_HW_GATE_ARGS }), stop]) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 12, onEvent: (e: any) => events.push(e) },
+    // Byte-identical failure every time, which is exactly what the archived stall looked like.
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["core fields differ from compare manifest"]}' }) } as any,
+  );
+
+  const nudged = events.find((e) => e.type === "repeating_failure");
+  assert.ok(nudged, "an unchanging failure must be named before the budget is spent");
+  const told = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.includes("IDENTICAL error"));
+  assert.ok(told, "the model must be told the error never changed, not just that it is stuck");
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled?.reason, "repeating_failure", "the fourth identical failure ends the phase");
+  assert.equal(result.terminal, "stalled");
+  // The point of the guard: it ends in a handful of turns, not at the cap.
+  assert.ok(requests.length < 12, `must not burn the budget (used ${requests.length} of 12)`);
+});
+
+test("a fix loop whose error CHANGES is never called a repeating failure", async () => {
+  // The guard must not punish convergence. PC_UNITTEST_FAILED repeats with DIFFERENT failing
+  // tests during an honest fix loop, which is why identity is the whole error payload and not
+  // the code: keying on the code alone would call three real fixes a stall.
+  const events: any[] = [];
+  let n = 0;
+  const llm = {
+    streamMessages: async () => {
+      n += 1;
+      const ev = n <= 4
+        ? [tu(`g${n}`, "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: SELECT_HW_GATE_ARGS }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "ok", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  let call = 0;
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 8, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => {
+        call += 1;
+        if (call <= 2) return { ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["test_blink failed"]}' };
+        if (call === 3) return { ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["test_timer failed"]}' };
+        return { ok: true, exit_code: 0, stdout: '{"status":"ok","errors":[]}' };
+      },
+    } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "repeating_failure"), "a changing error is convergence, not a loop");
+  assert.equal(result.terminal, "complete", "the phase that fixed its problem must still finish");
+});
+
+test("one error that never changes is nudged even when the call and the rest of the set do", async () => {
+  // The shape of a live generate phase, replayed: MANIFEST_BEHAVIOR_SPEC_MISSING came back from
+  // five consecutive gate runs, unchanged, and drew nothing -- because the model added
+  // `--session-dir` to one call (a different signature) and collected an unrelated second error
+  // on another (a different payload), so the identical-failure counter never reached two.
+  const events: any[] = [];
+  const requests: any[] = [];
+  const stuck = { code: "MANIFEST_BEHAVIOR_SPEC_MISSING", message: "manifest_content.generate.behavior_spec is required" };
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      // Every call differs from the last, exactly as the archived run did.
+      const args = requests.length % 2 === 1
+        ? ["--phase-complete", "phase_complete.upy_generate_plugin.json", "--project-dir", "."]
+        : ["--phase-complete", "phase_complete.upy_generate_plugin.json", "--project-dir", ".", "--session-dir", ".mpyhw/s"];
+      return (async function* () {
+        for (const e of [tu(`g${requests.length}`, "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py", args }), stop]) yield e;
+      })();
+    },
+  };
+
+  let call = 0;
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => {
+        call += 1;
+        // The one entry that never moves, surrounded by errors that do.
+        const others = call === 2 ? [{ code: "GIT_COMMIT_MISSING", message: "payload.generate.git.commit is required" }]
+          : call === 3 ? [{ code: "SESSION_STATE_PHASE_COMPLETE_MISMATCH", message: "manifest_hash differs" }]
+            : [];
+        return { ok: true, exit_code: 2, stdout: JSON.stringify({ result: "failed", errors: [stuck, ...others] }) };
+      },
+    } as any,
+  );
+
+  const nudged = events.find((e) => e.type === "repeating_failure");
+  assert.ok(nudged, "an entry that survives three runs must be named");
+  assert.match(String(nudged.entry), /MANIFEST_BEHAVIOR_SPEC_MISSING/, "the nudge must name the entry that never changed");
+  assert.equal(nudged.count, 3);
+  const told = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.includes("come back UNCHANGED"));
+  assert.ok(told, "the model must be told WHICH problem it never touched");
+  assert.match(told, /behavior_spec is required/, "naming the code without the message leaves it guessing which field");
+  // Nudge only. Replayed over the archived runs, entries persisting three times are common in
+  // runs that then pass, so ending the phase here would refuse honest convergence.
+  assert.ok(!events.some((e) => e.type === "phase_stalled" && e.reason === "repeating_failure"),
+    "an unchanged entry must never end the phase by itself");
+});
+
+test("an error that comes back after being fixed is not an unchanged one", async () => {
+  // The count has to mean CONSECUTIVE. A gate that stops reporting a problem and reports it
+  // again later is a regression the model is already responding to, not a problem it never
+  // touched -- and three of those spread over a phase must not read as a stall.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      return (async function* () {
+        for (const e of [tu(`g${turn}`, "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py", args: ["--project-dir", "."] }), stop]) yield e;
+      })();
+    },
+  };
+
+  let call = 0;
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => {
+        call += 1;
+        const code = call === 2 ? "GIT_COMMIT_MISSING" : "MANIFEST_BEHAVIOR_SPEC_MISSING";
+        return { ok: true, exit_code: 2, stdout: JSON.stringify({ result: "failed", errors: [{ code, message: `${code} detail` }] }) };
+      },
+    } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "repeating_failure"), "an interrupted error is not an unchanging one");
+});
+
+test("the drafts and logs a validator reads are never flagged as fabricated evidence", async () => {
+  // Measured on a live run: EIGHT evidence warnings, every one for a file the model is supposed
+  // to author -- select_hw_draft.json is the input select_hw_manifest.py normalizes, and the
+  // phase logs are the model's own record. Same class as the phase_complete payload.
+  const events: any[] = [];
+  let turn = 0;
+  const authored = ["sessions/s/select_hw_draft.json", "sessions/s/select_hw_phase_log.md", "project-manifest.json"];
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn <= authored.length
+        ? [tu(`w${turn}`, "file_operation", { op: "write", path: authored[turn - 1], content: "{}" }), stop]
+        : turn === authored.length + 1
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: [...SELECT_HW_GATE_ARGS, ...authored] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 8, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  const flagged = events.filter((e) => e.type === "gate_evidence_model_written");
+  assert.deepEqual(flagged, [], `writing a validator's own input is the correct action, got ${JSON.stringify(flagged)}`);
+});
+
+test("hand-written evidence is still flagged alongside the drafts a validator reads", async () => {
+  // The other half: the exclusion must not blind the guard. One archived deploy hand-wrote six
+  // artifacts and ran neither producing script, and that is what this exists to catch.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w1", "file_operation", { op: "write", path: "phase_complete.upy_deploy_plugin.json", content: "{}" }), stop]
+        : turn === 2
+          ? [tu("w2", "file_operation", { op: "write", path: "device_tests_result.json", content: "{}" }), stop]
+          : turn === 3
+            ? [tu("g", "script_run", { interpreter: "python", script: "scripts/deploy_result.py", args: ["--phase-complete", "phase_complete.upy_deploy_plugin.json", "--device-tests-json", "device_tests_result.json"] }), stop]
+            : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"PASS","errors":[]}' }),
+    } as any,
+  );
+
+  const flagged = events.find((e) => e.type === "gate_evidence_model_written");
+  assert.ok(flagged, "a hand-written device_tests_result.json must still be caught");
+  assert.deepEqual(flagged.files, ["device_tests_result.json"], "only the evidence file, not the payload beside it");
+});
+
+test("generate gets a larger turn budget than the other phases", async () => {
+  // Not a preference, a measurement: one archived generate spent 39 of its 60 calls writing and
+  // reading the code it was there to produce, reached its second gate verdict with 26 errors,
+  // and had nothing left to converge with. Every run that has COMPLETED generate used 71-81
+  // calls. A phase whose own work costs more than its budget cannot be rescued by clearer gates.
+  const turnsPerPhase: Record<string, number> = {};
+  const llm = {
+    streamMessages: async (body: any) => {
+      const n = (turnsPerPhase[body.phase] = (turnsPerPhase[body.phase] ?? 0) + 1);
+      // A SUCCEEDING call with a different path each turn: it never finishes the phase, so the
+      // phase runs to its own turn cap. Prose-only turns would stop at the much smaller
+      // toolless cap instead and measure nothing about this budget; a repeated identical call
+      // would be stopped by the cycle guard.
+      return (async function* () { for (const e of [tu(`w${n}`, "file_operation", { op: "write", path: `notes/${n}.md`, content: "x" }), stop]) yield e; })();
+    },
+  };
+
+  for (const phase of ["upy-generate-plugin", "select-hw"]) {
+    await runProtocolBuild(
+      { intent: "x", startPhase: phase, onEvent: () => {} } as any,
+      { llmClient: llm, writeFile: async (path: string) => ({ ok: true, path }) } as any,
+    );
+  }
+
+  assert.ok(
+    turnsPerPhase["upy-generate-plugin"] > turnsPerPhase["select-hw"],
+    `generate must get more budget than a default phase (generate=${turnsPerPhase["upy-generate-plugin"]}, select-hw=${turnsPerPhase["select-hw"]})`,
+  );
+});
+
+test("a phase that gives up with partial does not complete the build", async () => {
+  // select-hw could not resolve the board, said so honestly with result=partial and next_phase
+  // null, and the build reported terminal "complete" -- because only "failed" was special-cased.
+  // A phase that did not finish its work has not completed the build.
+  const llm = {
+    streamMessages: async () => {
+      const ev = [tu("p", "phase_complete", { result: "partial", summary: "board definition not found", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 2, onEvent: () => {} },
+    { llmClient: llm } as any,
+  );
+
+  assert.notEqual(result.terminal, "complete", "a partial phase must never read as a completed build");
+  assert.equal(result.terminal, "partial");
+});
+
+test("a project-local script path is told why it can never resolve", async () => {
+  // Twice now a model reached for a helper inside the project: tools/flash_device.py (retried
+  // three times, then abandoned for a manual file-by-file upload) and an invented
+  // tools/build_phase_complete.py that ate the rest of a phase. script_not_found alone reads as
+  // "wrong name", so the model keeps guessing at the lookup instead of the approach.
+  const observations: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("s", "script_run", { interpreter: "python", script: "tools/build_phase_complete.py" }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "blocked", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-maixpy-export-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => { if (e.type === "tool_result") observations.push(e.observation); } },
+    { llmClient: llm, runScript: async () => ({ ok: false, error_kind: "script_not_found" }) } as any,
+  );
+
+  const detail = observations.map((o: any) => String(o?.detail ?? o?.output?.detail ?? "")).find((d: string) => d.includes("BUNDLED PLUGIN"));
+  assert.ok(detail, "the refusal must say a project path can never resolve, not just 'not found'");
+  assert.match(detail, /file_operation/, "and it must name the legal route");
+});
+
+test("a bundled script that is merely misnamed keeps the plain not-found result", async () => {
+  // The boundary explanation must not attach itself to an ordinary typo in a bundled name --
+  // that would bury the real hint (the candidates list) under a paragraph about project paths.
+  const observations: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("s", "script_run", { interpreter: "python", script: "deploy_reslt.py" }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "blocked", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-maixpy-export-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => { if (e.type === "tool_result") observations.push(e.observation); } },
+    { llmClient: llm, runScript: async () => ({ ok: false, error_kind: "script_not_found" }) } as any,
+  );
+
+  const detail = observations.map((o: any) => String(o?.detail ?? o?.output?.detail ?? "")).find((d: string) => d.includes("BUNDLED PLUGIN"));
+  assert.equal(detail, undefined, "a bare bundled name is a typo, not a project-path mistake");
+});
+
+test("the script's accepted_flags reach the model, not just the shim", async () => {
+  // The shim reads a script's own option list and attaches it so the model never needs a
+  // `--help` turn. The first version of that fix was invisible: this loop rebuilds the script
+  // result from a FIXED field list, so the shim attached accepted_flags and the loop dropped
+  // them. A run afterwards still made 10 --help probes, and the field never once appeared in a
+  // recorded result. One layer fixed, the next layer discarding it.
+  const observations: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("s", "script_run", { interpreter: "python", script: "scripts/deploy_result.py", args: ["--output-json", "x.json"] }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-maixpy-export-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => { if (e.type === "tool_result") observations.push(e.observation); } },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: "{}", accepted_flags: ["--output-json", "--port"] }),
+    } as any,
+  );
+
+  const flags = observations.map((o: any) => o?.accepted_flags ?? o?.output?.accepted_flags).find(Boolean);
+  assert.deepEqual(flags, ["--output-json", "--port"], "the flag list must survive into the model-facing result");
+});
+
+test("a device call after the final reset is refused, and told to read the file instead", async () => {
+  // Measured twice on hardware: the final reset matched its marker, so the board was provably
+  // running the deployed app -- and then the model issued `device_command ls` to double-check the
+  // upload, five times in one run. Every one opened the raw REPL and stopped main.py, with
+  // nothing left to restart it, so deploy reported success over a dark board. Three rounds of
+  // SKILL wording did not stop it; this does.
+  const events: any[] = [];
+  const observations: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("f", "script_run", { interpreter: "python", script: "scripts/capture_repl.py", args: ["--reset-first", "--output-json", "final_reset_capture.json"] }), stop]
+        : turn === 2
+          ? [tu("l", "device_command", { action: "ls", path: "/" }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  let deviceCalls = 0;
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => { events.push(e); if (e.type === "tool_result") observations.push(e.observation); } },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY"}' }),
+      device: async () => { deviceCalls += 1; return { ok: true, entries: [] }; },
+    } as any,
+  );
+
+  assert.equal(deviceCalls, 0, "the device must not be touched after the final reset");
+  assert.ok(events.some((e) => e.type === "device_after_final_reset"), "the refusal must be visible in the event stream");
+  const told = observations.map((o: any) => String(o?.detail ?? "")).find((d: string) => d.includes("upload_summary.json"));
+  assert.ok(told, "the refusal must name the file that answers the question it was asking");
+});
+
+test("device calls BEFORE the final reset are untouched", async () => {
+  // The guard must not break deploy's actual work: uploads, cleans and captures all touch the
+  // board, and all of them happen before the reset that ends the phase.
+  let deviceCalls = 0;
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("l", "device_command", { action: "ls", path: "/" }), stop]
+        : turn === 2
+          ? [tu("f", "script_run", { interpreter: "python", script: "scripts/capture_repl.py", args: ["--reset-first", "--output-json", "final_reset_capture.json"] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: () => {} },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success"}' }),
+      device: async () => { deviceCalls += 1; return { ok: true, entries: [] }; },
+    } as any,
+  );
+
+  assert.equal(deviceCalls, 1, "a device call before the final reset is ordinary deploy work");
+});
+
+test("a gate reading evidence the model wrote is flagged, not silently graded", async () => {
+  // One run hand-wrote all five deploy evidence files and the gate happily graded them. WARN
+  // only: two archived PASSING deploys also hand-wrote evidence the gate consumed, so refusing
+  // here would have blocked runs that were genuinely fine.
+  const events: any[] = [];
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("w", "file_operation", { op: "write", path: "device_tests_result.json", content: "{}" }), stop]
+        : requests.length === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/deploy_result.py", args: ["--device-tests-json", "device_tests_result.json"] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"PASS","errors":[]}' }),
+    } as any,
+  );
+
+  const flagged = events.find((e) => e.type === "gate_evidence_model_written");
+  assert.ok(flagged, "a gate grading the model's own file must be visible");
+  assert.deepEqual(flagged.files, ["device_tests_result.json"]);
+  const told = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.includes("Re-run the producing script"));
+  assert.ok(told, "the model must be told to produce the file with the script that owns it");
+});
+
+test("the phase_complete payload itself is never flagged as fabricated evidence", async () => {
+  // Measured on a live run: the check fired twice on phase_complete.upy_generate_plugin.json,
+  // which the model authors by definition -- it is the payload being validated, not evidence a
+  // script should have produced. A warning that punishes the correct action is worse than none.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: "phase_complete.upy_generate_plugin.json", content: "{}" }), stop]
+        : turn === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py", args: ["--phase-complete", "phase_complete.upy_generate_plugin.json"] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"ok":true,"errors":[]}' }),
+    } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "gate_evidence_model_written"), "the validated payload is not fabricated evidence");
+});
+
+test("evidence rewritten by its producing script is not flagged", async () => {
+  // The untaint rule. Producers take their output path as an argument, so a successful
+  // capture_repl.py --output-json x.json after a hand-write means the file on disk is the
+  // script's again. Without this, one overwrite would raise a false alarm for the whole phase.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: "serial_capture.json", content: "{}" }), stop]
+        : turn === 2
+          ? [tu("c", "script_run", { interpreter: "python", script: "scripts/capture_repl.py", args: ["--output-json", "serial_capture.json"] }), stop]
+          : turn === 3
+            ? [tu("g", "script_run", { interpreter: "python", script: "scripts/deploy_result.py", args: ["--serial-json", "serial_capture.json"] }), stop]
+            : [tu("p", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"PASS","errors":[]}' }),
+    } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "gate_evidence_model_written"), "a script-produced file must not be flagged as fabricated");
+});
+
+test("a success with no gate verdict this phase is refused until the gate passes", async () => {
+  // The hole this closes: one resumed run emitted generate success having run nothing but
+  // `git status`, inheriting a project whose state file was still failing its last check. The
+  // earlier guard only refused a success the gate CONTRADICTED, so silence read as consent.
+  const events: any[] = [];
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      if (requests.length === 2) {
+        return (async function* () { for (const e of [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: SELECT_HW_GATE_ARGS }), stop]) yield e; })();
+      }
+      return (async function* () { for (const e of [tu(`p${requests.length}`, "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop]) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"ok","errors":[]}' }) } as any,
+  );
+
+  const refused = events.find((e) => e.type === "phase_complete_refused");
+  assert.equal(refused?.reason, "gate_never_ran", "an unverified success must be refused, not accepted by default");
+  const told = (requests[1]?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.includes("has not reported a verdict"));
+  assert.ok(told, "the corrective must name the command that would satisfy it");
+  assert.equal(result.terminal, "complete", "and the phase must finish once the gate actually passes");
+});
+
+test("a phase with a non-strict gate is not refused for never running it", async () => {
+  // The guard against re-shipping the blocks-the-honest-path mistake. Two archived full passes
+  // finished analyze in draft mode only, and no archived run has ever invoked flash's validator,
+  // so strictness there would refuse runs that were correct.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      for (const e of [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop]) yield e;
+    })(),
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "analyze", maxTurnsPerPhase: 3, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"ok"}' }) } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "phase_complete_refused"), "a non-strict gate must not refuse a phase that never ran it");
+  assert.equal(result.terminal, "complete");
+});
+
+test("a draft-mode pass cannot stand in for a failing phase-complete validation", async () => {
+  // select_hw_manifest.py prints {"status":"ok"} from its DRAFT mode too, and one archived run
+  // re-ran the draft right after five validate failures on its way to an honest pass. So a draft
+  // pass is a normal step that must not be mistaken for the phase's verdict.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("v", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: SELECT_HW_GATE_ARGS }), stop]
+        : turn === 2
+          // The DRAFT invocation: same script, none of the validate flags.
+          ? [tu("d", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: ["--input", "d.json", "--write-path", "v.json"] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  let call = 0;
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => {
+        call += 1;
+        return call === 1
+          ? { ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["board definition not found"]}' }
+          : { ok: true, exit_code: 0, stdout: '{"status":"ok","errors":[]}' };
+      },
+    } as any,
+  );
+
+  const refused = events.find((e) => e.type === "phase_complete_refused");
+  assert.equal(refused?.reason, "gate_failed", "the draft pass must not overwrite the failing validation");
+});
+
+test("an unknown phase_complete result token is rejected, not advanced", async () => {
+  // `result: "ok"` reads as intent to succeed but is not a contract token. The refusal compares
+  // against the literal "success", so an unknown token would walk straight past a red gate.
+  const observations: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: SELECT_HW_GATE_ARGS }), stop]
+        : turn === 2
+          ? [tu("p1", "phase_complete", { result: "ok", summary: "done", next_phase: null, manifest_content: {} }), stop]
+          : [tu("p2", "phase_complete", { result: "partial", summary: "blocked", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 6, onEvent: (e: any) => { if (e.type === "tool_result") observations.push(e.observation); } },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["x"]}' }) } as any,
+  );
+
+  // The recorder normalizes the result, so the kind may sit at the top level or under `output`.
+  const kindOf = (o: any) => o?.error_kind ?? o?.output?.error_kind;
+  const rejected = observations.find((o: any) => kindOf(o) === "phase_complete_invalid_result");
+  assert.ok(rejected, `an unknown result token must be rejected at the executor; saw ${JSON.stringify(observations.map(kindOf))}`);
+  const detail = String(rejected.detail ?? rejected.output?.detail);
+  assert.match(detail, /success, partial, failed/, "and the accepted tokens must be named");
+  // The honest path stays open: partial is accepted even though the gate is red.
+  assert.equal(result.terminal, "partial", "a partial must still be allowed through");
+});
+
+test("a success the gate already failed is refused", async () => {
+  // Three runs passed select-hw like this: the validator returned failure, the model wrote the
+  // validated manifest itself, and phase_complete was accepted. The board never resolved.
+  const events: any[] = [];
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: ["--input", "d.json"] }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 4, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["board definition not found"]}' }) } as any,
+  );
+
+  assert.notEqual(result.terminal, "complete", "the gate said no; the build must not report complete");
+  assert.ok(events.some((e) => e.type === "phase_complete_refused"), "the refusal must be visible, not silent");
+  const told = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.includes("was REFUSED"));
+  assert.match(told, /do not write its output file yourself/i, "the model must be told why, and what not to do");
+});
+
+test("each gate's own verdict spelling is read, not just one of them", async () => {
+  // The three gates spell a pass three ways and share no schema. Keying on `ok` alone would have
+  // refused every select-hw pass, because select_hw_manifest.py has no `ok` field -- a guard
+  // against fabrication that blocks the honest path is worse than no guard.
+  const shapes = [
+    { name: "select_hw_manifest.py", phase: "select-hw", args: SELECT_HW_GATE_ARGS, stdout: '{"status":"ok","errors":[],"warnings":[]}' },
+    { name: "check_phase_complete_consistency.py", phase: "upy-generate-plugin", stdout: '{"check":"phase_complete_consistency","result":"success","ok":true,"errors":[]}' },
+    { name: "deploy_result.py", phase: "upy-deploy-plugin", stdout: '{"status":"success","tools":{}}' },
+  ];
+
+  for (const shape of shapes) {
+    const requests: any[] = [];
+    const llm = {
+      streamMessages: async (body: any) => {
+        requests.push(body);
+        const ev = requests.length === 1
+          ? [tu("g", "script_run", { interpreter: "python", script: `scripts/${shape.name}`, args: shape.args ?? [] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+        return (async function* () { for (const e of ev) yield e; })();
+      },
+    };
+
+    const result = await runProtocolBuild(
+      { intent: "x", startPhase: shape.phase, maxTurnsPerPhase: 4, onEvent: () => {} },
+      { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: shape.stdout }) } as any,
+    );
+
+    assert.equal(result.terminal, "complete", `${shape.name}: a real pass in this gate's own dialect must be accepted`);
+  }
+});
+
+test("a deploy that ends on PASS_WITH_WARNINGS is not refused", async () => {
+  // deploy_result.py grades FAIL / PASS_WITH_WARNINGS / PASS, and warnings are how a real deploy
+  // normally ends -- one archived full-chain pass graded exactly this. The ordering here is the
+  // one that bites: the gate fails first, then passes WITH WARNINGS. If that final verdict is not
+  // recognized as a pass, the earlier "fail" stands and the guard refuses a genuine success.
+  const requests: any[] = [];
+  const events: any[] = [];
+  let runs = 0;
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      if (requests.length <= 2) {
+        return (async function* () { for (const e of [tu(`d${requests.length}`, "script_run", { interpreter: "python", script: "scripts/deploy_result.py" }), stop]) yield e; })();
+      }
+      return (async function* () { for (const e of [tu("p", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: {} }), stop]) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => {
+        runs += 1;
+        return runs === 1
+          ? { ok: true, exit_code: 1, stdout: '{"status":"FAIL","errors":["final reset capture missing"]}' }
+          : { ok: true, exit_code: 0, stdout: '{"status":"PASS_WITH_WARNINGS","errors":[],"warnings":["serial capture was cut short"]}' };
+      },
+    } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "phase_complete_refused"), "a deploy graded PASS_WITH_WARNINGS earned its success");
+  assert.equal(result.terminal, "complete");
+});
+
+test("a gate that fails and then passes still completes the phase", async () => {
+  // The guard must not punish the normal loop: fail, fix, pass. Only the LATEST verdict counts.
+  const requests: any[] = [];
+  let gateRuns = 0;
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      if (requests.length <= 2) {
+        return (async function* () { for (const e of [tu(`g${requests.length}`, "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: SELECT_HW_GATE_ARGS }), stop]) yield e; })();
+      }
+      return (async function* () { for (const e of [tu("p", "phase_complete", { result: "success", summary: "ok", next_phase: null, manifest_content: {} }), stop]) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 5, onEvent: () => {} },
+    {
+      llmClient: llm,
+      runScript: async () => {
+        gateRuns += 1;
+        return gateRuns === 1
+          ? { ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["board definition not found"]}' }
+          : { ok: true, exit_code: 0, stdout: '{"status":"ok","errors":[]}' };
+      },
+    } as any,
+  );
+
+  assert.equal(result.terminal, "complete", "a phase that fixed its problem and passed the gate must complete");
+});
+
+test("running the checker with --help is not a passing verdict", async () => {
+  // What actually happened: the model could not satisfy the gate, failed twice trying to locate
+  // the script, ran it with `--help`, and that exited 0. The corrective read the zero exit as a
+  // pass and told it to emit phase_complete -- which it did, with its last real validation still
+  // three errors red. The phase was accepted and the build moved on to deploy.
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("h", "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py", args: ["--help"] }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    // Exactly what argparse prints for --help, and it exits 0.
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: "usage: check_phase_complete_consistency.py [-h] --phase-complete PH" }) } as any,
+  );
+
+  const nudge = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("The consistency check PASSED"));
+
+  assert.equal(nudge, undefined, "a usage message is not a verdict; announcing a pass here fakes the gate");
+});
+
+test("a checker that RAN but reported errors is not a passing verdict", async () => {
+  // The other way to exit 0 without passing: some reports carry their verdict in the body. If
+  // the corrective keyed on the exit code alone, a red report would end the phase too.
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("c", "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py", args: ["--phase-complete", "pc.json"] }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"ok":false,"errors":[{"code":"GIT_COMMIT_MISSING"}]}' }) } as any,
+  );
+
+  const nudge = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("The consistency check PASSED"));
+
+  assert.equal(nudge, undefined, "a report listing errors must never be announced as a pass");
+});
+
+test("a passing INPUT validation does not tell the model to finish", async () => {
+  // deploy validates the PREVIOUS phase's payload with deploy_manifest.py as an input check.
+  // A success there means "the handoff is good", not "your phase is done" -- announcing
+  // completion would end deploy before it uploaded anything.
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("v", "script_run", { interpreter: "python", script: "scripts/deploy_manifest.py", args: ["--validate-phase-complete"] }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"ok":true,"errors":[]}' }) } as any,
+  );
+
+  const texts = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""));
+
+  assert.ok(!texts.some((t: string) => t.startsWith("The consistency check PASSED")), "an input check must not end the phase");
+});
+
+test("a batch of progress updates is not a loop", async () => {
+  // Measured in a real run: a driver search narrates three status lines in one turn, and
+  // status_update carries no path or script, so all three collapsed to the bare tool name
+  // and the phase was nudged to "emit phase_complete with what you already have" while it
+  // was still working. A multi-device project emits a batch per device, so the turn after
+  // would have stalled analyze outright.
+  const lines = [
+    "Confirmed: onboard LED on GPIO25",
+    "Searching driver... (1/1)",
+    "OK Onboard LED -> builtin_runtime (machine.Pin)",
+  ];
+  let turn = 0;
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const done = turn++ > 0;
+      return (async function* () {
+        if (done) {
+          yield tu("done", "phase_complete", { result: "success", summary: "analyzed", next_phase: null });
+        } else {
+          for (const [i, message] of lines.entries()) {
+            yield tu(`s${i}`, "status_update", { level: "info", message, step_id: `step_${i}` });
+          }
+        }
+        yield stop;
+      })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "analyze", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm } as any,
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.equal(events.filter((e) => e.type === "repeating_calls").length, 0, "distinct progress lines are not a cycle");
+});
+
+test("the SAME script call repeated with identical arguments is still a loop", async () => {
+  // The other side of the same rule: argv is what makes an upload distinct, so an identical
+  // argv repeated is a genuine repeat and must stay caught.
+  const args = ["--run", "--port", "/dev/cu.usbmodem1101", "--", "resume", "fs", "ls"];
+  let turn = 0;
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      return (async function* () {
+        yield tu(`s${turn}`, "script_run", { interpreter: "python", script: "scripts/mpremote_runtime.py", args });
+        yield stop;
+      })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 60, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, stdout: "{}" }) } as any,
+  );
+
+  assert.equal(result.terminal, "stalled");
+  assert.equal(events.find((e) => e.type === "phase_stalled").reason, "repeating_calls");
+  assert.ok(turn < 12, `stopped after ${turn} turns`);
+});
+
+test("copying file after file to the board is not a loop", async () => {
+  // Measured, and it killed a working deploy: after the project's own helper script turned
+  // out to be unrunnable, the model fell back to device_command cp and was uploading the
+  // firmware file by file. src/dst carry the identity there -- neither was in the signature,
+  // so four different files read as one repeated call and the phase was stalled on the
+  // fourth. Third tool to teach this the expensive way, hence the signature now keeps every
+  // non-body field rather than a hand-listed few.
+  const copies = [
+    { action: "mkdir", dst: ":lib" },
+    { action: "cp", src: "firmware/conf.py", dst: ":conf.py" },
+    { action: "cp", src: "firmware/boot.py", dst: ":boot.py" },
+    { action: "cp", src: "firmware/main.py", dst: ":main.py" },
+    { action: "cp", src: "firmware/lib", dst: ":lib" },
+  ];
+  let turn = 0;
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const step = turn++;
+      const event = step >= copies.length
+        ? tu("done", "phase_complete", { result: "success", summary: "deployed", next_phase: null })
+        : tu(`d${step}`, "device_command", copies[step]);
+      return (async function* () { yield event; yield stop; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-deploy-plugin", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, device: async () => ({ ok: true, stdout: "" }) } as any,
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.equal(events.filter((e) => e.type === "repeating_calls").length, 0, "different files are different work");
+});
+
+test("a body field never enters a signature, so a rewrite loop stays visible", async () => {
+  // The other side of the rule. The measured livelock rewrote project-manifest.json with a
+  // DIFFERENT commit hash every pass; if content counted as identity each write would look
+  // unique and the loop would be invisible.
+  let turn = 0;
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      return (async function* () {
+        yield tu(`w${turn}`, "file_operation", { op: "write", path: "project-manifest.json", content: `{"commit":"hash-${turn}"}` });
+        yield stop;
+      })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 60, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async () => ({ ok: true, success: true }) } as any,
+  );
+
+  assert.equal(result.terminal, "stalled");
+  assert.equal(events.find((e) => e.type === "phase_stalled").reason, "repeating_calls");
+  assert.ok(turn < 12, `stopped after ${turn} turns`);
+});
+
+test("a cycle whose middle step is a REFUSED call is still a cycle", async () => {
+  // The shape the amend removal creates: the model keeps reaching for a command the
+  // allowlist will never accept. A refusal is a failure, and failures exempt a window from
+  // the cycle check so that fix-and-rerun convergence is protected -- but a refusal teaches
+  // the model nothing it did not already know, so this cycle has to stay visible.
+  let turn = 0;
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const step = turn++ % 3;
+      const event = step === 0
+        ? tu(`w${turn}`, "file_operation", { op: "write", path: "project-manifest.json", content: `{"n":${turn}}` })
+        : step === 1
+          ? tu(`c${turn}`, "script_run", { interpreter: "shell", command: AMEND_COMMAND })
+          : tu(`r${turn}`, "script_run", { interpreter: "shell", command: "git rev-parse HEAD" });
+      return (async function* () { yield event; yield stop; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 60, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async () => ({ ok: true, success: true }),
+      // The shim's answer to a command with no verb in the allowlist.
+      runScript: async (_i: string, _s: string, _a: string[], _x: any) =>
+        ({ ok: false, error_kind: "shell_command_not_allowed", stderr: "Allowed shell commands: ..." }),
+    } as any,
+  );
+
+  assert.equal(result.terminal, "stalled");
+  assert.equal(events.find((e) => e.type === "phase_stalled").reason, "repeating_calls");
+  assert.ok(turn < 20, `stopped after ${turn} turns`);
+});
+
+test("breaking out of a cycle earns the nudge back", async () => {
+  // A phase is long. One nudge early must not mean that a second, unrelated repetition
+  // later is stalled with no warning: the nudge is spent per cycle, not per phase.
+  const scripted = [
+    // Cycle one: three identical successful gate runs, then a nudge.
+    "gate", "gate", "gate",
+    // Broken by real work.
+    "write-a", "write-b", "write-c",
+    // Cycle two: it must be NUDGED again rather than stalled outright.
+    "gate", "gate", "gate",
+    "done",
+  ];
+  let turn = 0;
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const step = scripted[Math.min(turn, scripted.length - 1)];
+      turn += 1;
+      const event = step === "done"
+        ? tu("d", "phase_complete", { result: "success", summary: "ok", next_phase: null })
+        : step === "gate"
+          ? tu(`g${turn}`, "script_run", { interpreter: "python", script: "run_quality_gates.py" })
+          : tu(`w${turn}`, "file_operation", { op: "write", path: `firmware/${step}.py`, content: "x" });
+      return (async function* () { yield event; yield stop; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-maixpy-export-plugin" /* neutral phase: this test is about loop mechanics, not gating or scaffold rendering */, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async () => ({ ok: true, success: true }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: "{}" }),
+    } as any,
+  );
+
+  assert.equal(result.terminal, "complete", "the second cycle must be nudged, not stalled");
+  assert.equal(events.filter((e) => e.type === "repeating_calls").length, 2, "one nudge per cycle");
+});
+
+test("a phase that keeps making progress is never called a loop", async () => {
+  // The shape that must NOT trip it: fix a file, re-run the same gate, fix the next file.
+  // The gate call is identical every time; only the paths differ, and that is what tells a
+  // convergent phase apart from a stuck one.
+  const files = ["firmware/main.py", "firmware/conf.py", "firmware/tasks/blink.py", "firmware/drivers/led.py"];
+  let turn = 0;
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => {
+      const step = turn++;
+      const event = step >= files.length * 2
+        ? tu("done", "phase_complete", { result: "success", summary: "generated", next_phase: null })
+        : step % 2 === 0
+          ? tu(`w${step}`, "file_operation", { op: "write", path: files[step / 2], content: "x" })
+          : tu(`g${step}`, "script_run", { interpreter: "python", script: "run_quality_gates.py" });
+      return (async function* () { yield event; yield stop; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "blink", startPhase: "upy-maixpy-export-plugin" /* neutral phase: this test is about loop mechanics, not gating or scaffold rendering */, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async () => ({ ok: true, success: true }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: "{}" }),
+    } as any,
+  );
+
+  assert.equal(result.terminal, "complete");
+  assert.equal(events.filter((e) => e.type === "repeating_calls").length, 0, "distinct paths are progress");
+});
+
+test("a failed read of a plugin resource path names the boundary", async () => {
+  // Measured live: generate opens by reading five references/*.md in a row, because its SKILL
+  // table sends it there. The files exist -- inside the plugin resource directory, which
+  // file_operation cannot reach -- and the answer was a bare "file_not_found", which reads as
+  // "that file does not exist" and teaches the model nothing. script_run already names this
+  // boundary for a project-local script; the read path did not.
+  const { result } = await executeProtocolTool(
+    tu("r", "file_operation", { op: "read", path: "references/validation_gates.md" }),
+    { intent: "x" } as any,
+    { readFile: async () => ({ ok: false, error_kind: "file_not_found" }) } as any,
+    { phase: "upy-generate-plugin", turn: 1 },
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(String(result.detail), /plugin resource/i, "the model must be told what kind of path this is");
+  assert.match(String(result.detail), /can never succeed/i, "and that retrying cannot help");
+  assert.match(String(result.detail), /prompt text|RESOLVED DATA/i, "and where the content actually is");
+});
+
+test("an ordinary missing project file is not explained away as a boundary", async () => {
+  // The guard must not fire on a real absence: "firmware/main.py is not there yet" is exactly
+  // the answer a phase needs, and burying it under a lecture about plugin resources would make
+  // the common case worse to serve the rare one.
+  const { result } = await executeProtocolTool(
+    tu("r", "file_operation", { op: "read", path: "firmware/main.py" }),
+    { intent: "x" } as any,
+    { readFile: async () => ({ ok: false, error_kind: "file_not_found" }) } as any,
+    { phase: "upy-generate-plugin", turn: 1 },
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.detail, undefined, "a missing project file needs no boundary explanation");
+});
+
+test("a plugin resource path that READS fine is left alone", async () => {
+  // Only a FAILED read gets the message. A host that can serve one of these (a test harness, a
+  // future resource route) must not have its success annotated as a boundary violation.
+  const { result } = await executeProtocolTool(
+    tu("r", "file_operation", { op: "read", path: "knowledge/driver_api_usage.pitfall.json" }),
+    { intent: "x" } as any,
+    { readFile: async () => ({ ok: true, content: "{}" }) } as any,
+    { phase: "upy-generate-plugin", turn: 1 },
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.detail, undefined);
+});
+
+test("every turn asks for the output budget the server allows", async () => {
+  // The extension never sent max_tokens, so every turn took the server's 8192 default while
+  // the ceiling was 32768. Measured consequence: generate's phase_complete must embed 34,770
+  // characters of quality-gate results verbatim -- about 8.7k tokens, more than the whole turn
+  // allowance -- so the model hit exactly 8192 output tokens on three turns, could not finish
+  // the write, and reported partial with 17 of 80 requests unspent.
+  const bodies: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      bodies.push(body);
+      return (async function* () {
+        for (const e of [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop]) yield e;
+      })();
+    },
+  };
+
+  await runProtocolBuild({ intent: "x", startPhase: "upy-deploy-plugin", onEvent: () => {} }, { llmClient: llm } as any);
+
+  assert.ok(bodies.length > 0, "the loop must have made a request");
+  for (const body of bodies) {
+    assert.equal(typeof body.max_tokens, "number", "every request must state its output budget");
+    assert.ok(body.max_tokens > 8192, `must ask for more than the server default, got ${body.max_tokens}`);
+    assert.ok(body.max_tokens <= 32768, `must stay inside the server ceiling, got ${body.max_tokens}`);
+  }
+});
+
+test("the unchanged-entry nudge speaks once per phase and never offers the exit", async () => {
+  // Both halves are from one measured run. Three nudges landed in three consecutive turns, and
+  // the model emitted phase_complete(partial) three requests later with 17 of 80 unspent -- its
+  // stated reason naming the exact objects it had been told to produce. The nudge fires while a
+  // phase is still converging, so it must not read as permission to stop, and it must not
+  // arrive as a barrage.
+  const requests: any[] = [];
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      return (async function* () {
+        for (const e of [tu(`g${requests.length}`, "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py", args: ["--n", String(requests.length)] }), stop]) yield e;
+      })();
+    },
+  };
+
+  let call = 0;
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 10, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      // Two entries that never change, surrounded by errors that do: without the once-per-phase
+      // rule this produces a nudge for each, on consecutive turns.
+      runScript: async () => {
+        call += 1;
+        return {
+          ok: true, exit_code: 2,
+          stdout: JSON.stringify({ result: "failed", errors: [
+            { code: "GATE_RESULT_MISSING", message: "the dead_config gate result object is missing" },
+            { code: "GATE_RESULT_MISSING", message: "the conf_contract gate result object is missing" },
+            { code: "CHANGING", message: `attempt ${call}` },
+          ] }),
+        };
+      },
+    } as any,
+  );
+
+  const nudges = events.filter((e) => e.type === "repeating_failure" && e.entry);
+  assert.equal(nudges.length, 1, `the entry nudge is spent once per phase, got ${nudges.length}`);
+  const texts = requests.flatMap((r) => (r.messages ?? []))
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""));
+  const nudge = texts.find((t: string) => t.includes("come back UNCHANGED"));
+  assert.ok(nudge, "the nudge must still be delivered");
+  assert.doesNotMatch(nudge, /result=partial/i, "a mid-convergence nudge must not offer the give-up exit");
+  assert.match(nudge, /run that script and use its output/i, "it must name the next action instead");
 });

@@ -115,14 +115,21 @@ test("a phase that cannot get under the cap emits history_over_cap", async () =>
     streamMessages: async () => {
       turns += 1;
       return (async function* () {
-        for (const n of [1, 2, 3]) yield tu(`c-${turns}-${n}`, "script_run", { interpreter: "python", script: "check.py" });
+        // Args carry the turn, so each turn's calls are a DIFFERENT signature. An identical call
+        // failing identically is now stopped at the fourth repeat, which would end this phase at
+        // 4 turns and it would never build the history this test is about. A real long phase
+        // re-runs a gate over changing work, not the byte-identical call forever.
+        for (const n of [1, 2, 3]) yield tu(`c-${turns}-${n}`, "script_run", { interpreter: "python", script: "check.py", args: [`--attempt=${turns}`] });
         yield stop;
       })();
     },
   };
   await runProtocolBuild(
     { intent: "x", traceId: "t", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 14, onEvent: (e: any) => events.push(e) },
-    { llmClient: llm, runScript: async () => ({ ok: true, success: false, stdout: huge }) } as any,
+    // exit_code, not `success`: the loop reads the exit code, and this phase is long because
+    // its gate keeps FAILING. Repeating a succeeding call would be stopped as a loop instead,
+    // and the history would never reach the cap this test is about.
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 1, stdout: huge }) } as any,
   );
   const over = events.filter((e) => e.type === "history_over_cap");
   assert.ok(over.length > 0, "an over-cap request went out with nothing reported");

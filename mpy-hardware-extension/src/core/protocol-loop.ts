@@ -19,6 +19,22 @@ export const PHASE_ORDER = ["analyze", "select-hw", "upy-flash-mpy-firmware-plug
 // legitimately take dozens of turns (select-hw ~40, generate ~49). The old cap of 10
 // stalled every V0 phase. Callers (e.g. the e2e) override via input.maxTurnsPerPhase.
 const MAX_TURNS_PER_PHASE = 60;
+// Generate needs more, and this is measured rather than guessed. Its 60-turn budget goes mostly
+// on the work itself: one archived stall spent 39 of 60 calls writing and reading the generated
+// firmware, drivers, tests and plan, reached its second gate verdict holding 26 errors, and had
+// nothing left to converge with. Every run that has ever COMPLETED generate ran with a larger
+// budget and used 71 to 81 calls. So 60 is below what the phase costs, and no amount of gate
+// clarity buys that back.
+const MAX_TURNS_BY_PHASE: Record<string, number> = {
+  "upy-generate-plugin": 80,
+  // Deploy, same story and the same evidence. Every deploy that COMPLETED used 39, 58, 70 or 80
+  // calls; all three that stalled used exactly 60, which is the cap rather than a coincidence.
+  // Headroom, not a cure: the runs that overran spent their extra calls recovering from a
+  // misreported mkdir and from running the app entrypoint and waiting for a loop that never
+  // ends. Both of those are fixed above this line, in the skills; this stops the phase dying
+  // while we find the next one.
+  "upy-deploy-plugin": 80,
+};
 // A turn with no tool call can't advance the protocol. Re-prompt the model to emit a
 // tool rather than stalling the whole build on the first prose-only reply (which froze
 // the UI on the current step); only give up after this many CONSECUTIVE prose turns.
@@ -29,6 +45,63 @@ const MAX_TOOLLESS_TURNS = 3;
 // whole turn budget retrying and hide the real reason behind a max_turns stall.
 const MAX_STREAM_RETRIES = 2;
 const MAX_PHASES = PHASE_ORDER.length;
+
+// Phases the plugin contract hands off to when the BUILD IS DONE and we do not serve what
+// comes next. `project-library-upload` is deploy's documented success next_phase (its sample
+// payload and smoke test both pin it); `upy-simulate-plugin` is the simulate branch. The api
+// harness has always treated both as terminal (mpyhw-api/scripts/e2e_protocol_v0.py), and the
+// loop failing on them was the disagreement.
+const TERMINAL_HANDOFF_PHASES = new Set(["project-library-upload", "upy-simulate-plugin"]);
+
+// What a phase's own verdict makes of the BUILD. Only "failed" used to be special-cased, so a
+// phase that gave up and said `partial` ended the build as "complete": one run's select-hw
+// reported it could not resolve the board, set next_phase to null, and the summary called that a
+// completed build. A phase that did not finish its work has not completed the build either.
+function terminalForResult(result: unknown): string {
+  if (result === "failed") return "failed";
+  if (result === "success" || result === undefined || result === null) return "complete";
+  return "partial";
+}
+
+const PHASE_COMPLETION_CHECK = "check_phase_complete_consistency.py";
+
+// The script that decides a phase did its job. Consulted only to REFUSE a success the gate has
+// already contradicted; a phase with no entry here is unaffected.
+// Measured, all four on green-looking runs: select-hw's validator failed, the model hand-wrote
+// the "validated" manifest it was supposed to emit, and the phase passed -- three runs in a row,
+// the board never actually resolved. Generate ran its checker with `--help` after a red verdict
+// and passed. The loop took every one of them, because nothing here ever asked how the gate
+// went.
+type PhaseGate = {
+  script: string;
+  // Only invocations carrying ALL of these argv flags update the verdict. select_hw_manifest.py
+  // and init_manifest.py print {"status":"ok"} from their DRAFT modes too, and a draft pass must
+  // not overwrite a failing --validate-phase-complete: one archived run re-ran the draft mode
+  // right after five validate failures on its way to an honest pass, so a draft pass is a normal
+  // step -- it just is not a phase verdict. Flags only, not values: the model still chooses what
+  // --compare-manifest points at, and pinning values needs the loop to run the gate itself.
+  requiredArgs?: string[];
+  // strict: a success with NO recognized verdict this phase is refused too, not only one the gate
+  // contradicted. Verified against the archives: every full pass ran these three gates to a
+  // recognized pass before phase_complete, while one resumed run emitted generate success having
+  // run nothing but `git status`, with its state file still failing its last check.
+  strict?: boolean;
+};
+const PHASE_GATES: Record<string, PhaseGate> = {
+  "select-hw": {
+    script: "select_hw_manifest.py",
+    requiredArgs: ["--validate-phase-complete", "--compare-manifest", "--expected-artifact"],
+    strict: true,
+  },
+  "upy-generate-plugin": { script: PHASE_COMPLETION_CHECK, strict: true },
+  "upy-deploy-plugin": { script: "deploy_result.py", strict: true },
+  // Tracked but NOT strict: a red verdict still refuses a success, but a phase that never ran the
+  // validator is left alone. Two archived full passes finished analyze in draft mode only, and NO
+  // archived run has ever invoked flash's validator, so strict here would refuse honest runs --
+  // the same blocks-the-honest-path mistake this guard has already made twice.
+  "analyze": { script: "init_manifest.py", requiredArgs: ["--validate-phase-complete"] },
+  "upy-flash-mpy-firmware-plugin": { script: "flash_mpy_firmware_manifest.py", requiredArgs: ["--validate-phase-complete"] },
+};
 
 // device_command actions whose stdout is real device/REPL output, worth surfacing on
 // the Serial page. Everything else the device route dispatches (ls, scan/devs, cp,
@@ -94,6 +167,11 @@ function normalizePhase(value: any): string | null {
 // confirmApproval callback and never hits this.
 const NO_HARDWARE_ACTIONS = ["already_flashed", "use_local_firmware", "confirm_flashed", "copied_uf2", "copied", "confirmed"];
 
+// The only result tokens the phase_complete contract defines. Every gate script rejects any
+// other value, but the gates run under the model's control -- so the loop must too, or a
+// result:"ok" walks past the refusal guard, which compares against the literal "success".
+const PHASE_RESULT_VALUES = new Set(["success", "partial", "failed"]);
+
 type StreamEvent = { type: string; text?: string; id?: string; name?: string; input?: any; invalidInput?: string; message?: string; finishReason?: string };
 type LlmClient = { streamMessages: (body: any, signal?: any) => Promise<AsyncIterable<StreamEvent>> | AsyncIterable<StreamEvent> };
 
@@ -119,7 +197,7 @@ export type ProtocolDeps = {
   // `extra.phase` is the active phase token: the host resolver uses it to disambiguate a
   // script basename shipped by >1 served plugin (e.g. update_session_state.py in generate +
   // gen-driver) to the running phase's own copy, so the model never has to qualify.
-  runScript?: (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number; phase?: string }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string; candidates?: string[]; structured_errors?: Array<{ code?: string; path?: string; message?: string }> }>;
+  runScript?: (interpreter: string, script: string, args: string[], extra?: { stdin_content?: string; stdin_json?: any; timeout_ms?: number; phase?: string }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; exit_code?: number; error_kind?: string; candidates?: string[]; structured_errors?: Array<{ code?: string; path?: string; message?: string }>; accepted_flags?: string[] }>;
 };
 
 export type ProtocolInput = {
@@ -267,6 +345,211 @@ function compactResultBodies(result: any): any {
 
 // How many recent tool failures a stalled phase reports as its detail.
 const STALL_DETAIL_LIMIT = 3;
+// Scripts and tools that reach the BOARD. Used to enforce that the final reset is the last
+// thing a phase does to the device.
+const DEVICE_TOUCHING_SCRIPTS = [
+  "mpremote_runtime.py", "capture_repl.py", "run_device_tests.py", "clean_device_project.py",
+  "install_mip_dependencies.py", "wait_for_device.py", "read_device_log.py", "flash_device.py",
+];
+
+function touchesDevice(tu: StreamEvent): boolean {
+  if (tu.name === "device_command") return true;
+  const script = String((tu.input as any)?.script ?? "");
+  return tu.name === "script_run" && DEVICE_TOUCHING_SCRIPTS.some((s) => script.endsWith(s));
+}
+
+// The capture that proves the board is running the deployed app, and by contract the LAST device
+// operation of the phase.
+function isFinalResetCapture(tu: StreamEvent): boolean {
+  const script = String((tu.input as any)?.script ?? "");
+  if (!script.endsWith("capture_repl.py")) return false;
+  const args = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String).join(" ");
+  return args.includes("final_reset");
+}
+
+type PhaseFailure = { tool: string; error: string; path?: string; turn: number };
+
+// --- Loop detection ---------------------------------------------------------
+// A phase can burn its whole budget on calls that all SUCCEED and get nowhere. Measured:
+// generate recorded project HEAD into project-manifest.json, amended the commit to include
+// that manifest, read the new HEAD, recorded it, amended again -- ten times, every call
+// returning ok, until max_turns. The turn cap is not a loop guard: it is the thing that
+// finally stops a loop, an hour and a full model budget later.
+//
+// Longest cycle worth recognizing. The measured one has period 3 (write, commit, rev-parse).
+const MAX_CYCLE_PERIOD = 4;
+// Full repetitions before the cycle is called. Three, so a phase that legitimately runs the
+// same gate twice around a fix is never touched.
+const MAX_CYCLE_REPEATS = 3;
+// A failing call is exempt from the cycle check because a failure names what to fix -- but only
+// a failure that CHANGES is convergence. Mined from ten archived runs: no honest sequence ever
+// received the byte-identical error (same call signature, same full structured_errors payload)
+// more than twice in a row, while the one pathological phase received it ten times and died at
+// the cap. Three is the first count no honest run reached: the 3rd identical failure draws a
+// nudge, the 4th ends the phase. Identity is the whole error payload, never the code alone --
+// PC_UNITTEST_FAILED repeats with different failing tests during honest convergence, and
+// code-level identity would call that a stall.
+const MAX_IDENTICAL_FAILURES = 3;
+
+// The blind spot in the identity above, measured on a live run: the same gate reported
+// MANIFEST_BEHAVIOR_SPEC_MISSING, unchanged, from five consecutive runs and drew no nudge,
+// because no two of the five were identical BY THAT DEFINITION -- one added `--session-dir`
+// (a different call signature), another collected one extra unrelated error (a different
+// payload). What was actually stuck was one ENTRY inside a changing set.
+// So a second, looser reading: how many consecutive failing results of the same script may
+// carry the same entry before the model is told that entry is the thing it never touched.
+// A NUDGE ONLY, never a stall, and that split is measured rather than cautious: replayed over
+// 44 archived runs, an entry persisting 3+ times is common in runs that go on to PASS (one
+// carried PERMISSIONS_MISSING nine times, another GIT_COMMIT_MISSING six). Ending a phase on
+// this signal would refuse honest convergence; a message costs one turn.
+const MAX_UNCHANGED_ENTRY_FAILURES = 3;
+
+// What ONE turn may emit. The server defaults to 8192 and clamps a request at 32768
+// (MPYHW_LLM_MAX_TOKENS / _CEILING); we never sent the field at all, so every turn took the
+// default -- and generate's contract cannot be satisfied inside it.
+//
+// Measured on the run that found this: generate's phase_complete must embed each quality-gate
+// result VERBATIM, and run_quality_gates.py emits 34,770 characters of them, roughly 8.7k
+// tokens before the rest of the payload. So the required write was larger than the whole turn
+// allowance. The model ran the producer ten times, hit exactly 8192 output tokens on three
+// turns (cut off mid-write), and finally reported partial with 17 requests unspent. Its own
+// stated reason names the missing gate objects, so it knew what to do and could not do it.
+//
+// Not the real fix -- a payload that must carry 35KB of copied JSON is the actual defect, and
+// that is the plugin's contract to change (deploy already passes evidence by FILE PATH rather
+// than by value). This removes our half: the ceiling we were leaving on the table.
+const MAX_OUTPUT_TOKENS = 32_000;
+// Enough of one reported problem to tell it from the next, short enough that a phase cannot
+// accumulate megabytes of keys.
+const ENTRY_IDENTITY_BUDGET = 300;
+// Separates subject from entry in the key. NUL, because both halves are free text -- a subject
+// carries a space ("script_run scripts/x.py") and an entry carries whatever the gate printed --
+// so any printable separator could occur inside one half and split the key in the wrong place.
+const ENTRY_KEY_SEPARATOR = "\u0000";
+
+// Files a gate READS that the model is supposed to author. The phase_complete payload is the
+// thing being validated rather than evidence a script should have produced; a *_draft.json is
+// the input a validator normalizes (select_hw_manifest.py --input select_hw_draft.json); the
+// phase logs and project-manifest.json are the model's own record. One run drew EIGHT evidence
+// warnings for writing exactly the files select_hw_manifest.py and init_manifest.py exist to
+// read, and a warning that punishes the correct action is worse than no warning.
+const MODEL_AUTHORED_GATE_INPUT =
+  /(^|[\\/])(phase_complete\.[^\\/]*\.json|[^\\/]*_draft\.json|[^\\/]*_log\.md|project-manifest\.json)$/;
+
+// How far back a failure may have happened and still count as the reason this phase died.
+// Without a bound, "the last 3 failures" meant the last 3 of the WHOLE phase: a lint error
+// from turn 4 that the model fixed at turn 5 was still reported as the detail of a turn-60
+// stall, and twice that sent triage after a cause resolved 50 turns earlier. The
+// repeating-call stall is the sharp case -- it fires on calls that all SUCCEED, so its detail
+// array can hold nothing BUT stale entries.
+// Derived, not picked: a cycle takes MAX_CYCLE_PERIOD * MAX_CYCLE_REPEATS turns to detect, so
+// a shorter window would drop the failures that fed the very cycle being reported.
+const STALL_DETAIL_RECENT_TURNS = MAX_CYCLE_PERIOD * MAX_CYCLE_REPEATS;
+
+// The failures worth naming when a phase gives up: recent ones only, oldest first. Returning
+// [] is a real answer -- "nothing failed near the end" is what a phase that died looping on
+// successful calls should say, and it points triage at the cycle instead of at old news.
+function stallDetail(failures: PhaseFailure[], turn: number): PhaseFailure[] {
+  return failures.filter((f) => turn - f.turn <= STALL_DETAIL_RECENT_TURNS);
+}
+// Failures that repeating cannot fix: the call is refused or impossible, not rejected on its
+// content. A cycle containing one of these is still a cycle, because the model learns nothing
+// new by running it again -- which matters directly here, since refusing `git commit --amend`
+// turns the measured loop's middle step into a failure and would otherwise hide the whole
+// cycle from this check. A gate failure is the opposite: it says WHAT to fix, and the phase
+// re-running it after an edit is convergence, so those keep the exemption.
+const UNRETRYABLE_ERROR_KINDS = new Set([
+  "shell_command_not_allowed",
+  "script_not_found",
+  "ambiguous_script_name",
+  "host_runner_absent",
+  "workspace_unavailable",
+  "device_unavailable",
+  "path_outside_workspace",
+  "invalid_generated_path",
+]);
+
+// How much of a call's identity is kept. Long enough for the file being uploaded and the
+// flags around it, short enough that one signature cannot dominate memory.
+const SIGNATURE_IDENTITY_BUDGET = 400;
+
+// The IDENTITY of a call: which tool, on what. Every scalar input EXCEPT the bodies, which
+// are the fields the telemetry compaction already knows to digest rather than record.
+//
+// This started as a list of identity fields and that list was wrong three times in
+// production, each time collapsing distinct work into one signature and stalling a phase
+// that was making progress: `script_run` without `args` (four uploads, one signature),
+// `status_update` with nothing but a message (a driver search's progress lines), and
+// `device_command` with `src`/`dst` (four files copied to the board). Enumerating what
+// counts as identity means discovering the next tool's fields the expensive way. The bodies
+// are the closed set -- a file's content, a program's code -- so everything else is identity
+// by default, and a tool added later is handled without another production lesson.
+function callSignature(tu: StreamEvent): string {
+  const input: any = tu.input ?? {};
+  const parts: string[] = [];
+  // Sorted for determinism: the model may emit the same call with keys in either order.
+  for (const key of Object.keys(input).sort()) {
+    if (TELEMETRY_BODY_FIELDS.has(key)) continue;
+    const value = input[key];
+    if (Array.isArray(value)) parts.push(`${key}=${value.map(String).join(" ")}`);
+    else if (value !== null && typeof value === "object") continue;
+    else if (value !== undefined) parts.push(`${key}=${String(value)}`);
+  }
+  const identity = parts.join(" ").slice(0, SIGNATURE_IDENTITY_BUDGET);
+  return identity ? `${tu.name}:${identity}` : String(tu.name);
+}
+
+// WHAT a failing call ran or touched, deliberately without its flags. The unchanged-entry
+// nudge needs this looser identity precisely because the flags are what the model varies while
+// the problem stays put: the same checker run with and without `--session-dir` is one subject
+// here and two signatures above. Never used to end a phase -- keying a stall this loosely would
+// have stalled two archived runs that went on to pass their phase.
+function failureSubject(tu: StreamEvent): string {
+  const input: any = tu.input ?? {};
+  const target = String(input.script ?? input.path ?? "");
+  return target ? `${tu.name} ${target}` : String(tu.name);
+}
+
+// The identity of ONE reported problem. Code alone is not enough -- PC_UNITTEST_FAILED repeats
+// with different failing tests during honest convergence -- and neither is the message alone,
+// since DOC_EVIDENCE_MISSING repeats with the same sentence for seven different paths.
+function failureEntryIdentity(entry: any): string {
+  if (typeof entry === "string") return entry.trim().slice(0, ENTRY_IDENTITY_BUDGET);
+  const parts = [entry?.code, entry?.path, entry?.field, entry?.message]
+    .filter((p) => p !== undefined && p !== null && String(p) !== "")
+    .map(String);
+  return parts.join(" ").slice(0, ENTRY_IDENTITY_BUDGET);
+}
+
+// Fold this result into the per-subject entry streaks. A subject that SUCCEEDS, or that fails
+// without naming this entry again, forgets it: the count has to mean "consecutive", or a
+// problem fixed at turn 5 would still be nudged about at turn 40.
+function trackUnchangedEntries(streaks: Map<string, number>, subject: string, entries: string[]): void {
+  const seen = new Set(entries.map((e) => `${subject}${ENTRY_KEY_SEPARATOR}${e}`));
+  for (const key of [...streaks.keys()]) {
+    if (key.startsWith(`${subject}${ENTRY_KEY_SEPARATOR}`) && !seen.has(key)) streaks.delete(key);
+  }
+  for (const key of seen) streaks.set(key, (streaks.get(key) ?? 0) + 1);
+}
+
+// The repeating block, or null. Checked longest-period-first so a period-3 cycle is reported
+// as its real shape rather than as whichever shorter slice happens to also repeat.
+//
+// Only cycles in which every call SUCCEEDED count. A phase repeating a FAILING call is being
+// told what is wrong and is trying to fix it -- writing the same file and re-running the same
+// gate three times is ordinary convergence, and cutting that off would break the phases this
+// is meant to protect. A cycle of successes is the pathological one: nothing is asking the
+// model to repeat, so it will repeat until the budget is gone.
+function repeatingCycle(signatures: string[], failed: boolean[]): string[] | null {
+  for (let period = MAX_CYCLE_PERIOD; period >= 1; period--) {
+    const window = period * MAX_CYCLE_REPEATS;
+    if (signatures.length < window) continue;
+    if (failed.slice(-window).some(Boolean)) continue;
+    const tail = signatures.slice(-window);
+    if (tail.every((signature, i) => signature === tail[i % period])) return tail.slice(0, period);
+  }
+  return null;
+}
 
 // Proof that apply_scaffold actually rendered. A marker has to be something the SCRIPT
 // produces and the model has no reason to write by hand: .flake8 was the first choice and it
@@ -318,14 +601,46 @@ function toolFailure(tu: StreamEvent, result: any): { tool: string; error: strin
 // notify executor captured from phase_complete.
 async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps: ProtocolDeps, absorbedSupplements: string[]) {
   const messages: any[] = [{ role: "user", content: input.intent }];
-  const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_PER_PHASE;
+  const maxTurns = input.maxTurnsPerPhase ?? MAX_TURNS_BY_PHASE[phase] ?? MAX_TURNS_PER_PHASE;
   const context = buildContext(input, absorbedSupplements);
   let toollessTurns = 0;
   // Consecutive turns lost to a stream that died before producing anything. Reset on any turn
   // that yields a tool call, so this bounds a run of bad luck, not the phase's whole lifetime.
   let streamRetries = 0;
   // Rolling window of the most recent failing tool calls, reported if the phase gives up.
-  const recentFailures: Array<{ tool: string; error: string; path?: string }> = [];
+  // Each carries the turn it happened on, so a stall reports what failed NEAR ITS END rather
+  // than the last three failures of the whole phase.
+  const recentFailures: PhaseFailure[] = [];
+  // Call identities in order, and whether each one failed, for the cycle check. Bounded by
+  // the turn budget.
+  const callSignatures: string[] = [];
+  const callFailures: boolean[] = [];
+  // The nudge is spent once: a model that keeps cycling after being told is not going to
+  // stop, and 40 more turns of it is what this exists to prevent.
+  let cycleNudged = false;
+  // Consecutive IDENTICAL outcomes per call signature, for the identical-failure guard. Reset on
+  // success, or when the same call starts failing DIFFERENTLY -- that is convergence, not a loop.
+  const identicalFailures = new Map<string, { err: string; count: number }>();
+  let identicalFailureNudged = false;
+  // Consecutive failing results per (subject, error entry), for the looser unchanged-entry nudge.
+  // SPENT ONCE PER PHASE, not once per entry. Measured on the run that first fired it: three
+  // nudges landed in three consecutive turns (two entries plus the strict guard), and the model
+  // took the exit three requests later with 17 of 80 unspent. A barrage that says "you are
+  // stuck" three times running is itself pressure to stop, so this says it once.
+  const unchangedEntries = new Map<string, number>();
+  let unchangedEntryNudged = false;
+  // This phase's gate and its latest verdict, so a success it contradicts can be refused.
+  // Set once the phase runs its final reset capture. After that the board is running the
+  // deployed app, and anything that opens the REPL stops it again with nothing left to restart
+  // it -- which is how a deploy reports success over a dark board.
+  let finalResetDone = false;
+  const gate = PHASE_GATES[phase];
+  let gateState: "pass" | "fail" | null = null;
+  // Paths the MODEL wrote with file_operation this phase. A gate whose evidence args name one is
+  // grading the model's own testimony rather than the board's. WARN ONLY, deliberately: two
+  // archived PASSING deploys hand-wrote evidence the gate then consumed, so blocking here would
+  // have refused runs that were genuinely fine. The event makes the pattern visible first.
+  const modelWrittenPaths = new Set<string>();
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
     // Before the request, not after the push: the cap has to apply to what actually goes out,
@@ -337,7 +652,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     if (!boundHistory(messages)) {
       input.onEvent?.({ type: "history_over_cap", phase, chars: historyChars(messages), turn });
     }
-    const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId, ...(context ? { context } : {}) };
+    const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId, max_tokens: MAX_OUTPUT_TOKENS, ...(context ? { context } : {}) };
     const source = await deps.llmClient.streamMessages(body, input.signal);
     const it = asyncEvents(source as AsyncIterable<StreamEvent>);
 
@@ -371,7 +686,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // Every other stall path emits phase_stalled with a detail array; this one returned an
       // `error` field nobody reads, so a mid-stream failure was invisible in the panel, in the
       // session log and in the DB alike. Observed: 56 clean turns, then a silent "stalled".
-      recentFailures.push({ tool: "llm_stream", error: streamError });
+      recentFailures.push({ tool: "llm_stream", error: streamError, turn });
       if (recentFailures.length > STALL_DETAIL_LIMIT) recentFailures.shift();
       // Only give up when the turn produced NOTHING to act on. `tool_use_complete` means the
       // call arrived whole, so a stream that dies after it still advanced the protocol -- and
@@ -391,7 +706,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
           input.onEvent?.({ type: "stream_retry", phase, attempt: streamRetries, of: MAX_STREAM_RETRIES, error: streamError });
           continue;
         }
-        input.onEvent?.({ type: "phase_stalled", phase, reason: "stream_error", detail: [...recentFailures] });
+        input.onEvent?.({ type: "phase_stalled", phase, reason: "stream_error", detail: stallDetail(recentFailures, turn) });
         return { done: false, stalled: true, error: streamError };
       }
     }
@@ -415,7 +730,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // froze the UI on the current step ("姝ｅ湪鎼滅储椹卞姩") with no error 鈥?so nudge the
       // model to emit a tool, bounded, and only give up after MAX_TOOLLESS_TURNS in a row.
       if (++toollessTurns >= MAX_TOOLLESS_TURNS) {
-        input.onEvent?.({ type: "phase_stalled", phase, reason: "no_tool_call", detail: [...recentFailures] });
+        input.onEvent?.({ type: "phase_stalled", phase, reason: "no_tool_call", detail: stallDetail(recentFailures, turn) });
         return { done: false, stalled: true };
       }
       messages.push({ role: "user", content: [{ type: "text", text: "You must call exactly one protocol tool to proceed. Respond with a tool call, not prose." }] });
@@ -440,7 +755,30 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // phase_stalled/max_turns was undiagnosable from the DB. The recorder already maps
       // both shapes and the server already allowlists both event types.
       input.onEvent?.({ type: "tool_use", name: tu.name, input: compactToolInput(tu.input) });
+      // Three rounds of SKILL wording did not stop this, so the loop enforces it. Measured
+      // twice: the final reset matched its marker (board demonstrably running), then the model
+      // issued `device_command ls` to double-check the upload -- five times in one run -- and
+      // every one of those opened the raw REPL and stopped main.py. The phase then reported
+      // success over an idle board. The check it wants is a file read, not a device call.
+      if (finalResetDone && touchesDevice(tu)) {
+        input.onEvent?.({ type: "device_after_final_reset", phase, tool: tu.name, turn });
+        const refusal = {
+          ok: false,
+          error_kind: "device_after_final_reset",
+          detail:
+            "REFUSED: the final reset has already run, and it is the last device operation of this phase. " +
+            "Opening the REPL again stops the app that reset just started, and nothing restarts it, so the " +
+            "board would end the phase idle with deploy reporting success. To confirm what was uploaded, read " +
+            "upload_summary.json; for what the board printed, read the capture artifacts. Both are files, " +
+            "and reading a file does not touch the device.",
+        };
+        input.onEvent?.({ type: "tool_result", name: tu.name, observation: refusal });
+        toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(refusal) });
+        continue;
+      }
       const { result, phaseControl } = await executeProtocolTool(tu, input, deps, { phase, turn });
+      if (isFinalResetCapture(tu) && result?.ok === true) finalResetDone = true;
+
       // Normalized, NOT raw. This event is recorded into session.jsonl, which the stall
       // copy tells the user to export to support -- and a raw result carries absolute host
       // paths (a Python traceback's C:\Users\<name>\...), raw mpremote commands, and up to
@@ -449,12 +787,120 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // (compacted just below) was the bug, not a deliberate difference.
       input.onEvent?.({ type: "tool_result", name: tu.name, observation: normalizeObservation(tu.name ?? "", compactResultBodies(result)) });
       const failure = toolFailure(tu, result);
+      callSignatures.push(callSignature(tu));
+      // Only a failure the model can act on exempts the window from the cycle check.
+      callFailures.push(Boolean(failure) && !UNRETRYABLE_ERROR_KINDS.has(failure!.error));
+      // Track whether this exact call keeps failing the exact same way. Unretryable kinds are
+      // deliberately NOT exempt here, unlike the cycle check: an identical script_not_found three
+      // times deserves the nudge more, not less.
+      const signatureNow = callSignatures[callSignatures.length - 1];
       if (failure) {
-        recentFailures.push(failure);
+        const errIdentity = digest(JSON.stringify(result?.structured_errors ?? failure.error));
+        const previous = identicalFailures.get(signatureNow);
+        identicalFailures.set(
+          signatureNow,
+          previous?.err === errIdentity ? { err: errIdentity, count: previous.count + 1 } : { err: errIdentity, count: 1 },
+        );
+      } else {
+        identicalFailures.delete(signatureNow);
+      }
+      // The same failure read one level down: which PROBLEMS this subject keeps reporting,
+      // independent of the flags it was called with and of what else came back alongside them.
+      trackUnchangedEntries(
+        unchangedEntries,
+        failureSubject(tu),
+        failure ? (Array.isArray(result?.structured_errors) ? result.structured_errors : []).map(failureEntryIdentity).filter(Boolean) : [],
+      );
+      if (failure) {
+        recentFailures.push({ ...failure, turn });
         if (recentFailures.length > STALL_DETAIL_LIMIT) recentFailures.shift();
       }
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
-      if (tu.name === "phase_complete" && phaseControl) control = phaseControl;
+      if (tu.name === "file_operation" && ["write", "append"].includes(String((tu.input as any)?.op)) && result?.ok === true) {
+        modelWrittenPaths.add(String(result?.path ?? (tu.input as any)?.path ?? ""));
+      }
+      // A successful run of any NON-gate script naming the path re-establishes it as script-made:
+      // producers take their output path as an argument, so `capture_repl.py --output-json x.json`
+      // after a hand-write means the file on disk is the script's again. Without this, one
+      // overwrite would keep the path flagged for the rest of the phase.
+      if (tu.name === "script_run" && result?.ok === true && result?.success === true
+          && !(gate && String((tu.input as any)?.script ?? "").endsWith(gate.script))) {
+        for (const a of (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String)) modelWrittenPaths.delete(a);
+      }
+      // Remember how this phase's gate went. Only its LATEST verdict counts: a phase that fails
+      // a gate, fixes the cause and passes it is exactly the loop working.
+      const gateArgs = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String);
+      if (gate && tu.name === "script_run" && String((tu.input as any)?.script ?? "").endsWith(gate.script)) {
+        const tainted = gateArgs.filter((a: string) => modelWrittenPaths.has(a) && !MODEL_AUTHORED_GATE_INPUT.test(a));
+        if (tainted.length > 0) {
+          input.onEvent?.({ type: "gate_evidence_model_written", phase, gate: gate.script, files: tainted, turn });
+          correctiveMessages.push({
+            role: "user",
+            content: [{
+              type: "text",
+              text:
+                `Evidence warning: ${gate.script} read ${tainted.join(", ")}, which you wrote with file_operation ` +
+                "instead of producing with the script that owns it (capture_repl.py, run_device_tests.py, " +
+                "install_mip_dependencies.py, clean_device_project.py, ...). A hand-written evidence file is " +
+                "fabrication even when the verdict computed from it says PASS. Re-run the producing script so " +
+                `the file on disk is script-made, then re-run ${gate.script}.`,
+            }],
+          });
+        }
+      }
+      if (gate && tu.name === "script_run" && String((tu.input as any)?.script ?? "").endsWith(gate.script)
+          && (gate.requiredArgs ?? []).every((flag) => gateArgs.includes(flag))) {
+        // The gate's OWN verdict, same reader the completion corrective uses. Keying on the exit
+        // code would have left this guard with the hole it was written to close: a run reached
+        // for `--help` on this very script, which exits 0 and prints usage, and that would have
+        // marked the gate green.
+        // Keep the LAST RECOGNIZED verdict. Writing `passed ? "pass" : "fail"` here threw away
+        // the whole point of the null case: every unrecognized shape became "fail", so a deploy
+        // graded PASS_WITH_WARNINGS -- how a real deploy normally ends -- would have been refused.
+        const verdict = gateVerdict(result?.stdout);
+        if (verdict) gateState = verdict;
+      }
+      if (tu.name === "phase_complete" && phaseControl) {
+        // A success the gate has already contradicted is not a success. Refusing it here is what
+        // stops the model from writing the gate's own output file by hand and calling the phase
+        // done -- which three runs did, passing select-hw with a board that never resolved.
+        // A STRICT gate also refuses a success it never confirmed: one resumed run emitted
+        // generate success having run nothing but `git status`, while the state file it inherited
+        // was still failing its last check. The corrective names the command, so an honest
+        // resume pays exactly one gate run for this.
+        // Strictness needs a host that can actually run the gate. Without runScript no gate can
+        // ever report, so refusing an unconfirmed success would spin the phase to its cap with no
+        // move that could satisfy it -- a deadlock, not a guard. Production always supplies one
+        // (the loop returns host_runner_absent otherwise), so this only relaxes contexts where
+        // the gate was never reachable. A gate that RAN and failed is still refused either way.
+        const canRunGate = typeof deps.runScript === "function";
+        const unverified = gateState === null && gate?.strict === true && canRunGate;
+        // Safe to compare the literal token: executeProtocolTool rejects any result outside
+        // success/partial/failed before a phaseControl is ever produced, so `result: "ok"` can no
+        // longer arrive here and slip past by not matching "success".
+        if ((gateState === "fail" || unverified) && (phaseControl.result ?? "success") === "success") {
+          input.onEvent?.({ type: "phase_complete_refused", phase, gate: gate!.script, turn, reason: unverified ? "gate_never_ran" : "gate_failed" });
+          const claim = unverified
+            ? `${gate!.script} has not reported a verdict this phase, so this success is unverified. ` +
+              `Run ${gate!.script}${gate!.requiredArgs ? " " + gate!.requiredArgs.join(" ") : ""} against your phase_complete payload and its evidence, ` +
+              "and make it pass, then re-emit phase_complete. "
+            : `${gate!.script} last reported failure, so this phase is not done. ` +
+              "Fix what it reported and run it again until it passes, then emit phase_complete. ";
+          correctiveMessages.push({
+            role: "user",
+            content: [{
+              type: "text",
+              text:
+                "phase_complete(success) was REFUSED: " + claim +
+                "Do not write its output file yourself: an artifact you author is not a verdict, and the phase " +
+                "cannot pass on one. If you cannot make it pass, emit phase_complete with result=partial and " +
+                "say what blocked it.",
+            }],
+          });
+        } else {
+          control = phaseControl;
+        }
+      }
       // A host script result carrying structured gate errors gets a deterministic
       // corrective message enumerating them -- don't rely on the model parsing the raw
       // JSON tool_result to find its own mistakes. Measured: naming the plan gate's
@@ -474,18 +920,26 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
           role: "user",
           content: [{
             type: "text",
+            text: correctiveText(gateErrors),
+          }],
+        });
+      } else if (isPhaseCompletionCheck(tu) && result?.ok === true && result?.success === true && phaseCheckVerdictPassed(result?.stdout)) {
+        // The other half of the corrective, and the one that was missing. A gate that FAILS
+        // is told what to fix; a gate that PASSES said nothing at all, and the model does not
+        // stop on its own. Measured on three runs of one phase: the consistency checker
+        // passed, the model committed again, that moved HEAD, the hash it had recorded went
+        // stale, and the checker failed on the next attempt. One run died at the turn cap
+        // holding a verdict it had already earned; another spent 19 of its 65 turns -- 29% of
+        // the phase -- circling after the pass. The phase's own work was done in both.
+        correctiveMessages.push({
+          role: "user",
+          content: [{
+            type: "text",
             text:
-              "Quality gate failed. Fix exactly these, then re-run the gate:\n" +
-              gateErrors.slice(0, MAX_CORRECTIVE_ENTRIES)
-                .map((e: any) => {
-                  const name = gateEntryReason(e);
-                  const detail = clampCorrectiveDetail(correctiveDetail(e, name));
-                  return detail ? `- ${name}: ${detail}` : `- ${name}`;
-                })
-                .join("\n") +
-              (gateErrors.length > MAX_CORRECTIVE_ENTRIES
-                ? `\n- (${gateErrors.length - MAX_CORRECTIVE_ENTRIES} more; the full report is in the tool result)`
-                : ""),
+              "The consistency check PASSED. Emit phase_complete now with what you have. Do " +
+              "not run git again, and do not rewrite the manifest, session state or the " +
+              "phase_complete file: any of those invalidates the commit hash you just " +
+              "recorded and the check will start failing again.",
           }],
         });
       }
@@ -493,8 +947,92 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     messages.push({ role: "user", content: toolResults });
     for (const m of correctiveMessages) messages.push(m);
     if (control) return { done: true, control };
+    // Checked AFTER phase_complete, so a phase that just finished is never called a loop.
+    const cycle = repeatingCycle(callSignatures, callFailures);
+    // Breaking out spends the nudge back. Without this, one nudge early in a long phase
+    // means a later, unrelated repetition stalls it with no warning at all.
+    if (!cycle) cycleNudged = false;
+    if (cycle) {
+      if (cycleNudged) {
+        input.onEvent?.({ type: "phase_stalled", phase, reason: "repeating_calls", detail: stallDetail(recentFailures, turn), cycle });
+        return { done: false, stalled: true, error: `repeated ${cycle.join(" -> ")} with no progress` };
+      }
+      cycleNudged = true;
+      input.onEvent?.({ type: "repeating_calls", phase, cycle, turn });
+      messages.push({
+        role: "user",
+        content: [{
+          type: "text",
+          // Name the cycle: a model that cannot see its own history repeating needs to be
+          // told WHAT it is repeating, not just that it is stuck.
+          text:
+            `You have repeated this sequence ${MAX_CYCLE_REPEATS} times with no progress: ${cycle.join(" -> ")}. ` +
+            "Repeating it again will not change the result. If a value you recorded is invalidated by " +
+            "the very step that records it, stop recording it and move on. Take a DIFFERENT action now, " +
+            "or emit phase_complete with what you already have.",
+        }],
+      });
+    }
+    // The failing twin of the cycle guard. That one exempts failing calls because a failure
+    // names what to fix; this one fires when what it names has stopped changing. One phase ran
+    // the same validator 10 times for the byte-identical error and died at the cap; no honest
+    // run in ten archives ever repeated an identical error more than twice.
+    const repeatedFailure = [...identicalFailures.entries()].find(([, v]) => v.count >= MAX_IDENTICAL_FAILURES);
+    let nudgedThisTurn = false;
+    if (!repeatedFailure) identicalFailureNudged = false;
+    else if (!identicalFailureNudged) {
+      identicalFailureNudged = true;
+      nudgedThisTurn = true;
+      input.onEvent?.({ type: "repeating_failure", phase, call: repeatedFailure[0], count: repeatedFailure[1].count, turn });
+      messages.push({
+        role: "user",
+        content: [{
+          type: "text",
+          text:
+            `You have run this call ${repeatedFailure[1].count} times and received the IDENTICAL error every time: ` +
+            `${repeatedFailure[0]}. Whatever you changed between runs did not affect what this error checks. ` +
+            "Re-read the error and change the exact thing it names before running this again. If you cannot " +
+            "change the outcome, emit phase_complete with result=partial and say what blocked it.",
+        }],
+      });
+    } else if (repeatedFailure[1].count > MAX_IDENTICAL_FAILURES) {
+      input.onEvent?.({ type: "phase_stalled", phase, reason: "repeating_failure", detail: stallDetail(recentFailures, turn), call: repeatedFailure[0] });
+      return { done: false, stalled: true, error: `identical failure ${repeatedFailure[1].count}x: ${repeatedFailure[0]}` };
+    }
+    // Same signal, read entry by entry: one problem the model has not touched while the calls
+    // and the rest of the error set around it kept changing. Skipped when the stricter guard
+    // already spoke this turn -- two near-identical nudges in one turn is noise, and the model
+    // acts on the last thing it was told.
+    const stuckEntry = unchangedEntryNudged
+      ? undefined
+      : [...unchangedEntries.entries()].find(([, count]) => count >= MAX_UNCHANGED_ENTRY_FAILURES);
+    if (stuckEntry && !nudgedThisTurn) {
+      const [key, count] = stuckEntry;
+      unchangedEntryNudged = true;
+      const entry = key.slice(key.indexOf(ENTRY_KEY_SEPARATOR) + 1);
+      input.onEvent?.({ type: "repeating_failure", phase, call: key, entry, count, turn });
+      messages.push({
+        role: "user",
+        content: [{
+          type: "text",
+          // No escape clause here, deliberately. The first version ended with "if you cannot,
+          // emit phase_complete with result=partial", and the run it first fired on took that
+          // exit three requests later with 17 of its 80 unspent -- while its own stated reason
+          // showed it knew exactly what was required. This nudge fires MID-convergence, where
+          // the phase still has budget and the right move is to act, so it names the next
+          // action instead of offering the door. Giving up is still available: the strict guard
+          // that precedes a stall offers it, at the point where it is actually warranted.
+          text:
+            `This has now come back UNCHANGED from ${count} runs in a row: ${entry}. ` +
+            "The other errors around it changed, so the edits you made were about something else. " +
+            "Change exactly what this one names -- the field, the file and the value it asks for -- " +
+            "before running that script again. If the value is one a script produces, run that " +
+            "script and use its output rather than composing the value yourself.",
+        }],
+      });
+    }
   }
-  input.onEvent?.({ type: "phase_stalled", phase, reason: "max_turns", detail: [...recentFailures] });
+  input.onEvent?.({ type: "phase_stalled", phase, reason: "max_turns", detail: stallDetail(recentFailures, maxTurns - 1) });
   return { done: false, stalled: true };
 }
 
@@ -529,9 +1067,23 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
     if (absorb) absorbedSupplements.push(absorb);
     // Terminal when there's no next phase.
     if (!requestedNext) {
-      return { phases, manifest, terminal: ctrl.result === "failed" ? "failed" : "complete" };
+      return { phases, manifest, terminal: terminalForResult(ctrl.result) };
     }
     if (!next) {
+      // A DOCUMENTED handoff to a flow we do not serve ends the build; it does not break it.
+      // deploy's own success sample hands off to `project-library-upload`
+      // (upy-deploy-plugin/sample/phase_complete.upy_deploy_plugin.success.json) and the
+      // plugin's smoke test asserts that exact value, so a correctly behaving deploy lands
+      // here every time. Failing on it called a green six-phase build "failed" while every
+      // phase reported success and the board was running the firmware; the earlier passes
+      // were luck, their deploy happened to emit null instead.
+      //
+      // An UNDOCUMENTED name stays an error. A model that invents a phase is asking for work
+      // that will never happen, and calling that a completed build would hide it.
+      if (TERMINAL_HANDOFF_PHASES.has(requestedNext)) {
+        input.onEvent?.({ type: "phase_handoff_unserved", next_phase: requestedNext, phase });
+        return { phases, manifest, terminal: terminalForResult(ctrl.result) };
+      }
       input.onEvent?.({ type: "phase_error", error_kind: "unknown_next_phase", next_phase: requestedNext });
       return { phases, manifest, terminal: "failed" };
     }
@@ -639,7 +1191,44 @@ export function capListEntries(entries: unknown[]): { entries: unknown[]; omitte
 // A corrective message is a nudge, not a report: the full gate output is already in the
 // tool result the model just read. Cap both the entry count and each entry, so a hundred
 // lint errors cannot crowd out the conversation the cap above exists to protect.
-const MAX_CORRECTIVE_ENTRIES = 10;
+// The corrective message is bounded by BYTES, not by entry count, because the two gates that
+// produce it are nothing alike: check_phase_complete_consistency.py returns 17-18 short codes
+// (~2 KB in total, and the model needs all of them -- shown 10 of 18 it fixed those, the rest
+// surfaced next turn, and the phase spent 44 turns trading one requirement for another before
+// dying on max_turns), while flake8 can return 40 entries of 900 characters each. One budget
+// serves both: every short code fits, a wall of lint does not.
+const MAX_CORRECTIVE_CHARS = 6000;
+
+// The gate whose PASS means "this phase is finished": generate's own final consistency check.
+// Deliberately not broadened to every validator. deploy runs
+// `deploy_manifest.py --validate-phase-complete` against the PREVIOUS phase's payload as an
+// input check, and telling the model to emit phase_complete there would end deploy before it
+// had done anything.
+
+function isPhaseCompletionCheck(tu: StreamEvent): boolean {
+  const script = String((tu.input as any)?.script ?? "");
+  return tu.name === "script_run" && script.endsWith(PHASE_COMPLETION_CHECK);
+}
+
+function correctiveText(gateErrors: any[]): string {
+  const lines: string[] = [];
+  let spent = 0;
+  for (const entry of gateErrors) {
+    const name = gateEntryReason(entry);
+    const detail = clampCorrectiveDetail(correctiveDetail(entry, name));
+    const line = detail ? `- ${name}: ${detail}` : `- ${name}`;
+    // Always keep the first, so a single oversized entry still says something.
+    if (lines.length > 0 && spent + line.length > MAX_CORRECTIVE_CHARS) break;
+    lines.push(line);
+    spent += line.length;
+  }
+  const dropped = gateErrors.length - lines.length;
+  return (
+    "Quality gate failed. Fix exactly these, then re-run the gate:\n" +
+    lines.join("\n") +
+    (dropped > 0 ? `\n- (${dropped} more; the full report is in the tool result)` : "")
+  );
+}
 const MAX_CORRECTIVE_DETAIL_CHARS = 400;
 
 // Everything the gate said about ONE failure, in the order the model needs it: where, what
@@ -665,6 +1254,47 @@ function clampCorrectiveDetail(value: unknown): string {
   return text.length <= MAX_CORRECTIVE_DETAIL_CHARS
     ? text
     : `${text.slice(0, MAX_CORRECTIVE_DETAIL_CHARS)}… (truncated, see the tool result)`;
+}
+
+// Did the phase-completion checker actually RETURN a passing verdict? Its own JSON, never the
+// exit code. `--help` exits 0 too, and one run ended exactly there: the model could not satisfy
+// the gate, failed twice trying to locate the script, ran it with `--help`, and the zero exit
+// was read here as a pass -- so the corrective told it to emit phase_complete, and the phase was
+// accepted with its last real validation still three errors red, GIT_COMMIT_MISSING among them.
+// A usage message is not a verdict.
+// Truncation is safe by construction: stdout is capped upstream, and a clipped report fails to
+// parse, which withholds the corrective rather than inventing a pass.
+// The three gates spell their verdict three ways, and there is no shared schema:
+//   select_hw_manifest.py               {"status":"ok"|"fail", "errors":[...]}
+//   check_phase_complete_consistency.py {"ok":true|false, "result":"success"|"failed", "errors":[]}
+//   deploy_result.py                    {"status":"success", ...}
+// Unrecognized returns null, NOT "fail". Reading an unknown shape as failure would refuse a
+// phase whose gate actually passed, which is a worse bug than the one this guard exists to fix:
+// the first version of this keyed on `ok` alone and would have refused every select-hw pass,
+// because that script has no `ok` field at all.
+// `pass_with_warnings` is a PASS. deploy_result.py:517 grades FAIL / PASS_WITH_WARNINGS / PASS,
+// and warnings are the normal outcome of a real deploy -- one archived full-chain pass ended on
+// exactly this verdict. Omitting it would make the anti-fabrication guard refuse honest deploys.
+const GATE_PASS_STATUS = new Set(["ok", "success", "pass", "passed", "pass_with_warnings"]);
+const GATE_FAIL_STATUS = new Set(["fail", "failed", "error"]);
+
+function gateVerdict(stdout: unknown): "pass" | "fail" | null {
+  const text = typeof stdout === "string" ? stdout.trim() : "";
+  if (!text.startsWith("{")) return null;  // usage text from --help lands here, and stays unknown
+  let parsed: any;
+  try { parsed = JSON.parse(text); } catch { return null; }
+  if (!parsed || typeof parsed !== "object") return null;
+  if (Array.isArray(parsed.errors) && parsed.errors.length > 0) return "fail";
+  const status = typeof parsed.status === "string" ? parsed.status.toLowerCase() : "";
+  if (parsed.ok === false || GATE_FAIL_STATUS.has(status)) return "fail";
+  if (parsed.ok === true || GATE_PASS_STATUS.has(status)) return "pass";
+  return null;
+}
+
+// Strict form for the completion corrective: only a RECOGNIZED pass may announce a phase done.
+// `--help` prints usage, parses as nothing, and can never reach this.
+function phaseCheckVerdictPassed(stdout: unknown): boolean {
+  return gateVerdict(stdout) === "pass";
 }
 
 function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; path?: string; message?: string }> | undefined {
@@ -725,6 +1355,12 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // instead of silently ending the build with an undefined result.
     if (!p.result) {
       return { result: { ok: false, error_kind: "phase_complete_incomplete", detail: "phase_complete requires a result (success/partial/failed) and, on success, a next_phase" } };
+    }
+    // An unknown token is rejected, not guessed at: "ok" and "complete" read as intent to
+    // succeed, and mapping them to success would put that guess INSIDE the anti-fabrication
+    // guard. The model re-emits with the canonical token, which costs one turn once.
+    if (!PHASE_RESULT_VALUES.has(String(p.result))) {
+      return { result: { ok: false, error_kind: "phase_complete_invalid_result", detail: `phase_complete.result must be one of success, partial, failed; received "${String(p.result)}"` } };
     }
     // A scaffold `success` that rendered NOTHING. Measured on a real run: the model never
     // called apply_scaffold, hand-wrote the tree, and reported success -- the project had no
@@ -848,7 +1484,20 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // ok:false = the call itself failed (host_runner_absent / script_not_found /
     // ambiguous_script_name) 鈥?surface it, forwarding any candidate qualified names so the
     // model can retry an ambiguous bare script name instead of re-sending it.
-    if (r.ok === false) return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: capToolOutput(r.stderr), candidates: r.candidates, structured_errors: r.structured_errors } };
+    if (r.ok === false) {
+      // A project-local path can NEVER resolve here: script_run looks up bundled plugin scripts
+      // by name, so anything under the project tree comes back script_not_found with no hint of
+      // why. Two runs learned that the expensive way -- one retried tools/flash_device.py three
+      // times then fell back to uploading file by file, another invented
+      // tools/build_phase_complete.py and spent its remaining turns on it. Name the boundary and
+      // the legal routes, so the model stops guessing at the lookup instead of the approach.
+      const requested = String(p.script ?? "");
+      const projectLocal = r.error_kind === "script_not_found" && /[\/]/.test(requested) && !requested.startsWith("scripts/") && !requested.startsWith(".upy/");
+      const detail = projectLocal
+        ? `"${requested}" looks like a path inside the project. script_run resolves BUNDLED PLUGIN scripts by name only, so a project-local file can never run this way, however it was created. Use the bundled script that does this job, or file_operation to read/write the project. A helper rendered into the project (tools/*.py) is for the user to run by hand, not a script_run target.`
+        : undefined;
+      return { result: { ok: false, script_id: p.script_id, success: false, error_kind: r.error_kind ?? "script_error", stderr: capToolOutput(r.stderr), candidates: r.candidates, structured_errors: r.structured_errors, ...(detail ? { detail } : {}) } };
+    }
     // The script RAN: success keys on its exit code (a non-zero gate is a real, fixable result).
     const exit = r.exit_code ?? 0;
     // The real host shim doesn't populate structured_errors -- it returns the script's
@@ -858,7 +1507,11 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // Parsed from the FULL stdout, BEFORE the cap: a report's error detail can sit past
     // the cap, and the corrective path must still see it even when the model cannot.
     const structuredErrors = r.structured_errors ?? structuredErrorsFromStdout(r.stdout);
-    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: capToolOutput(r.stdout), stderr: capToolOutput(r.stderr), exit_code: exit, structured_errors: structuredErrors } };
+    // accepted_flags is forwarded, not dropped. The shim reads a script's own option list and
+    // attaches it so the model never needs a `--help` turn; this return rebuilds the result from
+    // a fixed field list, so the first version of that fix was invisible -- the shim attached it
+    // and this line threw it away. A run afterwards still made 10 --help probes.
+    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: capToolOutput(r.stdout), stderr: capToolOutput(r.stderr), exit_code: exit, structured_errors: structuredErrors, ...(r.accepted_flags ? { accepted_flags: r.accepted_flags } : {}) } };
   }
 
   if (route === "device") {
@@ -881,6 +1534,24 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
 // Every op execFileOperation routes. Named once so the rejection below can TELL the
 // model what it may send instead of leaving it to guess.
 const SUPPORTED_FILE_OPS = ["read", "write", "append", "list", "mkdir", "delete"] as const;
+
+// Paths that live in the PLUGIN's resource directory, not in the project. file_operation is
+// confined to the project, so a read of one of these can never succeed however the run goes --
+// and "file_not_found" reads as "that file does not exist", which teaches the model nothing.
+// Measured: generate opens by reading five of these in a row, because SKILL.md sends it there
+// ("解析协议 -> references/protocol_fields.md" and eight more rows of the same table). The files
+// DO exist, just not anywhere this tool can see. Same boundary select-hw already settled for
+// the board library.
+const SKILL_RESOURCE_PATH = /(^|[\\/])(references|knowledge|boards|assets)[\\/]|^upy-[a-z-]+-plugin[\\/]/i;
+
+function skillResourceDetail(path: string): string | null {
+  if (!SKILL_RESOURCE_PATH.test(path)) return null;
+  return `"${path}" is a PLUGIN RESOURCE path, not a project file. file_operation is confined to the ` +
+    "project workspace, so this read can never succeed, whatever the phase does first. The reference " +
+    "material a SKILL points at is already delivered to you as prompt text, and host-resolved facts " +
+    "(board profile, board candidates) arrive under RESOLVED DATA. Work from those and do not retry " +
+    "this path or look for it elsewhere in the project.";
+}
 
 async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInput) {
   const op = p.op;
@@ -945,7 +1616,15 @@ async function execFileOperation(p: any, deps: ProtocolDeps, input: ProtocolInpu
     // is the one route that can pull an arbitrarily large file body into the conversation in
     // a single turn. Leaving it uncapped meant moving a 650KB payload out of stdout and into
     // a file bundle merely relocated the context-window kill instead of fixing it.
-    return { ok: r.ok, op_id: p.op_id, success: r.ok, content: capToolOutput(r.content ?? ""), error: r.ok ? null : (r.error_kind ?? "read_failed") };
+    // A failed read of a plugin-resource path gets the boundary named, the same way script_run
+    // names it for a project-local script. Only on failure: a path that READ fine is nobody's
+    // problem, whatever it looks like.
+    const boundary = r.ok ? null : skillResourceDetail(path);
+    return {
+      ok: r.ok, op_id: p.op_id, success: r.ok, content: capToolOutput(r.content ?? ""),
+      error: r.ok ? null : (r.error_kind ?? "read_failed"),
+      ...(boundary ? { detail: boundary } : {}),
+    };
   }
   if (op === "list") {
     // No lister wired = the workspace is unavailable. Faking ok:true with empty
