@@ -4,6 +4,7 @@ Hermetic: resolution is checked against the real vendored submodule; execution i
 checked with an injected fake runner (no venv, no real subprocess).
 """
 import inspect
+import subprocess
 import os
 import pathlib
 import sys
@@ -27,6 +28,49 @@ def _shim_with(record):
 
 record_stdout = [""]
 record_rc = [0]
+
+
+def test_script_results_carry_the_scripts_own_flag_list():
+    """Models burn turns running `<script> --help` to learn signatures: 47 probes across the
+    archived runs, 8 in one deploy phase, and every examined probe followed a call that had
+    ALREADY SUCCEEDED. So it is not error recovery, it is the model checking for a flag it
+    might have missed. Returning the option list with the result removes the reason to ask.
+    Parsed from the source, so it costs a cached file read rather than a subprocess."""
+    # FOUR levels up: shim -> python -> mpy-hardware-extension -> repo root, where third_party
+    # lives. Three levels silently missed it, the guard below returned, and the test passed while
+    # asserting nothing -- a mutation that emptied the flag list did not fail it.
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    script = os.path.join(repo_root, "third_party", "MicroPython_Skills", "upy-deploy-plugin", "scripts", "deploy_result.py")
+    assert os.path.isfile(script), f"expected the vendored deploy_result.py at {script}"
+    flags = serve._accepted_flags(script)
+    assert "--output-json" in flags and "--final-reset-json" in flags, flags
+    assert all(f.startswith("--") for f in flags)
+    # An unreadable script must not break the call it was attached to.
+    assert serve._accepted_flags(os.path.join(os.path.dirname(script), "no_such_script.py")) == []
+
+
+def test_script_with_no_stdin_content_gets_a_closed_stdin_not_the_shims_rpc_channel():
+    """The shim reads its JSON-RPC protocol from sys.stdin. subprocess.run(input=None) does not
+    give the child a pipe -- it INHERITS the parent's stdin -- so a script invoked with --stdin
+    and no stdin_content would read the extension's RPC stream until it timed out, and could
+    swallow protocol messages. Measured: 17 such timeouts across archived runs."""
+    seen = {}
+
+    def fake_runner(cmd, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
+
+    shim = serve.Shim()
+    shim.runner = fake_runner
+    shim.run_v0_python("check.py", ["--stdin"], cwd=None, stdin=None)
+    assert seen.get("stdin") is subprocess.DEVNULL, "a child with no stdin_content must get a closed stdin"
+    assert "input" not in seen, "input=None would leave the child on the shim's own stdin"
+
+    # And a caller that DOES supply stdin still has it delivered.
+    seen.clear()
+    shim.run_v0_python("check.py", ["--stdin"], cwd=None, stdin='{"payload": 1}')
+    assert seen.get("input") == '{"payload": 1}'
+    assert "stdin" not in seen
 
 
 def test_resolve_finds_bundled_plugin_scripts():
@@ -473,25 +517,46 @@ def test_allowed_shell_hint_cannot_lie():
         command = " ".join(argv)
         assert command in serve.ALLOWED_SHELL_COMMANDS_HINT, command
         assert serve._parse_v0_shell_command(command) == [list(argv)], command
-    # Every message-taking form too, not just the first one: `git commit --amend -m` was added
-    # after three runs on two providers burned turns on an amend the allowlist had no verb for,
-    # and a hand-written check for one prefix would have advertised it without proving it runs.
+    # Every message-taking form too, not just the first one: a hand-written check for one
+    # prefix would advertise the rest without proving they run.
     for prefix in serve._ALLOWED_SHELL_PREFIX:
-        advertised = f'{" ".join(prefix)} "<message>"'
+        advertised = f'{" ".join(prefix)} "{serve._prefix_placeholder(prefix)}"'
         assert advertised in serve.ALLOWED_SHELL_COMMANDS_HINT, advertised
         assert serve._parse_v0_shell_command(f'{" ".join(prefix)} "x"') == [[*prefix, "x"]], prefix
 
 
-def test_amend_is_runnable_because_models_reach_for_it():
-    # Named explicitly rather than derived from the table: the hint-cannot-lie test above
-    # iterates the tables, so deleting an entry deletes its own assertion and passes. Three
-    # runs across deepseek and kimi tried to correct a commit with `git commit --amend` and
-    # spent turns learning there was no verb for it.
-    assert serve._parse_v0_shell_command('git commit --amend -m "fix"') == [["git", "commit", "--amend", "-m", "fix"]]
-    assert serve._parse_v0_shell_command("git commit --amend --no-edit") == [["git", "commit", "--amend", "--no-edit"]]
-    assert "--amend" in serve.ALLOWED_SHELL_COMMANDS_HINT, "a refusal must name the amend form"
-    # Still bounded: an amend that is not one of the two accepted shapes stays refused.
-    assert serve._parse_v0_shell_command("git commit --amend --allow-empty") is None
+def test_git_add_takes_a_path_so_the_hash_record_can_stay_uncommitted():
+    # `git add -A` was the only staging verb, which makes the generate contract impossible to
+    # satisfy: the phase records project HEAD, and the files holding that record live in the
+    # project, so -A sweeps them into the next commit and the hash goes stale. Measured twice,
+    # both ending in max_turns after three commits chasing HEAD. Staging by path is the way out.
+    assert serve._parse_v0_shell_command("git add firmware") == [["git", "add", "firmware"]]
+    assert serve._parse_v0_shell_command('git add firmware && git add test && git commit -m "x"') == [
+        ["git", "add", "firmware"], ["git", "add", "test"], ["git", "commit", "-m", "x"],
+    ]
+    # The hint must call it a path. Advertised as "<message>" the model passes the wrong thing.
+    assert 'git add "<path>"' in serve.ALLOWED_SHELL_COMMANDS_HINT
+    # Deliberately NOT restricted to non-flag tokens: `git add --all` is just `git add -A`,
+    # which is already allowed, and every git add flag only stages. Stated so the next reader
+    # knows it is a decision rather than an oversight.
+    assert serve._parse_v0_shell_command("git add") is None, "a bare add with no path is refused"
+    # This line used to assert one path per call, and a run proved that wrong: it staged the
+    # manifest and the session state together, was refused, and lost turns to a restriction
+    # that only pushed it back toward -A. Several paths run as argv inside the project, so the
+    # refusal bought nothing.
+    assert serve._parse_v0_shell_command("git add firmware test") == [["git", "add", "firmware", "test"]]
+
+
+def test_amend_is_refused_because_it_cannot_converge():
+    # Named explicitly rather than derived from the tables, which would delete their own
+    # assertions along with the entry. The generate contract records project HEAD inside
+    # project-manifest.json, so an amend that picks up the manifest changes the hash the
+    # manifest just recorded. A run chased that through ten amends and died on max_turns.
+    assert serve._parse_v0_shell_command("git commit --amend --no-edit") is None
+    assert serve._parse_v0_shell_command('git commit --amend -m "fix"') is None
+    assert "--amend" not in serve.ALLOWED_SHELL_COMMANDS_HINT, "the hint must not offer it either"
+    # The plain commit the phase actually needs still runs.
+    assert serve._parse_v0_shell_command('git commit -m "x"') == [["git", "commit", "-m", "x"]]
 
 
 def test_run_v0_shell_still_refuses_an_over_long_chain_and_a_disallowed_part():
@@ -649,3 +714,37 @@ if __name__ == "__main__":
     verdict = "ALL PASS" if not failures else f"{failures} FAILED"
     print(f"\n{verdict}")
     sys.exit(1 if failures else 0)
+
+
+def test_run_v0_shell_stages_several_paths_in_one_call():
+    # Measured: a run reached for staging the manifest and the session state together, was
+    # refused with shell_command_not_allowed, and lost turns to it. One path per call pushes
+    # the model back toward `-A`, which sweeps the files recording HEAD into the commit and
+    # stales the hash it just wrote -- the exact trap this prefix exists to give it a way
+    # around. Several paths widen nothing: they run as argv, never through a shell, and reach
+    # only the project the model already writes to.
+    command = (
+        'git add project-manifest.json session_state.upy_generate_plugin.json'
+        ' && git commit -m "generate: record the manifest"'
+    )
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "shell", "script": command, "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+    assert [entry["cmd"] for entry in record] == [
+        ["git", "add", "project-manifest.json", "session_state.upy_generate_plugin.json"],
+        ["git", "commit", "-m", "generate: record the manifest"],
+    ]
+    assert all(entry["kwargs"].get("shell") is None for entry in record)
+
+
+def test_run_v0_shell_still_takes_exactly_one_commit_message():
+    # The other half of the same rule: a message is ONE argument. Accepting several would let
+    # a second quoted string ride along as an argument to the commit itself.
+    assert serve._parse_v0_shell_command('git commit -m "one" "two"') is None
+    assert serve._parse_v0_shell_command("git add") is None
+    assert serve._parse_v0_shell_command('git add ""') is None

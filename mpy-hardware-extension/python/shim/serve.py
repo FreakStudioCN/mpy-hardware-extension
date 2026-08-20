@@ -303,20 +303,27 @@ _ALLOWED_SHELL_ARGV: tuple[tuple[str, ...], ...] = (
     ("git", "add", "-A"),
     ("git", "rev-parse", "HEAD"),
     ("git", "status", "--short"),
-    # The exact form models reach for after committing and then noticing a file was missed:
-    # observed on deepseek and on kimi, in different phases, each spending turns on a command
-    # that had no verb here. Fixed argv, no model-supplied text.
-    ("git", "commit", "--amend", "--no-edit"),
 )
-# Forms whose LAST token is model-supplied text rather than a fixed word. `--amend -m` is here
-# because a model that wants to correct the commit it just made has no other legal move: three
-# runs on two providers reached for `git commit --amend` and spent turns discovering there is
-# no verb for it, which is the same "refused without naming what would satisfy it" tax we have
-# been removing from the gates. Amending the project's own last commit is no more destructive
-# than the commit that created it, and the argv is executed directly, never through a shell.
+# Forms whose LAST token is model-supplied text rather than a fixed word.
+#
+# `--amend` is deliberately NOT here, in either form. It was allowed for one run, because
+# models reached for it after committing and burned a turn on a command with no verb. What
+# that bought was worse than the turn it saved: the generate contract records project HEAD
+# inside project-manifest.json, so amending to pick up the manifest changes the very hash the
+# manifest just recorded. A run chased that fixpoint through ten amends, each producing a new
+# HEAD, until the phase died on max_turns. No amend, no fixpoint: the model commits once and
+# the recorded hash stays true.
+# `git add <path>` is here because `git add -A` was the ONLY staging verb, and that makes the
+# generate contract unsatisfiable: the phase must record project HEAD, and the files that hold
+# the record (phase_complete.*.json, session_state.*.json) are inside the project, so `-A`
+# sweeps them into the next commit and the hash it just recorded goes stale. Measured twice:
+# the phase then re-commits to chase HEAD, gets GIT_COMMIT_MISSING again, and dies on
+# max_turns having made three commits. Staging by path gives it a legal way to commit code and
+# leave the record alone. The path is model-supplied but is executed as argv, never through a
+# shell, and it can only touch the project it already writes to with file_operation.
 _ALLOWED_SHELL_PREFIX: tuple[tuple[str, ...], ...] = (
     ("git", "commit", "-m"),
-    ("git", "commit", "--amend", "-m"),
+    ("git", "add"),
 )
 # `git init && git add -A && git commit -m "..."` is the longest real chain.
 _MAX_SHELL_PARTS = 3
@@ -324,10 +331,17 @@ _MAX_SHELL_PARTS = 3
 # Returned on every refusal so the model corrects instead of guessing. Built from the tables
 # above, so a command cannot be permitted without the hint naming it, nor named without being
 # permitted; test_serve.py asserts every advertised form actually runs.
+def _prefix_placeholder(prefix: tuple[str, ...]) -> str:
+    """What the model must put after an allowed prefix. A hint that called every trailing
+    argument a "<message>" would advertise `git add "<message>"`, which is how a model learns
+    to pass the wrong thing."""
+    return "<message>" if prefix[-1] == "-m" else "<path>"
+
+
 ALLOWED_SHELL_COMMANDS_HINT = (
     "Allowed shell commands: "
     + "; ".join(" ".join(argv) for argv in _ALLOWED_SHELL_ARGV)
-    + "; " + "; ".join(f'{" ".join(prefix)} "<message>"' for prefix in _ALLOWED_SHELL_PREFIX)
+    + "; " + "; ".join(f'{" ".join(prefix)} "{_prefix_placeholder(prefix)}"' for prefix in _ALLOWED_SHELL_PREFIX)
     + f". Chain at most {_MAX_SHELL_PARTS} of them with '&&'; no other operator is accepted."
     " There is no shell route for Python: interpreter=python runs BUNDLED PLUGIN SCRIPTS by"
     " name, not arbitrary modules. Linting is not yours to invoke either, run_quality_gates.py"
@@ -340,9 +354,21 @@ def _resolve_allowed_shell_argv(tokens: list[str]) -> list[str] | None:
     if tuple(tokens) in _ALLOWED_SHELL_ARGV:
         return list(tokens)
     for prefix in _ALLOWED_SHELL_PREFIX:
-        # Exactly one argument after the prefix, and it must not be blank.
-        if len(tokens) == len(prefix) + 1 and tuple(tokens[: len(prefix)]) == prefix and tokens[-1].strip():
-            return [*prefix, tokens[-1].strip()]
+        if tuple(tokens[: len(prefix)]) != prefix:
+            continue
+        rest = [token.strip() for token in tokens[len(prefix):]]
+        if not rest or not all(rest):
+            continue
+        # A commit message is ONE argument; staging takes as many paths as the caller names.
+        # One path was the first version, and it refused the form a real run reached for:
+        # staging the manifest and the session state together in a single call. That failure
+        # pushes the model back toward `-A`, which sweeps the files recording HEAD into the
+        # commit and stales the hash just written -- the exact trap this prefix exists to give
+        # it a way around. Several paths widen nothing: they are executed as argv, never
+        # through a shell, and reach only the project the model already writes to.
+        if prefix[-1] == "-m" and len(rest) > 1:
+            continue
+        return [*prefix, *rest]
     return None
 
 
@@ -432,6 +458,34 @@ def _with_mpremote_launcher(command):
 
 def _run_command(command, **kwargs):
     return subprocess.run(_with_mpremote_launcher(command), **kwargs)
+
+
+
+_FLAGS_CACHE: dict[str, list[str]] = {}
+
+
+def _accepted_flags(script_path: str) -> list[str]:
+    """The long options a bundled script accepts, read straight from its argparse calls.
+
+    Why: models spend turns running `<script> --help` to learn signatures -- 47 such probes
+    across the archived runs, 8 in a single deploy phase. Every one measured followed a call
+    that had ALREADY SUCCEEDED, so this is not error recovery: it is the model checking whether
+    it missed a flag before the next invocation. Handing it the list with the result removes the
+    reason to ask. Parsed statically rather than by running --help, so it costs a cached file
+    read instead of a subprocess.
+    """
+    cached = _FLAGS_CACHE.get(script_path)
+    if cached is not None:
+        return cached
+    flags: list[str] = []
+    try:
+        with open(script_path, "r", encoding="utf-8", errors="replace") as handle:
+            flags = sorted(set(re.findall(r'add_argument\(\s*"(--[a-z0-9-]+)"', handle.read())))
+    except OSError:
+        # A script we cannot read is not worth failing the call over; the model just gets no hint.
+        flags = []
+    _FLAGS_CACHE[script_path] = flags
+    return flags
 
 
 class Shim:
@@ -718,6 +772,14 @@ class Shim:
         # root; stdin feeds scripts invoked with --stdin. Injectable via self.runner.
         cmd = [sys.executable, script_path, *args]
         self.commands.append(cmd)
+        # stdin=DEVNULL when the caller supplied none. subprocess.run(input=None) does NOT give
+        # the child a pipe: it INHERITS the parent's stdin, and this shim reads its own JSON-RPC
+        # protocol from sys.stdin. So a script invoked with --stdin and no stdin_content would
+        # sit reading the extension's RPC stream until the timeout killed it, and could swallow
+        # protocol messages on the way. Measured across archived runs: 17 timeouts on --stdin
+        # invocations, the single largest source of dead turns outside hardware.
+        if stdin is None:
+            return self.runner(cmd, timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL, **_subprocess_text_kwargs())
         return self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
 
     def run_v0_shell(self, command: str, cwd=None, stdin=None, timeout: float = 300):
@@ -745,7 +807,10 @@ class Shim:
                 )
                 continue
             self.commands.append(cmd)
-            last = self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
+            # Same reason as run_v0_python: never let a child inherit the shim's RPC stdin.
+            last = (self.runner(cmd, timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL, **_subprocess_text_kwargs())
+                    if stdin is None
+                    else self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs()))
             if getattr(last, "returncode", 1) != 0:
                 return last
         return last
@@ -1485,7 +1550,14 @@ def _run_v0_script(shim, params):
         if project_dir:
             prepare_quality_gate_project(project_dir)
     args = _assert_project_root(base, args, cwd)
-    return _v0_result(shim.run_v0_python(candidates[0], args, cwd=cwd, stdin=stdin_content, timeout=timeout))
+    result = _v0_result(shim.run_v0_python(candidates[0], args, cwd=cwd, stdin=stdin_content, timeout=timeout))
+    # Hand back the script's own option list so the model never needs a `--help` turn to learn
+    # it. Measured: 47 --help probes across archived runs, every examined one following a call
+    # that had already SUCCEEDED -- the model checking for flags it might have missed.
+    flags = _accepted_flags(candidates[0])
+    if flags and isinstance(result, dict):
+        result["accepted_flags"] = flags
+    return result
 
 
 def _run_static_check(shim, params):
