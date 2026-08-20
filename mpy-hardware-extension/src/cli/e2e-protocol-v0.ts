@@ -21,10 +21,11 @@
 //   3. A Python on PATH; first run bootstraps ~/.mpyhw/venv.
 // Bills several DeepSeek turns. Usage: npm run e2e:v0 -- "your intent here"
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile as fsReadFile, readdir, writeFile, rm, stat } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { cp, mkdir, readFile as fsReadFile, readdir, rename, writeFile, rm, stat } from "node:fs/promises";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { PHASE_ORDER } from "../core/protocol-loop.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { createDeviceShim } from "../extension/device-shim.ts";
 import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
@@ -51,21 +52,88 @@ try {
 }
 
 const extRoot = fileURLToPath(new URL("../../", import.meta.url));
-// Reuse the stable dir; if a stale handle locks it (Windows EBUSY after a killed
-// run), fall back to a fresh timestamped dir instead of crashing.
-let projectDir = join(extRoot, "tmp", "e2e-v0");
-try {
+// E2E_RESUME=<a previous run's project dir> restarts from where that run got to, instead of
+// walking the chain from analyze. The four phases before generate are stable and cost ~8
+// minutes of model time per run, so iterating on deploy meant paying 40 minutes to reach the
+// phase under test. The saved phase_complete carries both halves of a resume point: the
+// manifest to hand forward and the next_phase to hand it to.
+const resumeFrom = process.env.E2E_RESUME?.trim();
+
+async function resumePoint(dir: string): Promise<{ phase: string; manifest: any; from: string }> {
+  const names = (await readdir(dir)).filter((n) => n.startsWith("phase_complete.") && n.endsWith(".json"));
+  const candidates: Array<{ name: string; phase: string; manifest: any; rank: number }> = [];
+  for (const name of names) {
+    const saved = JSON.parse(await fsReadFile(join(dir, name), "utf-8"));
+    const payload = saved.payload ?? saved;
+    const phase = payload.next_phase ?? saved.next_phase;
+    const manifest = payload.manifest_content ?? saved.manifest_content;
+    if (typeof phase === "string" && phase && manifest) {
+      // PHASE_ORDER is a literal tuple; the saved phase is just a string off disk.
+      candidates.push({ name, phase, manifest, rank: (PHASE_ORDER as readonly string[]).indexOf(phase) });
+    }
+  }
+  if (candidates.length === 0) {
+    throw new Error(`E2E_RESUME: no phase_complete in ${dir} carries next_phase + manifest_content`);
+  }
+  // E2E_RESUME_PHASE picks a specific restart point instead of the furthest one, which is how
+  // a failing phase gets iterated: generate is the expensive one to reach, so restarting at it
+  // from a scaffold checkpoint costs minutes rather than the whole chain.
+  const wanted = process.env.E2E_RESUME_PHASE?.trim();
+  if (wanted) {
+    const picked = candidates.find((c) => c.phase === wanted);
+    if (!picked) {
+      const offered = candidates.map((c) => c.phase).join(", ");
+      throw new Error(`E2E_RESUME_PHASE=${wanted} not saved in ${dir}; available: ${offered}`);
+    }
+    return { phase: picked.phase, manifest: picked.manifest, from: picked.name };
+  }
+  // Furthest along the CHAIN, not the newest file. mtime looked like the obvious key and is
+  // worthless here: archiving a run with `cp -r` rewrites every mtime, so the ordering said
+  // "flash" and the resume replayed scaffold and generate -- the two phases it exists to skip.
+  // An unknown phase ranks -1 and loses to any known one.
+  candidates.sort((a, b) => b.rank - a.rank);
+  const best = candidates[0];
+  return { phase: best.phase, manifest: best.manifest, from: best.name };
+}
+
+// E2E_PROJECT_DIR lets a single-phase iteration run beside a full one instead of fighting it
+// for tmp/e2e-v0. Combined with leaving E2E_REQUIRE_BOARD unset (no pre-flight probe), a
+// generate-only loop touches neither the shared project nor the board.
+let projectDir = process.env.E2E_PROJECT_DIR?.trim() || join(extRoot, "tmp", "e2e-v0");
+if (resumeFrom && resolve(resumeFrom) === resolve(projectDir)) {
+  // Resuming the working dir in place. The copy branch below would delete the source before
+  // copying it, so this case has to be caught rather than left to destroy the run it is
+  // meant to continue.
+  console.log("resume: continuing in place (E2E_RESUME is the working dir)");
+} else if (resumeFrom) {
+  // Copy rather than run in place, so the saved run stays pristine and can be resumed again
+  // after this attempt breaks something.
   await rm(projectDir, { recursive: true, force: true });
-} catch {
-  projectDir = join(extRoot, "tmp", `e2e-v0-${Date.now()}`);
+  await cp(resumeFrom, projectDir, { recursive: true });
+} else {
+  // Reuse the stable dir; if a stale handle locks it (Windows EBUSY after a killed
+  // run), fall back to a fresh timestamped dir instead of crashing.
+  try {
+    await rm(projectDir, { recursive: true, force: true });
+  } catch {
+    projectDir = join(extRoot, "tmp", `e2e-v0-${Date.now()}`);
+  }
 }
 await mkdir(projectDir, { recursive: true });
+const resume = resumeFrom ? await resumePoint(projectDir) : null;
 // generate's phase_complete(success) requires a real git commit — init a repo so the
-// commit (run through the plugin's script_run, not faked) has somewhere to land.
+// commit (run through the plugin's script_run, not faked) has somewhere to land. `git init`
+// on an existing repo is a no-op that keeps the resumed run's history.
 const git = (...args: string[]) => execFileSync("git", ["-C", projectDir, ...args], { stdio: "ignore" });
 git("init", "-q");
 git("config", "user.email", "e2e@blockless.local");
 git("config", "user.name", "e2e");
+// Keep OUR session log out of the project's git. It lives under the project root and grows
+// on every turn, so a phase that commits and then checks for a clean tree can never get one:
+// `git add -A` sweeps the log in, writing the log dirties the tree again. Written to
+// .git/info/exclude rather than .gitignore because apply_scaffold renders its own .gitignore
+// over ours, and because this is a property of how we run the build, not of the project.
+await writeFile(join(projectDir, ".git", "info", "exclude"), ".mpyhw/\n", "utf-8");
 
 const shim = createDeviceShim({ vscode: undefined, extensionUri: { fsPath: extRoot } });
 
@@ -152,11 +220,22 @@ const loop = createProtocolLoop({ apiBaseUrl, getAuthToken: async () => jwt, shi
 // no-hardware action (mirrors e2e_protocol_v0.py's NO_HW_ACTIONS); otherwise the
 // primary action; and select every offered item (array OR object item_groups).
 const NO_HW = ["already_flashed", "use_local_firmware", "confirm_flashed", "copied_uf2", "copied", "confirmed"];
+// The stand-in user ACCEPTS a finished result rather than asking for rework. Measured: after a
+// clean six-phase run, deploy's "Deployment result: PASS ... optionally provide feedback" card
+// was answered `regenerate`, because that was the card's primary action. The loop then routed
+// back to generate and ended `awaiting_user`, so a run where every phase succeeded could not
+// reach terminal `complete`. Ranked ABOVE primary; when a card offers none of these (a failed
+// deploy offers retry/autofix/save_checkpoint), the old primary-then-first rule still applies.
+const ACCEPT = ["accept", "accept_result", "accepted", "looks_good", "no_changes", "done", "finish", "complete", "completed", "keep", "close"];
 const confirmApproval = async (card: any) => {
   const values = (card.actions ?? []).map((a: any) => a?.value).filter(Boolean);
   const action = NO_HW.find((a) => values.includes(a))
+    ?? ACCEPT.find((a) => values.includes(a))
     ?? (card.actions ?? []).find((a: any) => a?.primary)?.value
     ?? values[0] ?? "confirm";
+  // Printed so the next unexpected answer can be diagnosed from the run log: the session log
+  // compacts these objects to "<object>", which is why this one took a guess to find.
+  console.log(`  [approval] ${card.approval_id ?? "?"} -> ${action}  (offered: ${values.join(", ") || "none"})`);
   const groupList = Array.isArray(card.item_groups)
     ? card.item_groups.map((g: any) => ({ id: g?.group_id ?? g?.id, multi_select: g?.multi_select, items: g?.items }))
     : Object.entries(card.item_groups ?? {}).map(([id, meta]: [string, any]) => ({ id, multi_select: meta?.multi_select, items: meta?.items }));
@@ -181,6 +260,52 @@ const confirmApproval = async (card: any) => {
   return { action, selected_ids, added_items: [], text_values: {}, notes: "" };
 };
 
+// E2E_ONLY_PHASE stops the run when the named phase finishes, so a single-phase iteration stays
+// one phase. Without it the loop follows next_phase the moment the phase under test succeeds and
+// silently becomes a full run whose later phases are graded against a project that already holds
+// the earlier output -- which is how one "generate-only" run ended up reporting a second,
+// meaningless generate pass.
+const E2E_ONLY_PHASE = process.env.E2E_ONLY_PHASE?.trim() || "";
+const scopeStop = new AbortController();
+let stopAfterPhase = false;
+
+// Snapshot the project tree the moment a phase finishes, into .mpyhw/checkpoints/<phase>/.
+//
+// Without this, no single phase can be re-run from a real starting state. Every phase
+// overwrites main.py and project-manifest.json in place, and scaffold never commits, so once
+// generate has run there is nothing left on disk OR in git describing the post-scaffold
+// project. Resuming from a finished archive then hands the model work already done: one run
+// "passed" generate having never invoked its validator once, which read as a green run and
+// was not one.
+//
+// Best-effort by design: a failed snapshot must never fail the run it is observing. It is
+// diagnostic scaffolding, not a phase result.
+async function snapshotCheckpoint(phase: string): Promise<void> {
+  if (!phase) return;
+  const dest = join(projectDir, ".mpyhw", "checkpoints", phase);
+  // Staged OUTSIDE the project, then moved in: fs.cp refuses a copy whose destination is inside
+  // the source tree, up front and regardless of the filter (EINVAL, "cannot copy X to a
+  // subdirectory of self"). The staging dir is a sibling of the project so the rename stays on
+  // one filesystem.
+  const staging = join(dirname(projectDir), `.ckpt-${phase.replace(/[^\w.-]/g, "_")}-tmp`);
+  try {
+    await rm(staging, { recursive: true, force: true });
+    // Skip .mpyhw itself: it holds the session log and these very checkpoints, so copying it in
+    // would nest the run's own history one level deeper on every phase.
+    await cp(projectDir, staging, {
+      recursive: true,
+      filter: (src) => !src.includes(`${sep}.mpyhw`),
+    });
+    await mkdir(dirname(dest), { recursive: true });
+    await rm(dest, { recursive: true, force: true });
+    await rename(staging, dest);
+    console.log(`  [checkpoint] ${phase} -> .mpyhw/checkpoints/${phase}`);
+  } catch (err: any) {
+    await rm(staging, { recursive: true, force: true }).catch(() => {});
+    console.warn(`  [checkpoint] ${phase} not saved: ${err?.message ?? err}`);
+  }
+}
+
 // Reconstruct the phase->result trail from loop events (createProtocolLoop only
 // returns the last phase). phase_start sets the current phase; phase_complete records it.
 const phases: Array<{ phase: string; result: string | null }> = [];
@@ -196,7 +321,24 @@ const recorder = new JsonlSessionRecorder({ workspaceFolder: projectDir, traceId
 const onEvent = (e: any) => {
   void recorder.record(e);
   if (e.type === "phase_start") { current = e.phase; console.log(`\n----- PHASE: ${e.phase} -----`); }
-  else if (e.type === "phase_complete") { phases.push({ phase: current, result: e.payload?.result ?? null }); console.log(`  phase_complete: ${e.payload?.result} -> ${e.payload?.next_phase}`); if (e.payload?.result !== "success" && e.payload?.summary) console.log(`    reason: ${String(e.payload.summary).slice(0, 300)}`); }
+  else if (e.type === "phase_complete") {
+    phases.push({ phase: current, result: e.payload?.result ?? null });
+    console.log(`  phase_complete: ${e.payload?.result} -> ${e.payload?.next_phase}`);
+    if (e.payload?.result !== "success" && e.payload?.summary) console.log(`    reason: ${String(e.payload.summary).slice(0, 300)}`);
+    void snapshotCheckpoint(current);
+    // A single-phase iteration is only "single phase" while the phase under test keeps failing:
+    // the moment it succeeds, the loop follows next_phase and quietly becomes a full run. That
+    // happened -- a generate-only run carried on into deploy, a re-flash and a SECOND generate,
+    // whose result told us nothing about the phase we were iterating on because the project
+    // already held the first pass's output. Say so, rather than leaving it to be noticed in the
+    // transcript an hour later.
+    if (E2E_ONLY_PHASE && current === E2E_ONLY_PHASE && e.payload?.next_phase) {
+      console.log(`\n  [scope] ${E2E_ONLY_PHASE} finished; E2E_ONLY_PHASE stops here rather than continuing to ${e.payload.next_phase}.`);
+      console.log("  [scope] anything past this point would run against a project that already holds this phase's output.");
+      stopAfterPhase = true;
+      scopeStop.abort();
+    }
+  }
   // A stall is the most common way a run ends, and this harness printed nothing for it: the
   // reason ("no_tool_call" / "max_turns" / "stream_error") and the detail array of recent
   // failing tool calls both went to waste, so every diagnosis started from turn counts and
@@ -227,7 +369,11 @@ console.log("=== FULL-STACK V0 e2e (real backend + real plugin) ===");
 console.log("intent:", intent);
 console.log("project:", projectDir);
 
-const maxTurnsPerPhase = Number(process.env.E2E_MAX_TURNS ?? "75");
+// Undefined, not a number: the loop's own MAX_TURNS_PER_PHASE then applies, so the e2e always
+// measures the cap the product ships. Hardcoding 75 here meant the harness ran a phase 25%
+// longer than any user's would, and every run that mattered had to remember to pass the real
+// number on the command line. E2E_MAX_TURNS still overrides, for deliberately short runs.
+const maxTurnsPerPhase = process.env.E2E_MAX_TURNS ? Number(process.env.E2E_MAX_TURNS) : undefined;
 
 // E2E_BOARD picks the board the way the panel's board picker does, instead of leaving the
 // phase on "auto". This matters because select-hw is given a board profile only when a
@@ -243,13 +389,23 @@ const preSelectedBoard = !boardEnv
     ? JSON.parse(boardEnv)
     : { id: boardEnv, local_board_id: boardEnv, skill_board_id: boardEnv };
 console.log("board:", preSelectedBoard ? JSON.stringify(preSelectedBoard) : "auto (no pre-selection)");
+if (resume) console.log(`resume: ${resume.phase} (from ${resume.from} in ${resumeFrom})`);
 
 let terminal = "(none)";
 let threw: string | null = null;
 try {
   // No boardId: it is only ever the fallback for pre_selected_board, and that branch ignores
   // "auto" anyway, so passing it alongside preSelectedBoard said nothing.
-  const result = await loop({ intent, preSelectedBoard, traceId: "e2e-v0-fullstack", confirmApproval, onEvent, maxTurnsPerPhase });
+  const result = await loop({
+    intent,
+    preSelectedBoard,
+    traceId: "e2e-v0-fullstack",
+    confirmApproval,
+    onEvent,
+    maxTurnsPerPhase,
+    ...(resume ? { state: { phase: resume.phase, manifest: resume.manifest } } : {}),
+    ...(E2E_ONLY_PHASE ? { signal: scopeStop.signal } : {}),
+  });
   terminal = result?.terminal ?? "(none)";
 } catch (error: any) {
   // A thrown loop ran NOTHING. Recorded so the verdict can say so: a run that died on an
@@ -289,10 +445,39 @@ const deployResult = phases.find((p) => p.phase === "upy-deploy-plugin")?.result
 // failed" while the board was running the new firmware with its LED blinking. Read-only: this
 // reports the disagreement, it does not overrule the phase, because which side is wrong is
 // exactly what nobody can currently tell.
+// Read from the UPLOAD RECORD, not from the board. `shim.listDir()` was the obvious way to
+// answer "what is on the device", and it cost us the thing the run exists to produce: listing
+// the filesystem enters the raw REPL, which stops main.py, so a deploy that correctly left the
+// board blinking went dark the moment this summary printed. Measured twice -- once through
+// probeMicroPython, removed earlier, and once here, which is the same mistake wearing a
+// different call. Deploy already writes what it uploaded; reading that touches nothing.
+// TWO producers write this file, and reading only the first is how this check cried wolf: a run
+// whose board was demonstrably blinking was reported as "NO main.py (0 entries)". The deploy
+// plugin's upload script emits `uploaded_files`; a bare `mpremote_runtime.py` upload emits its
+// raw process result instead, where the files are the `cp` arguments. Same filename, same phase,
+// different shape.
+function uploadedFromSummary(summary: any): string[] | null {
+  const listed = summary?.uploaded_files ?? summary?.files;
+  if (Array.isArray(listed)) {
+    return listed.map((f: any) => String(f?.target ?? f?.remote ?? f?.path ?? f)).filter(Boolean);
+  }
+  // `mpremote ... resume cp -r <src>... :` -- every argument between `cp` and the `:` target.
+  const argv = Array.isArray(summary?.command) ? summary.command.map(String) : [];
+  const cp = argv.indexOf("cp");
+  if (cp === -1) return null;
+  const sources = argv.slice(cp + 1).filter((a: string) => a !== "-r" && a !== ":");
+  // Compare on basename: the record holds host paths (firmware/main.py), the device holds main.py.
+  return sources.map((a: string) => a.split("/").pop() ?? a).filter(Boolean);
+}
+
 let deviceFiles: string[] | null = null;
 if (deployResult) {
-  try { deviceFiles = await shim.listDir(); }
-  catch { deviceFiles = null; }  // no board, or it went away: nothing to compare against
+  try {
+    const summary = JSON.parse(await fsReadFile(join(projectDir, "upload_summary.json"), "utf-8"));
+    deviceFiles = uploadedFromSummary(summary);
+  } catch {
+    deviceFiles = null;  // no upload record: nothing to compare against, and still no probing
+  }
 }
 const firmwareOnDevice = Array.isArray(deviceFiles) && deviceFiles.some((f) => String(f).replace(/^:/, "") === "main.py");
 
@@ -303,9 +488,32 @@ const firmwareOnDevice = Array.isArray(deviceFiles) && deviceFiles.some((f) => S
 // serial capture deploy already writes is the one artifact that proves execution, e.g.
 // "[t=13275ms] [blink] toggle #1 (led=1)" after the soft reboot.
 const MPREMOTE_BANNER = /^(MPY:|Connected to MicroPython|Use Ctrl-)/;
+// FOUND, not assumed at the project root. The model chooses where its artifacts go, and one
+// run wrote them to deploy/ and sessions/deploy_artifacts/ -- so this reported "NOT OBSERVED"
+// and printed a MISMATCH warning about a deploy that had in fact produced every artifact and
+// passed its gate. A checker that only looks where it expects will keep calling correct runs
+// broken.
+async function findArtifact(root: string, name: string, depth = 3): Promise<string | null> {
+  const direct = join(root, name);
+  if (await stat(direct).then(() => true, () => false)) return direct;
+  if (depth <= 0) return null;
+  let entries: any[] = [];
+  try { entries = await readdir(root, { withFileTypes: true }); } catch { return null; }
+  for (const entry of entries) {
+    // .mpyhw holds the session log and the checkpoints, which are copies of the tree: descending
+    // into it would find a stale artifact from an earlier phase and report it as this one's.
+    if (!entry.isDirectory() || entry.name === ".mpyhw" || entry.name === ".git") continue;
+    const found = await findArtifact(join(root, entry.name), name, depth - 1);
+    if (found) return found;
+  }
+  return null;
+}
+
 let firmwareRan: string | null = null;
 try {
-  const report = JSON.parse(await fsReadFile(join(projectDir, "deploy_result.json"), "utf-8"));
+  const reportPath = await findArtifact(projectDir, "deploy_result.json");
+  if (!reportPath) throw new Error("no deploy_result.json anywhere under the project");
+  const report = JSON.parse(await fsReadFile(reportPath, "utf-8"));
   const lines = String(report.serial_excerpt ?? "").split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
   const rebootAt = lines.findIndex((l: string) => l.includes("soft reboot"));
   const fromFirmware = lines.slice(rebootAt + 1).filter((l: string) => !MPREMOTE_BANNER.test(l));
@@ -347,17 +555,18 @@ console.log("firmware ran during deploy:", firmwareRan ? `yes — "${firmwareRan
 if (deployResult === "success" && !firmwareRan) {
   console.log("MISMATCH: deploy reported success, but nothing in the serial capture shows the firmware running.");
 }
-// And the question that one cannot answer: is the board running it NOW, after deploy finished.
-// In the run this was written for, the capture proved the firmware ran and the board was still
-// left idle, because the device tests drive the raw REPL (which stops main.py) and nothing
-// resets it afterwards. A REPL that answers instantly is itself the tell: a board executing
-// main.py does not sit at a prompt.
-if (deployResult === "success" && deviceFiles) {
-  const idle = await shim.probeMicroPython((await shim.scan())[0]).catch(() => false);
-  console.log("board state after deploy:", idle
-    ? "REPL answers immediately — the board is NOT running the deployed firmware (needs a reset)"
-    : "REPL busy or unreachable — consistent with the firmware running");
-}
+// There WAS a probe here that connected to the board to report whether it was still running
+// the firmware. It is gone, for two reasons, both learned the hard way.
+//
+// It was wrong: it read "the REPL answers" as "the board is idle". That only held while the
+// scaffold scheduler spun without yielding and starved USB. The scheduler yields now, so a
+// running board answers a REPL perfectly well and the probe called every healthy run idle.
+//
+// Worse, it was destructive: connecting enters the raw REPL, which STOPS main.py. So the
+// check that asked "is the firmware running" was itself the reason it stopped -- a green run
+// ended with the LED dark and the board needing a replug, caused entirely by our own
+// verdict code. The serial capture above already answers the question from evidence deploy
+// collected, without touching the device.
 
 // The verdict reads the RUN, not just the files it left behind. Two misreports drove this:
 // a PASS on a run whose deploy failed to open the port (terminal "failed"), and a REVIEW on
@@ -370,6 +579,13 @@ const passed = ranAtAll && terminal === "complete" && !deployFailed
   && reachedGenerate && mainOk && commits > 0 && scaffoldApplied;
 if (threw) console.log("verdict blocked: the loop threw before finishing —", threw);
 else if (phases.length === 0) console.log("verdict blocked: no phase executed");
+// A scoped stop cancels the loop on purpose, so "cancelled" here is the run doing as it was
+// told. Reporting it as a blocked verdict would read like a failure and invite exactly the
+// misreading this option exists to prevent.
+else if (stopAfterPhase) {
+  const scoped = phases.find((p) => p.phase === E2E_ONLY_PHASE);
+  console.log(`scoped run: ${E2E_ONLY_PHASE} finished with result=${scoped?.result ?? "(unknown)"}; later phases were not run, so this says nothing about them`);
+}
 else if (terminal !== "complete") console.log(`verdict blocked: terminal is ${terminal}, not complete`);
 else if (deployFailed) console.log("verdict blocked: the deploy phase failed");
 // Where the full account lives: stdout truncates a phase_complete summary at 300 chars and
