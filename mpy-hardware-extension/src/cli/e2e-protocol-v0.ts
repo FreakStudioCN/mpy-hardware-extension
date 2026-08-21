@@ -339,6 +339,12 @@ const onEvent = (e: any) => {
       scopeStop.abort();
     }
   }
+  // A refusal is invisible otherwise, and it is the loop's most important verdict: the model
+  // claimed the phase was done and the gate disagreed. Printed where the run is triaged, so a
+  // phase that ends at its turn cap shows WHY it kept going after claiming success.
+  else if (e.type === "phase_complete_refused") {
+    console.log(`  [refused] ${e.phase}: phase_complete(success) rejected by ${e.gate} (${e.reason}) at turn ${e.turn}`);
+  }
   // A stall is the most common way a run ends, and this harness printed nothing for it: the
   // reason ("no_tool_call" / "max_turns" / "stream_error") and the detail array of recent
   // failing tool calls both went to waste, so every diagnosis started from turn counts and
