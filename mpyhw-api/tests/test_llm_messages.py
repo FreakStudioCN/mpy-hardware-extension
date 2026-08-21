@@ -1468,6 +1468,17 @@ def test_generate_prompt_carries_the_payload_shape_and_order():
     assert order.index("update_session_state.py") < order.index("run_quality_gates.py")
     assert order.index("run_quality_gates.py") < order.index("check_phase_complete_consistency.py")
 
+    # A change after the gate run stales quality_gates_result.json, and with the referenced form
+    # the checkpoint the checker reads lives INSIDE that file. Measured: a run edited the manifest
+    # after the gates, re-ran update_session_state correctly, and still stalled to its turn cap on
+    # SESSION_STATE_PHASE_COMPLETE_MISMATCH, because only a fresh gate run rewrites the snapshot.
+    assert "stale" in order and "must run AGAIN" in order, (
+        "the order must say a post-gate change requires re-running the gates"
+    )
+    assert "SESSION_STATE_PHASE_COMPLETE_MISMATCH" in order, (
+        "it must name the error this prevents, so the model can connect the two"
+    )
+
     # Only generate pays for it.
     for other in ("analyze", "select-hw", "upy-deploy-plugin"):
         assert prompt_assembly._generate_shape_injection({**body, "phase": other}) == ""
