@@ -59,7 +59,12 @@ const MAX_PHASES = PHASE_ORDER.length;
 // payload and smoke test both pin it); `upy-simulate-plugin` is the simulate branch. The api
 // harness has always treated both as terminal (mpyhw-api/scripts/e2e_protocol_v0.py), and the
 // loop failing on them was the disagreement.
-const TERMINAL_HANDOFF_PHASES = new Set(["project-library-upload", "upy-simulate-plugin"]);
+// upy-autofix-plugin belongs here for the same reason as the other two: the deploy and generate
+// SKILLs both document it as where a failed deploy goes next, so a model naming it is following
+// the contract, not inventing work. We do not serve it, which ends the build -- but a deploy that
+// failed honestly and handed off correctly was being recorded as terminal:"failed" for the
+// handoff rather than for the failure, which buries the real cause under a protocol error.
+const TERMINAL_HANDOFF_PHASES = new Set(["project-library-upload", "upy-simulate-plugin", "upy-autofix-plugin"]);
 
 // What a phase's own verdict makes of the BUILD. Only "failed" used to be special-cased, so a
 // phase that gave up and said `partial` ended the build as "complete": one run's select-hw
@@ -89,6 +94,10 @@ type PhaseGate = {
   // step -- it just is not a phase verdict. Flags only, not values: the model still chooses what
   // --compare-manifest points at, and pinning values needs the loop to run the gate itself.
   requiredArgs?: string[];
+  // When a run of this gate reads evidence the model wrote itself, discard that run's verdict
+  // instead of only warning about it. Off by default and enabled per phase from replayed
+  // evidence: turning it on everywhere would have refused an archived run that passed for real.
+  taintedEvidenceBlocksVerdict?: boolean;
   // strict: a success with NO recognized verdict this phase is refused too, not only one the gate
   // contradicted. Verified against the archives: every full pass ran these three gates to a
   // recognized pass before phase_complete, while one resumed run emitted generate success having
@@ -100,6 +109,12 @@ const PHASE_GATES: Record<string, PhaseGate> = {
     script: "select_hw_manifest.py",
     requiredArgs: ["--validate-phase-complete", "--compare-manifest", "--expected-artifact"],
     strict: true,
+    // select_hw_validated.json is what board resolution produces, and --expected-artifact only
+    // checks that the file exists. Hand-writing it skips the resolution the gate exists to prove,
+    // and the file IS the verdict, so a warning alone changes nothing: three archived runs wrote
+    // it themselves and select-hw passed every time. Replaying the archive against this rule
+    // refuses exactly those runs and no run that passed honestly.
+    taintedEvidenceBlocksVerdict: true,
   },
   "upy-generate-plugin": { script: PHASE_COMPLETION_CHECK, strict: true },
   "upy-deploy-plugin": { script: "deploy_result.py", strict: true },
@@ -465,6 +480,23 @@ const ENTRY_KEY_SEPARATOR = "\u0000";
 // phase logs and project-manifest.json are the model's own record. One run drew EIGHT evidence
 // warnings for writing exactly the files select_hw_manifest.py and init_manifest.py exist to
 // read, and a warning that punishes the correct action is worse than no warning.
+// Flags whose NEXT argv entry is a path the script writes. Verified against the producers:
+// capture_repl.py, mpremote_runtime.py, run_device_tests.py, clean_device_project.py and
+// install_mip_dependencies.py all take --output-json; run_quality_gates.py also accepts
+// --out-json; select_hw_manifest.py and init_manifest.py write their draft with --write-path.
+const OUTPUT_PATH_FLAGS = new Set(["--output-json", "--out-json", "--write-path"]);
+
+// One spelling for one file. The taint set is keyed on whatever string the write reported and
+// compared against whatever string the gate was called with, so "./upload_summary.json" and
+// "upload_summary.json" were two different files and the second silently cleared nothing. Case
+// is folded on the platforms whose filesystems fold it, matching how paths are compared
+// elsewhere in the extension; on Linux two names differing only in case really are two files.
+const CASE_INSENSITIVE_PATHS = process.platform === "win32" || process.platform === "darwin";
+function evidenceKey(path: string): string {
+  const normalized = String(path).replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/{2,}/g, "/");
+  return CASE_INSENSITIVE_PATHS ? normalized.toLowerCase() : normalized;
+}
+
 const MODEL_AUTHORED_GATE_INPUT =
   /(^|[\\/])(phase_complete\.[^\\/]*\.json|[^\\/]*_draft\.json|[^\\/]*_log\.md|project-manifest\.json)$/;
 
@@ -829,7 +861,9 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
         toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(refusal) });
         continue;
       }
-      const { result, phaseControl } = await executeProtocolTool(tu, input, deps, { phase, turn });
+      const { result, phaseControl } = await executeProtocolTool(tu, input, deps, {
+        phase, turn, wasModelWritten: (path: string) => modelWrittenPaths.has(evidenceKey(path)),
+      });
       if (isFinalResetCapture(tu) && result?.ok === true) finalResetDone = true;
 
       // Normalized, NOT raw. This event is recorded into session.jsonl, which the stall
@@ -870,39 +904,82 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       }
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
       if (tu.name === "file_operation" && ["write", "append"].includes(String((tu.input as any)?.op)) && result?.ok === true) {
-        modelWrittenPaths.add(String(result?.path ?? (tu.input as any)?.path ?? ""));
+        modelWrittenPaths.add(evidenceKey(String(result?.path ?? (tu.input as any)?.path ?? "")));
       }
       // A successful run of any NON-gate script naming the path re-establishes it as script-made:
       // producers take their output path as an argument, so `capture_repl.py --output-json x.json`
       // after a hand-write means the file on disk is the script's again. Without this, one
       // overwrite would keep the path flagged for the rest of the phase.
-      if (tu.name === "script_run" && result?.ok === true && result?.success === true
-          && !(gate && String((tu.input as any)?.script ?? "").endsWith(gate.script))) {
-        for (const a of (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String)) modelWrittenPaths.delete(a);
+      if (tu.name === "script_run" && result?.ok === true && result?.success === true) {
+        const args = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String);
+        // Only a path the script was told to WRITE is re-established, never every path it
+        // happened to mention. The old rule cleared any argv entry of any successful non-gate
+        // script, so a read-only script naming the file laundered it -- and a model that wanted
+        // the flag gone only had to pass the path to something harmless.
+        if (!(gate && String((tu.input as any)?.script ?? "").endsWith(gate.script))) {
+          for (let i = 0; i < args.length - 1; i++) {
+            if (OUTPUT_PATH_FLAGS.has(args[i])) modelWrittenPaths.delete(evidenceKey(args[i + 1]));
+          }
+        }
+        // The path an output flag NAMES is script-made afterwards, even when the producer is the
+        // gate script itself. Without this the one file select-hw grades could never be cleaned:
+        // select_hw_validated.json is written by select_hw_manifest.py --write-path, which the
+        // clause above skips because it is the gate -- so a model that hand-wrote it once could
+        // never make it honest again, and a guard with no way out is what drove the fabrication
+        // in the first place.
+        for (let i = 0; i < args.length - 1; i++) {
+          if (OUTPUT_PATH_FLAGS.has(args[i])) modelWrittenPaths.delete(evidenceKey(args[i + 1]));
+        }
       }
       // Remember how this phase's gate went. Only its LATEST verdict counts: a phase that fails
       // a gate, fixes the cause and passes it is exactly the loop working.
       const gateArgs = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String);
-      if (gate && tu.name === "script_run" && String((tu.input as any)?.script ?? "").endsWith(gate.script)) {
-        const tainted = gateArgs.filter((a: string) => modelWrittenPaths.has(a) && !MODEL_AUTHORED_GATE_INPUT.test(a));
-        if (tainted.length > 0) {
-          input.onEvent?.({ type: "gate_evidence_model_written", phase, gate: gate.script, files: tainted, turn });
-          correctiveMessages.push({
-            role: "user",
-            content: [{
-              type: "text",
-              text:
-                `Evidence warning: ${gate.script} read ${tainted.join(", ")}, which you wrote with file_operation ` +
-                "instead of producing with the script that owns it (capture_repl.py, run_device_tests.py, " +
-                "install_mip_dependencies.py, clean_device_project.py, ...). A hand-written evidence file is " +
-                "fabrication even when the verdict computed from it says PASS. Re-run the producing script so " +
-                `the file on disk is script-made, then re-run ${gate.script}.`,
-            }],
-          });
-        }
+      const isGateRun = Boolean(gate) && tu.name === "script_run"
+        && String((tu.input as any)?.script ?? "").endsWith(gate!.script);
+      // The file a gate is HANDED to validate is the model's by definition, whatever it is
+      // called. The name-pattern exemption covers the conventional spellings, but one run named
+      // its analyze draft manifest_input.json and was flagged for doing exactly the right thing,
+      // so the argv position is the more reliable signal: whatever follows --input is the
+      // subject, not the evidence.
+      const gateSubjects = new Set(
+        gateArgs.flatMap((a: string, i: number) => (a === "--input" && i + 1 < gateArgs.length ? [evidenceKey(gateArgs[i + 1])] : [])),
+      );
+      const taintedEvidence = isGateRun
+        ? gateArgs.filter((a: string) => modelWrittenPaths.has(evidenceKey(a))
+            && !MODEL_AUTHORED_GATE_INPUT.test(a) && !gateSubjects.has(evidenceKey(a)))
+        : [];
+      // Whether a tainted run is merely reported or actually costs the verdict. Enabled per
+      // phase, from replayed evidence rather than by principle: across the archived runs, the
+      // only phase where a hand-written evidence file was BOTH still flagged by today's
+      // exemptions AND the whole basis of the verdict is select-hw, where select_hw_validated.json
+      // is what board resolution produces. Deploy is deliberately NOT enabled yet: one archived
+      // run hand-wrote upload_summary.json and still passed for real -- its final reset showed
+      // the soft reboot and MPYHW_READY, so the verdict was true and corroborated -- and blocking
+      // there would have refused a genuinely good run.
+      const blocksVerdict = isGateRun && taintedEvidence.length > 0 && gate?.taintedEvidenceBlocksVerdict === true;
+      if (taintedEvidence.length > 0) {
+        input.onEvent?.({ type: "gate_evidence_model_written", phase, gate: gate!.script, files: taintedEvidence, turn, blocking: blocksVerdict });
+        correctiveMessages.push({
+          role: "user",
+          content: [{
+            type: "text",
+            text:
+              `Evidence warning: ${gate!.script} read ${taintedEvidence.join(", ")}, which you wrote with file_operation ` +
+              "instead of producing with the script that owns it (capture_repl.py, run_device_tests.py, " +
+              "install_mip_dependencies.py, clean_device_project.py, ...). A hand-written evidence file is " +
+              "fabrication even when the verdict computed from it says PASS. Re-run the producing script so " +
+              `the file on disk is script-made, then re-run ${gate!.script}.` +
+              (blocksVerdict
+                ? ` This run of ${gate!.script} does NOT count: its verdict is discarded because the evidence` +
+                  " was yours, so reporting success now will be refused. Produce the file with the script that" +
+                  " owns it and run the gate again. If it genuinely cannot be produced, report result=partial" +
+                  " naming what is missing rather than writing the file yourself."
+                : ""),
+          }],
+        });
       }
-      if (gate && tu.name === "script_run" && String((tu.input as any)?.script ?? "").endsWith(gate.script)
-          && (gate.requiredArgs ?? []).every((flag) => gateArgs.includes(flag))) {
+      if (isGateRun && !blocksVerdict
+          && (gate!.requiredArgs ?? []).every((flag) => gateArgs.includes(flag))) {
         // The gate's OWN verdict, same reader the completion corrective uses. Keying on the exit
         // code would have left this guard with the hole it was written to close: a run reached
         // for `--help` on this very script, which exits 0 and prints usage, and that would have
@@ -928,6 +1005,34 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
         // the gate was never reachable. A gate that RAN and failed is still refused either way.
         const canRunGate = typeof deps.runScript === "function";
         const unverified = gateState === null && gate?.strict === true && canRunGate;
+        // Gate results may be REFERENCED by path instead of embedded, and the reference travels
+        // inside the payload rather than on the gate's argv -- so the evidence check above cannot
+        // see it, and a hand-written all-green results file validates completely. This is the one
+        // forgery surface that grew this week: the contract now steers models toward the
+        // referenced form, so the safer the payload gets, the more this matters.
+        const referencedEvidence = ["lint", "tests", "checks"]
+          .map((section) => (tu.input as any)?.[section])
+          .filter((v: any) => v && typeof v === "object" && typeof v.results_path === "string")
+          .map((v: any) => String(v.results_path));
+        const taintedReference = [...new Set(referencedEvidence.filter((p: string) => modelWrittenPaths.has(evidenceKey(p))))];
+        if (taintedReference.length > 0 && (phaseControl.result ?? "success") === "success") {
+          input.onEvent?.({ type: "phase_complete_refused", phase, gate: gate?.script, turn, reason: "referenced_evidence_model_written", files: taintedReference });
+          correctiveMessages.push({
+            role: "user",
+            content: [{
+              type: "text",
+              text:
+                `This success references ${taintedReference.join(", ")} for its gate results, and you wrote that ` +
+                "file with file_operation rather than producing it. A referenced results file is graded exactly " +
+                "like an embedded one, so hand-writing it fabricates every gate inside it. Re-run " +
+                "scripts/run_quality_gates.py --project-dir <project_root> --session-dir <session_root> " +
+                `--output-json ${taintedReference[0]} so the file is script-made, then re-emit phase_complete. ` +
+                "Do not switch to embedding the gate objects instead: a per-gate results_path is refused as " +
+                "GATE_SOURCE_MISPLACED, and mixing the forms is refused as GATE_SOURCE_SPLIT.",
+            }],
+          });
+          continue;
+        }
         // Safe to compare the literal token: executeProtocolTool rejects any result outside
         // success/partial/failed before a phaseControl is ever produced, so `result: "ok"` can no
         // longer arrive here and slip past by not matching "success".
@@ -951,6 +1056,15 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
             }],
           });
         } else {
+          // A failed/partial verdict is never refused -- a phase must always be able to give up
+          // honestly. But when the gate never ran, that verdict is the model's prose and nothing
+          // else: one deploy reported failed claiming the board was stuck in the bootloader, and
+          // deploy_result.py had not run, so there was no artifact and no script verdict behind
+          // it. The board turned out to be fine. Recorded, not blocked, so triage can tell a
+          // measured failure from an asserted one.
+          if (gate?.strict === true && gateState === null && canRunGate && (phaseControl.result ?? "success") !== "success") {
+            input.onEvent?.({ type: "phase_complete_without_gate", phase, gate: gate.script, result: phaseControl.result, turn });
+          }
           // Announced HERE, once the claim has survived the gate: this is the only point at
           // which a phase_complete is a fact rather than an assertion.
           input.onEvent?.({ type: "phase_complete", payload: phaseControl.payload });
@@ -1388,7 +1502,7 @@ function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; pat
 // fed back to the model, plus (for phase_complete) the phase-advance control.
 // `phaseCtx` (phase + turn index within it) is only needed for the turn-0 generate
 // empty-project guard below; callers that don't care (most direct tests) omit it.
-export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput, deps: ProtocolDeps, phaseCtx: { phase?: string; turn?: number } = {}): Promise<{ result: any; phaseControl?: any }> {
+export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput, deps: ProtocolDeps, phaseCtx: { phase?: string; turn?: number; wasModelWritten?: (path: string) => boolean } = {}): Promise<{ result: any; phaseControl?: any }> {
   const name = tu.name ?? "";
   const p = tu.input ?? {};
 
@@ -1439,7 +1553,14 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
       // Every marker answered "not there". A read that FAILED for any other reason is an
       // error, not absence, and leaves the phase alone -- rejecting on it would kill a
       // scaffold that did run.
-      const allMissing = reads.every((r) => !r.ok && MISSING_FILE_KINDS.has(r.error_kind ?? ""));
+      //
+      // A marker the MODEL wrote counts as absent. Presence is the whole test here, so a
+      // file_operation write of either path defeats it outright -- and this loop has already
+      // watched a run hand-write .flake8 and a fake lib/ to satisfy the previous marker, so it
+      // is a demonstrated move rather than a theoretical one. apply_scaffold is always legal,
+      // so the rejection below still leaves a way through.
+      const allMissing = reads.every((r, i) =>
+        (!r.ok && MISSING_FILE_KINDS.has(r.error_kind ?? "")) || phaseCtx.wasModelWritten?.(SCAFFOLD_APPLIED_MARKERS[i]) === true);
       if (allMissing) {
         return {
           result: {

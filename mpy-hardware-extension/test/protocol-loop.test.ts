@@ -2733,6 +2733,323 @@ test("an error that comes back after being fixed is not an unchanged one", async
   assert.ok(!events.some((e) => e.type === "repeating_failure"), "an interrupted error is not an unchanging one");
 });
 
+test("generate: a success referencing a hand-written gate results file is refused", async () => {
+  // The reference travels inside the payload, never on the gate's argv, so the evidence check
+  // cannot see it -- and a hand-written all-green results file validates every gate inside it.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: "quality_gates_result.json", content: "{}" }), stop]
+        : turn === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py", args: ["--phase-complete", "pc.json"] }), stop]
+          : [tu("p", "phase_complete", {
+              result: "success", summary: "done", next_phase: null, manifest_content: {},
+              lint: { results_path: "quality_gates_result.json" },
+              tests: { results_path: "quality_gates_result.json" },
+              checks: { results_path: "quality_gates_result.json" },
+            }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  const refused = events.find((e) => e.type === "phase_complete_refused" && e.reason === "referenced_evidence_model_written");
+  assert.ok(refused, "a referenced results file the model wrote must not carry a success");
+  assert.deepEqual(refused.files, ["quality_gates_result.json"]);
+});
+
+test("scaffold: a marker the model wrote itself counts as absent", async () => {
+  // Presence is the whole test, so a file_operation write of the marker defeats it. This loop
+  // has already watched a run hand-write .flake8 and a fake lib/ to satisfy the previous marker.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: "scaffold_file_manifest.json", content: "{}" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const observations: any[] = [];
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-scaffold-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => { events.push(e); if (e.type === "tool_result") observations.push(e.observation); } },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      // The scaffold never ran, so the OTHER marker is genuinely absent. The one the model wrote
+      // reads back fine -- only the taint stops it from counting. If a real marker were present
+      // the scaffold did render, and rejecting then would kill an honest phase.
+      readFile: async (path: string) => (path === "scaffold_file_manifest.json"
+        ? { ok: true, content: "{}" }
+        : { ok: false, error_kind: "file_not_found" }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: "{}" }),
+    } as any,
+  );
+
+  assert.ok(observations.some((o: any) => o?.error_kind === "scaffold_not_applied"),
+    "a hand-written marker must not prove the scaffold rendered");
+});
+
+test("a documented handoff we do not serve ends the build on the phase's own verdict", async () => {
+  // upy-autofix-plugin is where both the deploy and generate SKILLs send a failed deploy, so a
+  // model naming it is following the contract. Treating it as an invented phase recorded the
+  // build as failed for the handoff rather than for the failure, burying the real cause.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      yield tu("p", "phase_complete", { result: "failed", summary: "deploy failed", next_phase: "upy-autofix-plugin", manifest_content: {} });
+      yield stop;
+    })(),
+  };
+
+  const out: any = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 3, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"FAIL","errors":[]}' }) } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "phase_error" && e.error_kind === "unknown_next_phase"),
+    "a documented handoff is not an invented phase");
+  assert.ok(events.some((e) => e.type === "phase_handoff_unserved"), "the unserved handoff is still recorded");
+  assert.equal(out.terminal, "failed", "the build still ends on the phase's own failed verdict");
+});
+
+test("a non-success verdict with no gate run behind it is recorded", async () => {
+  // One deploy reported failed claiming the board was stuck in the bootloader, with
+  // deploy_result.py never run -- no artifact, no script verdict, and the board was fine.
+  // Never refused (a phase must be able to give up honestly), but not silent either.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      yield tu("p", "phase_complete", { result: "failed", summary: "gave up", next_phase: null, manifest_content: {} });
+      yield stop;
+    })(),
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 3, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: "{}" }) } as any,
+  );
+
+  const noted = events.find((e) => e.type === "phase_complete_without_gate");
+  assert.ok(noted, "a verdict no script produced must be visible in triage");
+  assert.equal(noted.result, "failed");
+  assert.ok(events.some((e) => e.type === "phase_complete"), "and the phase is still allowed to end");
+});
+
+test("mentioning a hand-written file to another script does not launder it", async () => {
+  // The un-taint rule used to clear EVERY argv entry of any successful non-gate script, so
+  // passing the path to something read-only made the flag disappear. Only the path a script was
+  // told to write is re-established.
+  const events: any[] = [];
+  const validated = "sessions/s/select_hw_validated.json";
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: validated, content: "{}" }), stop]
+        : turn === 2
+          ? [tu("r", "script_run", { interpreter: "python", script: "scripts/check_environment.py", args: ["--report", validated] }), stop]
+          : turn === 3
+            ? [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: [...SELECT_HW_GATE_ARGS, validated] }), stop]
+            : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 7, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "gate_evidence_model_written"),
+    "a read-only script naming the file must not make it script-made");
+});
+
+test("a different spelling of the same path does not evade the evidence check", async () => {
+  // The taint set was keyed on the write's string and compared against the gate's string, so
+  // "./x.json" and "x.json" were two different files and the check saw nothing.
+  const events: any[] = [];
+  const validated = "sessions/s/select_hw_validated.json";
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: `./${validated}`, content: "{}" }), stop]
+        : turn === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: [...SELECT_HW_GATE_ARGS, validated] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "gate_evidence_model_written"),
+    "./x and x are the same file and must be flagged as one");
+});
+
+test("the file a gate is handed with --input is its subject, not fabricated evidence", async () => {
+  // The name-pattern exemption covers the conventional spellings; one run named its analyze draft
+  // manifest_input.json and was flagged for doing exactly the right thing. Whatever follows
+  // --input is the thing being validated.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: "manifest_input.json", content: "{}" }), stop]
+        : turn === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/init_manifest.py", args: ["--validate-phase-complete", "--input", "manifest_input.json"] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "analyze", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  const flagged = events.filter((e) => e.type === "gate_evidence_model_written");
+  assert.deepEqual(flagged, [], `the gate's own --input subject is not evidence, got ${JSON.stringify(flagged)}`);
+});
+
+test("select-hw: a gate run reading hand-written evidence yields no verdict, so success is refused", async () => {
+  // select_hw_validated.json is what board resolution produces, and --expected-artifact only
+  // checks the file exists. Three archived runs hand-wrote it and select-hw passed every time,
+  // because the warning changed nothing. Enabled for select-hw ONLY: replaying the archive showed
+  // the same rule on deploy would have refused a run that passed for real.
+  const events: any[] = [];
+  const validated = "sessions/s/select_hw_validated.json";
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: validated, content: "{}" }), stop]
+        : turn === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: [...SELECT_HW_GATE_ARGS, validated] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  const flagged = events.find((e) => e.type === "gate_evidence_model_written");
+  assert.ok(flagged, "the fabricated evidence must still be reported");
+  assert.equal(flagged.blocking, true, "on select-hw the report must also cost the verdict");
+  assert.ok(events.some((e) => e.type === "phase_complete_refused"),
+    "a gate verdict computed from the model's own file must not let the phase claim success");
+});
+
+test("select-hw: producing the file with the gate script itself clears the taint", async () => {
+  // The cornering check. select_hw_validated.json is written by select_hw_manifest.py --write-path,
+  // which is the gate script, and the general un-taint rule skips gate runs. Without the
+  // output-flag rule the model could never make the file honest again, and a guard with no legal
+  // way out is exactly what drove the fabrication it is trying to stop.
+  const events: any[] = [];
+  const validated = "sessions/s/select_hw_validated.json";
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: validated, content: "{}" }), stop]
+        : turn === 2
+          ? [tu("d", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: ["--write-path", validated] }), stop]
+          : turn === 3
+            ? [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: [...SELECT_HW_GATE_ARGS, validated] }), stop]
+            : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "phase_complete_refused"),
+    "re-producing the file with its owning script must restore the legal path to success");
+});
+
+test("deploy still only warns when its evidence is hand-written", async () => {
+  // Pins the calibration, not a preference. One archived deploy hand-wrote upload_summary.json and
+  // passed for real: its final reset showed the soft reboot and MPYHW_READY, so the verdict was
+  // true and independently corroborated. Blocking there would have refused a good run, so deploy
+  // stays warn-only until the rule can tell load-bearing evidence from corroborated evidence.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: "upload_summary.json", content: "{}" }), stop]
+        : turn === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/deploy_result.py", args: ["--upload-json", "upload_summary.json"] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"PASS","errors":[]}' }),
+    } as any,
+  );
+
+  const flagged = events.find((e) => e.type === "gate_evidence_model_written");
+  assert.ok(flagged, "deploy must still report fabricated evidence");
+  assert.notEqual(flagged.blocking, true, "deploy must stay warn-only for now");
+});
+
 test("the drafts and logs a validator reads are never flagged as fabricated evidence", async () => {
   // Measured on a live run: EIGHT evidence warnings, every one for a file the model is supposed
   // to author -- select_hw_draft.json is the input select_hw_manifest.py normalizes, and the
