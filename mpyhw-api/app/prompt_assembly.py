@@ -127,6 +127,8 @@ def _phase(body: dict[str, Any]) -> str:
 
 # The one phase that CHOOSES a board (skill_catalog.PHASE_BY_SKILL["upy-select-hw-plugin"]).
 _SELECT_HW_PHASE = "select-hw"
+# The phase that puts the code on the board. Its token is the plugin id, unlike select-hw.
+_DEPLOY_PHASE = "upy-deploy-plugin"
 
 
 def _phase_data_injection(body: dict[str, Any]) -> str:
@@ -150,8 +152,202 @@ def _phase_data_injection(body: dict[str, Any]) -> str:
         "\n\n--- RESOLVED DATA (server-provided; do not re-fetch) ---\n"
         f"Board profile:\n{json.dumps(board, ensure_ascii=False, sort_keys=True)}\n\n"
         f"{_R()._board_candidates_injection(manifest, body)}"
+        f"{_R()._select_hw_shape_injection(body)}"
+        f"{_R()._generate_shape_injection(body)}"
+        f"{_R()._deploy_shape_injection(body)}"
         f"Driver contexts:\n{json.dumps(contexts, ensure_ascii=False, sort_keys=True)}\n\n"
         f"Current manifest:\n{json.dumps(manifest, ensure_ascii=False, sort_keys=True)}\n"
+    )
+
+
+# The fields select_hw_manifest.py requires, as a skeleton rather than a filled example. Values
+# are type hints; a model given real values copies them, and a copied board id is the exact
+# failure ("invented a board") this phase already had once.
+_SELECT_HW_PAYLOAD_SHAPE = {
+    "payload": {
+        "phase": "select-hw",
+        "result": "success | partial",
+        "summary": "<one line>",
+        "errors": [],
+        "warnings": [],
+        "structured_errors": [],
+        "runtime_context": {
+            "artifact_root_mode": "cwd | session_root",
+            "artifact_root": "<path>",
+            "session_root": "sessions/<session_id> (relative)",
+            "resource_root": "<path>",
+        },
+        "artifacts": [{"files": [{"path": "<relative path>"}]}],
+        "manifest_content": {
+            "selected_board": {"id": "<board id from Board profile>", "display_name": "<str>", "firmware": {}},
+            "hardware_plan": {
+                "mcu": {"model": "<str>", "display_name": "<str>", "board_id": "<str>", "chip_family": "<str>"},
+                "pinout": [],
+                "pin_decisions": [{
+                    "device": "<str>", "pin_name": "<str>", "assigned_gpio": "<int|str>",
+                    "decision_type": "<str>",
+                    "source": "board_default | auto_assigned | user_wiring | onboard_peripheral | fixed_power",
+                    # An OBJECT, not a sentence: it must carry path or note.
+                    "evidence": {"path": "<file or board profile field>", "note": "<why this pin>"},
+                    "requires_user_review": False,
+                }],
+                "pin_review": {},
+                "bom": [{"name": "<str>", "model": "<str>", "quantity": "<number>", "unit_price_yuan": "<number>"}],
+            },
+        },
+    }
+}
+
+
+# Read from check_phase_complete_consistency.py rather than from the plugin's sample files:
+# REQUIRED_OPTIONAL_PHASES, GIT_PERMISSION_TYPES, the checkpoint literal, the file_manifest roles
+# and the two artifact types are all constants in that script.
+_GENERATE_PAYLOAD_SHAPE = {
+    "payload": {
+        "phase": "upy-generate-plugin",
+        "result": "success",
+        "summary": "<one line>",
+        "checkpoint": "phase_completed",
+        "next_phase": "upy-deploy-plugin",
+        "optional_next_phases": ["upy-diagram-plugin", "upy-wiring-plugin"],
+        # One reference, not a copy. The gate results run to tens of thousands of characters;
+        # all three sections must name the SAME file, produced by
+        # run_quality_gates.py --project-dir <p> --session-dir <s> --output-json <that file>.
+        "lint": {"results_path": "quality_gates_result.json"},
+        "tests": {"results_path": "quality_gates_result.json"},
+        "checks": {"results_path": "quality_gates_result.json"},
+        "generate": {"git": {"commit": "<40-char sha from git rev-parse HEAD>", "commit_role": "code_commit"}},
+        "permissions": [{"type": "git_commit", "approved": True}],
+        "artifacts": [
+            {"type": "file_manifest", "path": "file_manifest.json"},
+            {"type": "session_state", "path": "<session-dir>/session_state.upy_generate_plugin.json"},
+        ],
+        "file_manifest": {"files": [
+            {"path": "project-manifest.json", "role": "manifest"},
+            {"path": "generate_plan.json", "role": "plan"},
+            {"path": "session_state.upy_generate_plugin.json", "role": "artifact"},
+        ]},
+        "manifest_content": "<project-manifest.json from disk, verbatim, with phase=generate>",
+    }
+}
+
+# The order matters more than any single field: each step invalidates what came before it, so
+# a payload assembled early is stale by the time it is checked. Measured: runs lose 5-12 turns
+# to re-recording a hash after a later commit, and one died in a three-round mismatch loop.
+_GENERATE_FINALIZE_ORDER = (
+    "1. finish every file edit (firmware, tests, generate_plan.json, project-manifest.json)\n"
+    "2. git add <paths> && git commit -m \"...\"   then   git rev-parse HEAD\n"
+    "3. update_session_state.py --session-dir <S> --project-dir <P> --checkpoint phase_completed "
+    "--status completed --git-commit <sha> --artifacts-json '[{\"type\":\"project_manifest\",...},"
+    "{\"type\":\"generate_plan\",...}]'\n"
+    "4. run_quality_gates.py --project-dir <P> --session-dir <S> --output-json quality_gates_result.json\n"
+    "   (LAST, so the file it writes matches the state on disk after the commit)\n"
+    "5. write phase_complete, then check_phase_complete_consistency.py\n"
+    "Use the IDENTICAL --session-dir string in every command; a different one writes state the "
+    "checker will not read, and the mismatch cannot be fixed by editing the payload."
+)
+
+
+def _generate_shape_injection(body: dict[str, Any]) -> str:
+    """The 'Required phase_complete shape' + finalize order, at generate only."""
+    if _phase(body) != "upy-generate-plugin":
+        return ""
+    return (
+        "Required phase_complete shape (keys, types and the literal values the checker demands; "
+        "fill the rest from disk, git and the scripts named below):\n"
+        f"{json.dumps(_GENERATE_PAYLOAD_SHAPE, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"Finalize in this order:\n{_GENERATE_FINALIZE_ORDER}\n\n"
+    )
+
+
+# Read from deploy_manifest.py validate_phase_complete, not from the plugin sample:
+# SUCCESS_REQUIRED_ARTIFACT_BASENAMES, SUCCESS_REQUIRED_ARTIFACT_KEYWORDS, the deploy_result
+# status vocabulary and the final_reset requirements are all constants in that script.
+#
+# The envelope is in the skeleton on purpose. The checker asserts three separate things about it
+# -- type == "phase_complete", phase == the deploy phase, AND payload.phase == the deploy phase --
+# and a measured run emitted a payload with NO payload.phase at all, which fails two of the three
+# before any deploy evidence is even looked at.
+_DEPLOY_PAYLOAD_SHAPE = {
+    "type": "phase_complete",
+    "phase": "upy-deploy-plugin",
+    "payload": {
+        "phase": "upy-deploy-plugin",
+        "result": "success | partial | failed",
+        "summary": "<one line>",
+        "structured_errors": [],
+        # VERBATIM from scripts/deploy_result.py (also written by --output-json deploy_result.json).
+        # Never hand-composed: a written-by-hand deploy_result validates exactly like a real one.
+        "deploy_result": {
+            "status": "PASS | PASS_WITH_WARNINGS | FAIL | PARTIAL | NEEDS_USER_CONFIRMATION",
+            "strategy": "<the --strategy value passed to deploy_result.py>",
+            "final_reset": {
+                "status": "success",
+                "reset_first": True,
+                "observed_soft_reboot": True,
+                "output_excerpt": "<the boot lines the capture recorded, incl. MPYHW_READY>",
+            },
+        },
+        "artifacts": [
+            {"path": "deploy_result.json"},
+            {"path": "upload_summary.json"},
+            {"path": "clean_result.json"},
+            {"path": "mip_install_result.json"},
+            {"path": "device_tests_result.json"},
+            {"path": "serial_capture.json"},
+            {"path": "final_reset_capture.json"},
+            {"path": "device_log_report.json"},
+        ],
+        "manifest_content": "<project-manifest.json from disk, verbatim, with phase=upy-deploy-plugin "
+                            "and a deploy section summarizing deploy_result (status, strategy, port)>",
+    },
+}
+
+# Order, because the final reset ends the phase: after it runs, the loop REFUSES every device
+# call, so any evidence file not yet written can no longer be produced. Measured: an upload ran
+# without --output-json, the reset ran correctly, and the four attempts to re-run the upload for
+# its missing summary were all refused -- so the model hand-wrote upload_summary.json and
+# deploy_result.py graded the forgery PASS.
+_DEPLOY_FINALIZE_ORDER = (
+    "1. every device step writes its own evidence AS IT RUNS: pass --output-json to the clean, "
+    "the mip install, the upload and the device tests. An upload without "
+    "--output-json upload_summary.json is refused, because it is the only step that can write it.\n"
+    "2. capture_repl.py --reset-first --output-json final_reset_capture.json   (LAST device call)\n"
+    "3. deploy_result.py --upload-json ... --clean-json ... --serial-json ... --final-reset-json ... "
+    "--log-report-json ... --device-tests-json ... --output-json deploy_result.json\n"
+    "4. write phase_complete embedding that deploy_result verbatim, then deploy_manifest.py "
+    "--validate-phase-complete\n"
+    "After step 2 nothing may touch the board again: no fs ls, no resume exec, no second capture. "
+    "To check what was uploaded read upload_summary.json. If an evidence file is missing and only "
+    "a device call could produce it, report result=partial naming the missing artifact -- never "
+    "write an evidence file yourself."
+)
+
+
+def _deploy_shape_injection(body: dict[str, Any]) -> str:
+    """The 'Required phase_complete shape' + finalize order, at deploy only."""
+    if _phase(body) != _DEPLOY_PHASE:
+        return ""
+    return (
+        "Required phase_complete shape (keys, types and the literal values the checker demands; "
+        "the envelope type/phase and payload.phase are all checked separately, so emit all three):\n"
+        f"{json.dumps(_DEPLOY_PAYLOAD_SHAPE, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"Finalize in this order:\n{_DEPLOY_FINALIZE_ORDER}\n\n"
+    )
+
+
+def _select_hw_shape_injection(body: dict[str, Any]) -> str:
+    """The 'Required phase_complete shape:' label, at select-hw only.
+
+    Every other phase has its own contract and would only be confused by this one; and the cost
+    is only justified where the tax was measured.
+    """
+    if _phase(body) != _SELECT_HW_PHASE:
+        return ""
+    return (
+        "Required phase_complete shape (keys and types; fill from Board profile and the intent, "
+        "do not read the plugin sample files, they are not reachable from the project):\n"
+        f"{json.dumps(_SELECT_HW_PAYLOAD_SHAPE, ensure_ascii=False, sort_keys=True)}\n\n"
     )
 
 

@@ -1393,3 +1393,169 @@ def test_maixpy_unmapped_vision_task_refuses_to_substitute_the_yolo_references(c
     assert "### UNAVAILABLE" in block
     assert any("no reference row" in r.getMessage() for r in caplog.records), \
         "an unmapped vision task must be operator-visible, not a silent YOLO substitution"
+
+
+def test_select_hw_prompt_carries_the_payload_shape():
+    """Measured across 30 archived runs: every select-hw phase rediscovers the same required
+    fields one validator verdict at a time. hardware_plan.mcu.model failed in 29 of them,
+    payload.phase in 28, pin_decisions[0].evidence in 27, hardware_plan.pinout in 21. The shape
+    is written down in the plugin's own sample, and SKILL.md points the model at it -- a
+    plugin-resource path file_operation cannot reach, so the read fails and the model guesses.
+    """
+    from app import prompt_assembly
+
+    manifest = {"phase": "analyze", "requirements": {"description": "blink the onboard led"}, "devices": [{"id": "d1"}]}
+    body = {"phase": "select-hw", "manifest": manifest, "messages": []}
+    injected = prompt_assembly._select_hw_shape_injection(body)
+
+    assert injected, "select-hw must be handed the payload shape"
+    for field in (
+        "model", "display_name", "evidence", "pinout", "pin_decisions",
+        "structured_errors", "session_root", "resource_root", "artifacts",
+    ):
+        assert field in injected, f"{field} is one of the measured failures and must be named"
+    # A skeleton, not a filled example: a model handed a real board id copies it, and an
+    # invented board id is the exact failure this phase already had once.
+    assert "rpi-pico2" not in injected and "esp32" not in injected.lower()
+
+    # Only select-hw pays for it; every other phase has a different contract.
+    for other in ("analyze", "upy-generate-plugin", "upy-deploy-plugin"):
+        assert prompt_assembly._select_hw_shape_injection({"phase": other, "manifest": manifest, "messages": []}) == ""
+
+
+def test_generate_prompt_carries_the_payload_shape_and_order():
+    """Generate's cost is not the code. Successful archived runs spend a median of 31 turns after
+    the first all-green run_quality_gates, and 15 of 17 logged generate stalls died on payload
+    ceremony rather than on code: write payload, run the checker, receive 8-24 structured errors
+    that are all static contract facts, fix one layer, repeat. select-hw went from a median of 24
+    calls to 14 when the same facts were injected instead of discovered.
+
+    The literal values here are the checker's own constants (check_phase_complete_consistency.py:
+    REQUIRED_OPTIONAL_PHASES, GIT_PERMISSION_TYPES, the checkpoint literal, the file_manifest
+    roles). If the checker changes one, this test should fail rather than the next hardware run.
+    """
+    import json
+    import re
+
+    from app import prompt_assembly
+
+    body = {"phase": "upy-generate-plugin", "manifest": {"phase": "scaffold", "devices": [{"id": "d1"}]}, "messages": []}
+    injected = prompt_assembly._generate_shape_injection(body)
+    assert injected, "generate must be handed the payload shape"
+
+    payload = json.loads(re.search(r"\{.*?\}\n\nFinalize", injected, re.S).group(0).rsplit("\n\nFinalize", 1)[0])["payload"]
+    assert payload["checkpoint"] == "phase_completed"
+    assert set(payload["optional_next_phases"]) == {"upy-diagram-plugin", "upy-wiring-plugin"}
+    # One file for all three sections: separate files can disagree about the same gate.
+    assert payload["lint"]["results_path"] == payload["tests"]["results_path"] == payload["checks"]["results_path"]
+    assert payload["generate"]["git"]["commit_role"] == "code_commit"
+    assert payload["permissions"][0] == {"type": "git_commit", "approved": True}
+    assert {a["type"] for a in payload["artifacts"]} == {"file_manifest", "session_state"}
+    assert {f["role"] for f in payload["file_manifest"]["files"]} == {"manifest", "plan", "artifact"}
+
+    # The order is the other half: each step invalidates what came before, and a payload
+    # assembled early is stale when checked. One run died in a three-round mismatch loop.
+    assert "Finalize in this order" in injected
+    assert "IDENTICAL --session-dir" in injected
+    # Scoped to the ORDER block. Comparing against the whole injection was meaningless: the
+    # skeleton itself mentions `git rev-parse HEAD` inside the commit field, so the assertion
+    # compared a JSON type hint with a step and passed however the steps were arranged -- a
+    # mutation that moved the gates refresh ahead of the commit went undetected.
+    order = injected[injected.index("Finalize in this order"):]
+    assert order.index("git rev-parse HEAD") < order.index("run_quality_gates.py"), (
+        "the gates file must be refreshed AFTER the commit, or its snapshot is stale on arrival"
+    )
+    assert order.index("update_session_state.py") < order.index("run_quality_gates.py")
+    assert order.index("run_quality_gates.py") < order.index("check_phase_complete_consistency.py")
+
+    # Only generate pays for it.
+    for other in ("analyze", "select-hw", "upy-deploy-plugin"):
+        assert prompt_assembly._generate_shape_injection({**body, "phase": other}) == ""
+
+
+def test_deploy_is_handed_the_phase_complete_shape_and_the_finalize_order():
+    """Deploy gets the same skeleton treatment that took generate's first check to zero errors.
+
+    Measured: a full six-phase run reached deploy, uploaded correctly and left the board running
+    (MPY: soft reboot, MPYHW_READY), and still failed its phase_complete -- payload.phase was
+    absent entirely. deploy_manifest.py asserts type, phase and payload.phase separately, so a
+    missing payload.phase fails two checks before any deploy evidence is read.
+    """
+    import json
+    import re
+
+    from app import prompt_assembly
+
+    body = {"phase": "upy-deploy-plugin", "manifest": {"phase": "generate", "devices": [{"id": "d1"}]}, "messages": []}
+    injected = prompt_assembly._deploy_shape_injection(body)
+    assert injected, "deploy must be handed the payload shape"
+
+    shape = json.loads(re.search(r"\{.*?\}\n\nFinalize", injected, re.S).group(0).rsplit("\n\nFinalize", 1)[0])
+    # The envelope, because that is what the measured run got wrong. All three are separate
+    # assertions inside deploy_manifest.py, so all three must appear in the skeleton.
+    assert shape["type"] == "phase_complete"
+    assert shape["phase"] == "upy-deploy-plugin"
+    assert shape["payload"]["phase"] == "upy-deploy-plugin"
+
+    payload = shape["payload"]
+    reset = payload["deploy_result"]["final_reset"]
+    assert reset["reset_first"] is True
+    # reset_first only records that Ctrl-D was ASKED for; this records that it happened.
+    assert reset["observed_soft_reboot"] is True
+    basenames = {a["path"] for a in payload["artifacts"]}
+    assert {"deploy_result.json", "upload_summary.json", "clean_result.json",
+            "mip_install_result.json", "device_tests_result.json"} <= basenames
+
+    order = injected[injected.index("Finalize in this order"):]
+    assert order.index("--output-json upload_summary.json") < order.index("capture_repl.py"), (
+        "evidence must be written before the reset; afterwards no device call is permitted"
+    )
+    assert order.index("capture_repl.py") < order.index("deploy_result.py")
+    assert "never write an evidence file yourself" in order
+
+    for other in ("analyze", "select-hw", "upy-generate-plugin"):
+        assert prompt_assembly._deploy_shape_injection({**body, "phase": other}) == ""
+
+
+def test_the_injected_deploy_skeleton_satisfies_the_real_deploy_checker():
+    """The skeleton must pass the gate it exists to satisfy.
+
+    Twice now an example shipped that could not satisfy its own validator (a deploy_plan naming
+    the wrong entry points, a credential_management missing `status`). An example that fails its
+    own gate is worse than none: the model copies it and inherits the failure.
+    """
+    import json
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    from app import prompt_assembly
+
+    checker = (Path(__file__).resolve().parents[2]
+               / "third_party/MicroPython_Skills/upy-deploy-plugin/scripts/deploy_manifest.py")
+    if not checker.is_file():
+        import pytest
+        pytest.skip(f"deploy_manifest.py not present at {checker}")
+
+    shape = json.loads(json.dumps(prompt_assembly._DEPLOY_PAYLOAD_SHAPE))
+    payload = shape["payload"]
+    # Fill only the placeholders a real run fills; every literal the checker asserts on is left
+    # exactly as the model receives it.
+    payload["result"] = "success"
+    payload["summary"] = "deployed"
+    payload["deploy_result"]["status"] = "PASS"
+    payload["deploy_result"]["strategy"] = "upload_only"
+    payload["manifest_content"] = {"phase": "upy-deploy-plugin", "deploy": {"status": "PASS"}}
+    payload["artifacts"] = payload["artifacts"] + [{"path": "device_log_report.json"}]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "phase_complete.json"
+        target.write_text(json.dumps(shape), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(checker), "--validate-phase-complete", "--input", str(target)],
+            capture_output=True, text=True, timeout=120, cwd=tmp,
+        )
+        verdict = json.loads(proc.stdout)
+
+    assert verdict["errors"] == [], f"the injected skeleton fails the real checker: {verdict['errors']}"

@@ -1,4 +1,7 @@
 .env
+# Provider switching leaves .env.bak.<provider> files beside it, each carrying a live API key.
+# Only ".env" was ignored, so those backups were untracked but stageable.
+.env.bak*
 __pycache__/
 *.pyc
 *.db

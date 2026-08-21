@@ -25,7 +25,8 @@ from app.tool_registry import LLM_TOOL_NAMES  # noqa: F401 - re-exported: tests 
 from app.prompt_assembly import (  # noqa: F401
     _BOARDS_DIR, _CONTEXT_BOARD_ID_RE, _SKILL_BOARDS_DIR, _V0_PHASE_NOTES_DIR,
     BoardLibraryUnreadable, SLIM_V0_ADAPTER,
-    _board_candidate_profiles, _board_candidates_injection,
+    _board_candidate_profiles, _board_candidates_injection, _select_hw_shape_injection, _generate_shape_injection,
+    _deploy_shape_injection,
     _candidate_board_ids, _clip_context_value, _context_injection,
     _deepseek_messages, _first_user_text, _host_capabilities_note,
     _language_directive, _load_board_profile, _official_only_board_profile,
