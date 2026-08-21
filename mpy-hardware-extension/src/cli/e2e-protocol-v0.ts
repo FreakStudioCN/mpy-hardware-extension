@@ -465,7 +465,14 @@ const deployResult = phases.find((p) => p.phase === "upy-deploy-plugin")?.result
 function uploadedFromSummary(summary: any): string[] | null {
   const listed = summary?.uploaded_files ?? summary?.files;
   if (Array.isArray(listed)) {
-    return listed.map((f: any) => String(f?.target ?? f?.remote ?? f?.path ?? f)).filter(Boolean);
+    // Basename here too, not only on the command path below. A summary that lists HOST paths
+    // ("firmware/main.py", which is what `cp -r firmware/... :` uploads) never matched the
+    // device name, so a deploy that had genuinely uploaded main.py was reported as "NO main.py".
+    return listed
+      .map((f: any) => String(f?.target ?? f?.remote ?? f?.path ?? f))
+      .filter(Boolean)
+      .map((f: string) => f.replace(/^:/, "").split("/").pop() ?? f)
+      .filter(Boolean);
   }
   // `mpremote ... resume cp -r <src>... :` -- every argument between `cp` and the `:` target.
   const argv = Array.isArray(summary?.command) ? summary.command.map(String) : [];
@@ -520,7 +527,18 @@ try {
   const reportPath = await findArtifact(projectDir, "deploy_result.json");
   if (!reportPath) throw new Error("no deploy_result.json anywhere under the project");
   const report = JSON.parse(await fsReadFile(reportPath, "utf-8"));
-  const lines = String(report.serial_excerpt ?? "").split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
+  // BOTH captures, not just the serial one. The final reset is by contract the LAST device
+  // operation, so a deploy that runs one capture puts its only proof in final_reset_excerpt and
+  // leaves serial_excerpt empty -- and two runs were then reported as "firmware ran: NOT
+  // OBSERVED" while their final reset held "MPY: soft reboot" and the boot line. The better the
+  // deploy contract gets at making the reset the single capture, the more often reading only
+  // serial_excerpt is wrong.
+  const captured = [report.serial_excerpt, report.final_reset_excerpt,
+                    report.final_reset?.output_excerpt, report.final_reset?.output]
+    .map((v: unknown) => (typeof v === "string" ? v : ""))
+    .filter(Boolean)
+    .join("\n");
+  const lines = captured.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
   const rebootAt = lines.findIndex((l: string) => l.includes("soft reboot"));
   const fromFirmware = lines.slice(rebootAt + 1).filter((l: string) => !MPREMOTE_BANNER.test(l));
   firmwareRan = fromFirmware.length ? fromFirmware[0].slice(0, 70) : null;
