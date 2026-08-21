@@ -2966,6 +2966,124 @@ test("a device call after the final reset is refused, and told to read the file 
   assert.ok(told, "the refusal must name the file that answers the question it was asking");
 });
 
+test("an upload that writes no evidence file is refused while re-running it is still legal", async () => {
+  // Measured on hardware: the upload ran clean WITHOUT --output-json, so no upload_summary.json
+  // existed. The final reset then ran correctly (board booted, printed MPYHW_READY). From that
+  // point the only step that could produce the missing artifact was the upload itself, and the
+  // post-reset guard refused it four times, so the model hand-wrote upload_summary.json and
+  // deploy_result.py graded the forgery PASS. Refusing at upload time is what prevents the debt.
+  const uploads: string[] = [];
+  const events: any[] = [];
+  const observations: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("u", "script_run", { interpreter: "python", script: "scripts/mpremote_runtime.py", args: ["--run", "--port", "P", "--", "resume", "fs", "cp", "-r", "firmware/main.py", ":"] }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => { events.push(e); if (e.type === "tool_result") observations.push(e.observation); } },
+    {
+      llmClient: llm,
+      runScript: async (req: any) => { uploads.push(String(req?.script ?? "")); return { ok: true, exit_code: 0, stdout: "{}" }; },
+    } as any,
+  );
+
+  assert.equal(uploads.length, 0, "the evidence-less upload must not execute");
+  assert.ok(events.some((e) => e.type === "upload_without_evidence"), "the refusal must be visible in the event stream");
+  const told = observations.map((o: any) => String(o?.detail ?? "")).find((d: string) => d.includes("--output-json upload_summary.json"));
+  assert.ok(told, "the refusal must name the exact flag to add");
+});
+
+test("an upload that already writes its evidence file runs untouched", async () => {
+  // The guard must fire on the missing flag only. Refusing a correct upload would block deploy.
+  const uploads: string[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("u", "script_run", { interpreter: "python", script: "scripts/mpremote_runtime.py", args: ["--run", "--port", "P", "--output-json", "upload_summary.json", "--", "resume", "fs", "cp", "-r", "firmware/main.py", ":"] }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 4 },
+    {
+      llmClient: llm,
+      runScript: async (req: any) => { uploads.push(String(req?.script ?? "")); return { ok: true, exit_code: 0, stdout: "{}" }; },
+    } as any,
+  );
+
+  assert.equal(uploads.length, 1, "a correct upload must still execute");
+});
+
+test("a non-upload mpremote call without --output-json is not refused", async () => {
+  // Only `fs cp` produces the upload summary deploy grades. mkdir/ls/rm probes write no summary,
+  // and refusing them would break the directory setup the upload itself depends on.
+  const calls: string[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("m", "script_run", { interpreter: "python", script: "scripts/mpremote_runtime.py", args: ["--run", "--port", "P", "--", "resume", "fs", "mkdir", ":lib"] }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 4 },
+    {
+      llmClient: llm,
+      runScript: async (req: any) => { calls.push(String(req?.script ?? "")); return { ok: true, exit_code: 0, stdout: "{}" }; },
+    } as any,
+  );
+
+  assert.equal(calls.length, 1, "mkdir must not be caught by the upload-evidence guard");
+});
+
+test("the post-reset refusal forbids fabricating the artifact and names partial instead", async () => {
+  // The dead end this closes: with the artifact unobtainable, the model's remaining options are
+  // an honest partial or a hand-written evidence file. It chose the forgery, and deploy_result.py
+  // cannot tell the difference, so the refusal has to name the honest exit explicitly.
+  const observations: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("f", "script_run", { interpreter: "python", script: "scripts/capture_repl.py", args: ["--reset-first", "--output-json", "final_reset_capture.json"] }), stop]
+        : turn === 2
+          ? [tu("l", "device_command", { action: "ls", path: "/" }), stop]
+          : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => { if (e.type === "tool_result") observations.push(e.observation); } },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY"}' }),
+      device: async () => ({ ok: true, entries: [] }),
+    } as any,
+  );
+
+  const detail = observations.map((o: any) => String(o?.detail ?? "")).find((d: string) => d.includes("REFUSED: the final reset"));
+  assert.ok(detail, "the post-reset refusal must still fire");
+  assert.match(detail!, /result=partial/, "it must name the honest exit");
+  assert.match(detail!, /Do NOT write it yourself/, "it must forbid fabricating the evidence file");
+});
+
 test("device calls BEFORE the final reset are untouched", async () => {
   // The guard must not break deploy's actual work: uploads, cleans and captures all touch the
   // board, and all of them happen before the reset that ends the phase.
@@ -3776,4 +3894,56 @@ test("the unchanged-entry nudge speaks once per phase and never offers the exit"
   assert.ok(nudge, "the nudge must still be delivered");
   assert.doesNotMatch(nudge, /result=partial/i, "a mid-convergence nudge must not offer the give-up exit");
   assert.match(nudge, /run that script and use its output/i, "it must name the next action instead");
+});
+
+test("a refused phase_complete is never announced as one", async () => {
+  // It was emitted inside executeProtocolTool, BEFORE the gate check that refuses it, so every
+  // consumer recorded a refused claim as a real completion: the harness printed
+  // "phase_complete: success", counted the phase as succeeded, and snapshotted a checkpoint --
+  // which is itself a valid resume point into the NEXT phase carrying a payload the gate had
+  // rejected. Measured on a run whose summary read "generate (success): true" while it stalled
+  // at its turn cap.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: { phase: "generate" } }), stop]
+        : [tu("g", "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: (e: any) => events.push(e) },
+    // A strict gate that never reports a pass: the success claim must be refused.
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 2, stdout: '{"ok":false,"errors":[{"code":"STILL_BROKEN","message":"not yet"}]}' }) } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "phase_complete_refused"), "the refusal must be recorded");
+  assert.ok(!events.some((e) => e.type === "phase_complete"), "a refused claim must not be announced as a completion");
+  assert.ok(!events.some((e) => e.type === "manifest_updated"), "nor may its manifest be published");
+});
+
+test("an accepted phase_complete is still announced with its payload", async () => {
+  // The other half: moving the emission must not lose it. A consumer needs the payload and the
+  // manifest at the moment the phase really finishes.
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      yield tu("p", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: { phase: "deploy" } });
+      yield stop;
+    })(),
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm } as any,
+  );
+
+  const announced = events.find((e) => e.type === "phase_complete");
+  assert.ok(announced, "an accepted completion must still be announced");
+  assert.equal(announced.payload?.summary, "deployed", "with its payload intact");
+  assert.ok(events.some((e) => e.type === "manifest_updated"), "and its manifest published");
 });

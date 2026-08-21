@@ -26,7 +26,15 @@ const MAX_TURNS_PER_PHASE = 60;
 // budget and used 71 to 81 calls. So 60 is below what the phase costs, and no amount of gate
 // clarity buys that back.
 const MAX_TURNS_BY_PHASE: Record<string, number> = {
-  "upy-generate-plugin": 80,
+  // 80 -> 100. Measured across every archived generate: the phase converges but keeps running
+  // out inside the closing payload ceremony rather than on the code. Four runs died within one
+  // or two errors of a pass -- 2 left at the cap, 1 left, 1 left, and 2 left with the error set
+  // still shrinking (17 -> 4 -> 3 -> 2) on the last of them. Successful cold runs historically
+  // finished in 43 to 75, so this does not license a slower phase; it covers the tail where a
+  // run has already done the work and needs a few more turns to record it.
+  // Headroom, not a fix: the real cost is ~30 turns of ceremony after the code is green, and
+  // that belongs to the payload contract, not to the budget.
+  "upy-generate-plugin": 100,
   // Deploy, same story and the same evidence. Every deploy that COMPLETED used 39, 58, 70 or 80
   // calls; all three that stalled used exactly 60, which is the cap rather than a coincidence.
   // Headroom, not a cure: the runs that overran spent their extra calls recovering from a
@@ -367,6 +375,24 @@ function isFinalResetCapture(tu: StreamEvent): boolean {
   return args.includes("final_reset");
 }
 
+// An upload that writes no evidence file. deploy_result.py requires upload_summary.json, and the
+// ONLY way to produce it is the upload itself, so an upload without the flag creates a debt that
+// can only be paid by touching the device again. Measured: a run uploaded cleanly with no
+// --output-json, ran its final reset (correctly, board booted and printed MPYHW_READY), then tried
+// four times to re-run the same upload purely to emit the artifact. Every attempt was refused as a
+// post-reset device call, so the model hand-wrote upload_summary.json instead and deploy_result.py
+// graded the forgery PASS. Refusing HERE, while the call is still legal, is what stops that: the
+// mistake and its correction are one turn apart, and no evidence debt survives the final reset.
+function isUploadMissingEvidence(tu: StreamEvent): boolean {
+  const script = String((tu.input as any)?.script ?? "");
+  if (tu.name !== "script_run" || !script.endsWith("mpremote_runtime.py")) return false;
+  const args = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String);
+  const joined = args.join(" ");
+  // Only the upload verb. mkdir/ls/rm probes write no summary and are not what deploy grades.
+  if (!/\bfs\b.*\bcp\b/.test(joined)) return false;
+  return !args.some((arg: string) => arg === "--output-json" || arg === "--out-json");
+}
+
 type PhaseFailure = { tool: string; error: string; path?: string; turn: number };
 
 // --- Loop detection ---------------------------------------------------------
@@ -418,7 +444,13 @@ const MAX_UNCHANGED_ENTRY_FAILURES = 3;
 // Not the real fix -- a payload that must carry 35KB of copied JSON is the actual defect, and
 // that is the plugin's contract to change (deploy already passes evidence by FILE PATH rather
 // than by value). This removes our half: the ceiling we were leaving on the table.
-const MAX_OUTPUT_TOKENS = 32_000;
+// Overridable for exactly one question: whether the raise is what made the phase more
+// expensive. Cold runs used to pass generate in 43-75 turns and now use 76-80, and a larger
+// output allowance plausibly means larger rewrites to re-verify. The reference form removed the
+// reason the raise existed (a 34,770-char verbatim copy), so 8192 may be sufficient again --
+// but one archived PASS carried a 33,614-char payload, which 8192 cannot emit, so the default
+// stays until a run says otherwise.
+const MAX_OUTPUT_TOKENS = Number(process.env.MPYHW_MAX_OUTPUT_TOKENS) || 32_000;
 // Enough of one reported problem to tell it from the next, short enough that a phase cannot
 // accumulate megabytes of keys.
 const ENTRY_IDENTITY_BUDGET = 300;
@@ -760,6 +792,23 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // issued `device_command ls` to double-check the upload -- five times in one run -- and
       // every one of those opened the raw REPL and stopped main.py. The phase then reported
       // success over an idle board. The check it wants is a file read, not a device call.
+      // Refused BEFORE the final reset, while re-running the upload is still legal, so the
+      // evidence debt can never outlive the reset. See isUploadMissingEvidence.
+      if (!finalResetDone && isUploadMissingEvidence(tu)) {
+        input.onEvent?.({ type: "upload_without_evidence", phase, tool: tu.name, turn });
+        const refusal = {
+          ok: false,
+          error_kind: "upload_without_evidence",
+          detail:
+            "REFUSED: this upload writes no evidence file, and it is the only step that can produce one. " +
+            "Re-issue the SAME command with --output-json upload_summary.json added. deploy_result.py " +
+            "--upload-json requires that file, and after the final reset runs no device call is permitted, " +
+            "so an upload without it leaves the phase owing evidence it can no longer legally obtain.",
+        };
+        input.onEvent?.({ type: "tool_result", name: tu.name, observation: refusal });
+        toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(refusal) });
+        continue;
+      }
       if (finalResetDone && touchesDevice(tu)) {
         input.onEvent?.({ type: "device_after_final_reset", phase, tool: tu.name, turn });
         const refusal = {
@@ -770,7 +819,11 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
             "Opening the REPL again stops the app that reset just started, and nothing restarts it, so the " +
             "board would end the phase idle with deploy reporting success. To confirm what was uploaded, read " +
             "upload_summary.json; for what the board printed, read the capture artifacts. Both are files, " +
-            "and reading a file does not touch the device.",
+            "and reading a file does not touch the device. If an evidence file is genuinely MISSING and only " +
+            "a device call could produce it, that evidence is unobtainable in this phase: report " +
+            "result=partial with a structured error naming the missing artifact. Do NOT write it yourself. " +
+            "A hand-written evidence file is graded as if a script produced it, so fabricating one turns a " +
+            "recoverable partial into a false success.",
         };
         input.onEvent?.({ type: "tool_result", name: tu.name, observation: refusal });
         toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(refusal) });
@@ -898,6 +951,10 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
             }],
           });
         } else {
+          // Announced HERE, once the claim has survived the gate: this is the only point at
+          // which a phase_complete is a fact rather than an assertion.
+          input.onEvent?.({ type: "phase_complete", payload: phaseControl.payload });
+          if (phaseControl.manifest) input.onEvent?.({ type: "manifest_updated", manifest: phaseControl.manifest });
           control = phaseControl;
         }
       }
@@ -1420,9 +1477,15 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
         },
       };
     }
-    input.onEvent?.({ type: "phase_complete", payload: p });
-    if (p.manifest_content) input.onEvent?.({ type: "manifest_updated", manifest: p.manifest_content });
-    return { result: { ok: true }, phaseControl: { result: p.result, next_phase: p.next_phase, next_skill: p.next_skill, manifest: p.manifest_content } };
+    // NOT announced here. This runs before the gate check that may REFUSE the claim, and a
+    // refused success was still emitted as `phase_complete`, so every consumer recorded it as
+    // one: the harness printed "phase_complete: success", counted the phase as succeeded and
+    // snapshotted a checkpoint; the panel and the cloud recorder saw the same. Measured on a
+    // run that stalled at its turn cap while its summary read "generate (success): true", and
+    // the checkpoint it wrote is a valid resume point into the NEXT phase carrying a payload
+    // the gate had refused. The payload rides on phaseControl and is announced by runPhase
+    // once the claim survives.
+    return { result: { ok: true }, phaseControl: { result: p.result, next_phase: p.next_phase, next_skill: p.next_skill, manifest: p.manifest_content, payload: p } };
   }
 
   if (route === "ui") {
