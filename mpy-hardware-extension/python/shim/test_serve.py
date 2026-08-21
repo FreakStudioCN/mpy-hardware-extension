@@ -748,3 +748,58 @@ def test_run_v0_shell_still_takes_exactly_one_commit_message():
     assert serve._parse_v0_shell_command('git commit -m "one" "two"') is None
     assert serve._parse_v0_shell_command("git add") is None
     assert serve._parse_v0_shell_command('git add ""') is None
+
+
+def test_run_v0_allows_the_verification_modules_in_both_spellings():
+    # Measured across the archive: models reach for these between gate runs to check their own
+    # work, in three spellings, and every one was refused as script_not_found. One run spent
+    # three consecutive turns hunting for a spelling the shim would take and never found one.
+    for params in (
+        {"interpreter": "python", "script": "-m unittest", "args": ["discover", "-s", "test/pc"]},
+        {"interpreter": "shell", "script": "python -m unittest discover -s test/pc"},
+    ):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {**params, "project_dir": "/tmp/proj"})
+        assert res["status"] == "ok", (params, res)
+        assert record[-1]["cmd"][1:] == ["-B", "-m", "unittest", "discover", "-s", "test/pc"], record[-1]["cmd"]
+        assert record[-1]["kwargs"].get("shell") is None
+
+
+def test_run_v0_refuses_a_module_that_installs_or_serves():
+    # The allowance is verification only. pip, venv and http.server change the machine or open
+    # a port, and none of them is part of run_quality_gates.py.
+    for module in ("pip", "venv", "http.server", "ensurepip"):
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": f"-m {module}", "args": ["--help"], "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "error", module
+        assert res["error_kind"] == "python_module_not_allowed", (module, res)
+        # The refusal must name the way forward, not just say no.
+        assert "run_quality_gates.py" in res["message"], res["message"]
+        assert record == [], "a refused module must never be executed"
+
+
+def test_run_v0_module_leaves_no_bytecode_in_the_project():
+    """py_compile writes __pycache__ beside every file it checks. Measured on the first run with
+    the module route open: one py_compile call produced 13 PROJECT_PYTHON_CACHE_PRESENT errors at
+    the next quality gate and five more calls deleting the directories, in a phase that then ran
+    out of turns. This runs the REAL interpreter rather than the fake runner, because the defect
+    was a file on disk and only the filesystem can prove it is gone."""
+    with tempfile.TemporaryDirectory() as project:
+        source = pathlib.Path(project) / "sample_module.py"
+        source.write_text("VALUE = 1\n", encoding="utf-8")
+        shim = serve.Shim()
+        res = shim.run_v0_module("py_compile", [str(source)], cwd=project)
+        assert res.returncode == 0, (res.returncode, res.stderr)
+        caches = list(pathlib.Path(project).rglob("__pycache__")) + list(pathlib.Path(project).rglob("*.pyc"))
+        assert caches == [], f"a verification module must leave nothing behind, found {caches}"
+
+        # And it must still FAIL on a real syntax error, or it has stopped verifying anything.
+        broken = pathlib.Path(project) / "broken_module.py"
+        broken.write_text("def oops(:\n", encoding="utf-8")
+        assert shim.run_v0_module("py_compile", [str(broken)], cwd=project).returncode != 0

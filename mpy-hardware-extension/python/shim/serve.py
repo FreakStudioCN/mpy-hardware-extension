@@ -782,6 +782,30 @@ class Shim:
             return self.runner(cmd, timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL, **_subprocess_text_kwargs())
         return self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
 
+    def run_v0_module(self, module: str, args: list[str], cwd=None, stdin=None, timeout: float = 300):
+        # `python -m <module>` for the verification modules the phase is allowed to run
+        # directly. Same interpreter, same stdin discipline and same injectable runner as
+        # run_v0_python: only the target differs, so a module call cannot reach anything a
+        # script call could not.
+        # A verification module must leave the project exactly as it found it. Measured on the
+        # first run with this route open: one `py_compile` call produced 13
+        # PROJECT_PYTHON_CACHE_PRESENT errors at the next quality gate and five more calls
+        # deleting __pycache__, in a phase that then ran out of turns.
+        #
+        # -B alone does NOT fix it, which a filesystem-level test caught: -B suppresses the
+        # IMPLICIT caching done on import, while py_compile writes a .pyc as its entire purpose.
+        # PYTHONPYCACHEPREFIX is what redirects that write, so the bytecode lands in a temp tree
+        # instead of beside the sources, and py_compile still reports syntax errors normally.
+        cmd = [sys.executable, "-B", "-m", module, *args]
+        self.commands.append(cmd)
+        # Merged into the shared kwargs rather than passed alongside them: those already carry
+        # an `env` (PYTHONIOENCODING), and a second one is a TypeError, not an override.
+        kwargs = _subprocess_text_kwargs()
+        kwargs["env"] = {**kwargs["env"], "PYTHONPYCACHEPREFIX": tempfile.mkdtemp(prefix="mpyhw-pycache-")}
+        if stdin is None:
+            return self.runner(cmd, timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL, **kwargs)
+        return self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **kwargs)
+
     def run_v0_shell(self, command: str, cwd=None, stdin=None, timeout: float = 300):
         # V0 generate emits script_run(shell, 'git add -A && git commit -m "..."') and a few
         # other git forms. Do not pass that string to a host shell; execute each allowed argv
@@ -1504,6 +1528,31 @@ def _assert_project_root(base: str, args: list, cwd: str | None) -> list:
     return [*args, "--project-dir", cwd]
 
 
+# Modules the phase may run directly with `python -m`. Verification tools only: they read the
+# project and report, and every one of them is already part of run_quality_gates.py, so this
+# widens what the model can CHECK without widening what it can change.
+#
+# Measured: models reach for these between gate runs to check their own work, in three
+# spellings (`script="-m flake8"`, `script="-m unittest"` with args, and the shell form), and
+# every one was refused as script_not_found. One run spent three consecutive turns finding a
+# spelling the shim would take, and never did. Refusing costs turns and teaches nothing.
+#
+# Deliberately NOT here: pip, ensurepip, venv, http.server -- anything that installs, serves or
+# mutates. The refusal message names the allowed set and points at run_quality_gates.py.
+_ALLOWED_PYTHON_MODULES = frozenset({"py_compile", "compileall", "unittest", "flake8", "pylint", "json.tool"})
+
+
+def _module_run_target(script):
+    """The module in a `-m <module>` call, or None when this is an ordinary script call."""
+    tokens = str(script).strip().split()
+    if len(tokens) >= 2 and tokens[0] == "-m":
+        return tokens[1]
+    # The shell spelling arrives as a whole command: `python -m unittest discover -s test/pc`.
+    if len(tokens) >= 3 and os.path.basename(tokens[0]).startswith("python") and tokens[1] == "-m":
+        return tokens[2]
+    return None
+
+
 def _run_v0_script(shim, params):
     interpreter = params.get("interpreter", "python")
     script = params.get("script", "") or ""
@@ -1515,6 +1564,11 @@ def _run_v0_script(shim, params):
     if params.get("stdin_json") is not None:
         stdin_content = json.dumps(params["stdin_json"], ensure_ascii=False)
     timeout = float(params.get("timeout_ms", 300000)) / 1000.0
+    if interpreter == "shell" and _module_run_target(script) is not None:
+        # Same call, shell spelling. Route it to the module path rather than refusing it for
+        # not being one of the allowed git forms.
+        tokens = str(script).strip().split()
+        interpreter, script, args = "python", "-m " + tokens[2], [*tokens[3:], *args]
     if interpreter == "shell":
         cmd = script if not args else script + " " + " ".join(args)
         if _parse_v0_shell_command(cmd) is None:
@@ -1527,6 +1581,17 @@ def _run_v0_script(shim, params):
         # Fail fast: no node toolchain is assumed in the host shim. Don't fake success.
         return {"status": "error", "error_kind": "node_interpreter_unavailable",
                 "message": "node script_run is not supported by the host shim"}
+    module = _module_run_target(script)
+    if module is not None:
+        if module not in _ALLOWED_PYTHON_MODULES:
+            return {"status": "error", "error_kind": "python_module_not_allowed",
+                    "message": (
+                        f"python -m {module} is not permitted. Allowed modules: "
+                        f"{', '.join(sorted(_ALLOWED_PYTHON_MODULES))}. The full lint and test "
+                        "sweep is scripts/run_quality_gates.py, which runs all of them and emits "
+                        "the gate results the phase_complete payload needs."
+                    )}
+        return _v0_result(shim.run_v0_module(module, args, cwd=cwd, stdin=stdin_content, timeout=timeout))
     base = os.path.basename(str(script))
     # The active phase disambiguates a basename shared by >1 served plugin (e.g.
     # update_session_state.py in generate + gen-driver) without the model qualifying.
