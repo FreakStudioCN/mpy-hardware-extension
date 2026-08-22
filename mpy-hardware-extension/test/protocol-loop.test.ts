@@ -3034,6 +3034,382 @@ test("select-hw: a gate run reading hand-written evidence yields no verdict, so 
     "a gate verdict computed from the model's own file must not let the phase claim success");
 });
 
+test("select-hw: a validate-mode run cannot launder a hand-written file with --write-path", async () => {
+  // select_hw_manifest.py's --validate-phase-complete branch emits its verdict and returns before
+  // it reaches the writer, so --write-path there is accepted by argparse and silently ignored --
+  // verified against the script, which creates no file. Clearing the taint on argv alone let one
+  // extra flag defeat the blocker: hand-write the evidence, append --write-path to the passing
+  // validate call, and the taint was gone before the evidence check ran in the same turn.
+  const events: any[] = [];
+  const validated = "sessions/s/select_hw_validated.json";
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: validated, content: "{}" }), stop]
+        : turn === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: [...SELECT_HW_GATE_ARGS, validated, "--write-path", validated] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "phase_complete_refused"),
+    "a validate run writes nothing, so it must not re-establish the file as script-made");
+});
+
+test("select-hw: --help cannot launder a hand-written file either", async () => {
+  // The sibling of the --write-path case, and the one that made the first fix a symptom patch:
+  // `select_hw_manifest.py --help --write-path X` exits 0 and writes nothing (verified against the
+  // script), so keying the un-taint on argv alone let a --help probe clear the flag. Real runs do
+  // make --help probes, ten in one archived phase.
+  const events: any[] = [];
+  const validated = "sessions/s/select_hw_validated.json";
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: validated, content: "{}" }), stop]
+        : turn === 2
+          ? [tu("h", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: ["--help", "--write-path", validated] }), stop]
+          : turn === 3
+            ? [tu("g", "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: [...SELECT_HW_GATE_ARGS, validated] }), stop]
+            : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 7, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "phase_complete_refused"),
+    "a --help probe writes nothing and must not re-establish the file as script-made");
+});
+
+test("generate: stripping the reference after the gate passed does not save the success", async () => {
+  // The verdict is earned against the content the gate READ. Reading the file again at
+  // phase_complete can be answered by rewriting it in between: reference the forged gates file
+  // while the gate runs, strip the sections afterwards, and the completion-time read sees nothing.
+  const events: any[] = [];
+  let turn = 0;
+  let withReference = true;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: "quality_gates_result.json", content: "{}" }), stop]
+        : turn === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py", args: ["--phase-complete", "pc.json"] }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      readFile: async (path: string) => {
+        if (path !== "pc.json") return { ok: false, error_kind: "file_not_found" };
+        // Referenced while the gate reads it, stripped by the time the success is emitted.
+        const content = withReference
+          ? JSON.stringify({ payload: { checks: { results_path: "quality_gates_result.json" } } })
+          : JSON.stringify({ payload: {} });
+        withReference = false;
+        return { ok: true, content };
+      },
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "phase_complete_refused" && e.reason === "referenced_evidence_model_written"),
+    "the reference the verdict was earned against still counts after the file changes");
+});
+
+test("an oversized passing gate report is still recognized as a pass", async () => {
+  // The verdict is parsed from the pre-cap stdout. capToolOutput shrinks long strings and then
+  // truncates, so a report that still exceeds the cap clamps mid-JSON and parses as nothing --
+  // which a strict gate reads as "never ran" and refuses an honest pass with no satisfying move.
+  const events: any[] = [];
+  // MANY short strings, not one long one: capToolOutput shrinks long strings first, so a single
+  // 200k blob survives the cap intact and the capped copy still parses -- which would let this
+  // test pass with or without the fix. Thousands of short entries cannot be shrunk, so the cap
+  // truncates mid-JSON and only the pre-cap verdict can recognize the pass.
+  const huge = { status: "ok", errors: [], noise: Array.from({ length: 12_000 }, (_, i) => `entry-${i}`) };
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("g", "script_run", { interpreter: "python", script: "scripts/deploy_result.py", args: ["--upload-json", "upload_summary.json", "--output-json", "deploy_result.json"] }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: JSON.stringify(huge) }) } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "phase_complete_refused"),
+    "a passing report the model cannot fully see is still a pass");
+  assert.ok(events.some((e) => e.type === "phase_complete"), "and the phase completes");
+});
+
+test("a final reset capture that FAILED does not latch the phase shut", async () => {
+  // ok only says the script ran. capture_repl.py exits non-zero on a failed capture, and latching
+  // on that made a transient serial hiccup unrecoverable: every retry of the same capture is then
+  // refused as a post-reset device call, over an app that never actually restarted.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn <= 2
+        ? [tu(`c${turn}`, "script_run", { interpreter: "python", script: "scripts/capture_repl.py", args: ["--reset-first", "--output-json", "final_reset_capture.json"] }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  let captures = 0;
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      // The capture RAN but failed: ok true, success false.
+      runScript: async () => { captures += 1; return { ok: true, exit_code: 2, success: false, stdout: '{"status":"failed"}' }; },
+    } as any,
+  );
+
+  assert.equal(captures, 2, "the retry of a failed capture must not be refused");
+  assert.ok(!events.some((e) => e.type === "device_after_final_reset"),
+    "a capture that failed did not start the app, so it does not close the phase");
+});
+
+test("a trailing mpremote flag does not hide an upload from the evidence guard", async () => {
+  // argparse accepts -f/--force after the positionals, so `fs cp main.py :main.py -f` left the
+  // flag looking like the copy target. Filtering only "-r" made that spelling read as a download
+  // and waved a genuinely evidence-less upload through.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("u", "script_run", { interpreter: "python", script: "scripts/mpremote_runtime.py", args: ["--run", "--port", "P", "--", "resume", "fs", "cp", "firmware/main.py", ":main.py", "-f"] }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: "{}" }) } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "upload_without_evidence"),
+    "the target is the last POSITIONAL, not the last argument");
+});
+
+test("rewording the question does not hide a repeated approval from the cycle check", async () => {
+  // Measured on a PASSING run: five consecutive deploy_strategy_select calls, each with a
+  // different question string, produced five distinct signatures, so the period-1 cycle match
+  // never formed and the phase spent five turns asking the same thing. Nothing surfaced it -- the
+  // calls all succeed, so no failure marker fires and the run still passes.
+  const events: any[] = [];
+  const questions = [
+    "Choose a deploy strategy:",
+    "Choose one deploy strategy:",
+    "Confirm the deploy strategy:",
+    "Which deploy strategy would you like to use?",
+    "Pick a deploy strategy (select one):",
+  ];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn <= questions.length
+        ? [tu(`a${turn}`, "approval_request", { approval_id: "deploy_strategy_select", question: questions[turn - 1], multi_select: false }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 8, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: "{}" }) } as any,
+  );
+
+  const cycle = events.find((e) => e.type === "repeating_calls");
+  assert.ok(cycle, "the same approval asked five ways is one repeated call, not five distinct ones");
+  assert.deepEqual(cycle.cycle, ["approval_request:approval_id=deploy_strategy_select"],
+    "and the cycle it names is the approval itself, keyed on its id");
+});
+
+test("two different approvals in a row are not a cycle", async () => {
+  // The other half: narrowing the signature must not make ordinary consecutive approvals -- port
+  // then strategy then clean -- look like a repeat. Deploy asks several in sequence every run.
+  const events: any[] = [];
+  const ids = ["deploy_port_select", "deploy_strategy_select", "confirm_clean_device_project", "run_device_tests"];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn <= ids.length
+        ? [tu(`a${turn}`, "approval_request", { approval_id: ids[turn - 1], question: "?" }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 8, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: "{}" }) } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "repeating_calls"),
+    "distinct approval_ids are distinct work, however similar the questions");
+});
+
+test("a device path containing cp is not mistaken for an upload", async () => {
+  // Matching "cp" against the joined argv matched it inside a path: `fs cat :lib/cp.py` passed the
+  // verb test, then indexOf("cp") found no token and returned -1, so the whole argv became
+  // positionals and the device path looked like the target. A read was refused as an upload, and
+  // obeying that refusal would have written the read's log over the real upload record.
+  const events: any[] = [];
+  const calls: string[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("r", "script_run", { interpreter: "python", script: "scripts/mpremote_runtime.py", args: ["--run", "--port", "P", "--", "resume", "fs", "cat", ":lib/cp.py"] }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async (req: any) => { calls.push(String(req?.script ?? "")); return { ok: true, exit_code: 0, success: true, stdout: "{}" }; },
+    } as any,
+  );
+
+  assert.equal(calls.length, 1, "a read must still execute");
+  assert.ok(!events.some((e) => e.type === "upload_without_evidence"), "cat is not cp");
+});
+
+test("the bare cp alias is an upload too", async () => {
+  // mpremote expands `cp` to `fs cp`, and mpremote_runtime.py passes everything after -- verbatim,
+  // so the alias spelling reached the same command while slipping past a match that required fs.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("u", "script_run", { interpreter: "python", script: "scripts/mpremote_runtime.py", args: ["--run", "--port", "P", "--", "resume", "cp", "firmware/main.py", ":main.py"] }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: "{}" }) } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "upload_without_evidence"), "cp and fs cp are the same command");
+});
+
+test("a device-to-host copy is not treated as an upload missing its evidence", async () => {
+  // `fs cp :remote local` is a download -- a plausible "check what I uploaded" move that writes no
+  // upload summary. Refusing it told the model to add --output-json upload_summary.json, which
+  // would overwrite the genuine upload record with the download's process log, and that file is
+  // what deploy_result.py grades.
+  const events: any[] = [];
+  const calls: string[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("d", "script_run", { interpreter: "python", script: "scripts/mpremote_runtime.py", args: ["--run", "--port", "P", "--", "resume", "fs", "cp", ":main.py", "check.py"] }), stop]
+        : [tu("p", "phase_complete", { result: "partial", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async (req: any) => { calls.push(String(req?.script ?? "")); return { ok: true, exit_code: 0, success: true, stdout: "{}" }; },
+    } as any,
+  );
+
+  assert.equal(calls.length, 1, "a download must still execute");
+  assert.ok(!events.some((e) => e.type === "upload_without_evidence"), "a download is not an upload");
+});
+
+test("generate: a reference that exists only in the phase_complete FILE is still caught", async () => {
+  // The checker resolves results_path out of the file on disk, not out of the tool input, and the
+  // tool schema does not require the model to mirror lint/tests/checks into the call. Reading only
+  // the tool input left the bypass: forge the gates file, reference it on disk, emit a slim call.
+  const events: any[] = [];
+  let turn = 0;
+  const onDisk = JSON.stringify({
+    payload: { checks: { results_path: "quality_gates_result.json" } },
+  });
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("w", "file_operation", { op: "write", path: "quality_gates_result.json", content: "{}" }), stop]
+        : turn === 2
+          ? [tu("g", "script_run", { interpreter: "python", script: "scripts/check_phase_complete_consistency.py", args: ["--phase-complete", "pc.json"] }), stop]
+          // No lint/tests/checks in the call at all -- the reference lives only in pc.json.
+          : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      writeFile: async (path: string) => ({ ok: true, path }),
+      readFile: async (path: string) => (path === "pc.json" ? { ok: true, content: onDisk } : { ok: false, error_kind: "file_not_found" }),
+      runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"ok","errors":[]}' }),
+    } as any,
+  );
+
+  const refused = events.find((e) => e.type === "phase_complete_refused" && e.reason === "referenced_evidence_model_written");
+  assert.ok(refused, "the on-disk payload is the surface the checker grades, so it must be checked too");
+});
+
 test("select-hw: producing the file with the gate script itself clears the taint", async () => {
   // The cornering check. select_hw_validated.json is written by select_hw_manifest.py --write-path,
   // which is the gate script, and the general un-taint rule skips gate runs. Without the

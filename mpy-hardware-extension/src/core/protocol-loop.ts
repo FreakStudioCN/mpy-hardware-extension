@@ -413,9 +413,25 @@ function isUploadMissingEvidence(tu: StreamEvent): boolean {
   const script = String((tu.input as any)?.script ?? "");
   if (tu.name !== "script_run" || !script.endsWith("mpremote_runtime.py")) return false;
   const args = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String);
-  const joined = args.join(" ");
-  // Only the upload verb. mkdir/ls/rm probes write no summary and are not what deploy grades.
-  if (!/\bfs\b.*\bcp\b/.test(joined)) return false;
+  // Only the upload verb, and only as an actual ARGUMENT. `fs cp` and the bare `cp` alias both
+  // reach the same command (mpremote expands cp to fs cp), so matching the token covers both --
+  // but matching it against the joined argv instead matched "cp" inside a path: `fs cat
+  // :lib/cp.py` passed the test, then indexOf("cp") found no token, returned -1, and the whole
+  // argv became positionals whose last entry is the device path -- so a read was refused as an
+  // upload, and obeying the refusal would have clobbered the real upload record.
+  if (!args.includes("cp")) return false;
+  // And only the upload DIRECTION. `fs cp :remote local` copies device->host, which is a
+  // plausible "check what I uploaded" move, writes no upload summary, and must not be refused --
+  // telling that command to add --output-json upload_summary.json would overwrite the genuine
+  // upload record with the download's process log, which is the file deploy_result.py grades.
+  // mpremote's target is the last positional, and an upload always ends at the device.
+  // Drop every flag, not just -r: mpremote also takes -f/--force/--recursive, and argparse accepts
+  // them AFTER the positionals, so `fs cp main.py :main.py -f` left the trailing flag looking like
+  // the target and waved a real evidence-less upload through. A local path never starts with "-";
+  // a device path starts with ":".
+  const positionals = args.slice(args.indexOf("cp") + 1).filter((a: string) => !a.startsWith("-"));
+  const target = positionals[positionals.length - 1] ?? "";
+  if (!target.startsWith(":")) return false;
   return !args.some((arg: string) => arg === "--output-json" || arg === "--out-json");
 }
 
@@ -497,6 +513,32 @@ const ENTRY_KEY_SEPARATOR = "\u0000";
 // --out-json; select_hw_manifest.py and init_manifest.py write their draft with --write-path.
 const OUTPUT_PATH_FLAGS = new Set(["--output-json", "--out-json", "--write-path"]);
 
+// Invocations that argparse ACCEPTS alongside an output flag and that then write nothing. Both
+// verified against the real scripts: `--validate-phase-complete` emits its verdict and returns
+// before the writer, and `--help` prints usage and exits 0 without reaching main() at all. Either
+// one clears the taint if un-tainting keys on argv alone, which is how the first version of this
+// guard could be defeated by appending one flag to a call the model was already making -- and
+// `--help` probing is a thing real runs do, ten times in one archived phase.
+//
+// `--check` is the same shape on update_session_state.py. Note it is listed globally while only
+// that script treats it as read-only: mpremote_runtime.py --check DOES write its --output-json.
+// The asymmetry is deliberate and fail-safe -- it only ever KEEPS a taint that a later producing
+// run clears, so it can cost an extra honest gate run but can never launder a hand-written file.
+// `--dry-run` is deliberately NOT here: clean_device_project.py writes its report on that path.
+// The gate-result files a payload REFERENCES rather than embeds. Accepts either the envelope or a
+// bare payload, because the phase_complete on disk carries the envelope and the tool input does not.
+function resultsPathReferences(source: any): string[] {
+  const payload = source?.payload ?? source;
+  return ["lint", "tests", "checks"]
+    .map((section) => payload?.[section])
+    .filter((v: any) => v && typeof v === "object" && typeof v.results_path === "string")
+    .map((v: any) => String(v.results_path));
+}
+
+function isNonWritingMode(arg: string): boolean {
+  return arg === "-h" || arg === "--help" || arg === "--check" || arg.startsWith("--validate");
+}
+
 // One spelling for one file. The taint set is keyed on whatever string the write reported and
 // compared against whatever string the gate was called with, so "./upload_summary.json" and
 // "upload_summary.json" were two different files and the second silently cleared nothing. Case
@@ -561,6 +603,21 @@ const SIGNATURE_IDENTITY_BUDGET = 400;
 // by default, and a tool added later is handled without another production lesson.
 function callSignature(tu: StreamEvent): string {
   const input: any = tu.input ?? {};
+  // An approval is identified by its approval_id and nothing else. That is what the host routes
+  // on; the question text, multi_select and the offered options are how the same request is
+  // PRESENTED. Leaving them in the signature let a reworded question defeat the cycle check:
+  // measured on a passing run, five consecutive deploy_strategy_select calls with five different
+  // question strings ("Choose a deploy strategy:", "Choose one deploy strategy:", "Confirm the
+  // deploy strategy:", ...) produced five distinct signatures, so the period-1 match never formed
+  // and the phase spent five turns asking the same question. Narrowing is safe in the direction
+  // that matters: three consecutive identical approvals with nothing between them is the loop
+  // this guard exists to stop, not a phase making progress.
+  //
+  // Deliberately NOT extended to the other tools. The comment above records that enumerating
+  // identity fields was wrong three times; this is the one tool whose protocol key is explicit.
+  if (tu.name === "approval_request" && input.approval_id) {
+    return `approval_request:approval_id=${String(input.approval_id)}`;
+  }
   const parts: string[] = [];
   // Sorted for determinism: the model may emit the same call with keys in either order.
   for (const key of Object.keys(input).sort()) {
@@ -716,6 +773,17 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
   // archived PASSING deploys hand-wrote evidence the gate then consumed, so blocking here would
   // have refused runs that were genuinely fine. The event makes the pattern visible first.
   const modelWrittenPaths = new Set<string>();
+  // The phase_complete FILE the gate was pointed at. The checker resolves results_path out of
+  // that file, not out of the tool input, and the tool schema does not require the model to
+  // mirror lint/tests/checks into the call -- so a reference that only exists on disk was
+  // invisible to the check below.
+  let gatePhaseCompletePath: string | null = null;
+  // References seen in that file AT GATE TIME. The verdict is earned against the content the gate
+  // read, so reading the file again at phase_complete can be answered by rewriting it in between:
+  // reference the forged gates file while the gate runs, strip the sections afterwards, and the
+  // completion-time read finds nothing to object to. Remembering what was there when the verdict
+  // was earned closes that window.
+  const gateTimeReferences = new Set<string>();
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
     // Before the request, not after the push: the cap has to apply to what actually goes out,
@@ -875,7 +943,12 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       const { result, phaseControl } = await executeProtocolTool(tu, input, deps, {
         phase, turn, wasModelWritten: (path: string) => modelWrittenPaths.has(evidenceKey(path)),
       });
-      if (isFinalResetCapture(tu) && result?.ok === true) finalResetDone = true;
+      // `ok` only says the script RAN. capture_repl.py exits non-zero when the capture failed --
+      // port contention, a pty error, a stalled read -- and latching on that made a transient
+      // failure unrecoverable: every retry of the same capture is then refused as a post-reset
+      // device call, and the refusal text asserts "the app that reset just started", which is not
+      // true when the reset never happened.
+      if (isFinalResetCapture(tu) && result?.success === true) finalResetDone = true;
 
       // Normalized, NOT raw. This event is recorded into session.jsonl, which the stall
       // copy tells the user to export to support -- and a raw result carries absolute host
@@ -921,25 +994,23 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // producers take their output path as an argument, so `capture_repl.py --output-json x.json`
       // after a hand-write means the file on disk is the script's again. Without this, one
       // overwrite would keep the path flagged for the rest of the phase.
+      // The path an output flag NAMES is script-made afterwards, even when the producer is the
+      // gate script itself: select_hw_validated.json is written by select_hw_manifest.py
+      // --write-path, so without this the one file select-hw grades could never be cleaned, and a
+      // guard with no way out is what drove the fabrication in the first place.
+      //
+      // But ONLY when the run could have written it. A validate-mode invocation emits its verdict
+      // and returns before it ever reaches the writer, so `--write-path` there is accepted by
+      // argparse and silently ignored -- verified against select_hw_manifest.py, which creates no
+      // file. Clearing on argv alone therefore let one extra flag launder a hand-written file:
+      // hand-write the evidence, append --write-path to the passing validate call, and the taint
+      // is gone before the tainted-evidence check below ever runs.
       if (tu.name === "script_run" && result?.ok === true && result?.success === true) {
         const args = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String);
-        // Only a path the script was told to WRITE is re-established, never every path it
-        // happened to mention. The old rule cleared any argv entry of any successful non-gate
-        // script, so a read-only script naming the file laundered it -- and a model that wanted
-        // the flag gone only had to pass the path to something harmless.
-        if (!(gate && String((tu.input as any)?.script ?? "").endsWith(gate.script))) {
+        if (!args.some(isNonWritingMode)) {
           for (let i = 0; i < args.length - 1; i++) {
             if (OUTPUT_PATH_FLAGS.has(args[i])) modelWrittenPaths.delete(evidenceKey(args[i + 1]));
           }
-        }
-        // The path an output flag NAMES is script-made afterwards, even when the producer is the
-        // gate script itself. Without this the one file select-hw grades could never be cleaned:
-        // select_hw_validated.json is written by select_hw_manifest.py --write-path, which the
-        // clause above skips because it is the gate -- so a model that hand-wrote it once could
-        // never make it honest again, and a guard with no way out is what drove the fabrication
-        // in the first place.
-        for (let i = 0; i < args.length - 1; i++) {
-          if (OUTPUT_PATH_FLAGS.has(args[i])) modelWrittenPaths.delete(evidenceKey(args[i + 1]));
         }
       }
       // Remember how this phase's gate went. Only its LATEST verdict counts: a phase that fails
@@ -955,6 +1026,25 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       const gateSubjects = new Set(
         gateArgs.flatMap((a: string, i: number) => (a === "--input" && i + 1 < gateArgs.length ? [evidenceKey(gateArgs[i + 1])] : [])),
       );
+      if (isGateRun) {
+        const at = gateArgs.indexOf("--phase-complete");
+        if (at >= 0 && at + 1 < gateArgs.length) gatePhaseCompletePath = gateArgs[at + 1];
+        // Read it NOW, while it is the content the verdict is being earned against.
+        if (gatePhaseCompletePath && typeof deps.readFile === "function") {
+          const atGate = await deps.readFile(gatePhaseCompletePath);
+          // Same rule as the completion-time read: absence is information, any other failure is
+          // not. A silent read_failed here leaves the gate-time snapshot empty, which is exactly
+          // the record the rewrite-after-passing check depends on.
+          if (!atGate?.ok && !MISSING_FILE_KINDS.has(atGate?.error_kind ?? "")) {
+            input.onEvent?.({ type: "evidence_check_unreadable", phase, path: gatePhaseCompletePath, error_kind: atGate?.error_kind, turn, at: "gate" });
+          }
+          if (atGate?.ok && typeof atGate.content === "string") {
+            try {
+              for (const ref of resultsPathReferences(JSON.parse(atGate.content))) gateTimeReferences.add(ref);
+            } catch { /* unparseable: the gate reports on it, this record stays empty */ }
+          }
+        }
+      }
       const taintedEvidence = isGateRun
         ? gateArgs.filter((a: string) => modelWrittenPaths.has(evidenceKey(a))
             && !MODEL_AUTHORED_GATE_INPUT.test(a) && !gateSubjects.has(evidenceKey(a)))
@@ -998,7 +1088,9 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
         // Keep the LAST RECOGNIZED verdict. Writing `passed ? "pass" : "fail"` here threw away
         // the whole point of the null case: every unrecognized shape became "fail", so a deploy
         // graded PASS_WITH_WARNINGS -- how a real deploy normally ends -- would have been refused.
-        const verdict = gateVerdict(result?.stdout);
+        // Prefer the verdict parsed from the uncapped stdout; fall back for hosts and tests whose
+        // runScript returns a bare result without it.
+        const verdict = (result?.gate_verdict as "pass" | "fail" | undefined) ?? gateVerdict(result?.stdout);
         if (verdict) gateState = verdict;
       }
       if (tu.name === "phase_complete" && phaseControl) {
@@ -1021,10 +1113,31 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
         // see it, and a hand-written all-green results file validates completely. This is the one
         // forgery surface that grew this week: the contract now steers models toward the
         // referenced form, so the safer the payload gets, the more this matters.
-        const referencedEvidence = ["lint", "tests", "checks"]
-          .map((section) => (tu.input as any)?.[section])
-          .filter((v: any) => v && typeof v === "object" && typeof v.results_path === "string")
-          .map((v: any) => String(v.results_path));
+        // BOTH carriers. The tool input is what the model shows us; the file the gate was pointed
+        // at is what the checker actually resolves. Reading only the first left the bypass open:
+        // reference the forged gates file on disk, omit the sections from the call, and the
+        // refusal never fires.
+        // All three carriers: what the model showed us in the call, what the file says now, and
+        // what it said when the gate graded it. The last is what closes the rewrite-after-passing
+        // window; the first two are cheap and catch the honest spellings.
+        const referencedEvidence = [...resultsPathReferences(tu.input), ...gateTimeReferences];
+        if (gatePhaseCompletePath && typeof deps.readFile === "function") {
+          const onDisk = await deps.readFile(gatePhaseCompletePath);
+          // A read that failed for a reason OTHER than absence is not evidence of innocence.
+          // Surfaced rather than swallowed: this guard fails open by design (the gate-time record
+          // above still applies), but a permissions error quietly reading as "no references" is
+          // the shape that has bitten this codebase twice.
+          if (!onDisk?.ok && !MISSING_FILE_KINDS.has(onDisk?.error_kind ?? "")) {
+            input.onEvent?.({ type: "evidence_check_unreadable", phase, path: gatePhaseCompletePath, error_kind: onDisk?.error_kind, turn });
+          }
+          if (onDisk?.ok && typeof onDisk.content === "string") {
+            // A payload we cannot parse is not evidence of anything; the checker will have its
+            // own opinion about it. Only a parsed reference is actionable here.
+            try {
+              referencedEvidence.push(...resultsPathReferences(JSON.parse(onDisk.content)));
+            } catch { /* unparseable payload: the gate reports on it, this check stays silent */ }
+          }
+        }
         const taintedReference = [...new Set(referencedEvidence.filter((p: string) => modelWrittenPaths.has(evidenceKey(p))))];
         if (taintedReference.length > 0 && (phaseControl.result ?? "success") === "success") {
           input.onEvent?.({ type: "phase_complete_refused", phase, gate: gate?.script, turn, reason: "referenced_evidence_model_written", files: taintedReference });
@@ -1105,7 +1218,11 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
             text: correctiveText(gateErrors),
           }],
         });
-      } else if (isPhaseCompletionCheck(tu) && result?.ok === true && result?.success === true && phaseCheckVerdictPassed(result?.stdout)) {
+      // Prefer the pre-cap verdict here too. This nudge is what stops a phase circling after its
+      // check already passed (measured: 19 of 65 turns spent that way), and reading only the
+      // capped copy would silently drop it for exactly the oversized report that needs it most.
+      } else if (isPhaseCompletionCheck(tu) && result?.ok === true && result?.success === true
+                 && (result?.gate_verdict === "pass" || phaseCheckVerdictPassed(result?.stdout))) {
         // The other half of the corrective, and the one that was missing. A gate that FAILS
         // is told what to fix; a gate that PASSES said nothing at all, and the model does not
         // stop on its own. Measured on three runs of one phase: the consistency checker
@@ -1706,7 +1823,13 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // attaches it so the model never needs a `--help` turn; this return rebuilds the result from
     // a fixed field list, so the first version of that fix was invisible -- the shim attached it
     // and this line threw it away. A run afterwards still made 10 --help probes.
-    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: capToolOutput(r.stdout), stderr: capToolOutput(r.stderr), exit_code: exit, structured_errors: structuredErrors, ...(r.accepted_flags ? { accepted_flags: r.accepted_flags } : {}) } };
+    // The gate VERDICT is read from the same pre-cap stdout as the structured errors, for the
+    // same reason. capToolOutput shrinks long strings first and only then truncates, so a report
+    // that still exceeds the cap is clamped mid-JSON, parses as nothing, and the verdict comes
+    // back null -- which a strict gate treats as "never ran" and refuses an honest pass with no
+    // move that can satisfy it. The model still sees the capped copy; only the grading uses this.
+    const gate_verdict = gateVerdict(r.stdout);
+    return { result: { ok: true, script_id: p.script_id, success: exit === 0, stdout: capToolOutput(r.stdout), stderr: capToolOutput(r.stderr), exit_code: exit, structured_errors: structuredErrors, ...(gate_verdict ? { gate_verdict } : {}), ...(r.accepted_flags ? { accepted_flags: r.accepted_flags } : {}) } };
   }
 
   if (route === "device") {
