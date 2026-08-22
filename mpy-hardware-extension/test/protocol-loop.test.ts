@@ -2804,6 +2804,58 @@ test("scaffold: a marker the model wrote itself counts as absent", async () => {
     "a hand-written marker must not prove the scaffold rendered");
 });
 
+test("a documented handoff is recognised whichever separator it is written with", async () => {
+  // The skills write these with hyphens, but every filename in the same contract uses
+  // underscores, so a model emitting project_library_upload is generalising rather than
+  // inventing. Measured: a run finished all six phases green with the board running the
+  // firmware and was recorded terminal:"failed" purely for that underscore.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      // The gate has to actually report, or the strict deploy gate refuses the success and the
+      // handoff is never reached -- which is the loop working, not the thing under test.
+      const ev = turn === 1
+        ? [tu("g", "script_run", { interpreter: "python", script: "scripts/deploy_result.py", args: ["--upload-json", "upload_summary.json"] }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "deployed", next_phase: "project_library_upload", manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const out: any = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"PASS","errors":[]}' }) } as any,
+  );
+
+  assert.ok(!events.some((e) => e.type === "phase_error"), "punctuation must not fail a finished build");
+  assert.equal(out.terminal, "complete", "six green phases handing off is a completed build");
+});
+
+test("an invented next phase is still an error", async () => {
+  // The separator tolerance must not turn into "accept anything". A model asking for work that
+  // will never happen should be visible, not recorded as a clean finish.
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("g", "script_run", { interpreter: "python", script: "scripts/deploy_result.py", args: ["--upload-json", "upload_summary.json"] }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "x", next_phase: "upy-teleport-plugin", manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const out: any = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 4, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 0, success: true, stdout: '{"status":"PASS","errors":[]}' }) } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "phase_error" && e.error_kind === "unknown_next_phase"));
+  assert.equal(out.terminal, "failed");
+});
+
 test("a documented handoff we do not serve ends the build on the phase's own verdict", async () => {
   // upy-autofix-plugin is where both the deploy and generate SKILLs send a failed deploy, so a
   // model naming it is following the contract. Treating it as an invented phase recorded the

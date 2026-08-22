@@ -66,6 +66,17 @@ const MAX_PHASES = PHASE_ORDER.length;
 // handoff rather than for the failure, which buries the real cause under a protocol error.
 const TERMINAL_HANDOFF_PHASES = new Set(["project-library-upload", "upy-simulate-plugin", "upy-autofix-plugin"]);
 
+// One spelling per handoff. The skills write these with hyphens (the deploy success sample and
+// its smoke test both assert "project-library-upload"), but every FILENAME in the same contract
+// uses underscores (phase_complete.upy_deploy_plugin.json), so a model emitting
+// "project_library_upload" is generalising, not inventing. Measured: a run finished all six
+// phases green with the board running the firmware and was recorded terminal:"failed" purely for
+// that underscore. Matching on separator-insensitive form keeps the real rule -- an undocumented
+// name is still an error -- without failing a build over punctuation.
+function handoffKey(phase: string): string {
+  return phase.trim().toLowerCase().replace(/_/g, "-");
+}
+
 // What a phase's own verdict makes of the BUILD. Only "failed" used to be special-cased, so a
 // phase that gave up and said `partial` ended the build as "complete": one run's select-hw
 // reported it could not resolve the board, set next_phase to null, and the summary called that a
@@ -1251,7 +1262,7 @@ export async function runProtocolBuild(input: ProtocolInput, deps: ProtocolDeps)
       //
       // An UNDOCUMENTED name stays an error. A model that invents a phase is asking for work
       // that will never happen, and calling that a completed build would hide it.
-      if (TERMINAL_HANDOFF_PHASES.has(requestedNext)) {
+      if (TERMINAL_HANDOFF_PHASES.has(handoffKey(requestedNext))) {
         input.onEvent?.({ type: "phase_handoff_unserved", next_phase: requestedNext, phase });
         return { phases, manifest, terminal: terminalForResult(ctrl.result) };
       }
