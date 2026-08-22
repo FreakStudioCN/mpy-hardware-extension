@@ -801,7 +801,10 @@ class Shim:
         # Merged into the shared kwargs rather than passed alongside them: those already carry
         # an `env` (PYTHONIOENCODING), and a second one is a TypeError, not an override.
         kwargs = _subprocess_text_kwargs()
-        kwargs["env"] = {**kwargs["env"], "PYTHONPYCACHEPREFIX": tempfile.mkdtemp(prefix="mpyhw-pycache-")}
+        # One cache tree for the process, not one per call. A fresh mkdtemp on every module run
+        # leaked a directory each time and a generate phase makes dozens of them; the bytecode is
+        # keyed by source path inside the tree, so sharing it is also faster on repeat compiles.
+        kwargs["env"] = {**kwargs["env"], "PYTHONPYCACHEPREFIX": _module_pycache_dir()}
         if stdin is None:
             return self.runner(cmd, timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL, **kwargs)
         return self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **kwargs)
@@ -1540,6 +1543,19 @@ def _assert_project_root(base: str, args: list, cwd: str | None) -> list:
 # Deliberately NOT here: pip, ensurepip, venv, http.server -- anything that installs, serves or
 # mutates. The refusal message names the allowed set and points at run_quality_gates.py.
 _ALLOWED_PYTHON_MODULES = frozenset({"py_compile", "compileall", "unittest", "flake8", "pylint", "json.tool"})
+
+_MODULE_PYCACHE_DIR: str | None = None
+
+
+def _module_pycache_dir() -> str:
+    """One bytecode cache tree per process, created on first use.
+
+    Made lazily rather than at import so a shim that never runs a module makes no temp dir at all.
+    """
+    global _MODULE_PYCACHE_DIR
+    if _MODULE_PYCACHE_DIR is None:
+        _MODULE_PYCACHE_DIR = tempfile.mkdtemp(prefix="mpyhw-pycache-")
+    return _MODULE_PYCACHE_DIR
 
 
 def _module_run_target(script):
