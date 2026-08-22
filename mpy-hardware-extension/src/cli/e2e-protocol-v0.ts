@@ -40,6 +40,37 @@ if (!jwt) {
   process.exit(2);
 }
 
+// A token with minutes left is a run that dies mid-phase. The TTL is 24h and nothing warned:
+// measured, a run reached select-hw and threw invalid_token 60 seconds after the token lapsed,
+// exactly a day after it was minted, having done ten minutes of work for nothing. Unlike the
+// board probe below this is not ambiguous -- an expired token cannot work, and one expiring
+// inside the length of a run cannot survive it -- so it stops the run instead of warning.
+// Unreadable or unexpiring tokens are left alone: the backend is the authority on validity,
+// and refusing a token we merely failed to parse would block a legitimate one.
+const MIN_TOKEN_MINUTES = 75;  // longest observed full run is ~55 minutes; leave headroom
+const tokenExpiry = ((): number | null => {
+  try {
+    const body = jwt.split(".")[1];
+    if (!body) return null;
+    const claims = JSON.parse(Buffer.from(body, "base64url").toString("utf-8"));
+    return typeof claims?.exp === "number" ? claims.exp : null;
+  } catch {
+    return null;  // not a JWT we can read; let the backend decide
+  }
+})();
+if (tokenExpiry !== null) {
+  const minutesLeft = Math.floor((tokenExpiry * 1000 - Date.now()) / 60_000);
+  if (minutesLeft < MIN_TOKEN_MINUTES) {
+    console.error(
+      `MPYHW_DEV_JWT ${minutesLeft < 0 ? `expired ${-minutesLeft} minutes ago` : `expires in ${minutesLeft} minutes`}, ` +
+      `which is less than a run needs (${MIN_TOKEN_MINUTES}). Mint a fresh one for the SAME user id ` +
+      "(a new id mints a fresh daily grant) and re-run.",
+    );
+    process.exit(2);
+  }
+  console.log(`token pre-flight: valid for ${minutesLeft} more minutes`);
+}
+
 // Fail fast if the backend isn't reachable (don't silently 'pass' an unrun e2e).
 let availableBoards: Array<{ board_id: string }> = [];
 try {
