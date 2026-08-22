@@ -79,17 +79,44 @@ def _lines_with_heartbeat(upstream: Iterable[bytes]):
     """
     lines: queue.Queue = queue.Queue(maxsize=64)
     done = object()
+    # Set when the consumer stops caring: a client disconnect ends the generator, nothing drains
+    # the queue again, and a blocking put() on a full queue would park the reader thread forever.
+    # One leaked thread and queue per cancelled busy stream, accumulating for the process
+    # lifetime. The reader checks this and gives up instead of blocking.
+    abandoned = threading.Event()
+
+    def put(item: object) -> bool:
+        """Hand an item to the consumer. False once the consumer has gone away."""
+        while not abandoned.is_set():
+            try:
+                lines.put(item, timeout=HEARTBEAT_INTERVAL_SECONDS)
+                return True
+            except queue.Full:
+                continue
+        return False
 
     def read_upstream() -> None:
         try:
             for raw_line in upstream:
-                lines.put(raw_line)
-            lines.put(done)
-        except BaseException as error:  # re-raised on the consumer side, never swallowed
-            lines.put(error)
+                if not put(raw_line):
+                    return
+            put(done)
+        except BaseException as error:
+            # Re-raised on the consumer side -- unless the consumer has already gone, in which
+            # case there is nobody to raise to and put() drops it. That is the only path on which
+            # this is not re-raised, and it is exactly the disconnect case.
+            put(error)
 
     thread = threading.Thread(target=read_upstream, name="llm-upstream-reader", daemon=True)
     thread.start()
+    try:
+        yield from _drain(lines, done)
+    finally:
+        abandoned.set()
+
+
+def _drain(lines: "queue.Queue", done: object):
+    """The consumer half: heartbeat while quiet, re-raise what the reader caught."""
     idle_seconds = 0.0
     while True:
         try:

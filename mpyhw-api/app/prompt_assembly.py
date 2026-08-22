@@ -164,10 +164,18 @@ def _phase_data_injection(body: dict[str, Any]) -> str:
 # are type hints; a model given real values copies them, and a copied board id is the exact
 # failure ("invented a board") this phase already had once.
 _SELECT_HW_PAYLOAD_SHAPE = {
+    # The envelope, because the validator asserts on it the moment a `payload` wrapper is present.
+    "type": "phase_complete",
+    "phase": "select-hw",
+    "protocol_version": "<the protocol_version from start_phase>",
+    "msg_id": "<uuid>",
+    "session_id": "<the session_id from start_phase>",
+    "timestamp": "<ISO 8601 UTC>",
     "payload": {
         "phase": "select-hw",
         "result": "success | partial",
         "summary": "<one line>",
+        "next_phase": "upy-flash-mpy-firmware-plugin",
         "errors": [],
         "warnings": [],
         "structured_errors": [],
@@ -177,25 +185,38 @@ _SELECT_HW_PAYLOAD_SHAPE = {
             "session_root": "sessions/<session_id> (relative)",
             "resource_root": "<path>",
         },
-        "artifacts": [{"files": [{"path": "<relative path>"}]}],
+        # type is required; a files[] entry without it is not recognized as the artifact list.
+        "artifacts": [{"type": "file_list", "files": [{"path": "<relative path>"}]}],
+        # The manifest is FLAT, and the board sits under hardware_selection. This is the shape
+        # select_hw_manifest.py reads (it lifts manifest.hardware_selection.selected_board and
+        # manifest.mcu/pinout/pin_decisions/pin_review/bom directly), and the shape its own
+        # success sample carries. An earlier version of this skeleton nested the plan fields under
+        # a hardware_plan key, which the validator never looks at: every field this injection
+        # exists to teach landed somewhere unread, so the prompt and the gate disagreed and the
+        # phase had to discover the real shape by trial and error anyway.
         "manifest_content": {
-            "selected_board": {"id": "<board id from Board profile>", "display_name": "<str>", "firmware": {}},
-            "hardware_plan": {
-                "mcu": {"model": "<str>", "display_name": "<str>", "board_id": "<str>", "chip_family": "<str>"},
-                "pinout": [],
-                "pin_decisions": [{
-                    "device": "<str>", "pin_name": "<str>", "assigned_gpio": "<int|str>",
-                    "decision_type": "<str>",
-                    "source": "board_default | auto_assigned | user_wiring | onboard_peripheral | fixed_power",
-                    # An OBJECT, not a sentence: it must carry path or note.
-                    "evidence": {"path": "<file or board profile field>", "note": "<why this pin>"},
-                    "requires_user_review": False,
-                }],
-                "pin_review": {},
-                "bom": [{"name": "<str>", "model": "<str>", "quantity": "<number>", "unit_price_yuan": "<number>"}],
+            "phase": "select-hw",
+            "hardware_selection": {
+                "selected_board": {"id": "<board id from Board profile>", "display_name": "<str>", "firmware": {}},
+                "board_confirmed": True,
+                "source_phase": "select-hw",
             },
+            "mcu": {"model": "<str>", "display_name": "<str>", "board_id": "<str>", "chip_family": "<str>"},
+            "pinout": [],
+            "pin_decisions": [{
+                "device": "<str>", "pin_name": "<str>", "assigned_gpio": "<int|str>",
+                "decision_type": "<str>",
+                "source": "board_default | auto_assigned | user_wiring | onboard_peripheral | fixed_power",
+                # An OBJECT, not a sentence: it must carry path or note.
+                "evidence": {"path": "<file or board profile field>", "note": "<why this pin>"},
+                "requires_user_review": False,
+            }],
+            "pin_review": {},
+            "bom": [{"name": "<str>", "model": "<str>", "quantity": "<number>", "unit_price_yuan": "<number>"}],
+            "devices": "<carried through from the analyze manifest>",
+            "requirements": "<carried through from the analyze manifest>",
         },
-    }
+    },
 }
 
 

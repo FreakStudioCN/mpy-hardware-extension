@@ -1484,6 +1484,52 @@ def test_generate_prompt_carries_the_payload_shape_and_order():
         assert prompt_assembly._generate_shape_injection({**body, "phase": other}) == ""
 
 
+def test_the_injected_select_hw_skeleton_lands_where_the_validator_reads():
+    """The skeleton must put fields where select_hw_manifest.py looks for them.
+
+    A substring test cannot catch this: the old skeleton named every right field and nested them
+    under a `hardware_plan` key the validator never reads (it lifts manifest.hardware_selection
+    .selected_board and flat manifest.mcu/pinout/pin_decisions). So every field the injection
+    exists to teach landed somewhere unread, the gate refused, and the corrective contradicted the
+    prompt. Replay the skeleton through the real validator instead.
+    """
+    import json
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    from app import prompt_assembly
+
+    checker = (Path(__file__).resolve().parents[2]
+               / "third_party/MicroPython_Skills/upy-select-hw-plugin/scripts/select_hw_manifest.py")
+    if not checker.is_file():
+        import pytest
+        pytest.skip(f"select_hw_manifest.py not present at {checker}")
+
+    shape = json.loads(json.dumps(prompt_assembly._SELECT_HW_PAYLOAD_SHAPE))
+    shape["payload"]["result"] = "success"
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "phase_complete.json"
+        target.write_text(json.dumps(shape), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(checker), "--validate-phase-complete", "--input", str(target)],
+            capture_output=True, text=True, timeout=120, cwd=tmp,
+        )
+        errors = json.loads(proc.stdout).get("errors", [])
+
+    joined = " | ".join(str(e) for e in errors)
+    # The structural class: a field the skeleton DOES provide reported as absent or wrong-typed
+    # means the skeleton put it somewhere the validator does not read.
+    assert "manifest_content.phase" not in joined, f"the skeleton must carry manifest_content.phase: {joined}"
+    assert "hardware_plan.mcu must be an object" not in joined, (
+        f"mcu must land where the validator reads it, flat on manifest_content: {joined}")
+    assert "selected_board.id is required" not in joined, (
+        f"the board must land under manifest_content.hardware_selection: {joined}")
+    assert not any("artifacts[0].type" in str(e) for e in errors), (
+        f"an artifact entry needs its type: {joined}")
+
+
 def test_deploy_is_handed_the_phase_complete_shape_and_the_finalize_order():
     """Deploy gets the same skeleton treatment that took generate's first check to zero errors.
 
@@ -1570,3 +1616,47 @@ def test_the_injected_deploy_skeleton_satisfies_the_real_deploy_checker():
         verdict = json.loads(proc.stdout)
 
     assert verdict["errors"] == [], f"the injected skeleton fails the real checker: {verdict['errors']}"
+
+
+def test_the_upstream_reader_exits_when_the_client_disconnects(monkeypatch):
+    """A cancelled busy stream must not park its reader thread forever.
+
+    The reader hands lines over a bounded queue. If the client disconnects mid-stream the consumer
+    stops draining, the queue fills, and a blocking put() parks the daemon thread for the life of
+    the process -- one leaked thread and queue per cancelled stream, invisible by construction
+    because nothing fails. Reverting the abandonment flag makes this hang until the timeout.
+    """
+    import threading
+    import time
+
+    from app import sse_translate
+
+    # Short interval so the reader's give-up check comes round quickly.
+    monkeypatch.setattr(sse_translate, "HEARTBEAT_INTERVAL_SECONDS", 0.05)
+
+    def endless():
+        for _ in range(100_000):
+            yield b"data: {}\n"
+
+    before = {t.name for t in threading.enumerate()}
+    stream = sse_translate._lines_with_heartbeat(endless())
+    next(stream)
+    next(stream)          # consume two, leave the queue filling behind us
+    # Wait until the reader is genuinely PARKED in put() on a full queue. Without this the close
+    # can land while the reader sits between puts, where even a blocking put exits cleanly via the
+    # abandonment check -- so the test would pass against the bug it exists to catch.
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not stream.gi_frame.f_locals["lines"].full():
+        time.sleep(0.01)
+    assert stream.gi_frame.f_locals["lines"].full(), "fixture never filled the queue; the test would prove nothing"
+    stream.close()        # the client goes away
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if not [t for t in threading.enumerate() if t.name == "llm-upstream-reader"]:
+            break
+        time.sleep(0.05)
+
+    leaked = [t.name for t in threading.enumerate() if t.name == "llm-upstream-reader"]
+    assert not leaked, f"the reader must give up once the consumer is gone, still alive: {leaked}"
+    assert {t.name for t in threading.enumerate()} <= before | {"llm-upstream-reader"}
