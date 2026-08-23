@@ -553,7 +553,27 @@ async function findArtifact(root: string, name: string, depth = 3): Promise<stri
   return null;
 }
 
+// The name THIS run built, so a boot line can be checked against it rather than taken on faith.
+// Null when there is no conf.py to read (the run never got that far) -- but never for a conf.py
+// we merely failed to open, because "unreadable" must not quietly become "no name to match".
+async function builtProjectName(): Promise<string | null> {
+  try {
+    const conf = await fsReadFile(join(projectDir, "firmware", "conf.py"), "utf-8");
+    return /^\s*PROJECT_NAME\s*=\s*["'](.+?)["']/m.exec(conf)?.[1] ?? null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+// A boot line alone proves only that SOME firmware is running, and a deploy that fails before
+// uploading leaves the previous run's firmware on the chip still booting exactly like a success.
+// Measured: a DHT11 run whose clean step died with "could not enter raw repl" uploaded nothing,
+// and the blink firmware left over from an earlier series was reported as proof that the DHT11
+// build had run. So the running firmware has to name itself as the one this run produced.
 let firmwareRan: string | null = null;
+let firmwareForeign: string | null = null;
+let firmwareBuilt: string | null = null;
 try {
   const reportPath = await findArtifact(projectDir, "deploy_result.json");
   if (!reportPath) throw new Error("no deploy_result.json anywhere under the project");
@@ -572,7 +592,13 @@ try {
   const lines = captured.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
   const rebootAt = lines.findIndex((l: string) => l.includes("soft reboot"));
   const fromFirmware = lines.slice(rebootAt + 1).filter((l: string) => !MPREMOTE_BANNER.test(l));
-  firmwareRan = fromFirmware.length ? fromFirmware[0].slice(0, 70) : null;
+  firmwareBuilt = await builtProjectName();
+  const owned = firmwareBuilt
+    ? fromFirmware.find((l: string) => l.includes(firmwareBuilt as string))
+    : undefined;
+  firmwareRan = owned ? owned.slice(0, 70) : null;
+  // Output from a build that is not ours is the loudest signal in the run, not a null result.
+  if (!owned && fromFirmware.length && firmwareBuilt) firmwareForeign = fromFirmware[0].slice(0, 70);
 } catch { firmwareRan = null; }  // no report, unreadable, or no capture: report it as unknown
 
 console.log("\n=== SUMMARY ===");
@@ -606,7 +632,14 @@ if (deviceFiles) {
 }
 // The stronger claim: did the board actually RUN it. This is the line that would have caught a
 // green run leaving the device idle at the REPL.
-console.log("firmware ran during deploy:", firmwareRan ? `yes — "${firmwareRan}"` : "NOT OBSERVED (no serial evidence in deploy_result.json)");
+console.log("firmware ran during deploy:", firmwareRan
+  ? `yes — "${firmwareRan}"`
+  : firmwareForeign
+    ? `NO — the board is running a DIFFERENT build: "${firmwareForeign}" (this run built "${firmwareBuilt}")`
+    : "NOT OBSERVED (no serial evidence in deploy_result.json)");
+if (firmwareForeign) {
+  console.log("STALE DEVICE: the capture proves the PREVIOUS firmware ran, not this one. Nothing this run built reached the board.");
+}
 if (deployResult === "success" && !firmwareRan) {
   console.log("MISMATCH: deploy reported success, but nothing in the serial capture shows the firmware running.");
 }
