@@ -285,12 +285,19 @@ def _subprocess_text_kwargs():
     # decodes with the OS locale codepage (e.g. Windows cp936), so non-ASCII script
     # output — Chinese requirements in a jsonschema error, an em-dash from a template
     # — could raise UnicodeDecodeError and turn a normal result into a transport error.
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    # Point the deploy plugin's own mpremote at the boot-settle launcher. It spawns mpremote
+    # directly, so this variable is the only way to reach it; an operator who set it by hand
+    # outranks us.
+    mpremote_command = _mpremote_env_command()
+    if mpremote_command and not env.get("UPY_MPREMOTE"):
+        env["UPY_MPREMOTE"] = mpremote_command
     return {
         "capture_output": True,
         "text": True,
         "encoding": "utf-8",
         "errors": "replace",
-        "env": {**os.environ, "PYTHONIOENCODING": "utf-8"},
+        "env": env,
     }
 
 # Every shell form the V0 phases may run, as EXACT argv. `git rev-parse HEAD` is required by
@@ -450,10 +457,43 @@ def iter_uploadable_firmware(firmware_dir: str):
 _MPREMOTE_LAUNCHER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mpremote_launcher.py")
 
 
+def _names_mpremote(argv0: str) -> bool:
+    """True when argv0 invokes mpremote, whatever spelling the caller used.
+
+    Matching the bare string alone let an absolute path through: a deploy resolved mpremote
+    with shutil.which() and ran /…/venv/bin/mpremote, which skipped the settle and failed
+    every call with "could not enter raw repl" on a board that resets when the port opens.
+    """
+    # Split on both separators rather than os.path.basename: the host running this shim is not
+    # necessarily the host that spelled the path, and a backslash path read on POSIX would come
+    # back whole and match nothing.
+    name = re.split(r"[\\/]", argv0)[-1].lower()
+    return name[:-4] == "mpremote" if name.endswith(".exe") else name == "mpremote"
+
+
 def _with_mpremote_launcher(command):
-    if not command or command[0] != "mpremote":
+    if not command or not _names_mpremote(command[0]):
         return command
     return [sys.executable, _MPREMOTE_LAUNCHER, *command[1:]]
+
+
+def _mpremote_env_command():
+    """The UPY_MPREMOTE value that routes the deploy plugin's own mpremote through the launcher.
+
+    The plugin resolves mpremote itself and spawns it directly, so it never crosses this shim's
+    subprocess boundary and the swap above cannot reach it. It does read UPY_MPREMOTE first,
+    which is the one hook that does reach it.
+
+    None when the value would not survive the plugin's own splitter. It splits with
+    shlex.split(posix=os.name != "nt"), and posix=False keeps the quotes it finds, so a Windows
+    path containing a space cannot be expressed at all. Leaving the variable unset falls back to
+    the plugin's shutil.which(), and on Windows mpremote already applies this reset workaround
+    itself -- it is macOS and Linux that get nothing.
+    """
+    parts = [sys.executable, _MPREMOTE_LAUNCHER]
+    posix = os.name != "nt"
+    value = shlex.join(parts) if posix else subprocess.list2cmdline(parts)
+    return value if shlex.split(value, posix=posix) == parts else None
 
 
 def _run_command(command, **kwargs):

@@ -20,6 +20,8 @@ from serve import (
     resolve_script,
     scripts_root,
     _ensure_utf8_io,
+    _mpremote_env_command,
+    _subprocess_text_kwargs,
     _with_mpremote_launcher,
     _run_project_script,
     _run_flash_device,
@@ -145,6 +147,63 @@ def test_mpremote_runs_through_the_boot_settle_launcher():
     other = ["python", "-m", "esptool", "--chip", "esp32"]
     assert _with_mpremote_launcher(other) == other
     assert _with_mpremote_launcher([]) == []
+
+
+def test_an_absolute_mpremote_path_still_gets_the_settle():
+    # Matching the bare name alone was not enough. A deploy resolved mpremote with
+    # shutil.which() and ran the absolute venv path, which skipped the settle: three
+    # consecutive hardware runs failed their clean step with "could not enter raw repl"
+    # and uploaded nothing, while the board kept running the previous run's firmware.
+    resolved = os.path.join(os.path.expanduser("~"), ".mpyhw", "venv", "bin", "mpremote")
+    argv = _with_mpremote_launcher([resolved, "connect", "/dev/cu.usbserial-0001", "resume"])
+
+    assert argv[0] == sys.executable
+    assert argv[1].endswith("mpremote_launcher.py")
+    assert argv[2:] == ["connect", "/dev/cu.usbserial-0001", "resume"]
+
+    # Windows spelling, and a lookalike that must NOT be swallowed.
+    assert _with_mpremote_launcher([r"C:\venv\Scripts\mpremote.exe", "reset"])[1].endswith(
+        "mpremote_launcher.py"
+    )
+    not_mpremote = ["/usr/local/bin/mpremote-helper", "reset"]
+    assert _with_mpremote_launcher(not_mpremote) == not_mpremote
+
+
+def test_the_deploy_plugin_is_pointed_at_the_launcher_through_its_env_hook():
+    # The deploy plugin resolves and spawns mpremote itself, so it never crosses this shim's
+    # subprocess boundary and _with_mpremote_launcher cannot reach it. UPY_MPREMOTE is the
+    # hook that does. The value has to survive the plugin's own splitter, which is
+    # shlex.split(value, posix=os.name != "nt") in its mpremote_runtime.split_command.
+    import shlex
+
+    value = _subprocess_text_kwargs()["env"].get("UPY_MPREMOTE")
+    assert value, "the deploy plugin's mpremote must be redirected to the launcher"
+
+    parts = shlex.split(value, posix=os.name != "nt")
+    assert parts[0] == sys.executable, "the launcher must be hosted by this interpreter"
+    assert parts[1].endswith("mpremote_launcher.py")
+    assert os.path.isfile(parts[1]), "the redirected path must actually exist"
+
+
+def test_an_operator_set_mpremote_command_outranks_ours(monkeypatch):
+    monkeypatch.setenv("UPY_MPREMOTE", "/opt/custom/mpremote")
+    assert _subprocess_text_kwargs()["env"]["UPY_MPREMOTE"] == "/opt/custom/mpremote"
+
+
+def test_no_mpremote_command_is_handed_over_that_the_plugin_cannot_parse(monkeypatch):
+    # posix=False keeps the quotes it finds, so a Windows path with a space cannot be
+    # expressed through this variable at all. Handing one over anyway would point the plugin
+    # at a path that does not exist; unset is the honest answer, and it falls back to
+    # shutil.which(). Guard the rule rather than the platform we happen to run the suite on.
+    import shlex
+
+    import serve
+
+    monkeypatch.setattr(serve, "_MPREMOTE_LAUNCHER", r"C:\Users\First Last\shim\launcher.py")
+    monkeypatch.setattr(os, "name", "nt")
+    value = serve._mpremote_env_command()
+    if value is not None:
+        assert shlex.split(value, posix=False) == [sys.executable, serve._MPREMOTE_LAUNCHER]
 
 
 def test_launcher_only_delays_for_boards_that_reset_on_open():
