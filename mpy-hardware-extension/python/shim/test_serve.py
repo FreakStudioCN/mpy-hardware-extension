@@ -784,19 +784,54 @@ def test_run_v0_refuses_a_module_that_installs_or_serves():
         assert record == [], "a refused module must never be executed"
 
 
+def test_run_v0_refuses_pylint_because_a_project_pylintrc_executes_code():
+    """Pylint is the module that looks most like it belongs on a lint allowlist and cannot be on
+    one. It runs `init-hook`, arbitrary Python, before analysing anything, and it takes that from
+    --init-hook, --load-plugins, --rcfile, and from a .pylintrc in the working directory.
+
+    The last one is why this is a removal rather than a flag denylist: cwd is the project root,
+    the model writes there, and the project is SUPPOSED to contain a pylintrc (ensure_pylintrc.py
+    puts one there). Verified against the real pylint: a .pylintrc whose init-hook writes a file
+    gets it written, with no flags at all. No argument guard can see that, so the argument guard
+    below is not the control that matters here.
+
+    Lint still runs through run_quality_gates.py, which the refusal names."""
+    for args in (["firmware"], ['--init-hook=import os; os.system("id")', "firmware"],
+                 ["--load-plugins=evil", "firmware"], ["--rcfile=firmware/.pylintrc", "firmware"]):
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": "-m pylint", "args": args, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "error", (args, res)
+        assert res["error_kind"] == "python_module_not_allowed", (args, res)
+        assert "run_quality_gates.py" in res["message"], res["message"]
+        assert record == [], "a refused module must never be executed"
+
+    # flake8 stays: it has no equivalent of init-hook, and it is the configured gate.
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "-m flake8", "args": ["firmware"], "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+
+
 def test_run_v0_module_refuses_an_argument_that_can_escape_the_project():
-    """The allowlist bounds which MODULE runs, not where it writes. Three of the six take an
-    output path from the caller: `json.tool in.json OUT.json`, `flake8 --output-file=PATH` and
-    `pylint --output=PATH`. Without a guard on the arguments, a verification-only call is the one
-    route through this dispatcher that can overwrite a file outside the project, which is the
-    containment write_project_file and delete_project_path enforce everywhere else.
+    """The allowlist bounds which MODULE runs, not where it writes. Two of the five take an
+    output path from the caller: `json.tool in.json OUT.json` and `flake8 --output-file=PATH`.
+    Without a guard on the arguments, a verification-only call is the one route through this
+    dispatcher that can overwrite a file outside the project, which is the containment
+    write_project_file and delete_project_path enforce everywhere else.
 
     Both spellings matter. A guard on json.tool's trailing positional alone leaves the two flag
     forms open, which is why this asserts the flag spellings too."""
     for script, args, offending in (
         ("-m json.tool", ["in.json", "/tmp/escape.json"], "/tmp/escape.json"),
         ("-m flake8", ["--output-file=/tmp/escape.txt", "firmware"], "/tmp/escape.txt"),
-        ("-m pylint", ["--output=/etc/passwd", "firmware"], "/etc/passwd"),
+        ("-m flake8", ["--output-file=/etc/passwd", "firmware"], "/etc/passwd"),
         ("-m json.tool", ["in.json", "../../outside.json"], "../../outside.json"),
         ("-m flake8", ["--output-file=..\\..\\outside.txt"], "..\\..\\outside.txt"),
     ):

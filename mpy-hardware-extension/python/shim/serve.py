@@ -1582,7 +1582,21 @@ def _assert_project_root(base: str, args: list, cwd: str | None) -> list:
 #
 # Deliberately NOT here: pip, ensurepip, venv, http.server -- anything that installs, serves or
 # mutates. The refusal message names the allowed set and points at run_quality_gates.py.
-_ALLOWED_PYTHON_MODULES = frozenset({"py_compile", "compileall", "unittest", "flake8", "pylint", "json.tool"})
+#
+# PYLINT IS NOT HERE EITHER, and it is the one worth explaining, because it looks like the most
+# natural member of a lint allowlist and was on this list until a review asked the right question.
+# Pylint runs `init-hook`, arbitrary Python, before it analyses anything. It takes it from
+# --init-hook, from --load-plugins, from --rcfile, and -- this is the part no argument guard can
+# reach -- from a .pylintrc in the working directory. cwd is the project root, the model writes
+# there, and the project is SUPPOSED to contain a pylintrc: ensure_pylintrc.py puts one there.
+# Verified: a .pylintrc whose init-hook writes a file gets it written, with no flags at all.
+#
+# So allowing pylint here grants arbitrary code execution through a file rather than through a
+# call, which is why blocking the flags was not enough and why this is a removal rather than a
+# denylist. Lint still runs, through run_quality_gates.py, which is the path the contract wants
+# and which the refusal message already names. Do not add it back without answering the .pylintrc
+# question, since that is the door, not the flags.
+_ALLOWED_PYTHON_MODULES = frozenset({"py_compile", "compileall", "unittest", "flake8", "json.tool"})
 
 # "Verification only" is a property of the MODULE list above, not of the arguments. Three of the
 # six write to a path the caller names: `json.tool in.json OUT.json`, `flake8 --output-file=PATH`
