@@ -25,7 +25,6 @@ import { cp, mkdir, readFile as fsReadFile, readdir, rename, writeFile, rm, stat
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { PHASE_ORDER } from "../core/protocol-loop.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { createDeviceShim } from "../extension/device-shim.ts";
 import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
@@ -36,6 +35,7 @@ import {
   postRebootLines,
   type FirmwareEvidence,
 } from "./firmware-evidence.ts";
+import { resumePoint } from "./resume-point.ts";
 
 const DEFAULT_INTENT = "做一个温湿度监测仪，温度超过阈值就让蜂鸣器报警，OLED 屏幕显示读数";
 const intent = process.argv.slice(2).join(" ") || DEFAULT_INTENT;
@@ -96,43 +96,6 @@ const extRoot = fileURLToPath(new URL("../../", import.meta.url));
 // manifest to hand forward and the next_phase to hand it to.
 const resumeFrom = process.env.E2E_RESUME?.trim();
 
-async function resumePoint(dir: string): Promise<{ phase: string; manifest: any; from: string }> {
-  const names = (await readdir(dir)).filter((n) => n.startsWith("phase_complete.") && n.endsWith(".json"));
-  const candidates: Array<{ name: string; phase: string; manifest: any; rank: number }> = [];
-  for (const name of names) {
-    const saved = JSON.parse(await fsReadFile(join(dir, name), "utf-8"));
-    const payload = saved.payload ?? saved;
-    const phase = payload.next_phase ?? saved.next_phase;
-    const manifest = payload.manifest_content ?? saved.manifest_content;
-    if (typeof phase === "string" && phase && manifest) {
-      // PHASE_ORDER is a literal tuple; the saved phase is just a string off disk.
-      candidates.push({ name, phase, manifest, rank: (PHASE_ORDER as readonly string[]).indexOf(phase) });
-    }
-  }
-  if (candidates.length === 0) {
-    throw new Error(`E2E_RESUME: no phase_complete in ${dir} carries next_phase + manifest_content`);
-  }
-  // E2E_RESUME_PHASE picks a specific restart point instead of the furthest one, which is how
-  // a failing phase gets iterated: generate is the expensive one to reach, so restarting at it
-  // from a scaffold checkpoint costs minutes rather than the whole chain.
-  const wanted = process.env.E2E_RESUME_PHASE?.trim();
-  if (wanted) {
-    const picked = candidates.find((c) => c.phase === wanted);
-    if (!picked) {
-      const offered = candidates.map((c) => c.phase).join(", ");
-      throw new Error(`E2E_RESUME_PHASE=${wanted} not saved in ${dir}; available: ${offered}`);
-    }
-    return { phase: picked.phase, manifest: picked.manifest, from: picked.name };
-  }
-  // Furthest along the CHAIN, not the newest file. mtime looked like the obvious key and is
-  // worthless here: archiving a run with `cp -r` rewrites every mtime, so the ordering said
-  // "flash" and the resume replayed scaffold and generate -- the two phases it exists to skip.
-  // An unknown phase ranks -1 and loses to any known one.
-  candidates.sort((a, b) => b.rank - a.rank);
-  const best = candidates[0];
-  return { phase: best.phase, manifest: best.manifest, from: best.name };
-}
-
 // E2E_PROJECT_DIR lets a single-phase iteration run beside a full one instead of fighting it
 // for tmp/e2e-v0. Combined with leaving E2E_REQUIRE_BOARD unset (no pre-flight probe), a
 // generate-only loop touches neither the shared project nor the board.
@@ -157,7 +120,10 @@ if (resumeFrom && resolve(resumeFrom) === resolve(projectDir)) {
   }
 }
 await mkdir(projectDir, { recursive: true });
-const resume = resumeFrom ? await resumePoint(projectDir) : null;
+// E2E_RESUME_PHASE picks a specific restart point instead of the furthest one, which is how a
+// failing phase gets iterated: generate is the expensive one to reach, so restarting at it from
+// a scaffold checkpoint costs minutes rather than the whole chain.
+const resume = resumeFrom ? await resumePoint(projectDir, process.env.E2E_RESUME_PHASE?.trim()) : null;
 // generate's phase_complete(success) requires a real git commit — init a repo so the
 // commit (run through the plugin's script_run, not faked) has somewhere to land. `git init`
 // on an existing repo is a no-op that keeps the resumed run's history.
