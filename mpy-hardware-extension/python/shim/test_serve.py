@@ -784,6 +784,59 @@ def test_run_v0_refuses_a_module_that_installs_or_serves():
         assert record == [], "a refused module must never be executed"
 
 
+def test_run_v0_module_refuses_an_argument_that_can_escape_the_project():
+    """The allowlist bounds which MODULE runs, not where it writes. Three of the six take an
+    output path from the caller: `json.tool in.json OUT.json`, `flake8 --output-file=PATH` and
+    `pylint --output=PATH`. Without a guard on the arguments, a verification-only call is the one
+    route through this dispatcher that can overwrite a file outside the project, which is the
+    containment write_project_file and delete_project_path enforce everywhere else.
+
+    Both spellings matter. A guard on json.tool's trailing positional alone leaves the two flag
+    forms open, which is why this asserts the flag spellings too."""
+    for script, args, offending in (
+        ("-m json.tool", ["in.json", "/tmp/escape.json"], "/tmp/escape.json"),
+        ("-m flake8", ["--output-file=/tmp/escape.txt", "firmware"], "/tmp/escape.txt"),
+        ("-m pylint", ["--output=/etc/passwd", "firmware"], "/etc/passwd"),
+        ("-m json.tool", ["in.json", "../../outside.json"], "../../outside.json"),
+        ("-m flake8", ["--output-file=..\\..\\outside.txt"], "..\\..\\outside.txt"),
+    ):
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": script, "args": args, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "error", (script, args, res)
+        assert res["error_kind"] == "path_outside_project", (script, args, res)
+        # The message is the tool result the model reads, so it has to name the token and the fix.
+        # Compared as a repr because the message quotes the path with !r, which doubles a
+        # backslash: a plain substring check silently passes the posix cases and fails only the
+        # Windows one, which reads like a code bug rather than an assertion bug.
+        assert repr(offending) in res["message"], res["message"]
+        assert "project-relative" in res["message"], res["message"]
+        assert record == [], "a refused call must never be executed"
+
+
+def test_run_v0_module_still_takes_ordinary_project_relative_arguments():
+    """The guard must not cost a legitimate call. A refusal here is worse than the hole it closes:
+    every one of these is a spelling models actually use between gate runs."""
+    for script, args in (
+        ("-m unittest", ["discover", "-s", "test/pc"]),
+        ("-m flake8", ["--max-line-length=120", "firmware"]),
+        ("-m flake8", ["--output-file=reports/lint.txt", "firmware"]),
+        ("-m json.tool", ["project-manifest.json"]),
+        ("-m py_compile", ["firmware/main.py"]),
+    ):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": script, "args": args, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "ok", (script, args, res)
+        assert record, (script, args, "a permitted call must actually run")
+
+
 def test_run_v0_module_leaves_no_bytecode_in_the_project():
     """py_compile writes __pycache__ beside every file it checks. Measured on the first run with
     the module route open: one py_compile call produced 13 PROJECT_PYTHON_CACHE_PRESENT errors at

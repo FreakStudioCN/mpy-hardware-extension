@@ -1584,6 +1584,38 @@ def _assert_project_root(base: str, args: list, cwd: str | None) -> list:
 # mutates. The refusal message names the allowed set and points at run_quality_gates.py.
 _ALLOWED_PYTHON_MODULES = frozenset({"py_compile", "compileall", "unittest", "flake8", "pylint", "json.tool"})
 
+# "Verification only" is a property of the MODULE list above, not of the arguments. Three of the
+# six write to a path the caller names: `json.tool in.json OUT.json`, `flake8 --output-file=PATH`
+# and `pylint --output=PATH`. So an allowlisted, read-only-looking call can still overwrite any
+# file the shim account can write, which is the one route through this dispatcher that escapes the
+# containment `write_project_file` and `delete_project_path` enforce everywhere else.
+#
+# Guarding json.tool's output positional alone would leave the two flag spellings open, so the
+# rule is on the ARGUMENTS and applies to every module: nothing that can name a path outside the
+# project. Relative arguments cannot escape, because cwd is forced to project_dir a few lines
+# below and any model-supplied cwd is discarded. That leaves absolute paths and `..` segments.
+def _escaping_module_arg(arg: str) -> str | None:
+    """The path in `arg` that could leave the project, or None when it cannot.
+
+    Checks the value after `=` as well as the bare token, so `--output-file=/etc/passwd` is caught
+    and not just a trailing positional. Separators are normalised first: on Windows the model may
+    write either, and a check that only understands `/` would pass `..\\..\\x` straight through.
+    """
+    # Value first, so `--output-file=../x` reports `../x` rather than the whole flag. Normalising
+    # the flag as a whole still trips the `..` check, and naming the flag as the offending PATH
+    # reads as though the flag name were the problem.
+    for token in (arg.split("=", 1)[1] if "=" in arg else "", arg):
+        if not token:
+            continue
+        normalised = token.replace("\\", "/")
+        drive_letter = len(normalised) > 1 and normalised[1] == ":" and normalised[0].isalpha()
+        if normalised.startswith("/") or drive_letter or os.path.isabs(token):
+            return token
+        if ".." in normalised.split("/"):
+            return token
+    return None
+
+
 _MODULE_PYCACHE_DIR: str | None = None
 
 
@@ -1647,6 +1679,18 @@ def _run_v0_script(shim, params):
                         "sweep is scripts/run_quality_gates.py, which runs all of them and emits "
                         "the gate results the phase_complete payload needs."
                     )}
+        for arg in args:
+            escaping = _escaping_module_arg(arg)
+            if escaping is not None:
+                # Name the offending token and the fix. This message is the tool result the model
+                # reads, so a bare refusal costs a turn and teaches it nothing.
+                return {"status": "error", "error_kind": "path_outside_project",
+                        "message": (
+                            f"python -m {module} was refused: the argument {arg!r} names {escaping!r}, "
+                            "which can point outside the project. Pass a project-relative path "
+                            "instead, with no leading slash, drive letter or '..' segment. Paths "
+                            "resolve from the project root."
+                        )}
         return _v0_result(shim.run_v0_module(module, args, cwd=cwd, stdin=stdin_content, timeout=timeout))
     base = os.path.basename(str(script))
     # The active phase disambiguates a basename shared by >1 served plugin (e.g.
