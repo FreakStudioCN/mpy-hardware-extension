@@ -774,6 +774,15 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
   const gateTimeReferences = new Set<string>();
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
+    // The signature that failed on THIS turn, which is the only entry the repeat guard below may
+    // judge. Reading the whole identicalFailures map instead let one abandoned streak disable the
+    // guard for the rest of the phase: entries are removed only when that exact signature
+    // succeeds, so when the model does the intended thing -- takes the nudge and CHANGES the call
+    // -- the old entry stays frozen at the nudge threshold forever. A find() over the map keeps
+    // returning it (insertion order), so the re-arm never happens and the stall branch never sees
+    // a count above the threshold, while the model's new call fails identically as often as it
+    // likes. One successful recovery disarmed the guard permanently.
+    let failedSignatureThisTurn: string | null = null;
     // Before the request, not after the push: the cap has to apply to what actually goes out,
     // including the turn that would otherwise be the one to cross the model's limit.
     // Say so when it could NOT get under the cap. The request still goes out -- refusing to
@@ -835,6 +844,15 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
         if (streamRetries < MAX_STREAM_RETRIES) {
           streamRetries += 1;
           input.onEvent?.({ type: "stream_retry", phase, attempt: streamRetries, of: MAX_STREAM_RETRIES, error: streamError });
+          // The retry re-issues the SAME turn, so it must not be BILLED as a new one. Without
+          // this, `continue` runs the loop's turn++ and the retry costs a turn of the phase
+          // budget -- and on the LAST turn it costs the retry itself: the stream_retry event
+          // goes out, the loop condition then ends the phase, and the announced request is
+          // never made. The phase dies labelled max_turns instead of stream_error, with the
+          // recovery it just promised skipped. Safe against a spin: streamRetries only resets
+          // on a turn that produced a tool call, so a genuinely dead upstream still stalls
+          // through the branch below after MAX_STREAM_RETRIES.
+          turn -= 1;
           continue;
         }
         input.onEvent?.({ type: "phase_stalled", phase, reason: "stream_error", detail: stallDetail(recentFailures, turn) });
@@ -893,9 +911,10 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // success over an idle board. The check it wants is a file read, not a device call.
       // Refused BEFORE the final reset, while re-running the upload is still legal, so the
       // evidence debt can never outlive the reset. See isUploadMissingEvidence.
+      let refusal: { ok: false; error_kind: string; detail: string } | null = null;
       if (!finalResetDone && isUploadMissingEvidence(tu)) {
         input.onEvent?.({ type: "upload_without_evidence", phase, tool: tu.name, turn });
-        const refusal = {
+        refusal = {
           ok: false,
           error_kind: "upload_without_evidence",
           detail:
@@ -904,13 +923,10 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
             "--upload-json requires that file, and after the final reset runs no device call is permitted, " +
             "so an upload without it leaves the phase owing evidence it can no longer legally obtain.",
         };
-        input.onEvent?.({ type: "tool_result", name: tu.name, observation: refusal });
-        toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(refusal) });
-        continue;
       }
-      if (finalResetDone && touchesDevice(tu)) {
+      if (!refusal && finalResetDone && touchesDevice(tu)) {
         input.onEvent?.({ type: "device_after_final_reset", phase, tool: tu.name, turn });
-        const refusal = {
+        refusal = {
           ok: false,
           error_kind: "device_after_final_reset",
           detail:
@@ -926,13 +942,21 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
             "A hand-written evidence file is graded as if a script produced it, so fabricating one turns a " +
             "recoverable partial into a false success.",
         };
-        input.onEvent?.({ type: "tool_result", name: tu.name, observation: refusal });
-        toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(refusal) });
-        continue;
       }
-      const { result, phaseControl } = await executeProtocolTool(tu, input, deps, {
-        phase, turn, wasModelWritten: (path: string) => modelWrittenPaths.has(evidenceKey(path)),
-      });
+      // A refusal is a RESULT, not an exit. It used to `continue` straight past the bookkeeping
+      // below, which made refused calls invisible to every guard that reads it: the refusal never
+      // reached callSignatures, identicalFailures or recentFailures. Measured cost -- a model
+      // repeating the identical refused device call was refused ELEVEN times with no nudge, burned
+      // the phase budget and stalled as max_turns carrying `detail: []`, which stallDetail's own
+      // contract tells triage to read as "died looping on SUCCESSFUL calls". Two guard families
+      // shipped in one loop and never met. Flowing the refusal through the ordinary path costs
+      // nothing (every step below is gated on ok === true) and hands it to the guards that were
+      // built to catch exactly this.
+      const { result, phaseControl } = refusal
+        ? { result: refusal as any, phaseControl: undefined }
+        : await executeProtocolTool(tu, input, deps, {
+          phase, turn, wasModelWritten: (path: string) => modelWrittenPaths.has(evidenceKey(path)),
+        });
       // `ok` only says the script RAN. capture_repl.py exits non-zero when the capture failed --
       // port contention, a pty error, a stalled read -- and latching on that made a transient
       // failure unrecoverable: every retry of the same capture is then refused as a post-reset
@@ -946,7 +970,16 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // the full 80,000-char cap per call. normalizeObservation is the redactor the
       // agent-loop path already runs for exactly this reason; the asymmetry with tool_use
       // (compacted just below) was the bug, not a deliberate difference.
-      input.onEvent?.({ type: "tool_result", name: tu.name, observation: normalizeObservation(tu.name ?? "", compactResultBodies(result)) });
+      // A refusal is emitted RAW, as it always was. normalizeObservation exists to redact a real
+      // tool result (host paths, huge stdout) and it reshapes into {tool, ok, output:{...}}, so
+      // running a refusal through it would move `detail` under `output` and change the shape every
+      // consumer of this event reads. A refusal is hand-written text with nothing to redact, and
+      // the only thing being fixed here is that it now also reaches the guards below.
+      input.onEvent?.({
+        type: "tool_result",
+        name: tu.name,
+        observation: refusal ?? normalizeObservation(tu.name ?? "", compactResultBodies(result)),
+      });
       const failure = toolFailure(tu, result);
       callSignatures.push(callSignature(tu));
       // Only a failure the model can act on exempts the window from the cycle check.
@@ -962,6 +995,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
           signatureNow,
           previous?.err === errIdentity ? { err: errIdentity, count: previous.count + 1 } : { err: errIdentity, count: 1 },
         );
+        failedSignatureThisTurn = signatureNow;
       } else {
         identicalFailures.delete(signatureNow);
       }
@@ -1266,7 +1300,10 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     // names what to fix; this one fires when what it names has stopped changing. One phase ran
     // the same validator 10 times for the byte-identical error and died at the cap; no honest
     // run in ten archives ever repeated an identical error more than twice.
-    const repeatedFailure = [...identicalFailures.entries()].find(([, v]) => v.count >= MAX_IDENTICAL_FAILURES);
+    const failedThisTurn = failedSignatureThisTurn ? identicalFailures.get(failedSignatureThisTurn) : undefined;
+    const repeatedFailure = failedThisTurn && failedThisTurn.count >= MAX_IDENTICAL_FAILURES
+      ? [failedSignatureThisTurn!, failedThisTurn] as const
+      : undefined;
     let nudgedThisTurn = false;
     if (!repeatedFailure) identicalFailureNudged = false;
     else if (!identicalFailureNudged) {

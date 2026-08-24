@@ -168,11 +168,17 @@ test("createProtocolLoop reports firmware flashing actions as unsupported, not a
   const loop = createProtocolLoop({ apiBaseUrl: "http://api.test", fetchImpl: fetchImpl as any, getAuthToken: async () => "token", shim: {} } as any);
   const result = await loop({ intent: "flash MicroPython", maxTurnsPerPhase: 2 });
 
-  // partial, NOT complete: the phase reported it could not do the work, and a build that ends on
-  // an unfinished phase lands in awaiting_user. This asserted "complete" while the model was
-  // saying "firmware unsupported" -- the same conflation that let a select-hw phase which could
-  // not resolve its board report a completed build.
-  assert.equal(result.terminal, "awaiting_user");
+  // partial, NOT complete: the phase reported it could not do the work. This asserted "complete"
+  // while the model was saying "firmware unsupported" -- the same conflation that let a select-hw
+  // phase which could not resolve its board report a completed build.
+  //
+  // And "partial", not "awaiting_user", which is what it asserted next. terminalForResult stops
+  // an unfinished phase from reporting the build complete, and the mapping then collapsed that
+  // into the generic hand-back, which the webview renders as "Waiting for your reply" and
+  // classifies as clean. A build whose last phase gave up promised the user nothing was wrong and
+  // that it was waiting on them. The distinction has to survive to the consumer to be worth
+  // making.
+  assert.equal(result.terminal, "partial");
   const toolResult = bodies[1].messages.at(-1).content[0];
   assert.equal(toolResult.type, "tool_result");
   const payload = JSON.parse(toolResult.content);

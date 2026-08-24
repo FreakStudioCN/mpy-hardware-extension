@@ -2640,6 +2640,112 @@ test("the same call failing with the same error three times draws a nudge, four 
   assert.ok(requests.length < 12, `must not burn the budget (used ${requests.length} of 12)`);
 });
 
+// The guard used to disarm itself on the FIRST successful recovery. Entries leave
+// identicalFailures only when that exact signature succeeds, so a streak the model abandoned by
+// changing the call -- the behaviour the nudge asks for -- stayed at the threshold forever, and
+// reading the whole map kept returning it. Measured: the nudge never re-armed and the stall
+// branch never saw a count above the threshold, so a SECOND unchanging failure ran to the cap
+// unguarded. The nudge working once must not be what switches the guard off.
+test("a second unchanging failure is still caught after the first one was nudged and abandoned", async () => {
+  const events: any[] = [];
+  const requests: any[] = [];
+  // Streak A for the first three turns, then the model does what the nudge asks and changes the
+  // call -- a different signature, failing just as identically, for the rest of the phase.
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const n = requests.length;
+      const args = n <= 3 ? SELECT_HW_GATE_ARGS : [...SELECT_HW_GATE_ARGS, "--strict"];
+      return (async function* () {
+        for (const e of [tu(`g${n}`, "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args }), stop]) yield e;
+      })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 14, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["core fields differ from compare manifest"]}' }) } as any,
+  );
+
+  const nudges = events.filter((e) => e.type === "repeating_failure");
+  assert.ok(nudges.length >= 2, `the second streak must be nudged too, saw ${nudges.length} nudge(s)`);
+  assert.notEqual(nudges[1].call, nudges[0].call, "the second nudge must name the call that is failing NOW");
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled?.reason, "repeating_failure", "the abandoned streak must not block the stall");
+  assert.equal(result.terminal, "stalled");
+  assert.ok(requests.length < 14, `must not burn the budget (used ${requests.length} of 14)`);
+});
+
+// A refusal is a result the model receives, and it used to `continue` past every tracker that
+// reads one. Measured: a model repeating the identical refused device call was refused ELEVEN
+// times with no nudge, burned the phase budget and stalled as max_turns with an empty detail --
+// which stallDetail's contract tells triage to read as "died looping on SUCCESSFUL calls". The
+// two guard families shipped in the same loop and never met.
+test("a refused call that repeats is caught by the repeat guard, not left to burn the budget", async () => {
+  const events: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      // Turn 1 runs the final reset; every turn after it repeats the SAME now-illegal device call.
+      const ev = turn === 1
+        ? [tu("f", "script_run", { interpreter: "python", script: "scripts/capture_repl.py", args: ["--reset-first", "--output-json", "final_reset_capture.json"] }), stop]
+        : [tu(`l${turn}`, "device_command", { action: "ls", path: "/" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 12, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY"}' }),
+      device: async () => ({ ok: true, entries: [] }),
+    } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "device_after_final_reset"), "the refusal must still fire");
+  assert.ok(events.some((e) => e.type === "repeating_failure"), "a repeated refusal must draw the nudge");
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled?.reason, "repeating_failure", "it must stall as a repeat, not as max_turns");
+  // The stall detail is what triage reads; empty means "looping on successful calls", which is
+  // the wrong story for a phase that was refused every turn.
+  assert.ok((stalled?.detail ?? []).length > 0, "the stall must name the refused call, not report nothing");
+  assert.equal(result.terminal, "stalled");
+});
+
+// The retry re-issues the SAME turn, so billing it as a new one costs the phase a turn -- and on
+// the LAST turn it costs the retry itself: the stream_retry event goes out, the loop condition
+// ends the phase, and the announced request is never made. The phase then dies as max_turns with
+// the recovery it just promised skipped.
+test("a stream that dies on the final turn still gets the retry it announced", async () => {
+  const events: any[] = [];
+  let calls = 0;
+  const llm = {
+    streamMessages: async () => {
+      calls += 1;
+      // Turn 1: ordinary work. Turn 2 (the last): the stream dies before producing a tool call.
+      // The retry that follows must actually go out, and it completes the phase.
+      if (calls === 1) {
+        return (async function* () { for (const e of [tu("a", "file_operation", { op: "write", path: "notes.md", content: "x" }), stop]) yield e; })();
+      }
+      if (calls === 2) {
+        return (async function* () { yield { type: "stream_error", message: "socket hang up" } as any; })();
+      }
+      return (async function* () { for (const e of [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop]) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "analyze", maxTurnsPerPhase: 2, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async () => ({ ok: true }) } as any,
+  );
+
+  assert.ok(events.some((e) => e.type === "stream_retry"), "the retry must be announced");
+  assert.equal(calls, 3, `the announced retry must actually be issued (upstream called ${calls}x)`);
+  assert.equal(result.terminal, "complete", "the phase must finish on the retry, not die at the cap");
+});
+
 test("a fix loop whose error CHANGES is never called a repeating failure", async () => {
   // The guard must not punish convergence. PC_UNITTEST_FAILED repeats with DIFFERENT failing
   // tests during an honest fix loop, which is why identity is the whole error payload and not

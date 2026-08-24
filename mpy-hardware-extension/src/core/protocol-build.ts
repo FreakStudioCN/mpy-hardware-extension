@@ -283,10 +283,17 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
       if (!isRetryableTransport(error) || input.signal?.aborted) throw error;
       return { terminal: "llm_unreachable", state: { manifest: input.state?.manifest ?? {}, phase: input.state?.phase, intent } };
     }
+    // "partial" travels: terminalForResult stops a phase that gave up from reporting the build
+    // complete, and collapsing it here into awaiting_user threw that away at the last step. The
+    // webview renders awaiting_user as "Waiting for your reply" and classifies it as a clean
+    // hand-back, so a build whose last phase could not finish its work showed a label promising
+    // nothing was wrong and that the user's input was expected. Producer fixed, consumer still
+    // flattening.
     const terminal = result.terminal === "complete" ? "complete"
       : result.terminal === "cancelled" ? "cancelled"
       : result.terminal === "failed" ? "failed"
       : result.terminal === "stalled" ? "stalled"
+      : result.terminal === "partial" ? "partial"
       : "awaiting_user";
     return { terminal, state: { manifest: result.manifest, phase: result.phases.at(-1)?.phase, intent } };
   };
