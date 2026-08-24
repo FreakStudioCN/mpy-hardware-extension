@@ -938,6 +938,15 @@ export class SessionController {
       this.deps.postMessage({ type: "phase_stalled", phase: event.phase, reason: event.reason });
       return;
     }
+    if (event.type === "history_over_cap") {
+      // The replayed conversation could not be brought under its cap; the request still went
+      // out. Record-only: this is triage material for the non-retryable 400 it may cause a few
+      // turns later, and the end user has nothing to do with "487,320 chars on turn 41". It
+      // needs its own branch because the catch-all below wraps it as a trace_event, whose
+      // mapper returns null for it -- the alarm would be counted as telemetry_dropped.
+      this.record({ type: "history_over_cap", phase: event.phase, chars: event.chars, turn: event.turn });
+      return;
+    }
     if (event.type === "phase_error") {
       // The protocol hit an unrecoverable phase fault (today: the model asked to advance to a
       // phase outside PHASE_ALIASES) and ends the run "failed". Same treatment as phase_stalled:

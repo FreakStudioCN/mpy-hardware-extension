@@ -1,3 +1,8 @@
+import pathlib
+import re
+
+import pytest
+
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta, timezone
 
@@ -367,6 +372,55 @@ def test_client_observability_events_are_ingest_only():
     client.post("/v1/telemetry", json={"events": [event("extension_error", {"message": "x"}), event("telemetry_dropped", {"dropped": {}})]})
 
     assert analytics.session_for(trace_id="trace-1") is None
+
+
+def test_history_over_cap_ingests_and_is_ingest_only():
+    # The loop raises this when it could not bring the replayed conversation under its char
+    # cap, so that request went out over budget. It is the only record of why the
+    # non-retryable 400 a few turns later happened, so it has to reach the DB — and it is
+    # ingest-only like the rest of the phase_* trace: no phantom session row, no terminal.
+    response = client.post("/v1/telemetry", json={"events": [
+        event("history_over_cap", {"phase": "upy-generate-plugin", "chars": 512345, "turn": 41}),
+    ]})
+
+    assert response.status_code == 204
+    rows = analytics.telemetry_events(trace_id="trace-1")
+    assert [r["event_type"] for r in rows] == ["history_over_cap"]
+    assert rows[0]["payload"]["chars"] == 512345
+    assert analytics.session_for(trace_id="trace-1") is None
+
+
+@pytest.mark.no_db  # reads a source file and a module constant; nothing here touches the DB
+def test_every_event_type_the_client_maps_is_allowed_here():
+    # ALLOWED_EVENT_TYPES is hand-written and the client's mapper is the only producer, so the
+    # two drift silently: a type the client maps but this list omits is 422'd by the
+    # event_type validator, and because the recorder posts ONE event per request and never
+    # re-buffers a 4xx, that event is lost with no trace anywhere. It has happened three
+    # times (connect_retry, session_retry, history_over_cap). Derive the client's set from
+    # telemetry.ts instead of restating it, so the next one fails here and not in production.
+    source = pathlib.Path(__file__).resolve().parents[2] / "mpy-hardware-extension" / "src" / "core" / "telemetry.ts"
+    assert source.is_file(), source
+    literal = re.compile(r'^"([a-z_]+)"')
+    ternary = re.compile(r'^.*?\?\s*"([a-z_]+)"\s*:\s*"([a-z_]+)"')
+    mapped: set[str] = set()
+    for line in source.read_text(encoding="utf-8").splitlines():
+        for tail in re.findall(r"\beventType:\s*(.*)$", line):
+            if tail.startswith("string"):  # the {eventType: string} signatures, not a mapping
+                continue
+            hit = literal.match(tail)
+            if hit:
+                mapped.add(hit.group(1))
+                continue
+            hit = ternary.match(tail)
+            if hit:
+                mapped.update(hit.groups())
+                continue
+            # Fail loudly rather than under-deriving: a shape this test cannot read is a
+            # shape it cannot guard, and a silent skip is how the drift got in.
+            raise AssertionError(f"unreadable eventType shape in telemetry.ts, teach this test about it: {line.strip()}")
+
+    assert mapped, "derived nothing from telemetry.ts — the parse broke, not the client"
+    assert mapped <= analytics.ALLOWED_EVENT_TYPES, sorted(mapped - analytics.ALLOWED_EVENT_TYPES)
 
 
 def event(event_type, payload, timestamp="2026-06-01T00:00:00Z"):

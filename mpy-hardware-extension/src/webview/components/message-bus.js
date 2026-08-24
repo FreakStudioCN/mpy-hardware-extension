@@ -105,7 +105,18 @@
             addApprovalPrompt(msg.promptId, msg.card);
           }
         }
-        if (msg.type === "status_update" && running) { addStatusUpdate(msg.payload); }
+        // A status line usually opens a LIVE thinking card, which is the working affordance.
+        // But classifyActivity routes anything matching /generated|finished|done|.../ to a
+        // STATIC result card -- and progress lines say things like "validate generated code".
+        // addActivity has already cleared the spinner by then, and nothing re-arms it: the
+        // next re-arm points are trace_event and phase_start, while tool_use/tool_result are
+        // record-only (session-controller), so a minutes-long script_run follows with the feed
+        // showing no activity at all. Re-arm only when no live card was opened, so the
+        // thinking-card path still shows exactly one spinner.
+        if (msg.type === "status_update" && running) {
+          addStatusUpdate(msg.payload);
+          if (!currentThinkCard) setPending(pendingLabel || tr("working"));
+        }
         if (msg.type === "phase_start") { setPending(tr("working")); }
         if (msg.type === "phase_complete") { flushCreditUsage(); addPhaseComplete(msg.payload); vscode.postMessage({ type: "request_artifacts" }); }
         if (msg.type === "deploy_ports_updated") { if (currentDeployCard) currentDeployCard.setPorts(msg.ports); }

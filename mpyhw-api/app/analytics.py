@@ -58,6 +58,12 @@ ALLOWED_EVENT_TYPES = {
     "status_update",
     "approval_requested",
     "components_proposed",
+    # The loop could not bring the replayed conversation under its char cap, so that request
+    # went out over budget. Ingest-only, like the rest of this group, and it has to be listed
+    # here or the pydantic event_type validator 422s it: the client posts one event per
+    # request, so the alarm alone is lost -- silently, because a 4xx is never re-buffered.
+    # That is the exact invisibility the client-side mapping was added to prevent.
+    "history_over_cap",
     # Existing MVP event names kept for client compatibility.
     "shim_call",
     "skill_loaded",

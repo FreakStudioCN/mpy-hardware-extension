@@ -4,6 +4,13 @@
 // phase_complete. Mirrors the proven backend e2e harness, in TypeScript.
 import { PROTOCOL_TOOLS, PROTOCOL_TOOL_NAMES, routeForTool } from "./protocol-registry.ts";
 import { normalizeObservation } from "./observations.ts";
+import {
+  boundHistory,
+  digest,
+  historyChars,
+  TELEMETRY_BODY_FIELDS,
+  TELEMETRY_INPUT_STRING_BUDGET,
+} from "./history-window.ts";
 
 export const PHASE_ORDER = ["analyze", "select-hw", "upy-flash-mpy-firmware-plugin", "upy-scaffold-plugin", "upy-generate-plugin", "upy-deploy-plugin"] as const;
 
@@ -163,9 +170,6 @@ function buildContext(input: ProtocolInput, absorbedSupplements: string[]): Reco
   return Object.keys(ctx).length ? ctx : null;
 }
 
-// Longest string field kept verbatim in the tool_use telemetry payload.
-const TELEMETRY_INPUT_STRING_BUDGET = 200;
-
 // Shrink a tool input down to the IDENTITY of the call (tool, path, script_id, flags)
 // for telemetry. A file_operation write carries a whole generated file, and a phase can burn
 // its full 60-turn budget rewriting the same files, so emitting inputs verbatim would
@@ -178,7 +182,22 @@ const TELEMETRY_INPUT_STRING_BUDGET = 200;
 function compactToolInput(input: any): Record<string, any> {
   const compact: Record<string, any> = {};
   for (const [key, value] of Object.entries(input ?? {})) {
-    if (typeof value === "string") compact[key] = value.length > TELEMETRY_INPUT_STRING_BUDGET ? `<${value.length} chars>` : value;
+    if (typeof value === "string") {
+      // A body field is compacted at EVERY length, not only over the budget: a short
+      // conf.py is still a file body, and a credential in it would otherwise be recorded
+      // verbatim because it happened to be under 200 characters.
+      if (TELEMETRY_BODY_FIELDS.has(key)) {
+        compact[key] = `<${value.length} chars ${digest(value)}>`;
+        continue;
+      }
+      // The head is the BUDGET here, not history-window's 400. A 400-char head under a
+      // 200-char budget records every string in (200, 422] IN FULL and 22 characters longer
+      // than it went in -- the same arithmetic elide() already guards against, on the
+      // telemetry side of it. And keep the substitution only while it actually shortens, so
+      // no compaction can ever grow the payload it exists to bound.
+      const compacted = `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_STRING_BUDGET)}`;
+      compact[key] = compacted.length < value.length ? compacted : value;
+    }
     else if (Array.isArray(value)) compact[key] = `<${value.length} items>`;
     else if (value && typeof value === "object") compact[key] = "<object>";
     else compact[key] = value;
@@ -186,8 +205,36 @@ function compactToolInput(input: any): Record<string, any> {
   return compact;
 }
 
+// The READ side of the rule compactToolInput enforces on writes. A file_operation read returns
+// the file's content, and that result is recorded into session.jsonl and the consented cloud
+// tool_dispatch payload. normalizeObservation redacts host paths and truncates at 1200 chars,
+// but it cannot tell that a value is a file BODY -- so the head of firmware/conf.py, which is
+// exactly where this product puts credentials, was recorded verbatim. Closing only the write
+// side left the easier path open: the model reads a file back before it rewrites one.
+// Replaces on a COPY -- the model still receives the real content in its tool result.
+function compactResultBodies(result: any): any {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+  let copy: any = null;
+  for (const [key, value] of Object.entries(result)) {
+    if (!TELEMETRY_BODY_FIELDS.has(key) || typeof value !== "string") continue;
+    copy ??= { ...result };
+    copy[key] = `<${value.length} chars ${digest(value)}>`;
+  }
+  return copy ?? result;
+}
+
 // How many recent tool failures a stalled phase reports as its detail.
 const STALL_DETAIL_LIMIT = 3;
+
+// Proof that apply_scaffold actually rendered: init_scaffold.py writes .flake8 at the
+// project root on EVERY render, whatever modules the manifest selected.
+const SCAFFOLD_APPLIED_MARKER = ".flake8";
+// The "it is not there" answers the wired readers produce: both panel.ts and the e2e harness
+// return file_not_found; not_found is the older spelling still used by the harness's LIST op,
+// kept so a reader that answers either way is read as absence. Anything else (read_failed,
+// path_outside_workspace) is an ERROR, and reading an error as absence would reject a
+// scaffold that did run.
+const MISSING_FILE_KINDS = new Set(["file_not_found", "not_found"]);
 
 // One gate-report entry, read in BOTH real shapes. run_quality_gates.py emits objects
 // ({code, path}); the select-hw / analyze validators emit a plain string per problem
@@ -226,6 +273,15 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
   const recentFailures: Array<{ tool: string; error: string; path?: string }> = [];
   for (let turn = 0; turn < maxTurns; turn++) {
     if (input.signal?.aborted) return { done: false, cancelled: true };
+    // Before the request, not after the push: the cap has to apply to what actually goes out,
+    // including the turn that would otherwise be the one to cross the model's limit.
+    // Say so when it could NOT get under the cap. The request still goes out -- refusing to
+    // send is a worse outcome than a request that may be rejected -- but a silent return
+    // would make the next triage of that non-retryable 400 start from "the cap was in place,
+    // so size cannot be the problem", which is exactly the wrong place to start.
+    if (!boundHistory(messages)) {
+      input.onEvent?.({ type: "history_over_cap", phase, chars: historyChars(messages), turn });
+    }
     const body = { phase, manifest, messages, tools: PROTOCOL_TOOLS, trace_id: input.traceId, ...(context ? { context } : {}) };
     const source = await deps.llmClient.streamMessages(body, input.signal);
     const it = asyncEvents(source as AsyncIterable<StreamEvent>);
@@ -235,7 +291,14 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     let streamError: string | null = null;
     while (true) {
       let next: IteratorResult<StreamEvent>;
-      try { next = await it.next(); } catch { try { await it.return?.(undefined); } catch { /* ignore */ } break; }
+      try { next = await it.next(); }
+      catch (err: any) {
+        // Keep WHY the stream died. Breaking silently left a phase that ended with no tool
+        // call and no reason, and the build then reported "stalled" with nothing to read.
+        streamError = String(err?.message ?? err ?? "stream_read_failed");
+        try { await it.return?.(undefined); } catch { /* ignore */ }
+        break;
+      }
       if (next.done) break;
       const ev = next.value;
       if (ev.type === "text_delta") text += ev.text ?? "";
@@ -249,7 +312,23 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     }
     // A mid-stream abort throws out of it.next() and lands here with the signal set 鈥?    // surface it as cancelled, not a normal (stalled) end.
     if (input.signal?.aborted) { try { await it.return?.(undefined); } catch { /* ignore */ } return { done: false, cancelled: true }; }
-    if (streamError) return { done: false, stalled: true, error: streamError };
+    if (streamError) {
+      // Every other stall path emits phase_stalled with a detail array; this one returned an
+      // `error` field nobody reads, so a mid-stream failure was invisible in the panel, in the
+      // session log and in the DB alike. Observed: 56 clean turns, then a silent "stalled".
+      recentFailures.push({ tool: "llm_stream", error: streamError });
+      if (recentFailures.length > STALL_DETAIL_LIMIT) recentFailures.shift();
+      // Only give up when the turn produced NOTHING to act on. `tool_use_complete` means the
+      // call arrived whole, so a stream that dies after it still advanced the protocol -- and
+      // nothing retries mid-stream (withConnectRetries wraps only the awaited streamMessages
+      // call, never a throw out of it.next()), so ending the phase here throws away that call
+      // and all 50 turns before it over one transient socket hang-up. The failure stays in
+      // recentFailures either way, so a phase that goes on to stall still names it.
+      if (toolUses.length === 0) {
+        input.onEvent?.({ type: "phase_stalled", phase, reason: "stream_error", detail: [...recentFailures] });
+        return { done: false, stalled: true, error: streamError };
+      }
+    }
 
     const blocks: any[] = [];
     if (thinking) blocks.push({ type: "thinking", thinking });
@@ -299,7 +378,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // the full 80,000-char cap per call. normalizeObservation is the redactor the
       // agent-loop path already runs for exactly this reason; the asymmetry with tool_use
       // (compacted just below) was the bug, not a deliberate difference.
-      input.onEvent?.({ type: "tool_result", name: tu.name, observation: normalizeObservation(tu.name ?? "", result) });
+      input.onEvent?.({ type: "tool_result", name: tu.name, observation: normalizeObservation(tu.name ?? "", compactResultBodies(result)) });
       const failure = toolFailure(tu, result);
       if (failure) {
         recentFailures.push(failure);
@@ -307,18 +386,37 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       }
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
       if (tu.name === "phase_complete" && phaseControl) control = phaseControl;
-      // A host script result carrying GENERATE_PLAN_* structured errors gets a
-      // deterministic corrective message enumerating code+path -- don't rely on the
-      // model parsing the raw JSON tool_result to find its own mistakes.
-      const planErrors = (result?.structured_errors ?? []).filter((e: any) => String(e?.code ?? "").startsWith("GENERATE_PLAN"));
-      if (planErrors.length > 0) {
+      // A host script result carrying structured gate errors gets a deterministic
+      // corrective message enumerating them -- don't rely on the model parsing the raw
+      // JSON tool_result to find its own mistakes. Measured: naming the plan gate's
+      // entries is what ended a loop that had run nine identical failures deep. Lint and
+      // test failures carry the same shape (run_quality_gates.py emits FLAKE8_FAILED /
+      // PC_UNITTEST_FAILED with the tool output as the message) and used to be filtered
+      // out here, so one phase spent all 60 turns on an unused variable and an unused
+      // import without ever being told which line either was on.
+      // Read BOTH real entry shapes, the same way gateEntryReason does for the stall detail.
+      // Requiring `.code` filtered out every STRING entry, and the string shape is what the
+      // select-hw and analyze validators emit (update_manifest.py / init_manifest.py append
+      // plain sentences to `errors`) -- so the phases that fail on a malformed manifest, the
+      // ones a corrective message helps most, were the ones that got none.
+      const gateErrors = (result?.structured_errors ?? []).filter((e: any) => gateEntryReason(e).trim() !== "");
+      if (gateErrors.length > 0) {
         correctiveMessages.push({
           role: "user",
           content: [{
             type: "text",
             text:
-              "Quality gate failed on generate_plan.json. Fix exactly these entries, then re-run the gate:\n" +
-              planErrors.map((e: any) => `- ${e.code}: ${e.path ?? e.message ?? ""}`).join("\n"),
+              "Quality gate failed. Fix exactly these, then re-run the gate:\n" +
+              gateErrors.slice(0, MAX_CORRECTIVE_ENTRIES)
+                .map((e: any) => {
+                  const name = gateEntryReason(e);
+                  const detail = clampCorrectiveDetail(correctiveDetail(e, name));
+                  return detail ? `- ${name}: ${detail}` : `- ${name}`;
+                })
+                .join("\n") +
+              (gateErrors.length > MAX_CORRECTIVE_ENTRIES
+                ? `\n- (${gateErrors.length - MAX_CORRECTIVE_ENTRIES} more; the full report is in the tool result)`
+                : ""),
           }],
         });
       }
@@ -469,6 +567,37 @@ export function capListEntries(entries: unknown[]): { entries: unknown[]; omitte
   return { entries: kept, omitted: entries.length - kept.length };
 }
 
+// A corrective message is a nudge, not a report: the full gate output is already in the
+// tool result the model just read. Cap both the entry count and each entry, so a hundred
+// lint errors cannot crowd out the conversation the cap above exists to protect.
+const MAX_CORRECTIVE_ENTRIES = 10;
+const MAX_CORRECTIVE_DETAIL_CHARS = 400;
+
+// Everything the gate said about ONE failure, in the order the model needs it: where, what
+// would satisfy it, then why. `path ?? message` dropped the message whenever a record carried
+// both, which is the common case -- BOOT_DELAY_MISSING names firmware/main.py AND explains the
+// three second delay, and the model was shown only the filename. `accepted*` / `expected` are
+// what the gates carry once they name their accepted values, so pass them through too.
+// `named` is what the line already prints as the entry's name (gateEntryReason). An entry with
+// no `code` is named by its message, and repeating that message as its own detail reads as
+// "- must be a non-empty list: must be a non-empty list" -- drop the part already said.
+function correctiveDetail(entry: any, named = ""): string {
+  const accepted = entry?.accepted ?? entry?.accepted_url ?? entry?.accepted_urls ?? entry?.accepted_fields ?? entry?.expected;
+  const parts = [
+    entry?.path,
+    accepted === undefined ? "" : `accepted: ${typeof accepted === "string" ? accepted : JSON.stringify(accepted)}`,
+    entry?.message,
+  ];
+  return parts.map((p) => String(p ?? "").trim()).filter(Boolean).filter((p) => p !== named).join(" — ");
+}
+
+function clampCorrectiveDetail(value: unknown): string {
+  const text = String(value ?? "").trim();
+  return text.length <= MAX_CORRECTIVE_DETAIL_CHARS
+    ? text
+    : `${text.slice(0, MAX_CORRECTIVE_DETAIL_CHARS)}… (truncated, see the tool result)`;
+}
+
 function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; path?: string; message?: string }> | undefined {
   const text = typeof stdout === "string" ? stdout.trim() : "";
   if (!text.startsWith("{")) return undefined;
@@ -477,8 +606,20 @@ function structuredErrorsFromStdout(stdout: unknown): Array<{ code?: string; pat
   if (!parsed || typeof parsed !== "object") return undefined;
   const flat: Array<{ code?: string; path?: string; message?: string }> = [];
   if (Array.isArray(parsed.errors)) flat.push(...parsed.errors);
-  if (Array.isArray(parsed.structured_errors)) {
-    for (const entry of parsed.structured_errors) {
+  // apply_scaffold reports its failures one level down, under the phase_complete payload it
+  // also emits, so a scaffold lint failure produced no corrective message at all while a
+  // quality-gate failure did. Read both shapes: the model should not have to notice which
+  // script it happened to run.
+  // A FALLBACK, not a union: apply_scaffold serializes the SAME python list at both paths
+  // (run_actual_project returns `structured_errors` at the top level and build_phase_complete
+  // puts the identical list in payload.structured_errors), so reading both concatenated every
+  // scaffold error twice -- printing it twice in the corrective message and halving the
+  // MAX_CORRECTIVE_ENTRIES budget, five real errors filling ten slots.
+  const source = Array.isArray(parsed.structured_errors)
+    ? parsed.structured_errors
+    : parsed?.phase_complete?.payload?.structured_errors;
+  if (Array.isArray(source)) {
+    for (const entry of source) {
       const nested = entry?.details?.errors;
       if (Array.isArray(nested) && nested.length > 0) flat.push(...nested);
       else flat.push(entry);
@@ -515,6 +656,38 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // instead of silently ending the build with an undefined result.
     if (!p.result) {
       return { result: { ok: false, error_kind: "phase_complete_incomplete", detail: "phase_complete requires a result (success/partial/failed) and, on success, a next_phase" } };
+    }
+    // A scaffold `success` that rendered NOTHING. Measured on a real run: the model never
+    // called apply_scaffold, hand-wrote the tree, and reported success -- the project had no
+    // .flake8, no .upy/, no lib/. It then had to reproduce tools/flash_device.py by hand for
+    // the deploy-tool gate, wrote it 8 times, and matched 3 of the 12 required markers that
+    // the scaffold's own template satisfies outright. Reject it (no phaseControl) so the
+    // phase continues and the model runs apply_scaffold, instead of carrying a project with
+    // no scaffold contract into generate and deploy.
+    if (phaseCtx.phase === "upy-scaffold-plugin" && p.result === "success") {
+      // No reader wired is not "guard passes": makeWorkspaceReader and makeWorkspaceWriter go
+      // undefined together, so a run without a reader never wrote the project either and its
+      // scaffold `success` cannot be true. `&& deps.readFile` made the check silently absent
+      // in exactly that case; every other missing dep in this file fails loud (device_
+      // unavailable, host_runner_absent) and so does this one.
+      if (typeof deps.readFile !== "function") {
+        return { result: { ok: false, error_kind: "workspace_unavailable", message: "Cannot verify the scaffold rendered: no workspace reader is available, so the project was never written." } };
+      }
+      const marker = await deps.readFile(SCAFFOLD_APPLIED_MARKER);
+      if (!marker.ok && MISSING_FILE_KINDS.has(marker.error_kind ?? "")) {
+        return {
+          result: {
+            ok: false,
+            error_kind: "scaffold_not_applied",
+            // Name what satisfies it. A gate that only says no costs a phase budget.
+            message:
+              `Rejected: scaffold reported success but ${SCAFFOLD_APPLIED_MARKER} is not in the project, ` +
+              "so apply_scaffold never rendered. Run the scaffold plugin's apply_scaffold script, then " +
+              "re-emit phase_complete. Do not hand-write the scaffold tree: it ships tools/flash_device.py " +
+              "and tools/read_device_log.py in the exact shape the deploy phase requires.",
+          },
+        };
+      }
     }
     // Turn 0 of the generate phase: upy-scaffold-plugin already ran, so the project is
     // never empty at this point. A failed bail back to analyze here is a hallucination,

@@ -65,7 +65,14 @@ test("protocol build walks the full V0 plugin chain and sends the cloud envelope
     },
   };
 
-  const result = await runProtocolBuild({ intent: "x", traceId: "trace-v0" }, { llmClient: llm });
+  // A reader is required, not optional: the scaffold phase verifies that apply_scaffold really
+  // rendered before it accepts phase_complete(success), and a run with no reader never wrote
+  // the project at all. This chain walks straight through scaffold, so it supplies one that
+  // reports the marker present.
+  const result = await runProtocolBuild(
+    { intent: "x", traceId: "trace-v0" },
+    { llmClient: llm, readFile: async () => ({ ok: true, content: "" }) } as any,
+  );
 
   assert.equal(result.terminal, "complete");
   assert.deepEqual(result.phases.map((p) => p.phase), [...V0_PHASE_CHAIN]);
@@ -1168,6 +1175,66 @@ test("generate phase rejects a turn-0 failed bail to analyze and retries", async
   assert.ok(calls >= 2, "turn-0 hallucinated bail must not end the phase; the model must be re-prompted");
 });
 
+test("scaffold success is rejected when apply_scaffold rendered nothing", async () => {
+  // Measured on a real run: the model never called apply_scaffold, hand-wrote the tree and
+  // reported success. The project had no .flake8, and the deploy-tool interface it then had
+  // to reproduce by hand matched 3 of 12 required markers. apply_scaffold writes .flake8 on
+  // every render, so its absence is the cheapest proof the phase rendered nothing.
+  const reads: string[] = [];
+  const missing = await executeProtocolTool(
+    tu("s0", "phase_complete", { result: "success", next_phase: "upy-generate-plugin" }) as any,
+    { intent: "x" },
+    {
+      llmClient: scriptedLlm({}),
+      readFile: async (path: string) => { reads.push(path); return { ok: false, error_kind: "file_not_found" }; },
+    },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.deepEqual(reads, [".flake8"]);
+  assert.equal(missing.result.ok, false);
+  assert.equal(missing.result.error_kind, "scaffold_not_applied");
+  assert.equal(missing.phaseControl, undefined, "rejected phase_complete must not advance the phase");
+  assert.match(missing.result.message, /apply_scaffold/, "the refusal must name what would satisfy it");
+
+  // A scaffold that DID render passes through untouched.
+  const applied = await executeProtocolTool(
+    tu("s1", "phase_complete", { result: "success", next_phase: "upy-generate-plugin" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: true, content: "[flake8]\nmax-line-length = 120\n" }) },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.equal(applied.result.ok, true);
+  assert.ok(applied.phaseControl, "a rendered scaffold advances normally");
+
+  // A read that FAILED is not absence. Rejecting here would kill a scaffold that ran.
+  const unreadable = await executeProtocolTool(
+    tu("s2", "phase_complete", { result: "success", next_phase: "upy-generate-plugin" }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: false, error_kind: "read_failed" }) },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.equal(unreadable.result.ok, true, "only a positive file_not_found may reject");
+  assert.ok(unreadable.phaseControl);
+
+  // Guard is scaffold-only and success-only: other phases and other results pass through
+  // even with the marker absent.
+  const otherPhase = await executeProtocolTool(
+    tu("s3", "phase_complete", { result: "success", next_phase: null }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: false, error_kind: "file_not_found" }) },
+    { phase: "upy-generate-plugin", turn: 3 },
+  );
+  assert.equal(otherPhase.result.ok, true, "guard is scaffold-phase-only");
+
+  const scaffoldPartial = await executeProtocolTool(
+    tu("s4", "phase_complete", { result: "partial", next_phase: null }) as any,
+    { intent: "x" },
+    { llmClient: scriptedLlm({}), readFile: async () => ({ ok: false, error_kind: "file_not_found" }) },
+    { phase: "upy-scaffold-plugin", turn: 3 },
+  );
+  assert.equal(scaffoldPartial.result.ok, true, "a partial scaffold already reports its own trouble");
+});
+
 test("quality-gate GENERATE_PLAN errors inject a deterministic corrective message", async () => {
   const bodies: any[] = [];
   let calls = 0;
@@ -1486,9 +1553,79 @@ test("recorded tool input keeps the call identity and replaces a file body with 
   // rewrite loop gives you.
   assert.equal(dispatched.input.path, "firmware/main.py");
   assert.equal(dispatched.input.operation, "write");
-  // The file body does not. A phase can burn 60 turns rewriting the same files, so
-  // emitting content verbatim would bury the trace under file bodies.
-  assert.equal(dispatched.input.content, "<5000 chars>");
+  // The body does not survive at all: telemetry reaches session.jsonl and the consented
+  // cloud tool_dispatch payload unredacted, and firmware/conf.py is where this product puts
+  // credentials. What IS kept is the length and a digest. The digest answers a question a
+  // bare "<5000 chars>" could not: six writes of main.py that all failed the same gate, and
+  // no way to tell whether the model changed anything between them.
+  const recorded = dispatched.input.content as string;
+  assert.match(recorded, /^<5000 chars [0-9a-f]{8}>$/, recorded.slice(0, 60));
+  assert.ok(!recorded.includes("x".repeat(50)), "no part of the body text is recorded");
+});
+
+test("two different bodies get different digests, and identical ones match", async () => {
+  const digestsFor = async (bodies: string[]) => {
+    const events: any[] = [];
+    let calls = 0;
+    const llm = {
+      streamMessages: async () => {
+        calls++;
+        const body = bodies[calls - 1];
+        const ev = body !== undefined
+          ? [tu(`f${calls}`, "file_operation", { operation: "write", path: "firmware/main.py", content: body }), stop]
+          : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+        return (async function* () { for (const e of ev) yield e; })();
+      },
+    };
+    await runProtocolBuild(
+      { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 6, onEvent: (e: any) => events.push(e) },
+      { llmClient: llm, writeFile: async (path: string) => ({ ok: true, path }) },
+    );
+    return events.filter((e) => e.type === "tool_use" && e.name === "file_operation")
+      .map((e) => String(e.input.content).match(/^<\d+ chars ([0-9a-f]{8})>/)?.[1]);
+  };
+
+  const [a, b] = await digestsFor(["y".repeat(3000), "y".repeat(2999) + "z"]);
+  assert.ok(a && b, "both writes recorded a digest");
+  assert.notEqual(a, b, "a one character change must change the digest");
+
+  const [c, d] = await digestsFor(["same".repeat(800), "same".repeat(800)]);
+  assert.equal(c, d, "an unchanged rewrite must show the same digest");
+});
+
+// A NON-body string field is compacted too, and that compaction must never GROW what it
+// records. A 400-char head under a 200-char budget put every string in (200, 422] into the
+// payload IN FULL and 22 characters longer than it arrived -- the bound enlarging the thing
+// it bounds, which is the same arithmetic elide() guards against on the history side.
+test("compacting a non-body string bounds a long one and never enlarges a mid-length one", async () => {
+  const recordedPathFor = async (path: string) => {
+    const events: any[] = [];
+    let calls = 0;
+    const llm = {
+      streamMessages: async () => {
+        calls++;
+        const ev = calls === 1
+          ? [tu("f0", "file_operation", { operation: "write", path, content: "print(1)" }), stop]
+          : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+        return (async function* () { for (const e of ev) yield e; })();
+      },
+    };
+    await runProtocolBuild(
+      { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+      { llmClient: llm, writeFile: async (target: string) => ({ ok: true, path: target }) },
+    );
+    return String(events.find((e) => e.type === "tool_use" && e.name === "file_operation").input.path);
+  };
+
+  // 210 characters: the marker plus a head costs more than the string itself, so the string
+  // stays as it is rather than being "compacted" into something longer.
+  const mid = await recordedPathFor("m".repeat(210));
+  assert.ok(mid.length <= 210, `a 210-char field was recorded as ${mid.length} characters`);
+
+  // 5000: compacted, and bounded by the budget plus the marker -- not by a head four times it.
+  const long = await recordedPathFor("l".repeat(5000));
+  assert.match(long, /^<5000 chars [0-9a-f]{8}> l+$/, long.slice(0, 60));
+  assert.ok(long.length < 250, `a 5000-char field was recorded as ${long.length} characters`);
 });
 
 test("recorded tool input compacts arrays and nested objects but keeps scalars", async () => {
@@ -1595,6 +1732,201 @@ test("a phase that succeeds reports no stall detail at all", async () => {
   assert.equal(events.some((e) => e.type === "phase_stalled"), false);
 });
 
+// A phase spent all 60 of its turns on an unused variable and an unused import because the
+// corrective message only ever named GENERATE_PLAN entries: lint and test failures carry the
+// same structured shape and were filtered out, so the model had to find them in the raw blob.
+test("a failing lint gate is named back to the model, not just plan errors", async () => {
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("g", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    {
+      llmClient: llm,
+      runScript: async () => ({
+        ok: true,
+        stdout: JSON.stringify({
+          check: "quality_gates",
+          structured_errors: [{
+            code: "FLAKE8_FAILED",
+            details: { errors: [{ code: "FLAKE8_FAILED", message: "firmware/tasks/x.py:41:5: F841 local variable 'sensor' is assigned to but never used" }] },
+          }],
+        }),
+      }),
+    },
+  );
+
+  // Scope every assertion to the corrective message itself: the raw tool_result in the same
+  // array also contains FLAKE8_FAILED and the lint line, so asserting over the whole array
+  // would pass even if the corrective message were emitted empty.
+  const corrective = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("Quality gate failed")) ?? "";
+  assert.ok(corrective, "a failing gate must produce a corrective message");
+  assert.match(corrective, /FLAKE8_FAILED/);
+  assert.match(corrective, /F841 local variable/, "the model must be told the actual lint line, not just that a gate failed");
+});
+
+// apply_scaffold reports failures under the phase_complete payload it also emits, not at the
+// top level like run_quality_gates. That shape produced no corrective message at all, so a
+// scaffold lint failure was invisible to the model while a quality-gate one was named.
+test("a scaffold-shaped report, nested under phase_complete, still names its errors", async () => {
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("s", "script_run", { script_id: "s", interpreter: "python", script: "apply_scaffold.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-scaffold-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    {
+      llmClient: llm,
+      runScript: async () => ({
+        ok: true,
+        stdout: JSON.stringify({
+          status: "partial",
+          phase_complete: { payload: { structured_errors: [{ code: "SCAFFOLD_LINT_FAILED", message: "firmware/board.py:71:121: E501 line too long (181 > 120 characters)" }] } },
+        }),
+      }),
+    },
+  );
+
+  const corrective = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("Quality gate failed")) ?? "";
+  assert.ok(corrective, "a nested scaffold report must produce a corrective message too");
+  assert.match(corrective, /SCAFFOLD_LINT_FAILED/);
+  assert.match(corrective, /E501 line too long/);
+});
+
+// path ?? message showed only the filename whenever a record carried both, which is the
+// common case: BOOT_DELAY_MISSING names firmware/main.py AND explains the three second delay,
+// and the model was shown the filename alone. It then rewrote main.py six times and failed the
+// same gate six times.
+// A mid-stream failure ended the phase and the build reported "stalled" with no phase_stalled
+// event anywhere: not in the panel, not in the session log, not in the DB. Observed on a real
+// run as 56 clean turns and then silence.
+test("a stream error stalls the phase OUT LOUD, naming itself", async () => {
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      yield { type: "text_delta", text: "working on it" };
+      yield { type: "stream_error", message: "upstream closed the connection" };
+    })(),
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm },
+  );
+
+  assert.equal(result.terminal, "stalled");
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.ok(stalled, "a stream error must emit phase_stalled like every other stall");
+  assert.equal(stalled.reason, "stream_error");
+  assert.match(JSON.stringify(stalled.detail), /upstream closed the connection/);
+});
+
+test("a stream that throws keeps the reason instead of ending silently", async () => {
+  const events: any[] = [];
+  const llm = {
+    streamMessages: async () => (async function* () {
+      yield { type: "text_delta", text: "partial" };
+      throw new Error("socket hang up");
+    })(),
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm },
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.ok(stalled, "a thrown stream must not end the phase silently");
+  assert.match(JSON.stringify(stalled.detail), /socket hang up/);
+});
+
+test("a corrective line carries the path AND the message, not just the path", async () => {
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("g", "script_run", { script_id: "q", interpreter: "python", script: "check_skeleton_compliance.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    {
+      llmClient: llm,
+      runScript: async () => ({
+        ok: true,
+        stdout: JSON.stringify({
+          errors: [{
+            code: "BOOT_DELAY_MISSING",
+            path: "firmware/main.py",
+            accepted: ["time.sleep(3)", "time.sleep_ms(3000)"],
+            message: "main.py must keep a 3 second boot delay for deploy/mpremote reconnect",
+          }],
+        }),
+      }),
+    },
+  );
+
+  const corrective = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .find((t: string) => t.startsWith("Quality gate failed")) ?? "";
+  assert.match(corrective, /firmware\/main\.py/, "the path must survive");
+  assert.match(corrective, /3 second boot delay/, "the message is the only part carrying the hint");
+  assert.match(corrective, /time\.sleep\(3\)/, "an accepted-value field must reach the model");
+});
+
+test("a corrective message is capped so a hundred lint errors cannot flood the context", async () => {
+  const requests: any[] = [];
+  const many = Array.from({ length: 40 }, (_, i) => ({ code: "FLAKE8_FAILED", message: `f${i}.py:1:1: E501 ${"x".repeat(900)}` }));
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const ev = requests.length === 1
+        ? [tu("g", "script_run", { script_id: "q", interpreter: "python", script: "run_quality_gates.py" }), stop]
+        : [tu("p", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 3, onEvent: () => {} },
+    { llmClient: llm, runScript: async () => ({ ok: true, stdout: JSON.stringify({ structured_errors: many }) }) },
+  );
+
+  const texts = (requests.at(-1)?.messages ?? [])
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .map((c: any) => String(c?.text ?? ""))
+    .filter((t: string) => t.startsWith("Quality gate failed"));
+  assert.equal(texts.length, 1, "exactly one corrective message for the failing gate");
+  assert.match(texts[0], /30 more/, "the tail is summarised rather than dropped silently");
+  assert.ok(texts[0].length < 6000, `corrective message is ${texts[0].length} chars, it must stay a nudge`);
+});
+
 test("a stall detail reads a string-shaped gate report, not just {code} objects", async () => {
   // REAL shape: select_hw_manifest.py collects `errors: list[str]`, one plain string per
   // problem. Reading only `.code` reported the blocker as a bare "failed".
@@ -1687,4 +2019,93 @@ test("a recorded tool_result is redacted: no absolute host path reaches the sess
   // Redaction must not cost the diagnosis: the failure kind still has to survive it.
   assert.equal(results[0].error_kind, "script_error");
   assert.match(results[0].output.stderr, /SyntaxError: invalid syntax/);
+});
+
+// The replayed conversation is re-sent on EVERY request, so an unbounded history walks into
+// the model's context limit and takes a non-retryable 400 that kills the run outright
+// (measured: 264,708 tokens against a 262,144 ceiling). capToolOutput bounds ONE result;
+// this bounds their sum. The pairing assertion matters as much as the size one: dropping an
+// assistant tool_use without its tool_result makes the upstream reject the whole
+// conversation, which is the same failure class as the empty-assistant turn.
+test("a long phase bounds the replayed history without breaking tool_use/tool_result pairing", async () => {
+  const bodies: any[] = [];
+  const huge = "x".repeat(70_000);
+  const llm = {
+    streamMessages: async (body: any) => {
+      bodies.push(JSON.parse(JSON.stringify(body)));
+      return (async function* () {
+        yield tu(`call-${bodies.length}`, "script_run", { interpreter: "python", script: "check.py" });
+        yield stop;
+      })();
+    },
+  };
+  await runProtocolBuild(
+    { intent: "x", traceId: "t", maxTurnsPerPhase: 20 },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, success: false, stdout: huge }),
+    } as any,
+  );
+
+  const sizes = bodies.map((b) => JSON.stringify(b.messages).length);
+  const peak = Math.max(...sizes);
+  assert.ok(bodies.length >= 10, `expected a long phase, got ${bodies.length} turns`);
+  assert.ok(peak < 900_000, `replayed history grew unbounded: peak ${peak} chars`);
+
+  // Every tool_use in the final request must still have its tool_result, and vice versa.
+  const last = bodies[bodies.length - 1].messages;
+  const useIds = new Set<string>();
+  const resultIds = new Set<string>();
+  for (const message of last) {
+    if (!Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type === "tool_use") useIds.add(block.id);
+      if (block.type === "tool_result") resultIds.add(block.tool_use_id);
+    }
+  }
+  for (const id of useIds) assert.ok(resultIds.has(id), `tool_use ${id} lost its tool_result`);
+  for (const id of resultIds) assert.ok(useIds.has(id), `tool_result ${id} has no tool_use`);
+
+  // The newest result is never collapsed: the model repairs against the latest gate report.
+  const newest = JSON.stringify(last[last.length - 1]);
+  assert.ok(!newest.includes("<elided"), "the most recent tool result was elided");
+});
+
+// Tool inputs reach session.jsonl and the consented cloud tool_dispatch payload without
+// redaction. A generated firmware/conf.py is where this product puts credentials, so the
+// raw head of a body field must never be recorded — at any length, since a short conf.py
+// is still a file body. The length and digest stay: they answer which file changed and
+// how often, which is what a stall triage reads.
+test("telemetry records a file body as length and digest only, never its text", async () => {
+  const SECRET = "WIFI_PASSWORD = \"hunter2-not-a-placeholder\"";
+  const events: any[] = [];
+  const llm = scriptedLlm({
+    analyze: [[tu("w1", "file_operation", { op: "write", path: "firmware/conf.py", content: `${SECRET}\n${"x".repeat(5000)}` }), stop]],
+  });
+  await runProtocolBuild(
+    { intent: "x", traceId: "t", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async () => ({ ok: true }) },
+  );
+
+  const toolUse = events.find((e) => e.type === "tool_use" && e.name === "file_operation");
+  assert.ok(toolUse, "a tool_use event was recorded");
+  const recorded = JSON.stringify(toolUse.input);
+  assert.ok(!recorded.includes("hunter2"), `the secret reached telemetry: ${recorded.slice(0, 120)}`);
+  assert.ok(!recorded.includes("WIFI_PASSWORD"), "the body text reached telemetry");
+  assert.match(recorded, /<\d+ chars [0-9a-f]{8}>/, "length and digest are still recorded");
+  assert.equal(toolUse.input.path, "firmware/conf.py", "the path stays readable");
+});
+
+// The same guard must hold for a SHORT body, which the length budget used to pass verbatim.
+test("telemetry compacts a short file body too", async () => {
+  const events: any[] = [];
+  const llm = scriptedLlm({
+    analyze: [[tu("w2", "file_operation", { op: "write", path: "firmware/conf.py", content: "API_KEY = \"sk-live-abc123\"" }), stop]],
+  });
+  await runProtocolBuild(
+    { intent: "x", traceId: "t", onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, writeFile: async () => ({ ok: true }) },
+  );
+  const toolUse = events.find((e) => e.type === "tool_use" && e.name === "file_operation");
+  assert.ok(!JSON.stringify(toolUse.input).includes("sk-live-abc123"), "a short body leaked verbatim");
 });

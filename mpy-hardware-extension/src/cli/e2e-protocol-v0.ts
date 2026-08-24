@@ -77,7 +77,10 @@ const writeProjectFile = (path: string, content: string) =>
   });
 const readWorkspaceFile = async (path: string) => {
   try { return { ok: true, content: await fsReadFile(join(projectDir, path), "utf-8") }; }
-  catch { return { ok: false, error_kind: "not_found" }; }
+  // Only ENOENT is absence. A blanket "not_found" told the loop a file was missing when the
+  // read had actually failed (permissions, a directory), and the scaffold guard treats
+  // absence as proof the phase rendered nothing.
+  catch (err: any) { return { ok: false, error_kind: err?.code === "ENOENT" ? "file_not_found" : "read_failed" }; }
 };
 const listWorkspace = async (path: string) => {
   const base = path ? join(projectDir, path) : projectDir;
@@ -151,10 +154,33 @@ const confirmApproval = async (card: any) => {
 // Reconstruct the phase->result trail from loop events (createProtocolLoop only
 // returns the last phase). phase_start sets the current phase; phase_complete records it.
 const phases: Array<{ phase: string; result: string | null }> = [];
+const stalls: Array<{ phase: string; reason: string | null; detail: any[] }> = [];
 let current = "analyze";
 const onEvent = (e: any) => {
   if (e.type === "phase_start") { current = e.phase; console.log(`\n----- PHASE: ${e.phase} -----`); }
   else if (e.type === "phase_complete") { phases.push({ phase: current, result: e.payload?.result ?? null }); console.log(`  phase_complete: ${e.payload?.result} -> ${e.payload?.next_phase}`); if (e.payload?.result !== "success" && e.payload?.summary) console.log(`    reason: ${String(e.payload.summary).slice(0, 300)}`); }
+  // A stall is the most common way a run ends, and this harness printed nothing for it: the
+  // reason ("no_tool_call" / "max_turns" / "stream_error") and the detail array of recent
+  // failing tool calls both went to waste, so every diagnosis started from turn counts and
+  // leftover files instead of the loop's own account of why it gave up.
+  else if (e.type === "phase_stalled") {
+    // The event's own `phase`, not the phase reconstructed from the last phase_start: a stall
+    // reported for any other phase would be printed under the wrong name, in the very output
+    // added to make a stall diagnosable. Guard `detail` once and use that ONE value for both
+    // the inline print and the stored record -- storing the raw value threw
+    // "s.detail is not iterable" out of the summary loop, losing the whole verdict of a run
+    // that had already finished.
+    const phase = e.phase ?? current;
+    const detail = Array.isArray(e.detail) ? e.detail : [];
+    console.log(`  !! phase_stalled: ${phase} — reason: ${e.reason ?? "(none)"}`);
+    for (const d of detail) console.log(`       ${JSON.stringify(d)}`);
+    stalls.push({ phase, reason: e.reason ?? null, detail });
+  }
+  // The replayed history could not be brought under the cap. The request still went out, so
+  // the run may continue -- but if it dies on a non-retryable 400 a few turns later, this is
+  // the line that says why.
+  else if (e.type === "history_over_cap") console.log(`  !! history over cap: ${e.chars} chars on ${e.phase} turn ${e.turn}`);
+  else if (e.type === "phase_error") console.log(`  !! phase_error: ${e.error_kind ?? "(none)"} ${e.next_phase ?? ""}`);
   else if (e.type === "file_written") console.log(`  [file] ${e.path}`);
   else if (e.type === "status_update") console.log(`  [status] ${e.payload?.message ?? ""}`.slice(0, 120));
 };
@@ -181,14 +207,30 @@ let mainOk = false;
 try { mainOk = (await stat(mainPy)).size > 100; } catch { mainOk = false; }
 let commits = 0;
 try { commits = Number(execFileSync("git", ["-C", projectDir, "rev-list", "--count", "HEAD"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim()) || 0; } catch { commits = 0; }
+let scaffoldApplied = false;
+try { scaffoldApplied = (await stat(join(projectDir, ".flake8"))).isFile(); } catch { scaffoldApplied = false; }
+const deployResult = phases.find((p) => p.phase === "upy-deploy-plugin")?.result;
 
 console.log("\n=== SUMMARY ===");
 console.log("phases:", phases.map((p) => `${p.phase}(${p.result})`).join(" -> ") || "(none)");
 console.log("terminal:", terminal);
+// In the summary as well as inline: a stall scrolls past under hundreds of [file] lines,
+// and the reason is the first thing anyone reading a failed run needs.
+for (const s of stalls) {
+  console.log(`stalled: ${s.phase} — ${s.reason ?? "(no reason recorded)"}`);
+  for (const d of s.detail) console.log(`         ${JSON.stringify(d)}`);
+}
 console.log("reached generate (success):", reachedGenerate);
 console.log("firmware/main.py nontrivial:", mainOk);
 console.log("real git commits in project:", commits);
+// A run whose scaffold rendered nothing used to PASS on generate alone: the model
+// hand-wrote the tree, no .flake8 / .upy / lib, and the deploy-tool interface was
+// unreproducible from there. apply_scaffold writes .flake8 on every render.
+console.log("scaffold applied (.flake8 present):", scaffoldApplied);
+// Not part of the gate: with no board attached, ending after generate is a legitimate
+// code-only delivery. Printed so a missing deploy is visible rather than inferred.
+console.log("deploy phase:", deployResult ?? "(never ran)");
 
-const passed = reachedGenerate && mainOk && commits > 0;
+const passed = reachedGenerate && mainOk && commits > 0 && scaffoldApplied;
 console.log("\nE2E-V0-FULLSTACK:", passed ? "PASS" : "REVIEW");
 process.exit(passed ? 0 : 1);
