@@ -837,6 +837,149 @@ def test_run_v0_module_still_takes_ordinary_project_relative_arguments():
         assert record, (script, args, "a permitted call must actually run")
 
 
+def test_run_v0_module_refuses_a_path_through_an_in_project_symlink():
+    """The lexical checks pass a project-relative path that traverses a symlink pointing out of
+    the project, and the module then follows it. Uses a REAL symlink and a real temp project
+    rather than a fake root, because the whole point is what the filesystem resolves to.
+
+    Both sides are resolved with realpath: on macOS the temp root is itself under a symlink
+    (/tmp -> /private/tmp), so comparing a resolved path against an unresolved root refuses every
+    ordinary call. A mutation dropping the realpath on the ROOT fails the companion test below."""
+    with tempfile.TemporaryDirectory() as outside, tempfile.TemporaryDirectory() as project:
+        os.symlink(outside, os.path.join(project, "escape"))
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": "-m json.tool",
+            "args": ["in.json", "escape/out.json"], "project_dir": project,
+        })
+        assert res["status"] == "error", res
+        assert res["error_kind"] == "path_outside_project", res
+        assert record == [], "a refused call must never be executed"
+
+
+def test_run_v0_module_allows_a_path_through_an_in_project_directory():
+    """The companion to the symlink test: a real temp project, a real subdirectory, and an
+    ordinary relative output path must still run. This is what fails if the containment check
+    resolves one side and not the other."""
+    with tempfile.TemporaryDirectory() as project:
+        os.mkdir(os.path.join(project, "reports"))
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": "-m flake8",
+            "args": ["--output-file=reports/lint.txt", "firmware"], "project_dir": project,
+        })
+        assert res["status"] == "ok", res
+        assert record, "a permitted call must actually run"
+
+
+def test_run_v0_module_accepts_every_spelling_module_detection_claims():
+    """_module_run_call accepts three spellings and the dispatcher must route all three the same
+    way. It previously re-split the tokens itself assuming the `python -m X` shape, so the bare
+    forms broke: `-m unittest discover` read "discover" as the module and refused it, and the
+    two-token `-m flake8` raised IndexError that reached the model as an opaque -32000."""
+    for interpreter, script, expected in (
+        ("shell", "python -m unittest discover -s test/pc", ["-m", "unittest", "discover", "-s", "test/pc"]),
+        ("shell", "-m unittest discover -s test/pc", ["-m", "unittest", "discover", "-s", "test/pc"]),
+        ("shell", "-m flake8", ["-m", "flake8"]),
+        ("python", "-m flake8", ["-m", "flake8"]),
+    ):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": interpreter, "script": script, "args": [], "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "ok", (interpreter, script, res)
+        assert record[-1]["cmd"][1:] == ["-B", *expected], (interpreter, script, record[-1]["cmd"])
+
+
+def test_run_v0_module_keeps_arguments_written_into_the_script_string():
+    """Arguments carried in the script string used to be dropped: `-m unittest discover -s test/pc`
+    with an empty args list ran a bare `python -m unittest`, reported ok, and quietly did something
+    other than what it was asked. They also bypassed the escape check, since that only reads args."""
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "-m unittest discover -s test/pc",
+        "args": ["-v"], "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+    # Embedded first, then the explicit args: they sit left of args in the call as written.
+    assert record[-1]["cmd"][1:] == ["-B", "-m", "unittest", "discover", "-s", "test/pc", "-v"], record[-1]["cmd"]
+
+    # And an escaping path written into the script string is refused, not silently dropped.
+    record = []
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "-m json.tool in.json /tmp/escape.json",
+        "args": [], "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "error" and res["error_kind"] == "path_outside_project", res
+    assert record == []
+
+
+def test_run_v0_module_refuses_compileall_legacy_bytecode_locations():
+    """PYTHONPYCACHEPREFIX does not cover legacy locations, so `-b` writes .pyc beside every source
+    it touches, inside the project, which is what the prefix exists to prevent."""
+    # argparse folds single-character store_true flags together, so a check for the exact token
+    # "-b" is bypassed by "-qb" (verified against the real interpreter: it wrote a.pyc beside
+    # a.py). The last row is the embedded spelling, which pins that the guard runs AFTER the
+    # script-string args are merged in, not before.
+    for script, args in (
+        ("-m compileall", ["-b", "firmware"]),
+        ("-m compileall", ["-qb", "firmware"]),
+        ("-m compileall", ["-bq", "firmware"]),
+        # A digit-bearing joined value after the fold: -b plus -j 2. A letters-only pattern misses
+        # this, and it is a plausible spelling since -j2 is the usual way to write workers.
+        ("-m compileall", ["-bj2", "firmware"]),
+        ("-m compileall", ["-qbj2", "firmware"]),
+        ("-m compileall -b firmware", []),
+    ):
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": script, "args": args, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "error", (script, args, res)
+        assert res["error_kind"] == "python_module_arg_not_allowed", (script, args, res)
+        assert "-b" in res["message"], res["message"]
+        assert record == [], "a refused call must never be executed"
+
+    # And the other direction, which matters just as much: a joined VALUE that happens to contain
+    # the letter b is not the legacy flag. `-xbuild` is `-x build`, an ordinary skip regex, and
+    # `-dlib` is `-d lib`. Refusing them tells the model to drop a -b that was never there.
+    for args in (["-qf", "firmware"], ["-xbuild", "firmware"], ["-dlib", "firmware"],
+                 ["-fqxbuild", "firmware"], ["-j4", "firmware"]):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": "-m compileall", "args": args,
+            "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "ok", (args, res)
+        assert record, (args, "a permitted call must actually run")
+
+    # The default form is the whole point of the allowance and must still run.
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "-m compileall", "args": ["firmware"],
+        "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+
+
 def test_run_v0_module_leaves_no_bytecode_in_the_project():
     """py_compile writes __pycache__ beside every file it checks. Measured on the first run with
     the module route open: one py_compile call produced 13 PROJECT_PYTHON_CACHE_PRESENT errors at

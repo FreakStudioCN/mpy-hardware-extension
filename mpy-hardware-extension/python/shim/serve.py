@@ -1594,13 +1594,20 @@ _ALLOWED_PYTHON_MODULES = frozenset({"py_compile", "compileall", "unittest", "fl
 # rule is on the ARGUMENTS and applies to every module: nothing that can name a path outside the
 # project. Relative arguments cannot escape, because cwd is forced to project_dir a few lines
 # below and any model-supplied cwd is discarded. That leaves absolute paths and `..` segments.
-def _escaping_module_arg(arg: str) -> str | None:
+def _escaping_module_arg(arg: str, project_dir: str | None) -> str | None:
     """The path in `arg` that could leave the project, or None when it cannot.
 
     Checks the value after `=` as well as the bare token, so `--output-file=/etc/passwd` is caught
     and not just a trailing positional. Separators are normalised first: on Windows the model may
     write either, and a check that only understands `/` would pass `..\\..\\x` straight through.
+
+    Lexical checks alone are not enough. A project-relative path that traverses an in-project
+    symlink is lexically innocent and still lands outside, so each token is also resolved against
+    the project root. BOTH sides are resolved, because the root itself is often a symlink (macOS
+    /tmp is /private/tmp) and comparing a resolved path against an unresolved root would refuse
+    every ordinary call.
     """
+    root = os.path.realpath(project_dir) if project_dir else None
     # Value first, so `--output-file=../x` reports `../x` rather than the whole flag. Normalising
     # the flag as a whole still trips the `..` check, and naming the flag as the offending PATH
     # reads as though the flag name were the problem.
@@ -1613,8 +1620,34 @@ def _escaping_module_arg(arg: str) -> str | None:
             return token
         if ".." in normalised.split("/"):
             return token
+        if root is None:
+            continue
+        # An argument that is not a path at all resolves harmlessly inside the root, so this needs
+        # no guess about which arguments are paths. commonpath raises across Windows drives, which
+        # is itself a token that cannot be contained.
+        resolved = os.path.realpath(os.path.join(root, normalised))
+        try:
+            contained = os.path.commonpath([root, resolved]) == root
+        except ValueError:
+            contained = False
+        if not contained:
+            return token
     return None
 
+
+# compileall's -b writes legacy .pyc beside each source, which PYTHONPYCACHEPREFIX does not cover.
+# The token has to be read the way argparse folds short options, or the check is wrong in both
+# directions. Its grammar: a run of store_true letters, then at most one value-taking flag whose
+# value is the rest of the token. compileall's store_true shorts are -l -f -q -b (and -h, which
+# exits); -r -d -s -p -x -i -j -o -e all take a value, and there is no long spelling of -b.
+#
+# So `b` is the legacy flag exactly when every letter before it is store_true. Anything after it
+# is irrelevant, because the -b already fired. Two spellings proved this matters, both verified
+# against the real interpreter: `-qb` bypassed a check for the exact token "-b", and `-bj2`
+# (legacy plus two workers) bypassed a letters-only pattern because of the digit. In the other
+# direction `-xbuild` is `-x build`, an ordinary skip regex that happens to contain a b, and a
+# letters-only pattern refused it while telling the model to "drop -b" when there was no -b.
+_COMPILEALL_LEGACY_FLAG = re.compile(r"-[lfqb]*b.*")
 
 _MODULE_PYCACHE_DIR: str | None = None
 
@@ -1630,14 +1663,22 @@ def _module_pycache_dir() -> str:
     return _MODULE_PYCACHE_DIR
 
 
-def _module_run_target(script):
-    """The module in a `-m <module>` call, or None when this is an ordinary script call."""
+def _module_run_call(script):
+    """`(module, args_carried_in_script)` for a `-m <module>` call, else None.
+
+    Returns BOTH halves because the module and its arguments have to come from the same parse.
+    An earlier version returned only the module while the caller re-split the tokens itself and
+    assumed the `python -m X` shape, which broke the other two forms it claimed to accept:
+    `-m unittest discover` read "discover" as the module and refused it, and `-m flake8` raised
+    IndexError that reached the model as an opaque JSON-RPC -32000. Both are the kind of refusal
+    that teaches nothing and costs a turn, which is what the module route exists to remove.
+    """
     tokens = str(script).strip().split()
     if len(tokens) >= 2 and tokens[0] == "-m":
-        return tokens[1]
+        return tokens[1], tokens[2:]
     # The shell spelling arrives as a whole command: `python -m unittest discover -s test/pc`.
     if len(tokens) >= 3 and os.path.basename(tokens[0]).startswith("python") and tokens[1] == "-m":
-        return tokens[2]
+        return tokens[2], tokens[3:]
     return None
 
 
@@ -1652,11 +1693,13 @@ def _run_v0_script(shim, params):
     if params.get("stdin_json") is not None:
         stdin_content = json.dumps(params["stdin_json"], ensure_ascii=False)
     timeout = float(params.get("timeout_ms", 300000)) / 1000.0
-    if interpreter == "shell" and _module_run_target(script) is not None:
+    module_call = _module_run_call(script)
+    if interpreter == "shell" and module_call is not None:
         # Same call, shell spelling. Route it to the module path rather than refusing it for
-        # not being one of the allowed git forms.
-        tokens = str(script).strip().split()
-        interpreter, script, args = "python", "-m " + tokens[2], [*tokens[3:], *args]
+        # not being one of the allowed git forms. Only the interpreter changes: the module and
+        # its arguments come from the parse above, so every spelling it accepts is routed the
+        # same way rather than re-split here on an assumed shape.
+        interpreter = "python"
     if interpreter == "shell":
         cmd = script if not args else script + " " + " ".join(args)
         if _parse_v0_shell_command(cmd) is None:
@@ -1669,8 +1712,13 @@ def _run_v0_script(shim, params):
         # Fail fast: no node toolchain is assumed in the host shim. Don't fake success.
         return {"status": "error", "error_kind": "node_interpreter_unavailable",
                 "message": "node script_run is not supported by the host shim"}
-    module = _module_run_target(script)
-    if module is not None:
+    if module_call is not None:
+        # Arguments written into the script string are kept rather than dropped. A model that
+        # sends `script="-m unittest discover -s test/pc"` with an empty args list used to run a
+        # bare `python -m unittest`: status ok, no error, and a command that did something other
+        # than what it was asked to do. They lead, because they sit left of args in the call.
+        module, embedded_args = module_call
+        args = [*embedded_args, *args]
         if module not in _ALLOWED_PYTHON_MODULES:
             return {"status": "error", "error_kind": "python_module_not_allowed",
                     "message": (
@@ -1679,8 +1727,20 @@ def _run_v0_script(shim, params):
                         "sweep is scripts/run_quality_gates.py, which runs all of them and emits "
                         "the gate results the phase_complete payload needs."
                     )}
+        if module == "compileall" and any(_COMPILEALL_LEGACY_FLAG.fullmatch(a) for a in args):
+            # PYTHONPYCACHEPREFIX does not cover legacy locations, so `-b` writes .pyc beside
+            # every source it touches and the "leaves nothing in the project" guarantee stops
+            # holding. Measured on the default form: one py_compile run without the prefix cost
+            # 13 PROJECT_PYTHON_CACHE_PRESENT errors and five cleanup calls.
+            return {"status": "error", "error_kind": "python_module_arg_not_allowed",
+                    "message": (
+                        "python -m compileall -b is not permitted: -b writes legacy .pyc files "
+                        "beside each source, inside the project, where the gate reports them as "
+                        "stray cache. Drop -b; the default form writes its bytecode outside the "
+                        "project already."
+                    )}
         for arg in args:
-            escaping = _escaping_module_arg(arg)
+            escaping = _escaping_module_arg(arg, cwd)
             if escaping is not None:
                 # Name the offending token and the fix. This message is the tool result the model
                 # reads, so a bare refusal costs a turn and teaches it nothing.
