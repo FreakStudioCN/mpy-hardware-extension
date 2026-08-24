@@ -154,6 +154,149 @@ def test_unreadable_board_library_is_not_reported_as_an_unknown_board(monkeypatc
 
 
 @pytest.mark.no_db
+def test_an_unreadable_board_DIRECTORY_is_a_failure_not_an_empty_library(tmp_path, monkeypatch):
+    """The file-level case above was covered; the directory-level one was not, and it is the case
+    that actually takes the library away.
+
+    `Path.glob` does not raise. It returns [] for a directory that is missing AND for one that is
+    chmod-000, so the guard could never fire and the failure arrived as an empty candidate list.
+    The phase note tells the model an empty list means "nothing matched", which is the
+    invite-to-invent-a-board failure this whole path exists to close. Worse, the index is cached,
+    so one unreadable read pinned an empty library for the process lifetime.
+
+    Uses a real chmod-000 directory rather than a patched glob, because the whole point is what
+    the filesystem actually does rather than what we think it does."""
+    import os
+    from app import prompt_assembly
+
+    locked = tmp_path / "boards"
+    locked.mkdir()
+    (locked / "esp32-devkit-v1.json").write_text("{}", encoding="utf-8")
+    os.chmod(locked, 0o000)
+    try:
+        if next(locked.iterdir(), None) is not None:  # root ignores the mode; skip rather than lie
+            pytest.skip("filesystem permissions are not enforced for this user")
+    except PermissionError:
+        pass
+
+    monkeypatch.setattr(prompt_assembly, "_SKILL_BOARDS_DIR", locked)
+    prompt_assembly._skill_board_index.cache_clear()
+    try:
+        with pytest.raises(prompt_assembly.BoardLibraryUnreadable):
+            prompt_assembly._skill_board_index()
+        # And the profile loader must not answer "no such board" for the same directory.
+        with pytest.raises(prompt_assembly.BoardLibraryUnreadable):
+            prompt_assembly._load_board_profile("esp32-devkit-v1")
+    finally:
+        os.chmod(locked, 0o700)
+        prompt_assembly._skill_board_index.cache_clear()
+
+
+@pytest.mark.no_db
+def test_a_missing_board_directory_is_a_failure_for_the_index_and_absence_for_the_profile(
+    tmp_path, monkeypatch
+):
+    """The two functions answer differently on purpose, because they have different fallbacks.
+
+    `_skill_board_index` has ONE source. If the skill library is not there, the candidate feature
+    is entirely unavailable, and returning an empty tuple tells the model "nothing matched" -- the
+    invite-to-invent-a-board failure. So a missing directory raises, exactly like an unreadable
+    one. The deployment copies the submodule into the image, so a missing library means the
+    deployment is broken, and saying so loudly beats a silent empty list.
+
+    `_load_board_profile` has TWO sources. A missing skill library is an ordinary reason to try
+    `content/boards` next, so it falls through rather than raising. It still raises when the
+    directory exists and cannot be read, because that is failure rather than absence."""
+    from app import prompt_assembly
+
+    monkeypatch.setattr(prompt_assembly, "_SKILL_BOARDS_DIR", tmp_path / "not-here")
+    prompt_assembly._skill_board_index.cache_clear()
+    try:
+        with pytest.raises(prompt_assembly.BoardLibraryUnreadable):
+            prompt_assembly._skill_board_index()
+        # Falls through to the real content/boards library, which does have this board.
+        assert prompt_assembly._load_board_profile("esp32-devkit-v1") is not None
+        assert prompt_assembly._load_board_profile("no-such-board-xyz") is None
+    finally:
+        prompt_assembly._skill_board_index.cache_clear()
+
+
+@pytest.mark.no_db
+def test_an_unreadable_library_says_so_instead_of_injecting_a_bare_empty_list(monkeypatch):
+    """Raising was only half the fix. The candidates sink caught the exception and emitted
+    `Board candidates: []`, which puts the model back in front of the one signal the raise exists
+    to remove: an empty list reads as "nothing matched", and a model told nothing matched invents
+    a board. The block must say the library could not be read."""
+    from app import prompt_assembly as pa
+
+    def unreadable(*_args, **_kwargs):
+        raise pa.BoardLibraryUnreadable("boards: [Errno 13] Permission denied")
+
+    monkeypatch.setattr(pa, "_board_candidate_profiles", unreadable)
+    # "select-hw", not the plugin id: this is the one phase whose token is not the plugin name.
+    block = pa._board_candidates_injection({}, {"phase": "select-hw"})
+
+    assert "Board candidates:" in block
+    assert "unavailable" in block.lower(), block
+    assert "not a claim that no board matched" in block.lower(), block
+    assert "do not invent" in block.lower(), block
+
+
+@pytest.mark.no_db
+def test_a_library_with_no_readable_profiles_is_a_failure_not_an_empty_index(tmp_path, monkeypatch):
+    """Two more ways to reach an empty index, both meaning the server cannot see the library: a
+    directory that opens but holds no profiles, and one whose profiles are all unreadable. Either
+    would otherwise be cached as an empty tuple for the process lifetime, which is the failure the
+    directory probe was added to prevent, reached by a different route."""
+    from app import prompt_assembly as pa
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr(pa, "_SKILL_BOARDS_DIR", empty)
+    pa._skill_board_index.cache_clear()
+    try:
+        with pytest.raises(pa.BoardLibraryUnreadable):
+            pa._skill_board_index()
+
+        # Present but unparseable: each file is logged and skipped, and the index is still empty.
+        (empty / "esp32-devkit-v1.json").write_text("{ not json", encoding="utf-8")
+        pa._skill_board_index.cache_clear()
+        with pytest.raises(pa.BoardLibraryUnreadable):
+            pa._skill_board_index()
+    finally:
+        pa._skill_board_index.cache_clear()
+
+
+@pytest.mark.no_db
+def test_naming_the_vendor_as_well_as_the_board_does_not_lose_candidates():
+    """Adding a word the user actually knows must not cost them candidates.
+
+    Boards used to attribute to the FIRST phrase that prefixed them, and phrases arrive shortest
+    first, so every arduino-* board attributed to "arduino". That bucket blew the vendor-word
+    threshold and the whole family was culled before "arduinoportenta" was ever considered. So the
+    vaguer query worked and the more specific one returned nothing, which is backwards.
+
+    Measured against the real library, not a fixture, because the cull threshold only bites at
+    real family sizes."""
+    from app import prompt_assembly as pa
+
+    portenta = ["arduino-portenta-c33", "arduino-portenta-h7"]
+    assert pa._skill_board_candidate_ids("portenta") == portenta
+    assert pa._skill_board_candidate_ids("Arduino Portenta") == portenta, \
+        "the more specific query must not return fewer boards than the vaguer one"
+    assert sorted(pa._skill_board_candidate_ids("Arduino Nano")) == [
+        "arduino-nano-33-ble-sense", "arduino-nano-esp32", "arduino-nano-rp2040-connect",
+    ]
+
+    # The cull itself must survive: a bare vendor word still names no board, and a board the
+    # library does not have still returns nothing rather than the nearest sibling.
+    assert pa._skill_board_candidate_ids("Arduino Uno") == []
+    assert pa._skill_board_candidate_ids("nano") == []
+    # And an exact name still beats every prefix path.
+    assert pa._skill_board_candidate_ids("Raspberry Pi Pico 2") == ["rpi-pico2"]
+
+
+@pytest.mark.no_db
 def test_string_pre_selected_board_still_grounds_the_profile():
     # The picker sends an object, but the intent path and older callers send a bare string.
     # That used to resolve nothing, which is one of the two ways select-hw ended up with an
@@ -867,11 +1010,12 @@ def test_quiet_upstream_gives_up_after_the_idle_budget(monkeypatch):
 
 
 def test_interrupted_stream_is_recorded_and_logged(monkeypatch, caplog):
-    # Two runs died mid-phase on one provider and llm_turns reported nothing wrong, because
-    # the only status="error" path is a failure to OPEN the stream, while meter() writes
-    # status="success" as soon as the usage chunk lands. A break after usage left a success
-    # row; a break before it left no row at all. The api log held nothing either: the
-    # handler swallowed the exception. Both halves are asserted here.
+    # Two runs died mid-phase on one provider and llm_turns reported nothing wrong, because the
+    # only status="error" path was a failure to OPEN the stream. A break once the stream was live
+    # left NO row at all, whether it arrived before or after the usage chunk: usage only stores
+    # usage_obj, and meter() runs at clean completion, which a break never reaches. The api log
+    # held nothing either, because the handler swallowed the exception. Both halves are asserted
+    # here, and the row count pins that the two writers stay mutually exclusive.
     from app import db
 
     monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
@@ -898,11 +1042,19 @@ def test_interrupted_stream_is_recorded_and_logged(monkeypatch, caplog):
     with db.connect() as conn:
         rows = db.fetchall(
             conn,
-            "SELECT status, error_kind FROM llm_turns WHERE trace_id=? ORDER BY status",
+            "SELECT status, error_kind, credits_charged FROM llm_turns WHERE trace_id=? ORDER BY status",
             ("t-interrupt",),
         )
     statuses = [row["status"] for row in rows]
-    assert "error" in statuses, f"a broken stream must leave an error row, got {statuses}"
+    # EXACTLY one row, not "an error row somewhere among them". `in` would tolerate a success row
+    # written alongside it, which is precisely the duplicate-accounting a reviewer suspected here.
+    # meter() and on_interrupt() are mutually exclusive by construction, and this is what pins it:
+    # one request must never bill or report as two turns.
+    assert statuses == ["error"], f"a broken stream must leave exactly one error row, got {statuses}"
+    # The row has to agree with the ledger. reserve(user, 1) already debited the balance and an
+    # interrupted stream keeps it by design, so a zero here would make every rollup over
+    # credits_charged undercount real spend by one per interrupted turn.
+    assert rows[0]["credits_charged"] == 1, rows[0]
     error_row = next(row for row in rows if row["status"] == "error")
     assert error_row["error_kind"] == "upstream_stream_interrupted"
 

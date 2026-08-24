@@ -49,6 +49,38 @@ def test_e2e_file_operation_can_read_skill_board_resources(tmp_path, monkeypatch
     assert json.loads(read["content"])["id"] == "esp32-s3-devkitc"
 
 
+def test_run_turn_survives_the_keep_alive_frames_the_stream_now_emits(monkeypatch):
+    """The stream emits `: keep-alive` SSE comments every 20s while the upstream is quiet.
+    `sse[len("data:"):]` on one of those yields "p-alive", which json.loads rejects, and the
+    exception killed the whole run. The heartbeat exists to survive a model thinking for minutes
+    between chunks, so without the guard the harness broke exactly in the case the heartbeat was
+    added for.
+
+    Drives the real `run_turn` with a stubbed translator, so the assertion is on the harness's own
+    parsing rather than on a reimplementation of it."""
+    harness = _load_harness(monkeypatch)
+
+    # The real constant, not a copy of it: a keep-alive that drifts from what the stream emits
+    # would leave this test green while the harness broke again.
+    from app.sse_translate import _KEEP_ALIVE
+
+    def fake_stream(upstream, _):
+        yield _KEEP_ALIVE
+        yield 'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "hi"}}\n\n'
+        yield _KEEP_ALIVE
+        yield 'data: {"type": "message_stop"}\n\n'
+
+    monkeypatch.setattr(harness.routes_llm, "_open_deepseek_stream", lambda *a, **k: object())
+    monkeypatch.setattr(harness.routes_llm, "_translate_deepseek_stream", fake_stream)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    blocks, tool_uses = harness.run_turn("analyze", {}, [])
+    # The text block either side of the heartbeats survives, which is only true if the comment
+    # frames were skipped rather than parsed.
+    assert blocks == [{"type": "text", "text": "hi"}], blocks
+    assert tool_uses == []
+
+
 def test_importing_the_harness_does_not_touch_the_environment(monkeypatch):
     # Importing this script used to read mpyhw-api/.env straight into os.environ, and
     # nothing ever undid it: every test that ran afterwards saw the developer's

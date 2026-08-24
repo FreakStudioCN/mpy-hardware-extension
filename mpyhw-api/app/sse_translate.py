@@ -207,6 +207,17 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str, *, provider=None):
     # byte is yielded and before the turn is metered, so a retry can never
     # double-charge. A mid-stream drop is handled downstream and is NOT retried.
     # Runs inside to_thread, so the blocking sleep is off the event loop.
+    #
+    # KNOWN COST of the single timeout knob. urlopen's `timeout` governs connect and
+    # response-headers as well as each subsequent socket read, and urllib offers no way to split
+    # them. Raising it to 600s for the reads therefore also lets an accept-then-hang provider pin
+    # a to_thread worker, with a session slot held and a credit reserved, for up to ~20 minutes
+    # across the two attempts, where 60s meant ~2. The client gives up sooner (undici's
+    # headersTimeout is 300s), so the user sees a failure while the server thread stays parked.
+    # Accepted because a real generate turn went silent for the full 300s and losing those is
+    # worse than holding threads during an outage. If outage-time threadpool exhaustion ever
+    # matters, the fix is a short timeout here for connect/headers and then raising the socket
+    # timeout on the returned response before it reaches the reader thread.
     attempts = 2
     for attempt in range(attempts):
         try:
@@ -352,9 +363,11 @@ def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None, on_interru
                 "llm upstream stream interrupted",
                 extra={"error_type": type(error).__name__, "detail": str(error)[:200]},
             )
-            # The route records the turn as an error: a break can arrive AFTER the usage
-            # chunk, and meter() writes status="success" the moment usage lands, so without
-            # this a dead stream leaves either a success row or no row at all.
+            # The route records the turn as an error. Without this a dead stream left NO row at
+            # all, because the only error path was a failure to OPEN the stream. A break after
+            # the usage chunk is still a break: usage only sets usage_obj, and meter() runs above
+            # at clean completion, so reaching here means meter() did not run and there is no
+            # success row to contradict.
             if on_interrupt is not None:
                 on_interrupt(error)
             yield _sse({"type": "error", "error": {"message": "upstream_stream_interrupted"}})

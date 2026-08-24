@@ -62,6 +62,13 @@ def run_turn(phase, manifest, messages):
     text_parts, thinking_parts, tool_uses = [], [], []
     cur = None
     for sse in routes_llm._translate_deepseek_stream(upstream, None):
+        # Skip anything that is not a data frame. The stream now carries `: keep-alive` comments
+        # every 20s while the upstream is quiet, and slicing len("data:") off one leaves
+        # "p-alive", which json.loads rejects and which killed the whole run. That heartbeat
+        # exists to survive a model thinking for minutes between chunks, so without this guard
+        # the harness breaks precisely in the case the heartbeat was added for.
+        if not sse.startswith("data:"):
+            continue
         line = sse[len("data:"):].strip()
         if not line:
             continue

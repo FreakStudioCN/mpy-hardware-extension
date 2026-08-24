@@ -399,8 +399,22 @@ def _board_candidates_injection(manifest: dict[str, Any], body: dict[str, Any]) 
     try:
         candidates = _board_candidate_profiles(manifest, body)
     except BoardLibraryUnreadable as error:
+        # Say WHY the list is empty. Catching this and emitting a bare [] put the model back in
+        # front of the one signal the raise exists to remove: an empty list reads as "nothing
+        # matched", and a model told nothing matched invents a board. The profile side already
+        # says this out loud via board_library_unreadable; this is the same statement on the
+        # candidates side, so the two halves of the block agree about what happened.
+        #
+        # The select-hw phase note is a third voice in the same prompt and used to state the
+        # "empty means nothing matched" rule without exception, so it is now qualified to name
+        # this case. Change the two together or the model reads a flat contradiction.
         logger.warning("board candidates unavailable", extra={"detail": str(error)[:200]})
-        candidates = []
+        return (
+            "Board candidates:\n[]\n"
+            "Board candidates unavailable: the board library could not be read, so this empty "
+            "list is NOT a claim that no board matched. Do not invent a board id. Ask the user "
+            "which board they are using.\n\n"
+        )
     return f"Board candidates:\n{json.dumps(candidates, ensure_ascii=False, sort_keys=True)}\n\n"
 
 
@@ -787,11 +801,28 @@ class BoardLibraryUnreadable(Exception):
 
 
 def _load_board_profile(board_id: str) -> dict[str, Any] | None:
-    """The board's profile, preferring the skill library, or None if no library has it."""
+    """The board's profile, preferring the skill library, or None if no library has it.
+
+    `is_file()` answers False for a file inside an unreadable DIRECTORY as readily as for one that
+    does not exist: it swallows the PermissionError and returns False. So an unreadable library
+    used to leave here as None, which the caller reads as "unknown board" and which invites the
+    model to invent one. Absence and failure have to stay distinguishable at the directory level,
+    not only at the file level.
+    """
     for directory in (_SKILL_BOARDS_DIR, _BOARDS_DIR):
         path = (directory / f"{board_id}.json").resolve()
         try:
-            if not path.is_relative_to(directory.resolve()) or not path.is_file():
+            if not path.is_relative_to(directory.resolve()):
+                continue
+            if not path.is_file():
+                # Probe the directory to tell absence from failure. A missing library is ordinary
+                # and falls through to the next one; an unreadable one raises PermissionError out
+                # of iterdir into the handler below. Note the directory's OWN stat still succeeds
+                # when it is chmod-000, so exists() cannot make this distinction.
+                try:
+                    next(directory.iterdir(), None)
+                except FileNotFoundError:
+                    pass
                 continue
             return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:  # JSONDecodeError is a ValueError
@@ -871,11 +902,23 @@ def _skill_board_index() -> tuple[tuple[str, str, str, str, bool], ...]:
     normalized for matching. Built once per process: the library is deployment-stable, and
     the alternative is re-reading 243 files on every select-hw turn.
 
-    A single unreadable profile is logged and skipped rather than failing the whole index,
-    but an unreadable DIRECTORY is raised: that is the difference between one bad file and
-    "the server cannot see the library at all".
+    A single unreadable profile is logged and skipped rather than failing the whole index, but a
+    DIRECTORY that cannot be read is raised, and so is one that is not there at all: both mean
+    "the server cannot see the library", and this function has no second source to fall back on.
+    `_load_board_profile` treats a MISSING directory as ordinary absence instead, because it does
+    have a second library to try. The asymmetry is deliberate.
+
+    The directory is opened explicitly rather than left to glob, because glob does not raise: it
+    returns [] for a directory that is missing AND for one that is chmod-000, verified on the
+    deployment interpreter. So the except below was unreachable and the failure arrived as an
+    empty candidate list. That is worse than it sounds, on two counts. The phase note tells the
+    model an empty list means "nothing matched", not "the library is unreadable", which is the
+    invite-to-invent-a-board failure this whole path exists to close. And the result is cached,
+    so one unreadable read pins an empty index for the process lifetime even after the cause is
+    fixed. functools.cache does not cache exceptions, so raising also fixes that.
     """
     try:
+        next(_SKILL_BOARDS_DIR.iterdir(), None)  # raises on a missing or unreadable directory
         paths = sorted(p for p in _SKILL_BOARDS_DIR.glob("*.json") if not p.name.startswith("_"))
     except OSError as error:
         raise BoardLibraryUnreadable(f"{_SKILL_BOARDS_DIR}: {error}") from error
@@ -895,6 +938,13 @@ def _skill_board_index() -> tuple[tuple[str, str, str, str, bool], ...]:
             _normalized_board_token(board.get("display_name")),
             bool(board.get("beginner_friendly")),
         ))
+    if not entries:
+        # Two more ways to end up with nothing, both of which mean "the server cannot see the
+        # library" by the definition above: a directory that opens but holds no profiles, and one
+        # whose profiles are every one of them unreadable (each logged and skipped just above).
+        # The library is never legitimately empty, so an empty index is a failure rather than a
+        # result, and caching it would pin that failure for the process lifetime.
+        raise BoardLibraryUnreadable(f"{_SKILL_BOARDS_DIR}: no readable board profiles")
     return tuple(entries)
 
 
@@ -1004,12 +1054,17 @@ def _skill_board_candidate_ids(*texts: str) -> list[str]:
             continue
         # The text named part of a longer board name. Length says nothing useful here
         # (arduino-portenta-h7 vs -c33), so leave the order to beginner/id below.
-        for _, phrase in phrases:
-            if len(phrase) < _MIN_PARTIAL_MATCH_CHARS:
-                continue
-            if any(name and name.startswith(phrase) for name in own_names):
-                prefixed.append((phrase, (2, 0, 0, not beginner, board_id), board_id))
-                break
+        # Attribute the board to its LONGEST matching phrase, not the first one found. Keying on
+        # the first meant every arduino-* board attributed to "arduino", that bucket blew the
+        # vendor threshold below, and the whole family was culled before "arduinoportenta" was
+        # ever considered. Measured against the real library: "portenta" returned both portenta
+        # boards while the MORE specific "Arduino Portenta" returned nothing. Adding a word the
+        # user actually knows must not cost them candidates.
+        matching = [phrase for _, phrase in phrases
+                    if len(phrase) >= _MIN_PARTIAL_MATCH_CHARS
+                    and any(name and name.startswith(phrase) for name in own_names)]
+        if matching:
+            prefixed.append((max(matching, key=len), (2, 0, 0, not beginner, board_id), board_id))
     # A prefix that fits many boards is a vendor or family word, not a board: "arduino"
     # prefixes a dozen names, so "Arduino Uno" -- a board this library does not have -- came
     # back as arduino-giga with a full pin layout. Naming no board is the honest answer, and

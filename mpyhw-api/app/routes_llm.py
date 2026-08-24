@@ -294,11 +294,18 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
         if breaker_enabled:
             _deepseek_breaker.record_success()
         def on_interrupt(error: BaseException) -> None:
-            # A stream that dies mid-turn was invisible in llm_turns: meter() writes
-            # status="success" the moment the usage chunk lands, and a break before usage
-            # wrote no row at all. Either way the table reported a healthy run. Recording
-            # the break here is what makes "why did that phase stall" answerable from the
-            # data rather than from the client's error event alone.
+            # A stream that dies mid-turn was invisible in llm_turns: the only error path was a
+            # failure to OPEN the stream, so a break after the stream was live wrote NO row at
+            # all and the table simply had nothing to say. Recording the break here is what makes
+            # "why did that phase stall" answerable from the data rather than from the client's
+            # error event alone.
+            #
+            # This cannot double-count with meter(). The usage chunk only stores usage_obj;
+            # meter() is called once at clean end-of-stream, inside the same try whose except
+            # calls this, and nothing between that call and the end can raise OSError. So exactly
+            # one of the two runs. An earlier version of this comment claimed meter() fires "the
+            # moment the usage chunk lands", which is false, and it led a reviewer to report a
+            # duplicate-row bug that cannot happen.
             analytics.record_llm_turn(
                 trace_id=body.get("trace_id"),
                 user_id=str(user["id"]),
@@ -306,7 +313,12 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
                 model=_provider_model(provider),
                 started_at=started_at,
                 total_tokens=None,
-                credits_charged=0,
+                # ONE, not zero. The request-start reserve(user, 1) already debited the balance
+                # and an interrupted stream deliberately keeps it as the minimum paid-call cost,
+                # so a zero here made the row disagree with the ledger and any rollup over
+                # credits_charged undercount real spend by one per interrupted turn. The
+                # open-failure path above writes zero truthfully, because it refunds.
+                credits_charged=1,
                 status="error",
                 error_kind="upstream_stream_interrupted",
             )
