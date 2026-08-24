@@ -1593,6 +1593,41 @@ test("two different bodies get different digests, and identical ones match", asy
   assert.equal(c, d, "an unchanged rewrite must show the same digest");
 });
 
+// A NON-body string field is compacted too, and that compaction must never GROW what it
+// records. A 400-char head under a 200-char budget put every string in (200, 422] into the
+// payload IN FULL and 22 characters longer than it arrived -- the bound enlarging the thing
+// it bounds, which is the same arithmetic elide() guards against on the history side.
+test("compacting a non-body string bounds a long one and never enlarges a mid-length one", async () => {
+  const recordedPathFor = async (path: string) => {
+    const events: any[] = [];
+    let calls = 0;
+    const llm = {
+      streamMessages: async () => {
+        calls++;
+        const ev = calls === 1
+          ? [tu("f0", "file_operation", { operation: "write", path, content: "print(1)" }), stop]
+          : [tu("p0", "phase_complete", { result: "success", summary: "done", next_phase: null, manifest_content: {} }), stop];
+        return (async function* () { for (const e of ev) yield e; })();
+      },
+    };
+    await runProtocolBuild(
+      { intent: "x", startPhase: "upy-generate-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => events.push(e) },
+      { llmClient: llm, writeFile: async (target: string) => ({ ok: true, path: target }) },
+    );
+    return String(events.find((e) => e.type === "tool_use" && e.name === "file_operation").input.path);
+  };
+
+  // 210 characters: the marker plus a head costs more than the string itself, so the string
+  // stays as it is rather than being "compacted" into something longer.
+  const mid = await recordedPathFor("m".repeat(210));
+  assert.ok(mid.length <= 210, `a 210-char field was recorded as ${mid.length} characters`);
+
+  // 5000: compacted, and bounded by the budget plus the marker -- not by a head four times it.
+  const long = await recordedPathFor("l".repeat(5000));
+  assert.match(long, /^<5000 chars [0-9a-f]{8}> l+$/, long.slice(0, 60));
+  assert.ok(long.length < 250, `a 5000-char field was recorded as ${long.length} characters`);
+});
+
 test("recorded tool input compacts arrays and nested objects but keeps scalars", async () => {
   const events: any[] = [];
   let calls = 0;

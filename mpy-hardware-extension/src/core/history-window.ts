@@ -121,6 +121,14 @@ function collapseBlock(block: any): number {
  * success: the request goes out over budget and takes the same non-retryable 400 this cap
  * exists to prevent, and a silent return would make the next diagnosis start from "the cap
  * was in place, so this cannot be a size problem".
+ *
+ * The recent window is not the only way that happens. Only tool_result bodies and tool_use
+ * body fields are collapsible, so a history whose weight is assistant `text` and `thinking`
+ * cannot be reduced by this at all -- and thinking IS replayed (prompt_assembly maps it to
+ * assistant.reasoning_content, the required passback on a thinking-mode tool turn), so it
+ * counts against the model's limit like everything else. A phase that goes over on reasoning
+ * alone will keep raising the alarm and keep taking the 400. Collapsing thinking is a
+ * separate decision, because dropping that passback changes what the upstream accepts.
  */
 export function boundHistory(messages: any[]): boolean {
   let total = historyChars(messages);

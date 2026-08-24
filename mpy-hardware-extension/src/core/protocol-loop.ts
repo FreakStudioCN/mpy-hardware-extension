@@ -9,7 +9,6 @@ import {
   digest,
   historyChars,
   TELEMETRY_BODY_FIELDS,
-  TELEMETRY_INPUT_HEAD_CHARS,
   TELEMETRY_INPUT_STRING_BUDGET,
 } from "./history-window.ts";
 
@@ -191,9 +190,13 @@ function compactToolInput(input: any): Record<string, any> {
         compact[key] = `<${value.length} chars ${digest(value)}>`;
         continue;
       }
-      compact[key] = value.length > TELEMETRY_INPUT_STRING_BUDGET
-        ? `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_HEAD_CHARS)}`
-        : value;
+      // The head is the BUDGET here, not history-window's 400. A 400-char head under a
+      // 200-char budget records every string in (200, 422] IN FULL and 22 characters longer
+      // than it went in -- the same arithmetic elide() already guards against, on the
+      // telemetry side of it. And keep the substitution only while it actually shortens, so
+      // no compaction can ever grow the payload it exists to bound.
+      const compacted = `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_STRING_BUDGET)}`;
+      compact[key] = compacted.length < value.length ? compacted : value;
     }
     else if (Array.isArray(value)) compact[key] = `<${value.length} items>`;
     else if (value && typeof value === "object") compact[key] = "<object>";
@@ -226,9 +229,11 @@ const STALL_DETAIL_LIMIT = 3;
 // Proof that apply_scaffold actually rendered: init_scaffold.py writes .flake8 at the
 // project root on EVERY render, whatever modules the manifest selected.
 const SCAFFOLD_APPLIED_MARKER = ".flake8";
-// The "it is not there" answers the wired readers produce: panel.ts returns file_not_found,
-// the e2e harness not_found. Anything else (read_failed, path_outside_workspace) is an ERROR,
-// and reading an error as absence would reject a scaffold that did run.
+// The "it is not there" answers the wired readers produce: both panel.ts and the e2e harness
+// return file_not_found; not_found is the older spelling still used by the harness's LIST op,
+// kept so a reader that answers either way is read as absence. Anything else (read_failed,
+// path_outside_workspace) is an ERROR, and reading an error as absence would reject a
+// scaffold that did run.
 const MISSING_FILE_KINDS = new Set(["file_not_found", "not_found"]);
 
 // One gate-report entry, read in BOTH real shapes. run_quality_gates.py emits objects
