@@ -30,6 +30,12 @@ import { createProtocolLoop } from "../core/protocol-build.ts";
 import { createDeviceShim } from "../extension/device-shim.ts";
 import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { writeProjectFile as writeContainedProjectFile } from "../extension/workspace-writer.ts";
+import {
+  classifyFirmwareEvidence,
+  describeFirmwareEvidence,
+  postRebootLines,
+  type FirmwareEvidence,
+} from "./firmware-evidence.ts";
 
 const DEFAULT_INTENT = "做一个温湿度监测仪，温度超过阈值就让蜂鸣器报警，OLED 屏幕显示读数";
 const intent = process.argv.slice(2).join(" ") || DEFAULT_INTENT;
@@ -530,8 +536,9 @@ const firmwareOnDevice = Array.isArray(deviceFiles) && deviceFiles.some((f) => S
 // and the LED dark, because the device tests drive the raw REPL (which stops main.py) and
 // nothing resets the board afterwards -- it only started when the board was replugged. The
 // serial capture deploy already writes is the one artifact that proves execution, e.g.
-// "[t=13275ms] [blink] toggle #1 (led=1)" after the soft reboot.
-const MPREMOTE_BANNER = /^(MPY:|Connected to MicroPython|Use Ctrl-)/;
+// "[t=13275ms] [blink] toggle #1 (led=1)" after the soft reboot. Reading that capture lives in
+// firmware-evidence.ts, which this file cannot hold and still be tested: it runs on import and
+// exits the process.
 // FOUND, not assumed at the project root. The model chooses where its artifacts go, and one
 // run wrote them to deploy/ and sessions/deploy_artifacts/ -- so this reported "NOT OBSERVED"
 // and printed a MISMATCH warning about a deploy that had in fact produced every artifact and
@@ -570,36 +577,19 @@ async function builtProjectName(): Promise<string | null> {
 // uploading leaves the previous run's firmware on the chip still booting exactly like a success.
 // Measured: a DHT11 run whose clean step died with "could not enter raw repl" uploaded nothing,
 // and the blink firmware left over from an earlier series was reported as proof that the DHT11
-// build had run. So the running firmware has to name itself as the one this run produced.
-let firmwareRan: string | null = null;
-let firmwareForeign: string | null = null;
+// build had run. So the running firmware has to name itself as the one this run produced -- or,
+// when it died before it could, say that instead of being counted against the deploy. Which of
+// those the capture supports is firmware-evidence.ts's job.
+let firmwareEvidence: FirmwareEvidence = { kind: "absent" };
 let firmwareBuilt: string | null = null;
 try {
   const reportPath = await findArtifact(projectDir, "deploy_result.json");
   if (!reportPath) throw new Error("no deploy_result.json anywhere under the project");
   const report = JSON.parse(await fsReadFile(reportPath, "utf-8"));
-  // BOTH captures, not just the serial one. The final reset is by contract the LAST device
-  // operation, so a deploy that runs one capture puts its only proof in final_reset_excerpt and
-  // leaves serial_excerpt empty -- and two runs were then reported as "firmware ran: NOT
-  // OBSERVED" while their final reset held "MPY: soft reboot" and the boot line. The better the
-  // deploy contract gets at making the reset the single capture, the more often reading only
-  // serial_excerpt is wrong.
-  const captured = [report.serial_excerpt, report.final_reset_excerpt,
-                    report.final_reset?.output_excerpt, report.final_reset?.output]
-    .map((v: unknown) => (typeof v === "string" ? v : ""))
-    .filter(Boolean)
-    .join("\n");
-  const lines = captured.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
-  const rebootAt = lines.findIndex((l: string) => l.includes("soft reboot"));
-  const fromFirmware = lines.slice(rebootAt + 1).filter((l: string) => !MPREMOTE_BANNER.test(l));
   firmwareBuilt = await builtProjectName();
-  const owned = firmwareBuilt
-    ? fromFirmware.find((l: string) => l.includes(firmwareBuilt as string))
-    : undefined;
-  firmwareRan = owned ? owned.slice(0, 70) : null;
-  // Output from a build that is not ours is the loudest signal in the run, not a null result.
-  if (!owned && fromFirmware.length && firmwareBuilt) firmwareForeign = fromFirmware[0].slice(0, 70);
-} catch { firmwareRan = null; }  // no report, unreadable, or no capture: report it as unknown
+  firmwareEvidence = classifyFirmwareEvidence(postRebootLines(report), firmwareBuilt);
+  // no report, unreadable, or no capture: report it as unknown
+} catch { firmwareEvidence = { kind: "absent" }; }
 
 console.log("\n=== SUMMARY ===");
 console.log("phases:", phases.map((p) => `${p.phase}(${p.result})`).join(" -> ") || "(none)");
@@ -632,15 +622,22 @@ if (deviceFiles) {
 }
 // The stronger claim: did the board actually RUN it. This is the line that would have caught a
 // green run leaving the device idle at the REPL.
-console.log("firmware ran during deploy:", firmwareRan
-  ? `yes — "${firmwareRan}"`
-  : firmwareForeign
-    ? `NO — the board is running a DIFFERENT build: "${firmwareForeign}" (this run built "${firmwareBuilt}")`
-    : "NOT OBSERVED (no serial evidence in deploy_result.json)");
-if (firmwareForeign) {
+console.log("firmware ran during deploy:", describeFirmwareEvidence(firmwareEvidence, firmwareBuilt));
+if (firmwareEvidence.kind === "foreign") {
   console.log("STALE DEVICE: the capture proves the PREVIOUS firmware ran, not this one. Nothing this run built reached the board.");
 }
-if (deployResult === "success" && !firmwareRan) {
+// Deliberately NOT called a stale device. The firmware raised before it could print its name, so
+// the capture cannot say whose build it was -- and the upload is the far likelier candidate, not
+// the ruled-out one. Sending a reader at the deploy path from here wastes the session; the
+// traceback names the file and the line to look at instead.
+if (firmwareEvidence.kind === "crashed") {
+  console.log("STARTUP CRASH: the board rebooted and the firmware raised before printing any marker.");
+  console.log("               Whose build it was is NOT proven either way: the name is printed after the point it died.");
+  console.log("               Compare the on-device @Generated stamp before concluding the upload failed.");
+}
+if (deployResult === "success" && firmwareEvidence.kind === "crashed") {
+  console.log("MISMATCH: deploy reported success, but the firmware it left on the board raised on startup.");
+} else if (deployResult === "success" && firmwareEvidence.kind !== "ran") {
   console.log("MISMATCH: deploy reported success, but nothing in the serial capture shows the firmware running.");
 }
 // There WAS a probe here that connected to the board to report whether it was still running
