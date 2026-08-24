@@ -2424,6 +2424,31 @@ test("a long or body-shaped array element is still clamped, and a huge array is 
   assert.match(recorded[recorded.length - 1], /^<\d+ more items>$/, "the tail says how many were dropped");
 });
 
+// The window where a "compaction" made the payload BIGGER. The digest prefix costs 21 characters
+// ("<300 chars a1b2c3d4> "), so a 400-char head under a 200-char budget returns 21 + min(len, 400)
+// -- more than it was given for every length in (200, 421), and exactly break-even at 421.
+// Telemetry compaction exists to BOUND the payload, so growing it is the one shape it must never
+// produce. Sized at the boundaries because the arithmetic is what fails: 201 is the first length
+// past the budget, 421 is where the head stops outgrowing the input, and 500 is safely past it.
+test("compacting an argv element never returns more characters than it was given", async () => {
+  for (const length of [201, 300, 421, 500]) {
+    const events: any[] = [];
+    const ARG = "z".repeat(length);
+    const llm = scriptedLlm({
+      analyze: [[tu("s3", "script_run", { script_id: "r", interpreter: "python", script: "x.py", args: [ARG] }), stop]],
+    });
+    await runProtocolBuild(
+      { intent: "x", traceId: "t", onEvent: (e: any) => events.push(e) },
+      { llmClient: llm, runScript: async () => ({ ok: true, stdout: "{}", exit_code: 0 }) },
+    );
+    const recorded = events.find((e) => e.type === "tool_use" && e.name === "script_run").input.args[0];
+    assert.ok(
+      recorded.length <= length,
+      `a ${length}-char element was recorded as ${recorded.length} chars -- compaction grew it`,
+    );
+  }
+});
+
 // The measured loop, reproduced: generate recorded project HEAD into project-manifest.json,
 // amended the commit to include that manifest (which changed HEAD), read the new HEAD, and
 // went round again. Ten times, every call returning ok, until the 60-turn cap killed the
@@ -3827,6 +3852,43 @@ test("the post-reset refusal forbids fabricating the artifact and names partial 
   assert.ok(detail, "the post-reset refusal must still fire");
   assert.match(detail!, /result=partial/, "it must name the honest exit");
   assert.match(detail!, /Do NOT write it yourself/, "it must forbid fabricating the evidence file");
+});
+
+// Measured on hardware: a cold run reached the final reset with all four deploy artifacts on
+// disk, was refused twice for touching the device afterwards, then wrote files for five turns
+// and ended the phase with no tool call at all. The refusal named two exits -- read the files,
+// or report partial for MISSING evidence -- and neither fits a model that has everything: it
+// had nothing to report as missing, and no sentence told it that holding the artifacts is a
+// finish condition. A refusal that cannot be complied with is the failure mode this whole
+// guard family keeps producing, so the way out has to be named where the door is closed.
+test("the post-reset refusal names finishing the phase, not just reading the files", async () => {
+  const observations: any[] = [];
+  let turn = 0;
+  const llm = {
+    streamMessages: async () => {
+      turn += 1;
+      const ev = turn === 1
+        ? [tu("f", "script_run", { interpreter: "python", script: "scripts/capture_repl.py", args: ["--reset-first", "--output-json", "final_reset_capture.json"] }), stop]
+        : turn === 2
+          ? [tu("l", "device_command", { action: "ls", path: "/" }), stop]
+          : [tu("p", "phase_complete", { result: "success", summary: "x", next_phase: null, manifest_content: {} }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  await runProtocolBuild(
+    { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => { if (e.type === "tool_result") observations.push(e.observation); } },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY"}' }),
+      device: async () => ({ ok: true, entries: [] }),
+    } as any,
+  );
+
+  const detail = observations.map((o: any) => String(o?.detail ?? "")).find((d: string) => d.includes("REFUSED: the final reset"));
+  assert.ok(detail, "the post-reset refusal must still fire");
+  assert.match(detail!, /phase_complete/, "it must name the tool that ends the phase");
+  assert.match(detail!, /FINISHED/, "it must say the phase is done when the artifacts are present");
 });
 
 test("device calls BEFORE the final reset are untouched", async () => {

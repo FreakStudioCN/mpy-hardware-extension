@@ -9,7 +9,6 @@ import {
   digest,
   historyChars,
   TELEMETRY_BODY_FIELDS,
-  TELEMETRY_INPUT_HEAD_CHARS,
   TELEMETRY_INPUT_STRING_BUDGET,
 } from "./history-window.ts";
 
@@ -310,11 +309,15 @@ const TELEMETRY_ARRAY_ITEM_BUDGET = 40;
 // A body field is compacted at EVERY length, not only over the budget: a short conf.py is
 // still a file body, and a credential in it would otherwise be recorded verbatim because it
 // happened to be under 200 characters.
+// The head is the BUDGET, not history-window's 400. A 400-char head under a 200-char budget
+// records every string in (200, 422] IN FULL and 22 characters longer than it went in -- the
+// same arithmetic elide() already guards against, on the telemetry side of it. And keep the
+// substitution only while it actually shortens, so no compaction can ever grow the payload it
+// exists to bound.
 function compactTelemetryString(key: string, value: string): string {
   if (TELEMETRY_BODY_FIELDS.has(key)) return `<${value.length} chars ${digest(value)}>`;
-  return value.length > TELEMETRY_INPUT_STRING_BUDGET
-    ? `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_HEAD_CHARS)}`
-    : value;
+  const compacted = `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_STRING_BUDGET)}`;
+  return compacted.length < value.length ? compacted : value;
 }
 
 // Elements go through the SAME rules as a top-level string under that key, so an args array
@@ -331,27 +334,12 @@ function compactTelemetryArray(key: string, value: any[]): any[] {
 function compactToolInput(input: any): Record<string, any> {
   const compact: Record<string, any> = {};
   for (const [key, value] of Object.entries(input ?? {})) {
-    if (typeof value === "string") {
-      // A body field is compacted at EVERY length, not only over the budget: a short
-      // conf.py is still a file body, and a credential in it would otherwise be recorded
-      // verbatim because it happened to be under 200 characters.
-      if (TELEMETRY_BODY_FIELDS.has(key)) {
-        compact[key] = `<${value.length} chars ${digest(value)}>`;
-        continue;
-      }
-      // The head is the BUDGET here, not history-window's 400. A 400-char head under a
-      // 200-char budget records every string in (200, 422] IN FULL and 22 characters longer
-      // than it went in -- the same arithmetic elide() already guards against, on the
-      // telemetry side of it. And keep the substitution only while it actually shortens, so
-      // no compaction can ever grow the payload it exists to bound.
-      const compacted = `<${value.length} chars ${digest(value)}> ${value.slice(0, TELEMETRY_INPUT_STRING_BUDGET)}`;
-      compact[key] = compacted.length < value.length ? compacted : value;
-    }
+    if (typeof value === "string") compact[key] = compactTelemetryString(key, value);
     // An array is walked rather than replaced with "<N items>", so "which arguments did the
     // model actually pass" stays answerable from the trace. Elements go through the same
-    // per-key rules. Kept deliberately separate from the string branch above: the shared
-    // helper still slices to TELEMETRY_INPUT_HEAD_CHARS, which is the arithmetic that comment
-    // warns about, so routing top-level strings through it would undo the guard.
+    // per-key rules as a top-level string, which is the same helper: a rule that holds for a
+    // string must hold for one sitting in an argv, and keeping two copies of it is how the
+    // element path came to grow the payload the string path was already bounding.
     else if (Array.isArray(value)) compact[key] = compactTelemetryArray(key, value);
     else if (value && typeof value === "object") compact[key] = "<object>";
     else compact[key] = value;
@@ -930,7 +918,9 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
             "Opening the REPL again stops the app that reset just started, and nothing restarts it, so the " +
             "board would end the phase idle with deploy reporting success. To confirm what was uploaded, read " +
             "upload_summary.json; for what the board printed, read the capture artifacts. Both are files, " +
-            "and reading a file does not touch the device. If an evidence file is genuinely MISSING and only " +
+            "and reading a file does not touch the device. Reading them is not a detour: if they are present, " +
+            "this phase already holds every piece of evidence it can obtain, and it is FINISHED -- emit " +
+            "phase_complete built from those files. If an evidence file is genuinely MISSING and only " +
             "a device call could produce it, that evidence is unobtainable in this phase: report " +
             "result=partial with a structured error naming the missing artifact. Do NOT write it yourself. " +
             "A hand-written evidence file is graded as if a script produced it, so fabricating one turns a " +
