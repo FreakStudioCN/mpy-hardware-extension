@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -7,23 +7,14 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { ShimProcess } from "../src/extension/shim-process.ts";
+import { resolvePython } from "./venv-python.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shimDir = join(here, "..", "python", "shim");
 
-// Pick an available python; skip the whole suite if none (e.g. minimal CI image).
-function resolvePython(): string | null {
-  for (const candidate of ["python", "python3"]) {
-    try {
-      if (spawnSync(candidate, ["--version"], { stdio: "ignore" }).status === 0) return candidate;
-    } catch {
-      // try next
-    }
-  }
-  return null;
-}
-
-const python = resolvePython();
+// The EXTENSION's venv: the shim's dependencies are installed there, and a system python earlier
+// on PATH has none of them. Skips the whole suite when nothing answers (e.g. minimal CI image).
+const python = resolvePython(join(here, ".."));
 
 // Locally we skip gracefully when python is absent. In CI (MPYHW_REQUIRE_CONTRACT_TESTS=1)
 // a missing python is a HARD FAILURE: this is the only test that proves the TS<->Python

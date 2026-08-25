@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { createLlmClient } from "../src/core/llm-client.ts";
+import { resolvePython } from "./venv-python.ts";
 
 // Apex end-to-end: the REAL production LLM client (createLlmClient -> streamSseEvents)
 // talks to a REAL spawned uvicorn process over real HTTP + SSE. Only the LLM upstream is
@@ -17,16 +18,9 @@ import { createLlmClient } from "../src/core/llm-client.ts";
 const here = dirname(fileURLToPath(import.meta.url));
 const apiDir = join(here, "..", "..", "mpyhw-api");
 
-function resolvePython(): string | null {
-  for (const candidate of ["python", "python3"]) {
-    try {
-      if (spawnSync(candidate, ["--version"], { stdio: "ignore" }).status === 0) return candidate;
-    } catch { /* try next */ }
-  }
-  return null;
-}
-
-const python = resolvePython();
+// mpyhw-api's OWN venv, not the extension's: uvicorn and app.main are installed there, and this
+// test spawns the real API. Falls back to PATH, and null skips the suite.
+const python = resolvePython(apiDir);
 function canImport(mod: string): boolean {
   return !!python && spawnSync(python, ["-c", `import ${mod}`], { cwd: apiDir, stdio: "ignore" }).status === 0;
 }
