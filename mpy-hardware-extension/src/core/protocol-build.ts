@@ -294,6 +294,11 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
       : result.terminal === "failed" ? "failed"
       : result.terminal === "stalled" ? "stalled"
       : result.terminal === "partial" ? "partial"
+      // The loop's other non-terminal outcome, and the last one this mapping was flattening: a
+      // model that chained phases to the cap without ever returning a null next_phase. It reached
+      // the webview as a clean hand-back, which renders no terminal line at all, while
+      // term_incomplete ("Stopped (too many phases)") shipped in both locales unreachable.
+      : result.terminal === "incomplete" ? "incomplete"
       : "awaiting_user";
     return { terminal, state: { manifest: result.manifest, phase: result.phases.at(-1)?.phase, intent } };
   };

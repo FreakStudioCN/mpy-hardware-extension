@@ -3257,6 +3257,44 @@ test("a phase_error lands as its own card, never glued onto the open thinking st
   assert.ok(errorCards.some((t) => t.includes("upy-verify-plugin")), "the reason renders as its own error card");
 });
 
+test("a build that gave up renders as an error card, not a result one", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an led";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  // "partial" is the terminal for a build whose last phase could not finish its work, and its
+  // English label is "Stopped (work unfinished)" -- which classifyActivity() reads as a SUCCESS,
+  // because /finished/ matches inside "unfinished" and the result branch is tested before
+  // nothing else claims it. So the give-up terminal rendered in the result card. The regex also
+  // matches "done" and "incomplete", so no rewording is safe here; the kind has to be forced.
+  post(dom, { type: "session_done", terminal: "partial" });
+
+  const errorCards = [...document.querySelectorAll(".ev-sum.is-error")].map((n) => n.textContent ?? "");
+  assert.ok(errorCards.some((t) => /unfinished/i.test(t)), "the give-up terminal must render as an error card");
+  const resultCards = [...document.querySelectorAll(".ev-sum.is-result")].map((n) => n.textContent ?? "");
+  assert.ok(!resultCards.some((t) => /unfinished/i.test(t)), "it must not render as a result");
+});
+
+test("a RESTORED build that gave up is an error card too, not just the live one", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  // restore_done renders the same sentence as the live end, from the persisted terminal. Forcing
+  // the kind on only the live path left this one text-classified, so reopening a project whose
+  // build gave up still showed "Stopped (work unfinished)" in the result card -- the same lie,
+  // one code path over.
+  post(dom, { type: "restore_done", terminal: "partial" });
+
+  const errorCards = [...document.querySelectorAll(".ev-sum.is-error")].map((n) => n.textContent ?? "");
+  assert.ok(errorCards.some((t) => /unfinished/i.test(t)), "a restored give-up terminal renders as an error card");
+  const resultCards = [...document.querySelectorAll(".ev-sum.is-result")].map((n) => n.textContent ?? "");
+  assert.ok(!resultCards.some((t) => /unfinished/i.test(t)), "it must not render as a result");
+});
+
 test("a duplicate session_done renders exactly one terminal line", async () => {
   const posted: any[] = [];
   const dom = await loadWebview(posted);

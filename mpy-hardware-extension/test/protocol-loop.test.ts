@@ -2676,6 +2676,118 @@ test("a second unchanging failure is still caught after the first one was nudged
   assert.ok(requests.length < 14, `must not burn the budget (used ${requests.length} of 14)`);
 });
 
+// The edit-turn/validate-turn rhythm, which is how a repair loop actually looks: run the gate,
+// change a file, run the gate again. Keying the nudge on a BOOLEAN made this shape unstallable --
+// every turn that did not repeat the failure cleared the flag, so the next threshold turn nudged
+// again instead of escalating, forever. Measured across the fix: the guard stalled this at 7 turns
+// before, then burned all 20 and died as max_turns after, with nine nudges on the way. The stall
+// has to survive a quiet turn in between, because there is always a quiet turn in between.
+test("an unchanging failure still stalls when successful turns are interleaved with it", async () => {
+  const events: any[] = [];
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const n = requests.length;
+      // Odd turns re-run the failing gate, even turns do ordinary successful work.
+      const ev = n % 2 === 1
+        ? [tu(`g${n}`, "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: SELECT_HW_GATE_ARGS }), stop]
+        : [tu(`w${n}`, "file_operation", { op: "write", path: `notes${n}.md`, content: "x" }), stop];
+      return (async function* () { for (const e of ev) yield e; })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 20, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      runScript: async () => ({ ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["core fields differ from compare manifest"]}' }),
+      writeFile: async () => ({ ok: true }),
+    } as any,
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled?.reason, "repeating_failure", "an interleaved repeat must still escalate to a stall");
+  assert.equal(result.terminal, "stalled");
+  // Two guards share this event name: the identical-failure one names a call SIGNATURE, the
+  // looser unchanged-entry one names a subject and error entry joined by a NUL. Only the first is
+  // under test here, and the regression it guards showed up as a nudge on every threshold turn.
+  const nudges = events.filter((e) => e.type === "repeating_failure" && String(e.call).startsWith("script_run:args="));
+  assert.equal(nudges.length, 1, `one call, one nudge, then the stall -- got ${nudges.length}`);
+  assert.ok(requests.length < 20, `must not burn the budget (used ${requests.length} of 20)`);
+});
+
+// Two calls, each repeating its own identical failure, alternating. This is what defeats a single
+// last-nudged slot: A takes the slot, B takes it from A, then A comes back over the threshold and
+// is nudged AGAIN because the slot says B, forever. Measured on that shape: 20 turns of 20 spent,
+// 16 nudges, no stall. The nudge state has to be per signature, because the counts are.
+test("two repeating failures alternating still stall, rather than trading nudges forever", async () => {
+  const events: any[] = [];
+  const requests: any[] = [];
+  const OTHER_GATE_ARGS = [...SELECT_HW_GATE_ARGS, "--strict"];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const n = requests.length;
+      const args = n % 2 === 1 ? SELECT_HW_GATE_ARGS : OTHER_GATE_ARGS;
+      return (async function* () {
+        for (const e of [tu(`g${n}`, "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args }), stop]) yield e;
+      })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 20, onEvent: (e: any) => events.push(e) },
+    { llmClient: llm, runScript: async () => ({ ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["core fields differ from compare manifest"]}' }) } as any,
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled?.reason, "repeating_failure", "one of the two repeats must escalate to a stall");
+  assert.equal(result.terminal, "stalled");
+  assert.ok(requests.length < 20, `must not burn the budget trading nudges (used ${requests.length} of 20)`);
+});
+
+// The deliberate asymmetry, pinned because it is a design choice rather than an oversight: the
+// nudge is spent once per SIGNATURE per phase. A call that was nudged, recovered, and later got
+// stuck again is stalled at its fourth identical failure with no second warning. Re-arming on the
+// reset is what would make the guard unstallable again -- a rhythm alternating between two error
+// identities would reset the count and the nudge together, forever.
+test("a call that was nudged, recovered, then got stuck again still stalls, warned once", async () => {
+  const events: any[] = [];
+  const requests: any[] = [];
+  const llm = {
+    streamMessages: async (body: any) => {
+      requests.push(body);
+      const n = requests.length;
+      return (async function* () {
+        for (const e of [tu(`g${n}`, "script_run", { interpreter: "python", script: "scripts/select_hw_manifest.py", args: SELECT_HW_GATE_ARGS }), stop]) yield e;
+      })();
+    },
+  };
+
+  const result = await runProtocolBuild(
+    { intent: "x", startPhase: "select-hw", maxTurnsPerPhase: 16, onEvent: (e: any) => events.push(e) },
+    {
+      llmClient: llm,
+      // Fails, fails, fails (nudge), then one clean run that resets the count, then stuck again.
+      runScript: async () => (requests.length === 4
+        ? { ok: true, exit_code: 0, stdout: '{"status":"pass"}' }
+        : { ok: true, exit_code: 1, stdout: '{"status":"fail","errors":["core fields differ from compare manifest"]}' }),
+    } as any,
+  );
+
+  const stalled = events.find((e) => e.type === "phase_stalled");
+  assert.equal(stalled?.reason, "repeating_failure", "the second streak must still end the phase");
+  assert.equal(result.terminal, "stalled");
+  const nudges = events.filter((e) => e.type === "repeating_failure" && String(e.call).startsWith("script_run:args="));
+  assert.equal(nudges.length, 1, `the signature is warned once per phase, got ${nudges.length}`);
+  // WHERE it stalls is what pins the recovery leg. Without this the test passes even if the
+  // success stopped resetting the count: the stale streak would stall on the first failure after
+  // the pass, at 5 requests, with the same reason and the same single nudge. 3 fails + the pass +
+  // a full fresh streak of 4 is the only shape that reaches 8.
+  assert.equal(requests.length, 8, `the pass must reset the count, so the stall needs a fresh streak of 4 (used ${requests.length})`);
+});
+
 // A refusal is a result the model receives, and it used to `continue` past every tracker that
 // reads one. Measured: a model repeating the identical refused device call was refused ELEVEN
 // times with no nudge, burned the phase budget and stalled as max_turns with an empty detail --

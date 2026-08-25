@@ -442,7 +442,11 @@ const MAX_CYCLE_REPEATS = 3;
 // received the byte-identical error (same call signature, same full structured_errors payload)
 // more than twice in a row, while the one pathological phase received it ten times and died at
 // the cap. Three is the first count no honest run reached: the 3rd identical failure draws a
-// nudge, the 4th ends the phase. Identity is the whole error payload, never the code alone --
+// nudge, the 4th ends the phase. The nudge is spent ONCE PER SIGNATURE per phase, so a call that
+// was nudged, recovered, and later got stuck again is stalled at its 4th without a second warning:
+// re-arming it on a reset is what makes the guard unstallable, because a rhythm that alternates
+// between two error identities would then reset the count and the nudge together, forever.
+// Identity is the whole error payload, never the code alone --
 // PC_UNITTEST_FAILED repeats with different failing tests during honest convergence, and
 // code-level identity would call that a stall.
 const MAX_IDENTICAL_FAILURES = 3;
@@ -741,7 +745,15 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
   // Consecutive IDENTICAL outcomes per call signature, for the identical-failure guard. Reset on
   // success, or when the same call starts failing DIFFERENTLY -- that is convergence, not a loop.
   const identicalFailures = new Map<string, { err: string; count: number }>();
-  let identicalFailureNudged = false;
+  // EVERY signature that has already drawn the nudge. Two weaker shapes were tried here and each
+  // left a pattern that could never stall. A boolean had to be cleared on any turn that did not
+  // repeat the failure, so the ordinary edit-turn/validate-turn rhythm re-armed it every quiet turn
+  // and nudged forever. A single slot holding the last-nudged signature then ping-ponged between
+  // two repeating calls: A nudges and takes the slot, B nudges and takes it, A comes back over the
+  // threshold and is nudged AGAIN because the slot now says B. Both burned the whole phase budget
+  // while nudging almost every turn. A set answers per signature, which is the granularity the
+  // counts already have: an intervening turn, quiet or belonging to another call, changes nothing.
+  const nudgedSignatures = new Set<string>();
   // Consecutive failing results per (subject, error entry), for the looser unchanged-entry nudge.
   // SPENT ONCE PER PHASE, not once per entry. Measured on the run that first fired it: three
   // nudges landed in three consecutive turns (two entries plus the strict guard), and the model
@@ -782,7 +794,10 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     // returning it (insertion order), so the re-arm never happens and the stall branch never sees
     // a count above the threshold, while the model's new call fails identically as often as it
     // likes. One successful recovery disarmed the guard permanently.
-    let failedSignatureThisTurn: string | null = null;
+    // EVERY signature that failed this turn, not just the last one: a turn carrying two calls,
+    // one repeating its identical failure and one failing differently each time, judged only the
+    // second and let the first repeat unseen.
+    const failedSignaturesThisTurn: string[] = [];
     // Before the request, not after the push: the cap has to apply to what actually goes out,
     // including the turn that would otherwise be the one to cross the model's limit.
     // Say so when it could NOT get under the cap. The request still goes out -- refusing to
@@ -995,7 +1010,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
           signatureNow,
           previous?.err === errIdentity ? { err: errIdentity, count: previous.count + 1 } : { err: errIdentity, count: 1 },
         );
-        failedSignatureThisTurn = signatureNow;
+        failedSignaturesThisTurn.push(signatureNow);
       } else {
         identicalFailures.delete(signatureNow);
       }
@@ -1300,14 +1315,21 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
     // names what to fix; this one fires when what it names has stopped changing. One phase ran
     // the same validator 10 times for the byte-identical error and died at the cap; no honest
     // run in ten archives ever repeated an identical error more than twice.
-    const failedThisTurn = failedSignatureThisTurn ? identicalFailures.get(failedSignatureThisTurn) : undefined;
-    const repeatedFailure = failedThisTurn && failedThisTurn.count >= MAX_IDENTICAL_FAILURES
-      ? [failedSignatureThisTurn!, failedThisTurn] as const
-      : undefined;
+    // Judged only on what failed THIS turn, so an abandoned streak cannot keep answering for a
+    // call the model has moved on from -- and on the worst of them, by a linear scan rather than
+    // a sort, so the call closest to the stall is the one that speaks.
+    const repeatedFailure = failedSignaturesThisTurn.reduce<readonly [string, { err: string; count: number }] | undefined>(
+      (worst, sig) => {
+        const entry = identicalFailures.get(sig);
+        if (!entry || entry.count < MAX_IDENTICAL_FAILURES) return worst;
+        return !worst || entry.count > worst[1].count ? ([sig, entry] as const) : worst;
+      },
+      undefined,
+    );
     let nudgedThisTurn = false;
-    if (!repeatedFailure) identicalFailureNudged = false;
-    else if (!identicalFailureNudged) {
-      identicalFailureNudged = true;
+    if (!repeatedFailure) { /* nothing repeated this turn; each signature keeps its own nudge state */ }
+    else if (!nudgedSignatures.has(repeatedFailure[0])) {
+      nudgedSignatures.add(repeatedFailure[0]);
       nudgedThisTurn = true;
       input.onEvent?.({ type: "repeating_failure", phase, call: repeatedFailure[0], count: repeatedFailure[1].count, turn });
       messages.push({

@@ -139,6 +139,33 @@ function sseText(text: string) {
   ].join("\n\n");
 }
 
+// The sibling of the "partial" flattening, and the last terminal this mapping still collapsed. A
+// model that keeps naming a next phase runs the loop to MAX_PHASES and ends "incomplete" -- a
+// pathological build. Folded into awaiting_user it reached the webview as a clean hand-back, which
+// renders NO terminal line at all, while term_incomplete ("Stopped (too many phases)") shipped in
+// both locales unreachable from the production path.
+test("createProtocolLoop keeps 'incomplete' distinct instead of folding it into awaiting_user", async () => {
+  let calls = 0;
+  // Every phase reports success and names another phase, so the chain never terminates itself.
+  // Both named phases are deliberately the NON-STRICT ones: a strict gate would refuse the
+  // success for never running its validator and the phase would stall, which is a different
+  // terminal and would not exercise the cap at all.
+  const fetchImpl = async () => {
+    calls += 1;
+    return new Response(sseTool(`p${calls}`, "phase_complete", {
+      result: "success",
+      summary: "on to the next one",
+      next_phase: calls % 2 === 0 ? "analyze" : "upy-flash-mpy-firmware-plugin",
+      manifest_content: {},
+    }), { status: 200, headers: { "content-type": "text/event-stream" } }) as any;
+  };
+
+  const loop = createProtocolLoop({ apiBaseUrl: "http://api.test", fetchImpl: fetchImpl as any, getAuthToken: async () => "token" });
+  const result = await loop({ intent: "build a thermometer", traceId: "trace-incomplete" });
+
+  assert.equal(result.terminal, "incomplete", "a phase chain that hits the cap is not a clean hand-back");
+});
+
 test("createProtocolLoop maps a stalled loop (no tool calls, repeated prose) to terminal 'stalled', distinct from awaiting_user", async () => {
   // The model never emits a tool call; after MAX_TOOLLESS_TURNS the phase gives up
   // and runProtocolBuild returns terminal: "stalled" (protocol-loop.ts). That must
