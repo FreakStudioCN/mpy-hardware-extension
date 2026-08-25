@@ -20,6 +20,9 @@ from serve import (
     resolve_script,
     scripts_root,
     _ensure_utf8_io,
+    _mpremote_env_command,
+    _subprocess_text_kwargs,
+    _with_mpremote_launcher,
     _run_project_script,
     _run_flash_device,
     _run_render,
@@ -127,6 +130,130 @@ def test_install_command_uses_mpremote_mip_package_json_url():
     shim.install_package("COM3", "https://upypi.net/pkgs/aht20/1.0.0/package.json")
 
     assert shim.commands[-1] == ["mpremote", "connect", "COM3", "resume", "mip", "install", "https://upypi.net/pkgs/aht20/1.0.0/package.json"]
+
+
+def test_mpremote_runs_through_the_boot_settle_launcher():
+    # A USB-serial bridge resets the board when the port opens, so mpremote's ctrl-C /
+    # ctrl-A handshake lands mid-boot and every call dies with "could not enter raw repl"
+    # (seen on an ESP32-WROOM-32 behind a CP2102). The launcher adds the settle mpremote
+    # applies on Windows only. The swap must happen at the subprocess boundary.
+    argv = _with_mpremote_launcher(["mpremote", "connect", "COM3", "reset"])
+
+    assert argv[0] == sys.executable, "mpremote must be hosted by this interpreter"
+    assert argv[1].endswith("mpremote_launcher.py")
+    assert argv[2:] == ["connect", "COM3", "reset"], "the mpremote arguments must survive intact"
+
+    # Anything that is not an mpremote call is passed through untouched.
+    other = ["python", "-m", "esptool", "--chip", "esp32"]
+    assert _with_mpremote_launcher(other) == other
+    assert _with_mpremote_launcher([]) == []
+
+
+def test_an_absolute_mpremote_path_still_gets_the_settle():
+    # Matching the bare name alone was not enough. A deploy resolved mpremote with
+    # shutil.which() and ran the absolute venv path, which skipped the settle: three
+    # consecutive hardware runs failed their clean step with "could not enter raw repl"
+    # and uploaded nothing, while the board kept running the previous run's firmware.
+    resolved = os.path.join(os.path.expanduser("~"), ".mpyhw", "venv", "bin", "mpremote")
+    argv = _with_mpremote_launcher([resolved, "connect", "/dev/cu.usbserial-0001", "resume"])
+
+    assert argv[0] == sys.executable
+    assert argv[1].endswith("mpremote_launcher.py")
+    assert argv[2:] == ["connect", "/dev/cu.usbserial-0001", "resume"]
+
+    # Windows spelling, and a lookalike that must NOT be swallowed.
+    assert _with_mpremote_launcher([r"C:\venv\Scripts\mpremote.exe", "reset"])[1].endswith(
+        "mpremote_launcher.py"
+    )
+    not_mpremote = ["/usr/local/bin/mpremote-helper", "reset"]
+    assert _with_mpremote_launcher(not_mpremote) == not_mpremote
+
+
+def test_the_deploy_plugin_is_pointed_at_the_launcher_through_its_env_hook(monkeypatch):
+    # The deploy plugin resolves and spawns mpremote itself, so it never crosses this shim's
+    # subprocess boundary and _with_mpremote_launcher cannot reach it. UPY_MPREMOTE is the
+    # hook that does. The value has to survive the plugin's own splitter, which is
+    # shlex.split(value, posix=os.name != "nt") in its mpremote_runtime.split_command.
+    #
+    # Whether the hook can carry anything at all depends on the CHECKOUT PATH, not on the code:
+    # with posix=False the splitter keeps the quotes it finds, so a Windows path containing a
+    # space cannot be expressed and _mpremote_env_command answers None by design (the test below
+    # states that rule). Asserting the value is always set therefore passed on CI, whose runner
+    # path has no spaces, and failed on every Windows checkout under `C:\\Users\\First Last\\...`
+    # -- `npm run baseline` red on the maintainer's own machine, saying nothing about the code.
+    # Pin the rule instead: whatever IS handed over must round-trip, and handing over nothing
+    # must be because the path cannot carry it, never because the redirect stopped working.
+    import shlex
+
+    import serve
+
+    value = _subprocess_text_kwargs()["env"].get("UPY_MPREMOTE")
+    if value is None:
+        assert " " in sys.executable or " " in serve._MPREMOTE_LAUNCHER, (
+            "no mpremote redirect was handed over, and the path it would carry has no space, "
+            "so this is a broken hook rather than an inexpressible one"
+        )
+        # Without this the branch is vacuous: on any spaced checkout a completely dead
+        # _mpremote_env_command would return None too, and the test would pass forever.
+        monkeypatch.setattr(serve, "_MPREMOTE_LAUNCHER", "/opt/shim/mpremote_launcher.py")
+        monkeypatch.setattr(os, "name", "posix")
+        rebuilt = serve._mpremote_env_command()
+        assert rebuilt, "the redirect is dead even where the path can carry it"
+        assert shlex.split(rebuilt, posix=True) == [sys.executable, "/opt/shim/mpremote_launcher.py"]
+        return
+
+    parts = shlex.split(value, posix=os.name != "nt")
+    assert parts[0] == sys.executable, "the launcher must be hosted by this interpreter"
+    assert parts[1].endswith("mpremote_launcher.py")
+    assert os.path.isfile(parts[1]), "the redirected path must actually exist"
+
+
+def test_an_operator_set_mpremote_command_outranks_ours(monkeypatch):
+    monkeypatch.setenv("UPY_MPREMOTE", "/opt/custom/mpremote")
+    assert _subprocess_text_kwargs()["env"]["UPY_MPREMOTE"] == "/opt/custom/mpremote"
+
+
+def test_no_mpremote_command_is_handed_over_that_the_plugin_cannot_parse(monkeypatch):
+    # posix=False keeps the quotes it finds, so a Windows path with a space cannot be
+    # expressed through this variable at all. Handing one over anyway would point the plugin
+    # at a path that does not exist; unset is the honest answer, and it falls back to
+    # shutil.which(). Guard the rule rather than the platform we happen to run the suite on.
+    import shlex
+
+    import serve
+
+    monkeypatch.setattr(serve, "_MPREMOTE_LAUNCHER", r"C:\Users\First Last\shim\launcher.py")
+    monkeypatch.setattr(os, "name", "nt")
+    value = serve._mpremote_env_command()
+    if value is not None:
+        assert shlex.split(value, posix=False) == [sys.executable, serve._MPREMOTE_LAUNCHER]
+
+
+def test_launcher_only_delays_for_boards_that_reset_on_open():
+    import mpremote_launcher as launcher
+
+    class Port:
+        def __init__(self, device, vid):
+            self.device = device
+            self.vid = vid
+
+    ports = [
+        Port("/dev/cu.usbserial-0001", 0x10C4),  # CP2102 bridge: resets on open
+        Port("/dev/cu.usbmodem101", 0x2E8A),     # Pico native USB CDC: does not
+    ]
+    assert launcher.resets_on_open("/dev/cu.usbserial-0001", ports) is True
+    assert launcher.resets_on_open("/dev/cu.usbmodem101", ports) is False
+    # An unknown port must NOT pay the delay on every call of a deploy.
+    assert launcher.resets_on_open("/dev/cu.nothere", ports) is False
+    assert launcher.resets_on_open("/dev/cu.usbserial-0001", []) is False
+
+    # The port is read from the mpremote argument vector, including the port: prefix.
+    assert launcher.target_device(["connect", "COM7", "reset"]) == "COM7"
+    assert launcher.target_device(["connect", "port:/dev/ttyUSB0", "ls"]) == "/dev/ttyUSB0"
+    assert launcher.target_device(["connect", "auto", "ls"]) is None
+    assert launcher.target_device(["connect", "list"]) is None
+    assert launcher.target_device(["ls"]) is None
+    assert launcher.target_device(["connect"]) is None, "a trailing connect has no device to read"
 
 
 def test_uninstall_package_removes_lib_paths_guards_name_and_treats_absent_as_ok(monkeypatch):
