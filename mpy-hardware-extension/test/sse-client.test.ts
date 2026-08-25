@@ -87,6 +87,55 @@ test("streams events before the response body finishes", async () => {
   assert.deepEqual(await iterator.next(), { done: true, value: undefined });
 });
 
+// The server now writes `: keep-alive` blocks every 20s while the upstream is quiet
+// (sse_translate._KEEP_ALIVE), because undici measures its 300s bodyTimeout BETWEEN body
+// chunks and a reasoning model can go longer than that between tokens. That heartbeat works
+// only because THIS parser drops a block with no `data:` line -- an SSE comment. Nothing on
+// this side pinned that, so the whole stream-survival fix rested on an untested assumption
+// about a file in another language: make the parser stop skipping such a frame and every long
+// turn dies again with this suite still green. The python harness needed the same guard and
+// got one; this is its other half.
+const KEEP_ALIVE = ": keep-alive\n\n";
+
+test("a keep-alive comment frame is ignored, so the server's heartbeat cannot corrupt a stream", () => {
+  const withHeartbeats =
+    KEEP_ALIVE +
+    sse({ type: "content_block_delta", delta: { type: "text_delta", text: "thinking" } }) +
+    KEEP_ALIVE +
+    KEEP_ALIVE +
+    sse({ type: "message_stop" });
+
+  assert.deepEqual(parseSseEvents(withHeartbeats), [
+    { type: "text_delta", text: "thinking" },
+    { type: "message_stop" },
+  ]);
+});
+
+test("a keep-alive arriving as its own chunk yields nothing and leaves the stream working", async () => {
+  const encoder = new TextEncoder();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start(c) { controller = c; } });
+  const iterator = streamSseEvents({ body } as Response)[Symbol.asyncIterator]();
+
+  // The realistic shape: heartbeats land as their own reads while the model thinks, and the
+  // real event arrives after them. If a heartbeat produced an event, this first next() would
+  // resolve with that instead of the text delta.
+  const first = iterator.next();
+  controller.enqueue(encoder.encode(KEEP_ALIVE));
+  controller.enqueue(encoder.encode(KEEP_ALIVE));
+  controller.enqueue(encoder.encode(sse({ type: "content_block_delta", delta: { type: "text_delta", text: "live" } })));
+
+  assert.deepEqual(await first, { done: false, value: { type: "text_delta", text: "live" } });
+
+  const second = iterator.next();
+  controller.enqueue(encoder.encode(KEEP_ALIVE));
+  controller.enqueue(encoder.encode(sse({ type: "message_stop" })));
+  controller.close();
+
+  assert.deepEqual(await second, { done: false, value: { type: "message_stop" } });
+  assert.deepEqual(await iterator.next(), { done: true, value: undefined });
+});
+
 test("a credits event carries the server's cost and token fields when it sends them", () => {
   // Card #87 slice C: model, the token split and the authoritative charge exist only on the
   // server. Mutation: keep the three-key mapping -> the client records that a credit was

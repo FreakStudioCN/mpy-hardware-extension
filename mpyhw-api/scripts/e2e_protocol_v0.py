@@ -32,29 +32,43 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 SKILLS_ROOT = ROOT.parent / "third_party" / "MicroPython_Skills"
 
-env = ROOT / ".env"
-if env.exists():
-    for line in env.read_text(encoding="utf-8").splitlines():
-        s = line.strip()
-        if "=" in s and not s.startswith("#"):
-            k, v = s.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
-
 from app import routes_llm, skill_catalog, tool_registry  # noqa: E402
 
 INTENT = sys.argv[1] if len(sys.argv) > 1 else "做一个温湿度监测仪，温度超过阈值就让蜂鸣器报警，OLED 屏幕显示读数"
-MAX_TURNS_PER_PHASE = int(os.getenv("E2E_MAX_TURNS", "22"))
-MAX_PHASES = int(os.getenv("E2E_MAX_PHASES", "10"))
-KEY = os.environ["DEEPSEEK_API_KEY"]
+
+
+def load_dotenv_defaults(path: pathlib.Path) -> None:
+    """Fill os.environ from a .env file, without overriding what is already set.
+
+    Called from main(), NOT at import. As an import-time side effect this leaked the
+    developer's .env into the whole pytest session (the harness tests import this file),
+    so MPYHW_WEB_RECOMMEND_MODEL and friends were set for every later test and a
+    provider-default assertion failed in the full suite while passing on its own.
+    """
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if "=" in stripped and not stripped.startswith("#"):
+            key, value = stripped.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
 
 
 def run_turn(phase, manifest, messages):
     """One server turn: real DeepSeek + protocol translation (V0-pure: no codegen)."""
     body = {"phase": phase, "manifest": manifest, "messages": messages, "trace_id": "e2e-v0"}
-    upstream = routes_llm._open_deepseek_stream(body, KEY)
+    # Read at call time: the key usually comes from .env, which main() now loads.
+    upstream = routes_llm._open_deepseek_stream(body, os.environ["DEEPSEEK_API_KEY"])
     text_parts, thinking_parts, tool_uses = [], [], []
     cur = None
     for sse in routes_llm._translate_deepseek_stream(upstream, None):
+        # Skip anything that is not a data frame. The stream now carries `: keep-alive` comments
+        # every 20s while the upstream is quiet, and slicing len("data:") off one leaves
+        # "p-alive", which json.loads rejects and which killed the whole run. That heartbeat
+        # exists to survive a model thinking for minutes between chunks, so without this guard
+        # the harness breaks precisely in the case the heartbeat was added for.
+        if not sse.startswith("data:"):
+            continue
         line = sse[len("data:"):].strip()
         if not line:
             continue
@@ -302,6 +316,11 @@ def execute_tool(tu, project_dir, skill_dir, stats):
 
 
 def main():
+    load_dotenv_defaults(ROOT / ".env")
+    # Read after the .env load, so a budget set there is honoured rather than silently
+    # losing to the default.
+    max_phases = int(os.getenv("E2E_MAX_PHASES", "10"))
+    max_turns_per_phase = int(os.getenv("E2E_MAX_TURNS", "22"))
     project_dir = pathlib.Path(tempfile.mkdtemp(prefix="mpyhw_e2e_v0_"))
     # generate's phase_complete(success) requires a real git commit — init a repo.
     for cmd in (["git", "init", "-q"], ["git", "config", "user.email", "e2e@blockless.local"],
@@ -331,7 +350,7 @@ def main():
         print(f"SEEDED start: phase={phase} manifest_keys={sorted(manifest)[:8]}... mcu_type={type(manifest.get('mcu')).__name__}")
     phases_done = []
 
-    for _ in range(MAX_PHASES):
+    for _ in range(max_phases):
         skill_name = skill_catalog.SKILL_BY_PHASE.get(phase)
         if not skill_name:
             print(f"\n----- next_phase '{phase}' has no served skill -> terminal -----")
@@ -340,7 +359,7 @@ def main():
         print(f"\n----- PHASE: {phase}  (skill={skill_name}) -----")
         messages = [{"role": "user", "content": INTENT}]
         phase_result = next_phase = None
-        for turn in range(MAX_TURNS_PER_PHASE):
+        for turn in range(max_turns_per_phase):
             blocks, tool_uses = run_turn(phase, manifest, messages)
             messages.append({"role": "assistant", "content": blocks})
             print(f"  turn {turn}: tools={[_summarize(tu) for tu in tool_uses]}")

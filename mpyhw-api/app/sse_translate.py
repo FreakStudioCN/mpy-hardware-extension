@@ -6,6 +6,8 @@ import http.client
 import json
 import logging
 import os
+import queue
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -23,6 +25,19 @@ from app.tool_registry import (
 
 logger = logging.getLogger("mpyhw.llm")
 
+# Applies to EACH socket read on the streaming response, not to the turn as a whole, so it
+# bounds how long the model may think between chunks. At 60s it cut off four runs in one day
+# across two providers, in scaffold and in generate, and the read timeout surfaced as an
+# OSError -- indistinguishable from the provider hanging up, and reported to the client as
+# upstream_stream_interrupted. A generate turn on a reasoning model routinely pauses longer
+# than a minute. Kept at the same figure as UPSTREAM_IDLE_BUDGET_SECONDS so the socket and
+# the heartbeat give up together rather than one masking the other; the heartbeat is what
+# actually reports the cause. The much smaller web-recommend path keeps its own 120s.
+# Raised to 600 after a real generate turn went silent for the full 300: with the heartbeat
+# holding the connection open, waiting longer costs nothing but a slower failure, while
+# giving up early throws away a phase that had already done its work.
+STREAM_READ_TIMEOUT_SECONDS = 600
+
 
 def _R():
     """routes_llm is the monkeypatch namespace of record (tests patch
@@ -35,6 +50,89 @@ def _R():
 
 def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event)}\n\n"
+
+
+# An SSE comment: it carries no `data:` line, so every client ignores it (ours returns early
+# on a block with no data line). Its only job is to be a body chunk.
+_KEEP_ALIVE = ": keep-alive\n\n"
+# Sentinel the reader yields in place of a line when the upstream has gone quiet.
+_HEARTBEAT = object()
+# How often a quiet upstream produces a keep-alive. The client's idle limit is what this has
+# to stay under: undici, which backs fetch in Node and so in the extension host and the e2e
+# harness, defaults bodyTimeout to 300s and measures it BETWEEN body chunks. Any proxy in
+# front of us has its own, usually smaller. 20s is comfortably under all of them.
+HEARTBEAT_INTERVAL_SECONDS = 20
+# Total quiet time allowed before we give up. This is the ONLY ceiling on how long a model
+# may think, which is the point: before the heartbeat, the binding limit was whichever
+# invisible client default fired first, and it surfaced as an undici "terminated" or as
+# upstream_stream_interrupted, neither of which names a cause.
+UPSTREAM_IDLE_BUDGET_SECONDS = 600
+
+
+def _lines_with_heartbeat(upstream: Iterable[bytes]):
+    """Yield upstream lines, emitting a _HEARTBEAT sentinel while the upstream is quiet.
+
+    The read runs on its own thread and hands lines over a queue, so a long pause between
+    chunks becomes a wait on the queue rather than a blocked socket read. That is what lets
+    the connection keep producing bytes while a reasoning model thinks: without it the whole
+    request is idle and whichever client timeout is smallest kills a healthy turn.
+    """
+    lines: queue.Queue = queue.Queue(maxsize=64)
+    done = object()
+    # Set when the consumer stops caring: a client disconnect ends the generator, nothing drains
+    # the queue again, and a blocking put() on a full queue would park the reader thread forever.
+    # One leaked thread and queue per cancelled busy stream, accumulating for the process
+    # lifetime. The reader checks this and gives up instead of blocking.
+    abandoned = threading.Event()
+
+    def put(item: object) -> bool:
+        """Hand an item to the consumer. False once the consumer has gone away."""
+        while not abandoned.is_set():
+            try:
+                lines.put(item, timeout=HEARTBEAT_INTERVAL_SECONDS)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def read_upstream() -> None:
+        try:
+            for raw_line in upstream:
+                if not put(raw_line):
+                    return
+            put(done)
+        except BaseException as error:
+            # Re-raised on the consumer side -- unless the consumer has already gone, in which
+            # case there is nobody to raise to and put() drops it. That is the only path on which
+            # this is not re-raised, and it is exactly the disconnect case.
+            put(error)
+
+    thread = threading.Thread(target=read_upstream, name="llm-upstream-reader", daemon=True)
+    thread.start()
+    try:
+        yield from _drain(lines, done)
+    finally:
+        abandoned.set()
+
+
+def _drain(lines: "queue.Queue", done: object):
+    """The consumer half: heartbeat while quiet, re-raise what the reader caught."""
+    idle_seconds = 0.0
+    while True:
+        try:
+            item = lines.get(timeout=HEARTBEAT_INTERVAL_SECONDS)
+        except queue.Empty:
+            idle_seconds += HEARTBEAT_INTERVAL_SECONDS
+            if idle_seconds >= UPSTREAM_IDLE_BUDGET_SECONDS:
+                raise TimeoutError(f"no upstream data for {idle_seconds:.0f}s")
+            yield _HEARTBEAT
+            continue
+        idle_seconds = 0.0
+        if item is done:
+            return
+        if isinstance(item, BaseException):
+            raise item
+        yield item
 
 
 def _stub_sse(meter=None):
@@ -109,10 +207,21 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str, *, provider=None):
     # byte is yielded and before the turn is metered, so a retry can never
     # double-charge. A mid-stream drop is handled downstream and is NOT retried.
     # Runs inside to_thread, so the blocking sleep is off the event loop.
+    #
+    # KNOWN COST of the single timeout knob. urlopen's `timeout` governs connect and
+    # response-headers as well as each subsequent socket read, and urllib offers no way to split
+    # them. Raising it to 600s for the reads therefore also lets an accept-then-hang provider pin
+    # a to_thread worker, with a session slot held and a credit reserved, for up to ~20 minutes
+    # across the two attempts, where 60s meant ~2. The client gives up sooner (undici's
+    # headersTimeout is 300s), so the user sees a failure while the server thread stays parked.
+    # Accepted because a real generate turn went silent for the full 300s and losing those is
+    # worse than holding threads during an outage. If outage-time threadpool exhaustion ever
+    # matters, the fix is a short timeout here for connect/headers and then raising the socket
+    # timeout on the returned response before it reaches the reader thread.
     attempts = 2
     for attempt in range(attempts):
         try:
-            return urllib.request.urlopen(request, timeout=60)
+            return urllib.request.urlopen(request, timeout=STREAM_READ_TIMEOUT_SECONDS)
         except urllib.error.HTTPError as error:
             if _R()._is_outage_status(error.code) and attempt + 1 < attempts:
                 logger.warning("llm upstream open retry", extra={"status": error.code, "attempt": attempt + 1})
@@ -128,14 +237,16 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str, *, provider=None):
             raise UpstreamError(0)
 
 
-def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
+def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None, on_interrupt=None):
     """Translate DeepSeek/OpenAI streaming chunks into Anthropic SSE events.
 
     Text deltas stream live. Tool calls are buffered per index and flushed as
     contiguous start/args/stop blocks at end-of-stream, so interleaved fragments
     or a name that arrives in a later fragment cannot corrupt the single-tool
     client parser. A mid-stream upstream failure emits an `error` event (which the
-    client maps to stream_error) instead of a silently truncated stream.
+    client maps to stream_error) instead of a silently truncated stream, logs the
+    underlying exception, and calls `on_interrupt(error)` so the caller can record the
+    turn as an error rather than leaving a success row or none at all.
 
     On clean completion, the final `usage` chunk is metered: `meter(total_tokens)`
     reconciles the request-start reservation and a `credits` event carrying the
@@ -148,7 +259,12 @@ def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
     finish_reason: str | None = None
     try:
         try:
-            for raw_line in upstream:
+            for raw_line in _lines_with_heartbeat(upstream):
+                if raw_line is _HEARTBEAT:
+                    # Keeps the response body producing chunks while the model thinks, so a
+                    # client idle timeout cannot cut off a healthy turn.
+                    yield _KEEP_ALIVE
+                    continue
                 line = raw_line.decode("utf-8").strip()
                 if not line.startswith("data:"):
                     continue
@@ -238,12 +354,38 @@ def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None):
             if finish_reason is not None:
                 stop_event["finish_reason"] = finish_reason
             yield _sse(stop_event)
-        except (OSError, http.client.HTTPException):
+        except (OSError, http.client.HTTPException) as error:
+            # Name the cause. This handler used to swallow the exception while every other
+            # failure path in this file logged, so two runs died mid-phase on kimi and the
+            # api log for the whole period held zero errors: whether it was a connection
+            # reset, a read timeout or a truncated body was unrecoverable afterwards.
+            logger.warning(
+                "llm upstream stream interrupted",
+                extra={"error_type": type(error).__name__, "detail": str(error)[:200]},
+            )
+            # The route records the turn as an error. Without this a dead stream left NO row at
+            # all, because the only error path was a failure to OPEN the stream. A break after
+            # the usage chunk is still a break: usage only sets usage_obj, and meter() runs above
+            # at clean completion, so reaching here means meter() did not run and there is no
+            # success row to contradict.
+            if on_interrupt is not None:
+                on_interrupt(error)
             yield _sse({"type": "error", "error": {"message": "upstream_stream_interrupted"}})
     finally:
         close = getattr(upstream, "close", None)
         if callable(close):
-            close()
+            try:
+                close()
+            except Exception as error:
+                # The reader thread may still be blocked inside the upstream when we give up
+                # on it (idle budget spent, or the client went away). Closing underneath it
+                # can raise -- a socket mid-read, a generator mid-next. The response is
+                # finished either way and the reader is a daemon, so log it rather than
+                # turning teardown into the caller's error.
+                logger.warning(
+                    "llm upstream close failed",
+                    extra={"error_type": type(error).__name__, "detail": str(error)[:200]},
+                )
 
 
 def _deepseek_tools(tools: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:

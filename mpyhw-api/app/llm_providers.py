@@ -65,8 +65,8 @@ class DeepSeekProvider:
     def open_stream(self, body: dict[str, Any]):
         return _R()._open_deepseek_stream(body, os.environ[self.api_key_env])
 
-    def translate_stream(self, upstream: Iterable[bytes], meter=None):
-        return _R()._translate_deepseek_stream(upstream, meter)
+    def translate_stream(self, upstream: Iterable[bytes], meter=None, on_interrupt=None):
+        return _R()._translate_deepseek_stream(upstream, meter, on_interrupt=on_interrupt)
 
 
 class OpenAIProvider(DeepSeekProvider):

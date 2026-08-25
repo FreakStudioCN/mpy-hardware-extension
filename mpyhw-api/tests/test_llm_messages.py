@@ -1,4 +1,6 @@
 import json
+import logging
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,7 +33,7 @@ class _PassthroughProvider:
     def open_stream(self, body):
         return ["raw"]
 
-    def translate_stream(self, upstream, meter=None, codegen=None):
+    def translate_stream(self, upstream, meter=None, on_interrupt=None):
         yield 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fake-provider"}}\n\n'
         if meter is not None:
             yield 'data: {"type":"credits","remaining":49,"daily_grant":50,"resets_at":"2026-06-03T00:00:00+00:00"}\n\n'
@@ -100,8 +102,442 @@ def test_resolve_board_uses_preselected_local_board_id_before_auto_or_official_i
         },
     })
 
-    assert board["board_id"] == "esp32-s3-devkitc-1"
-    assert "available_modules" in board
+    # skill_board_id wins over local_board_id: the skill library is the schema select-hw
+    # and select_hw_manifest.py consume (pin_layout.default_bus_pins / restricted_gpio),
+    # while our 6 content/boards copies are the older extension schema. Both beat the
+    # official-only tier, which is what this test was written for.
+    assert board["id"] == "esp32-s3-devkitc"
+    assert board["pin_layout"]["default_bus_pins"]["i2c0"]["sda"] == 5
+
+
+@pytest.mark.no_db
+def test_skill_library_board_resolves_to_the_real_submodule_profile():
+    # select-hw validates a pin plan against a board definition it CANNOT read: file_operation
+    # is project-confined. So whatever the server injects is the whole library as far as the
+    # model is concerned, and it has to be the skill's schema, loaded from the real files.
+    from app.routes_llm import _resolve_board
+
+    board = _resolve_board({"board_id": "esp32-devkit-v1"}, {})
+
+    # A load-bearing value, not key presence: this exact pin is what the SKILL's bus rules
+    # read (pin_layout.default_bus_pins), and it differs between the two schemas.
+    assert board["pin_layout"]["default_bus_pins"]["i2c0"]["sda"] == 21
+    assert board["mcu"] == "ESP32-WROOM-32"
+
+
+@pytest.mark.no_db
+def test_unreadable_board_library_is_not_reported_as_an_unknown_board(monkeypatch, caplog):
+    # An EACCES on the library used to be swallowed into the same None as "no such board",
+    # so the model was told the board does not exist and was invited to invent a layout.
+    # Absence and failure have to reach it as different states.
+    import pathlib
+    from app import prompt_assembly
+    from app.routes_llm import _resolve_board
+
+    real_read_text = pathlib.Path.read_text
+
+    def refuse(self, *args, **kwargs):
+        if self.name == "esp32-devkit-v1.json":
+            raise PermissionError(13, "Permission denied")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "read_text", refuse)
+    with caplog.at_level(logging.WARNING, logger="mpyhw.llm"):
+        board = _resolve_board({"board_id": "esp32-devkit-v1"}, {})
+
+    assert board["support_status"] == "board_library_unreadable"
+    assert board["support_status"] != "unknown_board"
+    assert board["pin_allocation_supported"] is False
+    assert any("board library unreadable" in r.getMessage() for r in caplog.records), \
+        "an unreadable library must be logged, not silently degraded"
+    assert prompt_assembly.BoardLibraryUnreadable is not None
+
+
+@pytest.mark.no_db
+def test_an_unreadable_board_DIRECTORY_is_a_failure_not_an_empty_library(tmp_path, monkeypatch):
+    """The file-level case above was covered; the directory-level one was not, and it is the case
+    that actually takes the library away.
+
+    `Path.glob` does not raise. It returns [] for a directory that is missing AND for one that is
+    chmod-000, so the guard could never fire and the failure arrived as an empty candidate list.
+    The phase note tells the model an empty list means "nothing matched", which is the
+    invite-to-invent-a-board failure this whole path exists to close. Worse, the index is cached,
+    so one unreadable read pinned an empty library for the process lifetime.
+
+    Uses a real chmod-000 directory rather than a patched glob, because the whole point is what
+    the filesystem actually does rather than what we think it does."""
+    import os
+    from app import prompt_assembly
+
+    locked = tmp_path / "boards"
+    locked.mkdir()
+    (locked / "esp32-devkit-v1.json").write_text("{}", encoding="utf-8")
+    os.chmod(locked, 0o000)
+    try:
+        if next(locked.iterdir(), None) is not None:  # root ignores the mode; skip rather than lie
+            pytest.skip("filesystem permissions are not enforced for this user")
+    except PermissionError:
+        pass
+
+    monkeypatch.setattr(prompt_assembly, "_SKILL_BOARDS_DIR", locked)
+    prompt_assembly._skill_board_index.cache_clear()
+    try:
+        with pytest.raises(prompt_assembly.BoardLibraryUnreadable):
+            prompt_assembly._skill_board_index()
+        # And the profile loader must not answer "no such board" for the same directory.
+        with pytest.raises(prompt_assembly.BoardLibraryUnreadable):
+            prompt_assembly._load_board_profile("esp32-devkit-v1")
+    finally:
+        os.chmod(locked, 0o700)
+        prompt_assembly._skill_board_index.cache_clear()
+
+
+@pytest.mark.no_db
+def test_a_missing_board_directory_is_a_failure_for_the_index_and_absence_for_the_profile(
+    tmp_path, monkeypatch
+):
+    """The two functions answer differently on purpose, because they have different fallbacks.
+
+    `_skill_board_index` has ONE source. If the skill library is not there, the candidate feature
+    is entirely unavailable, and returning an empty tuple tells the model "nothing matched" -- the
+    invite-to-invent-a-board failure. So a missing directory raises, exactly like an unreadable
+    one. The deployment copies the submodule into the image, so a missing library means the
+    deployment is broken, and saying so loudly beats a silent empty list.
+
+    `_load_board_profile` has TWO sources. A missing skill library is an ordinary reason to try
+    `content/boards` next, so it falls through rather than raising. It still raises when the
+    directory exists and cannot be read, because that is failure rather than absence."""
+    from app import prompt_assembly
+
+    monkeypatch.setattr(prompt_assembly, "_SKILL_BOARDS_DIR", tmp_path / "not-here")
+    prompt_assembly._skill_board_index.cache_clear()
+    try:
+        with pytest.raises(prompt_assembly.BoardLibraryUnreadable):
+            prompt_assembly._skill_board_index()
+        # Falls through to the real content/boards library, which does have this board.
+        assert prompt_assembly._load_board_profile("esp32-devkit-v1") is not None
+        assert prompt_assembly._load_board_profile("no-such-board-xyz") is None
+    finally:
+        prompt_assembly._skill_board_index.cache_clear()
+
+
+@pytest.mark.no_db
+def test_an_unreadable_library_says_so_instead_of_injecting_a_bare_empty_list(monkeypatch):
+    """Raising was only half the fix. The candidates sink caught the exception and emitted
+    `Board candidates: []`, which puts the model back in front of the one signal the raise exists
+    to remove: an empty list reads as "nothing matched", and a model told nothing matched invents
+    a board. The block must say the library could not be read."""
+    from app import prompt_assembly as pa
+
+    def unreadable(*_args, **_kwargs):
+        raise pa.BoardLibraryUnreadable("boards: [Errno 13] Permission denied")
+
+    monkeypatch.setattr(pa, "_board_candidate_profiles", unreadable)
+    # "select-hw", not the plugin id: this is the one phase whose token is not the plugin name.
+    block = pa._board_candidates_injection({}, {"phase": "select-hw"})
+
+    assert "Board candidates:" in block
+    assert "unavailable" in block.lower(), block
+    assert "not a claim that no board matched" in block.lower(), block
+    assert "do not invent" in block.lower(), block
+
+
+@pytest.mark.no_db
+def test_a_library_with_no_readable_profiles_is_a_failure_not_an_empty_index(tmp_path, monkeypatch):
+    """Two more ways to reach an empty index, both meaning the server cannot see the library: a
+    directory that opens but holds no profiles, and one whose profiles are all unreadable. Either
+    would otherwise be cached as an empty tuple for the process lifetime, which is the failure the
+    directory probe was added to prevent, reached by a different route."""
+    from app import prompt_assembly as pa
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr(pa, "_SKILL_BOARDS_DIR", empty)
+    pa._skill_board_index.cache_clear()
+    try:
+        with pytest.raises(pa.BoardLibraryUnreadable):
+            pa._skill_board_index()
+
+        # Present but unparseable: each file is logged and skipped, and the index is still empty.
+        (empty / "esp32-devkit-v1.json").write_text("{ not json", encoding="utf-8")
+        pa._skill_board_index.cache_clear()
+        with pytest.raises(pa.BoardLibraryUnreadable):
+            pa._skill_board_index()
+    finally:
+        pa._skill_board_index.cache_clear()
+
+
+@pytest.mark.no_db
+def test_naming_the_vendor_as_well_as_the_board_does_not_lose_candidates():
+    """Adding a word the user actually knows must not cost them candidates.
+
+    Boards used to attribute to the FIRST phrase that prefixed them, and phrases arrive shortest
+    first, so every arduino-* board attributed to "arduino". That bucket blew the vendor-word
+    threshold and the whole family was culled before "arduinoportenta" was ever considered. So the
+    vaguer query worked and the more specific one returned nothing, which is backwards.
+
+    Measured against the real library, not a fixture, because the cull threshold only bites at
+    real family sizes."""
+    from app import prompt_assembly as pa
+
+    portenta = ["arduino-portenta-c33", "arduino-portenta-h7"]
+    assert pa._skill_board_candidate_ids("portenta") == portenta
+    assert pa._skill_board_candidate_ids("Arduino Portenta") == portenta, \
+        "the more specific query must not return fewer boards than the vaguer one"
+    assert sorted(pa._skill_board_candidate_ids("Arduino Nano")) == [
+        "arduino-nano-33-ble-sense", "arduino-nano-esp32", "arduino-nano-rp2040-connect",
+    ]
+
+    # The cull itself must survive: a bare vendor word still names no board, and a board the
+    # library does not have still returns nothing rather than the nearest sibling.
+    assert pa._skill_board_candidate_ids("Arduino Uno") == []
+    assert pa._skill_board_candidate_ids("nano") == []
+    # And an exact name still beats every prefix path.
+    assert pa._skill_board_candidate_ids("Raspberry Pi Pico 2") == ["rpi-pico2"]
+
+
+@pytest.mark.no_db
+def test_string_pre_selected_board_still_grounds_the_profile():
+    # The picker sends an object, but the intent path and older callers send a bare string.
+    # That used to resolve nothing, which is one of the two ways select-hw ended up with an
+    # empty profile.
+    from app.routes_llm import _resolve_board
+
+    board = _resolve_board({}, {"context": {"pre_selected_board": "esp32-devkit-v1"}})
+
+    assert board["pin_layout"]["restricted_gpio"]["input_only"] == [34, 35, 36, 39]
+
+
+@pytest.mark.no_db
+def test_select_hw_gets_board_candidates_matched_from_the_manifest_mcu():
+    # The auto path measured: analyze records requirements.mcu_specified and nothing else
+    # about the board, no candidate resolves, and the profile injected was {}. One model
+    # refused on that and the other invented esp32-devkitc-v4, which exists in no library.
+    from app.routes_llm import _deepseek_messages
+
+    system = _deepseek_messages({
+        "phase": "select-hw",
+        "manifest": {"requirements": {"mcu_specified": "ESP32-WROOM-32"}},
+        "messages": [{"role": "user", "content": "read a DHT11"}],
+    })[0]["content"]
+
+    assert "Board candidates:" in system
+    assert '"esp32-devkit-v1"' in system, "the board actually in the library must be offered"
+    assert '"sda": 21' in system, "the candidate must carry its pin layout, not just its name"
+    # And the empty profile is now an explicit state rather than a bare {}.
+    assert '"support_status": "no_board_selected"' in system
+
+
+@pytest.mark.no_db
+def test_an_unmatchable_mcu_offers_no_candidates_rather_than_a_wrong_board():
+    # Offering an arbitrary board with a confident profile is worse than offering none:
+    # the model has no way to tell a guess from a match.
+    from app.routes_llm import _deepseek_messages
+
+    system = _deepseek_messages({
+        "phase": "select-hw",
+        "manifest": {"requirements": {"mcu_specified": "definitely-not-a-real-mcu"}},
+        "messages": [{"role": "user", "content": "x"}],
+    })[0]["content"]
+
+    assert "Board candidates:\n[]" in system
+    assert '"support_status": "no_board_selected"' in system
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize("phrase,expected", [
+    # Every value here is one a real analyze phase wrote into requirements.mcu_specified.
+    # "Raspberry Pi Pico 2" is the one that cost a hardware run: the user's phrasing carries
+    # the vendor as a prefix while the library's name is the bare model, so matching only
+    # "token in name" found nothing and select-hw stopped partial with an empty list.
+    ("Raspberry Pi Pico 2", "rpi-pico2"),
+    ("Pico W", "rpi-pico-w"),
+    ("ESP32-WROOM-32", "esp32-devkit-v1"),
+    ("ESP32-S3-WROOM-1", "esp32-s3-devkitc"),
+])
+def test_board_names_as_the_user_writes_them_match_the_library(phrase, expected):
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids(phrase)[:1] == [expected]
+
+
+@pytest.mark.no_db
+def test_the_longest_matching_name_wins_a_suffix_match():
+    # With a vendor prefix in front, neither name is an exact match, so this really does
+    # exercise the ordering: "wiznetw5100sevbpico2" ends with both "w5100sevbpico2" and
+    # "pico2". The longer one is the board the user named, the shorter is a different board
+    # that merely shares a suffix, and the model takes the first candidate.
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids("WIZnet W5100S EVB Pico 2")[:2] == ["w5100s-evb-pico2", "rpi-pico2"]
+
+
+@pytest.mark.no_db
+def test_a_short_name_fragment_is_not_a_match():
+    # Tested on the rule rather than through the library, which today happens to hold no
+    # name shorter than four characters: every "-c3"/"-h7"/"-s3" suffix would otherwise
+    # match any token that ends in it, and a two-character coincidence is not a board.
+    from app.routes_llm import _match_phrases
+
+    phrases = {phrase for _, phrase in _match_phrases("a c3 board with pico 2")}
+    assert "c3" not in phrases, "a two-character run is a coincidence, not a board name"
+    assert "pico2" in phrases
+
+
+@pytest.mark.no_db
+def test_candidates_survive_an_analyze_that_dropped_the_mcu_field():
+    # Measured on two consecutive auto-path runs of the SAME intent and board: analyze wrote
+    # requirements.mcu_specified="Raspberry Pi Pico 2" the first time and the boolean False
+    # the second. Keying on that one field alone means the candidates are empty whenever
+    # analyze happens to drop it, which is what stalled select-hw at partial.
+    from app.routes_llm import _board_candidate_profiles
+
+    manifest = {
+        "requirements": {
+            "mcu_specified": False,
+            "description": "Blink the onboard LED on a Raspberry Pi Pico 2 using MicroPython.",
+        },
+    }
+    profiles = _board_candidate_profiles(manifest, {})
+
+    assert [p["id"] for p in profiles] == ["rpi-pico2"]
+
+
+@pytest.mark.no_db
+def test_the_user_intent_alone_can_ground_the_candidates():
+    # Last line of defence: even with a manifest that says nothing about the board, the
+    # user's own words are on the request and name it.
+    from app.routes_llm import _board_candidate_profiles
+
+    body = {"messages": [{"role": "user", "content": "blink the onboard LED on a Raspberry Pi Pico 2"}]}
+    profiles = _board_candidate_profiles({"requirements": {}}, body)
+
+    assert [p["id"] for p in profiles] == ["rpi-pico2"]
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize("intent,expected", [
+    # Chinese is most of our users, and a count follows the board with a character between
+    # that the tokenizer drops. The generation-digit rule then deleted the only board
+    # reference in the request and select-hw was handed no candidates at all.
+    ("用ESP32做2个LED交替闪烁", "esp32-devkit-v1"),
+    ("ESP32读取3个DHT11", "esp32-devkit-v1"),
+    ("用Pico 2控制3个舵机", "rpi-pico2"),
+    ("用Pico W每5秒记录温度", "rpi-pico-w"),
+    ("用ESP32-S3做4路继电器", "esp32-generic-s3"),
+])
+def test_a_chinese_request_with_a_count_still_finds_its_board(intent, expected):
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids(intent)[:1] == [expected]
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize("intent", ["Arduino Uno", "Wemos D1 Mini"])
+def test_a_board_the_library_does_not_have_returns_nothing(intent):
+    # "arduino" prefixes a dozen names, so a prefix match answered a board we do not support
+    # with a confident, complete profile for a different one. No candidate is the honest
+    # answer: the no_board_selected tier then tells the model to ask.
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids(intent) == []
+
+
+@pytest.mark.no_db
+def test_the_named_module_beats_a_board_that_merely_shares_the_family():
+    # "ESP32-S3-WROOM-1" is esp32-s3-devkitc's mcu across four words; esp32-generic-s3's own
+    # name matches only two of them. The longest match explains more of the request.
+    # Asking for the bare family the other way round: the board actually NAMED esp32s3 wins.
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert _skill_board_candidate_ids("ESP32-S3-WROOM-1")[0] == "esp32-s3-devkitc"
+    assert _skill_board_candidate_ids("ESP32-S3")[0] == "esp32-generic-s3"
+
+
+@pytest.mark.no_db
+def test_an_ambiguous_name_offers_both_boards_not_just_the_first():
+    # "pico" is the display name of espruino-pico (an STM32 board) AND rpi-pico. At a 24 KB
+    # budget only the first rode, so a user who wrote "my pico" was handed the wrong chip as
+    # their only option. Both fit now, and the model can choose.
+    from app.routes_llm import _board_candidate_profiles
+
+    ids = [p.get("id") for p in _board_candidate_profiles({}, {"messages": [{"role": "user", "content": "blink the led on my pico"}]})]
+
+    assert "rpi-pico" in ids, f"the RP2040 Pico must be offered, got {ids}"
+
+
+@pytest.mark.no_db
+def test_a_full_board_phrase_does_not_match_the_previous_generation():
+    # "raspberrypipico" is a PREFIX of "raspberrypipico2", so a longest-match rule that
+    # ignored direction would answer a Pico 2 request with the RP2040 Pico. Different chip,
+    # different firmware, and the pin plan would be built on it.
+    from app.routes_llm import _skill_board_candidate_ids
+
+    assert "raspberry-pi-pico" not in _skill_board_candidate_ids("Raspberry Pi Pico 2")
+
+
+@pytest.mark.no_db
+@pytest.mark.parametrize("unspecified", ["", "false", "auto", "unknown", "na"])
+def test_an_unspecified_mcu_offers_no_candidates(unspecified):
+    # What analyze actually writes when the user named no MCU, taken from saved runs:
+    # "", "false" and the like. Matching on those hands back a board nobody asked for.
+    from app.routes_llm import _board_candidate_profiles
+
+    assert _board_candidate_profiles({"requirements": {"mcu_specified": unspecified}}, {}) == []
+
+
+@pytest.mark.no_db
+def test_candidate_count_is_capped_for_a_family_with_many_boards():
+    # Two separate bounds, each tested where it actually binds — otherwise one masks the
+    # other and removing either still passes. The block is a prompt prefix paid on every
+    # select-hw turn, so both matter.
+    from app.routes_llm import _board_candidate_profiles
+
+    # rp2's top three profiles are 2 KB, 2 KB, 15 KB: all three fit the byte budget, so the
+    # COUNT cap is the only thing stopping a third.
+    cheap = _board_candidate_profiles({"requirements": {"mcu_specified": "rp2"}}, {})
+    assert len(cheap) == 2, "the count cap binds when the profiles are small"
+
+    # stm32h747's top two are 47 KB together, so the BYTE budget cuts the second even though
+    # the count would allow it. The first always rides, whatever it costs.
+    fat = _board_candidate_profiles({"requirements": {"mcu_specified": "stm32h747"}}, {})
+    assert len(fat) == 1, "the byte budget binds when a single profile is huge"
+    assert len(json.dumps(fat, ensure_ascii=False)) < 40000
+
+    # And the first candidate rides even when it alone blows the budget (this one is 26 KB
+    # against a 24 KB budget): offering nothing is the bug this whole block exists to fix.
+    oversized = _board_candidate_profiles({"requirements": {"mcu_specified": "portentah7"}}, {})
+    assert len(oversized) == 1, "one oversized candidate beats no candidate at all"
+
+
+@pytest.mark.no_db
+def test_candidates_are_byte_stable_and_only_on_select_hw():
+    # The system prompt is the cached prefix: two assemblies of the same body must be
+    # byte-equal or every select-hw turn pays full price. And no other phase carries the
+    # block, because only select-hw chooses a board.
+    from app.routes_llm import _deepseek_messages
+
+    body = {
+        "phase": "select-hw",
+        "manifest": {"requirements": {"mcu_specified": "rp2040"}},
+        "messages": [{"role": "user", "content": "blink"}],
+    }
+    assert _deepseek_messages(body)[0]["content"] == _deepseek_messages(body)[0]["content"]
+
+    other = _deepseek_messages({**body, "phase": "upy-generate-plugin"})[0]["content"]
+    assert "Board candidates:" not in other
+
+
+@pytest.mark.no_db
+def test_select_hw_phase_note_tells_the_model_where_the_board_data_is():
+    # The SKILL points the model at upy-analyze-plugin/boards/<id>.json, which it cannot
+    # read. Without this note the honest model refuses and the other one invents.
+    from app.routes_llm import _system_prompt
+
+    note = _system_prompt("select-hw")
+
+    assert "Board candidates" in note
+    assert "NEVER invent a board id" in note
 
 
 @pytest.mark.no_db
@@ -358,7 +794,7 @@ def test_llm_messages_uses_selected_provider(monkeypatch):
             assert body["messages"][0]["content"] == "blink an ESP32 LED"
             return ["raw"]
 
-        def translate_stream(self, upstream, meter=None, codegen=None):
+        def translate_stream(self, upstream, meter=None, on_interrupt=None):
             assert upstream == ["raw"]
             yield 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"fake-provider"}}\n\n'
             if meter is not None:
@@ -532,6 +968,101 @@ def test_llm_stream_emits_error_event_on_midstream_failure(monkeypatch):
     # mid-stream (unlike a pre-stream UpstreamError, which does refund). Lock it so a
     # refactor can't silently flip to refunding or double-charging on an upstream drop.
     assert client.get("/v1/credits").json()["balance"] == credit_store.DAILY_GRANT - 1
+
+
+def test_quiet_upstream_emits_keep_alive_instead_of_dying(monkeypatch):
+    # A reasoning model pauses between chunks. Every client puts an idle ceiling on that:
+    # undici, which backs fetch in Node and so in the extension host and the e2e harness,
+    # defaults bodyTimeout to 300s measured BETWEEN body chunks. Before the heartbeat, a
+    # long think produced no bytes at all, so whichever ceiling was smallest killed a
+    # healthy turn and reported it as a transport failure. The body must keep producing.
+    from app import sse_translate
+
+    monkeypatch.setattr(sse_translate, "HEARTBEAT_INTERVAL_SECONDS", 0.05)
+    monkeypatch.setattr(sse_translate, "UPSTREAM_IDLE_BUDGET_SECONDS", 5)
+
+    def slow_upstream():
+        time.sleep(0.2)  # several heartbeat intervals of silence, then real content
+        yield b'data: {"choices": [{"delta": {"content": "late"}}]}'
+        yield b'data: [DONE]'
+
+    out = "".join(sse_translate._translate_deepseek_stream(slow_upstream()))
+    assert ": keep-alive" in out, "a quiet upstream must still produce body chunks"
+    assert "late" in out, "the real content still arrives after the quiet period"
+    assert "message_stop" in out, "the stream completes normally"
+    assert "upstream_stream_interrupted" not in out
+
+
+def test_quiet_upstream_gives_up_after_the_idle_budget(monkeypatch):
+    # The heartbeat must not mask a genuinely dead upstream: past the budget it fails, and
+    # the failure names the cause instead of surfacing as an opaque client-side drop.
+    from app import sse_translate
+
+    monkeypatch.setattr(sse_translate, "HEARTBEAT_INTERVAL_SECONDS", 0.05)
+    monkeypatch.setattr(sse_translate, "UPSTREAM_IDLE_BUDGET_SECONDS", 0.2)
+
+    def dead_upstream():
+        time.sleep(5)
+        yield b'data: [DONE]'
+
+    out = "".join(sse_translate._translate_deepseek_stream(dead_upstream()))
+    assert "upstream_stream_interrupted" in out, "a dead upstream must still end the stream"
+
+
+def test_interrupted_stream_is_recorded_and_logged(monkeypatch, caplog):
+    # Two runs died mid-phase on one provider and llm_turns reported nothing wrong, because the
+    # only status="error" path was a failure to OPEN the stream. A break once the stream was live
+    # left NO row at all, whether it arrived before or after the usage chunk: usage only stores
+    # usage_obj, and meter() runs at clean completion, which a break never reaches. The api log
+    # held nothing either, because the handler swallowed the exception. Both halves are asserted
+    # here, and the row count pins that the two writers stay mutually exclusive.
+    from app import db
+
+    monkeypatch.delenv("MPYHW_LLM_STUB", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    def raising_stream(_body, _api_key):
+        def gen():
+            yield b'data: {"choices": [{"delta": {"content": "partial"}}]}'
+            yield b'data: {"choices": [], "usage": {"total_tokens": 25000}}'
+            raise ConnectionError("peer closed the connection")
+
+        return gen()
+
+    monkeypatch.setattr("app.routes_llm._open_deepseek_stream", raising_stream)
+
+    with caplog.at_level(logging.WARNING, logger="mpyhw.llm"):
+        response = client.post(
+            "/v1/llm/messages",
+            json={"messages": [{"role": "user", "content": "blink"}], "tools": [], "trace_id": "t-interrupt"},
+        )
+        assert response.status_code == 200
+        assert "upstream_stream_interrupted" in response.text  # drains the stream
+
+    with db.connect() as conn:
+        rows = db.fetchall(
+            conn,
+            "SELECT status, error_kind, credits_charged FROM llm_turns WHERE trace_id=? ORDER BY status",
+            ("t-interrupt",),
+        )
+    statuses = [row["status"] for row in rows]
+    # EXACTLY one row, not "an error row somewhere among them". `in` would tolerate a success row
+    # written alongside it, which is precisely the duplicate-accounting a reviewer suspected here.
+    # meter() and on_interrupt() are mutually exclusive by construction, and this is what pins it:
+    # one request must never bill or report as two turns.
+    assert statuses == ["error"], f"a broken stream must leave exactly one error row, got {statuses}"
+    # The row has to agree with the ledger. reserve(user, 1) already debited the balance and an
+    # interrupted stream keeps it by design, so a zero here would make every rollup over
+    # credits_charged undercount real spend by one per interrupted turn.
+    assert rows[0]["credits_charged"] == 1, rows[0]
+    error_row = next(row for row in rows if row["status"] == "error")
+    assert error_row["error_kind"] == "upstream_stream_interrupted"
+
+    # The cause has to be in the log, or a drop is undiagnosable after the fact.
+    interrupted = [r for r in caplog.records if "stream interrupted" in r.getMessage()]
+    assert interrupted, "the interruption must be logged"
+    assert getattr(interrupted[0], "error_type", "") == "ConnectionError"
+    assert "peer closed the connection" in getattr(interrupted[0], "detail", "")
 
 
 def test_successful_turn_is_persisted_to_llm_turns(monkeypatch):
@@ -723,6 +1254,53 @@ def test_deepseek_messages_round_trips_reasoning_content():
     assert assistant["role"] == "assistant"
     assert assistant["reasoning_content"] == "Check the board first."
     assert assistant["tool_calls"][0]["function"]["name"] == "query_board_profile"
+
+
+@pytest.mark.no_db
+def test_a_thinking_only_turn_is_dropped_rather_than_sent_empty():
+    # A reasoning model produces these on its own: a turn with reasoning and nothing else.
+    # Translated literally it becomes {"role":"assistant","content":""} with no tool_calls,
+    # and the upstream rejects that with 400 "the message at position N with role 'assistant'
+    # must not be empty". A 400 is not retryable, and history is replayed on every later
+    # request, so one such turn ended a build three phases in.
+    from app import routes_llm
+
+    body = {
+        "messages": [
+            {"role": "user", "content": "blink an ESP32 LED"},
+            {"role": "assistant", "content": [{"type": "thinking", "thinking": "Let me think about the pins."}]},
+            {"role": "user", "content": "go on"},
+        ]
+    }
+
+    messages = routes_llm._deepseek_messages(body)
+
+    empty = [m for m in messages if m.get("role") == "assistant" and not m.get("content") and not m.get("tool_calls")]
+    assert empty == [], f"an empty assistant message would 400 the whole run: {empty}"
+    assert [m["content"] for m in messages if m["role"] == "user"] == ["blink an ESP32 LED", "go on"], \
+        "dropping the empty turn must not disturb the surrounding messages"
+
+
+@pytest.mark.no_db
+def test_a_thinking_turn_that_carries_a_tool_call_still_passes_its_reasoning_back():
+    # The case the drop must NOT touch: reasoning_content is a required passback for a
+    # thinking-mode turn that actually calls a tool.
+    from app import routes_llm
+
+    body = {
+        "messages": [
+            {"role": "user", "content": "blink"},
+            {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "Check the board first."},
+                {"type": "tool_use", "id": "call_1", "name": "file_operation", "input": {"op": "read", "path": "x"}},
+            ]},
+        ]
+    }
+
+    assistant = [m for m in routes_llm._deepseek_messages(body) if m["role"] == "assistant"][0]
+
+    assert assistant["reasoning_content"] == "Check the board first."
+    assert assistant["tool_calls"][0]["function"]["name"] == "file_operation"
 
 
 def test_system_prompt_is_delivered_to_the_provider_as_the_system_message():
@@ -967,3 +1545,270 @@ def test_maixpy_unmapped_vision_task_refuses_to_substitute_the_yolo_references(c
     assert "### UNAVAILABLE" in block
     assert any("no reference row" in r.getMessage() for r in caplog.records), \
         "an unmapped vision task must be operator-visible, not a silent YOLO substitution"
+
+
+def test_select_hw_prompt_carries_the_payload_shape():
+    """Measured across 30 archived runs: every select-hw phase rediscovers the same required
+    fields one validator verdict at a time. hardware_plan.mcu.model failed in 29 of them,
+    payload.phase in 28, pin_decisions[0].evidence in 27, hardware_plan.pinout in 21. The shape
+    is written down in the plugin's own sample, and SKILL.md points the model at it -- a
+    plugin-resource path file_operation cannot reach, so the read fails and the model guesses.
+    """
+    from app import prompt_assembly
+
+    manifest = {"phase": "analyze", "requirements": {"description": "blink the onboard led"}, "devices": [{"id": "d1"}]}
+    body = {"phase": "select-hw", "manifest": manifest, "messages": []}
+    injected = prompt_assembly._select_hw_shape_injection(body)
+
+    assert injected, "select-hw must be handed the payload shape"
+    for field in (
+        "model", "display_name", "evidence", "pinout", "pin_decisions",
+        "structured_errors", "session_root", "resource_root", "artifacts",
+    ):
+        assert field in injected, f"{field} is one of the measured failures and must be named"
+    # A skeleton, not a filled example: a model handed a real board id copies it, and an
+    # invented board id is the exact failure this phase already had once.
+    assert "rpi-pico2" not in injected and "esp32" not in injected.lower()
+
+    # Only select-hw pays for it; every other phase has a different contract.
+    for other in ("analyze", "upy-generate-plugin", "upy-deploy-plugin"):
+        assert prompt_assembly._select_hw_shape_injection({"phase": other, "manifest": manifest, "messages": []}) == ""
+
+
+def test_generate_prompt_carries_the_payload_shape_and_order():
+    """Generate's cost is not the code. Successful archived runs spend a median of 31 turns after
+    the first all-green run_quality_gates, and 15 of 17 logged generate stalls died on payload
+    ceremony rather than on code: write payload, run the checker, receive 8-24 structured errors
+    that are all static contract facts, fix one layer, repeat. select-hw went from a median of 24
+    calls to 14 when the same facts were injected instead of discovered.
+
+    The literal values here are the checker's own constants (check_phase_complete_consistency.py:
+    REQUIRED_OPTIONAL_PHASES, GIT_PERMISSION_TYPES, the checkpoint literal, the file_manifest
+    roles). If the checker changes one, this test should fail rather than the next hardware run.
+    """
+    import json
+    import re
+
+    from app import prompt_assembly
+
+    body = {"phase": "upy-generate-plugin", "manifest": {"phase": "scaffold", "devices": [{"id": "d1"}]}, "messages": []}
+    injected = prompt_assembly._generate_shape_injection(body)
+    assert injected, "generate must be handed the payload shape"
+
+    payload = json.loads(re.search(r"\{.*?\}\n\nFinalize", injected, re.S).group(0).rsplit("\n\nFinalize", 1)[0])["payload"]
+    assert payload["checkpoint"] == "phase_completed"
+    assert set(payload["optional_next_phases"]) == {"upy-diagram-plugin", "upy-wiring-plugin"}
+    # One file for all three sections: separate files can disagree about the same gate.
+    assert payload["lint"]["results_path"] == payload["tests"]["results_path"] == payload["checks"]["results_path"]
+    assert payload["generate"]["git"]["commit_role"] == "code_commit"
+    assert payload["permissions"][0] == {"type": "git_commit", "approved": True}
+    assert {a["type"] for a in payload["artifacts"]} == {"file_manifest", "session_state"}
+    assert {f["role"] for f in payload["file_manifest"]["files"]} == {"manifest", "plan", "artifact"}
+
+    # The order is the other half: each step invalidates what came before, and a payload
+    # assembled early is stale when checked. One run died in a three-round mismatch loop.
+    assert "Finalize in this order" in injected
+    assert "IDENTICAL --session-dir" in injected
+    # Scoped to the ORDER block. Comparing against the whole injection was meaningless: the
+    # skeleton itself mentions `git rev-parse HEAD` inside the commit field, so the assertion
+    # compared a JSON type hint with a step and passed however the steps were arranged -- a
+    # mutation that moved the gates refresh ahead of the commit went undetected.
+    order = injected[injected.index("Finalize in this order"):]
+    assert order.index("git rev-parse HEAD") < order.index("run_quality_gates.py"), (
+        "the gates file must be refreshed AFTER the commit, or its snapshot is stale on arrival"
+    )
+    assert order.index("update_session_state.py") < order.index("run_quality_gates.py")
+    assert order.index("run_quality_gates.py") < order.index("check_phase_complete_consistency.py")
+
+    # A change after the gate run stales quality_gates_result.json, and with the referenced form
+    # the checkpoint the checker reads lives INSIDE that file. Measured: a run edited the manifest
+    # after the gates, re-ran update_session_state correctly, and still stalled to its turn cap on
+    # SESSION_STATE_PHASE_COMPLETE_MISMATCH, because only a fresh gate run rewrites the snapshot.
+    assert "stale" in order and "must run AGAIN" in order, (
+        "the order must say a post-gate change requires re-running the gates"
+    )
+    assert "SESSION_STATE_PHASE_COMPLETE_MISMATCH" in order, (
+        "it must name the error this prevents, so the model can connect the two"
+    )
+
+    # Only generate pays for it.
+    for other in ("analyze", "select-hw", "upy-deploy-plugin"):
+        assert prompt_assembly._generate_shape_injection({**body, "phase": other}) == ""
+
+
+def test_the_injected_select_hw_skeleton_lands_where_the_validator_reads():
+    """The skeleton must put fields where select_hw_manifest.py looks for them.
+
+    A substring test cannot catch this: the old skeleton named every right field and nested them
+    under a `hardware_plan` key the validator never reads (it lifts manifest.hardware_selection
+    .selected_board and flat manifest.mcu/pinout/pin_decisions). So every field the injection
+    exists to teach landed somewhere unread, the gate refused, and the corrective contradicted the
+    prompt. Replay the skeleton through the real validator instead.
+    """
+    import json
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    from app import prompt_assembly
+
+    checker = (Path(__file__).resolve().parents[2]
+               / "third_party/MicroPython_Skills/upy-select-hw-plugin/scripts/select_hw_manifest.py")
+    if not checker.is_file():
+        import pytest
+        pytest.skip(f"select_hw_manifest.py not present at {checker}")
+
+    shape = json.loads(json.dumps(prompt_assembly._SELECT_HW_PAYLOAD_SHAPE))
+    shape["payload"]["result"] = "success"
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "phase_complete.json"
+        target.write_text(json.dumps(shape), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(checker), "--validate-phase-complete", "--input", str(target)],
+            capture_output=True, text=True, timeout=120, cwd=tmp,
+        )
+        errors = json.loads(proc.stdout).get("errors", [])
+
+    joined = " | ".join(str(e) for e in errors)
+    # The structural class: a field the skeleton DOES provide reported as absent or wrong-typed
+    # means the skeleton put it somewhere the validator does not read.
+    assert "manifest_content.phase" not in joined, f"the skeleton must carry manifest_content.phase: {joined}"
+    assert "hardware_plan.mcu must be an object" not in joined, (
+        f"mcu must land where the validator reads it, flat on manifest_content: {joined}")
+    assert "selected_board.id is required" not in joined, (
+        f"the board must land under manifest_content.hardware_selection: {joined}")
+    assert not any("artifacts[0].type" in str(e) for e in errors), (
+        f"an artifact entry needs its type: {joined}")
+
+
+def test_deploy_is_handed_the_phase_complete_shape_and_the_finalize_order():
+    """Deploy gets the same skeleton treatment that took generate's first check to zero errors.
+
+    Measured: a full six-phase run reached deploy, uploaded correctly and left the board running
+    (MPY: soft reboot, MPYHW_READY), and still failed its phase_complete -- payload.phase was
+    absent entirely. deploy_manifest.py asserts type, phase and payload.phase separately, so a
+    missing payload.phase fails two checks before any deploy evidence is read.
+    """
+    import json
+    import re
+
+    from app import prompt_assembly
+
+    body = {"phase": "upy-deploy-plugin", "manifest": {"phase": "generate", "devices": [{"id": "d1"}]}, "messages": []}
+    injected = prompt_assembly._deploy_shape_injection(body)
+    assert injected, "deploy must be handed the payload shape"
+
+    shape = json.loads(re.search(r"\{.*?\}\n\nFinalize", injected, re.S).group(0).rsplit("\n\nFinalize", 1)[0])
+    # The envelope, because that is what the measured run got wrong. All three are separate
+    # assertions inside deploy_manifest.py, so all three must appear in the skeleton.
+    assert shape["type"] == "phase_complete"
+    assert shape["phase"] == "upy-deploy-plugin"
+    assert shape["payload"]["phase"] == "upy-deploy-plugin"
+
+    payload = shape["payload"]
+    reset = payload["deploy_result"]["final_reset"]
+    assert reset["reset_first"] is True
+    # reset_first only records that Ctrl-D was ASKED for; this records that it happened.
+    assert reset["observed_soft_reboot"] is True
+    basenames = {a["path"] for a in payload["artifacts"]}
+    assert {"deploy_result.json", "upload_summary.json", "clean_result.json",
+            "mip_install_result.json", "device_tests_result.json"} <= basenames
+
+    order = injected[injected.index("Finalize in this order"):]
+    assert order.index("--output-json upload_summary.json") < order.index("capture_repl.py"), (
+        "evidence must be written before the reset; afterwards no device call is permitted"
+    )
+    assert order.index("capture_repl.py") < order.index("deploy_result.py")
+    assert "never write an evidence file yourself" in order
+
+    for other in ("analyze", "select-hw", "upy-generate-plugin"):
+        assert prompt_assembly._deploy_shape_injection({**body, "phase": other}) == ""
+
+
+def test_the_injected_deploy_skeleton_satisfies_the_real_deploy_checker():
+    """The skeleton must pass the gate it exists to satisfy.
+
+    Twice now an example shipped that could not satisfy its own validator (a deploy_plan naming
+    the wrong entry points, a credential_management missing `status`). An example that fails its
+    own gate is worse than none: the model copies it and inherits the failure.
+    """
+    import json
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    from app import prompt_assembly
+
+    checker = (Path(__file__).resolve().parents[2]
+               / "third_party/MicroPython_Skills/upy-deploy-plugin/scripts/deploy_manifest.py")
+    if not checker.is_file():
+        import pytest
+        pytest.skip(f"deploy_manifest.py not present at {checker}")
+
+    shape = json.loads(json.dumps(prompt_assembly._DEPLOY_PAYLOAD_SHAPE))
+    payload = shape["payload"]
+    # Fill only the placeholders a real run fills; every literal the checker asserts on is left
+    # exactly as the model receives it.
+    payload["result"] = "success"
+    payload["summary"] = "deployed"
+    payload["deploy_result"]["status"] = "PASS"
+    payload["deploy_result"]["strategy"] = "upload_only"
+    payload["manifest_content"] = {"phase": "upy-deploy-plugin", "deploy": {"status": "PASS"}}
+    payload["artifacts"] = payload["artifacts"] + [{"path": "device_log_report.json"}]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "phase_complete.json"
+        target.write_text(json.dumps(shape), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(checker), "--validate-phase-complete", "--input", str(target)],
+            capture_output=True, text=True, timeout=120, cwd=tmp,
+        )
+        verdict = json.loads(proc.stdout)
+
+    assert verdict["errors"] == [], f"the injected skeleton fails the real checker: {verdict['errors']}"
+
+
+def test_the_upstream_reader_exits_when_the_client_disconnects(monkeypatch):
+    """A cancelled busy stream must not park its reader thread forever.
+
+    The reader hands lines over a bounded queue. If the client disconnects mid-stream the consumer
+    stops draining, the queue fills, and a blocking put() parks the daemon thread for the life of
+    the process -- one leaked thread and queue per cancelled stream, invisible by construction
+    because nothing fails. Reverting the abandonment flag makes this hang until the timeout.
+    """
+    import threading
+    import time
+
+    from app import sse_translate
+
+    # Short interval so the reader's give-up check comes round quickly.
+    monkeypatch.setattr(sse_translate, "HEARTBEAT_INTERVAL_SECONDS", 0.05)
+
+    def endless():
+        for _ in range(100_000):
+            yield b"data: {}\n"
+
+    before = {t.name for t in threading.enumerate()}
+    stream = sse_translate._lines_with_heartbeat(endless())
+    next(stream)
+    next(stream)          # consume two, leave the queue filling behind us
+    # Wait until the reader is genuinely PARKED in put() on a full queue. Without this the close
+    # can land while the reader sits between puts, where even a blocking put exits cleanly via the
+    # abandonment check -- so the test would pass against the bug it exists to catch.
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not stream.gi_frame.f_locals["lines"].full():
+        time.sleep(0.01)
+    assert stream.gi_frame.f_locals["lines"].full(), "fixture never filled the queue; the test would prove nothing"
+    stream.close()        # the client goes away
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if not [t for t in threading.enumerate() if t.name == "llm-upstream-reader"]:
+            break
+        time.sleep(0.05)
+
+    leaked = [t.name for t in threading.enumerate() if t.name == "llm-upstream-reader"]
+    assert not leaked, f"the reader must give up once the consumer is gone, still alive: {leaked}"
+    assert {t.name for t in threading.enumerate()} <= before | {"llm-upstream-reader"}

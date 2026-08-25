@@ -127,7 +127,7 @@ class _FakeCapProvider:
     def open_stream(self, body):
         return ["raw"]
 
-    def translate_stream(self, upstream, meter=None):
+    def translate_stream(self, upstream, meter=None, on_interrupt=None):
         if meter is not None:
             meter({"total_tokens": 0})
         yield 'data: {"type":"message_stop"}\n\n'

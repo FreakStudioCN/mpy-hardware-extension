@@ -23,12 +23,17 @@ from app.tool_registry import LLM_TOOL_NAMES  # noqa: F401 - re-exported: tests 
 # _call_deepseek_plain from this module. routes_llm remains the namespace of
 # record; the extracted modules resolve patched siblings back through it.
 from app.prompt_assembly import (  # noqa: F401
-    _BOARDS_DIR, _CONTEXT_BOARD_ID_RE, _V0_PHASE_NOTES_DIR, SLIM_V0_ADAPTER,
+    _BOARDS_DIR, _CONTEXT_BOARD_ID_RE, _SKILL_BOARDS_DIR, _V0_PHASE_NOTES_DIR,
+    BoardLibraryUnreadable, SLIM_V0_ADAPTER,
+    _board_candidate_profiles, _board_candidates_injection, _select_hw_shape_injection, _generate_shape_injection,
+    _deploy_shape_injection,
     _candidate_board_ids, _clip_context_value, _context_injection,
     _deepseek_messages, _first_user_text, _host_capabilities_note,
     _language_directive, _load_board_profile, _official_only_board_profile,
     _pair_tool_messages, _phase, _phase_data_injection,
-    _raw_board_id_candidates, _resolve_board, _resolve_driver_contexts,
+    _board_match_texts, _match_phrases, _raw_board_id_candidates,
+    _resolve_board, _resolve_driver_contexts, _skill_board_candidate_ids,
+    _skill_board_index,
     _safe_context_token, _safe_micropython_download_url,
     _sanitized_preselected_board, _system_prompt, _tool_result_content,
     _translate_blocks, _v0_phase_note,
@@ -288,9 +293,44 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
             raise HTTPException(status_code=502, detail={"error": "llm_upstream_error", "status": error.status})
         if breaker_enabled:
             _deepseek_breaker.record_success()
+        def on_interrupt(error: BaseException) -> None:
+            # A stream that dies mid-turn was invisible in llm_turns: the only error path was a
+            # failure to OPEN the stream, so a break after the stream was live wrote NO row at
+            # all and the table simply had nothing to say. Recording the break here is what makes
+            # "why did that phase stall" answerable from the data rather than from the client's
+            # error event alone.
+            #
+            # This cannot double-count with meter(). The usage chunk only stores usage_obj;
+            # meter() is called once at clean end-of-stream, inside the same try whose except
+            # calls this, and nothing between that call and the end can raise OSError. So exactly
+            # one of the two runs. An earlier version of this comment claimed meter() fires "the
+            # moment the usage chunk lands", which is false, and it led a reviewer to report a
+            # duplicate-row bug that cannot happen.
+            analytics.record_llm_turn(
+                trace_id=body.get("trace_id"),
+                user_id=str(user["id"]),
+                kind="chat",
+                model=_provider_model(provider),
+                started_at=started_at,
+                total_tokens=None,
+                # ONE, not zero. The request-start reserve(user, 1) already debited the balance
+                # and an interrupted stream deliberately keeps it as the minimum paid-call cost,
+                # so a zero here made the row disagree with the ledger and any rollup over
+                # credits_charged undercount real spend by one per interrupted turn. The
+                # open-failure path above writes zero truthfully, because it refunds.
+                credits_charged=1,
+                status="error",
+                error_kind="upstream_stream_interrupted",
+            )
+
         # V0-pure: the model writes file content inline; the backend no longer
         # intercepts file_operation writes to synthesize code from an `intent`.
-        return StreamingResponse(_release_after(provider.translate_stream(upstream, meter), session_id), media_type="text/event-stream")
+        return StreamingResponse(
+            # Keyword, not positional: a provider that has not grown the parameter must fail
+            # by name rather than bind the callback to whatever its third argument is called.
+            _release_after(provider.translate_stream(upstream, meter, on_interrupt=on_interrupt), session_id),
+            media_type="text/event-stream",
+        )
     except Exception:
         llm_sessions.release(session_id, "setup_error")
         raise

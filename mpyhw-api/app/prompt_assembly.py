@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import json
+from collections import Counter
 import logging
 import re
 from pathlib import Path
@@ -124,6 +125,12 @@ def _phase(body: dict[str, Any]) -> str:
     return phase if isinstance(phase, str) and phase else "analyze"
 
 
+# The one phase that CHOOSES a board (skill_catalog.PHASE_BY_SKILL["upy-select-hw-plugin"]).
+_SELECT_HW_PHASE = "select-hw"
+# The phase that puts the code on the board. Its token is the plugin id, unlike select-hw.
+_DEPLOY_PHASE = "upy-deploy-plugin"
+
+
 def _phase_data_injection(body: dict[str, Any]) -> str:
     """Server-resolved grounding (board profile + driver contexts + manifest) injected
     into the prompt for any phase that already has a manifest — i.e. every phase after
@@ -144,9 +151,271 @@ def _phase_data_injection(body: dict[str, Any]) -> str:
     return (
         "\n\n--- RESOLVED DATA (server-provided; do not re-fetch) ---\n"
         f"Board profile:\n{json.dumps(board, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"{_R()._board_candidates_injection(manifest, body)}"
+        f"{_R()._select_hw_shape_injection(body)}"
+        f"{_R()._generate_shape_injection(body)}"
+        f"{_R()._deploy_shape_injection(body)}"
         f"Driver contexts:\n{json.dumps(contexts, ensure_ascii=False, sort_keys=True)}\n\n"
         f"Current manifest:\n{json.dumps(manifest, ensure_ascii=False, sort_keys=True)}\n"
     )
+
+
+# The fields select_hw_manifest.py requires, as a skeleton rather than a filled example. Values
+# are type hints; a model given real values copies them, and a copied board id is the exact
+# failure ("invented a board") this phase already had once.
+_SELECT_HW_PAYLOAD_SHAPE = {
+    # The envelope, because the validator asserts on it the moment a `payload` wrapper is present.
+    "type": "phase_complete",
+    "phase": "select-hw",
+    "protocol_version": "<the protocol_version from start_phase>",
+    "msg_id": "<uuid>",
+    "session_id": "<the session_id from start_phase>",
+    "timestamp": "<ISO 8601 UTC>",
+    "payload": {
+        "phase": "select-hw",
+        "result": "success | partial",
+        "summary": "<one line>",
+        "next_phase": "upy-flash-mpy-firmware-plugin",
+        "errors": [],
+        "warnings": [],
+        "structured_errors": [],
+        "runtime_context": {
+            "artifact_root_mode": "cwd | session_root",
+            "artifact_root": "<path>",
+            "session_root": "sessions/<session_id> (relative)",
+            "resource_root": "<path>",
+        },
+        # type is required; a files[] entry without it is not recognized as the artifact list.
+        "artifacts": [{"type": "file_list", "files": [{"path": "<relative path>"}]}],
+        # The manifest is FLAT, and the board sits under hardware_selection. This is the shape
+        # select_hw_manifest.py reads (it lifts manifest.hardware_selection.selected_board and
+        # manifest.mcu/pinout/pin_decisions/pin_review/bom directly), and the shape its own
+        # success sample carries. An earlier version of this skeleton nested the plan fields under
+        # a hardware_plan key, which the validator never looks at: every field this injection
+        # exists to teach landed somewhere unread, so the prompt and the gate disagreed and the
+        # phase had to discover the real shape by trial and error anyway.
+        "manifest_content": {
+            "phase": "select-hw",
+            "hardware_selection": {
+                "selected_board": {"id": "<board id from Board profile>", "display_name": "<str>", "firmware": {}},
+                "board_confirmed": True,
+                "source_phase": "select-hw",
+            },
+            "mcu": {"model": "<str>", "display_name": "<str>", "board_id": "<str>", "chip_family": "<str>"},
+            "pinout": [],
+            "pin_decisions": [{
+                "device": "<str>", "pin_name": "<str>", "assigned_gpio": "<int|str>",
+                "decision_type": "<str>",
+                "source": "board_default | auto_assigned | user_wiring | onboard_peripheral | fixed_power",
+                # An OBJECT, not a sentence: it must carry path or note.
+                "evidence": {"path": "<file or board profile field>", "note": "<why this pin>"},
+                "requires_user_review": False,
+            }],
+            "pin_review": {},
+            "bom": [{"name": "<str>", "model": "<str>", "quantity": "<number>", "unit_price_yuan": "<number>"}],
+            "devices": "<carried through from the analyze manifest>",
+            "requirements": "<carried through from the analyze manifest>",
+        },
+    },
+}
+
+
+# Read from check_phase_complete_consistency.py rather than from the plugin's sample files:
+# REQUIRED_OPTIONAL_PHASES, GIT_PERMISSION_TYPES, the checkpoint literal, the file_manifest roles
+# and the two artifact types are all constants in that script.
+_GENERATE_PAYLOAD_SHAPE = {
+    "payload": {
+        "phase": "upy-generate-plugin",
+        "result": "success",
+        "summary": "<one line>",
+        "checkpoint": "phase_completed",
+        "next_phase": "upy-deploy-plugin",
+        "optional_next_phases": ["upy-diagram-plugin", "upy-wiring-plugin"],
+        # One reference, not a copy. The gate results run to tens of thousands of characters;
+        # all three sections must name the SAME file, produced by
+        # run_quality_gates.py --project-dir <p> --session-dir <s> --output-json <that file>.
+        "lint": {"results_path": "quality_gates_result.json"},
+        "tests": {"results_path": "quality_gates_result.json"},
+        "checks": {"results_path": "quality_gates_result.json"},
+        "generate": {"git": {"commit": "<40-char sha from git rev-parse HEAD>", "commit_role": "code_commit"}},
+        "permissions": [{"type": "git_commit", "approved": True}],
+        "artifacts": [
+            {"type": "file_manifest", "path": "file_manifest.json"},
+            {"type": "session_state", "path": "<session-dir>/session_state.upy_generate_plugin.json"},
+        ],
+        "file_manifest": {"files": [
+            {"path": "project-manifest.json", "role": "manifest"},
+            {"path": "generate_plan.json", "role": "plan"},
+            {"path": "session_state.upy_generate_plugin.json", "role": "artifact"},
+        ]},
+        "manifest_content": "<project-manifest.json from disk, verbatim, with phase=generate>",
+    }
+}
+
+# The order matters more than any single field: each step invalidates what came before it, so
+# a payload assembled early is stale by the time it is checked. Measured: runs lose 5-12 turns
+# to re-recording a hash after a later commit, and one died in a three-round mismatch loop.
+_GENERATE_FINALIZE_ORDER = (
+    "1. finish every file edit (firmware, tests, generate_plan.json, project-manifest.json)\n"
+    "2. git add <paths> && git commit -m \"...\"   then   git rev-parse HEAD\n"
+    "3. update_session_state.py --session-dir <S> --project-dir <P> --checkpoint phase_completed "
+    "--status completed --git-commit <sha> --artifacts-json '[{\"type\":\"project_manifest\",...},"
+    "{\"type\":\"generate_plan\",...}]'\n"
+    "4. run_quality_gates.py --project-dir <P> --session-dir <S> --output-json quality_gates_result.json\n"
+    "   (LAST, so the file it writes matches the state on disk after the commit)\n"
+    "5. write phase_complete, then check_phase_complete_consistency.py\n"
+    "Recording manifest_hash is the LAST manifest step, for the same reason: update_session_state.py "
+    "computes it from project-manifest.json on disk, so any edit after it leaves the recorded hash "
+    "stale and SESSION_STATE_MANIFEST_HASH_MISMATCH returns. Never type a hash by hand; re-run the "
+    "script with --project-dir and let it recompute. Measured: that error repeated three times in "
+    "one run before the phase escaped it.\n"
+    "If ANYTHING changes after step 4 -- a manifest edit a gate error asked for, another commit, "
+    "another update_session_state.py run -- then quality_gates_result.json is stale and step 4 "
+    "must run AGAIN before validating. The file holds a snapshot of session_state taken when it "
+    "was written, so a later change makes the referenced checkpoint disagree with disk and the "
+    "phase fails on SESSION_STATE_PHASE_COMPLETE_MISMATCH. Re-running update_session_state.py "
+    "alone does not fix that, because the payload references the gates file rather than "
+    "embedding the checkpoint. Measured: a run edited the manifest after the gates, refreshed "
+    "the session state correctly, and still stalled to its turn cap on that one error.\n"
+    "Use the IDENTICAL --session-dir string in every command; a different one writes state the "
+    "checker will not read, and the mismatch cannot be fixed by editing the payload."
+)
+
+
+def _generate_shape_injection(body: dict[str, Any]) -> str:
+    """The 'Required phase_complete shape' + finalize order, at generate only."""
+    if _phase(body) != "upy-generate-plugin":
+        return ""
+    return (
+        "Required phase_complete shape (keys, types and the literal values the checker demands; "
+        "fill the rest from disk, git and the scripts named below):\n"
+        f"{json.dumps(_GENERATE_PAYLOAD_SHAPE, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"Finalize in this order:\n{_GENERATE_FINALIZE_ORDER}\n\n"
+    )
+
+
+# Read from deploy_manifest.py validate_phase_complete, not from the plugin sample:
+# SUCCESS_REQUIRED_ARTIFACT_BASENAMES, SUCCESS_REQUIRED_ARTIFACT_KEYWORDS, the deploy_result
+# status vocabulary and the final_reset requirements are all constants in that script.
+#
+# The envelope is in the skeleton on purpose. The checker asserts three separate things about it
+# -- type == "phase_complete", phase == the deploy phase, AND payload.phase == the deploy phase --
+# and a measured run emitted a payload with NO payload.phase at all, which fails two of the three
+# before any deploy evidence is even looked at.
+_DEPLOY_PAYLOAD_SHAPE = {
+    "type": "phase_complete",
+    "phase": "upy-deploy-plugin",
+    "payload": {
+        "phase": "upy-deploy-plugin",
+        "result": "success | partial | failed",
+        "summary": "<one line>",
+        "structured_errors": [],
+        # VERBATIM from scripts/deploy_result.py (also written by --output-json deploy_result.json).
+        # Never hand-composed: a written-by-hand deploy_result validates exactly like a real one.
+        "deploy_result": {
+            "status": "PASS | PASS_WITH_WARNINGS | FAIL | PARTIAL | NEEDS_USER_CONFIRMATION",
+            "strategy": "<the --strategy value passed to deploy_result.py>",
+            "final_reset": {
+                "status": "success",
+                "reset_first": True,
+                "observed_soft_reboot": True,
+                "output_excerpt": "<the boot lines the capture recorded, incl. MPYHW_READY>",
+            },
+        },
+        "artifacts": [
+            {"path": "deploy_result.json"},
+            {"path": "upload_summary.json"},
+            {"path": "clean_result.json"},
+            {"path": "mip_install_result.json"},
+            {"path": "device_tests_result.json"},
+            {"path": "serial_capture.json"},
+            {"path": "final_reset_capture.json"},
+            {"path": "device_log_report.json"},
+        ],
+        "manifest_content": "<project-manifest.json from disk, verbatim, with phase=upy-deploy-plugin "
+                            "and a deploy section summarizing deploy_result (status, strategy, port)>",
+    },
+}
+
+# Order, because the final reset ends the phase: after it runs, the loop REFUSES every device
+# call, so any evidence file not yet written can no longer be produced. Measured: an upload ran
+# without --output-json, the reset ran correctly, and the four attempts to re-run the upload for
+# its missing summary were all refused -- so the model hand-wrote upload_summary.json and
+# deploy_result.py graded the forgery PASS.
+_DEPLOY_FINALIZE_ORDER = (
+    "1. every device step writes its own evidence AS IT RUNS: pass --output-json to the clean, "
+    "the mip install, the upload and the device tests. An upload without "
+    "--output-json upload_summary.json is refused, because it is the only step that can write it.\n"
+    "2. capture_repl.py --reset-first --output-json final_reset_capture.json   (LAST device call)\n"
+    "3. deploy_result.py --upload-json ... --clean-json ... --serial-json ... --final-reset-json ... "
+    "--log-report-json ... --device-tests-json ... --output-json deploy_result.json\n"
+    "4. write phase_complete embedding that deploy_result verbatim, then deploy_manifest.py "
+    "--validate-phase-complete\n"
+    "After step 2 nothing may touch the board again: no fs ls, no resume exec, no second capture. "
+    "To check what was uploaded read upload_summary.json. If an evidence file is missing and only "
+    "a device call could produce it, report result=partial naming the missing artifact -- never "
+    "write an evidence file yourself."
+)
+
+
+def _deploy_shape_injection(body: dict[str, Any]) -> str:
+    """The 'Required phase_complete shape' + finalize order, at deploy only."""
+    if _phase(body) != _DEPLOY_PHASE:
+        return ""
+    return (
+        "Required phase_complete shape (keys, types and the literal values the checker demands; "
+        "the envelope type/phase and payload.phase are all checked separately, so emit all three "
+        "on EVERY result, including failed and partial. A measured run reported failed with "
+        "payload.phase absent, which fails two checks before any deploy evidence is read):\n"
+        f"{json.dumps(_DEPLOY_PAYLOAD_SHAPE, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"Finalize in this order:\n{_DEPLOY_FINALIZE_ORDER}\n\n"
+    )
+
+
+def _select_hw_shape_injection(body: dict[str, Any]) -> str:
+    """The 'Required phase_complete shape:' label, at select-hw only.
+
+    Every other phase has its own contract and would only be confused by this one; and the cost
+    is only justified where the tax was measured.
+    """
+    if _phase(body) != _SELECT_HW_PHASE:
+        return ""
+    return (
+        "Required phase_complete shape (keys and types; fill from Board profile and the intent, "
+        "do not read the plugin sample files, they are not reachable from the project):\n"
+        f"{json.dumps(_SELECT_HW_PAYLOAD_SHAPE, ensure_ascii=False, sort_keys=True)}\n\n"
+    )
+
+
+def _board_candidates_injection(manifest: dict[str, Any], body: dict[str, Any]) -> str:
+    """The 'Board candidates:' label, at select-hw only.
+
+    Only select-hw chooses a board, and only there is the block worth its bytes; every other
+    phase already has the chosen board in 'Board profile'. Emitted whenever the phase is
+    select-hw, even as an empty list, so the model never has to read absence as a signal.
+    """
+    if _phase(body) != _SELECT_HW_PHASE:
+        return ""
+    try:
+        candidates = _board_candidate_profiles(manifest, body)
+    except BoardLibraryUnreadable as error:
+        # Say WHY the list is empty. Catching this and emitting a bare [] put the model back in
+        # front of the one signal the raise exists to remove: an empty list reads as "nothing
+        # matched", and a model told nothing matched invents a board. The profile side already
+        # says this out loud via board_library_unreadable; this is the same statement on the
+        # candidates side, so the two halves of the block agree about what happened.
+        #
+        # The select-hw phase note is a third voice in the same prompt and used to state the
+        # "empty means nothing matched" rule without exception, so it is now qualified to name
+        # this case. Change the two together or the model reads a flat contradiction.
+        logger.warning("board candidates unavailable", extra={"detail": str(error)[:200]})
+        return (
+            "Board candidates:\n[]\n"
+            "Board candidates unavailable: the board library could not be read, so this empty "
+            "list is NOT a claim that no board matched. Do not invent a board id. Ask the user "
+            "which board they are using.\n\n"
+        )
+    return f"Board candidates:\n{json.dumps(candidates, ensure_ascii=False, sort_keys=True)}\n\n"
 
 
 # --- Sipeed MaixPy export: task-specific reference grounding (Option A) ----------------------
@@ -467,6 +736,17 @@ def _translate_blocks(role: str, blocks: list[Any]) -> list[dict[str, Any]]:
 
     text = "\n".join(text_parts)
     if role == "assistant":
+        # A turn that produced ONLY thinking is dropped, not sent as an empty message. A
+        # reasoning model does this on its own: the loop records the thinking block, and this
+        # translated it to {"role":"assistant","content":""} with no tool_calls, which at
+        # least one upstream rejects outright ("the message at position N with role
+        # 'assistant' must not be empty"). That is a 400, so it is not retryable, and because
+        # history is replayed on every later request it kills the whole run rather than one
+        # turn: measured, it ended a build three phases in. reasoning_content is a required
+        # passback only for a thinking turn that CARRIES a tool call, and that case still
+        # goes out below with its tool_calls attached.
+        if not text and not tool_calls:
+            return list(tool_messages)
         assistant: dict[str, Any] = {"role": "assistant", "content": text}
         if reasoning_parts:
             assistant["reasoning_content"] = "\n".join(reasoning_parts)
@@ -496,6 +776,22 @@ def _tool_result_content(content: Any) -> str:
 
 
 _BOARDS_DIR = ROOT / "content" / "boards"
+# The skill's own board library: 243 profiles in the schema select-hw and its validator
+# actually consume (pin_layout.default_bus_pins, pin_layout.restricted_gpio,
+# onboard_peripherals). Our content/boards copies are the OLDER extension schema
+# (pin_capabilities, forbidden_pins), so they are the fallback, not the source of truth.
+# Readable in production: the image copies the submodule whole, and routes_content already
+# serves this directory.
+_SKILL_BOARDS_DIR = skill_catalog.SKILLS_ROOT / "upy-analyze-plugin" / "boards"
+
+
+class BoardLibraryUnreadable(Exception):
+    """A board file is present but could not be read or parsed.
+
+    Distinct from "no such board" on purpose: both used to collapse into None, so a
+    permission error on the library was indistinguishable from an unknown board and the
+    model was told the board does not exist. Only a missing file means absence.
+    """
 
 
 # --- Manifest grounding -----------------------------------------------------
@@ -505,12 +801,32 @@ _BOARDS_DIR = ROOT / "content" / "boards"
 
 
 def _load_board_profile(board_id: str) -> dict[str, Any] | None:
-    path = (_BOARDS_DIR / f"{board_id}.json").resolve()
-    try:
-        if path.is_relative_to(_BOARDS_DIR.resolve()) and path.is_file():
+    """The board's profile, preferring the skill library, or None if no library has it.
+
+    `is_file()` answers False for a file inside an unreadable DIRECTORY as readily as for one that
+    does not exist: it swallows the PermissionError and returns False. So an unreadable library
+    used to leave here as None, which the caller reads as "unknown board" and which invites the
+    model to invent one. Absence and failure have to stay distinguishable at the directory level,
+    not only at the file level.
+    """
+    for directory in (_SKILL_BOARDS_DIR, _BOARDS_DIR):
+        path = (directory / f"{board_id}.json").resolve()
+        try:
+            if not path.is_relative_to(directory.resolve()):
+                continue
+            if not path.is_file():
+                # Probe the directory to tell absence from failure. A missing library is ordinary
+                # and falls through to the next one; an unreadable one raises PermissionError out
+                # of iterdir into the handler below. Note the directory's OWN stat still succeeds
+                # when it is chmod-000, so exists() cannot make this distinction.
+                try:
+                    next(directory.iterdir(), None)
+                except FileNotFoundError:
+                    pass
+                continue
             return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
+        except (OSError, ValueError) as error:  # JSONDecodeError is a ValueError
+            raise BoardLibraryUnreadable(f"{path.name}: {error}") from error
     return None
 
 
@@ -530,10 +846,18 @@ def _raw_board_id_candidates(manifest: dict[str, Any], body: dict[str, Any]) -> 
     board = manifest.get("board") if isinstance(manifest.get("board"), dict) else {}
     add(board.get("id"))
     ctx = body.get("context") if isinstance(body.get("context"), dict) else {}
-    pre = _sanitized_preselected_board(ctx.get("pre_selected_board"))
+    raw_pre = ctx.get("pre_selected_board")
+    pre = _sanitized_preselected_board(raw_pre)
     if pre:
-        add(pre.get("local_board_id"))
+        # skill_board_id first: it names a profile in the library select-hw validates
+        # against, while local_board_id names one of our 6 older-schema copies.
         add(pre.get("skill_board_id"))
+        add(pre.get("local_board_id"))
+    elif isinstance(raw_pre, str):
+        # A bare string is what the intent text and older callers produce. It is
+        # regex-checked downstream like every other candidate, so an id that does not
+        # name a real profile simply resolves to nothing.
+        add(raw_pre)
     add(body.get("board_id"))
     return ids
 
@@ -543,6 +867,232 @@ def _candidate_board_ids(manifest: dict[str, Any], body: dict[str, Any]) -> list
         value for value in _raw_board_id_candidates(manifest, body)
         if re.fullmatch(r"[A-Za-z0-9._-]{1,96}", value)
     ]
+
+
+# --- Board candidates (the auto path) ---------------------------------------
+# select-hw is asked to validate a pin plan against a board definition. On the auto path
+# nothing resolves a board id, so the profile injected was `{}`: one model refused honestly
+# ("board definition not available in the accessible board library") and the other invented
+# an id that exists in no library and carried on. The model cannot look the library up
+# itself (file_operation is project-confined), so what it is given IS the library.
+
+_MAX_BOARD_CANDIDATES = 2
+# Two bounds, and each binds in a different place: the count keeps the model's choice small
+# when profiles are cheap (rp2's top three are 2-15 KB), the byte budget stops two fat ones
+# (stm32h747's top two are 47 KB together, and the largest single profile is ~35 KB). The
+# block is byte-stable within the phase, so it is paid once per prefix, not per turn.
+# 32 KB fits two median profiles (~15 KB each), which matters when the request is genuinely
+# ambiguous: "my pico" names both espruino-pico (an STM32 board) and rpi-pico, and at 24 KB
+# only the first rode -- so the user got the wrong chip as their only option. It still binds
+# on a fat pair (stm32h747's top two are 47 KB together).
+_BOARD_CANDIDATES_BYTE_BUDGET = 32768
+# Values analyze writes into requirements.mcu_specified when the user named no MCU. Matching
+# on these would hand back an arbitrary board with a confident-looking profile.
+_UNSPECIFIED_MCU_TOKENS = frozenset({"", "auto", "none", "null", "false", "true", "unknown", "na"})
+
+
+def _normalized_board_token(value: Any) -> str:
+    """Lowercase alphanumerics only, so 'ESP32-WROOM-32' and 'esp32_wroom_32' compare equal."""
+    return re.sub(r"[^a-z0-9]", "", value.lower()) if isinstance(value, str) else ""
+
+
+@functools.cache
+def _skill_board_index() -> tuple[tuple[str, str, str, str, bool], ...]:
+    """(board_id, mcu, chip_family, display_name, beginner_friendly) for every skill profile,
+    normalized for matching. Built once per process: the library is deployment-stable, and
+    the alternative is re-reading 243 files on every select-hw turn.
+
+    A single unreadable profile is logged and skipped rather than failing the whole index, but a
+    DIRECTORY that cannot be read is raised, and so is one that is not there at all: both mean
+    "the server cannot see the library", and this function has no second source to fall back on.
+    `_load_board_profile` treats a MISSING directory as ordinary absence instead, because it does
+    have a second library to try. The asymmetry is deliberate.
+
+    The directory is opened explicitly rather than left to glob, because glob does not raise: it
+    returns [] for a directory that is missing AND for one that is chmod-000, verified on the
+    deployment interpreter. So the except below was unreachable and the failure arrived as an
+    empty candidate list. That is worse than it sounds, on two counts. The phase note tells the
+    model an empty list means "nothing matched", not "the library is unreadable", which is the
+    invite-to-invent-a-board failure this whole path exists to close. And the result is cached,
+    so one unreadable read pins an empty index for the process lifetime even after the cause is
+    fixed. functools.cache does not cache exceptions, so raising also fixes that.
+    """
+    try:
+        next(_SKILL_BOARDS_DIR.iterdir(), None)  # raises on a missing or unreadable directory
+        paths = sorted(p for p in _SKILL_BOARDS_DIR.glob("*.json") if not p.name.startswith("_"))
+    except OSError as error:
+        raise BoardLibraryUnreadable(f"{_SKILL_BOARDS_DIR}: {error}") from error
+    entries: list[tuple[str, str, str, str, bool]] = []
+    for path in paths:
+        try:
+            board = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            logger.warning("skill board profile unreadable", extra={"board": path.name, "detail": str(error)[:200]})
+            continue
+        if not isinstance(board, dict):
+            continue
+        entries.append((
+            path.stem,
+            _normalized_board_token(board.get("mcu")),
+            _normalized_board_token(board.get("chip_family")),
+            _normalized_board_token(board.get("display_name")),
+            bool(board.get("beginner_friendly")),
+        ))
+    if not entries:
+        # Two more ways to end up with nothing, both of which mean "the server cannot see the
+        # library" by the definition above: a directory that opens but holds no profiles, and one
+        # whose profiles are every one of them unreadable (each logged and skipped just above).
+        # The library is never legitimately empty, so an empty index is a failure rather than a
+        # result, and caching it would pin that failure for the process lifetime.
+        raise BoardLibraryUnreadable(f"{_SKILL_BOARDS_DIR}: no readable board profiles")
+    return tuple(entries)
+
+
+# Shortest run that may match a name exactly. Three, because "rp2" is a real chip family;
+# two-character runs ("c3", "h7", "v1") are coincidences.
+_MIN_EXACT_MATCH_CHARS = 3
+# A partial name is only allowed to match the start of a longer one from this length up: at
+# three characters "esp" would claim every ESP32 board in the library.
+_MIN_PARTIAL_MATCH_CHARS = 4
+# How many boards one prefix may fit before it is read as a vendor word rather than a board.
+_MAX_PREFIX_MATCHES = 3
+# Longest board name worth looking for, in words: "w5100s evb pico 2" is 4.
+_MAX_NAME_WORDS = 4
+# Per source string, so a long description cannot make this quadratic.
+_MATCH_TEXT_BUDGET = 400
+
+
+def _match_phrases(text: str) -> list[tuple[int, str]]:
+    """(word count, normalized phrase) for every 1..4-word run in the text.
+
+    Word runs, not one flattened blob, because flattening loses the boundaries that decide
+    WHICH board: "Raspberry Pi Pico 2" flattens to raspberrypipico2, which CONTAINS the name
+    of the RP2040 Pico (raspberrypipico) and would answer a Pico 2 request with the previous
+    generation, on a different chip and a different firmware.
+
+    A run followed by a bare number is dropped for the same reason: that number is the
+    model's generation, so "raspberry pi pico" in "Raspberry Pi Pico 2" is a truncated name
+    rather than a board. The rule is position-independent, so it holds mid-sentence too
+    ("use a Raspberry Pi Pico 2 to blink an LED").
+
+    It applies ONLY when nothing but separators sit between the run and the number. In
+    Chinese, which is most of our users, a count follows the board with a character in
+    between that this tokenizer drops -- "用ESP32做2个LED" leaves "esp32" next to "2" and the
+    rule then deleted the only board reference in the request, injecting no candidates at
+    all. Measured across the common request shapes: two-thirds of them lost their board.
+    """
+    budgeted = text[:_MATCH_TEXT_BUDGET].lower()
+    matches = list(re.finditer(r"[a-z0-9]+", budgeted))
+    words = [m.group() for m in matches]
+    phrases: list[tuple[int, str]] = []
+    for size in range(1, _MAX_NAME_WORDS + 1):
+        for start in range(len(words) - size + 1):
+            after = start + size
+            if after < len(words) and words[after].isdigit():
+                # The gap as the user wrote it. A space or a dash means the number belongs to
+                # the name ("Pico 2"); anything else, CJK included, means it does not.
+                gap = budgeted[matches[after - 1].end():matches[after].start()]
+                if all(char in " \t-_/" for char in gap):
+                    continue
+            phrase = "".join(words[start:after])
+            if len(phrase) >= _MIN_EXACT_MATCH_CHARS and phrase not in _UNSPECIFIED_MCU_TOKENS:
+                phrases.append((size, phrase))
+    return phrases
+
+
+def _board_match_texts(manifest: dict[str, Any], body: dict[str, Any]) -> list[str]:
+    """Every place the board the user asked for actually turns up.
+
+    requirements.mcu_specified alone is not enough: analyze writes the board phrase there in
+    one run ("Raspberry Pi Pico 2") and the boolean False in the next, for the same intent
+    and the same board, while the description and the user's own words carry the name both
+    times. Measured on two consecutive runs of the same request.
+    """
+    requirements = manifest.get("requirements") if isinstance(manifest.get("requirements"), dict) else {}
+    texts = [requirements.get("mcu_specified"), requirements.get("description"), _R()._first_user_text(body)]
+    return [text for text in texts if isinstance(text, str) and text]
+
+
+def _skill_board_candidate_ids(*texts: str) -> list[str]:
+    """Board ids whose profile matches the hardware named in the given text, best first.
+
+    A board is matched when one of its names (display name, id, mcu, chip family) equals a
+    word run in the text. The longest matching run wins, because it is the most specific
+    ("w5100s evb pico 2" beats "pico 2"). A partial name that the library spells out in full
+    ("portenta" -> arduino-portenta-h7) falls to a last-resort containment tier. Ties go to
+    beginner-friendly, then id order, so the block stays byte-stable for the prompt prefix.
+    """
+    phrases = [phrase for text in texts for phrase in _match_phrases(text)]
+    if not phrases:
+        return []
+    exact = {phrase: size for size, phrase in sorted(phrases)}  # longest run per phrase wins
+    # Prefix matches are a FALLBACK, never a supplement: "Raspberry Pi Pico 2" matches
+    # rpi-pico2 exactly, and the same text prefix-matches raspberry-pi-pico, which is the
+    # RP2040 board. Offering that alongside is offering the wrong chip as an alternative.
+    ranked: list[tuple[tuple[int, int, int, bool, str], str]] = []
+    prefixed: list[tuple[str, tuple[int, int, int, bool, str], str]] = []
+    for board_id, mcu, family, display_name, beginner in _skill_board_index():
+        # A board's OWN name outranks a chip match. "esp32 s3" is the display name of
+        # esp32-generic-s3 and merely the family of 34 other boards, so without this split
+        # the request landed on whichever family member sorted first (arduino-nano-esp32).
+        own_names = {display_name, _normalized_board_token(board_id)}
+        chip_names = {mcu, family}
+        by_own = [exact[name] for name in own_names if name in exact]
+        by_chip = [exact[name] for name in chip_names if name in exact]
+        if by_own or by_chip:
+            own_run = max(by_own, default=0)
+            chip_run = max(by_chip, default=0)
+            # Longest matched run first: it explains more of what the user actually wrote.
+            # "ESP32-S3-WROOM-1" matches esp32-s3-devkitc's mcu across four words, while
+            # esp32-generic-s3's own name matches only "esp32 s3" -- the module the user
+            # named wins. Own-name-over-chip is the TIE-break, for the bare "ESP32-S3" case
+            # where both match two words and the named board should come first.
+            ranked.append((
+                (0, -max(own_run, chip_run), 0 if own_run >= chip_run else 1, not beginner, board_id),
+                board_id,
+            ))
+            continue
+        # The text named part of a longer board name. Length says nothing useful here
+        # (arduino-portenta-h7 vs -c33), so leave the order to beginner/id below.
+        # Attribute the board to its LONGEST matching phrase, not the first one found. Keying on
+        # the first meant every arduino-* board attributed to "arduino", that bucket blew the
+        # vendor threshold below, and the whole family was culled before "arduinoportenta" was
+        # ever considered. Measured against the real library: "portenta" returned both portenta
+        # boards while the MORE specific "Arduino Portenta" returned nothing. Adding a word the
+        # user actually knows must not cost them candidates.
+        matching = [phrase for _, phrase in phrases
+                    if len(phrase) >= _MIN_PARTIAL_MATCH_CHARS
+                    and any(name and name.startswith(phrase) for name in own_names)]
+        if matching:
+            prefixed.append((max(matching, key=len), (2, 0, 0, not beginner, board_id), board_id))
+    # A prefix that fits many boards is a vendor or family word, not a board: "arduino"
+    # prefixes a dozen names, so "Arduino Uno" -- a board this library does not have -- came
+    # back as arduino-giga with a full pin layout. Naming no board is the honest answer, and
+    # the no_board_selected tier already tells the model to ask.
+    counts = Counter(phrase for phrase, _, _ in prefixed)
+    ranked.extend((key, board_id) for phrase, key, board_id in prefixed
+                  if counts[phrase] <= _MAX_PREFIX_MATCHES)
+    exact_hits = [entry for entry in ranked if entry[0][0] < 2]
+    return [board_id for _, board_id in sorted(exact_hits or ranked)]
+
+
+def _board_candidate_profiles(manifest: dict[str, Any], body: dict[str, Any]) -> list[dict[str, Any]]:
+    """Full profiles for the best candidate ids, bounded by count and by bytes."""
+    board_ids = _skill_board_candidate_ids(*_board_match_texts(manifest, body))
+    profiles: list[dict[str, Any]] = []
+    spent = 0
+    for board_id in board_ids[:_MAX_BOARD_CANDIDATES]:
+        profile = _load_board_profile(board_id)
+        if profile is None:
+            continue
+        size = len(json.dumps(profile, ensure_ascii=False, sort_keys=True))
+        # The first candidate always rides, whatever it costs: injecting none of them is the
+        # bug this exists to fix.
+        if profiles and spent + size > _BOARD_CANDIDATES_BYTE_BUDGET:
+            break
+        profiles.append(profile)
+        spent += size
+    return profiles
 
 
 def _official_only_board_profile(body: dict[str, Any]) -> dict[str, Any]:
@@ -567,10 +1117,24 @@ def _official_only_board_profile(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_board(manifest: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
-    for board_id in _candidate_board_ids(manifest, body):
-        profile = _load_board_profile(board_id)
-        if profile is not None:
-            return profile
+    try:
+        for board_id in _candidate_board_ids(manifest, body):
+            profile = _load_board_profile(board_id)
+            if profile is not None:
+                return profile
+    except BoardLibraryUnreadable as error:
+        logger.warning("board library unreadable", extra={"detail": str(error)[:200]})
+        # NOT unknown_board: the board may well exist. Saying "unknown" here would send the
+        # model off inventing a pin layout for a board the server simply failed to read.
+        return {
+            "support_status": "board_library_unreadable",
+            "pin_allocation_supported": False,
+            "note": (
+                "The server could not read the board library, so this is NOT a statement "
+                "that the board is unknown. Do NOT invent a board id or a pin layout: "
+                "report partial and say the board library is unavailable."
+            ),
+        }
     official = _official_only_board_profile(body)
     if official:
         return official
@@ -588,7 +1152,18 @@ def _resolve_board(manifest: dict[str, Any], body: dict[str, Any]) -> dict[str, 
                 "builtin_pin_layout board."
             ),
         }
-    return {}
+    # The auto path: no id anywhere. This used to be a bare {}, which reads as "the library
+    # holds nothing about your board" — one model refused on it and the other invented an id.
+    return {
+        "support_status": "no_board_selected",
+        "pin_allocation_supported": False,
+        "note": (
+            "No board has been selected yet, and this is NOT a claim that the board library "
+            "is empty. Choose one of the profiles in 'Board candidates' below if it matches "
+            "the hardware, or ask the user which board they have with approval_request. Do "
+            "NOT invent a board id: only ids present in the library can be validated."
+        ),
+    }
 
 
 def _resolve_driver_contexts(manifest: dict[str, Any]) -> list[dict[str, Any]]:
