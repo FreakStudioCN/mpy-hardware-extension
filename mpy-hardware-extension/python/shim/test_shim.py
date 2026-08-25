@@ -169,15 +169,38 @@ def test_an_absolute_mpremote_path_still_gets_the_settle():
     assert _with_mpremote_launcher(not_mpremote) == not_mpremote
 
 
-def test_the_deploy_plugin_is_pointed_at_the_launcher_through_its_env_hook():
+def test_the_deploy_plugin_is_pointed_at_the_launcher_through_its_env_hook(monkeypatch):
     # The deploy plugin resolves and spawns mpremote itself, so it never crosses this shim's
     # subprocess boundary and _with_mpremote_launcher cannot reach it. UPY_MPREMOTE is the
     # hook that does. The value has to survive the plugin's own splitter, which is
     # shlex.split(value, posix=os.name != "nt") in its mpremote_runtime.split_command.
+    #
+    # Whether the hook can carry anything at all depends on the CHECKOUT PATH, not on the code:
+    # with posix=False the splitter keeps the quotes it finds, so a Windows path containing a
+    # space cannot be expressed and _mpremote_env_command answers None by design (the test below
+    # states that rule). Asserting the value is always set therefore passed on CI, whose runner
+    # path has no spaces, and failed on every Windows checkout under `C:\\Users\\First Last\\...`
+    # -- `npm run baseline` red on the maintainer's own machine, saying nothing about the code.
+    # Pin the rule instead: whatever IS handed over must round-trip, and handing over nothing
+    # must be because the path cannot carry it, never because the redirect stopped working.
     import shlex
 
+    import serve
+
     value = _subprocess_text_kwargs()["env"].get("UPY_MPREMOTE")
-    assert value, "the deploy plugin's mpremote must be redirected to the launcher"
+    if value is None:
+        assert " " in sys.executable or " " in serve._MPREMOTE_LAUNCHER, (
+            "no mpremote redirect was handed over, and the path it would carry has no space, "
+            "so this is a broken hook rather than an inexpressible one"
+        )
+        # Without this the branch is vacuous: on any spaced checkout a completely dead
+        # _mpremote_env_command would return None too, and the test would pass forever.
+        monkeypatch.setattr(serve, "_MPREMOTE_LAUNCHER", "/opt/shim/mpremote_launcher.py")
+        monkeypatch.setattr(os, "name", "posix")
+        rebuilt = serve._mpremote_env_command()
+        assert rebuilt, "the redirect is dead even where the path can carry it"
+        assert shlex.split(rebuilt, posix=True) == [sys.executable, "/opt/shim/mpremote_launcher.py"]
+        return
 
     parts = shlex.split(value, posix=os.name != "nt")
     assert parts[0] == sys.executable, "the launcher must be hosted by this interpreter"
