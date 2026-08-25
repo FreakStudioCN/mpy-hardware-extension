@@ -285,12 +285,19 @@ def _subprocess_text_kwargs():
     # decodes with the OS locale codepage (e.g. Windows cp936), so non-ASCII script
     # output — Chinese requirements in a jsonschema error, an em-dash from a template
     # — could raise UnicodeDecodeError and turn a normal result into a transport error.
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    # Point the deploy plugin's own mpremote at the boot-settle launcher. It spawns mpremote
+    # directly, so this variable is the only way to reach it; an operator who set it by hand
+    # outranks us.
+    mpremote_command = _mpremote_env_command()
+    if mpremote_command and not env.get("UPY_MPREMOTE"):
+        env["UPY_MPREMOTE"] = mpremote_command
     return {
         "capture_output": True,
         "text": True,
         "encoding": "utf-8",
         "errors": "replace",
-        "env": {**os.environ, "PYTHONIOENCODING": "utf-8"},
+        "env": env,
     }
 
 # Every shell form the V0 phases may run, as EXACT argv. `git rev-parse HEAD` is required by
@@ -305,17 +312,43 @@ _ALLOWED_SHELL_ARGV: tuple[tuple[str, ...], ...] = (
     ("git", "status", "--short"),
 )
 # Forms whose LAST token is model-supplied text rather than a fixed word.
-_ALLOWED_SHELL_PREFIX: tuple[tuple[str, ...], ...] = (("git", "commit", "-m"),)
+#
+# `--amend` is deliberately NOT here, in either form. It was allowed for one run, because
+# models reached for it after committing and burned a turn on a command with no verb. What
+# that bought was worse than the turn it saved: the generate contract records project HEAD
+# inside project-manifest.json, so amending to pick up the manifest changes the very hash the
+# manifest just recorded. A run chased that fixpoint through ten amends, each producing a new
+# HEAD, until the phase died on max_turns. No amend, no fixpoint: the model commits once and
+# the recorded hash stays true.
+# `git add <path>` is here because `git add -A` was the ONLY staging verb, and that makes the
+# generate contract unsatisfiable: the phase must record project HEAD, and the files that hold
+# the record (phase_complete.*.json, session_state.*.json) are inside the project, so `-A`
+# sweeps them into the next commit and the hash it just recorded goes stale. Measured twice:
+# the phase then re-commits to chase HEAD, gets GIT_COMMIT_MISSING again, and dies on
+# max_turns having made three commits. Staging by path gives it a legal way to commit code and
+# leave the record alone. The path is model-supplied but is executed as argv, never through a
+# shell, and it can only touch the project it already writes to with file_operation.
+_ALLOWED_SHELL_PREFIX: tuple[tuple[str, ...], ...] = (
+    ("git", "commit", "-m"),
+    ("git", "add"),
+)
 # `git init && git add -A && git commit -m "..."` is the longest real chain.
 _MAX_SHELL_PARTS = 3
 
 # Returned on every refusal so the model corrects instead of guessing. Built from the tables
 # above, so a command cannot be permitted without the hint naming it, nor named without being
 # permitted; test_serve.py asserts every advertised form actually runs.
+def _prefix_placeholder(prefix: tuple[str, ...]) -> str:
+    """What the model must put after an allowed prefix. A hint that called every trailing
+    argument a "<message>" would advertise `git add "<message>"`, which is how a model learns
+    to pass the wrong thing."""
+    return "<message>" if prefix[-1] == "-m" else "<path>"
+
+
 ALLOWED_SHELL_COMMANDS_HINT = (
     "Allowed shell commands: "
     + "; ".join(" ".join(argv) for argv in _ALLOWED_SHELL_ARGV)
-    + '; git commit -m "<message>"'
+    + "; " + "; ".join(f'{" ".join(prefix)} "{_prefix_placeholder(prefix)}"' for prefix in _ALLOWED_SHELL_PREFIX)
     + f". Chain at most {_MAX_SHELL_PARTS} of them with '&&'; no other operator is accepted."
     " There is no shell route for Python: interpreter=python runs BUNDLED PLUGIN SCRIPTS by"
     " name, not arbitrary modules. Linting is not yours to invoke either, run_quality_gates.py"
@@ -328,9 +361,21 @@ def _resolve_allowed_shell_argv(tokens: list[str]) -> list[str] | None:
     if tuple(tokens) in _ALLOWED_SHELL_ARGV:
         return list(tokens)
     for prefix in _ALLOWED_SHELL_PREFIX:
-        # Exactly one argument after the prefix, and it must not be blank.
-        if len(tokens) == len(prefix) + 1 and tuple(tokens[: len(prefix)]) == prefix and tokens[-1].strip():
-            return [*prefix, tokens[-1].strip()]
+        if tuple(tokens[: len(prefix)]) != prefix:
+            continue
+        rest = [token.strip() for token in tokens[len(prefix):]]
+        if not rest or not all(rest):
+            continue
+        # A commit message is ONE argument; staging takes as many paths as the caller names.
+        # One path was the first version, and it refused the form a real run reached for:
+        # staging the manifest and the session state together in a single call. That failure
+        # pushes the model back toward `-A`, which sweeps the files recording HEAD into the
+        # commit and stales the hash just written -- the exact trap this prefix exists to give
+        # it a way around. Several paths widen nothing: they are executed as argv, never
+        # through a shell, and reach only the project the model already writes to.
+        if prefix[-1] == "-m" and len(rest) > 1:
+            continue
+        return [*prefix, *rest]
     return None
 
 
@@ -405,9 +450,87 @@ def iter_uploadable_firmware(firmware_dir: str):
             yield src, rel
 
 
+# Every mpremote call goes through the launcher beside this file, which adds a boot settle
+# for boards that reset when the port is opened (see mpremote_launcher.py). The swap happens
+# HERE, at the subprocess boundary, so the command lists the shim builds and records stay
+# `["mpremote", ...]` -- what they name is the tool, not the interpreter that hosts it.
+_MPREMOTE_LAUNCHER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mpremote_launcher.py")
+
+
+def _names_mpremote(argv0: str) -> bool:
+    """True when argv0 invokes mpremote, whatever spelling the caller used.
+
+    Matching the bare string alone let an absolute path through: a deploy resolved mpremote
+    with shutil.which() and ran /…/venv/bin/mpremote, which skipped the settle and failed
+    every call with "could not enter raw repl" on a board that resets when the port opens.
+    """
+    # Split on both separators rather than os.path.basename: the host running this shim is not
+    # necessarily the host that spelled the path, and a backslash path read on POSIX would come
+    # back whole and match nothing.
+    name = re.split(r"[\\/]", argv0)[-1].lower()
+    return name[:-4] == "mpremote" if name.endswith(".exe") else name == "mpremote"
+
+
+def _with_mpremote_launcher(command):
+    if not command or not _names_mpremote(command[0]):
+        return command
+    return [sys.executable, _MPREMOTE_LAUNCHER, *command[1:]]
+
+
+def _mpremote_env_command():
+    """The UPY_MPREMOTE value that routes the deploy plugin's own mpremote through the launcher.
+
+    The plugin resolves mpremote itself and spawns it directly, so it never crosses this shim's
+    subprocess boundary and the swap above cannot reach it. It does read UPY_MPREMOTE first,
+    which is the one hook that does reach it.
+
+    None when the value would not survive the plugin's own splitter. It splits with
+    shlex.split(posix=os.name != "nt"), and posix=False keeps the quotes it finds, so a Windows
+    path containing a space cannot be expressed at all. Leaving the variable unset falls back to
+    the plugin's shutil.which(), and on Windows mpremote already applies this reset workaround
+    itself -- it is macOS and Linux that get nothing.
+    """
+    parts = [sys.executable, _MPREMOTE_LAUNCHER]
+    posix = os.name != "nt"
+    value = shlex.join(parts) if posix else subprocess.list2cmdline(parts)
+    return value if shlex.split(value, posix=posix) == parts else None
+
+
+def _run_command(command, **kwargs):
+    return subprocess.run(_with_mpremote_launcher(command), **kwargs)
+
+
+
+_FLAGS_CACHE: dict[str, list[str]] = {}
+
+
+def _accepted_flags(script_path: str) -> list[str]:
+    """The long options a bundled script accepts, read straight from its argparse calls.
+
+    Why: models spend turns running `<script> --help` to learn signatures -- 47 such probes
+    across the archived runs, 8 in a single deploy phase. Every one measured followed a call
+    that had ALREADY SUCCEEDED, so this is not error recovery: it is the model checking whether
+    it missed a flag before the next invocation. Handing it the list with the result removes the
+    reason to ask. Parsed statically rather than by running --help, so it costs a cached file
+    read instead of a subprocess.
+    """
+    cached = _FLAGS_CACHE.get(script_path)
+    if cached is not None:
+        return cached
+    flags: list[str] = []
+    try:
+        with open(script_path, "r", encoding="utf-8", errors="replace") as handle:
+            flags = sorted(set(re.findall(r'add_argument\(\s*"(--[a-z0-9-]+)"', handle.read())))
+    except OSError:
+        # A script we cannot read is not worth failing the call over; the model just gets no hint.
+        flags = []
+    _FLAGS_CACHE[script_path] = flags
+    return flags
+
+
 class Shim:
     def __init__(self, runner=None, serial_factory=None):
-        self.runner = runner or subprocess.run
+        self.runner = runner or _run_command
         self.serial_factory = serial_factory
         self.commands: list[list[str]] = []
         # Background serial monitor session (serial.monitor_start/stop): a single open
@@ -689,7 +812,42 @@ class Shim:
         # root; stdin feeds scripts invoked with --stdin. Injectable via self.runner.
         cmd = [sys.executable, script_path, *args]
         self.commands.append(cmd)
+        # stdin=DEVNULL when the caller supplied none. subprocess.run(input=None) does NOT give
+        # the child a pipe: it INHERITS the parent's stdin, and this shim reads its own JSON-RPC
+        # protocol from sys.stdin. So a script invoked with --stdin and no stdin_content would
+        # sit reading the extension's RPC stream until the timeout killed it, and could swallow
+        # protocol messages on the way. Measured across archived runs: 17 timeouts on --stdin
+        # invocations, the single largest source of dead turns outside hardware.
+        if stdin is None:
+            return self.runner(cmd, timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL, **_subprocess_text_kwargs())
         return self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
+
+    def run_v0_module(self, module: str, args: list[str], cwd=None, stdin=None, timeout: float = 300):
+        # `python -m <module>` for the verification modules the phase is allowed to run
+        # directly. Same interpreter, same stdin discipline and same injectable runner as
+        # run_v0_python: only the target differs, so a module call cannot reach anything a
+        # script call could not.
+        # A verification module must leave the project exactly as it found it. Measured on the
+        # first run with this route open: one `py_compile` call produced 13
+        # PROJECT_PYTHON_CACHE_PRESENT errors at the next quality gate and five more calls
+        # deleting __pycache__, in a phase that then ran out of turns.
+        #
+        # -B alone does NOT fix it, which a filesystem-level test caught: -B suppresses the
+        # IMPLICIT caching done on import, while py_compile writes a .pyc as its entire purpose.
+        # PYTHONPYCACHEPREFIX is what redirects that write, so the bytecode lands in a temp tree
+        # instead of beside the sources, and py_compile still reports syntax errors normally.
+        cmd = [sys.executable, "-B", "-m", module, *args]
+        self.commands.append(cmd)
+        # Merged into the shared kwargs rather than passed alongside them: those already carry
+        # an `env` (PYTHONIOENCODING), and a second one is a TypeError, not an override.
+        kwargs = _subprocess_text_kwargs()
+        # One cache tree for the process, not one per call. A fresh mkdtemp on every module run
+        # leaked a directory each time and a generate phase makes dozens of them; the bytecode is
+        # keyed by source path inside the tree, so sharing it is also faster on repeat compiles.
+        kwargs["env"] = {**kwargs["env"], "PYTHONPYCACHEPREFIX": _module_pycache_dir()}
+        if stdin is None:
+            return self.runner(cmd, timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL, **kwargs)
+        return self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **kwargs)
 
     def run_v0_shell(self, command: str, cwd=None, stdin=None, timeout: float = 300):
         # V0 generate emits script_run(shell, 'git add -A && git commit -m "..."') and a few
@@ -716,7 +874,10 @@ class Shim:
                 )
                 continue
             self.commands.append(cmd)
-            last = self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs())
+            # Same reason as run_v0_python: never let a child inherit the shim's RPC stdin.
+            last = (self.runner(cmd, timeout=timeout, cwd=cwd, stdin=subprocess.DEVNULL, **_subprocess_text_kwargs())
+                    if stdin is None
+                    else self.runner(cmd, timeout=timeout, cwd=cwd, input=stdin, **_subprocess_text_kwargs()))
             if getattr(last, "returncode", 1) != 0:
                 return last
         return last
@@ -743,7 +904,7 @@ class Shim:
 # Only newline-delimited JSON-RPC goes to stdout; diagnostics go to stderr.
 
 def _run_mpremote(args, timeout=30):
-    return subprocess.run(["mpremote", *args], capture_output=True, text=True, timeout=timeout)
+    return _run_command(["mpremote", *args], capture_output=True, text=True, timeout=timeout)
 
 
 def _list_files(port, path=None):
@@ -1410,6 +1571,149 @@ def _assert_project_root(base: str, args: list, cwd: str | None) -> list:
     return [*args, "--project-dir", cwd]
 
 
+# Modules the phase may run directly with `python -m`. Verification tools only: they read the
+# project and report, and every one of them is already part of run_quality_gates.py, so this
+# widens what the model can CHECK without widening what it can change.
+#
+# Measured: models reach for these between gate runs to check their own work, in three
+# spellings (`script="-m flake8"`, `script="-m unittest"` with args, and the shell form), and
+# every one was refused as script_not_found. One run spent three consecutive turns finding a
+# spelling the shim would take, and never did. Refusing costs turns and teaches nothing.
+#
+# Deliberately NOT here: pip, ensurepip, venv, http.server -- anything that installs, serves or
+# mutates. The refusal message names the allowed set and points at run_quality_gates.py.
+#
+# PYLINT IS NOT HERE EITHER, and it is the one worth explaining, because it looks like the most
+# natural member of a lint allowlist and was on this list until a review asked the right question.
+# Pylint runs `init-hook`, arbitrary Python, before it analyses anything. It takes it from
+# --init-hook, from --load-plugins, from --rcfile, and -- this is the part no argument guard can
+# reach -- from a .pylintrc in the working directory. cwd is the project root, the model writes
+# there, and the project is SUPPOSED to contain a pylintrc: ensure_pylintrc.py puts one there.
+# Verified: a .pylintrc whose init-hook writes a file gets it written, with no flags at all.
+#
+# So allowing pylint here grants arbitrary code execution through a file rather than through a
+# call, which is why blocking the flags was not enough and why this is a removal rather than a
+# denylist. Lint still runs, through run_quality_gates.py, which is the path the contract wants
+# and which the refusal message already names. Do not add it back without answering the .pylintrc
+# question, since that is the door, not the flags.
+#
+# READ THIS BEFORE TREATING THE LINE ABOVE AS A BOUNDARY. Removing pylint closes one ROUTE to a
+# capability the host already grants; it does not close the capability, and the sentence above
+# reads as though it did. run_quality_gates.py -- the very path the refusal message sends the
+# model to -- runs all three of these with cwd=project_dir, the tree the model writes:
+#   * `-m pylint <targets> --rcfile=.pylintrc` (run_quality_gates.py:236) -- init-hook, and the
+#     rcfile is named EXPLICITLY, so the file the model controls is loaded on purpose;
+#   * `-m flake8 ... ` at cwd=project_dir (:224) -- flake8's own `[flake8:local-plugins]` section
+#     imports a module by path from that config. Verified against flake8 7.3.0 with NO flags at
+#     all: a `.flake8` declaring a local plugin executed the plugin's module-level code. `.flake8`
+#     is not incidental either -- init_scaffold writes it on every render and the gate requires it;
+#   * `-m unittest discover -s test/pc` (:253) -- runs project test code outright.
+# So the honest boundary is: this shim executes project-controlled Python by design, and the
+# module allowlist decides how many ways there are to ask for it, not whether it is possible.
+# flake8 stays on the list for that reason -- dropping it would cost the model turns and close
+# nothing -- and pylint stays off as one fewer route, not as a fix. Making this a real boundary is
+# a question for the skills repository (a lint config the model cannot write, or a sandboxed gate
+# run), not for this tuple.
+_ALLOWED_PYTHON_MODULES = frozenset({"py_compile", "compileall", "unittest", "flake8", "json.tool"})
+
+# "Verification only" is a property of the MODULE list above, not of the arguments. Two of the
+# five write to a path the caller names: `json.tool in.json OUT.json` and
+# `flake8 --output-file=PATH`. So an allowlisted, read-only-looking call can still overwrite any
+# file the shim account can write, which is the one route through this dispatcher that escapes the
+# containment `write_project_file` and `delete_project_path` enforce everywhere else.
+#
+# Guarding json.tool's output positional alone would leave the two flag spellings open, so the
+# rule is on the ARGUMENTS and applies to every module: nothing that can name a path outside the
+# project. Relative arguments cannot escape, because cwd is forced to project_dir a few lines
+# below and any model-supplied cwd is discarded. That leaves absolute paths and `..` segments.
+def _escaping_module_arg(arg: str, project_dir: str | None) -> str | None:
+    """The path in `arg` that could leave the project, or None when it cannot.
+
+    Checks the value after `=` as well as the bare token, so `--output-file=/etc/passwd` is caught
+    and not just a trailing positional. Separators are normalised first: on Windows the model may
+    write either, and a check that only understands `/` would pass `..\\..\\x` straight through.
+
+    Lexical checks alone are not enough. A project-relative path that traverses an in-project
+    symlink is lexically innocent and still lands outside, so each token is also resolved against
+    the project root. BOTH sides are resolved, because the root itself is often a symlink (macOS
+    /tmp is /private/tmp) and comparing a resolved path against an unresolved root would refuse
+    every ordinary call.
+    """
+    root = os.path.realpath(project_dir) if project_dir else None
+    # Value first, so `--output-file=../x` reports `../x` rather than the whole flag. Normalising
+    # the flag as a whole still trips the `..` check, and naming the flag as the offending PATH
+    # reads as though the flag name were the problem.
+    for token in (arg.split("=", 1)[1] if "=" in arg else "", arg):
+        if not token:
+            continue
+        normalised = token.replace("\\", "/")
+        drive_letter = len(normalised) > 1 and normalised[1] == ":" and normalised[0].isalpha()
+        if normalised.startswith("/") or drive_letter or os.path.isabs(token):
+            return token
+        if ".." in normalised.split("/"):
+            return token
+        if root is None:
+            continue
+        # An argument that is not a path at all resolves harmlessly inside the root, so this needs
+        # no guess about which arguments are paths. commonpath raises across Windows drives, which
+        # is itself a token that cannot be contained.
+        resolved = os.path.realpath(os.path.join(root, normalised))
+        try:
+            contained = os.path.commonpath([root, resolved]) == root
+        except ValueError:
+            contained = False
+        if not contained:
+            return token
+    return None
+
+
+# compileall's -b writes legacy .pyc beside each source, which PYTHONPYCACHEPREFIX does not cover.
+# The token has to be read the way argparse folds short options, or the check is wrong in both
+# directions. Its grammar: a run of store_true letters, then at most one value-taking flag whose
+# value is the rest of the token. compileall's store_true shorts are -l -f -q -b (and -h, which
+# exits); -r -d -s -p -x -i -j -o -e all take a value, and there is no long spelling of -b.
+#
+# So `b` is the legacy flag exactly when every letter before it is store_true. Anything after it
+# is irrelevant, because the -b already fired. Two spellings proved this matters, both verified
+# against the real interpreter: `-qb` bypassed a check for the exact token "-b", and `-bj2`
+# (legacy plus two workers) bypassed a letters-only pattern because of the digit. In the other
+# direction `-xbuild` is `-x build`, an ordinary skip regex that happens to contain a b, and a
+# letters-only pattern refused it while telling the model to "drop -b" when there was no -b.
+_COMPILEALL_LEGACY_FLAG = re.compile(r"-[lfqb]*b.*")
+
+_MODULE_PYCACHE_DIR: str | None = None
+
+
+def _module_pycache_dir() -> str:
+    """One bytecode cache tree per process, created on first use.
+
+    Made lazily rather than at import so a shim that never runs a module makes no temp dir at all.
+    """
+    global _MODULE_PYCACHE_DIR
+    if _MODULE_PYCACHE_DIR is None:
+        _MODULE_PYCACHE_DIR = tempfile.mkdtemp(prefix="mpyhw-pycache-")
+    return _MODULE_PYCACHE_DIR
+
+
+def _module_run_call(script):
+    """`(module, args_carried_in_script)` for a `-m <module>` call, else None.
+
+    Returns BOTH halves because the module and its arguments have to come from the same parse.
+    An earlier version returned only the module while the caller re-split the tokens itself and
+    assumed the `python -m X` shape, which broke the other two forms it claimed to accept:
+    `-m unittest discover` read "discover" as the module and refused it, and `-m flake8` raised
+    IndexError that reached the model as an opaque JSON-RPC -32000. Both are the kind of refusal
+    that teaches nothing and costs a turn, which is what the module route exists to remove.
+    """
+    tokens = str(script).strip().split()
+    if len(tokens) >= 2 and tokens[0] == "-m":
+        return tokens[1], tokens[2:]
+    # The shell spelling arrives as a whole command: `python -m unittest discover -s test/pc`.
+    if len(tokens) >= 3 and os.path.basename(tokens[0]).startswith("python") and tokens[1] == "-m":
+        return tokens[2], tokens[3:]
+    return None
+
+
 def _run_v0_script(shim, params):
     interpreter = params.get("interpreter", "python")
     script = params.get("script", "") or ""
@@ -1421,6 +1725,13 @@ def _run_v0_script(shim, params):
     if params.get("stdin_json") is not None:
         stdin_content = json.dumps(params["stdin_json"], ensure_ascii=False)
     timeout = float(params.get("timeout_ms", 300000)) / 1000.0
+    module_call = _module_run_call(script)
+    if interpreter == "shell" and module_call is not None:
+        # Same call, shell spelling. Route it to the module path rather than refusing it for
+        # not being one of the allowed git forms. Only the interpreter changes: the module and
+        # its arguments come from the parse above, so every spelling it accepts is routed the
+        # same way rather than re-split here on an assumed shape.
+        interpreter = "python"
     if interpreter == "shell":
         cmd = script if not args else script + " " + " ".join(args)
         if _parse_v0_shell_command(cmd) is None:
@@ -1433,6 +1744,46 @@ def _run_v0_script(shim, params):
         # Fail fast: no node toolchain is assumed in the host shim. Don't fake success.
         return {"status": "error", "error_kind": "node_interpreter_unavailable",
                 "message": "node script_run is not supported by the host shim"}
+    if module_call is not None:
+        # Arguments written into the script string are kept rather than dropped. A model that
+        # sends `script="-m unittest discover -s test/pc"` with an empty args list used to run a
+        # bare `python -m unittest`: status ok, no error, and a command that did something other
+        # than what it was asked to do. They lead, because they sit left of args in the call.
+        module, embedded_args = module_call
+        args = [*embedded_args, *args]
+        if module not in _ALLOWED_PYTHON_MODULES:
+            return {"status": "error", "error_kind": "python_module_not_allowed",
+                    "message": (
+                        f"python -m {module} is not permitted. Allowed modules: "
+                        f"{', '.join(sorted(_ALLOWED_PYTHON_MODULES))}. The full lint and test "
+                        "sweep is scripts/run_quality_gates.py, which runs all of them and emits "
+                        "the gate results the phase_complete payload needs."
+                    )}
+        if module == "compileall" and any(_COMPILEALL_LEGACY_FLAG.fullmatch(a) for a in args):
+            # PYTHONPYCACHEPREFIX does not cover legacy locations, so `-b` writes .pyc beside
+            # every source it touches and the "leaves nothing in the project" guarantee stops
+            # holding. Measured on the default form: one py_compile run without the prefix cost
+            # 13 PROJECT_PYTHON_CACHE_PRESENT errors and five cleanup calls.
+            return {"status": "error", "error_kind": "python_module_arg_not_allowed",
+                    "message": (
+                        "python -m compileall -b is not permitted: -b writes legacy .pyc files "
+                        "beside each source, inside the project, where the gate reports them as "
+                        "stray cache. Drop -b; the default form writes its bytecode outside the "
+                        "project already."
+                    )}
+        for arg in args:
+            escaping = _escaping_module_arg(arg, cwd)
+            if escaping is not None:
+                # Name the offending token and the fix. This message is the tool result the model
+                # reads, so a bare refusal costs a turn and teaches it nothing.
+                return {"status": "error", "error_kind": "path_outside_project",
+                        "message": (
+                            f"python -m {module} was refused: the argument {arg!r} names {escaping!r}, "
+                            "which can point outside the project. Pass a project-relative path "
+                            "instead, with no leading slash, drive letter or '..' segment. Paths "
+                            "resolve from the project root."
+                        )}
+        return _v0_result(shim.run_v0_module(module, args, cwd=cwd, stdin=stdin_content, timeout=timeout))
     base = os.path.basename(str(script))
     # The active phase disambiguates a basename shared by >1 served plugin (e.g.
     # update_session_state.py in generate + gen-driver) without the model qualifying.
@@ -1456,7 +1807,14 @@ def _run_v0_script(shim, params):
         if project_dir:
             prepare_quality_gate_project(project_dir)
     args = _assert_project_root(base, args, cwd)
-    return _v0_result(shim.run_v0_python(candidates[0], args, cwd=cwd, stdin=stdin_content, timeout=timeout))
+    result = _v0_result(shim.run_v0_python(candidates[0], args, cwd=cwd, stdin=stdin_content, timeout=timeout))
+    # Hand back the script's own option list so the model never needs a `--help` turn to learn
+    # it. Measured: 47 --help probes across archived runs, every examined one following a call
+    # that had already SUCCEEDED -- the model checking for flags it might have missed.
+    flags = _accepted_flags(candidates[0])
+    if flags and isinstance(result, dict):
+        result["accepted_flags"] = flags
+    return result
 
 
 def _run_static_check(shim, params):

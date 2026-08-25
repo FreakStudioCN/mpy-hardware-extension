@@ -4,6 +4,7 @@ Hermetic: resolution is checked against the real vendored submodule; execution i
 checked with an injected fake runner (no venv, no real subprocess).
 """
 import inspect
+import subprocess
 import os
 import pathlib
 import sys
@@ -27,6 +28,49 @@ def _shim_with(record):
 
 record_stdout = [""]
 record_rc = [0]
+
+
+def test_script_results_carry_the_scripts_own_flag_list():
+    """Models burn turns running `<script> --help` to learn signatures: 47 probes across the
+    archived runs, 8 in one deploy phase, and every examined probe followed a call that had
+    ALREADY SUCCEEDED. So it is not error recovery, it is the model checking for a flag it
+    might have missed. Returning the option list with the result removes the reason to ask.
+    Parsed from the source, so it costs a cached file read rather than a subprocess."""
+    # FOUR levels up: shim -> python -> mpy-hardware-extension -> repo root, where third_party
+    # lives. Three levels silently missed it, the guard below returned, and the test passed while
+    # asserting nothing -- a mutation that emptied the flag list did not fail it.
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    script = os.path.join(repo_root, "third_party", "MicroPython_Skills", "upy-deploy-plugin", "scripts", "deploy_result.py")
+    assert os.path.isfile(script), f"expected the vendored deploy_result.py at {script}"
+    flags = serve._accepted_flags(script)
+    assert "--output-json" in flags and "--final-reset-json" in flags, flags
+    assert all(f.startswith("--") for f in flags)
+    # An unreadable script must not break the call it was attached to.
+    assert serve._accepted_flags(os.path.join(os.path.dirname(script), "no_such_script.py")) == []
+
+
+def test_script_with_no_stdin_content_gets_a_closed_stdin_not_the_shims_rpc_channel():
+    """The shim reads its JSON-RPC protocol from sys.stdin. subprocess.run(input=None) does not
+    give the child a pipe -- it INHERITS the parent's stdin -- so a script invoked with --stdin
+    and no stdin_content would read the extension's RPC stream until it timed out, and could
+    swallow protocol messages. Measured: 17 such timeouts across archived runs."""
+    seen = {}
+
+    def fake_runner(cmd, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
+
+    shim = serve.Shim()
+    shim.runner = fake_runner
+    shim.run_v0_python("check.py", ["--stdin"], cwd=None, stdin=None)
+    assert seen.get("stdin") is subprocess.DEVNULL, "a child with no stdin_content must get a closed stdin"
+    assert "input" not in seen, "input=None would leave the child on the shim's own stdin"
+
+    # And a caller that DOES supply stdin still has it delivered.
+    seen.clear()
+    shim.run_v0_python("check.py", ["--stdin"], cwd=None, stdin='{"payload": 1}')
+    assert seen.get("input") == '{"payload": 1}'
+    assert "stdin" not in seen
 
 
 def test_resolve_finds_bundled_plugin_scripts():
@@ -473,6 +517,45 @@ def test_allowed_shell_hint_cannot_lie():
         command = " ".join(argv)
         assert command in serve.ALLOWED_SHELL_COMMANDS_HINT, command
         assert serve._parse_v0_shell_command(command) == [list(argv)], command
+    # Every message-taking form too, not just the first one: a hand-written check for one
+    # prefix would advertise the rest without proving they run.
+    for prefix in serve._ALLOWED_SHELL_PREFIX:
+        advertised = f'{" ".join(prefix)} "{serve._prefix_placeholder(prefix)}"'
+        assert advertised in serve.ALLOWED_SHELL_COMMANDS_HINT, advertised
+        assert serve._parse_v0_shell_command(f'{" ".join(prefix)} "x"') == [[*prefix, "x"]], prefix
+
+
+def test_git_add_takes_a_path_so_the_hash_record_can_stay_uncommitted():
+    # `git add -A` was the only staging verb, which makes the generate contract impossible to
+    # satisfy: the phase records project HEAD, and the files holding that record live in the
+    # project, so -A sweeps them into the next commit and the hash goes stale. Measured twice,
+    # both ending in max_turns after three commits chasing HEAD. Staging by path is the way out.
+    assert serve._parse_v0_shell_command("git add firmware") == [["git", "add", "firmware"]]
+    assert serve._parse_v0_shell_command('git add firmware && git add test && git commit -m "x"') == [
+        ["git", "add", "firmware"], ["git", "add", "test"], ["git", "commit", "-m", "x"],
+    ]
+    # The hint must call it a path. Advertised as "<message>" the model passes the wrong thing.
+    assert 'git add "<path>"' in serve.ALLOWED_SHELL_COMMANDS_HINT
+    # Deliberately NOT restricted to non-flag tokens: `git add --all` is just `git add -A`,
+    # which is already allowed, and every git add flag only stages. Stated so the next reader
+    # knows it is a decision rather than an oversight.
+    assert serve._parse_v0_shell_command("git add") is None, "a bare add with no path is refused"
+    # This line used to assert one path per call, and a run proved that wrong: it staged the
+    # manifest and the session state together, was refused, and lost turns to a restriction
+    # that only pushed it back toward -A. Several paths run as argv inside the project, so the
+    # refusal bought nothing.
+    assert serve._parse_v0_shell_command("git add firmware test") == [["git", "add", "firmware", "test"]]
+
+
+def test_amend_is_refused_because_it_cannot_converge():
+    # Named explicitly rather than derived from the tables, which would delete their own
+    # assertions along with the entry. The generate contract records project HEAD inside
+    # project-manifest.json, so an amend that picks up the manifest changes the hash the
+    # manifest just recorded. A run chased that through ten amends and died on max_turns.
+    assert serve._parse_v0_shell_command("git commit --amend --no-edit") is None
+    assert serve._parse_v0_shell_command('git commit --amend -m "fix"') is None
+    assert "--amend" not in serve.ALLOWED_SHELL_COMMANDS_HINT, "the hint must not offer it either"
+    # The plain commit the phase actually needs still runs.
     assert serve._parse_v0_shell_command('git commit -m "x"') == [["git", "commit", "-m", "x"]]
 
 
@@ -631,3 +714,326 @@ if __name__ == "__main__":
     verdict = "ALL PASS" if not failures else f"{failures} FAILED"
     print(f"\n{verdict}")
     sys.exit(1 if failures else 0)
+
+
+def test_run_v0_shell_stages_several_paths_in_one_call():
+    # Measured: a run reached for staging the manifest and the session state together, was
+    # refused with shell_command_not_allowed, and lost turns to it. One path per call pushes
+    # the model back toward `-A`, which sweeps the files recording HEAD into the commit and
+    # stales the hash it just wrote -- the exact trap this prefix exists to give it a way
+    # around. Several paths widen nothing: they run as argv, never through a shell, and reach
+    # only the project the model already writes to.
+    command = (
+        'git add project-manifest.json session_state.upy_generate_plugin.json'
+        ' && git commit -m "generate: record the manifest"'
+    )
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "shell", "script": command, "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+    assert [entry["cmd"] for entry in record] == [
+        ["git", "add", "project-manifest.json", "session_state.upy_generate_plugin.json"],
+        ["git", "commit", "-m", "generate: record the manifest"],
+    ]
+    assert all(entry["kwargs"].get("shell") is None for entry in record)
+
+
+def test_run_v0_shell_still_takes_exactly_one_commit_message():
+    # The other half of the same rule: a message is ONE argument. Accepting several would let
+    # a second quoted string ride along as an argument to the commit itself.
+    assert serve._parse_v0_shell_command('git commit -m "one" "two"') is None
+    assert serve._parse_v0_shell_command("git add") is None
+    assert serve._parse_v0_shell_command('git add ""') is None
+
+
+def test_run_v0_allows_the_verification_modules_in_both_spellings():
+    # Measured across the archive: models reach for these between gate runs to check their own
+    # work, in three spellings, and every one was refused as script_not_found. One run spent
+    # three consecutive turns hunting for a spelling the shim would take and never found one.
+    for params in (
+        {"interpreter": "python", "script": "-m unittest", "args": ["discover", "-s", "test/pc"]},
+        {"interpreter": "shell", "script": "python -m unittest discover -s test/pc"},
+    ):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {**params, "project_dir": "/tmp/proj"})
+        assert res["status"] == "ok", (params, res)
+        assert record[-1]["cmd"][1:] == ["-B", "-m", "unittest", "discover", "-s", "test/pc"], record[-1]["cmd"]
+        assert record[-1]["kwargs"].get("shell") is None
+
+
+def test_run_v0_refuses_a_module_that_installs_or_serves():
+    # The allowance is verification only. pip, venv and http.server change the machine or open
+    # a port, and none of them is part of run_quality_gates.py.
+    for module in ("pip", "venv", "http.server", "ensurepip"):
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": f"-m {module}", "args": ["--help"], "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "error", module
+        assert res["error_kind"] == "python_module_not_allowed", (module, res)
+        # The refusal must name the way forward, not just say no.
+        assert "run_quality_gates.py" in res["message"], res["message"]
+        assert record == [], "a refused module must never be executed"
+
+
+def test_run_v0_refuses_pylint_because_a_project_pylintrc_executes_code():
+    """Pylint is the module that looks most like it belongs on a lint allowlist and cannot be on
+    one. It runs `init-hook`, arbitrary Python, before analysing anything, and it takes that from
+    --init-hook, --load-plugins, --rcfile, and from a .pylintrc in the working directory.
+
+    The last one is why this is a removal rather than a flag denylist: cwd is the project root,
+    the model writes there, and the project is SUPPOSED to contain a pylintrc (ensure_pylintrc.py
+    puts one there). Verified against the real pylint: a .pylintrc whose init-hook writes a file
+    gets it written, with no flags at all. No argument guard can see that, so the argument guard
+    below is not the control that matters here.
+
+    Lint still runs through run_quality_gates.py, which the refusal names -- and THAT path runs
+    pylint with `--rcfile=.pylintrc` at cwd=project_dir, so what this test pins is one ROUTE being
+    closed, not the capability. Read the note above _ALLOWED_PYTHON_MODULES in serve.py before
+    treating a green here as a boundary."""
+    for args in (["firmware"], ['--init-hook=import os; os.system("id")', "firmware"],
+                 ["--load-plugins=evil", "firmware"], ["--rcfile=firmware/.pylintrc", "firmware"]):
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": "-m pylint", "args": args, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "error", (args, res)
+        assert res["error_kind"] == "python_module_not_allowed", (args, res)
+        assert "run_quality_gates.py" in res["message"], res["message"]
+        assert record == [], "a refused module must never be executed"
+
+    # flake8 stays: it has no equivalent of init-hook, and it is the configured gate.
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "-m flake8", "args": ["firmware"], "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+
+
+def test_run_v0_module_refuses_an_argument_that_can_escape_the_project():
+    """The allowlist bounds which MODULE runs, not where it writes. Two of the five take an
+    output path from the caller: `json.tool in.json OUT.json` and `flake8 --output-file=PATH`.
+    Without a guard on the arguments, a verification-only call is the one route through this
+    dispatcher that can overwrite a file outside the project, which is the containment
+    write_project_file and delete_project_path enforce everywhere else.
+
+    Both spellings matter. A guard on json.tool's trailing positional alone leaves the two flag
+    forms open, which is why this asserts the flag spellings too."""
+    for script, args, offending in (
+        ("-m json.tool", ["in.json", "/tmp/escape.json"], "/tmp/escape.json"),
+        ("-m flake8", ["--output-file=/tmp/escape.txt", "firmware"], "/tmp/escape.txt"),
+        ("-m flake8", ["--output-file=/etc/passwd", "firmware"], "/etc/passwd"),
+        ("-m json.tool", ["in.json", "../../outside.json"], "../../outside.json"),
+        ("-m flake8", ["--output-file=..\\..\\outside.txt"], "..\\..\\outside.txt"),
+    ):
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": script, "args": args, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "error", (script, args, res)
+        assert res["error_kind"] == "path_outside_project", (script, args, res)
+        # The message is the tool result the model reads, so it has to name the token and the fix.
+        # Compared as a repr because the message quotes the path with !r, which doubles a
+        # backslash: a plain substring check silently passes the posix cases and fails only the
+        # Windows one, which reads like a code bug rather than an assertion bug.
+        assert repr(offending) in res["message"], res["message"]
+        assert "project-relative" in res["message"], res["message"]
+        assert record == [], "a refused call must never be executed"
+
+
+def test_run_v0_module_still_takes_ordinary_project_relative_arguments():
+    """The guard must not cost a legitimate call. A refusal here is worse than the hole it closes:
+    every one of these is a spelling models actually use between gate runs."""
+    for script, args in (
+        ("-m unittest", ["discover", "-s", "test/pc"]),
+        ("-m flake8", ["--max-line-length=120", "firmware"]),
+        ("-m flake8", ["--output-file=reports/lint.txt", "firmware"]),
+        ("-m json.tool", ["project-manifest.json"]),
+        ("-m py_compile", ["firmware/main.py"]),
+    ):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": script, "args": args, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "ok", (script, args, res)
+        assert record, (script, args, "a permitted call must actually run")
+
+
+def test_run_v0_module_refuses_a_path_through_an_in_project_symlink():
+    """The lexical checks pass a project-relative path that traverses a symlink pointing out of
+    the project, and the module then follows it. Uses a REAL symlink and a real temp project
+    rather than a fake root, because the whole point is what the filesystem resolves to.
+
+    Both sides are resolved with realpath: on macOS the temp root is itself under a symlink
+    (/tmp -> /private/tmp), so comparing a resolved path against an unresolved root refuses every
+    ordinary call. A mutation dropping the realpath on the ROOT fails the companion test below."""
+    with tempfile.TemporaryDirectory() as outside, tempfile.TemporaryDirectory() as project:
+        os.symlink(outside, os.path.join(project, "escape"))
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": "-m json.tool",
+            "args": ["in.json", "escape/out.json"], "project_dir": project,
+        })
+        assert res["status"] == "error", res
+        assert res["error_kind"] == "path_outside_project", res
+        assert record == [], "a refused call must never be executed"
+
+
+def test_run_v0_module_allows_a_path_through_an_in_project_directory():
+    """The companion to the symlink test: a real temp project, a real subdirectory, and an
+    ordinary relative output path must still run. This is what fails if the containment check
+    resolves one side and not the other."""
+    with tempfile.TemporaryDirectory() as project:
+        os.mkdir(os.path.join(project, "reports"))
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": "-m flake8",
+            "args": ["--output-file=reports/lint.txt", "firmware"], "project_dir": project,
+        })
+        assert res["status"] == "ok", res
+        assert record, "a permitted call must actually run"
+
+
+def test_run_v0_module_accepts_every_spelling_module_detection_claims():
+    """_module_run_call accepts three spellings and the dispatcher must route all three the same
+    way. It previously re-split the tokens itself assuming the `python -m X` shape, so the bare
+    forms broke: `-m unittest discover` read "discover" as the module and refused it, and the
+    two-token `-m flake8` raised IndexError that reached the model as an opaque -32000."""
+    for interpreter, script, expected in (
+        ("shell", "python -m unittest discover -s test/pc", ["-m", "unittest", "discover", "-s", "test/pc"]),
+        ("shell", "-m unittest discover -s test/pc", ["-m", "unittest", "discover", "-s", "test/pc"]),
+        ("shell", "-m flake8", ["-m", "flake8"]),
+        ("python", "-m flake8", ["-m", "flake8"]),
+    ):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": interpreter, "script": script, "args": [], "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "ok", (interpreter, script, res)
+        assert record[-1]["cmd"][1:] == ["-B", *expected], (interpreter, script, record[-1]["cmd"])
+
+
+def test_run_v0_module_keeps_arguments_written_into_the_script_string():
+    """Arguments carried in the script string used to be dropped: `-m unittest discover -s test/pc`
+    with an empty args list ran a bare `python -m unittest`, reported ok, and quietly did something
+    other than what it was asked. They also bypassed the escape check, since that only reads args."""
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "-m unittest discover -s test/pc",
+        "args": ["-v"], "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+    # Embedded first, then the explicit args: they sit left of args in the call as written.
+    assert record[-1]["cmd"][1:] == ["-B", "-m", "unittest", "discover", "-s", "test/pc", "-v"], record[-1]["cmd"]
+
+    # And an escaping path written into the script string is refused, not silently dropped.
+    record = []
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "-m json.tool in.json /tmp/escape.json",
+        "args": [], "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "error" and res["error_kind"] == "path_outside_project", res
+    assert record == []
+
+
+def test_run_v0_module_refuses_compileall_legacy_bytecode_locations():
+    """PYTHONPYCACHEPREFIX does not cover legacy locations, so `-b` writes .pyc beside every source
+    it touches, inside the project, which is what the prefix exists to prevent."""
+    # argparse folds single-character store_true flags together, so a check for the exact token
+    # "-b" is bypassed by "-qb" (verified against the real interpreter: it wrote a.pyc beside
+    # a.py). The last row is the embedded spelling, which pins that the guard runs AFTER the
+    # script-string args are merged in, not before.
+    for script, args in (
+        ("-m compileall", ["-b", "firmware"]),
+        ("-m compileall", ["-qb", "firmware"]),
+        ("-m compileall", ["-bq", "firmware"]),
+        # A digit-bearing joined value after the fold: -b plus -j 2. A letters-only pattern misses
+        # this, and it is a plausible spelling since -j2 is the usual way to write workers.
+        ("-m compileall", ["-bj2", "firmware"]),
+        ("-m compileall", ["-qbj2", "firmware"]),
+        ("-m compileall -b firmware", []),
+    ):
+        record = []
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": script, "args": args, "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "error", (script, args, res)
+        assert res["error_kind"] == "python_module_arg_not_allowed", (script, args, res)
+        assert "-b" in res["message"], res["message"]
+        assert record == [], "a refused call must never be executed"
+
+    # And the other direction, which matters just as much: a joined VALUE that happens to contain
+    # the letter b is not the legacy flag. `-xbuild` is `-x build`, an ordinary skip regex, and
+    # `-dlib` is `-d lib`. Refusing them tells the model to drop a -b that was never there.
+    for args in (["-qf", "firmware"], ["-xbuild", "firmware"], ["-dlib", "firmware"],
+                 ["-fqxbuild", "firmware"], ["-j4", "firmware"]):
+        record = []
+        record_stdout[0] = ""
+        record_rc[0] = 0
+        shim = _shim_with(record)
+        res = serve._dispatch(shim, "script.run_v0", {
+            "interpreter": "python", "script": "-m compileall", "args": args,
+            "project_dir": "/tmp/proj",
+        })
+        assert res["status"] == "ok", (args, res)
+        assert record, (args, "a permitted call must actually run")
+
+    # The default form is the whole point of the allowance and must still run.
+    record = []
+    record_stdout[0] = ""
+    record_rc[0] = 0
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "-m compileall", "args": ["firmware"],
+        "project_dir": "/tmp/proj",
+    })
+    assert res["status"] == "ok", res
+
+
+def test_run_v0_module_leaves_no_bytecode_in_the_project():
+    """py_compile writes __pycache__ beside every file it checks. Measured on the first run with
+    the module route open: one py_compile call produced 13 PROJECT_PYTHON_CACHE_PRESENT errors at
+    the next quality gate and five more calls deleting the directories, in a phase that then ran
+    out of turns. This runs the REAL interpreter rather than the fake runner, because the defect
+    was a file on disk and only the filesystem can prove it is gone."""
+    with tempfile.TemporaryDirectory() as project:
+        source = pathlib.Path(project) / "sample_module.py"
+        source.write_text("VALUE = 1\n", encoding="utf-8")
+        shim = serve.Shim()
+        res = shim.run_v0_module("py_compile", [str(source)], cwd=project)
+        assert res.returncode == 0, (res.returncode, res.stderr)
+        caches = list(pathlib.Path(project).rglob("__pycache__")) + list(pathlib.Path(project).rglob("*.pyc"))
+        assert caches == [], f"a verification module must leave nothing behind, found {caches}"
+
+        # And it must still FAIL on a real syntax error, or it has stopped verifying anything.
+        broken = pathlib.Path(project) / "broken_module.py"
+        broken.write_text("def oops(:\n", encoding="utf-8")
+        assert shim.run_v0_module("py_compile", [str(broken)], cwd=project).returncode != 0
