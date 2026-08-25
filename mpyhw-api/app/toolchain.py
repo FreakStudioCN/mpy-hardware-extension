@@ -8,4 +8,10 @@ script's contract changes. The extension warns (non-blocking) when its bundled
 version is older than what the live API advertises.
 """
 
-TOOLCHAIN_VERSION = "1"
+# 2: init_scaffold and its firmware templates changed across TWO skills pin moves and
+# this constant was not bumped for either, so v1 covers 65bef88 through 5ab8e9c. The
+# change that matters to an installed extension is that the templates now print
+# MPYHW_READY after hardware init: an older bundled scaffold renders firmware that never
+# prints it, while the live deploy skill stop-matches on it, so the capture stalls and
+# the phase fails with nothing naming the cause.
+TOOLCHAIN_VERSION = "2"

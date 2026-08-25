@@ -3,7 +3,15 @@
 // it together with mpyhw-api/app/toolchain.py TOOLCHAIN_VERSION whenever a bundled
 // script's contract changes. The handshake warns (non-blocking) when an installed
 // extension's bundled scripts are older than what the live API's skills expect.
-export const BUNDLED_TOOLCHAIN_VERSION = "1";
+//
+// 2: init_scaffold and its firmware templates changed across TWO skills pin moves and
+// this constant was not bumped for either, so v1 covers 65bef88 through 5ab8e9c. The
+// change that matters to an installed extension is that the templates now print
+// MPYHW_READY after hardware init: an older bundled scaffold renders firmware that
+// never prints it, while the live deploy skill stop-matches on it, so the capture
+// stalls and the phase fails with nothing naming the cause. That is exactly the
+// warning this version exists to produce.
+export const BUNDLED_TOOLCHAIN_VERSION = "2";
 
 // The VSIX version (mirrors package.json "version"). Hand-kept in sync the same way
 // BUNDLED_TOOLCHAIN_VERSION is — bump both when you bump package.json. Used by the
