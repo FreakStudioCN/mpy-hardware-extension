@@ -108,13 +108,25 @@ if (existsSync(venvPython)) {
   // gate error stops being actionable. Five stalls, each costing an hour-long hardware run,
   // were all one defect: a message stating a condition without naming where to act. Four
   // seconds here is the cheapest place to catch the sixth.
-  // Guarded like every other cwd-relative step: the runner is also executed against synthetic
-  // fixtures that carry no scripts/ or test/ tree, and a step cannot demand files the caller
-  // never claimed to have. Announced when skipped, so a deleted script cannot pass as green.
+  // The absence of the assets means two different things and they cannot share an outcome. The
+  // runner is also executed against synthetic fixtures that carry no scripts/ or test/ tree, and
+  // a step cannot demand files the caller never claimed to have -- but in a REAL checkout a
+  // missing gate script is a deleted gate script, and skipping it green unwires the very
+  // regression check this step exists to be. An earlier version announced the skip and claimed
+  // that was enough; it is not, because nothing reads the announcement. Nothing else runs this
+  // check either: CI runs npm test and npm run test:v0, never baseline.
+  //
+  // `scripts/baseline.mjs` tells the two apart. It is always present in a real checkout, because
+  // `npm run baseline` IS `node scripts/baseline.mjs`, and never present in the synthetic fixture,
+  // which writes only a package.json. So the fixture still skips and the repo now fails, which is
+  // how the venv and skills-submodule guards below and above already behave.
   const gateScript = resolve("scripts", "assert-gate-messages.mjs");
   const gateFixtures = resolve("test", "fixtures", "gate-messages");
   if (existsSync(gateScript) && existsSync(gateFixtures)) {
     runStep("gate messages", "node", ["scripts/assert-gate-messages.mjs"], { shell: isWin });
+  } else if (existsSync(resolve("scripts", "baseline.mjs"))) {
+    console.log("FAIL gate messages (assets missing from a real checkout — deleted or renamed?)");
+    failures.push("gate messages (assets missing)");
   } else {
     console.log("SKIP gate messages (no scripts/assert-gate-messages.mjs + test/fixtures/gate-messages here)");
   }
