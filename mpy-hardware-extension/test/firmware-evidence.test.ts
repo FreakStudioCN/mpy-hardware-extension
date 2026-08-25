@@ -5,6 +5,7 @@ import {
   classifyFirmwareEvidence,
   describeFirmwareEvidence,
   postRebootLines,
+  renderTerminalLine,
 } from "../src/cli/firmware-evidence.ts";
 
 // Both captures below are verbatim from real hardware runs on a Pico 2, not composed for the
@@ -14,8 +15,12 @@ import {
 
 // A blink run that WORKED. The boot line names the build, so this is the easy case and the one
 // that must not regress.
+// The "^D\b\b" prefix is byte-for-byte what the archive holds (5e 44 08 08): the terminal echoed
+// the Ctrl-D as the two ordinary characters "^D", then erased them with two backspaces. Earlier
+// fixtures here transcribed the "^D" but dropped the backspaces, which is why they could not
+// reproduce the misclassification below.
 const RAN_CAPTURE = [
-  "^DConnected to MicroPython at /dev/cu.usbmodem101",
+  "^D\b\bConnected to MicroPython at /dev/cu.usbmodem101",
   "Use Ctrl-] or Ctrl-x to exit this shell",
   "",
   "MPY: soft reboot",
@@ -29,7 +34,7 @@ const RAN_CAPTURE = [
 // was later confirmed byte-identical to the one the run had just uploaded, so this IS our build,
 // and the summary reported "STALE DEVICE: nothing this run built reached the board".
 const CRASHED_CAPTURE = [
-  "^DConnected to MicroPython at /dev/cu.usbmodem101",
+  "^D\b\bConnected to MicroPython at /dev/cu.usbmodem101",
   "Use Ctrl-] or Ctrl-x to exit this shell",
   "",
   "MPY: soft reboot",
@@ -124,3 +129,88 @@ test("the interpreter banner never proves a build ran", () => {
   assert.equal(classifyFirmwareEvidence(lines, "Pico2").kind, "crashed");
   assert.equal(classifyFirmwareEvidence(lines, "RP2350").kind, "crashed");
 });
+
+test("the banner is still recognised when the echoed Ctrl-D precedes it", () => {
+  // The case above passes only because its banner is clean. Real captures carry the echoed
+  // keystroke ahead of it, which defeats the anchored match and leaves mpremote's greeting standing
+  // as the sole "firmware" line -- a capture proving nothing then reads as a board running someone
+  // else's build. Mutation: drop the backspace handling in renderTerminalLine and this returns
+  // "foreign".
+  const bannerOnly = ["^D\b\bConnected to MicroPython at /dev/cu.usbmodem101",
+                      "Use Ctrl-] or Ctrl-x to exit this shell"].join("\r\n");
+  assert.equal(classifyFirmwareEvidence(postRebootLines({ serial_excerpt: bannerOnly }), DHT11_NAME).kind, "absent");
+});
+
+test("a foreign build is quoted by its firmware output, not by mpremote's greeting", () => {
+  // Verbatim from an archived run whose board was genuinely running an older build: no reboot line
+  // and no traceback, so every line is kept and the FIRST one is what gets quoted. With the echo
+  // unhandled that first line is the greeting, so the report cited tooling chatter as its proof of
+  // a different build. The verdict was right by luck; the evidence shown was not.
+  const capture = ["^D\b\bConnected to MicroPython at /dev/cu.usbserial-0001",
+                   "Use Ctrl-] or Ctrl-x to exit this shell",
+                   "TEMP=29.0C HUM=72.0%",
+                   "TEMP=29.0C HUM=72.0%"].join("\r\n");
+  const evidence = classifyFirmwareEvidence(postRebootLines({ serial_excerpt: capture }), DHT11_NAME);
+
+  assert.equal(evidence.kind, "foreign");
+  assert.match(describeFirmwareEvidence(evidence, DHT11_NAME), /DIFFERENT build: "TEMP=29\.0C/);
+  assert.doesNotMatch(describeFirmwareEvidence(evidence, DHT11_NAME), /Connected to MicroPython/);
+});
+
+test("a rendered line is what the terminal showed, not the bytes that produced it", () => {
+  // Asserted directly because the end-to-end cases cannot isolate it: a traceback carries several
+  // lines matching several patterns, so debris on any one of them is masked by the others.
+  assert.equal(renderTerminalLine("^D\b\bConnected to MicroPython"), "Connected to MicroPython");
+  assert.equal(renderTerminalLine("\x1b[0mTraceback (most recent call last):"), "Traceback (most recent call last):");
+  assert.equal(renderTerminalLine("\x1b[2K\x1b[0G  File \"main.py\", line 13"), 'File "main.py", line 13');
+  // A backspace with nothing to erase is a no-op, not a crash and not a swallowed character.
+  assert.equal(renderTerminalLine("\b\bMPY: soft reboot"), "MPY: soft reboot");
+  // Framing noise a UART emits as the port opens (a NUL, a bell, a bare ESC) blinds an anchor
+  // exactly like the echoed keystroke does, and is invisible in a report that prints the line.
+  assert.equal(renderTerminalLine("\x00\x07MPY: soft reboot"), "MPY: soft reboot");
+  // Text with nothing to render is dropped by the caller's filter rather than kept as a blank line.
+  assert.equal(renderTerminalLine("^D\b\b"), "");
+});
+
+test("a CSI sequence is stripped for every parameter form, not just the digits SGR uses", () => {
+  // A colon-delimited parameter is valid ECMA-48 (ITU-T T.416 truecolour). Against a digits-only
+  // parameter class it matches NOTHING rather than matching partially, because no final byte
+  // follows, so the whole sequence survives as printable debris at the start of the line -- the
+  // exact blindness this normalisation exists to remove. Mutation: narrow the class back to
+  // [0-9;?] and only this case fails.
+  assert.equal(renderTerminalLine("\x1b[38:2:255:0:0mConnected to MicroPython"), "Connected to MicroPython");
+  // The forms that already worked must keep working.
+  assert.equal(renderTerminalLine("\x1b[1;31mMPY: soft reboot"), "MPY: soft reboot");
+  assert.equal(renderTerminalLine("\x1b[?25lMPY: soft reboot"), "MPY: soft reboot");
+  assert.equal(renderTerminalLine("\x1b[0 qMPY: soft reboot"), "MPY: soft reboot");
+  // A CHARACTERISATION of a known limit, not a contract. Only CSI is handled, so an OSC payload
+  // survives with its ESC stripped. If this assertion ever fails because OSC is now being
+  // stripped, that is an improvement: update the expectation, do not restore the old behaviour.
+  // It is here so the limit stays visible rather than becoming an accident nobody remembers
+  // choosing. No archived capture holds an ESC byte of any kind.
+  assert.equal(renderTerminalLine("\x1b]0;title\x07MPY: soft reboot"), "]0;titleMPY: soft reboot");
+});
+
+test("a traceback is found even when every line carries terminal debris", () => {
+  // The traceback and exception patterns are anchored exactly like the banner one, so they share
+  // its blind spot. Debris on the header alone proves nothing -- the File frame would still match
+  // and carry the verdict -- so this puts it on both, leaving no unobstructed anchor.
+  // Mutation: drop the ANSI_ESCAPE replace and this returns "foreign".
+  const capture = ["MPY: soft reboot",
+                   "\x1b[0mTraceback (most recent call last):",
+                   '\x1b[0m  File "main.py", line 13, in <module>',
+                   "ImportError: no module named 'lib.logger'"].join("\r\n");
+  const evidence = classifyFirmwareEvidence(postRebootLines({ final_reset_excerpt: capture }), DHT11_NAME);
+
+  assert.equal(evidence.kind, "crashed");
+  assert.match(describeFirmwareEvidence(evidence, DHT11_NAME), /RAISED on startup.*ImportError/);
+});
+
+test("a bare carriage return ends a line rather than splicing two together", () => {
+  // Stripping \r instead of splitting on it would weld the traceback onto the previous line and
+  // push its anchor off the start, reproducing the same class of miss one layer down.
+  const capture = "MPY: soft reboot\r[boot] starting\rTraceback (most recent call last):\rValueError: bad pin";
+  const evidence = classifyFirmwareEvidence(postRebootLines({ final_reset_excerpt: capture }), DHT11_NAME);
+
+  assert.equal(evidence.kind, "crashed");
+  assert.match(describeFirmwareEvidence(evidence, DHT11_NAME), /ValueError: bad pin/);});
