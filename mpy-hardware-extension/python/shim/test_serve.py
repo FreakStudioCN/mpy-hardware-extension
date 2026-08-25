@@ -795,7 +795,10 @@ def test_run_v0_refuses_pylint_because_a_project_pylintrc_executes_code():
     gets it written, with no flags at all. No argument guard can see that, so the argument guard
     below is not the control that matters here.
 
-    Lint still runs through run_quality_gates.py, which the refusal names."""
+    Lint still runs through run_quality_gates.py, which the refusal names -- and THAT path runs
+    pylint with `--rcfile=.pylintrc` at cwd=project_dir, so what this test pins is one ROUTE being
+    closed, not the capability. Read the note above _ALLOWED_PYTHON_MODULES in serve.py before
+    treating a green here as a boundary."""
     for args in (["firmware"], ['--init-hook=import os; os.system("id")', "firmware"],
                  ["--load-plugins=evil", "firmware"], ["--rcfile=firmware/.pylintrc", "firmware"]):
         record = []

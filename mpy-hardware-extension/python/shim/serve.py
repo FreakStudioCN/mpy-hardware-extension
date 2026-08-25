@@ -1596,11 +1596,29 @@ def _assert_project_root(base: str, args: list, cwd: str | None) -> list:
 # denylist. Lint still runs, through run_quality_gates.py, which is the path the contract wants
 # and which the refusal message already names. Do not add it back without answering the .pylintrc
 # question, since that is the door, not the flags.
+#
+# READ THIS BEFORE TREATING THE LINE ABOVE AS A BOUNDARY. Removing pylint closes one ROUTE to a
+# capability the host already grants; it does not close the capability, and the sentence above
+# reads as though it did. run_quality_gates.py -- the very path the refusal message sends the
+# model to -- runs all three of these with cwd=project_dir, the tree the model writes:
+#   * `-m pylint <targets> --rcfile=.pylintrc` (run_quality_gates.py:236) -- init-hook, and the
+#     rcfile is named EXPLICITLY, so the file the model controls is loaded on purpose;
+#   * `-m flake8 ... ` at cwd=project_dir (:224) -- flake8's own `[flake8:local-plugins]` section
+#     imports a module by path from that config. Verified against flake8 7.3.0 with NO flags at
+#     all: a `.flake8` declaring a local plugin executed the plugin's module-level code. `.flake8`
+#     is not incidental either -- init_scaffold writes it on every render and the gate requires it;
+#   * `-m unittest discover -s test/pc` (:253) -- runs project test code outright.
+# So the honest boundary is: this shim executes project-controlled Python by design, and the
+# module allowlist decides how many ways there are to ask for it, not whether it is possible.
+# flake8 stays on the list for that reason -- dropping it would cost the model turns and close
+# nothing -- and pylint stays off as one fewer route, not as a fix. Making this a real boundary is
+# a question for the skills repository (a lint config the model cannot write, or a sandboxed gate
+# run), not for this tuple.
 _ALLOWED_PYTHON_MODULES = frozenset({"py_compile", "compileall", "unittest", "flake8", "json.tool"})
 
-# "Verification only" is a property of the MODULE list above, not of the arguments. Three of the
-# six write to a path the caller names: `json.tool in.json OUT.json`, `flake8 --output-file=PATH`
-# and `pylint --output=PATH`. So an allowlisted, read-only-looking call can still overwrite any
+# "Verification only" is a property of the MODULE list above, not of the arguments. Two of the
+# five write to a path the caller names: `json.tool in.json OUT.json` and
+# `flake8 --output-file=PATH`. So an allowlisted, read-only-looking call can still overwrite any
 # file the shim account can write, which is the one route through this dispatcher that escapes the
 # containment `write_project_file` and `delete_project_path` enforce everywhere else.
 #
