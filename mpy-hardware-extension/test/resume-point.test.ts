@@ -92,3 +92,90 @@ test("a run with no usable phase_complete says so", async () => {
   const dir = await runDir({ "phase_complete.analyze.json": JSON.stringify({ payload: { result: "success" } }) });
   await assert.rejects(() => resumePoint(dir), /carries next_phase \+ manifest_content/);
 });
+
+// next_phase is a string a PREVIOUS run wrote, and the resumed phase is joined into the checkpoint
+// path that snapshotCheckpoint then rm -rf's and renames over. Taking it verbatim let a traversal
+// reach that join: `../../..` resolves outside the project entirely. It has to fail to resolve as a
+// phase, not merely be discouraged, and it has to SAY it skipped it -- a resume that quietly picks
+// an earlier phase than expected is the thing nobody can explain afterwards.
+test("a next_phase that is not a known phase is skipped and reported, never returned", async () => {
+  const dir = await runDir({
+    "phase_complete.upy_scaffold_plugin.json": saved("upy-generate-plugin"),
+    "phase_complete.evil.json": saved("../../../../victim"),
+  });
+  const skips: string[] = [];
+  const point = await resumePoint(dir, undefined, (m) => skips.push(m));
+  assert.equal(point.phase, "upy-generate-plugin", "the traversal must not be selected");
+  assert.ok(skips.some((m) => m.includes("phase_complete.evil.json")), `the skip must be reported: ${JSON.stringify(skips)}`);
+});
+
+// The traversal alone would still pass if it merely lost the rank sort, so pin the case where it is
+// the ONLY candidate: it must leave nothing to resume from rather than becoming the resume point.
+test("a traversal next_phase alone leaves nothing to resume from", async () => {
+  const dir = await runDir({ "phase_complete.evil.json": saved("../../../../victim") });
+  await assert.rejects(() => resumePoint(dir, undefined, () => {}), /carries next_phase \+ manifest_content/);
+});
+
+// PHASE_ORDER holds only the canonical `-plugin` spellings, so ranking the raw string gave a legal
+// short alias -1 -- behind every real phase. A saved "deploy" then lost to an EARLIER phase and the
+// resume replayed the one it exists to skip. The phase handed back must be canonical too, because
+// the loop asks the backend for a skill by that name.
+test("a short alias resumes as its canonical phase, and outranks earlier phases", async () => {
+  const dir = await runDir({
+    "phase_complete.upy_scaffold_plugin.json": saved("upy-generate-plugin"),
+    "phase_complete.upy_generate_plugin.json": saved("deploy"),
+  });
+  const point = await resumePoint(dir);
+  assert.equal(point.phase, "upy-deploy-plugin", "the furthest phase wins and comes back canonical");
+});
+
+// PHASE_ALIASES is an object literal, so a bare lookup walks the prototype chain: "toString",
+// "constructor", "__proto__" and friends all come back truthy, as FUNCTIONS, and `?? null` never
+// fires. The guard's whole promise is that anything outside the table is refused, and it was false
+// for about ten inputs. A Function reaching the loop as a phase name is bad enough; one reaching
+// checkpointSegment's replace() throws where nothing catches it.
+test("a next_phase that only exists on Object.prototype is refused like any other unknown", async () => {
+  for (const key of ["toString", "constructor", "__proto__", "hasOwnProperty", "valueOf"]) {
+    const dir = await runDir({
+      "phase_complete.upy_scaffold_plugin.json": saved("upy-generate-plugin"),
+      "phase_complete.proto.json": saved(key),
+    });
+    const skips: string[] = [];
+    const point = await resumePoint(dir, undefined, (m) => skips.push(m));
+    assert.equal(point.phase, "upy-generate-plugin", `${key} must not become the resume point`);
+    assert.equal(typeof point.phase, "string", `${key} produced a non-string phase`);
+    // The REASON, not just the filename: a regression that skipped this as unreadable rather than
+    // as an unknown phase would otherwise stay green while reporting the wrong cause.
+    assert.ok(
+      skips.some((m) => m.includes("phase_complete.proto.json") && m.includes("not a known phase")),
+      `${key} must be reported as skipped for naming no known phase, got ${JSON.stringify(skips)}`,
+    );
+  }
+});
+
+// The other side of canonicalizing `wanted`: it falls back to the raw string when it does not
+// resolve, so pin that the fallback cannot smuggle a traversal through. Every candidate is
+// canonical now, so an unresolvable wanted value matches nothing and the run stops instead of
+// resuming at a phase named "../../..".
+test("E2E_RESUME_PHASE naming a traversal matches nothing and stops the run", async () => {
+  const dir = await runDir({
+    "phase_complete.upy_scaffold_plugin.json": saved("upy-generate-plugin"),
+    // The evil candidate has to be PRESENT for this to test anything. Without it the traversal
+    // matches nothing whatever the code does, and the test passes with both canonicalization
+    // sites reverted -- proving only that a name absent from disk is absent from disk.
+    "phase_complete.evil.json": saved("../../../../victim"),
+  });
+  await assert.rejects(() => resumePoint(dir, "../../../../victim", () => {}), /not saved under/);
+});
+
+// E2E_RESUME_PHASE is typed by a person, and "deploy" is what a person types. Canonicalizing the
+// candidates without canonicalizing the wanted value would have rejected it.
+test("E2E_RESUME_PHASE accepts the short alias a person actually types", async () => {
+  const dir = await runDir({
+    "phase_complete.upy_scaffold_plugin.json": saved("upy-generate-plugin"),
+    "phase_complete.upy_generate_plugin.json": saved("upy-deploy-plugin"),
+  });
+  const point = await resumePoint(dir, "deploy");
+  assert.equal(point.phase, "upy-deploy-plugin");
+  assert.equal(point.from, "phase_complete.upy_generate_plugin.json");
+});

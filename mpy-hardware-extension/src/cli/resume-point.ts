@@ -8,7 +8,7 @@
 import { readFile as fsReadFile, readdir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 
-import { PHASE_ORDER } from "../core/protocol-loop.ts";
+import { PHASE_ALIASES, PHASE_ORDER } from "../core/protocol-loop.ts";
 
 export type ResumePoint = { phase: string; manifest: any; from: string };
 
@@ -43,6 +43,31 @@ export async function findPhaseCompletes(root: string, depth = SEARCH_DEPTH): Pr
   return found;
 }
 
+// The saved next_phase is a STRING OFF DISK, and until it resolves to a canonical phase it is not
+// a resume point -- it is just text a previous run wrote. Three things went wrong by taking it
+// verbatim. It is joined into a checkpoint path that a recursive rm then deletes, so `../../x`
+// escaped the project. It is ranked with PHASE_ORDER.indexOf, which holds only the canonical
+// `-plugin` spellings, so a legal short alias ranked -1 and lost to an EARLIER phase -- resume then
+// replayed the phase it exists to skip. And it is handed to the loop as the phase to run, which
+// asks the backend for a skill by that name and gets none.
+//
+// PHASE_ALIASES is imported rather than restated: it is the authoritative table and it changes.
+// Only the trimming is local, to keep this file off protocol-loop.ts, which a sibling branch owns.
+// Anything not IN that table resolves to null, which is what makes a traversal string unusable
+// here rather than merely discouraged.
+function canonicalPhase(value: unknown): string | null {
+  if (value == null) return null;
+  const raw = String(value).trim().replace(/^\/+/, "");
+  if (!raw || ["null", "none"].includes(raw.toLowerCase())) return null;
+  // hasOwn, not a bare lookup. PHASE_ALIASES is an object literal, so a plain index walks the
+  // prototype chain and "toString", "constructor", "__proto__", "valueOf" and friends all come
+  // back truthy -- as FUNCTIONS. `?? null` never fires on those, so the one thing this guard
+  // promises, that anything outside the table is refused, was false for about ten inputs. They
+  // reach the loop as a phase, and a Function handed to checkpointSegment's replace() throws
+  // where nothing catches it, which would reject the checkpoint queue that must never reject.
+  return Object.hasOwn(PHASE_ALIASES, raw) ? PHASE_ALIASES[raw] : null;
+}
+
 async function readCandidates(dir: string, onSkip: (message: string) => void): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
   for (const path of await findPhaseCompletes(dir)) {
@@ -57,10 +82,18 @@ async function readCandidates(dir: string, onSkip: (message: string) => void): P
     const phase = payload.next_phase ?? saved.next_phase;
     const manifest = payload.manifest_content ?? saved.manifest_content;
     if (typeof phase !== "string" || !phase || !manifest) continue;
-    // PHASE_ORDER is a literal tuple; the saved phase is just a string off disk.
+    // Resolved here, once, so everything downstream -- the rank, the phase handed to the loop, and
+    // the checkpoint path built from it -- sees a canonical phase and never the raw string.
+    const canonical = canonicalPhase(phase);
+    if (!canonical) {
+      // Said out loud for the same reason an unreadable file is: a resume that silently picks an
+      // earlier phase than expected is the thing nobody can explain afterwards.
+      onSkip(`resume: skipping ${name} — next_phase ${JSON.stringify(phase)} is not a known phase`);
+      continue;
+    }
     candidates.push({
-      from: name, phase, manifest,
-      rank: (PHASE_ORDER as readonly string[]).indexOf(phase),
+      from: name, phase: canonical, manifest,
+      rank: (PHASE_ORDER as readonly string[]).indexOf(canonical),
       depth: name.split(sep).length,
     });
   }
@@ -83,10 +116,17 @@ export async function resumePoint(
 ): Promise<ResumePoint> {
   const candidates = await readCandidates(dir, onSkip);
   if (candidates.length === 0) {
-    throw new Error(`E2E_RESUME: no phase_complete under ${dir} carries next_phase + manifest_content`);
+    // Names both ways a file can fail to be a resume point, because they are now different
+    // failures: missing fields, or a next_phase that named no known phase. The skip lines above
+    // say which, and this line is what someone reads first.
+    throw new Error(`E2E_RESUME: no phase_complete under ${dir} carries next_phase + manifest_content naming a known phase`);
   }
   if (wanted) {
-    const picked = candidates.find((c) => c.phase === wanted);
+    // Normalized on BOTH sides. The candidates are canonical now, so comparing them against a raw
+    // env value would reject `E2E_RESUME_PHASE=deploy` -- the spelling a person actually types, and
+    // one the alias table has always accepted.
+    const wantedPhase = canonicalPhase(wanted) ?? wanted;
+    const picked = candidates.find((c) => c.phase === wantedPhase);
     if (!picked) {
       // Name the FILE each option came from, not just the phase. When the wanted phase is missing
       // the next question is always "where did it look", and a bare phase list cannot answer it.

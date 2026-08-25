@@ -21,10 +21,11 @@
 //   3. A Python on PATH; first run bootstraps ~/.mpyhw/venv.
 // Bills several DeepSeek turns. Usage: npm run e2e:v0 -- "your intent here"
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, readFile as fsReadFile, readdir, rename, writeFile, rm, stat } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { cp, mkdir, readFile as fsReadFile, readdir, writeFile, rm, stat } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createCheckpointQueue } from "./checkpoint.ts";
 import { createProtocolLoop } from "../core/protocol-build.ts";
 import { createDeviceShim } from "../extension/device-shim.ts";
 import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
@@ -283,31 +284,9 @@ let stopAfterPhase = false;
 //
 // Best-effort by design: a failed snapshot must never fail the run it is observing. It is
 // diagnostic scaffolding, not a phase result.
-async function snapshotCheckpoint(phase: string): Promise<void> {
-  if (!phase) return;
-  const dest = join(projectDir, ".mpyhw", "checkpoints", phase);
-  // Staged OUTSIDE the project, then moved in: fs.cp refuses a copy whose destination is inside
-  // the source tree, up front and regardless of the filter (EINVAL, "cannot copy X to a
-  // subdirectory of self"). The staging dir is a sibling of the project so the rename stays on
-  // one filesystem.
-  const staging = join(dirname(projectDir), `.ckpt-${phase.replace(/[^\w.-]/g, "_")}-tmp`);
-  try {
-    await rm(staging, { recursive: true, force: true });
-    // Skip .mpyhw itself: it holds the session log and these very checkpoints, so copying it in
-    // would nest the run's own history one level deeper on every phase.
-    await cp(projectDir, staging, {
-      recursive: true,
-      filter: (src) => !src.includes(`${sep}.mpyhw`),
-    });
-    await mkdir(dirname(dest), { recursive: true });
-    await rm(dest, { recursive: true, force: true });
-    await rename(staging, dest);
-    console.log(`  [checkpoint] ${phase} -> .mpyhw/checkpoints/${phase}`);
-  } catch (err: any) {
-    await rm(staging, { recursive: true, force: true }).catch(() => {});
-    console.warn(`  [checkpoint] ${phase} not saved: ${err?.message ?? err}`);
-  }
-}
+// Snapshots in order, drained before the run exits. Lives in checkpoint.ts so it can be tested:
+// this module runs a whole build at import, so nothing declared here is reachable from a test.
+const checkpoints = createCheckpointQueue(projectDir);
 
 // Reconstruct the phase->result trail from loop events (createProtocolLoop only
 // returns the last phase). phase_start sets the current phase; phase_complete records it.
@@ -328,7 +307,9 @@ const onEvent = (e: any) => {
     phases.push({ phase: current, result: e.payload?.result ?? null });
     console.log(`  phase_complete: ${e.payload?.result} -> ${e.payload?.next_phase}`);
     if (e.payload?.result !== "success" && e.payload?.summary) console.log(`    reason: ${String(e.payload.summary).slice(0, 300)}`);
-    void snapshotCheckpoint(current);
+    // `current` is passed as an ARGUMENT, so it is captured now rather than read when the queued
+    // copy eventually runs. See createCheckpointQueue for why that distinction has teeth.
+    checkpoints.snapshot(current);
     // A single-phase iteration is only "single phase" while the phase under test keeps failing:
     // the moment it succeeds, the loop follows next_phase and quietly becomes a full run. That
     // happened -- a generate-only run carried on into deploy, a re-flash and a SECOND generate,
@@ -643,4 +624,10 @@ else if (deployFailed) console.log("verdict blocked: the deploy phase failed");
 // carries no tool payloads, so a REVIEW that says nothing here is answerable from the jsonl.
 console.log("session log:", join(projectDir, ".mpyhw", "sessions", "e2e-v0-fullstack", "session.jsonl"));
 console.log("\nE2E-V0-FULLSTACK:", passed ? "PASS" : "REVIEW");
+// The last phase's checkpoint is still copying when the verdict prints. Exiting here truncated it:
+// the staging directory was left behind and the checkpoint the next resume wanted was never
+// renamed into place. Awaiting costs the run nothing -- the work is already done or nearly so by
+// the time the verdict is computed -- and the queue never rejects, so this cannot turn a finished
+// run into a failed one.
+await checkpoints.drain();
 process.exit(passed ? 0 : 1);
