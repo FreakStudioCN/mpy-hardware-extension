@@ -2577,6 +2577,39 @@ test("an invented next phase is still a failure", async () => {
   assert.ok(events.some((e) => e.type === "phase_error" && e.error_kind === "unknown_next_phase"));
 });
 
+// The invented phase above is refused because the alias table does not have it. These ones the
+// table appears to have, because indexing an object literal walks the prototype chain: "toString"
+// and friends come back truthy, as FUNCTIONS, so `?? null` never fires and the unknown-phase error
+// never happens. next_phase is model-controlled, so this needs nothing on disk -- the model names
+// one and a Function becomes the phase, in the request body, in phase_start, and in anything
+// downstream that joins a phase into a path.
+test("a next phase that only exists on Object.prototype is refused, not carried forward", async () => {
+  for (const key of ["toString", "constructor", "valueOf", "hasOwnProperty"]) {
+    const events: any[] = [];
+    const llm = {
+      streamMessages: async () => (async function* () {
+        yield tu("d", "phase_complete", { result: "success", summary: "done", next_phase: key });
+        yield stop;
+      })(),
+    };
+
+    const result = await runProtocolBuild(
+      { intent: "blink", startPhase: "upy-deploy-plugin", onEvent: (e: any) => events.push(e) },
+      { llmClient: llm } as any,
+    );
+
+    assert.equal(result.terminal, "failed", `${key} must end the build, not continue it`);
+    assert.ok(
+      events.some((e) => e.type === "phase_error" && e.error_kind === "unknown_next_phase"),
+      `${key} must be reported as an unknown phase`,
+    );
+    // Nothing may have started a phase whose name is not a string.
+    for (const started of events.filter((e) => e.type === "phase_start")) {
+      assert.equal(typeof started.phase, "string", `${key} produced a non-string phase_start`);
+    }
+  }
+});
+
 test("a passing consistency check tells the model to stop", async () => {
   // Measured across three runs: the checker passed and the model kept going -- committing
   // again, which moved HEAD, which staled the hash it had just recorded, which made the

@@ -192,7 +192,14 @@ function phaseToken(value: any): string | null {
 function normalizePhase(value: any): string | null {
   const token = phaseToken(value);
   if (!token) return null;
-  return PHASE_ALIASES[token] ?? null;
+  // hasOwn, not a bare index. PHASE_ALIASES is an object literal, so indexing it walks the
+  // prototype chain: "toString", "constructor", "valueOf", "hasOwnProperty" all come back truthy
+  // -- as FUNCTIONS -- and `?? null` never fires on them. The token here is model-controlled
+  // (ctrl.next_phase), so a model naming one of those did not get the unknown_next_phase error
+  // this function exists to produce. It got a Function carried forward as the phase name, into
+  // the request body, the phase_start event, and anything downstream that joins a phase into a
+  // path. An allowlist has to answer membership, and `in`-by-index does not.
+  return Object.hasOwn(PHASE_ALIASES, token) ? PHASE_ALIASES[token] : null;
 }
 
 // Headless/no-board contexts pick the "already handled on hardware" action so a flash
