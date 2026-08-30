@@ -19,8 +19,9 @@
 // What it does NOT do: prove a model can act on a message. A message can satisfy every check
 // here and still read badly. A clean run means "no KNOWN defect shape", not "this works".
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,12 +31,22 @@ const repoRoot = resolve(extRoot, "..");
 const skillsDir = join(repoRoot, "third_party", "MicroPython_Skills");
 const fixturesDir = join(extRoot, "test", "fixtures", "gate-messages");
 
+// The generate validator's git-commit gates return before grading unless --project-dir is a git
+// repository, so handing it the fixtures directory (no .git) never ran them: the fixture saved
+// for GIT_COMMIT_* was kept "failing" by PROJECT_MANIFEST_MISSING and friends -- environment
+// errors that would survive the gate it exists to test being deleted. An empty repository with
+// one commit is enough for every git gate to run.
+const projectDir = mkdtempSync(join(tmpdir(), "gate-messages-project-"));
+process.on("exit", () => rmSync(projectDir, { recursive: true, force: true }));
+execFileSync("git", ["init", "-q", projectDir], { stdio: "ignore" });
+execFileSync("git", ["-C", projectDir, "-c", "user.email=gate@messages", "-c", "user.name=gate-messages", "commit", "-q", "--allow-empty", "-m", "init"], { stdio: "ignore" });
+
 // fixture suffix -> the validator that grades it, and how it is invoked.
 const GATES = [
   {
     match: /^generate-/,
     script: join(skillsDir, "upy-generate-plugin", "scripts", "check_phase_complete_consistency.py"),
-    args: (fixture) => ["--phase-complete", fixture, "--project-dir", fixturesDir],
+    args: (fixture) => ["--phase-complete", fixture, "--project-dir", projectDir],
   },
   {
     match: /^selecthw-/,
@@ -56,6 +67,22 @@ const GATES = [
     args: (fixture) => ["--input", fixture, "--artifact-root", fixturesDir],
   },
 ];
+
+// The defect each fixture was saved for, as the code (or message) its validator must still emit.
+// "Still fails somehow" is not enough: every generate fixture also fails on missing project files,
+// so the gate a fixture exists to exercise could be deleted and the run would stay green. It also
+// keeps a crashed validator out -- gen-driver and diagram print their own exceptions as
+// `{"ok": false, "errors": ["Expecting value..."]}`, which no shape below would flag.
+const EXPECT = {
+  "diagram-diagrams-as-list": /^DIAGRAMS_MISSING$/,
+  "gendriver-partial-checkpoint-wrong-phase": /checkpoint\.resume_phase must be/,
+  "generate-commit-in-manifest": /^GIT_COMMIT_/,
+  "generate-gate-results-referenced-but-absent": /^GATE_SOURCE_UNREADABLE$/,
+  "generate-hand-composed-state": /^SESSION_STATE_CHECKPOINT_/,
+  "generate-shapes-written-as-prose": /^MANIFEST_BEHAVIOR_SPEC_MISSING$/,
+  "selecthw-partial-checkpoint-as-prose": /^payload\.checkpoint must be an object/,
+  "selecthw-regenerated-timestamp": /core fields differ from compare manifest/,
+};
 
 const VAGUE = /\b(is required|must record|must include|is missing|must be|not found|failed)\b/i;
 const NAMES_PATH = /[a-z_]+\.[a-z_]+|payload\.|checks\.|manifest_content\.|\[\]/;
@@ -167,9 +194,16 @@ for (const name of fixtures) {
   }
   const payload = JSON.parse(await readFile(fixture, "utf-8"));
   const errors = errorsFrom(stdout);
-  if (errors.length === 0) {
-    // The fixture must still FAIL its gate, or it has stopped testing anything.
-    console.error(`gate-messages: fixture ${name} no longer fails its gate — it cannot grade messages`);
+  const expected = EXPECT[name.replace(/\.json$/, "")];
+  if (!expected) {
+    console.error(`gate-messages: fixture ${name} has no expected defect registered in EXPECT`);
+    process.exit(1);
+  }
+  const identity = (e) => String(e.code ?? e.message ?? "");
+  if (!errors.some((e) => expected.test(identity(e)))) {
+    // The fixture must still FAIL its gate FOR ITS OWN REASON, or it has stopped testing anything.
+    console.error(`gate-messages: fixture ${name} no longer trips ${expected} — it cannot grade that message`);
+    console.error(`  got: ${errors.map(identity).join(" | ").slice(0, 400) || "(no errors)"}`);
     process.exit(1);
   }
   for (const entry of errors) {
