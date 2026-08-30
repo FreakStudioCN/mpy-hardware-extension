@@ -1,0 +1,73 @@
+{
+  "protocol_version": "1.0",
+  "type": "phase_complete",
+  "phase": "upy-generate-plugin",
+  "payload": {
+    "phase": "upy-generate-plugin",
+    "result": "success",
+    "summary": "generated the blink firmware",
+    "manifest_content": {
+      "phase": "generate",
+      "requirements": {
+        "description": "blink the onboard LED"
+      },
+      "devices": [
+        {
+          "id": "d1",
+          "type": "led"
+        }
+      ],
+      "mcu": "rp2350",
+      "pinout": {
+        "led": 25
+      },
+      "scaffold_mode": "timer",
+      "generate": {
+        "behavior_spec": {
+          "description": "Blink the onboard LED every 1000 ms"
+        },
+        "simulation_hints": {
+          "mock_devices": [
+            "led"
+          ]
+        },
+        "deploy_plan": {
+          "source_only": [
+            "firmware/main.py",
+            "firmware/boot.py",
+            "firmware/conf.py"
+          ],
+          "upload_exclude": [
+            "firmware/drivers/**/mock.py",
+            "firmware/drivers/**/mock.mpy"
+          ]
+        },
+        "cloud_integrations": [],
+        "git": {
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "commit_role": "final_head"
+        }
+      }
+    },
+    "next_phase": "upy-deploy-plugin",
+    "generate": {
+      "git": {
+        "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "commit_role": "final_head"
+      }
+    },
+    "checks": {
+      "results_path": "quality_gates_result.json"
+    },
+    "lint": {
+      "results_path": "quality_gates_result.json"
+    },
+    "tests": {
+      "results_path": "quality_gates_result.json"
+    }
+  },
+  "msg_id": "m-0001",
+  "session_id": "e2e-fixture",
+  "timestamp": "2026-08-20T12:00:00Z",
+  "idempotency_key": "k-0001"
+}

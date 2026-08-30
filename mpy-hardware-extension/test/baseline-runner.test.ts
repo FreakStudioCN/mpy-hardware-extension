@@ -77,6 +77,41 @@ test(
   },
 );
 
+// The other half of that skip. In the fixture above the gate assets are absent because the
+// fixture never had them, and skipping is right. In a REAL checkout their absence means someone
+// deleted or renamed them, and skipping green unwires the regression check the step exists to be
+// -- nothing else runs it, since CI runs npm test and npm run test:v0 and never baseline. The two
+// cases are told apart by scripts/baseline.mjs, which a real checkout always has (npm run baseline
+// IS node scripts/baseline.mjs) and the fixture never does. Same posix-only stub venv as above.
+test(
+  "a real checkout with the gate assets missing FAILS rather than skipping green",
+  { skip: process.platform === "win32" ? "stub venv is posix-only" : false },
+  () => {
+    const root = mkdtempSync(join(tmpdir(), "baseline-gatemissing-"));
+    try {
+      mkdirSync(join(root, "third_party", "MicroPython_Skills"), { recursive: true });
+      const proj = join(root, "proj");
+      mkdirSync(join(proj, ".venv", "bin"), { recursive: true });
+      // What makes this a real checkout rather than a fixture: the runner itself is present,
+      // while assert-gate-messages.mjs and test/fixtures/gate-messages are not.
+      mkdirSync(join(proj, "scripts"), { recursive: true });
+      writeFileSync(join(proj, "scripts", "baseline.mjs"), "// stand-in for the runner\n");
+      writeFileSync(join(proj, "package.json"), JSON.stringify({ name: "fixture", private: true, scripts: { build: PASS, typecheck: PASS, test: PASS } }));
+      const py = join(proj, ".venv", "bin", "python");
+      writeFileSync(py, "#!/bin/sh\necho stub\nexit 0\n");
+      chmodSync(py, 0o755);
+
+      const r = spawnSync(process.execPath, [runnerPath], { cwd: proj, encoding: "utf-8", timeout: 30_000, stdio: ["ignore", "pipe", "pipe"] });
+      const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
+      assert.notEqual(r.status, 0, "a deleted gate script must not pass as green");
+      assert.match(out, /gate messages \(assets missing\)/, "the failure summary names what is missing");
+      assert.doesNotMatch(out, /BASELINE PASSED/, "the run must not report itself passed");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
 test("stdin is ignored: a step that reads stdin gets EOF instead of hanging", () => {
   // readFileSync(0) blocks forever if stdin stays open; with stdio ignore it hits EOF
   // immediately. If it hung, the 30s runner timeout would trip and PASS build would be absent.

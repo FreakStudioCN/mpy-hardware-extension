@@ -1,0 +1,79 @@
+{
+  "protocol_version": "1.0",
+  "msg_id": "msg-select-hw-001",
+  "session_id": "select-hw-session-001",
+  "phase": "select-hw",
+  "timestamp": "2026-08-19T19:37:28Z",
+  "type": "phase_complete",
+  "idempotency_key": "select-hw:select-hw-session-001:phase-complete:v1",
+  "retry_of": null,
+  "payload": {
+    "phase": "select-hw",
+    "result": "success",
+    "summary": "Hardware selected: Raspberry Pi Pico 2 (RP2350). Onboard LED on GPIO25 confirmed. Firmware target RPI_PICO2 via UF2 drag-and-drop.",
+    "next_phase": "upy-flash-mpy-firmware-plugin",
+    "warnings": ["GPIO25 is used by the onboard LED. It is not exposed on the edge connector, so it cannot be reused for external peripherals without modifying the board."],
+    "errors": [],
+    "runtime_context": {
+      "artifact_root": ".",
+      "artifact_root_mode": "session_root",
+      "session_root": ".",
+      "resource_root": "upy-analyze-plugin/boards"
+    },
+    "structured_errors": [],
+    "manifest_content": {
+      "schema_version": "1.0.0",
+      "phase": "select-hw",
+      "created_at": "2025-01-01T00:00:00Z",
+      "updated_at": "2026-08-19T19:37:28Z",
+      "project_name": "Pico 2 Onboard LED Blinker",
+      "requirements": {
+        "description": "Blink the onboard LED on a Raspberry Pi Pico 2",
+        "existing_hardware": [],
+        "experience": "beginner",
+        "mcu_specified": true,
+        "output": ["visual_led"],
+        "preferred_board": "Raspberry Pi Pico 2",
+        "preferred_mcu": "RP2350"
+      },
+      "devices": [
+        {
+          "behavior": {"event": "blink", "role": "indicator"},
+          "driver": {"module": "machine.Pin", "notes": "Use machine.Pin to drive the onboard LED with time.sleep for blink timing.", "search_provider": "builtin_runtime_classifier", "search_required": false, "source": "builtin_runtime"},
+          "id": "d1",
+          "interface": "GPIO",
+          "name": "Onboard LED",
+          "notes": "Built-in LED on Raspberry Pi Pico 2, typically connected to GPIO25. Physical device is the selected board's onboard peripheral; do not add it to external BOM.",
+          "physical_source": "board_onboard",
+          "source": "user_specified",
+          "type": "led",
+          "onboard_peripheral_ref": {"board_id": "rpi-pico2", "index": 0, "name": "LED", "type": "led", "model": "", "occupied_pins": {"led": 25}, "always_used": false, "verification": "pin_mapping_verified", "pin_evidence": "pins_csv"}
+        }
+      ],
+      "mcu": {"model": "RP2350", "display_name": "Raspberry Pi Pico 2", "chip": "RP2350", "board_id": "rpi-pico2", "board_name": "Raspberry Pi Pico 2", "flash_mb": 4, "firmware_url": "https://micropython.org/download/RPI_PICO2/", "firmware_board_name": "RPI_PICO2", "flash_tool": "uf2-drag-drop"},
+      "hardware_selection": {"source_phase": "analyze", "selected_board": {"id": "rpi-pico2", "mcu": "rp2350", "chip_family": "rp2350", "display_name": "Raspberry Pi Pico 2", "vendor": "Raspberry Pi", "firmware": {"port": "rp2", "board_name": "RPI_PICO2", "url": "https://micropython.org/download/RPI_PICO2/", "latest_release": {"version": "v1.28.0", "date": "2026-04-06", "url": "https://micropython.org/resources/firmware/RPI_PICO2-20260406-v1.28.0.uf2"}, "latest_version": "v1.28.0"}}, "board_confirmed": true, "firmware_checked": true, "price_source": "llm_common_knowledge_v0"},
+      "pinout": [
+        {"device": "Board", "pin_name": "VBUS", "gpio": "5V", "type": "power_5v", "notes": "USB VBUS power input for Raspberry Pi Pico 2.", "source": "power"},
+        {"device": "Board", "pin_name": "3V3", "gpio": "3V3", "type": "power_3v3", "notes": "3.3V regulated output from Raspberry Pi Pico 2.", "source": "power"},
+        {"device": "Board", "pin_name": "GND", "gpio": "GND", "type": "gnd", "notes": "Ground reference for Raspberry Pi Pico 2.", "source": "power"},
+        {"device": "Onboard LED", "pin_name": "LED", "gpio": "25", "type": "gpio_out", "physical_pin": "LED", "notes": "Onboard LED on Raspberry Pi Pico 2, driven via machine.Pin.", "source": "onboard_peripheral"}
+      ],
+      "pin_decisions": [
+        {"device": "Board", "pin_name": "VBUS", "assigned_gpio": "5V", "decision_type": "fixed_power_tie", "source": "fixed_power", "evidence": {"path": "pin_layout.named_pins.VBUS", "value": "VBUS", "note": "VBUS is the USB 5V input rail on the Pico 2 pinout."}, "requires_user_review": false},
+        {"device": "Board", "pin_name": "3V3", "assigned_gpio": "3V3", "decision_type": "fixed_power_tie", "source": "fixed_power", "evidence": {"path": "pin_layout.named_pins.3V3", "value": "3V3", "note": "3V3 is the regulated 3.3V output rail on the Pico 2 pinout."}, "requires_user_review": false},
+        {"device": "Board", "pin_name": "GND", "assigned_gpio": "GND", "decision_type": "fixed_power_tie", "source": "fixed_power", "evidence": {"path": "pin_layout.named_pins.GND", "value": "GND", "note": "GND is the ground reference on the Pico 2 pinout."}, "requires_user_review": false},
+        {"device": "Onboard LED", "pin_name": "LED", "assigned_gpio": "25", "decision_type": "reuse_onboard_peripheral", "source": "onboard_peripheral", "evidence": {"path": "onboard_peripherals[0].occupied_pins.led", "value": 25, "note": "Board definition lists onboard LED on GPIO25."}, "requires_user_review": false}
+      ],
+      "pin_review": {"approval_id": "pin_plan_review", "confirmed": true, "confirmed_by": "user", "confirmed_at": "2026-08-19T19:37:28Z", "source": "approval_response", "note": "User confirmed the onboard LED pin plan."},
+      "bom": [
+        {"name": "Raspberry Pi Pico 2", "model": "RPI_PICO2", "device": "Board", "quantity": 1, "unit_price_yuan": 35, "total_price_yuan": 35, "notes": "MicroPython-compatible RP2350 board with onboard LED.", "purchase_links": [{"region": "", "vendor": "", "url": "https://www.raspberrypi.com/products/raspberry-pi-pico-2/", "link_type": "site_entry", "search_query": "RPI_PICO2 Raspberry Pi Pico 2 module", "confidence": "", "notes": ""}], "product_url": "", "shop_url": "", "datasheet_url": "", "supplier": "", "sku": "", "search_query": "RPI_PICO2 Raspberry Pi Pico 2 module"}
+      ],
+      "estimated_total_yuan": 35,
+      "final_status": "hardware_selected",
+      "board_onboard_device_resolution": {"board_id": "rpi-pico2", "physical_source_field": "physical_source", "onboard_device_count_enriched": 1, "onboard_device_count_added": 0, "rule": "devices[].source keeps user_specified/system_recommended; physical_source=board_onboard records board integration"}
+    },
+    "artifacts": [
+      {"type": "file_list", "title": "Select-hw phase artifacts", "files": [{"path": "select_hw_draft.json", "status": "created"}, {"path": "select_hw_validated.json", "status": "created"}, {"path": "phase_complete.select_hw.json", "status": "created"}]}
+    ]
+  }
+}

@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { createLlmClient } from "../src/core/llm-client.ts";
+import { databaseName, isTestScopedDatabase, TEST_DATABASE_HINT } from "./test-database.ts";
+import { resolvePython } from "./venv-python.ts";
 
 // Apex end-to-end: the REAL production LLM client (createLlmClient -> streamSseEvents)
 // talks to a REAL spawned uvicorn process over real HTTP + SSE. Only the LLM upstream is
@@ -17,16 +19,9 @@ import { createLlmClient } from "../src/core/llm-client.ts";
 const here = dirname(fileURLToPath(import.meta.url));
 const apiDir = join(here, "..", "..", "mpyhw-api");
 
-function resolvePython(): string | null {
-  for (const candidate of ["python", "python3"]) {
-    try {
-      if (spawnSync(candidate, ["--version"], { stdio: "ignore" }).status === 0) return candidate;
-    } catch { /* try next */ }
-  }
-  return null;
-}
-
-const python = resolvePython();
+// mpyhw-api's OWN venv, not the extension's: uvicorn and app.main are installed there, and this
+// test spawns the real API. Falls back to PATH, and null skips the suite.
+const python = resolvePython(apiDir);
 function canImport(mod: string): boolean {
   return !!python && spawnSync(python, ["-c", `import ${mod}`], { cwd: apiDir, stdio: "ignore" }).status === 0;
 }
@@ -34,9 +29,28 @@ function canImport(mod: string): boolean {
 // Skip locally when the API toolchain or a test Postgres isn't present; in CI this
 // must run (set MPYHW_REQUIRE_CONTRACT_TESTS=1) so a missing dependency can't hide the
 // gap. The spawned API requires a Postgres DATABASE_URL — there is no SQLite fallback.
-const dbUrl = process.env.DATABASE_URL || process.env.MPYHW_TEST_DATABASE_URL;
-const ready = !!python && !!dbUrl && canImport("uvicorn") && canImport("app.main");
-const skipReason = ready ? false : (process.env.MPYHW_REQUIRE_CONTRACT_TESTS ? false : "python/uvicorn/app.main/DATABASE_URL not available");
+//
+// The TEST-specific variable wins. This suite writes real rows -- a user, a session, a daily
+// credit grant -- and cleans none of them up, so which database it is handed matters. Preferring
+// the generic DATABASE_URL meant an ambient one, which on a dev machine points at the dev
+// database, beat the variable that exists precisely to say "use this one instead".
+const dbUrl = process.env.MPYHW_TEST_DATABASE_URL || process.env.DATABASE_URL;
+const dbName = databaseName(dbUrl);
+const dbIsTestScoped = isTestScopedDatabase(dbName);
+// MPYHW_REQUIRE_CONTRACT_TESTS means "a missing dependency must not hide the gap", so it turns a
+// skip into a run. It does NOT mean "write anywhere": the name check is outside it, because the
+// same flag also forces sse-contract and shim-roundtrip, so a developer can plausibly export it
+// for one of those in a shell that happens to carry a dev DATABASE_URL. That is the accident this
+// guard exists to prevent, and letting the flag waive it would reopen it silently. With the flag
+// set and a wrong database, the suite RUNS and fails loudly on the assertion below rather than
+// skipping quietly or writing. CI sets the flag with an mpyhw_test URL, so it is unaffected.
+const insist = !!process.env.MPYHW_REQUIRE_CONTRACT_TESTS;
+const ready = !!python && !!dbUrl && dbIsTestScoped && canImport("uvicorn") && canImport("app.main");
+const skipReason = ready || insist
+  ? false
+  : (dbUrl && !dbIsTestScoped
+    ? `refusing to write to ${dbName ?? "a DATABASE_URL with no readable database name"}: ${TEST_DATABASE_HINT}`
+    : "python/uvicorn/app.main/DATABASE_URL not available");
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -62,10 +76,21 @@ async function waitForHealth(base: string, timeoutMs: number): Promise<void> {
 }
 
 test("real production LLM client streams a real spawned API over HTTP+SSE (auth + credits + framing)", { skip: skipReason, timeout: 40000 }, async () => {
+  // Reached only when MPYHW_REQUIRE_CONTRACT_TESTS forced the run: without it a wrong database
+  // has already skipped. Failing here is the point -- the flag says a missing prerequisite must
+  // be loud, and the wrong database is a prerequisite like any other.
+  assert.ok(
+    dbUrl,
+    `MPYHW_REQUIRE_CONTRACT_TESTS is set but no database URL is: ${TEST_DATABASE_HINT}`,
+  );
+  assert.ok(
+    dbIsTestScoped,
+    `refusing to write to ${dbName ?? "a DATABASE_URL whose database name cannot be read"}: ${TEST_DATABASE_HINT}`,
+  );
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
   // Stub only the LLM upstream; auth, credits, and sessions hit the real Postgres the
-  // spawned API connects to via DATABASE_URL (sourced from DATABASE_URL or MPYHW_TEST_DATABASE_URL).
+  // spawned API connects to via DATABASE_URL (MPYHW_TEST_DATABASE_URL first, then DATABASE_URL).
   const env = { ...process.env, MPYHW_LLM_STUB: "1", MPYHW_JWT_SECRET: "test-secret", ...(dbUrl ? { DATABASE_URL: dbUrl } : {}) };
 
   const server = spawn(python!, ["-m", "uvicorn", "app.main:app", "--port", String(port), "--log-level", "warning"], { cwd: apiDir, env });

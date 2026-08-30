@@ -1,0 +1,34 @@
+{
+  "protocol_version": "1.0",
+  "type": "phase_complete",
+  "phase": "select-hw",
+  "payload": {
+    "phase": "select-hw",
+    "result": "partial",
+    "summary": "waiting for the user to choose a board",
+    "next_phase": null,
+    "checkpoint": "waiting on the user to pick between pico and pico 2",
+    "runtime_context": {
+      "artifact_root_mode": "cwd",
+      "artifact_root": ".",
+      "session_root": "sessions/e2e-fixture",
+      "resource_root": "resources"
+    },
+    "structured_errors": [
+      {
+        "code": "BOARD_AMBIGUOUS",
+        "message": "two candidates matched"
+      }
+    ],
+    "warnings": [],
+    "errors": [],
+    "artifacts": [],
+    "manifest_content": {
+      "phase": "select-hw"
+    }
+  },
+  "msg_id": "m-0001",
+  "session_id": "e2e-fixture",
+  "timestamp": "2026-08-20T12:00:00Z",
+  "idempotency_key": "k-0001"
+}

@@ -1,0 +1,60 @@
+{
+  "protocol_version": "1.0",
+  "type": "phase_complete",
+  "phase": "upy-generate-plugin",
+  "payload": {
+    "phase": "upy-generate-plugin",
+    "result": "success",
+    "summary": "generated the blink firmware",
+    "manifest_content": {
+      "phase": "generate",
+      "requirements": {
+        "description": "blink the onboard LED"
+      },
+      "devices": [
+        {
+          "id": "d1",
+          "type": "led"
+        }
+      ],
+      "mcu": "rp2350",
+      "pinout": {
+        "led": 25
+      },
+      "scaffold_mode": "timer",
+      "generate": {
+        "behavior_spec": "Toggle the onboard LED on GPIO25 every 1000 ms using a timer-scheduled task.",
+        "simulation_hints": "run the pc tests with the mock led",
+        "deploy_plan": "upload firmware/ and run the device tests",
+        "cloud_integrations": [
+          {
+            "provider_id": "openai",
+            "category": "llm",
+            "services": "chat and tts",
+            "credential_management": "the user will paste the key at deploy time",
+            "official_links": {
+              "docs": "d",
+              "product": "p",
+              "console": "c"
+            }
+          }
+        ],
+        "git": {
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "commit_role": "final_head"
+        }
+      }
+    },
+    "next_phase": "upy-deploy-plugin",
+    "generate": {
+      "git": {
+        "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "commit_role": "final_head"
+      }
+    }
+  },
+  "msg_id": "m-0001",
+  "session_id": "e2e-fixture",
+  "timestamp": "2026-08-20T12:00:00Z",
+  "idempotency_key": "k-0001"
+}

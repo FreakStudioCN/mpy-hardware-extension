@@ -1,0 +1,528 @@
+{
+  "protocol_version": "1.0",
+  "type": "phase_complete",
+  "phase": "upy-generate-plugin",
+  "idempotency_key": "upy-generate-plugin:pico2-led:full:v1",
+  "payload": {
+    "phase": "generate",
+    "result": "success",
+    "checkpoint": "phase_completed",
+    "next_phase": "upy-deploy-plugin",
+    "optional_next_phases": [
+      {
+        "phase": "upy-diagram-plugin"
+      },
+      {
+        "phase": "upy-wiring-plugin"
+      }
+    ],
+    "generate": {
+      "git": {
+        "commit": "96ababdd9be3dca13b116456345c65bed244e9e8",
+        "commit_role": "final_head"
+      }
+    },
+    "manifest_content": {
+      "bom": [
+        {
+          "datasheet_url": "",
+          "device": "Onboard LED",
+          "line_total_yuan": 25,
+          "model": "RPI_PICO2",
+          "name": "Raspberry Pi Pico 2",
+          "product_url": "https://www.raspberrypi.com/products/raspberry-pi-pico-2/",
+          "purchase_links": [
+            {
+              "confidence": "medium",
+              "link_type": "site_entry",
+              "notes": "Open YourCee product data entry and search this query manually.",
+              "region": "cn",
+              "search_query": "Raspberry Pi Pico 2 RPI_PICO2",
+              "url": "https://www.yourcee.com/cpzl",
+              "vendor": "Yourcee"
+            }
+          ],
+          "quantity": 1,
+          "search_query": "Raspberry Pi Pico 2 RPI_PICO2",
+          "shop_url": "",
+          "sku": "",
+          "source": "system_recommended",
+          "supplier": "",
+          "unit_price_yuan": 25
+        },
+        {
+          "datasheet_url": "",
+          "device": "USB-A to Micro-USB",
+          "line_total_yuan": 5,
+          "model": "USB-A to Micro-USB",
+          "name": "Micro USB data cable",
+          "note": "Required for UF2 firmware drag-and-drop and power.",
+          "product_url": "",
+          "purchase_links": [
+            {
+              "confidence": "medium",
+              "link_type": "site_entry",
+              "notes": "Open YourCee product data entry and search this query manually.",
+              "region": "cn",
+              "search_query": "USB-A to Micro-USB Micro USB data cable module",
+              "url": "https://www.yourcee.com/cpzl",
+              "vendor": "Yourcee"
+            }
+          ],
+          "quantity": 1,
+          "search_query": "USB-A to Micro-USB Micro USB data cable module",
+          "shop_url": "",
+          "sku": "",
+          "source": "system_recommended",
+          "supplier": "",
+          "unit_price_yuan": 5
+        }
+      ],
+      "created_at": "2026-08-19T18:30:10Z",
+      "devices": [
+        {
+          "driver": {
+            "module": "machine.Pin",
+            "notes": "Onboard LED is controllable via machine.Pin on most RP2350/RP2040 boards.",
+            "search_provider": "builtin_runtime_classifier",
+            "search_required": false,
+            "source": "builtin_runtime"
+          },
+          "id": "d1",
+          "interface": "GPIO",
+          "name": "Onboard LED",
+          "notes": "Physical device is the selected board's onboard peripheral; do not add it to external BOM.",
+          "onboard_peripheral_ref": {
+            "always_used": false,
+            "board_id": "rpi-pico2",
+            "index": 0,
+            "model": "",
+            "name": "LED",
+            "occupied_pins": {
+              "led": 25
+            },
+            "pin_evidence": "pins_csv",
+            "type": "led",
+            "verification": "pin_mapping_verified"
+          },
+          "physical_source": "board_onboard",
+          "quantity": 1,
+          "source": "user_specified",
+          "type": "led"
+        }
+      ],
+      "domain_phase": "generate",
+      "estimated_total_yuan": 30,
+      "final_status": "generated",
+      "firmware_flash": {
+        "action": "already_flashed",
+        "board_name": "RPI_PICO2",
+        "board_url": "https://micropython.org/download/RPI_PICO2/",
+        "file_type": "uf2",
+        "flash_method": "uf2-drag-drop",
+        "latest_date": "2026-04-06",
+        "latest_url": "https://micropython.org/resources/firmware/RPI_PICO2-20260406-v1.28.0.uf2",
+        "latest_version": "v1.28.0",
+        "source": "micropython_latest",
+        "status": "skipped_user_confirmed"
+      },
+      "hardware_selection": {
+        "board_confirmed": true,
+        "firmware_checked": true,
+        "price_source": "llm_common_knowledge_v0",
+        "selected_board": {
+          "chip_family": "rp2350",
+          "display_name": "Raspberry Pi Pico 2",
+          "firmware": {
+            "board_name": "RPI_PICO2",
+            "latest_release": {
+              "date": "2026-04-06",
+              "url": "https://micropython.org/resources/firmware/RPI_PICO2-20260406-v1.28.0.uf2",
+              "version": "v1.28.0"
+            },
+            "latest_version": "v1.28.0",
+            "port": "rp2",
+            "url": "https://micropython.org/download/RPI_PICO2/"
+          },
+          "id": "rpi-pico2",
+          "mcu": "rp2350",
+          "vendor": "Raspberry Pi"
+        },
+        "source_phase": "analyze"
+      },
+      "mcu": {
+        "board": "Raspberry Pi Pico 2",
+        "board_id": "rpi-pico2",
+        "chip": "RP2350",
+        "display_name": "RP2350",
+        "firmware_board_name": "RPI_PICO2",
+        "firmware_download_url": "https://micropython.org/resources/firmware/RPI_PICO2-20260406-v1.28.0.uf2",
+        "firmware_url": "https://micropython.org/download/RPI_PICO2/",
+        "firmware_version": "v1.28.0",
+        "flash_tool": "uf2-drag-drop",
+        "model": "RP2350"
+      },
+      "phase": "generate",
+      "pin_decisions": [
+        {
+          "assigned_gpio": 25,
+          "decision_type": "reuse_onboard_peripheral",
+          "device": "Onboard LED",
+          "evidence": {
+            "note": "pins.csv confirms Pico 2 onboard LED maps to GPIO25.",
+            "path": "onboard_peripherals[0].occupied_pins.led",
+            "value": 25
+          },
+          "pin_name": "LED",
+          "requires_user_review": false,
+          "review_prompt": "Check your Pico 2 pinout: GP25 is the onboard LED.",
+          "source": "onboard_peripheral"
+        },
+        {
+          "assigned_gpio": "5V",
+          "decision_type": "fixed_power_tie",
+          "device": "power",
+          "evidence": {
+            "note": "Pico 2 is powered from USB VBUS.",
+            "path": "pin_layout.power_rails.vbus",
+            "value": "5V"
+          },
+          "pin_name": "VBUS",
+          "requires_user_review": false,
+          "source": "fixed_power"
+        },
+        {
+          "assigned_gpio": "3V3",
+          "decision_type": "fixed_power_tie",
+          "device": "power",
+          "evidence": {
+            "note": "Pico 2 system rail is 3.3 V.",
+            "path": "pin_layout.power_rails.vsys",
+            "value": "3V3"
+          },
+          "pin_name": "VSYS",
+          "requires_user_review": false,
+          "source": "fixed_power"
+        },
+        {
+          "assigned_gpio": "GND",
+          "decision_type": "fixed_power_tie",
+          "device": "power",
+          "evidence": {
+            "note": "Common ground rail.",
+            "path": "pin_layout.power_rails.gnd",
+            "value": "GND"
+          },
+          "pin_name": "GND",
+          "requires_user_review": false,
+          "source": "fixed_power"
+        }
+      ],
+      "pin_review": {
+        "approval_id": "pin_plan_review",
+        "confirmed": true,
+        "confirmed_at": "2026-08-19T18:30:10Z",
+        "confirmed_by": "user",
+        "note": "Onboard LED on GP25 requires no external wiring; user confirmed the chosen board.",
+        "source": "approval_response"
+      },
+      "pinout": [
+        {
+          "device": "Onboard LED",
+          "gpio": 25,
+          "notes": "Onboard LED is on GPIO25; no external wiring needed.",
+          "physical_pin": "GP25",
+          "pin_name": "LED",
+          "side": "right",
+          "source": "onboard_peripheral",
+          "type": "gpio_out"
+        },
+        {
+          "device": "power",
+          "gpio": "5V",
+          "pin_name": "VBUS",
+          "source": "power",
+          "type": "power_5v"
+        },
+        {
+          "device": "power",
+          "gpio": "3V3",
+          "pin_name": "VSYS",
+          "source": "power",
+          "type": "power_3v3"
+        },
+        {
+          "device": "power",
+          "gpio": "GND",
+          "pin_name": "GND",
+          "source": "power",
+          "type": "gnd"
+        }
+      ],
+      "project_name": "Pico 2 Onboard LED Blink",
+      "requirements": {
+        "budget_yuan": "medium_50",
+        "description": "Blink the onboard LED on a Raspberry Pi Pico 2.",
+        "existing_hardware": [],
+        "experience": "beginner",
+        "mcu_specified": true,
+        "network": "none",
+        "output": [
+          "led"
+        ],
+        "power": "usb",
+        "precision": "normal",
+        "response_time": "1s",
+        "sample_rate": "normal_1hz",
+        "scene": "indoor",
+        "size_constraint": "none",
+        "special_requirements": [
+          "none"
+        ],
+        "temp_range": "normal_0_40"
+      },
+      "schema_version": "1.0",
+      "updated_at": "2026-08-19T18:41:43Z",
+      "scaffold_mode": "timer",
+      "scaffold_modules": [
+        "flash_device",
+        "log_tools",
+        "logger",
+        "maintenance",
+        "time_helper"
+      ],
+      "scaffold": {
+        "mode": "timer",
+        "modules": [
+          "flash_device",
+          "log_tools",
+          "logger",
+          "maintenance",
+          "time_helper"
+        ],
+        "custom_files": []
+      },
+      "generate": {
+        "behavior_spec": {
+          "description": "Toggle the onboard LED every SAMPLE_INTERVAL_MS using the timer scheduler.",
+          "led_pin": 25,
+          "active_low": false,
+          "interval_ms": 1000
+        },
+        "deploy_plan": {
+          "source_only": [
+            "firmware/main.py",
+            "firmware/boot.py",
+            "firmware/conf.py",
+            "firmware/drivers/onboard_led_driver/__init__.py",
+            "firmware/tasks/blink_task.py",
+            "firmware/lib/logger/__init__.py",
+            "firmware/lib/logger/logging.py",
+            "firmware/lib/logger/rotating_logger.py",
+            "firmware/lib/scheduler/__init__.py",
+            "firmware/lib/scheduler/timer_sched.py",
+            "firmware/lib/time_helper.py",
+            "firmware/tasks/maintenance.py"
+          ],
+          "upload_exclude": [
+            "firmware/drivers/**/mock.py",
+            "firmware/drivers/**/mock.mpy",
+            "test/**",
+            "tools/**",
+            "host/**",
+            "build/**",
+            "docs/**"
+          ]
+        },
+        "runtime_dependencies": {
+          "mip": [
+            {
+              "package": "unittest",
+              "install_phase": "deploy",
+              "target": "/lib",
+              "verify_import": "unittest",
+              "required_for": "device_tests"
+            }
+          ],
+          "notes": "All runtime firmware modules are built into the RP2 MicroPython runtime. Device tests require the unittest package from micropython-lib."
+        },
+        "simulation_hints": {
+          "pc_entrypoint": "test/pc/test_blink_task.py",
+          "notes": "Driver accepts a mock Pin object so the blink logic can be exercised on CPython."
+        },
+        "doc_evidence": [
+          {
+            "module": "machine",
+            "url": "https://docs.micropython.org/en/latest/library/machine.html",
+            "reason": "General machine module documentation for Pin/Timer/I2C hardware access."
+          },
+          {
+            "module": "machine.Pin",
+            "url": "https://docs.micropython.org/en/latest/library/machine.Pin.html",
+            "reason": "Onboard LED is driven by machine.Pin configured as Pin.OUT."
+          },
+          {
+            "module": "machine.Timer",
+            "url": "https://docs.micropython.org/en/latest/library/machine.Timer.html",
+            "reason": "Scheduler uses machine.Timer for periodic tick generation."
+          }
+        ],
+        "git": {
+          "commit": "96ababdd9be3dca13b116456345c65bed244e9e8",
+          "commit_role": "final_head"
+        },
+        "cloud_integrations": []
+      }
+    },
+    "lint": {
+      "flake8": {
+        "ok": true,
+        "returncode": 0
+      },
+      "pylint": {
+        "ok": true,
+        "returncode": 4,
+        "warnings": [
+          "W0613 unused-argument in firmware/drivers/onboard_led_driver/__init__.py:15"
+        ]
+      }
+    },
+    "tests": {
+      "pc_unittest": {
+        "ok": true,
+        "returncode": 0,
+        "ran": 10
+      }
+    },
+    "file_manifest": {
+      "files": [
+        {
+          "path": "project-manifest.json",
+          "role": "manifest"
+        },
+        {
+          "path": "generate_plan.json",
+          "role": "plan"
+        },
+        {
+          "path": "session_state.upy_generate_plugin.json",
+          "role": "artifact"
+        },
+        {
+          "path": "firmware/main.py",
+          "role": "firmware_entry"
+        },
+        {
+          "path": "firmware/conf.py",
+          "role": "config"
+        },
+        {
+          "path": "firmware/drivers/onboard_led_driver/__init__.py",
+          "role": "driver"
+        },
+        {
+          "path": "firmware/drivers/onboard_led_driver/mock.py",
+          "role": "mock"
+        },
+        {
+          "path": "firmware/tasks/blink_task.py",
+          "role": "task"
+        },
+        {
+          "path": "test/pc/test_blink_task.py",
+          "role": "pc_test"
+        },
+        {
+          "path": "test/pc/test_onboard_led_driver.py",
+          "role": "pc_test"
+        },
+        {
+          "path": "test/device/test_device_blink.py",
+          "role": "device_test"
+        }
+      ]
+    },
+    "checks": {
+      "quality_gates": {
+        "ok": true
+      },
+      "cloud_integrations": {
+        "ok": true
+      },
+      "conf_contract": {
+        "ok": true
+      },
+      "dead_config": {
+        "ok": true
+      },
+      "device_unittest_subset": {
+        "ok": true
+      },
+      "doc_evidence": {
+        "ok": true
+      },
+      "driver_source_compile": {
+        "ok": true
+      },
+      "generate_plan": {
+        "ok": true
+      },
+      "generated_semantics": {
+        "ok": true
+      },
+      "mpy_imports": {
+        "ok": true
+      },
+      "py_compile": {
+        "ok": true
+      },
+      "runtime_dependencies": {
+        "ok": true
+      },
+      "skeleton_compliance": {
+        "ok": true
+      },
+      "task_no_machine_import": {
+        "ok": true
+      },
+      "session_state_checkpoint": {
+        "ok": true,
+        "state": {
+          "checkpoint": "phase_completed",
+          "status": "completed",
+          "path": "session_state.upy_generate_plugin.json"
+        },
+        "checkpoint": "phase_completed"
+      }
+    },
+    "artifacts": [
+      {
+        "type": "session_state",
+        "path": "session_state.upy_generate_plugin.json"
+      },
+      {
+        "type": "file_manifest",
+        "path": "phase_complete.upy_generate_plugin.json"
+      }
+    ],
+    "review_findings": {
+      "blocking": [],
+      "non_blocking": [
+        {
+          "code": "PYLINT_NON_BLOCKING_MESSAGES",
+          "message": "pylint returned warning-level messages (unused-argument in Pin stub)"
+        },
+        {
+          "code": "TIME_HELPER_NOT_USED",
+          "message": "time_helper exists but the simple blink task does not require timing decorators"
+        }
+      ]
+    },
+    "permissions": [
+      {
+        "type": "git_commit",
+        "approved": true
+      }
+    ]
+  }
+}
