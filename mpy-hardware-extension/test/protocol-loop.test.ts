@@ -4426,7 +4426,7 @@ test("each gate's own verdict spelling is read, not just one of them", async () 
   const shapes = [
     { name: "select_hw_manifest.py", phase: "select-hw", args: SELECT_HW_GATE_ARGS, stdout: '{"status":"ok","errors":[],"warnings":[]}' },
     { name: "check_phase_complete_consistency.py", phase: "upy-generate-plugin", stdout: '{"check":"phase_complete_consistency","result":"success","ok":true,"errors":[]}' },
-    { name: "deploy_result.py", phase: "upy-deploy-plugin", stdout: '{"status":"success","tools":{}}' },
+    { name: "deploy_result.py", phase: "upy-deploy-plugin", args: ["--upload-json", "upload_summary.json"], stdout: '{"status":"success","tools":{}}' },
   ];
 
   for (const shape of shapes) {
@@ -4462,7 +4462,7 @@ test("a deploy that ends on PASS_WITH_WARNINGS is not refused", async () => {
     streamMessages: async (body: any) => {
       requests.push(body);
       if (requests.length <= 2) {
-        return (async function* () { for (const e of [tu(`d${requests.length}`, "script_run", { interpreter: "python", script: "scripts/deploy_result.py" }), stop]) yield e; })();
+        return (async function* () { for (const e of [tu(`d${requests.length}`, "script_run", { interpreter: "python", script: "scripts/deploy_result.py", args: ["--upload-json", "upload_summary.json"] }), stop]) yield e; })();
       }
       return (async function* () { for (const e of [tu("p", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: {} }), stop]) yield e; })();
     },
