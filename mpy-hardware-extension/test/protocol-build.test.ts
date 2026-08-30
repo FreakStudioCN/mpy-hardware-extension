@@ -248,7 +248,7 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
     }
     if (phase === "upy-deploy-plugin") {
       if (turn === 0) return tool("serial", "device_command", { action: "stream", cmd_id: "serial" });
-      if (turn === 1) return tool("deploy-gate", "script_run", { script_id: "dg", interpreter: "python", script: "deploy_result.py", args: ["--output-json", "deploy_result.json"] });
+      if (turn === 1) return tool("deploy-gate", "script_run", { script_id: "dg", interpreter: "python", script: "deploy_result.py", args: ["--upload-json", "upload_summary.json", "--output-json", "deploy_result.json"] });
       return tool("deploy-done", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: { phase, board_id: "esp32-s3-devkitc-1" } });
     }
     return tool("unknown", "phase_complete", { result: "failed", summary: phase, next_phase: null });

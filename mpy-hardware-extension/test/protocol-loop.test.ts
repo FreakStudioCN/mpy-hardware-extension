@@ -2844,7 +2844,7 @@ test("a refused call that repeats is caught by the repeat guard, not left to bur
     { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 12, onEvent: (e: any) => events.push(e) },
     {
       llmClient: llm,
-      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY"}' }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY","observed_soft_reboot":true}' }),
       device: async () => ({ ok: true, entries: [] }),
     } as any,
   );
@@ -3976,7 +3976,7 @@ test("a device call after the final reset is refused, and told to read the file 
     { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => { events.push(e); if (e.type === "tool_result") observations.push(e.observation); } },
     {
       llmClient: llm,
-      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY"}' }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY","observed_soft_reboot":true}' }),
       device: async () => { deviceCalls += 1; return { ok: true, entries: [] }; },
     } as any,
   );
@@ -4094,7 +4094,7 @@ test("the post-reset refusal forbids fabricating the artifact and names partial 
     { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => { if (e.type === "tool_result") observations.push(e.observation); } },
     {
       llmClient: llm,
-      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY"}' }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY","observed_soft_reboot":true}' }),
       device: async () => ({ ok: true, entries: [] }),
     } as any,
   );
@@ -4131,7 +4131,7 @@ test("the post-reset refusal names finishing the phase, not just reading the fil
     { intent: "x", startPhase: "upy-deploy-plugin", maxTurnsPerPhase: 5, onEvent: (e: any) => { if (e.type === "tool_result") observations.push(e.observation); } },
     {
       llmClient: llm,
-      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY"}' }),
+      runScript: async () => ({ ok: true, exit_code: 0, stdout: '{"status":"success","matched_stop":"MPYHW_READY","observed_soft_reboot":true}' }),
       device: async () => ({ ok: true, entries: [] }),
     } as any,
   );

@@ -4,6 +4,8 @@
 // phase_complete. Mirrors the proven backend e2e harness, in TypeScript.
 import { PROTOCOL_TOOLS, PROTOCOL_TOOL_NAMES, routeForTool } from "./protocol-registry.ts";
 import { normalizeObservation } from "./observations.ts";
+import { flagValue, flagValues, hasFlag, splitFlag } from "./protocol-argv.ts";
+import { stripRedundantPathRoot } from "../extension/workspace-writer.ts";
 import {
   boundHistory,
   digest,
@@ -127,7 +129,12 @@ const PHASE_GATES: Record<string, PhaseGate> = {
     taintedEvidenceBlocksVerdict: true,
   },
   "upy-generate-plugin": { script: PHASE_COMPLETION_CHECK, strict: true },
-  "upy-deploy-plugin": { script: "deploy_result.py", strict: true },
+  // deploy_result.py grades PASS with every evidence flag omitted: load_optional() returns {} for
+  // an absent path and nothing demands a final reset until an upload record says the upload
+  // succeeded. A bare `deploy_result.py --strategy x` therefore recorded a green verdict over zero
+  // evidence and satisfied this whole guard. Requiring the upload record is enough -- once it
+  // reports success, the script itself insists on the final reset capture.
+  "upy-deploy-plugin": { script: "deploy_result.py", requiredArgs: ["--upload-json"], strict: true },
   // Tracked but NOT strict: a red verdict still refuses a success, but a phase that never ran the
   // validator is left alone. Two archived full passes finished analyze in draft mode only, and NO
   // archived run has ever invoked flash's validator, so strict here would refuse honest runs --
@@ -382,7 +389,9 @@ const DEVICE_TOUCHING_SCRIPTS = [
 ];
 
 function touchesDevice(tu: StreamEvent): boolean {
-  if (tu.name === "device_command") return true;
+  // scan/devs list serial ports without opening one (protocol-build routes them to shim.scan()),
+  // so they cannot stop the app the final reset just started.
+  if (tu.name === "device_command") return !["scan", "devs"].includes(String((tu.input as any)?.action ?? ""));
   const script = String((tu.input as any)?.script ?? "");
   return tu.name === "script_run" && DEVICE_TOUCHING_SCRIPTS.some((s) => script.endsWith(s));
 }
@@ -391,9 +400,25 @@ function touchesDevice(tu: StreamEvent): boolean {
 // operation of the phase.
 function isFinalResetCapture(tu: StreamEvent): boolean {
   const script = String((tu.input as any)?.script ?? "");
-  if (!script.endsWith("capture_repl.py")) return false;
-  const args = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String).join(" ");
-  return args.includes("final_reset");
+  if (tu.name !== "script_run" || !script.endsWith("capture_repl.py")) return false;
+  const args = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String);
+  // Without --reset-first the capture only listens. deploy_result.py rejects that record as
+  // final_reset_not_reset_first and the model has to run the reset for real, so it must not latch.
+  return hasFlag(args, "--reset-first") && args.join(" ").includes("final_reset");
+}
+
+// What the capture SAW, read from its own report: the two fields deploy_result.py accepts as proof
+// the board rebooted. capture_repl.py exits 0 whenever the capture merely RAN, reboot observed or
+// not, so latching on the exit code forbade the one retry that would have fixed a missed reset.
+function capturedReboot(stdout: unknown): boolean {
+  const text = typeof stdout === "string" ? stdout.trim() : "";
+  if (!text.startsWith("{")) return false;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed?.observed_soft_reboot === true || parsed?.observed_fresh_boot === true;
+  } catch {
+    return false;  // not a report: no reboot was shown, so nothing latches
+  }
 }
 
 // An upload that writes no evidence file. deploy_result.py requires upload_summary.json, and the
@@ -427,7 +452,7 @@ function isUploadMissingEvidence(tu: StreamEvent): boolean {
   const positionals = args.slice(args.indexOf("cp") + 1).filter((a: string) => !a.startsWith("-"));
   const target = positionals[positionals.length - 1] ?? "";
   if (!target.startsWith(":")) return false;
-  return !args.some((arg: string) => arg === "--output-json" || arg === "--out-json");
+  return !hasFlag(args, "--output-json") && !hasFlag(args, "--out-json");
 }
 
 type PhaseFailure = { tool: string; error: string; path?: string; turn: number };
@@ -544,9 +569,13 @@ function isNonWritingMode(arg: string): boolean {
 // is folded on the platforms whose filesystems fold it, matching how paths are compared
 // elsewhere in the extension; on Linux two names differing only in case really are two files.
 const CASE_INSENSITIVE_PATHS = process.platform === "win32" || process.platform === "darwin";
-function evidenceKey(path: string): string {
+export function evidenceKey(path: string): string {
   const normalized = String(path).replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/{2,}/g, "/");
-  return CASE_INSENSITIVE_PATHS ? normalized.toLowerCase() : normalized;
+  // The writer reports a path with its redundant `project/` root removed (workspace-writer strips
+  // it before writing), while the model keeps spelling that root in gate argv. Keyed raw, the same
+  // file was tainted under one name and checked under the other, and the check never matched.
+  const rooted = stripRedundantPathRoot(normalized) || normalized;
+  return CASE_INSENSITIVE_PATHS ? rooted.toLowerCase() : rooted;
 }
 
 const MODEL_AUTHORED_GATE_INPUT =
@@ -984,7 +1013,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // failure unrecoverable: every retry of the same capture is then refused as a post-reset
       // device call, and the refusal text asserts "the app that reset just started", which is not
       // true when the reset never happened.
-      if (isFinalResetCapture(tu) && result?.success === true) finalResetDone = true;
+      if (isFinalResetCapture(tu) && result?.success === true && capturedReboot(result?.stdout)) finalResetDone = true;
 
       // Normalized, NOT raw. This event is recorded into session.jsonl, which the stall
       // copy tells the user to export to support -- and a raw result carries absolute host
@@ -1054,8 +1083,10 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       if (tu.name === "script_run" && result?.ok === true && result?.success === true) {
         const args = (Array.isArray((tu.input as any)?.args) ? (tu.input as any).args : []).map(String);
         if (!args.some(isNonWritingMode)) {
-          for (let i = 0; i < args.length - 1; i++) {
-            if (OUTPUT_PATH_FLAGS.has(args[i])) modelWrittenPaths.delete(evidenceKey(args[i + 1]));
+          for (let i = 0; i < args.length; i++) {
+            const { flag, value } = splitFlag(args[i]);
+            const named = value ?? args[i + 1];
+            if (OUTPUT_PATH_FLAGS.has(flag) && named !== undefined) modelWrittenPaths.delete(evidenceKey(named));
           }
         }
       }
@@ -1069,12 +1100,10 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
       // its analyze draft manifest_input.json and was flagged for doing exactly the right thing,
       // so the argv position is the more reliable signal: whatever follows --input is the
       // subject, not the evidence.
-      const gateSubjects = new Set(
-        gateArgs.flatMap((a: string, i: number) => (a === "--input" && i + 1 < gateArgs.length ? [evidenceKey(gateArgs[i + 1])] : [])),
-      );
+      const gateSubjects = new Set(flagValues(gateArgs, "--input").map(evidenceKey));
       if (isGateRun) {
-        const at = gateArgs.indexOf("--phase-complete");
-        if (at >= 0 && at + 1 < gateArgs.length) gatePhaseCompletePath = gateArgs[at + 1];
+        const at = flagValue(gateArgs, "--phase-complete");
+        if (at) gatePhaseCompletePath = at;
         // Read it NOW, while it is the content the verdict is being earned against.
         if (gatePhaseCompletePath && typeof deps.readFile === "function") {
           const atGate = await deps.readFile(gatePhaseCompletePath);
@@ -1092,7 +1121,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
         }
       }
       const taintedEvidence = isGateRun
-        ? gateArgs.filter((a: string) => modelWrittenPaths.has(evidenceKey(a))
+        ? gateArgs.map((a: string) => splitFlag(a).value ?? a).filter((a: string) => modelWrittenPaths.has(evidenceKey(a))
             && !MODEL_AUTHORED_GATE_INPUT.test(a) && !gateSubjects.has(evidenceKey(a)))
         : [];
       // Whether a tainted run is merely reported or actually costs the verdict. Enabled per
@@ -1126,7 +1155,7 @@ async function runPhase(phase: string, manifest: any, input: ProtocolInput, deps
         });
       }
       if (isGateRun && !blocksVerdict
-          && (gate!.requiredArgs ?? []).every((flag) => gateArgs.includes(flag))) {
+          && (gate!.requiredArgs ?? []).every((flag) => hasFlag(gateArgs, flag))) {
         // The gate's OWN verdict, same reader the completion corrective uses. Keying on the exit
         // code would have left this guard with the hole it was written to close: a run reached
         // for `--help` on this very script, which exits 0 and prints usage, and that would have
@@ -1714,7 +1743,9 @@ export async function executeProtocolTool(tu: StreamEvent, input: ProtocolInput,
     // An unknown token is rejected, not guessed at: "ok" and "complete" read as intent to
     // succeed, and mapping them to success would put that guess INSIDE the anti-fabrication
     // guard. The model re-emits with the canonical token, which costs one turn once.
-    if (!PHASE_RESULT_VALUES.has(String(p.result))) {
+    // Compared as a STRING: String(["success"]) is "success", so an array slipped through the
+    // allowlist and then failed every `=== "success"` guard downstream, skipping both refusals.
+    if (typeof p.result !== "string" || !PHASE_RESULT_VALUES.has(p.result)) {
       return { result: { ok: false, error_kind: "phase_complete_invalid_result", detail: `phase_complete.result must be one of success, partial, failed; received "${String(p.result)}"` } };
     }
     // A scaffold `success` that rendered NOTHING. Measured on a real run: the model never
