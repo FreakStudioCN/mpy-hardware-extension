@@ -149,7 +149,7 @@
           no_purchase_link: "No purchase link yet", bom_product: "Product page", bom_store: "Store page", bom_datasheet: "Datasheet",
           term_generated: "Done", term_success: "Done", term_cancelled: "Stopped", term_complete: "Done",
           term_awaiting_user: "Waiting for your reply", term_max_turns: "Stopped (max turns)",
-          term_stalled: "Build got stuck",
+          term_stalled: "Build got stuck", term_partial: "Stopped (work unfinished)",
           // A terminal with no string here renders as its raw internal token ("Session ended:
           // failed") — tr() returns the key it can't find. webview-dom.test.ts extracts every
           // terminal from the core sources and fails if any lacks a string; keep them in step.
@@ -309,7 +309,7 @@
           no_purchase_link: "暂无购买链接", bom_product: "产品页", bom_store: "店铺页", bom_datasheet: "数据手册",
           term_generated: "完成", term_success: "完成", term_cancelled: "已停止", term_complete: "完成",
           term_awaiting_user: "等待你的回复", term_max_turns: "已停止（达到回合上限）",
-          term_stalled: "构建卡住了",
+          term_stalled: "构建卡住了", term_partial: "已停止（工作未完成）",
           term_failed: "构建失败", term_incomplete: "已停止（阶段过多）",
           phase_unknown_next: "构建请求了一个不存在的步骤：{p}",
           phase_broke: "某个步骤出错：{k}",

@@ -2,6 +2,18 @@
       const vscode = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : { postMessage: (m) => console.log(m), getState: () => null, setState: () => {} };
       const $ = (id) => document.getElementById(id);
 
+      // "complete" is the protocol's successful terminal (the whole pipeline ran); "awaiting_user"
+      // is a clean hand-back, not an error; "stalled" is excluded because the LIVE path renders
+      // its own phase_stalled reason line. That exclusion is worth less on the restore path, which
+      // has no such line, so a restored stalled session renders a neutral card -- pre-existing, and
+      // the one sibling of this fix still open.
+      // Shared by the LIVE end and the RESTORED one, which render the same sentence: keeping two
+      // copies is how the live path got the forced error kind and the restore path kept
+      // text-classifying "Stopped (work unfinished)" into the success card.
+      const isErrorTerminal = (t) =>
+        !(t === "generated" || t === "success" || t === "complete")
+        && t !== "cancelled" && t !== "awaiting_user" && t !== "stalled";
+
 
       window.addEventListener("message", (event) => {
         const msg = event.data;
@@ -48,7 +60,15 @@
         if (msg.type === "restore_prompt") { renderInertPrompt(msg.kind, msg.payload, msg.answer); }
         if (msg.type === "restore_done") {
           const t = String(msg.terminal || "");
-          if (t) { const label = tr("term_" + t); addActivity({ text: tr("session_ended", { t: label === "term_" + t ? t : label }) }); }
+          if (t) {
+            const label = tr("term_" + t);
+            // Same forced kind as the live end, for the same reason: this sentence is classified
+            // by its wording otherwise, and a restored give-up session read as a success.
+            addActivity(
+              { text: tr("session_ended", { t: label === "term_" + t ? t : label }) },
+              isErrorTerminal(t) ? "error" : undefined,
+            );
+          }
         }
         if (msg.type === "diagnostics") {
           vscode.postMessage({ type: "copy_code", text: msg.text });
@@ -207,12 +227,9 @@
           // post then heals it. Runs after setRunning(false) so the presence result is honored.
           dtRefreshAfterRun();
           const t = String(msg.terminal);
-          // "complete" is the protocol's successful terminal (the whole pipeline ran);
-          // "awaiting_user" is a clean hand-back, not an error.
-          const ok = t === "generated" || t === "success" || t === "complete";
           const label = tr("term_" + t);
           const friendly = label === "term_" + t ? t : label;
-          const isError = !ok && t !== "cancelled" && t !== "awaiting_user" && t !== "stalled";
+          const isError = isErrorTerminal(t);
           // session_done is posted twice on a cancel (optimistic + loop-unwind); render the
           // terminal line / retry card only once. The cleanup above is idempotent, so it may
           // run on both.
@@ -228,7 +245,13 @@
           // The status bar is gone; surface a terminal line in the feed for ends
           // that aren't self-evident from the result (errors and a cancelled run).
           // A successful finish needs none — the summary + code cards say it.
-          if (isError || t === "cancelled") addActivity({ text: tr("session_ended", { t: friendly }) });
+          // Forced "error" for the error lane, never text-classified: classifyActivity() keys off
+          // the wording, and a give-up terminal reads as a SUCCESS to it -- "Stopped (work
+          // unfinished)" matches /finished/ and renders in the result card, which is the opposite
+          // of what the terminal says. The regex also matches "done" and "incomplete", so no
+          // rewording is safe; the kind has to be stated. "cancelled" is left to classification,
+          // as it always was.
+          if (isError || t === "cancelled") addActivity({ text: tr("session_ended", { t: friendly }) }, isError ? "error" : undefined);
           // Transport failures keep the session state on the host, so the
           // interrupted turn can be re-issued verbatim — offer a one-click retry.
           if (t === "llm_unreachable" || t === "sse_stream_interrupted") addRetryCard();

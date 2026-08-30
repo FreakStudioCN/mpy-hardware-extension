@@ -228,7 +228,12 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
       // serve.py returns parsed JSON in result_json (with stdout blanked); re-serialize
       // it so the model still sees the script's output.
       const stdout = res.stdout || (res.result_json != null ? JSON.stringify(res.result_json) : "");
-      return { ok: true, stdout, stderr: res.stderr ?? "", exit_code: res.exit_code ?? 0 };
+      // accepted_flags rides along: serve.py reads each script's own option list so the model
+      // never needs a `--help` turn. This return is a FIXED field list, and that is where the
+      // first two attempts at this fix died -- the shim attached the flags, and this line and
+      // its twin in protocol-loop.ts each threw them away. Three layers, one value, checked one
+      // boundary at a time.
+      return { ok: true, stdout, stderr: res.stderr ?? "", exit_code: res.exit_code ?? 0, ...((res as any).accepted_flags ? { accepted_flags: (res as any).accepted_flags } : {}) };
     } catch (error: any) {
       return { ok: false, error_kind: "script_error", stderr: error?.message ?? "script_error" };
     }
@@ -278,10 +283,22 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
       if (!isRetryableTransport(error) || input.signal?.aborted) throw error;
       return { terminal: "llm_unreachable", state: { manifest: input.state?.manifest ?? {}, phase: input.state?.phase, intent } };
     }
+    // "partial" travels: terminalForResult stops a phase that gave up from reporting the build
+    // complete, and collapsing it here into awaiting_user threw that away at the last step. The
+    // webview renders awaiting_user as "Waiting for your reply" and classifies it as a clean
+    // hand-back, so a build whose last phase could not finish its work showed a label promising
+    // nothing was wrong and that the user's input was expected. Producer fixed, consumer still
+    // flattening.
     const terminal = result.terminal === "complete" ? "complete"
       : result.terminal === "cancelled" ? "cancelled"
       : result.terminal === "failed" ? "failed"
       : result.terminal === "stalled" ? "stalled"
+      : result.terminal === "partial" ? "partial"
+      // The loop's other non-terminal outcome, and the last one this mapping was flattening: a
+      // model that chained phases to the cap without ever returning a null next_phase. It reached
+      // the webview as a clean hand-back, which renders no terminal line at all, while
+      // term_incomplete ("Stopped (too many phases)") shipped in both locales unreachable.
+      : result.terminal === "incomplete" ? "incomplete"
       : "awaiting_user";
     return { terminal, state: { manifest: result.manifest, phase: result.phases.at(-1)?.phase, intent } };
   };

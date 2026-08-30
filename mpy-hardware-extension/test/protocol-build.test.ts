@@ -53,6 +53,41 @@ function sseTool(id: string, name: string, input: any) {
   ].join("\n\n");
 }
 
+test("a script's accepted_flags survive the whole path to the model", async () => {
+  // END TO END on purpose. serve.py attaches each script's option list so the model never needs
+  // a `--help` turn, and the value crosses three layers to reach it: shim -> protocol-build ->
+  // protocol-loop. Two of those rebuild the result from a FIXED field list, and each dropped it
+  // in turn -- the fix was applied twice and stayed invisible both times, because each attempt
+  // was verified at one boundary instead of along the path. A run afterwards still made 10
+  // --help probes and recorded the field zero times.
+  const bodies: any[] = [];
+  let turn = 0;
+  const fetchImpl = async (_url: any, init: any) => {
+    bodies.push(JSON.parse(String(init.body)));
+    turn += 1;
+    const tool = turn === 1
+      ? sseTool("s", "script_run", { script_id: "s", interpreter: "python", script: "deploy_result.py", args: ["--output-json", "x.json"] })
+      : sseTool("done", "phase_complete", { result: "partial", summary: "ok", next_phase: null, manifest_content: {} });
+    return new Response(tool, { status: 200, headers: { "content-type": "text/event-stream" } }) as any;
+  };
+
+  const loop = createProtocolLoop({
+    apiBaseUrl: "http://api.test",
+    fetchImpl: fetchImpl as any,
+    getAuthToken: async () => "token",
+    projectRoot: "/tmp",
+    shim: {
+      // Exactly what serve.py returns, extra field included.
+      runV0Script: async () => ({ status: "ok", exit_code: 0, stdout: "{}", accepted_flags: ["--output-json", "--port"] }),
+    },
+  } as any);
+  await loop({ intent: "x", maxTurnsPerPhase: 3 });
+
+  const toolResult = bodies[1].messages.at(-1).content[0];
+  const payload = JSON.parse(toolResult.content);
+  assert.deepEqual(payload.accepted_flags, ["--output-json", "--port"], "the model must receive the script's flag list");
+});
+
 test("createProtocolLoop sends the V0 cloud envelope through the production LLM client", async () => {
   const bodies: any[] = [];
   const fetchImpl = async (_url: any, init: any) => {
@@ -104,6 +139,33 @@ function sseText(text: string) {
   ].join("\n\n");
 }
 
+// The sibling of the "partial" flattening, and the last terminal this mapping still collapsed. A
+// model that keeps naming a next phase runs the loop to MAX_PHASES and ends "incomplete" -- a
+// pathological build. Folded into awaiting_user it reached the webview as a clean hand-back, which
+// renders NO terminal line at all, while term_incomplete ("Stopped (too many phases)") shipped in
+// both locales unreachable from the production path.
+test("createProtocolLoop keeps 'incomplete' distinct instead of folding it into awaiting_user", async () => {
+  let calls = 0;
+  // Every phase reports success and names another phase, so the chain never terminates itself.
+  // Both named phases are deliberately the NON-STRICT ones: a strict gate would refuse the
+  // success for never running its validator and the phase would stall, which is a different
+  // terminal and would not exercise the cap at all.
+  const fetchImpl = async () => {
+    calls += 1;
+    return new Response(sseTool(`p${calls}`, "phase_complete", {
+      result: "success",
+      summary: "on to the next one",
+      next_phase: calls % 2 === 0 ? "analyze" : "upy-flash-mpy-firmware-plugin",
+      manifest_content: {},
+    }), { status: 200, headers: { "content-type": "text/event-stream" } }) as any;
+  };
+
+  const loop = createProtocolLoop({ apiBaseUrl: "http://api.test", fetchImpl: fetchImpl as any, getAuthToken: async () => "token" });
+  const result = await loop({ intent: "build a thermometer", traceId: "trace-incomplete" });
+
+  assert.equal(result.terminal, "incomplete", "a phase chain that hits the cap is not a clean hand-back");
+});
+
 test("createProtocolLoop maps a stalled loop (no tool calls, repeated prose) to terminal 'stalled', distinct from awaiting_user", async () => {
   // The model never emits a tool call; after MAX_TOOLLESS_TURNS the phase gives up
   // and runProtocolBuild returns terminal: "stalled" (protocol-loop.ts). That must
@@ -133,7 +195,17 @@ test("createProtocolLoop reports firmware flashing actions as unsupported, not a
   const loop = createProtocolLoop({ apiBaseUrl: "http://api.test", fetchImpl: fetchImpl as any, getAuthToken: async () => "token", shim: {} } as any);
   const result = await loop({ intent: "flash MicroPython", maxTurnsPerPhase: 2 });
 
-  assert.equal(result.terminal, "complete");
+  // partial, NOT complete: the phase reported it could not do the work. This asserted "complete"
+  // while the model was saying "firmware unsupported" -- the same conflation that let a select-hw
+  // phase which could not resolve its board report a completed build.
+  //
+  // And "partial", not "awaiting_user", which is what it asserted next. terminalForResult stops
+  // an unfinished phase from reporting the build complete, and the mapping then collapsed that
+  // into the generic hand-back, which the webview renders as "Waiting for your reply" and
+  // classifies as clean. A build whose last phase gave up promised the user nothing was wrong and
+  // that it was waiting on them. The distinction has to survive to the consumer to be worth
+  // making.
+  assert.equal(result.terminal, "partial");
   const toolResult = bodies[1].messages.at(-1).content[0];
   assert.equal(toolResult.type, "tool_result");
   const payload = JSON.parse(toolResult.content);
@@ -158,7 +230,11 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
     phaseTurns[phase] = turn + 1;
 
     if (phase === "analyze") return tool("analyze-done", "phase_complete", { result: "success", summary: "analyzed", next_skill: "/select-hw", manifest_content: { phase } });
-    if (phase === "select-hw") return tool("select-done", "phase_complete", { result: "success", summary: "selected", next_phase: "flash-mpy-firmware", manifest_content: { phase, board_id: "esp32-s3-devkitc-1" } });
+    if (phase === "select-hw") {
+      // The gated phases run their validator first: a success no gate confirmed is refused.
+      if (turn === 0) return tool("select-gate", "script_run", { script_id: "sg", interpreter: "python", script: "select_hw_manifest.py", args: ["--validate-phase-complete", "--compare-manifest", "v.json", "--expected-artifact", "d.json"] });
+      return tool("select-done", "phase_complete", { result: "success", summary: "selected", next_phase: "flash-mpy-firmware", manifest_content: { phase, board_id: "esp32-s3-devkitc-1" } });
+    }
     if (phase === "upy-flash-mpy-firmware-plugin") return tool("flash-done", "phase_complete", { result: "success", summary: "flash skipped", next_skill: "upy-scaffold-plugin", manifest_content: { phase, board_id: "esp32-s3-devkitc-1" } });
     if (phase === "upy-scaffold-plugin") {
       if (turn === 0) return tool("scaffold-dir", "file_operation", { op: "mkdir", path: "firmware", op_id: "mk-fw" });
@@ -167,10 +243,12 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
     }
     if (phase === "upy-generate-plugin") {
       if (turn === 0) return tool("write-main", "file_operation", { op: "write", path: "firmware/main.py", content: "print('MPYHW_READY')\n" + "#".repeat(120), op_id: "main" });
+      if (turn === 1) return tool("gen-gate", "script_run", { script_id: "gg", interpreter: "python", script: "check_phase_complete_consistency.py", args: ["--phase-complete", "pc.json"] });
       return tool("generate-done", "phase_complete", { result: "success", summary: "generated", next_phase: "deploy", manifest_content: { phase, board_id: "esp32-s3-devkitc-1" } });
     }
     if (phase === "upy-deploy-plugin") {
       if (turn === 0) return tool("serial", "device_command", { action: "stream", cmd_id: "serial" });
+      if (turn === 1) return tool("deploy-gate", "script_run", { script_id: "dg", interpreter: "python", script: "deploy_result.py", args: ["--output-json", "deploy_result.json"] });
       return tool("deploy-done", "phase_complete", { result: "success", summary: "deployed", next_phase: null, manifest_content: { phase, board_id: "esp32-s3-devkitc-1" } });
     }
     return tool("unknown", "phase_complete", { result: "failed", summary: phase, next_phase: null });
@@ -202,10 +280,21 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
     shim: {
       runV0Script: async (call: any) => {
         scriptCalls.push(call);
-        // init_scaffold.py renders the project, and .flake8 is part of every render. The
-        // stub has to produce it: the loop rejects a scaffold phase_complete whose project
-        // has no .flake8, because that is how a phase that never rendered anything looks.
-        if (call.script === "init_scaffold.py") await writeFile(join(projectDir, ".flake8"), "[flake8]\nmax-line-length = 120\n", "utf-8");
+        // init_scaffold.py renders the project, and add_upy_resources copies the .upy schemas
+        // on every render as required resources. The stub has to produce one: the loop rejects
+        // a scaffold phase_complete whose project carries no scaffold-authored file, because
+        // that is how a phase that never rendered anything looks. .flake8 is deliberately NOT
+        // the marker -- a model that skips apply_scaffold writes its own.
+        if (call.script === "init_scaffold.py") {
+          await mkdir(join(projectDir, ".upy", "schemas"), { recursive: true });
+          await writeFile(join(projectDir, ".upy", "schemas", "project-manifest.schema.json"), "{}\n", "utf-8");
+        }
+        // A gated phase now needs its validator to REPORT a pass before phase_complete is
+        // accepted, so the stub has to answer like the real gate rather than with a bare "{}"
+        // (which carries no verdict at all). Same shape the real scripts print.
+        if (/select_hw_manifest\.py|check_phase_complete_consistency\.py|deploy_result\.py/.test(String(call.script))) {
+          return { status: "ok", stdout: '{"status":"ok","errors":[]}', stderr: "", exit_code: 0 };
+        }
         return { status: "ok", stdout: "{}", stderr: "", exit_code: 0 };
       },
       // all_lines carries lines beyond the matched markers (a print() the deploy
@@ -261,13 +350,20 @@ test("createProtocolLoop runs a local full-chain V0 e2e through production host 
     );
     assert.equal((await stat(join(projectDir, "firmware", "main.py"))).size > 100, true);
     assert.match(await readFile(join(projectDir, "firmware", "main.py"), "utf-8"), /MPYHW_READY/);
-    assert.equal(scriptCalls.length, 1);
-    assert.equal(scriptCalls[0].script, "init_scaffold.py");
+    // The scaffold render, plus one validator per gated phase: select-hw, generate and deploy
+    // each have to report a pass before their phase_complete is accepted.
+    assert.deepEqual(
+      scriptCalls.map((c: any) => c.script),
+      ["select_hw_manifest.py", "init_scaffold.py", "check_phase_complete_consistency.py", "deploy_result.py"],
+    );
     // The active phase must ride on script_run so the host resolver picks the running phase's
     // own copy of a basename shared by >1 served plugin. Mutation: drop `phase: extra?.phase` in
     // protocol-build.ts (or `phase: phaseCtx.phase` in protocol-loop.ts) and this fails — otherwise
     // the generate flow silently regresses to ambiguous_script_name with no failing test.
-    assert.equal(scriptCalls[0].phase, "upy-scaffold-plugin");
+    // Found by name, not by index: gated phases now run validators before this one, so a
+    // positional assertion here would silently start checking a different call.
+    assert.equal(scriptCalls.find((c: any) => c.script === "init_scaffold.py")?.phase, "upy-scaffold-plugin");
+    assert.equal(scriptCalls.find((c: any) => c.script === "deploy_result.py")?.phase, "upy-deploy-plugin");
     assert.ok(events.some((event) => event.type === "serial_output" && event.lines.includes("MPYHW_READY")));
     // The non-marker "booting" line (all_lines only, not in the matched `lines`) must
     // reach the Serial page too — the whole point of forwarding the full read window.
@@ -285,13 +381,16 @@ test("createProtocolLoop forwards onSafePoint so supplements are consumed at pha
   // real production glue and asserts the hook fires at each phase boundary.
   const fetchImpl = async (_url: any, init: any) => {
     const body = JSON.parse(String(init.body));
-    const next = body.phase === "analyze" ? "select-hw" : null;
+    // analyze -> flash: both are TRACKED but non-strict gates, so this exercises the safe-point
+    // hook across a real phase boundary without also having to satisfy a validator, which is a
+    // different test's job.
+    const next = body.phase === "analyze" ? "upy-flash-mpy-firmware-plugin" : null;
     return new Response(sseTool("done", "phase_complete", { result: "success", summary: "ok", next_phase: next, manifest_content: {} }), { status: 200, headers: { "content-type": "text/event-stream" } }) as any;
   };
   const safePointPhases: string[] = [];
   const loop = createProtocolLoop({ apiBaseUrl: "http://api.test", fetchImpl: fetchImpl as any, getAuthToken: async () => "token" });
   await loop({ intent: "x", traceId: "t", onSafePoint: (phase: string) => { safePointPhases.push(phase); return null; } });
-  assert.deepEqual(safePointPhases, ["analyze", "select-hw"], "onSafePoint must fire after each phase_complete via the production glue");
+  assert.deepEqual(safePointPhases, ["analyze", "upy-flash-mpy-firmware-plugin"], "onSafePoint must fire after each phase_complete via the production glue");
 });
 
 // Run a single model-issued device_command through the loop and return the tool_result the
