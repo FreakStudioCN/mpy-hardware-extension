@@ -35,6 +35,18 @@ const EXCERPT_CHARS = 70;
 
 const excerpt = (line: string): string => line.slice(0, EXCERPT_CHARS);
 
+// The interpreter's own banner names the BOARD ("Raspberry Pi Pico2 with RP2350"), not the build.
+const RUNTIME_BANNER = /^MicroPython v\d/;
+
+// Whole-name match on a firmware line. A bare substring test read "blink" as proven by the
+// previous build's "onboard_led_blink booting" -- the stale device this module exists to catch --
+// and "main" as proven by a traceback frame's `File "main.py"`.
+function namesBuild(line: string, name: string): boolean {
+  if (RUNTIME_BANNER.test(line) || TRACEBACK_HEADER.test(line) || TRACEBACK_FRAME.test(line)) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_])${escaped}([^A-Za-z0-9_]|$)`).test(line);
+}
+
 /**
  * Every capture line after the soft reboot, with mpremote's own chatter dropped.
  *
@@ -60,7 +72,7 @@ const raisedLine = (lines: string[]): string | undefined =>
 
 /** Classify post-reboot output against the name this run built. */
 export function classifyFirmwareEvidence(lines: string[], builtName: string | null): FirmwareEvidence {
-  const owned = builtName ? lines.find((l) => l.includes(builtName)) : undefined;
+  const owned = builtName ? lines.find((l) => namesBuild(l, builtName)) : undefined;
   if (owned) return { kind: "ran", line: excerpt(owned) };
   if (!lines.length) return { kind: "absent" };
 

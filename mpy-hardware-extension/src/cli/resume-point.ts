@@ -55,7 +55,7 @@ export async function findPhaseCompletes(root: string, depth = SEARCH_DEPTH): Pr
 // Only the trimming is local, to keep this file off protocol-loop.ts, which a sibling branch owns.
 // Anything not IN that table resolves to null, which is what makes a traversal string unusable
 // here rather than merely discouraged.
-function canonicalPhase(value: unknown): string | null {
+export function canonicalPhase(value: unknown): string | null {
   if (value == null) return null;
   const raw = String(value).trim().replace(/^\/+/, "");
   if (!raw || ["null", "none"].includes(raw.toLowerCase())) return null;
@@ -78,6 +78,9 @@ async function readCandidates(dir: string, onSkip: (message: string) => void): P
     // someone needs told when the resume then picks an earlier phase than they expected.
     try { saved = JSON.parse(await fsReadFile(path, "utf-8")); }
     catch (error) { onSkip(`resume: skipping unreadable ${name} — ${(error as Error).message}`); continue; }
+    // Parsed but not an object (the literal `null`, a number, a bare string): skipped and said so,
+    // not dereferenced -- `saved.payload` on null threw out of the whole resume.
+    if (!saved || typeof saved !== "object") { onSkip(`resume: skipping ${name} — not a JSON object`); continue; }
     const payload = saved.payload ?? saved;
     const phase = payload.next_phase ?? saved.next_phase;
     const manifest = payload.manifest_content ?? saved.manifest_content;

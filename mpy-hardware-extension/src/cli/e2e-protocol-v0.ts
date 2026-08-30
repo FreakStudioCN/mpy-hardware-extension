@@ -21,8 +21,8 @@
 //   3. A Python on PATH; first run bootstraps ~/.mpyhw/venv.
 // Bills several DeepSeek turns. Usage: npm run e2e:v0 -- "your intent here"
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, readFile as fsReadFile, readdir, writeFile, rm, stat } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { cp, mkdir, readFile as fsReadFile, readdir, realpath, writeFile, rm, stat } from "node:fs/promises";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createCheckpointQueue } from "./checkpoint.ts";
@@ -36,7 +36,7 @@ import {
   postRebootLines,
   type FirmwareEvidence,
 } from "./firmware-evidence.ts";
-import { resumePoint } from "./resume-point.ts";
+import { canonicalPhase, resumePoint } from "./resume-point.ts";
 
 const DEFAULT_INTENT = "做一个温湿度监测仪，温度超过阈值就让蜂鸣器报警，OLED 屏幕显示读数";
 const intent = process.argv.slice(2).join(" ") || DEFAULT_INTENT;
@@ -101,16 +101,36 @@ const resumeFrom = process.env.E2E_RESUME?.trim();
 // for tmp/e2e-v0. Combined with leaving E2E_REQUIRE_BOARD unset (no pre-flight probe), a
 // generate-only loop touches neither the shared project nor the board.
 let projectDir = process.env.E2E_PROJECT_DIR?.trim() || join(extRoot, "tmp", "e2e-v0");
-if (resumeFrom && resolve(resumeFrom) === resolve(projectDir)) {
+// Compared by REAL path, not by string. resolve() calls C:\Users\HAIPEN~1\... and the long-name
+// spelling of the same directory different, and it cannot see that a checkpoint dir lives INSIDE
+// the working dir. Either mistake sends the copy branch below to rm -rf the run it was asked to
+// resume, checkpoints included, before the cp that would have read them.
+const resumeReal = resumeFrom ? await realpath(resumeFrom) : null;
+const projectReal = await realpath(projectDir).catch(() => null);
+if (resumeReal && projectReal && resumeReal === projectReal) {
   // Resuming the working dir in place. The copy branch below would delete the source before
   // copying it, so this case has to be caught rather than left to destroy the run it is
   // meant to continue.
   console.log("resume: continuing in place (E2E_RESUME is the working dir)");
+} else if (resumeReal && projectReal && resumeReal.startsWith(projectReal + sep)) {
+  console.error(`E2E_RESUME (${resumeFrom}) lies inside the working project dir (${projectDir}), which this run clears first. Set E2E_PROJECT_DIR to a directory outside it.`);
+  process.exit(2);
 } else if (resumeFrom) {
   // Copy rather than run in place, so the saved run stays pristine and can be resumed again
   // after this attempt breaks something.
   await rm(projectDir, { recursive: true, force: true });
   await cp(resumeFrom, projectDir, { recursive: true });
+  // The archive's device evidence belongs to the PREVIOUS run. The verdict reads deploy_result.json
+  // and upload_summary.json out of the tree, so left in place they would describe this run's
+  // deploy with last run's capture. Checkpoints under .mpyhw are copied but NOT restored: the tree
+  // is whatever the archive's last phase left, and the phases before the resume point do not re-run.
+  for (const name of ["deploy_result.json", "upload_summary.json"]) {
+    for (let stale = await findArtifact(projectDir, name); stale; stale = await findArtifact(projectDir, name)) {
+      await rm(stale, { force: true });
+      console.log(`resume: removed the previous run's ${relative(projectDir, stale)}`);
+    }
+  }
+  console.log("resume: checkpoints are not restored; the project tree is the archive's final state");
 } else {
   // Reuse the stable dir; if a stale handle locks it (Windows EBUSY after a killed
   // run), fall back to a fresh timestamped dir instead of crashing.
@@ -269,7 +289,11 @@ const confirmApproval = async (card: any) => {
 // silently becomes a full run whose later phases are graded against a project that already holds
 // the earlier output -- which is how one "generate-only" run ended up reporting a second,
 // meaningless generate pass.
-const E2E_ONLY_PHASE = process.env.E2E_ONLY_PHASE?.trim() || "";
+// Canonicalized like E2E_RESUME_PHASE: a person types `generate`, phase_start says
+// `upy-generate-plugin`, and a raw comparison never matched, so the scoped run silently became
+// the full board-touching run this option exists to prevent.
+const onlyPhaseRaw = process.env.E2E_ONLY_PHASE?.trim() || "";
+const E2E_ONLY_PHASE = onlyPhaseRaw ? (canonicalPhase(onlyPhaseRaw) ?? onlyPhaseRaw) : "";
 const scopeStop = new AbortController();
 let stopAfterPhase = false;
 
@@ -407,11 +431,16 @@ try {
   (shim as any).dispose?.();
   // Writes are queued behind a promise chain, so without this the last events of a run --
   // the phase_complete that explains why it ended, above all -- are the ones lost.
-  await recorder.flush?.();
+  // A poisoned recorder chain (one EBUSY append on Windows is enough) must not throw out of the
+  // finally and skip the verdict and the checkpoint drain below.
+  try { await recorder.flush?.(); } catch (error) { console.error("session log: flush failed —", error); }
 }
 
 // --- success gate: reached generate THROUGH THE PLUGIN with real side effects ---
-const reachedGenerate = phases.some((p) => p.phase === "upy-generate-plugin" && p.result === "success");
+const reachedGenerate = phases.some((p) => p.phase === "upy-generate-plugin" && p.result === "success")
+  // A run resumed AT deploy carries generate's success in the archive: the resume point IS
+  // generate's phase_complete. main.py and the commit are still checked on disk below.
+  || resume?.phase === "upy-deploy-plugin";
 const mainPy = join(projectDir, "firmware", "main.py");
 let mainOk = false;
 try { mainOk = (await stat(mainPy)).size > 100; } catch { mainOk = false; }
@@ -427,7 +456,9 @@ let scaffoldApplied = false;
 for (const marker of SCAFFOLD_MARKERS) {
   try { if ((await stat(join(projectDir, marker))).isFile()) { scaffoldApplied = true; break; } } catch { /* absent — try the next */ }
 }
-const deployResult = phases.find((p) => p.phase === "upy-deploy-plugin")?.result;
+// The LAST deploy entry: the contract's own failed route is deploy(failed) -> generate -> deploy,
+// and the first entry would call that whole recovery "the deploy phase failed".
+const deployResult = [...phases].reverse().find((p) => p.phase === "upy-deploy-plugin")?.result;
 
 // Ask the DEVICE what happened, rather than trusting the phase's account of itself. Twice now
 // the two have disagreed, in opposite directions: one run reported deploy success while writing
@@ -605,21 +636,32 @@ if (deployResult === "success" && firmwareEvidence.kind === "crashed") {
 // a run that threw on an expired token before any phase executed -- the second is not a build
 // that went wrong, it is a build that never started, and the files on disk were a previous
 // run's. Anything short of a completed loop is now a hard fail that names itself.
+//
+// With no board expected, ending after generate is a legitimate code-only delivery -- the gate
+// this harness always had, and the one golden-path-matrix.mjs and the e2e skill grep for -- and
+// deploy's outcome says nothing about the build. With E2E_REQUIRE_BOARD set, an unfinished loop
+// or a failed deploy is a failed run. Every condition names itself when it blocks: a REVIEW that
+// said nothing sent three runs to the jsonl for an answer that was one line here.
+const boardExpected = Boolean(process.env.E2E_REQUIRE_BOARD?.trim());
 const deployFailed = deployResult === "failed";
-const ranAtAll = threw === null && phases.length > 0;
-const passed = ranAtAll && terminal === "complete" && !deployFailed
-  && reachedGenerate && mainOk && commits > 0 && scaffoldApplied;
-if (threw) console.log("verdict blocked: the loop threw before finishing —", threw);
-else if (phases.length === 0) console.log("verdict blocked: no phase executed");
-// A scoped stop cancels the loop on purpose, so "cancelled" here is the run doing as it was
-// told. Reporting it as a blocked verdict would read like a failure and invite exactly the
-// misreading this option exists to prevent.
-else if (stopAfterPhase) {
+// A scoped stop cancels the loop on purpose, so "cancelled" there is the run doing as it was told.
+const terminalOk = terminal === "complete" || (stopAfterPhase && terminal === "cancelled");
+const blockers: string[] = [];
+if (threw !== null) blockers.push(`the loop threw before finishing — ${threw}`);
+else if (phases.length === 0) blockers.push("no phase executed");
+if (boardExpected && !terminalOk) blockers.push(`terminal is ${terminal}, not complete`);
+if (boardExpected && deployFailed) blockers.push("the deploy phase failed");
+if (!reachedGenerate) blockers.push("generate did not report success (in this run or the resumed archive)");
+if (!mainOk) blockers.push("firmware/main.py is missing or under 100 bytes");
+if (commits === 0) blockers.push("the project has no git commit");
+if (!scaffoldApplied) blockers.push("no scaffold marker on disk");
+const passed = blockers.length === 0;
+if (stopAfterPhase) {
   const scoped = phases.find((p) => p.phase === E2E_ONLY_PHASE);
   console.log(`scoped run: ${E2E_ONLY_PHASE} finished with result=${scoped?.result ?? "(unknown)"}; later phases were not run, so this says nothing about them`);
 }
-else if (terminal !== "complete") console.log(`verdict blocked: terminal is ${terminal}, not complete`);
-else if (deployFailed) console.log("verdict blocked: the deploy phase failed");
+if (!boardExpected) console.log("board not required (E2E_REQUIRE_BOARD unset): deploy's outcome is reported above but is not part of the gate");
+for (const blocker of blockers) console.log("verdict blocked:", blocker);
 // Where the full account lives: stdout truncates a phase_complete summary at 300 chars and
 // carries no tool payloads, so a REVIEW that says nothing here is answerable from the jsonl.
 console.log("session log:", join(projectDir, ".mpyhw", "sessions", "e2e-v0-fullstack", "session.jsonl"));

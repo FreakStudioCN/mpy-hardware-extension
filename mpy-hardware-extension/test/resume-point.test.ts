@@ -179,3 +179,16 @@ test("E2E_RESUME_PHASE accepts the short alias a person actually types", async (
   assert.equal(point.phase, "upy-deploy-plugin");
   assert.equal(point.from, "phase_complete.upy_generate_plugin.json");
 });
+
+// A file whose JSON parses to something that is not an object -- the literal `null` was the one
+// seen -- used to throw TypeError out of resumePoint on `saved.payload`, sinking the whole resume.
+test("a phase_complete that parses to null is skipped and reported, not fatal", async () => {
+  const skips: string[] = [];
+  const dir = await runDir({
+    "phase_complete.analyze.json": "null",
+    "phase_complete.upy_generate_plugin.json": saved("upy-deploy-plugin"),
+  });
+  const point = await resumePoint(dir, undefined, (m) => skips.push(m));
+  assert.equal(point.phase, "upy-deploy-plugin");
+  assert.ok(skips.some((m) => m.includes("phase_complete.analyze.json")), `the skip must be reported: ${JSON.stringify(skips)}`);
+});

@@ -108,3 +108,19 @@ test("mpremote's own banner is never mistaken for firmware output", () => {
                       "Use Ctrl-] or Ctrl-x to exit this shell"].join("\n");
   assert.equal(classifyFirmwareEvidence(postRebootLines({ serial_excerpt: bannerOnly }), DHT11_NAME).kind, "absent");
 });
+
+test("a name that is a substring of the previous build's name does not prove this build ran", () => {
+  // The stale-device case the module exists to catch: run 2 built "blink", the board still boots
+  // run 1's "onboard_led_blink". A substring test called that "ran".
+  const stale = ["MPY: soft reboot", "[t=1ms] onboard_led_blink booting", "MPYHW_READY"].join("\n");
+  const lines = postRebootLines({ final_reset_excerpt: stale });
+  assert.equal(classifyFirmwareEvidence(lines, "blink").kind, "foreign");
+  assert.equal(classifyFirmwareEvidence(lines, "onboard_led_blink").kind, "ran");
+});
+
+test("the interpreter banner never proves a build ran", () => {
+  // "Raspberry Pi Pico2 with RP2350" is MicroPython naming the BOARD after a crash.
+  const lines = postRebootLines({ final_reset_excerpt: CRASHED_CAPTURE });
+  assert.equal(classifyFirmwareEvidence(lines, "Pico2").kind, "crashed");
+  assert.equal(classifyFirmwareEvidence(lines, "RP2350").kind, "crashed");
+});
