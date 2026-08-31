@@ -17,6 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const BASE = "main";
+const SUBMODULE = "third_party/MicroPython_Skills";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 function git(args, opts = {}) {
@@ -79,14 +80,25 @@ function doGate() {
   if (!n) die("gate needs a PR number, e.g. `gate 32`");
   const extDir = join(ROOT, "mpy-hardware-extension");
   if (!existsSync(join(extDir, "package.json"))) die(`no package.json in ${extDir}`);
+  // `git checkout` moves the GITLINK but leaves the submodule working tree where it was, so
+  // without this the baseline for a pin-bump PR runs the OLD skills content and its PASS means
+  // nothing — and `npm run baseline` runs the submodule's own smoke suites, which is most of what
+  // a pin bump even changes. Refuse rather than clobber if someone has work in there.
+  if (git(["status", "--porcelain"], { cwd: join(ROOT, SUBMODULE) })) {
+    die(`${SUBMODULE} has local changes; commit or stash them so the gate can check out the PR's pin`);
+  }
   const started = git(["rev-parse", "--abbrev-ref", "HEAD"]);
   git(["checkout", `pr-${n}`], { stdio: "inherit" });
+  git(["submodule", "update", "--init", "--recursive"], { stdio: "inherit" });
   const rev = git(["rev-parse", "HEAD"]);
-  console.log(`\ngate: pr-${n} @ ${rev} — running \`npm run baseline\` (node ${process.version}) ...\n`);
+  const subRev = git(["rev-parse", "HEAD"], { cwd: join(ROOT, SUBMODULE) });
+  console.log(`\ngate: pr-${n} @ ${rev} — running \`npm run baseline\` (node ${process.version})`);
+  console.log(`      ${SUBMODULE} @ ${subRev.slice(0, 12)} — fingerprint this too on a pin bump\n`);
   const r = spawnSync("npm run baseline", { cwd: extDir, shell: true, stdio: "inherit" });
   git(["checkout", started], { stdio: "inherit" }); // restore the tree we started on
+  git(["submodule", "update", "--init", "--recursive"], { stdio: "inherit" });
   const ok = r.status === 0;
-  console.log(`\ngate: pr-${n} @ ${rev.slice(0, 12)} → ${ok ? "PASS ✅ (merge is on the table)" : "FAIL ❌ (do NOT recommend merge)"}`);
+  console.log(`\ngate: pr-${n} @ ${rev.slice(0, 12)} (skills @ ${subRev.slice(0, 12)}) → ${ok ? "PASS ✅ (merge is on the table)" : "FAIL ❌ (do NOT recommend merge)"}`);
   process.exit(ok ? 0 : 1);
 }
 
