@@ -123,13 +123,13 @@ SCRIPT_FILES = {
 def scripts_root() -> str:
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(here, "..", "..", "third_party", "MicroPython_Skills"),       # packaged: <ext>/third_party
-        os.path.join(here, "..", "..", "..", "third_party", "MicroPython_Skills"),  # dev: <repo>/third_party
+        os.path.join(here, "..", "..", "..", "third_party", "MicroPython_Skills"),  # dev: <repo>/third_party — FIRST: a frozen snapshot must never beat the live submodule
+        os.path.join(here, "..", "..", "third_party", "MicroPython_Skills"),        # packaged: <ext>/third_party — gitignored subset `npm run package` froze at one pin; the only one inside a VSIX
     ]
     for candidate in candidates:
         if os.path.isdir(candidate):
             return os.path.abspath(candidate)
-    return os.path.abspath(candidates[0])
+    return os.path.abspath(candidates[-1])
 
 
 def resolve_script(name: str) -> str:

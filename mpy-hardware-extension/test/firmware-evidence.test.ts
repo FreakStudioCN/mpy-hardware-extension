@@ -213,4 +213,86 @@ test("a bare carriage return ends a line rather than splicing two together", () 
   const evidence = classifyFirmwareEvidence(postRebootLines({ final_reset_excerpt: capture }), DHT11_NAME);
 
   assert.equal(evidence.kind, "crashed");
-  assert.match(describeFirmwareEvidence(evidence, DHT11_NAME), /ValueError: bad pin/);});
+  assert.match(describeFirmwareEvidence(evidence, DHT11_NAME), /ValueError: bad pin/);
+});
+
+// capture_repl.py --reset-first sends Ctrl-C before Ctrl-D (it has to: Ctrl-D only reboots an IDLE
+// REPL, and a successful deploy leaves the board running its app). So a final-reset capture now
+// opens with a traceback WE caused, and --reset-first is mandatory for a success deploy, making
+// this every deploy rather than an edge case.
+const INTERRUPT_TRACEBACK = [
+  "^D\b\bConnected to MicroPython at /dev/cu.usbmodem101",
+  "Use Ctrl-] or Ctrl-x to exit this shell",
+  "^C",
+  "Traceback (most recent call last):",
+  '  File "main.py", line 41, in <module>',
+  "KeyboardInterrupt: ",
+];
+
+test("the Ctrl-C we send to reboot the board is not read as a startup crash", () => {
+  // The board here is one capture_repl.py's own observed_fresh_boot() docstring describes: "Some
+  // boards do not show SOFT_REBOOT_MARKER even though the firmware restarted during the capture."
+  // With no reboot line there is no slice point, so before the interrupt slice the whole traceback
+  // reached the verdict and a healthy deploy was reported as "the firmware RAISED on startup:
+  // KeyboardInterrupt". Mutation: drop INTERRUPT_EXCEPTION from the slice and this returns
+  // "crashed".
+  const capture = [...INTERRUPT_TRACEBACK, "MPYHW_READY"].join("\r\n");
+  const evidence = classifyFirmwareEvidence(postRebootLines({ final_reset_excerpt: capture }), DHT11_NAME);
+
+  assert.equal(evidence.kind, "absent");
+  assert.doesNotMatch(describeFirmwareEvidence(evidence, DHT11_NAME), /RAISED on startup/);
+});
+
+test("a real crash after our interrupt still reads as a crash", () => {
+  // The interrupt must not become a blanket amnesty: firmware that raises on the restart AFTER the
+  // Ctrl-C is the case this module exists to catch, and its traceback sits past the slice point.
+  const capture = [...INTERRUPT_TRACEBACK,
+                   "Traceback (most recent call last):",
+                   '  File "main.py", line 13, in <module>',
+                   "ValueError: bad pin"].join("\r\n");
+  const evidence = classifyFirmwareEvidence(postRebootLines({ final_reset_excerpt: capture }), DHT11_NAME);
+
+  assert.equal(evidence.kind, "crashed");
+  assert.match(describeFirmwareEvidence(evidence, DHT11_NAME), /RAISED on startup.*ValueError: bad pin/);
+});
+
+test("on a board that does print the reboot line, the reboot is still the slice point", () => {
+  // The two slice points are taken whichever sits LATER, and the difference is everything the OLD
+  // app emits between the Ctrl-C and the reboot -- here its own dying traceback, which belongs to
+  // the build being replaced and is not evidence about the restarted board at all. Mutation: slice
+  // at the interrupt unconditionally and that pre-reboot traceback survives, turning a capture that
+  // proves nothing into "the firmware RAISED on startup: OSError".
+  const capture = [...INTERRUPT_TRACEBACK,
+                   "Traceback (most recent call last):",
+                   '  File "main.py", line 9, in <module>',
+                   "OSError: [Errno 5] EIO",
+                   "MPY: soft reboot",
+                   "MPYHW_READY"].join("\r\n");
+  const evidence = classifyFirmwareEvidence(postRebootLines({ final_reset_excerpt: capture }), DHT11_NAME);
+
+  assert.equal(evidence.kind, "absent");
+  assert.doesNotMatch(describeFirmwareEvidence(evidence, DHT11_NAME), /OSError/);
+});
+
+test("a scaffold boot marker never stands in as evidence of which build ran", () => {
+  // MPYHW_READY and "starting scheduler" are printed verbatim by templates/firmware/main_*.py.tmpl,
+  // so every build emits them and neither can identify one. They are also capture_repl.py's default
+  // --stop-pattern, and a stop match ENDS the capture, so a capture whose last line is the marker is
+  // the ordinary shape -- and it was reported as `the board is running a DIFFERENT build:
+  // "MPYHW_READY"`. Mutation: drop SCAFFOLD_BOOT_MARKER from the filter and this returns "foreign".
+  for (const marker of ["MPYHW_READY", "starting scheduler"]) {
+    const evidence = classifyFirmwareEvidence(
+      postRebootLines({ final_reset_excerpt: `MPY: soft reboot\r\n${marker}` }), DHT11_NAME);
+
+    assert.equal(evidence.kind, "absent", marker);
+  }
+});
+
+test("a build's own line is still its output when it merely starts like a boot marker", () => {
+  // The marker filter is whole-line for this reason: "starting scheduler" is the scaffold's, but
+  // "starting scheduler for pump" is the firmware talking about itself.
+  const capture = `MPY: soft reboot\r\nstarting scheduler for ${DHT11_NAME}`;
+  const evidence = classifyFirmwareEvidence(postRebootLines({ final_reset_excerpt: capture }), DHT11_NAME);
+
+  assert.equal(evidence.kind, "ran");
+});
