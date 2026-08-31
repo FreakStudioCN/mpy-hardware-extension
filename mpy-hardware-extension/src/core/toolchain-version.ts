@@ -16,7 +16,7 @@ export const BUNDLED_TOOLCHAIN_VERSION = "2";
 // The VSIX version (mirrors package.json "version"). Hand-kept in sync the same way
 // BUNDLED_TOOLCHAIN_VERSION is — bump both when you bump package.json. Used by the
 // support diagnostics snapshot (section 08 "extension version").
-export const EXTENSION_VERSION = "0.4.2";
+export const EXTENSION_VERSION = "0.4.3";
 
 // True only when the server clearly advertises a NEWER toolchain than we bundle.
 // Unknown / unparseable / equal / older server versions never warn (fail-open).
