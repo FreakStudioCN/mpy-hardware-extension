@@ -132,6 +132,41 @@
     "version": "1.0.2"
   },
   {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "analog_input"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for the Analog Devices ADT7410 high-accuracy digital temperature sensor",
+    "driver_context_ref": "driver_context/adt7410_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "adt7410_driver",
+    "package_json_url": "https://upypi.net/pkgs/adt7410_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "__init__.py",
+        "code/__init__.py"
+      ],
+      [
+        "adt7410.py",
+        "code/adt7410.py"
+      ],
+      [
+        "i2c_helpers.py",
+        "code/i2c_helpers.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [
@@ -181,6 +216,33 @@
       [
         "ags02ma.py",
         "code/ags02ma.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Andreas Bühl",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "AHT10 digital temperature and humidity sensor driver for MicroPython",
+    "driver_context_ref": "driver_context/aht10_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "aht10_driver",
+    "package_json_url": "https://upypi.net/pkgs/aht10_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "aht10.py",
+        "code/aht10.py"
       ]
     ],
     "version": "1.0.0"
@@ -266,6 +328,86 @@
     "version": "1.0.0"
   },
   {
+    "author": "Mike Causer",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "Aosong AM2320 temperature and humidity sensor I2C driver for MicroPython",
+    "driver_context_ref": "driver_context/am2320_driver-1.1.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "am2320_driver",
+    "package_json_url": "https://upypi.net/pkgs/am2320_driver/1.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "am2320.py",
+        "code/am2320.py"
+      ]
+    ],
+    "version": "1.1.0"
+  },
+  {
+    "author": "Damien P. George, Adafruit Industries, Matt Trentini, FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "digital_output"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython SPI-based driver for APA102/DotStar addressable RGB LED strips",
+    "fw": "all",
+    "license": "MIT",
+    "name": "apa102_driver",
+    "package_json_url": "https://upypi.net/pkgs/apa102_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "apa102.py",
+        "apa102.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Rune Langøy",
+    "cached": true,
+    "capabilities": [
+      "distance_sensing",
+      "color_sensing",
+      "light_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "APDS9960 low-memory driver: ambient light, color (RGBC), and proximity sensing",
+    "driver_context_ref": "driver_context/apds9960_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "apds9960_driver",
+    "package_json_url": "https://upypi.net/pkgs/apds9960_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "apds9960.py",
+        "code/apds9960.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "hogeiha",
     "cached": true,
     "capabilities": [
@@ -291,6 +433,38 @@
       ]
     ],
     "version": "1.0.0"
+  },
+  {
+    "author": "Roberto Colistete Jr.",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "AS726X (AS7262/AS7263) 6-channel nano spectrometer I2C driver for MicroPython",
+    "driver_context_ref": "driver_context/as7263_driver-0.7.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "as7263_driver",
+    "package_json_url": "https://upypi.net/pkgs/as7263_driver/0.7.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "as726x.py",
+        "code/as726x.py"
+      ],
+      [
+        "as726x_microbit.py",
+        "code/as726x_microbit.py"
+      ],
+      [
+        "as726x_microbit_lowmem.py",
+        "code/as726x_microbit_lowmem.py"
+      ]
+    ],
+    "version": "0.7.0"
   },
   {
     "author": "leeqingshui",
@@ -354,7 +528,7 @@
     "fw": "all",
     "license": "MIT",
     "name": "async_websocket_client",
-    "package_json_url": "https://upypi.net/pkgs/async_websocket_client/1.0.1/package.json",
+    "package_json_url": "https://upypi.net/pkgs/async_websocket_client/1.0.2/package.json",
     "readme_url": null,
     "repository_url": null,
     "source": "upypi",
@@ -365,7 +539,7 @@
         "code/async_websocketclient.py"
       ]
     ],
-    "version": "1.0.1"
+    "version": "1.0.2"
   },
   {
     "author": "leeqingshui",
@@ -388,6 +562,84 @@
       [
         "at24c256.py",
         "code/at24c256.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "stewedio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to interface with the Microchip ATECC508A/ATECC608A crypto authentication chip via I2C, supporting SHA-256, ECDH, ECDSA sign/verify, random number generation, and secure key storage",
+    "fw": "all",
+    "license": "MIT",
+    "name": "atecc608a_driver",
+    "package_json_url": "https://upypi.net/pkgs/atecc608a_driver/1.1.1/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "atecc608a.py",
+        "code/atecc608a.py"
+      ],
+      [
+        "basic.py",
+        "code/basic.py"
+      ],
+      [
+        "constant.py",
+        "code/constant.py"
+      ],
+      [
+        "exceptions.py",
+        "code/exceptions.py"
+      ],
+      [
+        "host.py",
+        "code/host.py"
+      ],
+      [
+        "packet.py",
+        "code/packet.py"
+      ],
+      [
+        "status.py",
+        "code/status.py"
+      ],
+      [
+        "util.py",
+        "code/util.py"
+      ]
+    ],
+    "version": "1.1.1"
+  },
+  {
+    "author": "Lewis He, FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython I2C driver for the AXP2101 power management IC",
+    "fw": "all",
+    "license": "MIT",
+    "name": "axp2101_driver",
+    "package_json_url": "https://upypi.net/pkgs/axp2101_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "axp2101.py",
+        "axp2101.py"
+      ],
+      [
+        "I2CInterface.py",
+        "I2CInterface.py"
       ]
     ],
     "version": "1.0.0"
@@ -525,6 +777,133 @@
       ]
     ],
     "version": "1.0.2"
+  },
+  {
+    "author": "Salvatore Sanfilippo, FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython I2C driver for the BMA423 accelerometer and feature engine",
+    "driver_context_ref": "driver_context/bma423_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "bma423_driver",
+    "package_json_url": "https://upypi.net/pkgs/bma423_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "bma423.py",
+        "bma423.py"
+      ],
+      [
+        "bma423conf.bin",
+        "bma423conf.bin"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Limor 'Ladyada' Fried, Jeff Raber",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing",
+      "pressure_sensing",
+      "gas_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "BME680 temperature, humidity, pressure & gas sensor driver for MicroPython (I2C/SPI)",
+    "driver_context_ref": "driver_context/bme680_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "bme680_driver",
+    "package_json_url": "https://upypi.net/pkgs/bme680_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "bme680.py",
+        "code/bme680.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython I2C driver for Bosch BMI160 6-axis IMU (accelerometer + gyroscope)",
+    "driver_context_ref": "driver_context/bmi160_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "bmi160_driver",
+    "package_json_url": "https://upypi.net/pkgs/bmi160_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "__init__.py",
+        "code/__init__.py"
+      ],
+      [
+        "bmi160.py",
+        "code/bmi160.py"
+      ],
+      [
+        "i2c_helpers.py",
+        "code/i2c_helpers.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for the Bosch BMI270 6-axis IMU (accelerometer + gyroscope) over I2C",
+    "driver_context_ref": "driver_context/bmi270_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "bmi270_driver",
+    "package_json_url": "https://upypi.net/pkgs/bmi270_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "bmi270.py",
+        "code/bmi270.py"
+      ],
+      [
+        "i2c_helpers.py",
+        "code/i2c_helpers.py"
+      ],
+      [
+        "config_file.py",
+        "code/config_file.py"
+      ]
+    ],
+    "version": "1.0.0"
   },
   {
     "author": "Jose D. Montoya",
@@ -668,6 +1047,103 @@
     "version": "1.0.2"
   },
   {
+    "author": "Sebastian Plamauer",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library for Bosch BMX055 9-axis IMU (BMA2X2 + BMG160 + BMM050)",
+    "driver_context_ref": "driver_context/bmx055_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "bmx055_driver",
+    "package_json_url": "https://upypi.net/pkgs/bmx055_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "bmx055.py",
+        "code/bmx055.py"
+      ],
+      [
+        "bma2x2.py",
+        "code/bma2x2.py"
+      ],
+      [
+        "bmg160.py",
+        "code/bmg160.py"
+      ],
+      [
+        "bmm050.py",
+        "code/bmm050.py"
+      ],
+      [
+        "attitude.py",
+        "code/attitude.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Peter Hinch",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "BNO055 9-axis IMU sensor driver with axis remapping, sensor configuration and ISR-safe data reading",
+    "driver_context_ref": "driver_context/bno055_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "bno055_driver",
+    "package_json_url": "https://upypi.net/pkgs/bno055_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "bno055.py",
+        "code/bno055.py"
+      ],
+      [
+        "bno055_base.py",
+        "code/bno055_base.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "rdagger",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library for BNO085 9-DOF IMU sensor using UART-RVC mode",
+    "fw": "all",
+    "license": "MIT",
+    "name": "bno085_driver",
+    "package_json_url": "https://upypi.net/pkgs/bno085_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "bno085.py",
+        "code/bno085.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [
@@ -776,6 +1252,29 @@
       [
         "ButtonDetect.py",
         "github:FreakStudioCN/micropython-embedded/middleware/utils/ButtonFSM/code/ButtonDetect.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython SPI driver for the CC1101 sub-GHz transceiver",
+    "fw": "all",
+    "license": "GPL-3.0",
+    "name": "cc1101_driver",
+    "package_json_url": "https://upypi.net/pkgs/cc1101_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "cc1101.py",
+        "cc1101.py"
       ]
     ],
     "version": "1.0.0"
@@ -972,6 +1471,56 @@
     "version": "1.0.2"
   },
   {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "touch_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "CST328 I2C capacitive touch driver for MicroPython",
+    "fw": "all",
+    "license": "MIT",
+    "name": "cst328_driver",
+    "package_json_url": "https://upypi.net/pkgs/cst328_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "cst328.py",
+        "code/cst328.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "touch_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "CST816/CST816S/CST816T/CST816D I2C capacitive touch controller driver for MicroPython",
+    "fw": "all",
+    "license": "MIT",
+    "name": "cst816_driver",
+    "package_json_url": "https://upypi.net/pkgs/cst816_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "cst816.py",
+        "code/cst816.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [
@@ -1137,6 +1686,32 @@
       ]
     ],
     "version": "1.0.2"
+  },
+  {
+    "author": "Tony DiCola, VynDragon, FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "motor_control"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython I2C driver for the DRV2605L haptic motor controller",
+    "driver_context_ref": "driver_context/drv2605l_driver-0.1.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "drv2605l_driver",
+    "package_json_url": "https://upypi.net/pkgs/drv2605l_driver/0.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "drv2605l.py",
+        "drv2605l.py"
+      ]
+    ],
+    "version": "0.1.0"
   },
   {
     "author": "leeqingshui",
@@ -1336,6 +1911,52 @@
   {
     "author": "FreakStudio",
     "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for the EBYTE E103-W02 UART Wi-Fi module",
+    "fw": "all",
+    "license": "MIT",
+    "name": "e103w02_driver",
+    "package_json_url": "https://upypi.net/pkgs/e103w02_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "e103w02.py",
+        "code/e103w02.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython UART driver for the EBYTE E104-BT02 BLE transparent module",
+    "fw": "all",
+    "license": "MIT",
+    "name": "e104bt02_driver",
+    "package_json_url": "https://upypi.net/pkgs/e104bt02_driver/1.3.1/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "e104bt02.py",
+        "code/e104bt02.py"
+      ]
+    ],
+    "version": "1.3.1"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
     "capabilities": [
       "gas_sensing"
     ],
@@ -1376,6 +1997,55 @@
       [
         "sensor_pack_2/crc_mod.py",
         "code/sensor_pack_2/crc_mod.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "analog_input"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A cold-generated MicroPython I2C control driver for the ES7210 audio ADC",
+    "driver_context_ref": "driver_context/es7210_driver-0.1.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "es7210_driver",
+    "package_json_url": "https://upypi.net/pkgs/es7210_driver/0.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "es7210.py",
+        "es7210.py"
+      ]
+    ],
+    "version": "0.1.0"
+  },
+  {
+    "author": "M5Stack Technology CO LTD, FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "ES8311 audio codec I2C configuration driver for MicroPython",
+    "fw": "all",
+    "license": "MIT",
+    "name": "es8311_driver",
+    "package_json_url": "https://upypi.net/pkgs/es8311_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "es8311.py",
+        "code/es8311.py"
       ]
     ],
     "version": "1.0.0"
@@ -1562,6 +2232,83 @@
       [
         "fm8118_atomization.py",
         "code/fm8118_atomization.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Liz Clark, Adafruit Industries, FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "touch_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython I2C driver for FT5336 capacitive touch controllers",
+    "driver_context_ref": "driver_context/ft5336_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "ft5336_driver",
+    "package_json_url": "https://upypi.net/pkgs/ft5336_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "ft5336.py",
+        "ft5336.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "touch_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "FT6336/FT6336U I2C capacitive touch controller driver for MicroPython",
+    "fw": "all",
+    "license": "Apache-2.0",
+    "name": "ft6336_driver",
+    "package_json_url": "https://upypi.net/pkgs/ft6336_driver/0.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "ft6336.py",
+        "code/ft6336.py"
+      ]
+    ],
+    "version": "0.1.0"
+  },
+  {
+    "author": "Salvatore Sanfilippo, FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "touch_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython I2C driver for FT6x06/FT6206/FT6306 capacitive touch controllers with IRQ support",
+    "driver_context_ref": "driver_context/ft6x06_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "ft6x06_driver",
+    "package_json_url": "https://upypi.net/pkgs/ft6x06_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "ft6x06.py",
+        "ft6x06.py"
       ]
     ],
     "version": "1.0.0"
@@ -1815,6 +2562,94 @@
     "version": "1.0.0"
   },
   {
+    "author": "Mike Causer",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control HDC1080 temperature and humidity sensor via I2C",
+    "driver_context_ref": "driver_context/hdc1080_driver-1.0.1.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "hdc1080_driver",
+    "package_json_url": "https://upypi.net/pkgs/hdc1080_driver/1.0.1/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "hdc1080.py",
+        "code/hdc1080.py"
+      ]
+    ],
+    "version": "1.0.1"
+  },
+  {
+    "author": "December",
+    "cached": true,
+    "capabilities": [
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython Modbus RTU driver for the Mysentech HDS humidity detection sensor",
+    "fw": "all",
+    "license": "MIT",
+    "name": "hds_driver",
+    "package_json_url": "https://upypi.net/pkgs/hds_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "hds_umodbus/__init__.py",
+        "code/hds_umodbus/__init__.py"
+      ],
+      [
+        "hds_umodbus/common.py",
+        "code/hds_umodbus/common.py"
+      ],
+      [
+        "hds_umodbus/const.py",
+        "code/hds_umodbus/const.py"
+      ],
+      [
+        "hds_umodbus/functions.py",
+        "code/hds_umodbus/functions.py"
+      ],
+      [
+        "hds_umodbus/modbus.py",
+        "code/hds_umodbus/modbus.py"
+      ],
+      [
+        "hds_umodbus/serial.py",
+        "code/hds_umodbus/serial.py"
+      ],
+      [
+        "hds_umodbus/tcp.py",
+        "code/hds_umodbus/tcp.py"
+      ],
+      [
+        "hds_umodbus/typing.py",
+        "code/hds_umodbus/typing.py"
+      ],
+      [
+        "hds_umodbus/version.py",
+        "code/hds_umodbus/version.py"
+      ],
+      [
+        "hds.py",
+        "code/hds.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "goctaprog@gmail.com",
     "cached": true,
     "capabilities": [
@@ -1905,6 +2740,96 @@
     "version": "1.0.2"
   },
   {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing",
+      "touch_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for the ST HTS221 capacitive temperature and humidity sensor over I2C",
+    "driver_context_ref": "driver_context/hts221_driver-1.1.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "hts221_driver",
+    "package_json_url": "https://upypi.net/pkgs/hts221_driver/1.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "hts221.py",
+        "hts221.py"
+      ],
+      [
+        "i2c_helpers.py",
+        "i2c_helpers.py"
+      ]
+    ],
+    "version": "1.1.0"
+  },
+  {
+    "author": "Julian Hille",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control HTU21D temperature and humidity sensor via I2C",
+    "driver_context_ref": "driver_context/htu21d_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "htu21d_driver",
+    "package_json_url": "https://upypi.net/pkgs/htu21d_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "htu21d.py",
+        "code/htu21d.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython I2C driver for TE HTU31D temperature and humidity sensor",
+    "driver_context_ref": "driver_context/htu31d_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "htu31d_driver",
+    "package_json_url": "https://upypi.net/pkgs/htu31d_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "__init__.py",
+        "code/__init__.py"
+      ],
+      [
+        "htu31d.py",
+        "code/htu31d.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [
@@ -1927,6 +2852,70 @@
       [
         "hx711_gpio.py",
         "code/hx711_gpio.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control the TDK ICG20660 6-axis gyroscope/accelerometer sensor via I2C",
+    "driver_context_ref": "driver_context/icg20660_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "icg20660_driver",
+    "package_json_url": "https://upypi.net/pkgs/icg20660_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "icg20660.py",
+        "code/icg20660.py"
+      ],
+      [
+        "i2c_helpers.py",
+        "code/i2c_helpers.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for the ICM20948 9-axis accelerometer/gyroscope I2C sensor",
+    "driver_context_ref": "driver_context/icm20948_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "icm20948_driver",
+    "package_json_url": "https://upypi.net/pkgs/icm20948_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "micropython_icm20948/__init__.py",
+        "code/micropython_icm20948/__init__.py"
+      ],
+      [
+        "micropython_icm20948/icm20948.py",
+        "code/micropython_icm20948/icm20948.py"
+      ],
+      [
+        "micropython_icm20948/i2c_helpers.py",
+        "code/micropython_icm20948/i2c_helpers.py"
       ]
     ],
     "version": "1.0.0"
@@ -2089,6 +3078,30 @@
       ]
     ],
     "version": "1.0.0"
+  },
+  {
+    "author": "Mika Tuupola",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control IP5306 multi-function power management SOC via I2C",
+    "driver_context_ref": "driver_context/ip5306_driver-0.1.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "ip5306_driver",
+    "package_json_url": "https://upypi.net/pkgs/ip5306_driver/0.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "ip5306.py",
+        "code/ip5306.py"
+      ]
+    ],
+    "version": "0.1.0"
   },
   {
     "author": "peterhinch",
@@ -2494,6 +3507,105 @@
     "version": "1.0.0"
   },
   {
+    "author": "OldhamMade",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "LM75 I2C digital temperature sensor driver for MicroPython",
+    "driver_context_ref": "driver_context/lm75_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "lm75_driver",
+    "package_json_url": "https://upypi.net/pkgs/lm75_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "lm75.py",
+        "code/lm75.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Mike Causer",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library for the NXP LM75A I2C digital temperature sensor and thermal watchdog",
+    "driver_context_ref": "driver_context/lm75a_driver-0.0.3.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "lm75a_driver",
+    "package_json_url": "https://upypi.net/pkgs/lm75a_driver/0.0.3/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "lm75a.py",
+        "code/lm75a.py"
+      ]
+    ],
+    "version": "0.0.3"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython SX1262 and E22-900M22S driver with UART bridge and client",
+    "fw": "all",
+    "license": "MIT",
+    "name": "lora_driver",
+    "package_json_url": "https://upypi.net/pkgs/lora_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "_sx126x.py",
+        "code/_sx126x.py"
+      ],
+      [
+        "sx126x.py",
+        "code/sx126x.py"
+      ],
+      [
+        "sx1262.py",
+        "code/sx1262.py"
+      ],
+      [
+        "e22_900m22s.py",
+        "code/e22_900m22s.py"
+      ],
+      [
+        "e22_uart_protocol.py",
+        "code/e22_uart_protocol.py"
+      ],
+      [
+        "e22_uart_bridge.py",
+        "code/e22_uart_bridge.py"
+      ],
+      [
+        "e22_uart_client.py",
+        "code/e22_uart_client.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [],
@@ -2517,6 +3629,37 @@
       ]
     ],
     "version": "1.0.1"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for the ST LSM6DSOX 6-axis IMU (accelerometer + gyroscope + temperature) over I2C",
+    "driver_context_ref": "driver_context/lsm6dsox_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "lsm6dsox_driver",
+    "package_json_url": "https://upypi.net/pkgs/lsm6dsox_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "lsm6dsox.py",
+        "code/lsm6dsox.py"
+      ],
+      [
+        "i2c_helpers.py",
+        "code/i2c_helpers.py"
+      ]
+    ],
+    "version": "1.0.0"
   },
   {
     "author": "octaprog7",
@@ -2585,6 +3728,29 @@
       [
         "math_utils.py",
         "code/math_utils.py"
+      ]
+    ],
+    "version": "1.0.1"
+  },
+  {
+    "author": "Andre Peeters",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control MAX17048/MAX17049 LiPo fuel gauge via I2C",
+    "fw": "all",
+    "license": "MIT",
+    "name": "max17048_driver",
+    "package_json_url": "https://upypi.net/pkgs/max17048_driver/1.0.1/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "max17048.py",
+        "code/max17048.py"
       ]
     ],
     "version": "1.0.1"
@@ -2769,6 +3935,65 @@
   {
     "author": "leeqingshui",
     "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython Modbus RTU driver for the MER-MCP1081-260-26 water-level sensor",
+    "fw": "all",
+    "license": "MIT",
+    "name": "mcp1081_driver",
+    "package_json_url": "https://upypi.net/pkgs/mcp1081_driver/2.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "mer.py",
+        "code/mer.py"
+      ],
+      [
+        "mcp1081_umodbus/__init__.py",
+        "code/mcp1081_umodbus/__init__.py"
+      ],
+      [
+        "mcp1081_umodbus/common.py",
+        "code/mcp1081_umodbus/common.py"
+      ],
+      [
+        "mcp1081_umodbus/const.py",
+        "code/mcp1081_umodbus/const.py"
+      ],
+      [
+        "mcp1081_umodbus/functions.py",
+        "code/mcp1081_umodbus/functions.py"
+      ],
+      [
+        "mcp1081_umodbus/modbus.py",
+        "code/mcp1081_umodbus/modbus.py"
+      ],
+      [
+        "mcp1081_umodbus/serial.py",
+        "code/mcp1081_umodbus/serial.py"
+      ],
+      [
+        "mcp1081_umodbus/tcp.py",
+        "code/mcp1081_umodbus/tcp.py"
+      ],
+      [
+        "mcp1081_umodbus/typing.py",
+        "code/mcp1081_umodbus/typing.py"
+      ],
+      [
+        "mcp1081_umodbus/version.py",
+        "code/mcp1081_umodbus/version.py"
+      ]
+    ],
+    "version": "2.1.0"
+  },
+  {
+    "author": "leeqingshui",
+    "cached": true,
     "capabilities": [
       "digital_output"
     ],
@@ -2925,6 +4150,32 @@
     "version": "1.0.2"
   },
   {
+    "author": "Kai Fricke",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for MCP9808 high-accuracy I2C temperature sensor with ±0.0625°C resolution",
+    "driver_context_ref": "driver_context/mcp9808_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "mcp9808_driver",
+    "package_json_url": "https://upypi.net/pkgs/mcp9808_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "mcp9808.py",
+        "code/mcp9808.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [
@@ -2952,6 +4203,31 @@
     "version": "1.0.1"
   },
   {
+    "author": "December",
+    "cached": true,
+    "capabilities": [
+      "pressure_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython UART driver for the MYSENTECH MFYM-1S-9-9 flexible pressure sensor",
+    "fw": "all",
+    "license": "MIT",
+    "name": "mfym1s99_driver",
+    "package_json_url": "https://upypi.net/pkgs/mfym1s99_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "mfym1s99.py",
+        "code/mfym1s99.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [
@@ -2974,6 +4250,56 @@
       [
         "mgx.py",
         "code/mgx.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "December",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython driver for the Mysentech MHT04-IIC temperature and humidity sensor with CRC and factory calibration support",
+    "driver_context_ref": "driver_context/mht04iic_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "mht04iic_driver",
+    "package_json_url": "https://upypi.net/pkgs/mht04iic_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "mht04.py",
+        "code/mht04.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "inmcm, FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython NMEA parser wrapper suitable for MIA-M10Q GNSS UART output",
+    "fw": "all",
+    "license": "MIT",
+    "name": "mia_m10q_driver",
+    "package_json_url": "https://upypi.net/pkgs/mia_m10q_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "mia_m10q.py",
+        "mia_m10q.py"
       ]
     ],
     "version": "1.0.0"
@@ -3418,6 +4744,32 @@
     "version": "1.0.0"
   },
   {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing",
+      "sound_sensing"
+    ],
+    "chips": "RP2040",
+    "deps": [],
+    "description": "A MicroPython library to control MP34DT05 MEMS microphone via PDM using RP2040 PIO",
+    "fw": "rp2",
+    "license": "MIT",
+    "name": "mp34dt05_driver",
+    "package_json_url": "https://upypi.net/pkgs/mp34dt05_driver/1.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "mp34dt05.py",
+        "mp34dt05.py"
+      ]
+    ],
+    "version": "1.1.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [
@@ -3497,6 +4849,66 @@
       ]
     ],
     "version": "1.0.0"
+  },
+  {
+    "author": "Mika Tuupola",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control MPU6886 6-axis motion tracking device via I2C",
+    "driver_context_ref": "driver_context/mpu6886_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "mpu6886_driver",
+    "package_json_url": "https://upypi.net/pkgs/mpu6886_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "mpu6886.py",
+        "code/mpu6886.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Mika Tuupola",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython I2C driver for MPU9250 9-axis motion tracking device (MPU6500 + AK8963)",
+    "driver_context_ref": "driver_context/mpu9250_driver-0.4.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "mpu9250_driver",
+    "package_json_url": "https://upypi.net/pkgs/mpu9250_driver/0.4.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "mpu9250.py",
+        "code/mpu9250.py"
+      ],
+      [
+        "mpu6500.py",
+        "code/mpu6500.py"
+      ],
+      [
+        "ak8963.py",
+        "code/ak8963.py"
+      ]
+    ],
+    "version": "0.4.0"
   },
   {
     "author": "leeqingshui",
@@ -3857,6 +5269,31 @@
       ]
     ],
     "version": "1.0.0"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "timekeeping"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "PCF85063/PCF85063ATL low-power RTC driver for MicroPython",
+    "fw": "all",
+    "license": "Apache-2.0",
+    "name": "pcf85063_driver",
+    "package_json_url": "https://upypi.net/pkgs/pcf85063_driver/0.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "pcf85063.py",
+        "code/pcf85063.py"
+      ]
+    ],
+    "version": "0.1.0"
   },
   {
     "author": "leeqingshui",
@@ -4443,6 +5880,31 @@
     "version": "1.0.2"
   },
   {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "motion_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "QMI8658/QMI8658C 6-axis IMU driver for MicroPython",
+    "fw": "all",
+    "license": "Apache-2.0",
+    "name": "qmi8658_driver",
+    "package_json_url": "https://upypi.net/pkgs/qmi8658_driver/0.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "qmi8658.py",
+        "code/qmi8658.py"
+      ]
+    ],
+    "version": "0.1.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [],
@@ -4924,6 +6386,198 @@
     "version": "1.0.2"
   },
   {
+    "author": "2black0",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "SHT11 temperature and humidity sensor driver (GPIO bit-bang protocol) for MicroPython",
+    "fw": "all",
+    "license": "MIT",
+    "name": "sht11_driver",
+    "package_json_url": "https://upypi.net/pkgs/sht11_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "sht11.py",
+        "code/sht11.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Miceuz",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for the Sensirion SHT25 temperature and humidity sensor",
+    "driver_context_ref": "driver_context/sht25_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "sht25_driver",
+    "package_json_url": "https://upypi.net/pkgs/sht25_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "sht25.py",
+        "code/sht25.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Roberto Sánchez",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "SHT30 temperature and humidity sensor I2C driver for MicroPython",
+    "driver_context_ref": "driver_context/sht30_driver-0.2.1.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "sht30_driver",
+    "package_json_url": "https://upypi.net/pkgs/sht30_driver/0.2.1/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "sht30.py",
+        "code/sht30.py"
+      ]
+    ],
+    "version": "0.2.1"
+  },
+  {
+    "author": "Kai Fricke",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "SHT31 temperature and humidity sensor driver for MicroPython via I2C",
+    "driver_context_ref": "driver_context/sht31_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "sht31_driver",
+    "package_json_url": "https://upypi.net/pkgs/sht31_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "sht31.py",
+        "code/sht31.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "mimingxuan",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython driver for the Sensirion SHT35 high-precision I2C temperature and humidity sensor",
+    "driver_context_ref": "driver_context/sht35_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "sht35_driver",
+    "package_json_url": "https://upypi.net/pkgs/sht35_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "sht35.py",
+        "code/sht35.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for Sensirion SHT4X temperature and humidity sensor (SHT40/SHT41/SHT45)",
+    "driver_context_ref": "driver_context/sht45_driver-0.0.0_auto.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "sht45_driver",
+    "package_json_url": "https://upypi.net/pkgs/sht45_driver/0.0.0+auto.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "__init__.py",
+        "code/__init__.py"
+      ],
+      [
+        "sht45.py",
+        "code/sht45.py"
+      ]
+    ],
+    "version": "0.0.0+auto.0"
+  },
+  {
+    "author": "mimingxuan",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "SHTC3 temperature and humidity sensor driver for MicroPython",
+    "driver_context_ref": "driver_context/shtc3_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "shtc3_driver",
+    "package_json_url": "https://upypi.net/pkgs/shtc3_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "shtc3.py",
+        "code/shtc3.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "Nelio Goncalves Godoi",
     "cached": true,
     "capabilities": [
@@ -4953,6 +6607,30 @@
     "version": "1.0.0"
   },
   {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A cold-generated MicroPython I2C command driver for the SI4732 radio receiver",
+    "driver_context_ref": "driver_context/si4732_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "si4732_driver",
+    "package_json_url": "https://upypi.net/pkgs/si4732_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "si4732.py",
+        "si4732.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [],
@@ -4973,6 +6651,33 @@
       [
         "silicon5351.py",
         "code/silicon5351.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Chris Balmer",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "humidity_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython I2C driver for Si7021 humidity and temperature sensor",
+    "driver_context_ref": "driver_context/si7021_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "si7021_driver",
+    "package_json_url": "https://upypi.net/pkgs/si7021_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "si7021.py",
+        "code/si7021.py"
       ]
     ],
     "version": "1.0.0"
@@ -5284,6 +6989,31 @@
     "version": "1.0.0"
   },
   {
+    "author": "Guy Carver, boochow",
+    "cached": true,
+    "capabilities": [
+      "display_text"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control ST7735 TFT LCD display via SPI",
+    "fw": "all",
+    "license": "MIT",
+    "name": "st7735_driver",
+    "package_json_url": "https://upypi.net/pkgs/st7735_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "st7735.py",
+        "code/st7735.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "leeqingshui",
     "cached": true,
     "capabilities": [
@@ -5319,6 +7049,145 @@
       [
         "vga1_16x32.py",
         "code/vga1_16x32.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Russ Hughes, FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "display_text"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython driver for ST7789/ST7789V TFT LCD displays using an 8-bit parallel bus",
+    "fw": "all",
+    "license": "MIT",
+    "name": "st7789v_parallel_driver",
+    "package_json_url": "https://upypi.net/pkgs/st7789v_parallel_driver/0.1.1/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "st7789v_parallel.py",
+        "code/st7789v_parallel.py"
+      ]
+    ],
+    "version": "0.1.1"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "display_text"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "ST7796/ST7796S SPI display driver for MicroPython",
+    "fw": "all",
+    "license": "MIT",
+    "name": "st7796_driver",
+    "package_json_url": "https://upypi.net/pkgs/st7796_driver/0.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "st7796.py",
+        "code/st7796.py"
+      ]
+    ],
+    "version": "0.1.0"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing",
+      "audio_output"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython driver for the STTS22H temperature sensor",
+    "driver_context_ref": "driver_context/stts22h_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "stts22h_driver",
+    "package_json_url": "https://upypi.net/pkgs/stts22h_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "micropython_stts22h/__init__.py",
+        "code/micropython_stts22h/__init__.py"
+      ],
+      [
+        "micropython_stts22h/stts22h.py",
+        "code/micropython_stts22h/stts22h.py"
+      ],
+      [
+        "micropython_stts22h/i2c_helpers.py",
+        "code/micropython_stts22h/i2c_helpers.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "jgromes",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control the Semtech SX1262 LoRa radio transceiver via SPI, supporting LoRa and GFSK modulation modes",
+    "fw": "all",
+    "license": "MIT",
+    "name": "sx1262_driver",
+    "package_json_url": "https://upypi.net/pkgs/sx1262_driver/1.0.1/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "sx1262.py",
+        "code/sx1262.py"
+      ],
+      [
+        "sx126x.py",
+        "code/sx126x.py"
+      ],
+      [
+        "_sx126x.py",
+        "code/_sx126x.py"
+      ]
+    ],
+    "version": "1.0.1"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control SX1276 LoRa radio transceiver via SPI with FHSS frequency hopping support",
+    "fw": "all",
+    "license": "MIT",
+    "name": "sx1276_driver",
+    "package_json_url": "https://upypi.net/pkgs/sx1276_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "sx1276.py",
+        "code/sx1276.py"
       ]
     ],
     "version": "1.0.0"
@@ -5371,6 +7240,29 @@
       [
         "tas_755c_eth.py",
         "code/tas_755c_eth.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "TCA9554 8-bit I2C GPIO expander driver for MicroPython",
+    "fw": "all",
+    "license": "MIT",
+    "name": "tca9554_driver",
+    "package_json_url": "https://upypi.net/pkgs/tca9554_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "tca9554.py",
+        "code/tca9554.py"
       ]
     ],
     "version": "1.0.0"
@@ -5452,6 +7344,55 @@
       ]
     ],
     "version": "1.0.0"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [],
+    "chips": "all",
+    "deps": [],
+    "description": "LILYGO T-Deck Plus onboard T-Keyboard I2C driver (ESP32-C3 keyboard controller at address 0x55)",
+    "driver_context_ref": "driver_context/tdeck_keyboard-0.1.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "tdeck_keyboard",
+    "package_json_url": "https://upypi.net/pkgs/tdeck_keyboard/0.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "tdeck_keyboard.py",
+        "tdeck_keyboard.py"
+      ]
+    ],
+    "version": "0.1.0"
+  },
+  {
+    "author": "FreakStudio",
+    "cached": true,
+    "capabilities": [
+      "digital_input"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "LILYGO T-Deck Plus onboard trackball GPIO polling driver (4x AN48841B Hall switches + TS-1187AB center button)",
+    "fw": "all",
+    "license": "MIT",
+    "name": "tdeck_trackball",
+    "package_json_url": "https://upypi.net/pkgs/tdeck_trackball/0.1.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "tdeck_trackball.py",
+        "tdeck_trackball.py"
+      ]
+    ],
+    "version": "0.1.0"
   },
   {
     "author": "leeqingshui",
@@ -5602,6 +7543,119 @@
     "version": "1.0.0"
   },
   {
+    "author": "Kevin Houlihan",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython library to control TMP102 digital temperature sensor via I2C",
+    "fw": "all",
+    "license": "MIT",
+    "name": "tmp102_driver",
+    "package_json_url": "https://upypi.net/pkgs/tmp102_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "installable",
+    "urls": [
+      [
+        "__init__.py",
+        "code/__init__.py"
+      ],
+      [
+        "_tmp102.py",
+        "code/_tmp102.py"
+      ],
+      [
+        "alert.py",
+        "code/alert.py"
+      ],
+      [
+        "conversionrate.py",
+        "code/conversionrate.py"
+      ],
+      [
+        "convertors.py",
+        "code/convertors.py"
+      ],
+      [
+        "extendedmode.py",
+        "code/extendedmode.py"
+      ],
+      [
+        "oneshot.py",
+        "code/oneshot.py"
+      ],
+      [
+        "shutdown.py",
+        "code/shutdown.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Matt Trentini",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "A MicroPython driver for the TI TMP1075 digital temperature sensor with I2C interface",
+    "driver_context_ref": "driver_context/tmp1075_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "tmp1075_driver",
+    "package_json_url": "https://upypi.net/pkgs/tmp1075_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "tmp1075.py",
+        "code/tmp1075.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "temperature_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "MicroPython Driver for the TMP117 high-precision digital temperature sensor",
+    "driver_context_ref": "driver_context/tmp117_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "tmp117_driver",
+    "package_json_url": "https://upypi.net/pkgs/tmp117_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "micropython_tmp117/__init__.py",
+        "code/micropython_tmp117/__init__.py"
+      ],
+      [
+        "micropython_tmp117/tmp117.py",
+        "code/micropython_tmp117/tmp117.py"
+      ],
+      [
+        "micropython_tmp117/i2c_helpers.py",
+        "code/micropython_tmp117/i2c_helpers.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
     "author": "hogeiha",
     "cached": true,
     "capabilities": [
@@ -5735,6 +7789,33 @@
       [
         "uv_matrix.py",
         "github:FreakStudioCN/GraftSense-Drivers-MicroPython/lighting/uv_matrix/code/uv_matrix.py"
+      ]
+    ],
+    "version": "1.0.0"
+  },
+  {
+    "author": "Jose D. Montoya",
+    "cached": true,
+    "capabilities": [
+      "distance_sensing",
+      "light_sensing"
+    ],
+    "chips": "all",
+    "deps": [],
+    "description": "VCNL4010 proximity and ambient light sensor driver for MicroPython",
+    "driver_context_ref": "driver_context/vcnl4010_driver-1.0.0.json",
+    "fw": "all",
+    "license": "MIT",
+    "name": "vcnl4010_driver",
+    "package_json_url": "https://upypi.net/pkgs/vcnl4010_driver/1.0.0/package.json",
+    "readme_url": null,
+    "repository_url": null,
+    "source": "upypi",
+    "support_level": "generatable",
+    "urls": [
+      [
+        "vcnl4010.py",
+        "code/vcnl4010.py"
       ]
     ],
     "version": "1.0.0"
@@ -6130,7 +8211,7 @@
     "chips": "all",
     "deps": [
       [
-        "https://upypi.net/pkgs/async_websocket_client/1.0.0",
+        "https://upypi.net/pkgs/async_websocket_client/1.0.2",
         "latest"
       ]
     ],
@@ -6138,7 +8219,7 @@
     "fw": "all",
     "license": "MIT",
     "name": "xfyun_asr",
-    "package_json_url": "https://upypi.net/pkgs/xfyun_asr/1.0.1/package.json",
+    "package_json_url": "https://upypi.net/pkgs/xfyun_asr/1.0.2/package.json",
     "readme_url": null,
     "repository_url": null,
     "source": "upypi",
@@ -6149,7 +8230,7 @@
         "code/xfyun_asr.py"
       ]
     ],
-    "version": "1.0.1"
+    "version": "1.0.2"
   },
   {
     "author": "leeqingsui",
@@ -6160,7 +8241,7 @@
     "chips": "all",
     "deps": [
       [
-        "https://upypi.net/pkgs/async_websocket_client/1.0.1",
+        "https://upypi.net/pkgs/async_websocket_client/1.0.2",
         "latest"
       ]
     ],
@@ -6168,7 +8249,7 @@
     "fw": "all",
     "license": "MIT",
     "name": "xfyun_tts",
-    "package_json_url": "https://upypi.net/pkgs/xfyun_tts/1.2.0/package.json",
+    "package_json_url": "https://upypi.net/pkgs/xfyun_tts/1.2.1/package.json",
     "readme_url": null,
     "repository_url": null,
     "source": "upypi",
@@ -6179,6 +8260,6 @@
         "code/xfyun_tts.py"
       ]
     ],
-    "version": "1.2.0"
+    "version": "1.2.1"
   }
 ]

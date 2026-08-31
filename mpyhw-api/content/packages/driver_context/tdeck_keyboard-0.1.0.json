@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "TDeckKeyboard(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "tdeck_keyboard.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "tdeck_keyboard"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tdeck_keyboard/0.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "const",
+    "decode_keycode",
+    "deinit",
+    "is_present",
+    "pressed_keys",
+    "pressed_positions",
+    "read_key",
+    "read_key_name",
+    "read_keycode",
+    "read_raw",
+    "self_test",
+    "set_brightness",
+    "set_default_brightness",
+    "set_key_mode",
+    "set_raw_mode",
+    "wait_key"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

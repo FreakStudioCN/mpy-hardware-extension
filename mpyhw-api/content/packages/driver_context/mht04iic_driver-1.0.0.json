@@ -1,0 +1,47 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MHT04(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mht04.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mht04"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mht04iic_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "address",
+    "calculate_crc8",
+    "clamp_humidity",
+    "conversion_time_ms",
+    "crc8",
+    "decode_cap_offset",
+    "decode_cap_range",
+    "deinit",
+    "i2c",
+    "read",
+    "read_detailed",
+    "read_raw",
+    "refresh_configuration",
+    "set_clamp_humidity",
+    "set_conversion_time_ms"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

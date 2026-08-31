@@ -1,0 +1,43 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "HDC1080(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "hdc1080.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "hdc1080"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/hdc1080_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "battery_status",
+    "check",
+    "config",
+    "deinit",
+    "device_id",
+    "humidity",
+    "manufacturer_id",
+    "reset",
+    "serial_number"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

@@ -1,0 +1,39 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "TMP1075(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "tmp1075.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "tmp1075"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tmp1075_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "check_device",
+    "deinit",
+    "device_id",
+    "read_config",
+    "temperature_c",
+    "temperature_f",
+    "write_config"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ICG20660(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "icg20660.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "icg20660",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/icg20660_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "acceleration_range",
+    "data_rate",
+    "data_rate_divisor",
+    "deinit",
+    "gyro",
+    "gyro_dlpf_configuration",
+    "gyro_dlpf_mode",
+    "gyro_full_scale"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

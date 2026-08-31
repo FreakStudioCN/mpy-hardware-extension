@@ -1,0 +1,41 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SHT30(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "sht30.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "sht30"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sht30_driver/0.2.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "clear_status",
+    "deinit",
+    "get_message",
+    "is_present",
+    "measure",
+    "measure_int",
+    "reset",
+    "set_delta",
+    "status"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

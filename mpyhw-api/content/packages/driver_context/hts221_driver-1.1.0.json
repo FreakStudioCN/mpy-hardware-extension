@@ -1,0 +1,40 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "HTS221(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "hts221.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "hts221",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/hts221_driver/1.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "block_data_update",
+    "data_rate",
+    "deinit",
+    "take_measurements"
+  ],
+  "read_properties": [
+    "temperature",
+    "relative_humidity"
+  ],
+  "support_level": "generatable"
+}

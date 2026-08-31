@@ -1,0 +1,50 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ES7210(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "es7210.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "es7210"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/es7210_driver/0.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "alloc_emergency_exception_buf",
+    "configure",
+    "configure_i2s_format",
+    "configure_sample_rate",
+    "const",
+    "deinit",
+    "mute",
+    "read_reg",
+    "reset",
+    "scan",
+    "schedule",
+    "self_test",
+    "set_mic_gain",
+    "sleep_ms",
+    "ticks_diff",
+    "ticks_ms",
+    "update_bits",
+    "write_reg"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}
