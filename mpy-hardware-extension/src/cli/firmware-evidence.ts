@@ -20,6 +20,42 @@ export type FirmwareEvidence =
 
 export const MPREMOTE_BANNER = /^(MPY:|Connected to MicroPython|Use Ctrl-)/;
 
+// A capture holds raw terminal bytes, not the text a human read back off the terminal. mpremote's
+// own keystrokes echo into it: the archive records "^D\b\bConnected to MicroPython", where the
+// terminal printed the Ctrl-D as the two ordinary characters "^D" and then erased them with two
+// backspaces. Every pattern in this file is anchored at the start of the line, which is what makes
+// them precise, and an anchor cannot see past that debris -- so the banner filter missed mpremote's
+// own greeting, and a capture holding nothing but tooling chatter was reported as a DIFFERENT build.
+//
+// The backspaces have to be APPLIED, not merely dropped: the "^D" is literal text (bytes 5e 44),
+// so deleting the control bytes alone still leaves "^DConnected..." and the anchor still misses.
+// Normalising here rather than at each pattern fixes the traceback and exception anchors too, which
+// carry the identical blind spot.
+// CSI only, with ECMA-48's full parameter-byte range rather than the digits and semicolons SGR
+// happens to use: a colon-delimited parameter (ITU-T T.416 truecolour, "\x1b[38:2:255:0:0m") is
+// valid and would otherwise match NOTHING, since no final byte follows, leaving "[38:2:255:0:0m"
+// as printable debris at the start of the line -- exactly the blindness this function exists to
+// remove. Other escape forms (OSC, two-character) are deliberately NOT handled: no ESC byte at all
+// appears anywhere in the archived captures, so anything past CSI would be speculative.
+const ANSI_ESCAPE = /\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g;
+// Everything C0 except tab; \n and \r are consumed by the line split in postRebootLines.
+const CONTROL_BYTES = /[\x00-\x08\x0b-\x1f\x7f]/g;
+
+/** One capture line as the terminal rendered it: CSI sequences gone, backspaces applied.
+ *
+ * Other escape forms degrade rather than vanish: the ESC byte is stripped as a control byte and
+ * the payload stays, so an OSC title would leave "]0;title". Worded that way because "escapes
+ * gone" would overstate what this does.
+ */
+export function renderTerminalLine(raw: string): string {
+  const rendered: string[] = [];
+  for (const ch of raw.replace(ANSI_ESCAPE, "")) {
+    if (ch === "\b") rendered.pop();
+    else rendered.push(ch);
+  }
+  return rendered.join("").replace(CONTROL_BYTES, "").trim();
+}
+
 // The runtime's own traceback, not anything our codegen prints. A generated main.py picks its own
 // wording for the fatal line it logs -- one run said "[fatal] main.py startup failed" -- so keying
 // on that would recognise only the crashes we happen to have seen already. These two come from
@@ -61,7 +97,10 @@ export function postRebootLines(report: any): string[] {
     .map((v: unknown) => (typeof v === "string" ? v : ""))
     .filter(Boolean)
     .join("\n");
-  const lines = captured.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
+  // A bare \r ends a line too. Stripping it instead would splice two rendered lines into one and
+  // push a "Traceback (most recent call last):" off the start of its line, re-creating against the
+  // traceback anchor exactly the blind spot renderTerminalLine exists to close.
+  const lines = captured.split(/\r\n|[\r\n]/).map(renderTerminalLine).filter(Boolean);
   // No reboot line means no slice point, so the whole capture is treated as firmware output.
   const rebootAt = lines.findIndex((l: string) => l.includes("soft reboot"));
   return lines.slice(rebootAt + 1).filter((l: string) => !MPREMOTE_BANNER.test(l));
