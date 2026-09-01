@@ -913,7 +913,16 @@ def _list_files(port, path=None):
         args.append(path)
     r = _run_mpremote(args, timeout=15)
     if r.returncode != 0:
-        return {"status": "error", "error_kind": map_install_error(r.stderr), "message": (r.stderr or "").strip()}
+        # An absent path gets its OWN error_kind. It stays an error -- an absent directory is not
+        # an empty one, and returning {"files": []} here would be a fabricated listing, the same
+        # bug class that once made generate wrongly bail to analyze. What changes is that the
+        # caller can now tell "this path is not on the device" from "the device is broken":
+        # map_install_error buckets ENOENT into a generic kind, so a model listing a directory on
+        # a blank board was told `runtime_error` and had to guess which of the two it meant.
+        err = (r.stderr or r.stdout or "").strip()
+        if _is_absent(err):
+            return {"status": "error", "error_kind": "path_absent", "message": err}
+        return {"status": "error", "error_kind": map_install_error(r.stderr), "message": err}
     files = []
     for line in r.stdout.splitlines():
         # Entries are "<size> <name>" (a dir shows "0 name/"); mpremote also echoes an "ls :"
@@ -929,9 +938,26 @@ def _list_files(port, path=None):
 
 
 def _fs_remove(port, path):
+    """Remove a device path. An ALREADY-ABSENT path is success, not an error.
+
+    Deleting something that is not there has achieved what the caller asked for, and the deploy
+    SKILL prescribes clean-before-upload over a fixed target list -- so on a BLANK board every
+    target is absent and every rm reported an error, while the same clean on a board with old
+    directories succeeded. That is an operation whose result depends on the device having been
+    used before, and it burns turns on a first deploy, where each device rm also costs a two-step
+    user confirm.
+
+    Mirrors `_uninstall_package`, which already treats all-absent as success, and `_fs_mkdir`,
+    which already treats EEXIST as success. Reads stdout as well as stderr because mpremote writes
+    some rm errors ("no such file", OSError) to stdout. Only the absent class is swallowed: every
+    other failure stays loud with its message.
+    """
     r = _run_mpremote(["connect", port, "resume", "fs", "rm", path], timeout=15)
     if r.returncode != 0:
-        return {"status": "error", "error_kind": "mpremote_error", "message": (r.stderr or "").strip()}
+        err = (r.stderr or r.stdout or "").strip()
+        if _is_absent(err):
+            return {"status": "ok", "absent": True}
+        return {"status": "error", "error_kind": "mpremote_error", "message": err}
     return {"status": "ok"}
 
 
