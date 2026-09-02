@@ -36,6 +36,7 @@ import {
   postRebootLines,
   type FirmwareEvidence,
 } from "./firmware-evidence.ts";
+import { mockedDeploySteps, verdictBlockers } from "./e2e-verdict.ts";
 import { canonicalPhase, resumePoint } from "./resume-point.ts";
 
 const DEFAULT_INTENT = "做一个温湿度监测仪，温度超过阈值就让蜂鸣器报警，OLED 屏幕显示读数";
@@ -522,20 +523,43 @@ const firmwareOnDevice = Array.isArray(deviceFiles) && deviceFiles.some((f) => S
 // and printed a MISMATCH warning about a deploy that had in fact produced every artifact and
 // passed its gate. A checker that only looks where it expects will keep calling correct runs
 // broken.
+// The NEWEST match, not the first one found. This used to return the shallowest, which was fine
+// while the report was only printed: now the verdict blocks on what it says, so a stale copy left
+// at the root by an earlier attempt could fail a healthy run on a previous run's foreign capture
+// or mocked steps. The model chooses where it writes the report (see the resume note below), so
+// "shallowest" is not a claim about which one is current -- mtime is.
 async function findArtifact(root: string, name: string, depth = 3): Promise<string | null> {
-  const direct = join(root, name);
-  if (await stat(direct).then(() => true, () => false)) return direct;
-  if (depth <= 0) return null;
-  let entries: any[] = [];
-  try { entries = await readdir(root, { withFileTypes: true }); } catch { return null; }
-  for (const entry of entries) {
-    // .mpyhw holds the session log and the checkpoints, which are copies of the tree: descending
-    // into it would find a stale artifact from an earlier phase and report it as this one's.
-    if (!entry.isDirectory() || entry.name === ".mpyhw" || entry.name === ".git") continue;
-    const found = await findArtifact(join(root, entry.name), name, depth - 1);
-    if (found) return found;
-  }
-  return null;
+  let newest: { path: string; mtimeMs: number } | null = null;
+  const consider = async (candidate: string) => {
+    // Only a missing file may be swallowed. An EACCES on the directory holding the CURRENT report
+    // would otherwise make "newest" quietly return a STALE sibling and fail a healthy run on a
+    // previous run's capture.
+    const info = await stat(candidate).then((s) => s, (error: NodeJS.ErrnoException) => {
+      if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return null;
+      throw error;
+    });
+    if (!info?.isFile()) return;
+    if (!newest || info.mtimeMs > newest.mtimeMs) newest = { path: candidate, mtimeMs: info.mtimeMs };
+  };
+  const walk = async (dir: string, remaining: number) => {
+    await consider(join(dir, name));
+    if (remaining <= 0) return;
+    let entries: any[] = [];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+      return;
+    }
+    for (const entry of entries) {
+      // .mpyhw holds the session log and the checkpoints, which are copies of the tree: descending
+      // into it would find a stale artifact from an earlier phase and report it as this one's.
+      if (!entry.isDirectory() || entry.name === ".mpyhw" || entry.name === ".git") continue;
+      await walk(join(dir, entry.name), remaining - 1);
+    }
+  };
+  await walk(root, depth);
+  return newest ? (newest as { path: string }).path : null;
 }
 
 // The name THIS run built, so a boot line can be checked against it rather than taken on faith.
@@ -560,14 +584,26 @@ async function builtProjectName(): Promise<string | null> {
 // those the capture supports is firmware-evidence.ts's job.
 let firmwareEvidence: FirmwareEvidence = { kind: "absent" };
 let firmwareBuilt: string | null = null;
+// Which steps ran against a mock rather than the board. Read from the same report, because `mode`
+// is the direct answer to "did this touch hardware" and the capture is only a proxy for it.
+let mockedSteps: string[] = [];
 try {
   const reportPath = await findArtifact(projectDir, "deploy_result.json");
   if (!reportPath) throw new Error("no deploy_result.json anywhere under the project");
   const report = JSON.parse(await fsReadFile(reportPath, "utf-8"));
   firmwareBuilt = await builtProjectName();
   firmwareEvidence = classifyFirmwareEvidence(postRebootLines(report), firmwareBuilt);
+  mockedSteps = mockedDeploySteps(report);
   // no report, unreadable, or no capture: report it as unknown
-} catch { firmwareEvidence = { kind: "absent" }; }
+} catch (error) {
+  // Say WHY. The values below are deliberately fail-closed, so an unreadable report blocks with
+  // "nothing in the serial capture shows the firmware running" -- a symptom. Swallowing the cause
+  // silently is what makes that expensive to triage an hour into a run, and it would also undo
+  // the deliberate non-ENOENT rethrows one frame down in findArtifact and builtProjectName.
+  console.error("evidence read failed, treating it as no evidence:", error);
+  firmwareEvidence = { kind: "absent" };
+  mockedSteps = [];
+}
 
 console.log("\n=== SUMMARY ===");
 console.log("phases:", phases.map((p) => `${p.phase}(${p.result})`).join(" -> ") || "(none)");
@@ -601,6 +637,11 @@ if (deviceFiles) {
 // The stronger claim: did the board actually RUN it. This is the line that would have caught a
 // green run leaving the device idle at the REPL.
 console.log("firmware ran during deploy:", describeFirmwareEvidence(firmwareEvidence, firmwareBuilt));
+// Said plainly and before the verdict, because every other line about a mocked deploy reads as if
+// it happened: the upload "succeeded", the device tests "passed", the capture holds a boot marker.
+if (mockedSteps.length) {
+  console.log("MOCKED STEPS:", mockedSteps.join(", "), "— these did not touch the board");
+}
 if (firmwareEvidence.kind === "foreign") {
   console.log("STALE DEVICE: the capture proves the PREVIOUS firmware ran, not this one. Nothing this run built reached the board.");
 }
@@ -640,21 +681,30 @@ if (deployResult === "success" && firmwareEvidence.kind === "crashed") {
 // With no board expected, ending after generate is a legitimate code-only delivery -- the gate
 // this harness always had, and the one golden-path-matrix.mjs and the e2e skill grep for -- and
 // deploy's outcome says nothing about the build. With E2E_REQUIRE_BOARD set, an unfinished loop
-// or a failed deploy is a failed run. Every condition names itself when it blocks: a REVIEW that
+// or a failed deploy is a failed run, and so is a deploy that reported success while the capture
+// shows this run's firmware never ran. Every condition names itself when it blocks: a REVIEW that
 // said nothing sent three runs to the jsonl for an answer that was one line here.
+//
+// The conditions themselves live in e2e-verdict.ts, because this file runs an entire build loop on
+// import: inline, they could only be checked by doing a real run.
 const boardExpected = Boolean(process.env.E2E_REQUIRE_BOARD?.trim());
-const deployFailed = deployResult === "failed";
 // A scoped stop cancels the loop on purpose, so "cancelled" there is the run doing as it was told.
 const terminalOk = terminal === "complete" || (stopAfterPhase && terminal === "cancelled");
-const blockers: string[] = [];
-if (threw !== null) blockers.push(`the loop threw before finishing — ${threw}`);
-else if (phases.length === 0) blockers.push("no phase executed");
-if (boardExpected && !terminalOk) blockers.push(`terminal is ${terminal}, not complete`);
-if (boardExpected && deployFailed) blockers.push("the deploy phase failed");
-if (!reachedGenerate) blockers.push("generate did not report success (in this run or the resumed archive)");
-if (!mainOk) blockers.push("firmware/main.py is missing or under 100 bytes");
-if (commits === 0) blockers.push("the project has no git commit");
-if (!scaffoldApplied) blockers.push("no scaffold marker on disk");
+const blockers = verdictBlockers({
+  threw,
+  phaseCount: phases.length,
+  terminal,
+  terminalOk,
+  boardExpected,
+  deployResult,
+  stopAfterPhase: Boolean(stopAfterPhase),
+  firmwareEvidence,
+  mockedSteps,
+  reachedGenerate,
+  mainOk,
+  commits,
+  scaffoldApplied,
+});
 const passed = blockers.length === 0;
 if (stopAfterPhase) {
   const scoped = phases.find((p) => p.phase === E2E_ONLY_PHASE);

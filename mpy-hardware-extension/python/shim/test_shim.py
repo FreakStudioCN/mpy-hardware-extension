@@ -2059,3 +2059,80 @@ class ChunkedSerial:
 
     def readline(self):
         return self.fragments.pop(0) if self.fragments else b""
+
+
+def test_fs_remove_treats_an_absent_path_as_success(monkeypatch):
+    # The deploy SKILL prescribes clean-before-upload over a fixed target list, so on a BLANK
+    # board every target is absent. Erroring there made `rm` behave differently depending on
+    # whether the device had been used before, and burned turns on a first deploy (each device
+    # rm also costs a two-step user confirm). _uninstall_package and _fs_mkdir already treat
+    # absent/EEXIST as success; this brings _fs_remove into line.
+    import serve
+
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "", "no such file"))
+    assert serve._fs_remove("COM3", ":/tasks") == {"status": "ok", "absent": True}
+
+    # mpremote writes some rm errors to STDOUT rather than stderr, so an absent path reported
+    # there must be read the same way. Mutation: drop `or r.stdout` and this call errors.
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "OSError: [Errno 2] ENOENT", ""))
+    assert serve._fs_remove("COM3", ":/drivers")["status"] == "ok"
+
+    # A real failure stays loud. Only the absent class is swallowed.
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "", "OSError: [Errno 13] EACCES"))
+    denied = serve._fs_remove("COM3", ":/main.py")
+    assert denied["status"] == "error" and denied["error_kind"] == "mpremote_error"
+    assert "EACCES" in denied["message"]
+
+    # A successful removal is unchanged, and carries no "absent" flag.
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 0, "", ""))
+    assert serve._fs_remove("COM3", ":/main.py") == {"status": "ok"}
+
+
+def test_list_files_names_an_absent_path_without_faking_an_empty_listing(monkeypatch):
+    # An absent directory is NOT an empty one, so this stays an error: returning {"files": []}
+    # would be a fabricated listing, the bug class that once made generate wrongly bail to
+    # analyze. What changes is that the caller can tell "not on the device" from "device is
+    # broken" -- map_install_error buckets ENOENT into a generic kind, so a model listing a
+    # directory on a blank board was told `runtime_error` and had to guess which it meant.
+    import serve
+
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "", "no such file"))
+    absent = serve._list_files("COM3", ":/tasks")
+    assert absent["status"] == "error"
+    assert absent["error_kind"] == "path_absent"
+    assert "files" not in absent, "an absent path must not report a listing at all"
+
+    # A device that is genuinely broken keeps its own kind, not path_absent.
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "", "could not enter raw repl"))
+    broken = serve._list_files("COM3", ":/tasks")
+    assert broken["status"] == "error" and broken["error_kind"] != "path_absent"
+
+    # A genuinely EMPTY directory still lists as empty, and must not be confused with absent.
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 0, "ls :/tasks\n", ""))
+    assert serve._list_files("COM3", ":/tasks") == {"status": "ok", "files": []}
+
+    # mpremote splits its reporting by command, so an ls failure can arrive on STDOUT with stderr
+    # empty. A stderr-only read sees "" and reports a failure that said nothing -- and, worse,
+    # classifies it from that same empty string.
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "no such file", ""))
+    on_stdout = serve._list_files("COM3", ":/tasks")
+    assert on_stdout["error_kind"] == "path_absent", "an absent path reported on stdout is still absent"
+    assert on_stdout["message"] == "no such file", "the message must carry what mpremote said"
+
+    # And the kind must come from the SAME text as the message. "port busy" is chosen because
+    # map_install_error maps it to its OWN kind: a text that merely falls through to the generic
+    # mpremote_error cannot tell "classified from stdout" apart from "classified from an empty
+    # stderr", and an earlier version of this assertion could not, so the bug survived it.
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "device is busy", ""))
+    stdout_busy = serve._list_files("COM3", ":/tasks")
+    assert stdout_busy["message"] == "device is busy"
+    assert stdout_busy["error_kind"] == "port_busy", "classify from the text the message carries"

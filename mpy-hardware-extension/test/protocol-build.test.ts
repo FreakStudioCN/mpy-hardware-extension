@@ -409,6 +409,30 @@ async function runDeviceCommand(input: any, extraDeps: any): Promise<any> {
   return JSON.parse(bodies[1].messages.at(-1).content[0].content);
 }
 
+// An unsupported action is a fork in the road for the model, and what the message says decides
+// which way it goes. Measured on a real run: exec came back carrying only the submitted code, the
+// model went to `mpremote_runtime.py --mock` for every step after it, and the run graded PASS
+// having never touched the board. So the message has to NAME the supported route.
+test("device exec that is not mip.install names the supported routes, not the rejected code", async () => {
+  const payload = await runDeviceCommand({ action: "exec", code: "print('hello')", cmd_id: "x" }, { shim: {} });
+  assert.equal(payload.ok, false);
+  assert.equal(payload.error_kind, "device_exec_unsupported");
+  assert.match(payload.stderr, /mip\.install/, "it must say what exec DOES run");
+  assert.match(payload.stderr, /script_run with mpremote_runtime\.py/, "it must name the route for running code on the board");
+  assert.match(payload.stderr, /device_command run/, "it must name the route for restarting the app");
+  // The rejected line stays, after the guidance: a model that issued several calls still needs to
+  // know which one this answers.
+  assert.match(payload.stderr, /Rejected: print\('hello'\)/);
+});
+
+test("device exec still installs a package when the code is mip.install", async () => {
+  const installed: string[] = [];
+  const shim = { installPackage: async (name: string) => { installed.push(name); } };
+  const payload = await runDeviceCommand({ action: "exec", code: "mip.install('umqtt.simple')", cmd_id: "x" }, { shim });
+  assert.deepEqual(installed, ["umqtt.simple"], "the one supported exec must not be broken by the message change");
+  assert.equal(payload.ok, true);
+});
+
 test("device rm is declined at the host: removePath never runs, model gets delete_declined", async () => {
   const removed: string[] = [];
   const shim = { removePath: async (p: string) => { removed.push(p); } };

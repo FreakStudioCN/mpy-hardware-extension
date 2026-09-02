@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -112,12 +113,41 @@ def llm_provider_configured() -> bool:
     return bool(os.getenv(provider.api_key_env))
 
 
-def _log_upstream_rejection(error) -> None:
+def read_upstream_body(error) -> str:
+    """Bounded read of a rejected request's error body. Separate from the log call because the
+    body is a STREAM: it can only be read once, and the retry decision now needs to see it
+    before the log does."""
+    try:
+        return error.read(2048).decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - diagnostics only; callers still raise UpstreamError
+        return "<unreadable>"
+
+
+# A provider mid-rollout rejects on SOME nodes and accepts on others, so the identical request
+# succeeds moments later. Measured 2026-09-02 against api.moonshot.cn: 1538 consecutive
+# successes, then intermittent 400s reading
+#   {"error":{"type":"invalid_request_error","message":"missing required header Kimi-Api-Version"}}
+# at roughly one call in six, which kills a ~100-call build run outright. The header is
+# documented nowhere (checked the Kimi platform API docs, the .cn chat docs and the CLI provider
+# docs), so it cannot simply be sent.
+#
+# Keyed on the body naming a MISSING HEADER rather than on the 400 itself, because a 400 normally
+# means a badly formed request and re-sending one just burns a second call. A payload we got
+# wrong still fails on the first attempt.
+_MISSING_HEADER_REJECTION = re.compile(r"missing required header", re.IGNORECASE)
+
+
+def is_partial_rollout_rejection(status: int, body: str) -> bool:
+    """True for a 4xx that a retry can plausibly clear: the provider demanding a header on only
+    part of its fleet. Deliberately narrow -- status alone is never enough."""
+    return status == 400 and bool(_MISSING_HEADER_REJECTION.search(body or ""))
+
+
+def _log_upstream_rejection(error, body: str | None = None) -> None:
     """Bounded upstream error-body log — the only diagnostic for a rejected payload
     (e.g. an unsupported-parameter 400). Lives here, not in sse_translate, purely
-    for that module's line budget."""
-    try:
-        detail = error.read(2048).decode("utf-8", "replace")
-    except Exception:  # noqa: BLE001 - diagnostics only; callers still raise UpstreamError
-        detail = "<unreadable>"
+    for that module's line budget. Pass `body` when it has already been read: the
+    stream is consumed by the first reader, so re-reading yields "" and the log
+    would silently lose the only diagnostic there is."""
+    detail = body if body is not None else read_upstream_body(error)
     logger.warning("llm upstream rejected request", extra={"status": error.code, "body": detail})

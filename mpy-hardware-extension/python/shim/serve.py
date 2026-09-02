@@ -913,7 +913,22 @@ def _list_files(port, path=None):
         args.append(path)
     r = _run_mpremote(args, timeout=15)
     if r.returncode != 0:
-        return {"status": "error", "error_kind": map_install_error(r.stderr), "message": (r.stderr or "").strip()}
+        # An absent path gets its OWN error_kind. It stays an error -- an absent directory is not
+        # an empty one, and returning {"files": []} here would be a fabricated listing, the same
+        # bug class that once made generate wrongly bail to analyze. What changes is that the
+        # caller can now tell "this path is not on the device" from "the device is broken":
+        # map_install_error buckets ENOENT into a generic kind, so a model listing a directory on
+        # a blank board was told `runtime_error` and had to guess which of the two it meant.
+        err = _mpremote_error_text(r)
+        if _is_absent(err):
+            return {"status": "error", "error_kind": "path_absent", "message": err}
+        # Classified from the SAME text the message carries, so a failure mpremote reported on
+        # stdout is not bucketed from an empty stderr. The echoed `ls :<path>` header can ride
+        # along in that text, and map_install_error matches substrings, so a device path
+        # containing "busy" or "chip" can mis-bucket the KIND. The message stays verbatim either
+        # way, and the kind is a hint rather than a decision, so this is accepted rather than
+        # papered over with an echo-stripping regex that would drift from the parser below.
+        return {"status": "error", "error_kind": map_install_error(err), "message": err}
     files = []
     for line in r.stdout.splitlines():
         # Entries are "<size> <name>" (a dir shows "0 name/"); mpremote also echoes an "ls :"
@@ -929,10 +944,34 @@ def _list_files(port, path=None):
 
 
 def _fs_remove(port, path):
+    """Remove a device path. An ALREADY-ABSENT path is success, not an error.
+
+    Deleting something that is not there has achieved what the caller asked for, and the deploy
+    SKILL prescribes clean-before-upload over a fixed target list -- so on a BLANK board every
+    target is absent and every rm reported an error, while the same clean on a board with old
+    directories succeeded. That is an operation whose result depends on the device having been
+    used before, and it burns turns on a first deploy, where each device rm also costs a two-step
+    user confirm.
+
+    Mirrors `_uninstall_package`, which already treats all-absent as success, and `_fs_mkdir`,
+    which already treats EEXIST as success. Reads stdout as well as stderr because mpremote writes
+    some rm errors ("no such file", OSError) to stdout. Only the absent class is swallowed: every
+    other failure stays loud with its message.
+    """
     r = _run_mpremote(["connect", port, "resume", "fs", "rm", path], timeout=15)
     if r.returncode != 0:
-        return {"status": "error", "error_kind": "mpremote_error", "message": (r.stderr or "").strip()}
+        err = _mpremote_error_text(r)
+        if _is_absent(err):
+            return {"status": "ok", "absent": True}
+        return {"status": "error", "error_kind": "mpremote_error", "message": err}
     return {"status": "ok"}
+
+
+def _mpremote_error_text(r) -> str:
+    """The text an mpremote failure actually carries. Reads stdout as well as stderr because
+    mpremote splits them by command: `fs rm` on a missing path and some `ls` failures report on
+    stdout, so a stderr-only read sees "" and the failure looks like it said nothing at all."""
+    return (r.stderr or r.stdout or "").strip()
 
 
 def _is_absent(err):
@@ -1012,7 +1051,7 @@ def _uninstall_package(port, name):
             continue
         # mpremote writes some rm errors ("no such file", OSError) to STDOUT, not stderr -- read
         # both, else a genuine failure is misclassified as "absent" and reported as "Removed".
-        err = (r.stderr or r.stdout or "").strip()
+        err = _mpremote_error_text(r)
         if _is_absent(err):
             continue
         if err:
@@ -1616,6 +1655,32 @@ def _assert_project_root(base: str, args: list, cwd: str | None) -> list:
 # run), not for this tuple.
 _ALLOWED_PYTHON_MODULES = frozenset({"py_compile", "compileall", "unittest", "flake8", "json.tool"})
 
+# What a refused script_run may do INSTEAD. Built from the frozenset above, the same way
+# ALLOWED_SHELL_COMMANDS_HINT is built from the shell tables, so a module cannot be allowlisted
+# without this naming it, nor named here without being permitted.
+#
+# Measured: a model wrote tmp_debug_mock.py into the project to debug its own failing tests, was
+# refused with "no bundled V0 plugin script named 'tmp_debug_mock.py'", and re-sent the identical
+# call ten turns later. A refusal that names no route leaves guessing as the only move, and
+# guessing costs turns against a 60-turn cap. The sibling branch below, ambiguous_script_name,
+# already names its fix; this is the branch that did not.
+#
+# The ad-hoc-check line matters more than it looks: cwd is forced to the project root for a module
+# run and cwd is on sys.path for `-m`, so `-m unittest <module>` ALREADY runs a file the model
+# just wrote there. The door exists; the refusal simply never said where.
+#
+# Two example names, not the catalogue: a model needs the SHAPE of a valid call, and the full
+# bundled list would dwarf the result it is reading.
+SCRIPT_RUN_ROUTES_HINT = (
+    "script_run with interpreter=python runs BUNDLED plugin scripts by name, either bare"
+    " (e.g. 'check_generate_plan.py') or plugin-qualified"
+    " (e.g. 'upy-deploy-plugin/list_serial_ports.py'), and `-m <module>` for: "
+    + ", ".join(sorted(_ALLOWED_PYTHON_MODULES))
+    + ". Inline code (-c) and scripts inside the project are not runnable by name. For an ad-hoc"
+    " check, write it into the project and run it as a module, e.g. `-m unittest <module>` or"
+    " `-m unittest discover -s test/pc`; the full lint and test sweep is run_quality_gates.py."
+)
+
 # "Verification only" is a property of the MODULE list above, not of the arguments. Two of the
 # five write to a path the caller names: `json.tool in.json OUT.json` and
 # `flake8 --output-file=PATH`. So an allowlisted, read-only-looking call can still overwrite any
@@ -1798,7 +1863,7 @@ def _run_v0_script(shim, params):
                 "candidates": qualified}
     if not candidates:
         return {"status": "error", "error_kind": "script_not_found",
-                "message": f"no bundled V0 plugin script named {base!r}"}
+                "message": f"no bundled V0 plugin script named {base!r}. " + SCRIPT_RUN_ROUTES_HINT}
     if base.endswith("run_quality_gates.py"):
         # A3a: deterministically strip firmware/tools/ (host-only helpers the
         # mpy_imports gate would hard-fail on) before the gates run, instead of
