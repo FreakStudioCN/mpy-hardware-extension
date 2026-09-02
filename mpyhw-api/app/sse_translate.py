@@ -149,7 +149,7 @@ class UpstreamError(Exception):
         self.status = status
 
 
-from app.llm_providers import DeepSeekProvider, OpenAIProvider, _log_upstream_rejection, get_llm_provider, llm_provider_configured  # noqa: F401 - providers live there (line budget); re-exported onward via routes_llm
+from app.llm_providers import DeepSeekProvider, OpenAIProvider, _log_upstream_rejection, get_llm_provider, is_partial_rollout_rejection, llm_provider_configured, read_upstream_body  # noqa: F401 - providers live there (line budget); re-exported onward via routes_llm
 
 
 def _deepseek_payload(body: dict[str, Any], *, provider=None) -> dict[str, Any]:
@@ -211,27 +211,50 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str, *, provider=None):
     # KNOWN COST of the single timeout knob. urlopen's `timeout` governs connect and
     # response-headers as well as each subsequent socket read, and urllib offers no way to split
     # them. Raising it to 600s for the reads therefore also lets an accept-then-hang provider pin
-    # a to_thread worker, with a session slot held and a credit reserved, for up to ~20 minutes
-    # across the two attempts, where 60s meant ~2. The client gives up sooner (undici's
+    # a to_thread worker, with a session slot held and a credit reserved. A partial-rollout
+    # rejection is retried up to 5 times below, so that ceiling is ~50 minutes rather than the ~20
+    # two attempts gave; the credit is refunded when the final UpstreamError raises. The client gives up sooner (undici's
     # headersTimeout is 300s), so the user sees a failure while the server thread stays parked.
     # Accepted because a real generate turn went silent for the full 300s and losing those is
     # worse than holding threads during an outage. If outage-time threadpool exhaustion ever
     # matters, the fix is a short timeout here for connect/headers and then raising the socket
     # timeout on the returned response before it reaches the reader thread.
-    attempts = 2
-    for attempt in range(attempts):
+    # An outage is all-or-nothing, so a second attempt is either enough or hopeless. A PARTIAL
+    # ROLLOUT is different in kind: it rejects a fixed FRACTION of calls, so the budget has to beat
+    # that fraction rather than merely try again. Measured ~1 call in 6, where two attempts still
+    # lose 1 in 36 and a ~100-call build run therefore dies about 94% of the time -- which would
+    # leave this retry unable to do the job it exists for. Five attempts put run survival above 90%.
+    # Cheap to spend: these rejections come back in under two seconds and never reach the provider's
+    # model, so the ceiling is a few seconds inside to_thread, off the event loop.
+    OUTAGE_OPEN_ATTEMPTS = 2
+    PARTIAL_ROLLOUT_OPEN_ATTEMPTS = 5
+    attempt = 0
+    while True:
         try:
             return urllib.request.urlopen(request, timeout=STREAM_READ_TIMEOUT_SECONDS)
         except urllib.error.HTTPError as error:
-            if _R()._is_outage_status(error.code) and attempt + 1 < attempts:
-                logger.warning("llm upstream open retry", extra={"status": error.code, "attempt": attempt + 1})
+            # Read the body BEFORE deciding: it is a stream, the first reader consumes it, and
+            # both the retry test and the log need it.
+            # NOT named `body`: that is this function's payload parameter, and shadowing it here
+            # would mean a future edit that rebuilds the request per attempt POSTs the error text.
+            err_body = read_upstream_body(error)
+            if is_partial_rollout_rejection(error.code, err_body):
+                budget = PARTIAL_ROLLOUT_OPEN_ATTEMPTS
+            elif _R()._is_outage_status(error.code):
+                budget = OUTAGE_OPEN_ATTEMPTS
+            else:
+                budget = 1  # a badly formed request: re-sending it burns a call and delays the error
+            attempt += 1
+            if attempt < budget:
+                logger.warning("llm upstream open retry", extra={"status": error.code, "attempt": attempt})
                 time.sleep(0.5)
                 continue
-            _log_upstream_rejection(error)
+            _log_upstream_rejection(error, err_body)
             raise UpstreamError(error.code)
         except urllib.error.URLError:
-            if attempt + 1 < attempts:
-                logger.warning("llm upstream open retry", extra={"status": 0, "attempt": attempt + 1})
+            attempt += 1
+            if attempt < OUTAGE_OPEN_ATTEMPTS:
+                logger.warning("llm upstream open retry", extra={"status": 0, "attempt": attempt})
                 time.sleep(0.5)
                 continue
             raise UpstreamError(0)
