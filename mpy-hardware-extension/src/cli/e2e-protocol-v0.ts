@@ -36,6 +36,7 @@ import {
   postRebootLines,
   type FirmwareEvidence,
 } from "./firmware-evidence.ts";
+import { mockedDeploySteps, verdictBlockers } from "./e2e-verdict.ts";
 import { canonicalPhase, resumePoint } from "./resume-point.ts";
 
 const DEFAULT_INTENT = "做一个温湿度监测仪，温度超过阈值就让蜂鸣器报警，OLED 屏幕显示读数";
@@ -560,14 +561,18 @@ async function builtProjectName(): Promise<string | null> {
 // those the capture supports is firmware-evidence.ts's job.
 let firmwareEvidence: FirmwareEvidence = { kind: "absent" };
 let firmwareBuilt: string | null = null;
+// Which steps ran against a mock rather than the board. Read from the same report, because `mode`
+// is the direct answer to "did this touch hardware" and the capture is only a proxy for it.
+let mockedSteps: string[] = [];
 try {
   const reportPath = await findArtifact(projectDir, "deploy_result.json");
   if (!reportPath) throw new Error("no deploy_result.json anywhere under the project");
   const report = JSON.parse(await fsReadFile(reportPath, "utf-8"));
   firmwareBuilt = await builtProjectName();
   firmwareEvidence = classifyFirmwareEvidence(postRebootLines(report), firmwareBuilt);
+  mockedSteps = mockedDeploySteps(report);
   // no report, unreadable, or no capture: report it as unknown
-} catch { firmwareEvidence = { kind: "absent" }; }
+} catch { firmwareEvidence = { kind: "absent" }; mockedSteps = []; }
 
 console.log("\n=== SUMMARY ===");
 console.log("phases:", phases.map((p) => `${p.phase}(${p.result})`).join(" -> ") || "(none)");
@@ -601,6 +606,11 @@ if (deviceFiles) {
 // The stronger claim: did the board actually RUN it. This is the line that would have caught a
 // green run leaving the device idle at the REPL.
 console.log("firmware ran during deploy:", describeFirmwareEvidence(firmwareEvidence, firmwareBuilt));
+// Said plainly and before the verdict, because every other line about a mocked deploy reads as if
+// it happened: the upload "succeeded", the device tests "passed", the capture holds a boot marker.
+if (mockedSteps.length) {
+  console.log("MOCKED STEPS:", mockedSteps.join(", "), "— these did not touch the board");
+}
 if (firmwareEvidence.kind === "foreign") {
   console.log("STALE DEVICE: the capture proves the PREVIOUS firmware ran, not this one. Nothing this run built reached the board.");
 }
@@ -640,21 +650,29 @@ if (deployResult === "success" && firmwareEvidence.kind === "crashed") {
 // With no board expected, ending after generate is a legitimate code-only delivery -- the gate
 // this harness always had, and the one golden-path-matrix.mjs and the e2e skill grep for -- and
 // deploy's outcome says nothing about the build. With E2E_REQUIRE_BOARD set, an unfinished loop
-// or a failed deploy is a failed run. Every condition names itself when it blocks: a REVIEW that
+// or a failed deploy is a failed run, and so is a deploy that reported success while the capture
+// shows this run's firmware never ran. Every condition names itself when it blocks: a REVIEW that
 // said nothing sent three runs to the jsonl for an answer that was one line here.
+//
+// The conditions themselves live in e2e-verdict.ts, because this file runs an entire build loop on
+// import: inline, they could only be checked by doing a real run.
 const boardExpected = Boolean(process.env.E2E_REQUIRE_BOARD?.trim());
-const deployFailed = deployResult === "failed";
 // A scoped stop cancels the loop on purpose, so "cancelled" there is the run doing as it was told.
 const terminalOk = terminal === "complete" || (stopAfterPhase && terminal === "cancelled");
-const blockers: string[] = [];
-if (threw !== null) blockers.push(`the loop threw before finishing — ${threw}`);
-else if (phases.length === 0) blockers.push("no phase executed");
-if (boardExpected && !terminalOk) blockers.push(`terminal is ${terminal}, not complete`);
-if (boardExpected && deployFailed) blockers.push("the deploy phase failed");
-if (!reachedGenerate) blockers.push("generate did not report success (in this run or the resumed archive)");
-if (!mainOk) blockers.push("firmware/main.py is missing or under 100 bytes");
-if (commits === 0) blockers.push("the project has no git commit");
-if (!scaffoldApplied) blockers.push("no scaffold marker on disk");
+const blockers = verdictBlockers({
+  threw,
+  phaseCount: phases.length,
+  terminal,
+  terminalOk,
+  boardExpected,
+  deployResult,
+  firmwareEvidence,
+  mockedSteps,
+  reachedGenerate,
+  mainOk,
+  commits,
+  scaffoldApplied,
+});
 const passed = blockers.length === 0;
 if (stopAfterPhase) {
   const scoped = phases.find((p) => p.phase === E2E_ONLY_PHASE);
