@@ -919,10 +919,16 @@ def _list_files(port, path=None):
         # caller can now tell "this path is not on the device" from "the device is broken":
         # map_install_error buckets ENOENT into a generic kind, so a model listing a directory on
         # a blank board was told `runtime_error` and had to guess which of the two it meant.
-        err = (r.stderr or r.stdout or "").strip()
+        err = _mpremote_error_text(r)
         if _is_absent(err):
             return {"status": "error", "error_kind": "path_absent", "message": err}
-        return {"status": "error", "error_kind": map_install_error(r.stderr), "message": err}
+        # Classified from the SAME text the message carries, so a failure mpremote reported on
+        # stdout is not bucketed from an empty stderr. The echoed `ls :<path>` header can ride
+        # along in that text, and map_install_error matches substrings, so a device path
+        # containing "busy" or "chip" can mis-bucket the KIND. The message stays verbatim either
+        # way, and the kind is a hint rather than a decision, so this is accepted rather than
+        # papered over with an echo-stripping regex that would drift from the parser below.
+        return {"status": "error", "error_kind": map_install_error(err), "message": err}
     files = []
     for line in r.stdout.splitlines():
         # Entries are "<size> <name>" (a dir shows "0 name/"); mpremote also echoes an "ls :"
@@ -954,11 +960,18 @@ def _fs_remove(port, path):
     """
     r = _run_mpremote(["connect", port, "resume", "fs", "rm", path], timeout=15)
     if r.returncode != 0:
-        err = (r.stderr or r.stdout or "").strip()
+        err = _mpremote_error_text(r)
         if _is_absent(err):
             return {"status": "ok", "absent": True}
         return {"status": "error", "error_kind": "mpremote_error", "message": err}
     return {"status": "ok"}
+
+
+def _mpremote_error_text(r) -> str:
+    """The text an mpremote failure actually carries. Reads stdout as well as stderr because
+    mpremote splits them by command: `fs rm` on a missing path and some `ls` failures report on
+    stdout, so a stderr-only read sees "" and the failure looks like it said nothing at all."""
+    return (r.stderr or r.stdout or "").strip()
 
 
 def _is_absent(err):
@@ -1038,7 +1051,7 @@ def _uninstall_package(port, name):
             continue
         # mpremote writes some rm errors ("no such file", OSError) to STDOUT, not stderr -- read
         # both, else a genuine failure is misclassified as "absent" and reported as "Removed".
-        err = (r.stderr or r.stdout or "").strip()
+        err = _mpremote_error_text(r)
         if _is_absent(err):
             continue
         if err:

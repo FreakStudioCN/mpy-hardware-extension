@@ -15,6 +15,7 @@ function passingRun(over: Partial<VerdictInput> = {}): VerdictInput {
     deployResult: "success",
     firmwareEvidence: { kind: "ran", line: "[t=5404ms] DHT11 Monitor booting" },
     mockedSteps: [],
+    stopAfterPhase: false,
     reachedGenerate: true,
     mainOk: true,
     commits: 1,
@@ -73,18 +74,69 @@ test("a failed deploy is blocked once, by the deploy, not twice", () => {
   assert.deepEqual(blockers, ["the deploy phase failed"]);
 });
 
-test("a deploy that never ran is not blamed for missing firmware evidence", () => {
+// These two used to assert the whole verdict passed, which quietly certified a hole: with a board
+// REQUIRED, a run that never reached deploy printed PASS having touched no hardware at all. The
+// evidence blocker correctly stays silent (it has nothing to judge) — the deploy blocker is what
+// must speak, and it must name the cause rather than a symptom.
+test("a deploy that never ran blocks when a board was required, naming that cause", () => {
   const blockers = verdictBlockers(
     passingRun({ deployResult: undefined, firmwareEvidence: { kind: "absent" } }),
+  );
+  assert.deepEqual(blockers, ["a board was required but the deploy phase never ran"]);
+});
+
+// A phase can record a null result, which is a different value from "no deploy phase at all" and
+// reaches this code by a different route. Both mean "no successful deploy".
+test("a null deploy result is treated like a deploy that never ran", () => {
+  const blockers = verdictBlockers(
+    passingRun({ deployResult: null, firmwareEvidence: { kind: "absent" } }),
+  );
+  assert.deepEqual(blockers, ["a board was required but the deploy phase never ran"]);
+});
+
+// "partial" is a real deploy result, and it is neither "failed" nor "success". A partial deploy
+// with a next_phase keeps the loop running, so a later generate ending with next_phase null gives
+// terminal "complete" and every other condition satisfied: PASS, with the board never proven.
+test("a deploy that reported partial blocks when a board was required", () => {
+  const blockers = verdictBlockers(
+    passingRun({ deployResult: "partial", firmwareEvidence: { kind: "absent" } }),
+  );
+  assert.equal(blockers.length, 1);
+  assert.match(blockers[0], /reported partial, not success/);
+});
+
+// A run scoped to one phase stops before the later ones ON PURPOSE. Blaming it for never reaching
+// deploy would make E2E_ONLY_PHASE unusable with a board attached, and the summary already says
+// the later phases were not run.
+test("a scoped run is not blamed for never reaching deploy", () => {
+  const blockers = verdictBlockers(
+    passingRun({ stopAfterPhase: true, deployResult: undefined, firmwareEvidence: { kind: "absent" } }),
   );
   assert.deepEqual(blockers, []);
 });
 
-// A phase can record a null result, which is a different value from "no deploy phase at all" and
-// reaches this code by a different route. Both mean "no success to check evidence against".
-test("a null deploy result is treated like a deploy that never ran", () => {
+// The exemption above covers ONLY the never-ran shape. A scoped run whose deploy RAN and failed
+// is the workflow the exemption serves -- E2E_ONLY_PHASE=deploy against a board, iterating -- and
+// a blanket exemption made it PASS, which the failed-only check it replaced had always blocked.
+test("a scoped run whose deploy actually failed is still blocked", () => {
   const blockers = verdictBlockers(
-    passingRun({ deployResult: null, firmwareEvidence: { kind: "absent" } }),
+    passingRun({ stopAfterPhase: true, deployResult: "failed", firmwareEvidence: { kind: "absent" } }),
+  );
+  assert.deepEqual(blockers, ["the deploy phase failed"]);
+});
+
+test("a scoped run whose deploy reported partial is still blocked", () => {
+  const blockers = verdictBlockers(
+    passingRun({ stopAfterPhase: true, deployResult: "partial", firmwareEvidence: { kind: "absent" } }),
+  );
+  assert.equal(blockers.length, 1);
+  assert.match(blockers[0], /reported partial, not success/);
+});
+
+// Without a board required, ending after generate is a legitimate code-only delivery.
+test("without a board required, a run that never deployed still passes", () => {
+  const blockers = verdictBlockers(
+    passingRun({ boardExpected: false, deployResult: undefined, firmwareEvidence: { kind: "absent" } }),
   );
   assert.deepEqual(blockers, []);
 });
@@ -184,7 +236,8 @@ test("mocked steps do not block when no board is required", () => {
   assert.deepEqual(blockers, []);
 });
 
-// A stalled run with no board required still blocks on the loop never finishing, via generate.
+// terminalOk is gated on boardExpected: with no board required, a stalled terminal is not a
+// blocker on its own. This fixture reaches generate, so nothing else fires either.
 test("terminal is only gated when a board is required", () => {
   const blockers = verdictBlockers(passingRun({ boardExpected: false, terminalOk: false, terminal: "stalled" }));
   assert.deepEqual(blockers, []);

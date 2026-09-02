@@ -10,8 +10,11 @@ export type VerdictInput = {
   terminalOk: boolean;
   boardExpected: boolean;
   // null as well as undefined: a phase can carry a null result, and "deploy never ran" and
-  // "deploy ran and recorded nothing" must both fall through the same way.
+  // "deploy ran and recorded nothing" must both be distinguishable from "deploy succeeded".
   deployResult: string | null | undefined;
+  // A run scoped to one phase stops before the later ones ON PURPOSE, so it must not be blamed
+  // for never reaching deploy. The summary already says the later phases were not run.
+  stopAfterPhase: boolean;
   firmwareEvidence: FirmwareEvidence;
   // Names of the deploy steps that ran against a mock instead of the board. Empty on a real deploy.
   mockedSteps: string[];
@@ -74,6 +77,33 @@ function firmwareEvidenceBlocker(v: VerdictInput): string | null {
   }
 }
 
+// With a board required, the run has to REACH deploy and deploy has to succeed. Anything else is
+// a run that proved nothing about hardware, and it must not print PASS.
+//
+// The hole this closes is the sibling of the mocked-deploy bug: `=== "failed"` alone let two shapes
+// through. A deploy that never ran leaves deployResult undefined, and a deploy that reported
+// "partial" is neither "failed" nor "success" -- and a partial deploy with a next_phase keeps the
+// loop going, so a later generate ending with next_phase null gives terminal "complete" and every
+// other condition satisfied. Both printed PASS with zero board contact.
+//
+// The evidence blocker below deliberately does not also fire for these: this one names the cause,
+// and a second line about missing capture evidence would bury it under a symptom.
+function deployOutcomeBlocker(v: VerdictInput): string | null {
+  if (!v.boardExpected) return null;
+  // The scoped exemption covers ONLY "never reached deploy". A blanket exemption also swallowed a
+  // deploy that RAN and failed, which the old failed-only check had always blocked -- and it was
+  // reachable in the very workflow the exemption serves, E2E_ONLY_PHASE=deploy against a board.
+  // The narrow condition is the one the comment above claims.
+  const deployNeverRan = v.deployResult === undefined || v.deployResult === null;
+  if (v.stopAfterPhase && deployNeverRan) return null;
+  if (v.deployResult === "success") return null;
+  if (v.deployResult === "failed") return "the deploy phase failed";
+  if (v.deployResult === undefined || v.deployResult === null) {
+    return "a board was required but the deploy phase never ran";
+  }
+  return `a board was required but the deploy phase reported ${v.deployResult}, not success`;
+}
+
 // A mocked step is blocked on its own, independently of what the capture shows and of whether the
 // deploy called itself a success. The acceptance spec is explicit that a P0 run fails when "only
 // mock is used, without real device logs", and `--mock` is a legitimate flag for contract tests, so
@@ -92,7 +122,8 @@ export function verdictBlockers(v: VerdictInput): string[] {
   if (v.threw !== null) blockers.push(`the loop threw before finishing — ${v.threw}`);
   else if (v.phaseCount === 0) blockers.push("no phase executed");
   if (v.boardExpected && !v.terminalOk) blockers.push(`terminal is ${v.terminal}, not complete`);
-  if (v.boardExpected && v.deployResult === "failed") blockers.push("the deploy phase failed");
+  const deploy = deployOutcomeBlocker(v);
+  if (deploy) blockers.push(deploy);
   const mocked = mockedStepsBlocker(v);
   if (mocked) blockers.push(mocked);
   const evidence = firmwareEvidenceBlocker(v);

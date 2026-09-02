@@ -2117,3 +2117,22 @@ def test_list_files_names_an_absent_path_without_faking_an_empty_listing(monkeyp
     monkeypatch.setattr(serve, "_run_mpremote",
                         lambda args, timeout=30: subprocess.CompletedProcess(args, 0, "ls :/tasks\n", ""))
     assert serve._list_files("COM3", ":/tasks") == {"status": "ok", "files": []}
+
+    # mpremote splits its reporting by command, so an ls failure can arrive on STDOUT with stderr
+    # empty. A stderr-only read sees "" and reports a failure that said nothing -- and, worse,
+    # classifies it from that same empty string.
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "no such file", ""))
+    on_stdout = serve._list_files("COM3", ":/tasks")
+    assert on_stdout["error_kind"] == "path_absent", "an absent path reported on stdout is still absent"
+    assert on_stdout["message"] == "no such file", "the message must carry what mpremote said"
+
+    # And the kind must come from the SAME text as the message. "port busy" is chosen because
+    # map_install_error maps it to its OWN kind: a text that merely falls through to the generic
+    # mpremote_error cannot tell "classified from stdout" apart from "classified from an empty
+    # stderr", and an earlier version of this assertion could not, so the bug survived it.
+    monkeypatch.setattr(serve, "_run_mpremote",
+                        lambda args, timeout=30: subprocess.CompletedProcess(args, 1, "device is busy", ""))
+    stdout_busy = serve._list_files("COM3", ":/tasks")
+    assert stdout_busy["message"] == "device is busy"
+    assert stdout_busy["error_kind"] == "port_busy", "classify from the text the message carries"

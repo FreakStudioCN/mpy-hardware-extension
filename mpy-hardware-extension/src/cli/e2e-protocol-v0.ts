@@ -523,20 +523,43 @@ const firmwareOnDevice = Array.isArray(deviceFiles) && deviceFiles.some((f) => S
 // and printed a MISMATCH warning about a deploy that had in fact produced every artifact and
 // passed its gate. A checker that only looks where it expects will keep calling correct runs
 // broken.
+// The NEWEST match, not the first one found. This used to return the shallowest, which was fine
+// while the report was only printed: now the verdict blocks on what it says, so a stale copy left
+// at the root by an earlier attempt could fail a healthy run on a previous run's foreign capture
+// or mocked steps. The model chooses where it writes the report (see the resume note below), so
+// "shallowest" is not a claim about which one is current -- mtime is.
 async function findArtifact(root: string, name: string, depth = 3): Promise<string | null> {
-  const direct = join(root, name);
-  if (await stat(direct).then(() => true, () => false)) return direct;
-  if (depth <= 0) return null;
-  let entries: any[] = [];
-  try { entries = await readdir(root, { withFileTypes: true }); } catch { return null; }
-  for (const entry of entries) {
-    // .mpyhw holds the session log and the checkpoints, which are copies of the tree: descending
-    // into it would find a stale artifact from an earlier phase and report it as this one's.
-    if (!entry.isDirectory() || entry.name === ".mpyhw" || entry.name === ".git") continue;
-    const found = await findArtifact(join(root, entry.name), name, depth - 1);
-    if (found) return found;
-  }
-  return null;
+  let newest: { path: string; mtimeMs: number } | null = null;
+  const consider = async (candidate: string) => {
+    // Only a missing file may be swallowed. An EACCES on the directory holding the CURRENT report
+    // would otherwise make "newest" quietly return a STALE sibling and fail a healthy run on a
+    // previous run's capture.
+    const info = await stat(candidate).then((s) => s, (error: NodeJS.ErrnoException) => {
+      if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return null;
+      throw error;
+    });
+    if (!info?.isFile()) return;
+    if (!newest || info.mtimeMs > newest.mtimeMs) newest = { path: candidate, mtimeMs: info.mtimeMs };
+  };
+  const walk = async (dir: string, remaining: number) => {
+    await consider(join(dir, name));
+    if (remaining <= 0) return;
+    let entries: any[] = [];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+      return;
+    }
+    for (const entry of entries) {
+      // .mpyhw holds the session log and the checkpoints, which are copies of the tree: descending
+      // into it would find a stale artifact from an earlier phase and report it as this one's.
+      if (!entry.isDirectory() || entry.name === ".mpyhw" || entry.name === ".git") continue;
+      await walk(join(dir, entry.name), remaining - 1);
+    }
+  };
+  await walk(root, depth);
+  return newest ? (newest as { path: string }).path : null;
 }
 
 // The name THIS run built, so a boot line can be checked against it rather than taken on faith.
@@ -572,7 +595,15 @@ try {
   firmwareEvidence = classifyFirmwareEvidence(postRebootLines(report), firmwareBuilt);
   mockedSteps = mockedDeploySteps(report);
   // no report, unreadable, or no capture: report it as unknown
-} catch { firmwareEvidence = { kind: "absent" }; mockedSteps = []; }
+} catch (error) {
+  // Say WHY. The values below are deliberately fail-closed, so an unreadable report blocks with
+  // "nothing in the serial capture shows the firmware running" -- a symptom. Swallowing the cause
+  // silently is what makes that expensive to triage an hour into a run, and it would also undo
+  // the deliberate non-ENOENT rethrows one frame down in findArtifact and builtProjectName.
+  console.error("evidence read failed, treating it as no evidence:", error);
+  firmwareEvidence = { kind: "absent" };
+  mockedSteps = [];
+}
 
 console.log("\n=== SUMMARY ===");
 console.log("phases:", phases.map((p) => `${p.phase}(${p.result})`).join(" -> ") || "(none)");
@@ -666,6 +697,7 @@ const blockers = verdictBlockers({
   terminalOk,
   boardExpected,
   deployResult,
+  stopAfterPhase: Boolean(stopAfterPhase),
   firmwareEvidence,
   mockedSteps,
   reachedGenerate,
