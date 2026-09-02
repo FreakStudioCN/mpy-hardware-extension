@@ -606,6 +606,31 @@ test("a new request after a normal snapshot restore keeps the restored feed", as
   assert.match(activity, /now add a buzzer/, "and appends the new request under it");
 });
 
+// The wipe must fire ONCE, for the replay it was armed by. clearConversation() clears the flag, so the
+// build after the replayed one is an ordinary follow-up and its own history must survive. Without that
+// reset the second request would wipe the first, which destroys a live conversation rather than a stale
+// one -- the opposite of the bug being fixed, and worse.
+test("the wipe fires once: a second request appends instead of wiping the first", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, { type: "restore_reset", viewOnly: true });
+  post(dom, { type: "restore_user", text: "the replayed session" });
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "first real request";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  post(dom, { type: "session_done", terminal: "generated" });
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "second real request";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+
+  const activity = document.getElementById("activity")!.textContent!;
+  assert.doesNotMatch(activity, /the replayed session/, "the replay is still gone");
+  assert.match(activity, /first real request/, "the first request must survive the second");
+  assert.match(activity, /second real request/);
+});
+
 // clearConversation() also calls clearBoardChoice(), so the wipe above runs AFTER the board choice is
 // read. A board picked while reading the replay is part of the new request, not of the session being
 // discarded, and must reach start_session.
