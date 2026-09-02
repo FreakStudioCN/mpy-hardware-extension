@@ -94,6 +94,67 @@ def test_run_v0_unknown_script_is_error_not_fake():
     assert not record, "must not execute anything for an unknown script"
 
 
+def test_script_not_found_names_the_routes_that_do_work():
+    # Measured: a model wrote tmp_debug_mock.py into the project, was refused with the bare
+    # "no bundled V0 plugin script named ...", and re-sent the IDENTICAL call ten turns later.
+    # A refusal that names nothing leaves guessing as the only move.
+    record = []
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {"interpreter": "python", "script": "tmp_debug_mock.py"})
+    assert res["error_kind"] == "script_not_found", res
+    assert not record, "a refusal must still execute nothing"
+    message = res["message"]
+    assert "tmp_debug_mock.py" in message, "say which name was refused"
+    # Every allowlisted module, read from the frozenset rather than copied: a module added to
+    # the allowlist without reaching the hint would leave the message quietly incomplete.
+    for module in serve._ALLOWED_PYTHON_MODULES:
+        assert module in message, module
+    assert "-m" in message
+    assert "upy-deploy-plugin/list_serial_ports.py" in message, "a plugin-qualified example"
+    # The two dead ends must be named as dead ends, or the model tries them next.
+    assert "-c" in message, "inline code is not a route"
+    assert "scripts inside the project are not runnable by name" in message
+    # And the route that DOES reach a model-written file, which is the whole point: cwd is the
+    # project root for a module run and cwd is on sys.path, so -m already runs it. Asserted as
+    # the INSTRUCTION, not just the substring "-m unittest": that substring also appears in the
+    # `discover` example, so a weaker check passed with this whole route deleted.
+    assert "write it into the project" in message, "say where an ad-hoc check goes"
+    assert "`-m unittest <module>`" in message, "and how to run it once written"
+
+
+def test_script_run_routes_hint_cannot_lie_about_modules():
+    # Same contract as test_allowed_shell_hint_cannot_lie: the hint is built FROM the table, so
+    # a module cannot be advertised without being permitted, nor permitted without being named.
+    for module in serve._ALLOWED_PYTHON_MODULES:
+        assert module in serve.SCRIPT_RUN_ROUTES_HINT, module
+    # Nothing outside the allowlist may appear as a module offer.
+    for refused in ("pip", "venv", "http.server", "pylint"):
+        assert f"-m {refused}" not in serve.SCRIPT_RUN_ROUTES_HINT, refused
+
+
+def test_script_run_routes_hint_advertises_only_resolvable_scripts():
+    # A hint that names a script the resolver then refuses teaches a second dead end. Every
+    # concrete .py example in the hint must resolve for real.
+    import re
+
+    for name in re.findall(r"'([\w./-]+\.py)'", serve.SCRIPT_RUN_ROUTES_HINT):
+        assert serve.resolve_v0_script(name) is not None, name
+
+
+def test_inline_code_spelling_is_refused_with_the_same_hint():
+    # `-c` arrives as a "script name" too (seen in a real run), so the message has to make sense
+    # for that spelling and not only for a plausible filename.
+    record = []
+    shim = _shim_with(record)
+    res = serve._dispatch(shim, "script.run_v0", {
+        "interpreter": "python", "script": "-c", "args": ["import sys; print(sys.path)"],
+    })
+    assert res["error_kind"] == "script_not_found", res
+    assert not record, "inline code must not execute"
+    assert "-c" in res["message"]
+    assert "-m unittest" in res["message"], "point at the route that does work"
+
+
 def test_run_v0_python_executes_resolved_script():
     record = []
     record_stdout[0] = '{"ok": true}'
