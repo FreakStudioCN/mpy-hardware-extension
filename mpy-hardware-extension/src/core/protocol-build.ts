@@ -161,7 +161,21 @@ export function createProtocolLoop(deps: BuildDeps = {}) {
         if (m && shim.installPackage) { await shim.installPackage(m[1]); return { ok: true }; }
         // The shim has no generic REPL-exec primitive — never pretend arbitrary device
         // code ran. Only mip.install is wired; anything else is an honest failure.
-        return { ok: false, error_kind: "device_exec_unsupported", stderr: code.slice(0, 80) };
+        //
+        // stderr names what IS available rather than echoing the submitted line back. Measured:
+        // a deploy sent `print('hello')`, got its own code returned with no route named, and
+        // fell through to `mpremote_runtime.py --mock` for every step after it -- a run that
+        // then graded PASS having never touched the board. An error that closes no door tells
+        // the model only that this door is shut, and --mock is the next one along.
+        return {
+          ok: false,
+          error_kind: "device_exec_unsupported",
+          stderr:
+            "device_command exec runs only mip.install('<pkg>'). " +
+            "To execute code on the board, use script_run with mpremote_runtime.py. " +
+            "To restart the deployed app, use device_command run. " +
+            `Rejected: ${code.slice(0, 80)}`,
+        };
       }
       // Generic device filesystem ops (#6 bridge) wired to the serve.py mpremote fs RPCs.
       // Protocol payload fields are src/dst (protocol_messages.json): dst is the device
