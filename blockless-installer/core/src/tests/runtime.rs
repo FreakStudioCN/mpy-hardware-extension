@@ -417,6 +417,59 @@ fn shim_only_when_the_real_tool_is_missing() {
     assert!(install_name_tool_shim(Os::Windows, &blk, false).is_none());
 }
 
+#[test]
+fn shim_dir_containing_colon_is_refused() {
+    // `:` is a valid Unix path-component character but PATH's own entry
+    // separator -- a shim dir containing one cannot be expressed as a PATH
+    // entry at all, so this must give up on the shim rather than emit a
+    // bogus extra PATH element.
+    let blk = temp_dir("shim-colon:in-dir");
+    assert!(install_name_tool_shim(Os::MacOs, &blk, false).is_none());
+}
+
+/// Restores the real `PATH` on drop (even across a panicking assertion),
+/// so a failure in this test cannot leave the rest of the process (and
+/// whichever other test runs next on this thread) with an empty PATH.
+struct PathGuard(Option<std::ffi::OsString>);
+impl PathGuard {
+    fn set_empty() -> Self {
+        let original = std::env::var_os("PATH");
+        // SAFETY: no other test in this crate reads PATH except through
+        // `install_name_tool_shim`, and none of them assert on its exact
+        // content (only a shim-dir-prefix check that an empty PATH does
+        // not disturb), so a concurrently-running test cannot observe a
+        // torn value in a way that changes its outcome.
+        unsafe { std::env::set_var("PATH", "") };
+        PathGuard(original)
+    }
+}
+impl Drop for PathGuard {
+    fn drop(&mut self) {
+        // SAFETY: see `set_empty`.
+        unsafe {
+            match &self.0 {
+                Some(v) => std::env::set_var("PATH", v),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+    }
+}
+
+#[test]
+fn shim_with_empty_inherited_path_has_no_trailing_separator() {
+    let blk = temp_dir("shim-empty-path");
+    let _guard = PathGuard::set_empty();
+
+    let path = install_name_tool_shim(Os::MacOs, &blk, false).expect("a shim was due");
+
+    assert_eq!(
+        path,
+        blk.join("toolshim").display().to_string(),
+        "an empty inherited PATH must not leave a trailing ':', which Unix \
+         reads as the current directory"
+    );
+}
+
 /// The env handed to uv must gain a PATH entry when the tools are absent,
 /// and nothing else. Pins the wiring, not just the decision: run 8 showed a
 /// working shim, but only because this reaches `run_uv`.

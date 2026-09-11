@@ -116,6 +116,20 @@ fn install_name_tool_shim(os: Os, blk: &Path, developer_tools_present: bool) -> 
         return None;
     }
     let dir = blk.join("toolshim");
+    let shim_dir = dir.display().to_string();
+    // A `:` anywhere in the shim directory's own path would split PATH's
+    // own entry separator in half, producing a bogus extra PATH element
+    // instead of the shim's real location. Cannot be expressed as a PATH
+    // entry at all, so give up on the shim entirely -- the fallback is the
+    // developer-tools dialog, which is what happens without the shim
+    // anyway.
+    if shim_dir.contains(':') {
+        tracing::warn!(
+            "install_name_tool shim directory {shim_dir:?} contains ':', which cannot be \
+             represented as a PATH entry; leaving PATH untouched"
+        );
+        return None;
+    }
     if let Err(e) = write_install_name_tool_shim(&dir) {
         tracing::warn!("could not write the install_name_tool shim: {e}");
         return None;
@@ -125,7 +139,13 @@ fn install_name_tool_shim(os: Os, blk: &Path, developer_tools_present: bool) -> 
     // take away whatever else uv needs to find.
     let inherited = std::env::var("PATH").unwrap_or_default();
     tracing::info!("no developer tools found; shimming install_name_tool for uv");
-    Some(format!("{}:{}", dir.display(), inherited))
+    // Joining onto an empty inherited PATH would leave a trailing `:`,
+    // which Unix reads as an empty PATH element -- the current directory.
+    Some(if inherited.is_empty() {
+        shim_dir
+    } else {
+        format!("{shim_dir}:{inherited}")
+    })
 }
 
 /// The full step: detect/skip on the pinned mpremote -> ensure uv (detect or
