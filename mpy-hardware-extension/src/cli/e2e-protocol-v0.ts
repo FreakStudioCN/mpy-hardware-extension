@@ -586,8 +586,9 @@ async function builtProjectName(): Promise<string | null> {
 // those the capture supports is firmware-evidence.ts's job.
 let firmwareEvidence: FirmwareEvidence = { kind: "absent" };
 let firmwareBuilt: string | null = null;
-// Which steps ran against a mock rather than the board. Read from the same report, because `mode`
-// is the direct answer to "did this touch hardware" and the capture is only a proxy for it.
+// Which steps ran against a mock rather than the board. Read from the same report, because
+// `evidence_mode` is the direct answer to "did this touch hardware" (`mode` is the fallback for
+// artifacts written before that field existed) and the capture is only a proxy for it.
 let mockedSteps: string[] = [];
 try {
   const reportPath = await findArtifact(projectDir, "deploy_result.json");
