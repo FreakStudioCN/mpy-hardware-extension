@@ -249,7 +249,7 @@ journal_profile_location() {
 # and system python3 would trigger the Xcode CLT prompt on a fresh Mac) and macOS-native.
 register_profile_offline() {
   if profile_registered; then return 0; fi
-  if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then return 0; fi
+  if pgrep -f "Visual Studio Code.app" >/dev/null 2>&1; then return 0; fi
   mkdir -p "$(dirname "$STORAGE")" "$CODE_USER/profiles/blockless"
   osascript -l JavaScript - "$STORAGE" "$PROFILE_NAME" "blockless" >/dev/null 2>&1 <<'JXA' || true
 ObjC.import('Foundation');
@@ -276,17 +276,27 @@ JXA
 # Graceful close + WAIT for every VS Code process to exit. Graceful (osascript quit), not a hard kill,
 # so VS Code saves its window/profile state; then wait to zero so the next launch is a FRESH instance
 # (a running extension host won't load a newly-installed extension). Hard kill only as a last resort.
+# Every pgrep here matches the BUNDLE, not ".../Contents/MacOS/Electron" as it
+# once did. That pattern matched nothing on a real machine -- the main binary is
+# named Code, and macOS will not let `pgrep -f` read a hardened main process's
+# argv regardless -- so every running-check in this script silently answered
+# "not running", and the pkill below never killed anything.
+#
+# Known limit of the hard-kill path: pgrep/pkill reach the bundle's helper
+# processes, not the hardened main process. The osascript quit above is the real
+# mechanism and the one that saves window state; this remains best-effort, as its
+# "last resort" comment always intended, and is now at least not a no-op.
 stop_code_and_wait() {
   osascript -e 'tell application "Visual Studio Code" to quit' >/dev/null 2>&1 || true
   local i
   for i in {1..60}; do
-    if ! pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then break; fi
+    if ! pgrep -f "Visual Studio Code.app" >/dev/null 2>&1; then break; fi
     sleep 0.25
   done
-  if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then
-    pkill -f "Visual Studio Code.app/Contents/MacOS/Electron" 2>/dev/null || true
+  if pgrep -f "Visual Studio Code.app" >/dev/null 2>&1; then
+    pkill -f "Visual Studio Code.app" 2>/dev/null || true
     for i in {1..20}; do
-      if ! pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then break; fi
+      if ! pgrep -f "Visual Studio Code.app" >/dev/null 2>&1; then break; fi
       sleep 0.25
     done
   fi
@@ -299,7 +309,7 @@ stop_code_and_wait() {
 register_profile() {
   if profile_registered; then return 0; fi
   local was_running=0
-  if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then was_running=1; fi
+  if pgrep -f "Visual Studio Code.app" >/dev/null 2>&1; then was_running=1; fi
   "$CODE" --profile "$PROFILE_NAME" --new-window >/dev/null 2>&1 &
   local i
   for i in {1..60}; do

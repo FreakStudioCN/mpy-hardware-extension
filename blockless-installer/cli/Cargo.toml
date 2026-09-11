@@ -1,0 +1,21 @@
+[package]
+name = "blockless-installer"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "blockless-installer"
+path = "src/main.rs"
+
+[dependencies]
+blockless-installer-core = { path = "../core" }
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+# synchronous writer (a Mutex<File>, see main.rs::init_logging): every log
+# line is on disk before the call returns, so no separate appender crate's
+# background thread/guard is needed and no line can be lost on
+# std::process::exit (every failure path in this binary calls it directly).
+# Only tracing_subscriber is used directly here -- core/src/ops.rs is what
+# emits the info!/warn! calls this subscriber captures.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }

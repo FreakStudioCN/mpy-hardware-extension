@@ -8,12 +8,11 @@ environment, and applies branded profile settings.
 Audience: education (K12, STEAM maker, university embedded courses), not industrial
 developers.
 
-## Status: M0 (script spike)
+## M1: Rust installer-core library and headless CLI
 
-M0 proves the whole flow with plain per-OS scripts before any Rust/Tauri app exists.
-The scripts are the executable spec that the later `installer-core` Rust library
-mirrors. The permanent home for the code (dedicated repo vs subfolder) is decided at
-M1, not here.
+`blockless-installer` contains the Rust core library and headless CLI. The original
+M0 scripts remain as executable specs and parity references. No GUI or Tauri shell
+is included.
 
 ### Pins
 

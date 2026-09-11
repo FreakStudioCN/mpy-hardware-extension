@@ -63,7 +63,7 @@ or an offline bundle by swapping sources.
     "uv":       { "source": "download", "version": "0.11.29", "sha256": { "darwin-aarch64": "…", "win32-x64": "…", "…": "…" } },
     "python":   { "source": "managed", "manager": "uv", "series": "3.12" },
     "mpremote": { "source": "pip", "version": "1.28.0" },
-    "extension":{ "source": "bundled", "id": "blockless.mpy-hardware-extension", "version": "0.4.2",
+    "extension":{ "source": "bundled", "id": "blockless.mpy-hardware-extension", "version": "0.4.3",
                   "sha256": "…", "path": "components/mpy-hardware-extension.vsix" },
     "pythonExtension": { "source": "marketplace", "id": "ms-python.python" }  // pulls ms-python.vscode-pylance
   }
@@ -88,7 +88,7 @@ plus the artifacts under `components/`. No code change.
 | uv | 0.11.29 | astral.sh install script | pinned `sha256` in the manifest |
 | Python | 3.12 (latest patch) | uv-managed, contained | uv verifies its own download |
 | mpremote | 1.28.0 | `uv pip install` | pip resolution |
-| Blockless extension | pinned VSIX (0.4.2 today) | bundled | manifest `sha256` |
+| Blockless extension | pinned VSIX (0.4.3 today) | bundled | manifest `sha256` |
 | MS Python (+ Pylance) | latest | Marketplace | Marketplace |
 
 VS Code is the one component whose checksum is resolved at install time (the update API returns the

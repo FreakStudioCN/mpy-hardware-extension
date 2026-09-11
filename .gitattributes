@@ -1,0 +1,7 @@
+# The installer's committed JSON is compiled into the binary with include_str!
+# and then string-matched by tests, so its bytes have to be identical on every
+# platform. Without this, git hands Windows a CRLF checkout, a pattern written
+# with "\n" matches nothing, and the test fails on the line endings rather than
+# on what it set out to measure.
+blockless-installer/manifest/*.json                text eol=lf
+blockless-installer/core/tests/fixtures/*.json     text eol=lf

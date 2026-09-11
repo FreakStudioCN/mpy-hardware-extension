@@ -1,0 +1,35 @@
+# Windows: link the MSVC C runtime STATICALLY.
+#
+# Found on the Windows Sandbox rig, 2026-09-10, by the harness's own
+# pre-flight exit-code check -- the very first thing a `blockless-installer`
+# subcommand had ever done on a Windows machine outside a test fixture. It
+# exited -1073741515 (0xC0000135, STATUS_DLL_NOT_FOUND) before reaching
+# `main`, with no output on either stream. `dumpbin /DEPENDENTS` on the
+# release binary showed why:
+#
+#     VCRUNTIME140.dll          <-- Visual C++ redistributable, NOT in-box
+#     api-ms-win-crt-*.dll      <-- Universal CRT, ships with Windows 10+
+#
+# rustc's default for `*-pc-windows-msvc` is a dynamically linked CRT, which
+# needs `VCRUNTIME140.dll` from the Visual C++ redistributable. That is not a
+# Windows component: it arrives with Visual Studio, VS Build Tools, or some
+# other application's installer. A developer box has it (Build Tools is a
+# prerequisite for building this crate at all) and so does `windows-latest`,
+# so neither the local cargo gate nor CI can see the gap -- the same blind
+# spot as the `link.exe` prerequisite, one layer further out.
+#
+# The product this binary belongs to is a ONE-CLICK INSTALLER: the first
+# thing a user runs, on a machine where nothing has been installed yet, by
+# definition. Depending on another vendor's redistributable to start is
+# exactly the dependency it exists to remove -- and the failure is silent,
+# since a process that dies at load time prints nothing and cannot log.
+#
+# Static linking removes the dependency outright. It applies only to the
+# msvc target, so macOS and Linux builds are untouched. `cli/tests/
+# windows_crt_static.rs` is the regression guard; without it, deleting this
+# file is invisible on every machine that can build the crate.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

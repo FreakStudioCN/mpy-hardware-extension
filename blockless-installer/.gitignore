@@ -3,3 +3,6 @@ assets/*.vsix
 
 # logs / local scratch
 *.log
+
+# Rust build output (Cargo.lock IS committed; this is a binary workspace)
+target/

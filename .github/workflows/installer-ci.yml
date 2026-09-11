@@ -1,0 +1,80 @@
+name: installer-ci
+
+on:
+  push:
+    paths:
+      - "blockless-installer/**"
+      # A change to the workflow, or to the line-ending rules the tests depend
+      # on, has to re-run the workflow. Without these two the fix for a red run
+      # can land and CI stays silent, still showing the old failure.
+      - ".github/workflows/installer-ci.yml"
+      - ".gitattributes"
+  pull_request:
+    paths:
+      - "blockless-installer/**"
+      # A change to the workflow, or to the line-ending rules the tests depend
+      # on, has to re-run the workflow. Without these two the fix for a red run
+      # can land and CI stays silent, still showing the old failure.
+      - ".github/workflows/installer-ci.yml"
+      - ".gitattributes"
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: blockless-installer
+    steps:
+      - uses: actions/checkout@v4
+      # rustup auto-installs the pinned toolchain (rust-toolchain.toml, incl. the
+      # clippy/rustfmt components) the first time cargo/rustup runs in this dir.
+      - name: show pinned toolchain
+        run: rustup show
+      # verify_parity_macos.rs shells out to verify-blockless.zsh by name. The
+      # script is plain text and file manipulation with no macOS-only APIs, so
+      # Linux zsh runs it correctly -- but ubuntu-latest ships no zsh at all,
+      # and without this every parity test fails NotFound rather than on
+      # anything it is meant to measure.
+      - name: install zsh (the mac parity suite shells out to it)
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace
+
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: blockless-installer
+    steps:
+      - uses: actions/checkout@v4
+      - name: show pinned toolchain
+        run: rustup show
+      # macOS is half the acceptance rig and the primary dev platform, and two
+      # things here are true of no other runner. Its filesystem is
+      # case-insensitive by default, so sibling fixture paths differing only in
+      # case collide (ENOTDIR) where ubuntu sees two distinct paths and passes.
+      # And the mac script-parity suite (core/tests/verify_parity_macos.rs)
+      # shells out to verify-blockless.zsh, so running it on a real Mac is the
+      # closest CI gets to the rig.
+      - name: cargo test
+        run: cargo test --workspace
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: blockless-installer
+    steps:
+      - uses: actions/checkout@v4
+      - name: show pinned toolchain
+        run: rustup show
+      # pwsh path joins (Join-Path etc.) don't behave the same under a
+      # non-Windows pwsh, so verify-blockless.ps1's parity test
+      # (core/tests/verify_parity_windows.rs, #![cfg(windows)]) only ever
+      # compiles/runs here -- cargo test on ubuntu skips it entirely.
+      - name: cargo test
+        run: cargo test --workspace

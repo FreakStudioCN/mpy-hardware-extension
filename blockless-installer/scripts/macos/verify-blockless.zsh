@@ -24,7 +24,14 @@ fail() { print -r -- "FAIL: $*"; fails=$((fails + 1)); }
 get_json() { grep -oE "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$STATE" 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/'; }
 
 resolve_code() {
-  local a="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+  # The system-wide candidate is an ABSOLUTE path, so a harness that fakes $HOME
+  # cannot shadow it: on any machine with VS Code in /Applications this resolved
+  # the real editor, and every check below then read that machine instead of the
+  # fixture. Unset -- which is always the case in production -- this is exactly
+  # /Applications and behaviour is unchanged. The user-local candidate needs no
+  # equivalent, since it already derives from $HOME.
+  local apps_root="${BLOCKLESS_APPS_ROOT:-/Applications}"
+  local a="$apps_root/Visual Studio Code.app/Contents/Resources/app/bin/code"
   local b="$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
   [[ -x "$a" ]] && { CODE="$a"; return 0; }
   [[ -x "$b" ]] && { CODE="$b"; return 0; }

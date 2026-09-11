@@ -60,7 +60,15 @@ fi
 # A running VS Code holds storage.json in memory and would clobber our edit; removing $BLK now would
 # also drop state.json before a re-run could finish the profile cleanup. So if VS Code is running, do
 # NOTHING and ask the user to quit it and re-run -- a clean all-or-nothing uninstall.
-if pgrep -f "Visual Studio Code.app/Contents/MacOS/Electron" >/dev/null 2>&1; then
+# Match the BUNDLE, not the main executable. This looked for
+# ".../Contents/MacOS/Electron" and matched nothing on a real machine: the main
+# binary is named Code, not Electron, and macOS will not let `pgrep -f` read a
+# hardened main process's argv anyway, so even the corrected path finds nothing.
+# This guard therefore never fired, and an uninstall would proceed with VS Code
+# live -- observed on a VM, where it removed the profile from under two open
+# windows and VS Code recreated it. The bundle pattern matches the helper
+# processes, which exist only while VS Code does, which is the actual question.
+if pgrep -f "Visual Studio Code.app" >/dev/null 2>&1; then
   log "VS Code is running; quit it and re-run to uninstall. Nothing was removed."
   exit 0
 fi
