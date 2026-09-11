@@ -141,12 +141,14 @@ pub enum UninstallOutcome {
         /// `BLK` and the journal were left untouched so a re-run can finish.
         invariant_guard_tripped: bool,
         /// `--keep-vscode` left an install this installer owns in place,
-        /// AND this run reached the point where `BLK` (and with it
-        /// `state.json`, the only ownership journal) was removed. Only
-        /// `true` on the path that actually erases the tracking, never on
-        /// an early return that leaves `BLK` intact for a re-run --
-        /// `state.json` there still knows what it owns, so nothing has
-        /// gone untracked yet.
+        /// AND `state.json` (the only ownership journal) is actually gone
+        /// after this run. Checked directly against the journal's own
+        /// path, not inferred from `blk_removed`: `remove_dir_all` is not
+        /// atomic, so a `blk_removal_partial` run (a locked file elsewhere
+        /// under `BLK`) can still have deleted `state.json` itself. Only
+        /// `true` when tracking has actually been erased; an early return
+        /// that leaves `BLK` intact for a re-run always sets this `false`,
+        /// since `state.json` there still knows what it owns.
         vscode_kept_but_owned: bool,
         /// VS Code removal was attempted and did not fully complete, so
         /// this run stopped early with `BLK` and the journal deliberately
@@ -296,9 +298,12 @@ pub fn uninstall(
         blk_removal_partial,
         vscode_removed,
         invariant_guard_tripped: false,
-        // The only path that actually removes BLK (and with it
-        // state.json), so the only place this can honestly be true.
-        vscode_kept_but_owned: flags.keep_vscode && vscode_installed_by_us,
+        // Checked against state.json directly, not `blk_removed`:
+        // remove_dir_all is not atomic, so a locked file elsewhere under
+        // BLK can still leave blk_removed: false while state.json itself
+        // is already gone -- inferring from blk_removed would then wrongly
+        // skip telling the operator that tracking really was lost.
+        vscode_kept_but_owned: flags.keep_vscode && vscode_installed_by_us && !state_path.exists(),
         vscode_removal_failed: false,
     }
 }

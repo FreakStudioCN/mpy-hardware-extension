@@ -396,17 +396,27 @@ fn the_shim_is_executable_and_succeeds() {
 /// failed on the Windows runner without them. That is the same defect class
 /// as a fixture reading the machine instead of its fixture, which this
 /// component has now produced three times.
+///
+/// `#[cfg(unix)]`: `temp_dir()` builds `blk` from the REAL host's temp
+/// directory, and on Windows that is always an absolute path with a drive
+/// letter -- `C:\...` -- which trips the `:`-in-shim-dir guard regardless of
+/// the `Os::MacOs` argument this test passes to simulate mac behavior on any
+/// host. That guard is unreachable in production on any real OS (mac's own
+/// filesystem already refuses a raw `:` in a path component, and this
+/// function returns before it on a real `Os::Windows` host), so it is
+/// exercised on Unix hosts only, where a real temp path never contains one.
+#[cfg(unix)]
 #[test]
 fn shim_only_when_the_real_tool_is_missing() {
     let blk = temp_dir("shim-gate");
 
     // Tools present: leave PATH alone, or we would suppress a patch that
     // would really have worked.
-    assert!(install_name_tool_shim(Os::MacOs, &blk, true).is_none());
+    assert!(install_name_tool_shim(Os::MacOs, &blk, true, "/usr/bin").is_none());
 
     // Tools absent: shim, and the shim dir must come FIRST or the stub at
     // /usr/bin still wins and the dialog still appears.
-    let path = install_name_tool_shim(Os::MacOs, &blk, false).expect("a shim was due");
+    let path = install_name_tool_shim(Os::MacOs, &blk, false, "/usr/bin").expect("a shim was due");
     assert!(
         path.starts_with(&blk.join("toolshim").display().to_string()),
         "the shim dir must come first in PATH: {path}"
@@ -414,7 +424,7 @@ fn shim_only_when_the_real_tool_is_missing() {
 
     // Windows never has this problem and must never be shimmed, whatever
     // the flag says.
-    assert!(install_name_tool_shim(Os::Windows, &blk, false).is_none());
+    assert!(install_name_tool_shim(Os::Windows, &blk, false, "/usr/bin").is_none());
 }
 
 #[test]
@@ -422,45 +432,25 @@ fn shim_dir_containing_colon_is_refused() {
     // `:` is a valid Unix path-component character but PATH's own entry
     // separator -- a shim dir containing one cannot be expressed as a PATH
     // entry at all, so this must give up on the shim rather than emit a
-    // bogus extra PATH element.
-    let blk = temp_dir("shim-colon:in-dir");
-    assert!(install_name_tool_shim(Os::MacOs, &blk, false).is_none());
+    // bogus extra PATH element. Built directly, NOT via `temp_dir()`: the
+    // guard returns before ever touching the filesystem, and `temp_dir()`'s
+    // own `create_dir_all` would fail on Windows for a `:` mid-component
+    // (a reserved character there) for an unrelated reason -- this test
+    // must exercise the guard, not a Windows filename restriction.
+    let blk = std::env::temp_dir().join("blockless-installer-shim-colon:in-dir");
+    assert!(install_name_tool_shim(Os::MacOs, &blk, false, "/usr/bin").is_none());
 }
 
-/// Restores the real `PATH` on drop (even across a panicking assertion),
-/// so a failure in this test cannot leave the rest of the process (and
-/// whichever other test runs next on this thread) with an empty PATH.
-struct PathGuard(Option<std::ffi::OsString>);
-impl PathGuard {
-    fn set_empty() -> Self {
-        let original = std::env::var_os("PATH");
-        // SAFETY: no other test in this crate reads PATH except through
-        // `install_name_tool_shim`, and none of them assert on its exact
-        // content (only a shim-dir-prefix check that an empty PATH does
-        // not disturb), so a concurrently-running test cannot observe a
-        // torn value in a way that changes its outcome.
-        unsafe { std::env::set_var("PATH", "") };
-        PathGuard(original)
-    }
-}
-impl Drop for PathGuard {
-    fn drop(&mut self) {
-        // SAFETY: see `set_empty`.
-        unsafe {
-            match &self.0 {
-                Some(v) => std::env::set_var("PATH", v),
-                None => std::env::remove_var("PATH"),
-            }
-        }
-    }
-}
-
+/// `#[cfg(unix)]`: same reason as `shim_only_when_the_real_tool_is_missing`
+/// -- `temp_dir()`'s host-native `blk` path carries a Windows drive-letter
+/// `:` on that platform, unrelated to the inherited-`PATH` case under test
+/// here.
+#[cfg(unix)]
 #[test]
 fn shim_with_empty_inherited_path_has_no_trailing_separator() {
     let blk = temp_dir("shim-empty-path");
-    let _guard = PathGuard::set_empty();
 
-    let path = install_name_tool_shim(Os::MacOs, &blk, false).expect("a shim was due");
+    let path = install_name_tool_shim(Os::MacOs, &blk, false, "").expect("a shim was due");
 
     assert_eq!(
         path,
@@ -473,6 +463,10 @@ fn shim_with_empty_inherited_path_has_no_trailing_separator() {
 /// The env handed to uv must gain a PATH entry when the tools are absent,
 /// and nothing else. Pins the wiring, not just the decision: run 8 showed a
 /// working shim, but only because this reaches `run_uv`.
+///
+/// `#[cfg(unix)]`: same reason as `shim_only_when_the_real_tool_is_missing`
+/// -- `blk` here is also built from `temp_dir()`.
+#[cfg(unix)]
 #[test]
 fn shim_reaches_the_uv_invocation() {
     let runner = FakeRuntimeRunner::new();

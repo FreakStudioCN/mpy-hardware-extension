@@ -111,7 +111,18 @@ fn write_install_name_tool_shim(dir: &Path) -> std::io::Result<()> {
 /// otherwise work is suppressed. Failing to write the shim is not fatal: the
 /// worst case is the dialog we were trying to avoid, which is what happens
 /// today anyway.
-fn install_name_tool_shim(os: Os, blk: &Path, developer_tools_present: bool) -> Option<String> {
+///
+/// `inherited_path` is passed in rather than read from
+/// `std::env::var("PATH")` internally, so tests can exercise the
+/// empty-inherited-PATH edge case as a pure function call -- no process-wide
+/// env mutation, which would otherwise race every other test in this
+/// crate's multi-threaded lib test binary.
+fn install_name_tool_shim(
+    os: Os,
+    blk: &Path,
+    developer_tools_present: bool,
+    inherited_path: &str,
+) -> Option<String> {
     if os != Os::MacOs || developer_tools_present {
         return None;
     }
@@ -134,17 +145,13 @@ fn install_name_tool_shim(os: Os, blk: &Path, developer_tools_present: bool) -> 
         tracing::warn!("could not write the install_name_tool shim: {e}");
         return None;
     }
-    // The one place this module reads the process environment. Prepending
-    // requires knowing what to prepend to, and replacing PATH outright would
-    // take away whatever else uv needs to find.
-    let inherited = std::env::var("PATH").unwrap_or_default();
     tracing::info!("no developer tools found; shimming install_name_tool for uv");
     // Joining onto an empty inherited PATH would leave a trailing `:`,
     // which Unix reads as an empty PATH element -- the current directory.
-    Some(if inherited.is_empty() {
+    Some(if inherited_path.is_empty() {
         shim_dir
     } else {
-        format!("{shim_dir}:{inherited}")
+        format!("{shim_dir}:{inherited_path}")
     })
 }
 
@@ -218,7 +225,12 @@ pub fn ensure_runtime(
     // of it silences the dialog. Only where the real tool is absent: the patch
     // could not have happened there anyway, so nothing is suppressed that would
     // otherwise work.
-    let shim_path_entry = install_name_tool_shim(os, blk, runner.developer_tools_present());
+    // The one place this module reads the process environment. Prepending
+    // requires knowing what to prepend to, and replacing PATH outright would
+    // take away whatever else uv needs to find.
+    let inherited_path = std::env::var("PATH").unwrap_or_default();
+    let shim_path_entry =
+        install_name_tool_shim(os, blk, runner.developer_tools_present(), &inherited_path);
     let mut uv_env: Vec<(&str, &str)> =
         vec![("UV_PYTHON_INSTALL_DIR", python_install_dir.as_str())];
     if let Some(path_value) = shim_path_entry.as_deref() {

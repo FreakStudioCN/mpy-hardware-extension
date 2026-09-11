@@ -267,7 +267,8 @@ fn write_is_atomic_no_tmp_left_behind() {
     let profiles_dir = dir.join("profiles");
     let runner = FakeRunner::new(vec![], Ok(1));
 
-    register_profile_offline(&runner, &storage, &profiles_dir, "Blockless", "blockless").unwrap();
+    let _ = register_profile_offline(&runner, &storage, &profiles_dir, "Blockless", "blockless")
+        .unwrap();
 
     assert!(storage.exists());
     assert!(!dir.join("storage.json.tmp").exists());

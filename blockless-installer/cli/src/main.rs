@@ -247,7 +247,9 @@ mod real_main {
                             die("could not confirm the profile was fully removed; the ownership journal was left intact so a re-run can finish. Nothing else was removed.");
                         }
                         if vscode_removal_failed {
-                            die("VS Code could not be fully removed; the ownership journal was kept so a re-run can finish. Nothing else was removed.");
+                            die(format!(
+                                "VS Code could not be fully removed; the ownership journal was kept so a re-run can finish. profile_removed={profile_removed}; BLK was left in place."
+                            ));
                         }
                         println!(
                             "done: profile_removed={profile_removed} blk_removed={blk_removed} blk_removal_partial={blk_removal_partial} vscode_removed={vscode_removed}"

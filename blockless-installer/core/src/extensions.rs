@@ -236,13 +236,14 @@ pub fn ensure_extensions(
     // fix). Errors here are non-fatal at this layer (a seed failure just
     // means the window fallback below has to do the work); genuine I/O
     // failures (can't create the profile dir) still propagate.
-    profile::register_profile_offline(
+    let offline_outcome = profile::register_profile_offline(
         command_runner,
         storage_path,
         profiles_dir,
         profile_name,
         seed_location,
     )?;
+    tracing::info!(outcome = ?offline_outcome, "offline profile seed");
 
     let ext_result = install_ext(
         ext_runner,

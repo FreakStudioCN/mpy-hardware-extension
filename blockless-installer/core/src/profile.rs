@@ -97,7 +97,11 @@ pub fn profile_registered(storage_path: &Path, profile_name: &str) -> bool {
     resolve_profile_location(storage_path, profile_name).is_some()
 }
 
+/// `#[must_use]`: a skipped-and-not-logged outcome here is exactly how the
+/// process-check-failed / spawn-failed mislabelling this replaced went
+/// unnoticed at its only two call sites.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub enum RegisterOfflineOutcome {
     AlreadyRegistered,
     /// A VS Code instance is running: it owns `storage.json` in memory and
@@ -204,7 +208,10 @@ fn write_atomic(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, dest)
 }
 
+/// `#[must_use]`: see `RegisterOfflineOutcome`'s doc comment -- the same
+/// class of bug, at `register_profile`'s own only two call sites.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub enum RegisterProfileOutcome {
     AlreadyRegistered,
     Registered,
