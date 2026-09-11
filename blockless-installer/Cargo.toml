@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
 members = ["core", "cli"]
+# app/ is a separate, self-contained workspace (its own Cargo.lock): it only
+# compiles on macOS/Windows (core::system::SystemEnvironment is cfg-gated),
+# so the ubuntu job -- and this agent's own sandbox -- must never attempt to
+# build it. Without this, `cargo build`/`cargo test` invoked from inside
+# app/ would fail with "current package believes it's in a workspace when
+# it's not", since app/ is nested under this Cargo.toml but not a member.
+exclude = ["app"]
 
 [workspace.package]
 version = "0.1.0"
