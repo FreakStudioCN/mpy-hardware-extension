@@ -669,6 +669,160 @@ test("a board picked during a view-only replay survives the wipe", async () => {
   assert.equal(starts[1].pre_selected_board.id, "esp32-s3-devkitc");
 });
 
+// The mirror direction of the "click lands mid-burst" defect: here Generate is clicked BEFORE the
+// restore burst even arrives (it was already in flight host-side when the click fired). The whole
+// burst now posts as one restore_replay envelope, so it can never be interleaved once delivery
+// starts — but delivery itself is still async relative to a click, so the envelope is gated on
+// `running` at receipt: a stale one arriving after a live run has started must be dropped WHOLE, not
+// just have its embedded restore_reset skipped, or the embedded restore_user/restore_done would
+// still render into the live feed and viewOnlyReplay would still get armed under a live run (arming
+// a spurious wipe on the next idle Generate — the second half of the reported bug).
+test("a restore_replay that arrives after Generate was already clicked is dropped whole (mirror direction)", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "blink an LED";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.match(document.getElementById("activity")!.textContent!, /blink an LED/, "the live run's own message is in the feed");
+
+  // A restore that was already in flight when the click fired, delivered late.
+  post(dom, {
+    type: "restore_replay",
+    messages: [
+      { type: "restore_reset", viewOnly: true },
+      { type: "restore_user", text: "an old replayed session" },
+      { type: "restore_done", terminal: "complete" },
+    ],
+  });
+
+  const activity = document.getElementById("activity")!.textContent!;
+  assert.match(activity, /blink an LED/, "the live run's feed survives the stale restore");
+  assert.doesNotMatch(activity, /an old replayed session/, "the stale replay never renders");
+  assert.equal((document.getElementById("generate") as HTMLButtonElement).classList.contains("stop"), true, "the live run itself is untouched (still running)");
+
+  // The flag must not have armed either: an idle Generate right after must not wipe THIS
+  // conversation as if it were a leftover view-only replay.
+  post(dom, { type: "session_done", terminal: "generated" });
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "a follow-up note";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.match(document.getElementById("activity")!.textContent!, /blink an LED/, "the earlier live turn is not wiped by a spuriously-armed replay flag");
+});
+
+// The other half of defect 2 (spec: "Restore, generate, post a generation-stamped credits
+// session_event, and assert the quota bar updates"), exercised at the layer where the drain actually
+// lives (drainingFrames/acceptGen in ActivityTimeline.js), with the real production message shape:
+// the session_reset boundary bundled INSIDE restore_replay, right after the nested restore_reset —
+// never as its own earlier top-level message, which would be delivered first and get immediately
+// undone by the wipe delivered second (a real bug caught in review: seedFromSnapshot originally
+// posted the echo itself, before the bundle, and a run reaching the controller without another
+// start() in between — e.g. an optional-flow run dispatched straight off a restored session — had
+// its credits frame silently dropped). This also proves restore_replay is actually UNPACKED, not
+// just delivered: a mutant that drops the envelope on the floor fails every assertion below.
+test("a restore's bundled generation boundary un-drains the quota bar for a run that reaches the controller without another start() first", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "restore_replay",
+    messages: [
+      { type: "restore_reset", viewOnly: true },
+      { type: "session_reset", generation: 1 },
+      { type: "restore_user", text: "an old session" },
+      { type: "restore_done", terminal: "complete" },
+    ],
+  });
+  // Consumed, not dropped: the feed and terminal line actually rendered (tab replay is covered by
+  // the panel.ts-level tests; this test is about the drain, not the tab markup).
+  assert.match(document.getElementById("activity")!.textContent!, /an old session/, "the feed replayed");
+  // Match the terminal line's own text, not a child COUNT: the restore_user card above already
+  // makes children.length > 0 true, so a count assertion passes with restore_done dropped entirely
+  // and pins nothing.
+  assert.match(document.getElementById("activity")!.textContent!, /Session ended: Done/, "the terminal line rendered too");
+
+  // A stamped session_event reaching the controller relay WITHOUT any intervening start() (e.g. an
+  // optional-flow startPhase() dispatched straight off this restored, resumable session) must still
+  // update the quota bar — proving the bundled boundary actually ended the drain the nested
+  // restore_reset opened, in the same synchronous delivery.
+  post(dom, { type: "session_event", generation: 1, event: { kind: "credits", balance: 41, dailyGrant: 100 } });
+  assert.equal(document.getElementById("qUsed")!.textContent, "41", "the quota bar updates from the stamped frame — it was not dropped as a straggler");
+  assert.equal(document.getElementById("quota")!.classList.contains("hidden"), false, "the quota bar itself is shown");
+});
+
+// A REFUSED Generate is the only reachable trigger for a stranded drain today: a view-only replay
+// leaves viewOnlyReplay set, so the click's clearConversation() (HomeWorkbench.js) really does wipe
+// the feed and arm the real drain, and only THEN does the host get to refuse the resulting
+// start_session. Everything here is a production message shape — the replay bundle a real restore
+// posts, the real Generate click (not a hand call to markSessionEventsStale), and the two messages
+// the FIXED start_session handler now posts in order (session_reset re-affirmed before the busy
+// guard, exactly like panel.ts).
+// Mutation: revert onSessionReset's drainingFrames = false (or make sessionEventIsStale ignore the
+// drain close) and the quota bar stays frozen at 0 / hidden, and the credit line never flushes. This
+// DOM test cannot kill the panel-side mutation (it hand-feeds the host messages) — that half is
+// pinned in webview-panel.test.ts's busy/retry-busy/protocol/auth refusal assertions instead.
+test("a refused Generate after a view-only replay still closes the drain the wipe armed", async () => {
+  const posted: any[] = [];
+  const dom = await loadWebview(posted);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "restore_replay",
+    messages: [
+      { type: "restore_reset", viewOnly: true },
+      { type: "session_reset", generation: 1 },
+      { type: "restore_user", text: "an old replayed session" },
+      { type: "restore_done", terminal: "complete" },
+    ],
+  });
+  assert.match(document.getElementById("activity")!.textContent!, /an old replayed session/, "the replay rendered");
+
+  (document.getElementById("intent") as HTMLTextAreaElement).value = "read a DHT22 sensor";
+  (document.getElementById("generate") as HTMLButtonElement).click();
+  assert.doesNotMatch(document.getElementById("activity")!.textContent!, /an old replayed session/, "the real wipe fired (viewOnlyReplay was set)");
+  assert.ok(posted.some((m) => m.type === "start_session"), "the click still asks the host to start");
+
+  // The host refuses (busy, save in flight, protocol/auth — any of the nine exits): the boundary
+  // re-affirmation lands first, then the refusal, same generation as the bundle's since no real
+  // start ever reached the controller.
+  post(dom, { type: "session_reset", generation: 1 });
+  post(dom, { type: "session_busy" });
+
+  // A stamped credits frame that reaches the relay after the refusal must still move the quota
+  // bar — proving the refusal's own boundary post closed the drain, instead of stranding it until
+  // the next SUCCESSFUL build.
+  post(dom, { type: "phase_start", phase: "upy-generate-plugin" });
+  post(dom, { type: "session_event", generation: 1, event: { kind: "credits", balance: 41, dailyGrant: 50, usage: { operation: "generate", phase: "upy-generate-plugin", credits_consumed: 9, remaining_quota: 41 } } });
+  assert.equal(document.getElementById("qUsed")!.textContent, "41", "the quota bar updates from the post-refusal frame — not dropped as a straggler");
+  assert.equal(document.getElementById("quota")!.classList.contains("hidden"), false, "the quota bar itself is shown");
+
+  // And a later phase boundary still flushes the rolled-up credit line off the same events.
+  post(dom, { type: "phase_complete", payload: { phase: "upy-generate-plugin", result: "ok" } });
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.ok(feed.includes("Generate: 9 credits over 1 turn, 41 left"), `the per-phase credit line must flush: ${feed}`);
+});
+
+// One malformed nested message must not truncate the rest of the burst. No producer emits a
+// codeless code_updated inside a real restore_replay today (panel.ts only pushes one when
+// `typeof code === "string"`), but the bundle's contents are still host-authored data, not a
+// hardcoded literal, and finalizeCode throws on a non-string code — exactly the crash-on-render
+// case panel.ts's own comment calls out for the ungated live handler. handleHostMessage's
+// restore_replay loop wraps each nested call in try/catch for this reason.
+test("a throwing entry inside a restore_replay bundle does not truncate the rest of the burst", async () => {
+  const dom = await loadWebview([]);
+  const { document } = dom.window;
+
+  post(dom, {
+    type: "restore_replay",
+    messages: [
+      { type: "restore_reset" },
+      { type: "code_updated" }, // no `code` — finalizeCode throws on a non-string
+      { type: "restore_user", text: "SURVIVOR" },
+    ],
+  });
+
+  assert.match(document.getElementById("activity")!.textContent!, /SURVIVOR/, "a later nested message still renders after an earlier one throws");
+});
+
 test("session-restore feed rehydration: restore_done appends a terminal line, restore_reset clears", async () => {
   const dom = await loadWebview([]);
   const { document } = dom.window;

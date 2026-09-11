@@ -991,27 +991,28 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       .filter((e) => e !== null && typeof e === "object" && !Array.isArray(e)) as any[];
   }
 
-  // Replay the DURABLE activity feed from the restored session's already-parsed transcript events, in
+  // Map the DURABLE activity feed from the restored session's already-parsed transcript events, in
   // file order: the user's request, the model's status narration, phase summaries, serial output,
-  // tool-failure reasons, and one inert prompt-history line each (never a live prompt). No live-run guard
-  // is touched — every replayed message is ungated on the webview side. The caller clears the feed first
-  // (restore_reset).
-  function replaySessionFeed(events: any[]): void {
+  // tool-failure reasons, and one inert prompt-history line each (never a live prompt). Returns the
+  // messages rather than posting them — the caller bundles them into the single atomic restore_replay
+  // (see doRestoreFromDir) so a Generate click can never land mid-delivery.
+  function replaySessionFeed(events: any[]): any[] {
     // The answer is recorded AFTER the prompt — collect answers by promptId across ALL events first.
     const answers = new Map<string, unknown>();
     for (const e of events) { if (e?.type === "ui_prompt_answer" && e.promptId != null) answers.set(String(e.promptId), e.answer); }
     const out: any[] = [];
     for (const e of events) mapRestoreEvent(e, answers, out);
-    for (const msg of out.slice(-RESTORE_FEED_MAX)) webview.postMessage(msg); // keep the newest tail
+    return out.slice(-RESTORE_FEED_MAX); // keep the newest tail
   }
 
-  // Rehydrate the Wiring/Diagram/Code tabs for a VIEW-ONLY (no-snapshot) restore straight from the
+  // Map the Wiring/Diagram/Code tabs for a VIEW-ONLY (no-snapshot) restore straight from the
   // transcript's own inline artifact records — the recorder writes a full "artifact" event (manifest,
   // diagram, or code content inline) every time postEvent updates one (session-controller.ts:726/743/755),
   // so the LAST one of each kind is exactly the tab state the live session ended with. This mirrors the
   // snapshot-restore tab population below, but there is no snapshot object (and so no sha) here — the
-  // recorded content IS the source of truth, same as the live feed already trusts it.
-  function replaySessionTabs(events: any[]): void {
+  // recorded content IS the source of truth, same as the live feed already trusts it. Returns the
+  // messages rather than posting them, same reason as replaySessionFeed above.
+  function replaySessionTabs(events: any[]): any[] {
     let manifest: unknown; let diagram: unknown; let code: unknown; let codePath: unknown;
     for (const e of events) {
       if (e?.type !== "artifact") continue;
@@ -1019,16 +1020,18 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       else if (e.kind === "diagram") diagram = e.diagram;
       else if (e.kind === "code") { code = e.code; codePath = e.path; }
     }
-    if (manifest) webview.postMessage({ type: "manifest_updated", manifest });
+    const out: any[] = [];
+    if (manifest) out.push({ type: "manifest_updated", manifest });
     // Diagram tab: an authored diagram wins; otherwise derive it from the manifest, same truthy
     // fallback the snapshot-restore path below uses — a manifest-only session never shows an empty
     // Diagram tab.
-    if (diagram) webview.postMessage({ type: "diagram_updated", diagram });
-    else if (manifest) webview.postMessage({ type: "diagram_updated", diagram: deriveDiagram(manifest) });
+    if (diagram) out.push({ type: "diagram_updated", diagram });
+    else if (manifest) out.push({ type: "diagram_updated", diagram: deriveDiagram(manifest) });
     // Test the CONTENT, not "was a code artifact ever recorded" — a code_updated with no code (the
     // pipeline produced no main.py, so the live post-time event.code was already undefined) would
     // otherwise replay as a card the webview crashes rendering (finalizeCode assumes a string).
-    if (typeof code === "string") webview.postMessage({ type: "code_updated", code, path: codePath });
+    if (typeof code === "string") out.push({ type: "code_updated", code, path: codePath });
+    return out;
   }
 
   // The session's terminal outcome ("ready" / "abandoned" / ...), from the LAST session_finished or
@@ -1081,16 +1084,35 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         // viewOnly tells the webview this feed is a replay, not a session it can add to: the next Generate
         // clears it instead of appending. Without the flag the new build (which gets its own fresh dir)
         // would render underneath this session's history as if the two were one conversation.
-        webview.postMessage({ type: "restore_reset", viewOnly: true });
-        replaySessionFeed(events);
-        replaySessionTabs(events);
+        //
+        // The whole burst is ONE message the webview unpacks in a single synchronous task (fix: the
+        // host used to post restore_reset, then one message per feed line, then the tabs, then
+        // optional_flows, then restore_done — each a separate postMessage, so a Generate click could
+        // land between any two of them and render a stale tail into the new run). artifacts_index stays
+        // a separate straggler (the new run's own request_artifacts overwrites it either way).
+        //
+        // The generation boundary seedFromSnapshot() just bumped rides IN this same bundle, right
+        // after restore_reset, rather than as its own earlier postMessage: posted separately (and
+        // therefore delivered first), the webview's clearConversation() (called by the nested
+        // restore_reset a moment later) would immediately re-arm the very drain this boundary was
+        // meant to close, leaving it open for any run that reaches the controller without another
+        // start() in between (e.g. an optional-flow run dispatched straight off a restored session).
+        // Bundled after restore_reset, both land in the same synchronous task with the wipe first and
+        // the boundary last, so the echo always wins.
+        const replay: any[] = [
+          { type: "restore_reset", viewOnly: true },
+          { type: "session_reset", generation: controller.getGeneration() },
+        ];
+        replay.push(...replaySessionFeed(events));
+        replay.push(...replaySessionTabs(events));
         // Wiring tab: post [] unconditionally, same as the snapshot path below — the flow-offer entries
         // are SIBLINGS of the tab panes, so restore_reset does not clear them, and a view-only replay
         // (which never seeds optional_flows) must still hide a PRIOR session's stale Generate buttons.
-        webview.postMessage({ type: "optional_flows", phases: [] });
-        refreshArtifacts(sessionDir);
+        replay.push({ type: "optional_flows", phases: [] });
         const terminal = lastSessionTerminal(events);
-        if (terminal) webview.postMessage({ type: "restore_done", terminal });
+        if (terminal) replay.push({ type: "restore_done", terminal });
+        webview.postMessage({ type: "restore_replay", messages: replay });
+        refreshArtifacts(sessionDir);
         vscode.window?.showInformationMessage?.("Viewing a past session (read-only — no saved snapshot for it).");
         return;
       }
@@ -1121,17 +1143,28 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         generatePhaseComplete: snap.optional_flows?.generate_phase_complete ?? undefined,
       });
       if (!seeded) { vscode.window?.showInformationMessage?.("Finish the current build before restoring a session."); return; }
-      // Clear the current view, then replay the durable activity feed from the transcript (D4). Done
-      // BEFORE the tab replays below, because restore_reset (clearConversation) wipes the tabs too.
-      webview.postMessage({ type: "restore_reset" });
-      replaySessionFeed(readSessionEvents(sessionDir) ?? []); // no jsonl (rare, pre-dates it) — tabs still restore from the snapshot below
-      // Webview-side: replay the tabs (the inverse of clearConversation) — wiring, diagram, code.
-      if (snap.manifest) webview.postMessage({ type: "manifest_updated", manifest: snap.manifest });
+      // Clear the current view, then replay the durable activity feed from the transcript (D4), then the
+      // tabs (the inverse of clearConversation): wiring, diagram, code. The whole burst is ONE message the
+      // webview unpacks in a single synchronous task, same reason and same shape as the view-only branch
+      // above — a Generate click cannot land between two of its parts. artifacts_index and the live credit
+      // refetch stay separate stragglers (the new run's own request_artifacts overwrites the former; the
+      // latter is a best-effort network round trip with no ordering requirement against the replay).
+      //
+      // The generation boundary rides in this same bundle, right after restore_reset, same reason as the
+      // view-only branch above: posted as its own earlier message, the nested restore_reset's
+      // clearConversation() would re-arm the drain it was meant to close before this session's next run
+      // (start(), retry(), or an optional-flow startPhase()) ever reaches the controller.
+      const replay: any[] = [
+        { type: "restore_reset" },
+        { type: "session_reset", generation: controller.getGeneration() },
+      ];
+      replay.push(...replaySessionFeed(readSessionEvents(sessionDir) ?? [])); // no jsonl (rare, pre-dates it) — tabs still restore from the snapshot below
+      if (snap.manifest) replay.push({ type: "manifest_updated", manifest: snap.manifest });
       // Diagram tab: an authored diagram wins; otherwise derive it from the manifest exactly as a live
       // session does (postEvent's manifest_updated branch), so a saved session with a manifest never
       // restores to an empty Diagram tab (the snapshot's authored diagram is almost always null).
-      if (snap.diagram) webview.postMessage({ type: "diagram_updated", diagram: snap.diagram });
-      else if (snap.manifest) webview.postMessage({ type: "diagram_updated", diagram: deriveDiagram(snap.manifest) });
+      if (snap.diagram) replay.push({ type: "diagram_updated", diagram: snap.diagram });
+      else if (snap.manifest) replay.push({ type: "diagram_updated", diagram: deriveDiagram(snap.manifest) });
       // Wiring tab: re-offer the wiring/diagram optional flows a successful generate exposed, so the
       // "Generate diagram" buttons come back. seedFromSnapshot already restored the offers + upstream
       // generate result these flows run against, so the buttons are functional, not just visible. Post
@@ -1139,7 +1172,7 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       // clear them — a no-offers snapshot must post [] to HIDE a prior session's stale buttons (matches live,
       // which posts phases:[] on a non-success generate).
       const offeredFlows = Array.isArray(snap.optional_flows?.offered) ? snap.optional_flows.offered : [];
-      webview.postMessage({ type: "optional_flows", phases: offeredFlows });
+      replay.push({ type: "optional_flows", phases: offeredFlows });
       // Code cards: replay each code artifact's on-disk content, but VERIFY its digest against the snapshot
       // first — never replay a file whose sha256 no longer matches (the snapshot's integrity guarantee).
       for (const a of Array.isArray(snap.artifacts) ? snap.artifacts : []) {
@@ -1150,12 +1183,13 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
         try {
           const bytes = readFileSync(abs);
           if (a.sha256 && createHash("sha256").update(bytes).digest("hex") !== a.sha256) continue; // changed on disk — skip, don't replay stale
-          webview.postMessage({ type: "code_updated", code: bytes.toString("utf-8"), path: a.relative_path });
+          replay.push({ type: "code_updated", code: bytes.toString("utf-8"), path: a.relative_path });
         } catch { /* unreadable — skip this file, restore the rest */ }
       }
+      if (snap.stage?.terminal) replay.push({ type: "restore_done", terminal: snap.stage.terminal }); // terminal line (D4a)
+      webview.postMessage({ type: "restore_replay", messages: replay });
       refreshArtifacts(sessionDir); // populate the Artifacts tab from the restored session's tree (D1)
       await refreshCredits(); // the snapshot's credits are advisory — refetch the live quota (D2)
-      if (snap.stage?.terminal) webview.postMessage({ type: "restore_done", terminal: snap.stage.terminal }); // terminal line (D4a)
       vscode.window?.showInformationMessage?.(`Restored session${snap.state?.intent ? `: ${snap.state.intent}` : ""}.`);
     } finally { restoreInFlight = false; }
   }
@@ -1928,6 +1962,16 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       await refreshCredits();
     }
     if (message.type === "start_session") {
+      // Re-affirm the generation boundary before ANY guard below can refuse the click. A refused
+      // start still wipes a view-only replay's feed client-side (HomeWorkbench.js), which arms the
+      // webview's "drop stamped session_events until the boundary echoes back" drain; every exit
+      // past this point (busy, save-in-flight, protocol mismatch, sign-in required, a save that
+      // slipped in during the pre-run awaits) used to return without ever closing it, so the drain
+      // stayed armed until the next SUCCESSFUL build. Posting it unconditionally here, before the
+      // guards, covers all of them by construction instead of by patching each exit. Idempotent
+      // with controller.start()'s own post below: getGeneration() hasn't moved, so this just
+      // rewrites the webview's current boundary to the value it already has.
+      webview.postMessage({ type: "session_reset", generation: controller.getGeneration() });
       // Reject a re-entrant run at the entry point (register #1: the webview is not the trust
       // boundary). acquireRunOwnership() now HOLDS the queue for the whole run, so without this a
       // second start_session would block on the queue and then run a duplicate once the first run's
@@ -1990,6 +2034,12 @@ function wireWebview(vscode: any, webview: any, extensionUri: any, deps: PanelDe
       } finally { releaseRun(); } // free the port for device tools once the run reaches its terminal
     }
     if (message.type === "retry_session") {
+      // Same boundary re-affirmation as start_session, and for the same reason: every guard below
+      // can refuse the click, and none of them used to close the drain a prior wipe armed. Retry
+      // never wipes the feed today (register #1's caller-side gate), so this exit is unreachable in
+      // practice — kept anyway so the invariant is uniform across both run-entry points and a future
+      // wipe-then-retry path doesn't silently reopen this.
+      webview.postMessage({ type: "session_reset", generation: controller.getGeneration() });
       // Same re-entrancy guard as start_session: a stale retry must not queue behind the held run
       // and then re-issue the last turn after it finishes (register #1). retry() re-enters run().
       if (controller.isRunning()) { webview.postMessage({ type: "session_busy" }); return; }

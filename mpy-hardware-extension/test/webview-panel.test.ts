@@ -66,8 +66,14 @@ test("webview start_session runs API-backed pipeline and renders generated outpu
       "http://api.test/v1/packages/aht20_driver/1.0.0/driver-context",
       "http://api.test/v1/boards/esp32-s3-devkitc-1",
     ]);
-    // manifest_updated now drives a derived diagram_updated (Wiring/Diagram tabs).
-    assert.deepEqual(posted.map((message) => message.type), ["trace_event", "manifest_updated", "diagram_updated", "code_updated", "trace_event", "files_written", "session_done"]);
+    // manifest_updated now drives a derived diagram_updated (Wiring/Diagram tabs). session_reset
+    // leads every start() (defect 2 fix): the generation boundary the webview's restore-triggered
+    // session_event drain needs to end, posted unconditionally so a build after a restore is covered
+    // without the controller having to know a client-side wipe is pending. It appears twice here:
+    // once from the start_session handler itself (re-affirmed before any refusal guard can return
+    // early) and once from controller.start()'s own post — idempotent, since the generation hasn't
+    // moved between the two.
+    assert.deepEqual(posted.map((message) => message.type), ["session_reset", "session_reset", "trace_event", "manifest_updated", "diagram_updated", "code_updated", "trace_event", "files_written", "session_done"]);
     assert.equal(posted.at(-1).terminal, "generated");
     assert.match(posted.find((message) => message.type === "code_updated").code, /MPYHW_READY/);
     // Files land under the open workspace (not a fallback), so no "saved here" notice.
@@ -307,7 +313,11 @@ test("webview blocks sessions when the remote protocol version mismatches the bu
   createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl });
   await handler?.({ type: "start_session", intent: "blink an led", boardId: "esp32-s3-devkitc-1" });
 
+  // session_reset leads every start_session exit, including this one: a refused start still
+  // closes the drain a prior view-only-replay wipe armed, so the quota bar doesn't freeze until
+  // the next successful build.
   assert.deepEqual(posted, [
+    { type: "session_reset", generation: 0 },
     { type: "session_error", error: "protocol_version_mismatch" },
     { type: "session_done", terminal: "session_error" },
   ]);
@@ -551,7 +561,10 @@ test("webview reports backend GitHub auth exchange failures", async () => {
   provider.resolveWebviewView(view);
   await handler?.({ type: "start_session", intent: "超过30度亮红灯", boardId: "esp32-s3-devkitc-1" });
 
+  // session_reset leads every start_session exit, including the auth gate's: see the
+  // protocol-mismatch test above for why.
   assert.deepEqual(posted, [
+    { type: "session_reset", generation: 0 },
     { type: "session_error", error: "github_token_exchange_failed" },
     { type: "session_done", terminal: "session_error" },
   ]);
@@ -1091,9 +1104,13 @@ test("a re-entrant start_session while a run is in-flight is rejected session_bu
     posted.length = 0; // isolate the re-entrant response
     await handler!({ type: "start_session", intent: "y", boardId: "esp32-s3-devkitc-1" });
     assert.ok(posted.some((m) => m.type === "session_busy"), "a second start while running is rejected session_busy");
+    // The refused start still re-affirms the boundary: a prior view-only-replay wipe would
+    // otherwise leave the webview's session_event drain armed until the NEXT successful build.
+    assert.deepEqual(posted.find((m) => m.type === "session_reset"), { type: "session_reset", generation: 0 }, "a busy refusal still closes the drain a prior wipe armed");
     assert.equal(llmCalls, 1, "the second start does not reach the loop (no duplicate run queued behind the held port)");
     // Mutation: drop the isRunning() pre-check -> the second start blocks on the held queue, posts no
     // session_busy here, and runs a duplicate after release (llmCalls would reach 2).
+    // Mutation: drop the handler-top session_reset post -> the boundary vanishes from posted here.
 
     releaseFetch();
     await running.catch(() => {});
@@ -2839,9 +2856,15 @@ test("welcome telemetry: a rejected POST is swallowed — the click's primary ac
 });
 
 function restorePanel(ws: string) {
-  const posted: any[] = []; const infos: string[] = []; const errors: string[] = []; const commands: Array<{ cmd: string; path?: string }> = [];
+  const posted: any[] = []; const raw: any[] = []; const infos: string[] = []; const errors: string[] = []; const commands: Array<{ cmd: string; path?: string }> = [];
   let handler: ((m: any) => Promise<void>) | undefined;
-  const panel = { webview: { cspSource: "", html: "", postMessage: (m: any) => posted.push(m), onDidReceiveMessage: (n: any) => { handler = n; } } };
+  // The restore burst now arrives as ONE atomic restore_replay envelope (fix: a Generate click
+  // landing mid-delivery used to render a stale tail into the new run). `raw`
+  // keeps every actual postMessage call as-is (for asserting the atomicity itself); `posted`
+  // unwraps the envelope so the content/order tests below, written against the pre-fix
+  // per-message wire format, still see the same flat sequence.
+  const postMessage = (m: any) => { raw.push(m); if (m && m.type === "restore_replay") posted.push(...(m.messages ?? [])); else posted.push(m); };
+  const panel = { webview: { cspSource: "", html: "", postMessage, onDidReceiveMessage: (n: any) => { handler = n; } } };
   const vscode = {
     ViewColumn: { One: 1 }, workspace: { workspaceFolders: [{ uri: { fsPath: ws } }] },
     window: { createWebviewPanel: () => panel, showInformationMessage: async (m: string) => { infos.push(m); }, showErrorMessage: async (m: string) => { errors.push(m); } },
@@ -2849,7 +2872,7 @@ function restorePanel(ws: string) {
     Uri: { file: (p: string) => ({ fsPath: p }) },
   };
   createPanel(vscode, {}, { apiBaseUrl: "http://api.test", fetchImpl: async () => jsonResponse({}) as any });
-  return { handler: handler!, posted, infos, errors, commands };
+  return { handler: handler!, posted, raw, infos, errors, commands };
 }
 
 test("restore_session rehydrates the tabs from a saved snapshot (wiring/diagram/sha-verified code) and confirms", async () => {
@@ -3008,7 +3031,7 @@ test("restore_session refetches the LIVE credit balance (the snapshot's credits 
 test("restore_session replays the durable activity feed: summaries + INERT prompt history + terminal (D4)", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
   try {
-    const { handler, posted } = restorePanel(ws);
+    const { handler, posted, raw } = restorePanel(ws);
     const sid = "session-feed-1";
     const sessionDir = join(ws, ".mpyhw", "sessions", sid);
     mkdirSync(sessionDir, { recursive: true });
@@ -3028,9 +3051,25 @@ test("restore_session replays the durable activity feed: summaries + INERT promp
       preferences: undefined, manifest: {}, diagram: null, credits: null, diagnostics: {}, optionalNextPhases: [], generatePhaseComplete: null, artifacts: [], git: null,
     });
     await writeSessionSnapshot(sessionDir, snap);
-    posted.length = 0;
+    posted.length = 0; raw.length = 0;
     await handler({ type: "restore_session", id: sid });
+    // Atomicity itself (the actual fix): the whole burst — reset, the generation boundary, feed,
+    // tabs, flows, terminal — must be ONE real postMessage call, so the webview processes it in a
+    // single synchronous task and a Generate click can never land between two of its parts. Pinned
+    // with a full deepEqual (not a blocklist of the types known today) so a partial revert that
+    // re-splits any ONE piece back into its own postMessage — restore_reset, session_reset,
+    // manifest_updated, optional_flows, whatever — fails this, not just the types named up front.
+    // artifacts_index is the one legitimate straggler (the new run's own request_artifacts overwrites
+    // it either way); this session has no vscode.authentication, so refreshCredits posts nothing.
+    assert.deepEqual(raw.map((m) => m.type), ["restore_replay", "artifacts_index"], "the whole burst is ONE restore_replay message, not one postMessage per piece");
     assert.ok(posted.some((m) => m.type === "restore_reset"), "clears the view before replay");
+    // This is the branch that matters most for defect 2 (#2): it is the only one that re-offers
+    // optional-flow buttons (a snapshot restore, unlike a view-only one, seeds optionalNextPhases), so
+    // it is the only branch from which a startPhase() run can reach the controller with NO intervening
+    // start() call. Pin both presence AND position: the boundary must be in THIS bundle, right after
+    // restore_reset, not merely present somewhere or deferred to whatever build follows.
+    assert.equal(posted[0]?.type, "restore_reset", "the feed is cleared first");
+    assert.equal(posted[1]?.type, "session_reset", "the restore's own generation boundary follows immediately, in the same bundle");
     // The snapshot path adopts the restored session's id, so the run that follows IS this session
     // continuing. It must NOT carry viewOnly, or the webview would wipe a feed the user is adding to.
     assert.ok(!posted.some((m) => m.type === "restore_reset" && m.viewOnly), "a resumable restore is not flagged read-only");
@@ -3110,7 +3149,7 @@ test("restore_session replays the RICH narration in file order via ungated messa
 test("restore_session on a NO-snapshot dir replays the transcript read-only: feed, tabs (last-of-each artifact), terminal — never opens the raw log", async () => {
   const ws = mkdtempSync(join(tmpdir(), "mpyhw-restore-"));
   try {
-    const { handler, posted, infos, commands } = restorePanel(ws);
+    const { handler, posted, raw, infos, commands } = restorePanel(ws);
     const sid = "session-viewonly-1";
     const sessionDir = join(ws, ".mpyhw", "sessions", sid);
     mkdirSync(sessionDir, { recursive: true });
@@ -3131,14 +3170,23 @@ test("restore_session on a NO-snapshot dir replays the transcript read-only: fee
       { type: "session_finished", terminal: "complete" },
     ].map((e) => JSON.stringify(e)).join("\n") + "\n";
     writeFileSync(join(sessionDir, "session.jsonl"), jsonl);
-    posted.length = 0; infos.length = 0;
+    posted.length = 0; raw.length = 0; infos.length = 0;
     await handler({ type: "restore_session", id: sid });
+    // Atomicity itself (this branch's half of work item #1): the whole burst is ONE restore_replay
+    // message, not one postMessage per line. Pinned with a full sequence, not a type blocklist, so a
+    // partial revert of ANY piece (not just the ones named here) fails this. artifacts_index is the
+    // one legitimate straggler; this view-only branch never calls refreshCredits.
+    assert.deepEqual(raw.map((m) => m.type), ["restore_replay", "artifacts_index"], "the whole burst is ONE restore_replay message, not one postMessage per piece");
     // Feed replays exactly as the rich (snapshot) path does — same mapRestoreEvent, same messages.
     assert.equal(posted[0]?.type, "restore_reset", "the feed is cleared first");
     // viewOnly marks the replayed feed as one the next build cannot join (this restore seeds no traceId,
     // so that build gets its own dir). The webview clears the feed on the next request rather than
     // rendering two unrelated sessions as one conversation.
     assert.equal(posted[0]?.viewOnly, true, "the reset flags the feed as a read-only replay");
+    // seedFromSnapshot's generation boundary rides in the SAME bundle, right after restore_reset —
+    // never as its own earlier message, which would be undone by the wipe delivered a moment later
+    // (see the comment on seedFromSnapshot's generation bump for the reordering bug this avoids).
+    assert.equal(posted[1]?.type, "session_reset", "the restore's own generation boundary follows immediately, in the same bundle");
     assert.ok(posted.some((m) => m.type === "restore_user" && /blink an LED/.test(m.text)), "the user's request replays");
     assert.ok(posted.some((m) => m.type === "restore_line" && m.kind === "trace"), "status narration replays");
     assert.ok(posted.some((m) => m.type === "summary" && /main\.py/.test(m.text)), "the phase summary replays");
@@ -3800,6 +3848,10 @@ test("retry_session is refused while a Save Version act is in flight (sibling en
     const commitP = handler({ type: "save_version_commit", message: "in flight" });
     await handler({ type: "retry_session" });
     assert.ok(posted.some((m) => m.type === "session_busy"), "retry_session is refused session_busy while a save is in flight");
+    // Same boundary re-affirmation as start_session's busy refusal, uniform across both run-entry
+    // points: retry never wipes the feed today, so this exit is unreachable in
+    // practice, but the invariant still holds by construction.
+    assert.deepEqual(posted.find((m) => m.type === "session_reset"), { type: "session_reset", generation: 0 }, "a retry-busy refusal still re-affirms the boundary");
     await commitP;
   } finally { rmSync(ws, { recursive: true, force: true }); }
 });
