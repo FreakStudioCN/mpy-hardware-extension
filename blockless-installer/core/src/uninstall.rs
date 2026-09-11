@@ -140,6 +140,20 @@ pub enum UninstallOutcome {
         /// entry or profile dir still provably present, or unreadable).
         /// `BLK` and the journal were left untouched so a re-run can finish.
         invariant_guard_tripped: bool,
+        /// `--keep-vscode` left an install this installer owns in place,
+        /// AND this run reached the point where `BLK` (and with it
+        /// `state.json`, the only ownership journal) was removed. Only
+        /// `true` on the path that actually erases the tracking, never on
+        /// an early return that leaves `BLK` intact for a re-run --
+        /// `state.json` there still knows what it owns, so nothing has
+        /// gone untracked yet.
+        vscode_kept_but_owned: bool,
+        /// VS Code removal was attempted and did not fully complete, so
+        /// this run stopped early with `BLK` and the journal deliberately
+        /// left in place for a re-run to finish. Distinct from
+        /// `vscode_removed: false` on a normal finish, which means either
+        /// nothing was there to remove or removal was never attempted.
+        vscode_removal_failed: bool,
     },
 }
 
@@ -212,6 +226,11 @@ pub fn uninstall(
                 blk_removal_partial: false,
                 vscode_removed: false,
                 invariant_guard_tripped: true,
+                // BLK, and the state.json inside it, are untouched on this
+                // path -- ownership is still tracked, so nothing has been
+                // silently dropped yet regardless of `flags.keep_vscode`.
+                vscode_kept_but_owned: false,
+                vscode_removal_failed: false,
             };
         }
         profile_removed = true;
@@ -251,6 +270,12 @@ pub fn uninstall(
             blk_removal_partial: false,
             vscode_removed,
             invariant_guard_tripped: false,
+            // `should_remove_vscode` (a precondition for reaching this
+            // branch) requires `!flags.keep_vscode`, so this is always
+            // false here; BLK is also untouched, so nothing has gone
+            // untracked either way.
+            vscode_kept_but_owned: false,
+            vscode_removal_failed: true,
         };
     }
 
@@ -271,6 +296,10 @@ pub fn uninstall(
         blk_removal_partial,
         vscode_removed,
         invariant_guard_tripped: false,
+        // The only path that actually removes BLK (and with it
+        // state.json), so the only place this can honestly be true.
+        vscode_kept_but_owned: flags.keep_vscode && vscode_installed_by_us,
+        vscode_removal_failed: false,
     }
 }
 

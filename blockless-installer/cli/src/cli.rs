@@ -74,7 +74,9 @@ pub enum Command {
         /// Remove VS Code even if this installer didn't put it there.
         #[arg(long)]
         all: bool,
-        /// Never remove VS Code, even if this installer installed it.
+        /// Never remove VS Code, even if this installer installed it. This
+        /// installer stops tracking it once the rest of the uninstall
+        /// finishes: --all is the only way to remove it after that.
         #[arg(long)]
         keep_vscode: bool,
     },

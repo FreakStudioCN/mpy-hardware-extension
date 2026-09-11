@@ -659,6 +659,192 @@ fn all_flag_forces_removal_even_when_not_installed_by_us() {
     }
 }
 
+// --- vscode reporting honesty ---
+
+#[test]
+fn keep_vscode_reports_ownership_when_journal_says_owned() {
+    let l = layout("keep-vscode-owned");
+    let mut state = default_state();
+    state.profile_created_by_us = false;
+    state.vscode_installed_by_us = true;
+    write_state(&l.state_path, &state);
+    std::fs::create_dir_all(&l.vscode_dir).unwrap();
+    let runner = FakeUninstallRunner::default();
+
+    let outcome = uninstall(
+        &not_running(),
+        &runner,
+        &l.state_path,
+        &l.storage_path,
+        &l.profiles_dir,
+        "Blockless",
+        &l.blk,
+        std::slice::from_ref(&l.vscode_dir),
+        &UninstallFlags {
+            all: false,
+            keep_vscode: true,
+        },
+    );
+
+    match outcome {
+        UninstallOutcome::Finished {
+            vscode_kept_but_owned,
+            ..
+        } => assert!(vscode_kept_but_owned),
+        other => panic!("expected Finished, got {other:?}"),
+    }
+}
+
+#[test]
+fn keep_vscode_reports_no_ownership_when_journal_says_not_owned() {
+    let l = layout("keep-vscode-not-owned");
+    let mut state = default_state();
+    state.profile_created_by_us = false;
+    state.vscode_installed_by_us = false;
+    write_state(&l.state_path, &state);
+    std::fs::create_dir_all(&l.vscode_dir).unwrap();
+    let runner = FakeUninstallRunner::default();
+
+    let outcome = uninstall(
+        &not_running(),
+        &runner,
+        &l.state_path,
+        &l.storage_path,
+        &l.profiles_dir,
+        "Blockless",
+        &l.blk,
+        std::slice::from_ref(&l.vscode_dir),
+        &UninstallFlags {
+            all: false,
+            keep_vscode: true,
+        },
+    );
+
+    match outcome {
+        UninstallOutcome::Finished {
+            vscode_kept_but_owned,
+            ..
+        } => assert!(!vscode_kept_but_owned),
+        other => panic!("expected Finished, got {other:?}"),
+    }
+}
+
+#[test]
+fn incomplete_vscode_removal_reports_removal_failed() {
+    let l = layout("vscode-removal-incomplete");
+    let mut state = default_state();
+    state.profile_created_by_us = false;
+    state.vscode_installed_by_us = true;
+    write_state(&l.state_path, &state);
+    std::fs::create_dir_all(&l.vscode_dir).unwrap();
+    let runner = FakeUninstallRunner::default();
+    runner
+        .fail_remove_for
+        .borrow_mut()
+        .push(l.vscode_dir.clone());
+
+    let outcome = uninstall(
+        &not_running(),
+        &runner,
+        &l.state_path,
+        &l.storage_path,
+        &l.profiles_dir,
+        "Blockless",
+        &l.blk,
+        std::slice::from_ref(&l.vscode_dir),
+        &UninstallFlags::default(),
+    );
+
+    match outcome {
+        UninstallOutcome::Finished {
+            vscode_removal_failed,
+            blk_removed,
+            ..
+        } => {
+            assert!(vscode_removal_failed);
+            assert!(!blk_removed);
+        }
+        other => panic!("expected Finished, got {other:?}"),
+    }
+    assert!(l.vscode_dir.exists(), "the locked location must survive");
+    assert!(
+        l.state_path.exists(),
+        "the ownership journal must survive so a re-run can finish"
+    );
+}
+
+#[test]
+fn clean_uninstall_does_not_report_removal_failed() {
+    let l = layout("vscode-removal-clean");
+    let mut state = default_state();
+    state.profile_created_by_us = false;
+    state.vscode_installed_by_us = true;
+    write_state(&l.state_path, &state);
+    std::fs::create_dir_all(&l.vscode_dir).unwrap();
+    let runner = FakeUninstallRunner::default();
+
+    let outcome = uninstall(
+        &not_running(),
+        &runner,
+        &l.state_path,
+        &l.storage_path,
+        &l.profiles_dir,
+        "Blockless",
+        &l.blk,
+        std::slice::from_ref(&l.vscode_dir),
+        &UninstallFlags::default(),
+    );
+
+    match outcome {
+        UninstallOutcome::Finished {
+            vscode_removal_failed,
+            vscode_removed,
+            ..
+        } => {
+            assert!(!vscode_removal_failed);
+            assert!(vscode_removed);
+        }
+        other => panic!("expected Finished, got {other:?}"),
+    }
+}
+
+#[test]
+fn nothing_to_remove_reports_neither_kept_nor_failed() {
+    let l = layout("vscode-nothing-to-remove");
+    let mut state = default_state();
+    state.profile_created_by_us = false;
+    state.vscode_installed_by_us = false;
+    write_state(&l.state_path, &state);
+    // `l.vscode_dir` is deliberately never created: nothing exists to remove.
+    let runner = FakeUninstallRunner::default();
+
+    let outcome = uninstall(
+        &not_running(),
+        &runner,
+        &l.state_path,
+        &l.storage_path,
+        &l.profiles_dir,
+        "Blockless",
+        &l.blk,
+        std::slice::from_ref(&l.vscode_dir),
+        &UninstallFlags::default(),
+    );
+
+    match outcome {
+        UninstallOutcome::Finished {
+            vscode_kept_but_owned,
+            vscode_removal_failed,
+            vscode_removed,
+            ..
+        } => {
+            assert!(!vscode_kept_but_owned);
+            assert!(!vscode_removal_failed);
+            assert!(!vscode_removed);
+        }
+        other => panic!("expected Finished, got {other:?}"),
+    }
+}
+
 // --- BLK removal honesty ---
 
 #[test]

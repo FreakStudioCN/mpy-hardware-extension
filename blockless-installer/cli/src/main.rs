@@ -240,13 +240,23 @@ mod real_main {
                         blk_removal_partial,
                         vscode_removed,
                         invariant_guard_tripped,
+                        vscode_kept_but_owned,
+                        vscode_removal_failed,
                     } => {
                         if invariant_guard_tripped {
                             die("could not confirm the profile was fully removed; the ownership journal was left intact so a re-run can finish. Nothing else was removed.");
                         }
+                        if vscode_removal_failed {
+                            die("VS Code could not be fully removed; the ownership journal was kept so a re-run can finish. Nothing else was removed.");
+                        }
                         println!(
                             "done: profile_removed={profile_removed} blk_removed={blk_removed} blk_removal_partial={blk_removal_partial} vscode_removed={vscode_removed}"
                         );
+                        if vscode_kept_but_owned {
+                            println!(
+                                "note: VS Code was installed by this installer and is being left in place; it is no longer tracked, and --all is the only way to remove it later."
+                            );
+                        }
                     }
                 }
             }
