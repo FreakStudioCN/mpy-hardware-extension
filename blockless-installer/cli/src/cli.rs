@@ -1,10 +1,12 @@
 //! The argument grammar only -- no OS dependency, so it compiles and is
 //! unit-tested on every target (unlike `main`'s dispatch body, which needs
 //! `system::SystemEnvironment` and is cfg-gated to macOS/Windows).
+//!
+//! `resolve_vsix_path`/`default_manifest_path`/`mac_install_targets` live in
+//! `blockless_installer_core::bootstrap` now, not here -- the GUI shell
+//! needs the same wiring and cannot depend on this bin-only crate.
 
 use clap::{Parser, Subcommand};
-#[cfg(any(test, target_os = "macos", target_os = "windows"))]
-use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -24,26 +26,6 @@ pub struct Cli {
     pub vsix: Option<PathBuf>,
     #[command(subcommand)]
     pub command: Command,
-}
-
-#[cfg(any(test, target_os = "macos", target_os = "windows"))]
-pub fn resolve_vsix_path(
-    override_path: Option<&Path>,
-    manifest_path: &Path,
-    bundled_path: &str,
-) -> PathBuf {
-    if let Some(path) = override_path {
-        return path.to_path_buf();
-    }
-    let path = PathBuf::from(bundled_path);
-    if path.is_absolute() {
-        path
-    } else {
-        manifest_path
-            .parent()
-            .unwrap_or_else(|| Path::new(""))
-            .join(path)
-    }
 }
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
@@ -153,30 +135,6 @@ mod tests {
         ]);
         assert_eq!(cli.manifest, Some(PathBuf::from("/custom/manifest.json")));
         assert_eq!(cli.vsix, Some(PathBuf::from("/custom/ext.vsix")));
-    }
-
-    #[test]
-    fn bundled_vsix_defaults_relative_to_the_manifest() {
-        assert_eq!(
-            resolve_vsix_path(
-                None,
-                Path::new("bundle/installer.manifest.json"),
-                "components/blockless.vsix",
-            ),
-            PathBuf::from("bundle/components/blockless.vsix")
-        );
-    }
-
-    #[test]
-    fn explicit_vsix_override_wins_over_the_manifest() {
-        assert_eq!(
-            resolve_vsix_path(
-                Some(Path::new("custom/blockless.vsix")),
-                Path::new("bundle/installer.manifest.json"),
-                "components/blockless.vsix",
-            ),
-            PathBuf::from("custom/blockless.vsix")
-        );
     }
 
     #[test]

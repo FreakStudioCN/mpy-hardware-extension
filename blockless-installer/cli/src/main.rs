@@ -27,7 +27,10 @@ fn main() {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod real_main {
-    use crate::cli::{resolve_vsix_path, Cli, Command};
+    use crate::cli::{Cli, Command};
+    use blockless_installer_core::bootstrap::{
+        default_manifest_path, mac_install_targets, resolve_vsix_path,
+    };
     use blockless_installer_core::fetch::{download_client, FetchOptions};
     use blockless_installer_core::manifest::Manifest;
     use blockless_installer_core::platform::{Arch, Os, Paths, RawEnv};
@@ -38,14 +41,6 @@ mod real_main {
     use blockless_installer_core::verify::CheckResult;
     use blockless_installer_core::{ops, verify};
     use clap::Parser;
-    use std::path::PathBuf;
-
-    fn default_manifest_path() -> PathBuf {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|dir| dir.join("installer.manifest.json")))
-            .unwrap_or_else(|| PathBuf::from("installer.manifest.json"))
-    }
 
     fn die(msg: impl std::fmt::Display) -> ! {
         eprintln!("blockless-installer: {msg}");
@@ -111,19 +106,6 @@ mod real_main {
             .with_writer(std::io::stderr)
             .with_ansi(false)
             .try_init();
-    }
-
-    fn mac_install_targets(os: Os, raw: &RawEnv) -> Vec<PathBuf> {
-        match os {
-            Os::MacOs => {
-                let home = raw.home.as_deref().unwrap_or_default();
-                vec![
-                    PathBuf::from("/Applications"),
-                    PathBuf::from(home).join("Applications"),
-                ]
-            }
-            Os::Windows => vec![],
-        }
     }
 
     fn print_verify_results(results: &[CheckResult]) -> bool {
