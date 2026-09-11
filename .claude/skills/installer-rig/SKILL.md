@@ -38,6 +38,12 @@ criterion is "the panel opens".
 `Cargo.toml` is in `blockless-installer/`, not the repo root. Running cargo from the repo root
 fails with "could not find Cargo.toml".
 
+Build from inside `blockless-installer/`, never via `--manifest-path` from the root: Cargo
+discovers `.cargo/config.toml` (which sets `+crt-static` for the msvc targets) by walking up from
+the CURRENT DIRECTORY, not from `--manifest-path`, so a `--manifest-path`-from-root invocation
+compiles successfully but silently drops that flag -- `cli/build.rs` now refuses to link an msvc
+binary missing it, but only if you ever build for msvc from the wrong place to find out.
+
 ## The ladder
 
 | rung | cost | answers |
