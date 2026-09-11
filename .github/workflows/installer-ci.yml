@@ -62,6 +62,18 @@ jobs:
       # closest CI gets to the rig.
       - name: cargo test
         run: cargo test --workspace
+      # app/ is excluded from the root workspace (see blockless-installer/
+      # Cargo.toml) and compiles only here and on windows -- it depends on
+      # webkit2gtk system packages ubuntu doesn't have, and on
+      # core::system::SystemEnvironment, which is itself cfg-gated to
+      # macOS/Windows. No bundling here (`cargo tauri build`); that stays
+      # local/rig-only.
+      - name: app crate -- cargo fmt --check
+        run: cargo fmt --manifest-path app/Cargo.toml -- --check
+      - name: app crate -- cargo clippy
+        run: cargo clippy --manifest-path app/Cargo.toml --all-targets -- -D warnings
+      - name: app crate -- cargo test
+        run: cargo test --manifest-path app/Cargo.toml
 
   windows:
     runs-on: windows-latest
@@ -78,3 +90,12 @@ jobs:
       # compiles/runs here -- cargo test on ubuntu skips it entirely.
       - name: cargo test
         run: cargo test --workspace
+      # app/ (see the macos job's comment above for why it's excluded from
+      # the root workspace). fmt is OS-independent and already checked on
+      # macos, so this job just needs clippy + test -- test is what runs
+      # both CRT-static guards (app/tests/windows_crt_static.rs) against
+      # the real GUI exe.
+      - name: app crate -- cargo clippy
+        run: cargo clippy --manifest-path app/Cargo.toml --all-targets -- -D warnings
+      - name: app crate -- cargo test
+        run: cargo test --manifest-path app/Cargo.toml
