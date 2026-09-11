@@ -31,9 +31,8 @@ import { createDeviceShim } from "../extension/device-shim.ts";
 import { JsonlSessionRecorder } from "../extension/session-recorder.ts";
 import { writeProjectFile as writeContainedProjectFile } from "../extension/workspace-writer.ts";
 import {
-  classifyFirmwareEvidence,
+  classifyFirmwareReport,
   describeFirmwareEvidence,
-  postRebootLines,
   type FirmwareEvidence,
 } from "./firmware-evidence.ts";
 import { mockedDeploySteps, reportPredatesRun, verdictBlockers } from "./e2e-verdict.ts";
@@ -599,7 +598,7 @@ try {
   }
   const report = JSON.parse(await fsReadFile(reportPath, "utf-8"));
   firmwareBuilt = await builtProjectName();
-  firmwareEvidence = classifyFirmwareEvidence(postRebootLines(report), firmwareBuilt);
+  firmwareEvidence = classifyFirmwareReport(report, firmwareBuilt);
   mockedSteps = mockedDeploySteps(report);
   // no report, unreadable, or no capture: report it as unknown
 } catch (error) {
