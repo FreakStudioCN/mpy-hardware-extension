@@ -3,6 +3,8 @@ use crate::uninstall::{self, UninstallFlags, UninstallOutcome};
 use crate::verify::{self, VerifyInputs};
 pub fn diagnostics(ctx: &OpsContext, target_zip: &Path) -> Result<(), OpsError> {
     info!(target = %target_zip.display(), "diagnostics: starting");
+    ctx.progress
+        .emit(&ProgressEvent::OpStarted { op: "diagnostics" });
     let file = std::fs::File::create(target_zip).map_err(|e| {
         OpsError::Diagnostics(format!("could not create {}: {e}", target_zip.display()))
     })?;
@@ -53,11 +55,15 @@ pub fn diagnostics(ctx: &OpsContext, target_zip: &Path) -> Result<(), OpsError> 
 
     writer.finish().map_err(zip_err)?;
     info!("diagnostics: finished");
+    ctx.progress
+        .emit(&ProgressEvent::OpFinished { op: "diagnostics" });
     Ok(())
 }
 
 pub fn verify(env: &dyn Environment, ctx: &OpsContext) -> Vec<verify::CheckResult> {
     info!("verify: starting");
+    ctx.progress
+        .emit(&ProgressEvent::OpStarted { op: "verify" });
     let inputs = VerifyInputs {
         code_candidates: &ctx.code_candidates,
         profile_name: &ctx.manifest.profile_name,
@@ -76,6 +82,8 @@ pub fn verify(env: &dyn Environment, ctx: &OpsContext) -> Vec<verify::CheckResul
     } else {
         warn!(checks = results.len(), failed, "verify: some checks failed");
     }
+    ctx.progress
+        .emit(&ProgressEvent::OpFinished { op: "verify" });
     results
 }
 
@@ -89,6 +97,8 @@ pub fn uninstall(
         keep_vscode = flags.keep_vscode,
         "uninstall: starting"
     );
+    ctx.progress
+        .emit(&ProgressEvent::OpStarted { op: "uninstall" });
     let vscode_dirs = vscode_install_locations(ctx);
     let outcome = uninstall::uninstall(
         env,
@@ -102,6 +112,8 @@ pub fn uninstall(
         flags,
     );
     info!(outcome = ?outcome, "uninstall: finished");
+    ctx.progress
+        .emit(&ProgressEvent::OpFinished { op: "uninstall" });
     outcome
 }
 

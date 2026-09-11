@@ -31,6 +31,7 @@ mod real_main {
     use blockless_installer_core::fetch::{download_client, FetchOptions};
     use blockless_installer_core::manifest::Manifest;
     use blockless_installer_core::platform::{Arch, Os, Paths, RawEnv};
+    use blockless_installer_core::progress::NoopSink;
     use blockless_installer_core::state::State;
     use blockless_installer_core::system::SystemEnvironment;
     use blockless_installer_core::uninstall::{UninstallFlags, UninstallOutcome};
@@ -200,6 +201,7 @@ mod real_main {
             code_candidates,
             mac_install_targets: targets,
             vsix_path: Some(vsix_path),
+            progress: &NoopSink,
         };
 
         let env = SystemEnvironment;
