@@ -33,9 +33,14 @@ use tauri_plugin_dialog::DialogExt;
 /// concern a short-lived CLI process never had to answer. Bounding total
 /// install attempts per process life caps that blast radius: past the
 /// limit, quitting and reopening the app is the only way to reclaim
-/// whatever a stalled peer's connections may still be holding open, and the
-/// UI is told to say so rather than let the user keep retrying forever in
-/// the same process.
+/// whatever a stalled peer's connections may still be holding open.
+///
+/// In this PR's UI the terminal screens (success/failure) offer no way
+/// back to a fresh Install click, so in practice one process life already
+/// means one attempt; this constant is the answer for whenever that
+/// changes (a "try again"/repair affordance, `repair`/`update-extension`
+/// exposed in the GUI, and so on) rather than something silently left to
+/// be rediscovered then.
 const MAX_INSTALL_ATTEMPTS_PER_PROCESS: u32 = 5;
 
 fn install_attempt_allowed(attempt: u32) -> bool {
@@ -250,6 +255,13 @@ async fn run_install(
                 }
             }
         };
+        // Only install creates logs/ -- never at startup (see
+        // PerWriteFileWriter's own doc comment: recreating it there would
+        // put BLK back on a machine reopening this app after a PRIOR
+        // process already uninstalled from it, not just mid-run).
+        // install's own steps are what the log exists to capture, so it
+        // has to exist before ops::install runs, not after.
+        let _ = std::fs::create_dir_all(&ctx.paths.logs);
         let log_path = log_path_of(&ctx);
         let env = SystemEnvironment;
         match ops::install(&env, &ctx) {
@@ -275,6 +287,11 @@ async fn run_install(
         log_path: None,
     });
 
+    // Release the "op running" guard BEFORE telling the window the op is
+    // over: emitting op-result is what the UI acts on to re-enable
+    // Install/Advanced, so a click landing in the instant right after that
+    // emit must never be refused as "already running".
+    drop(_guard);
     let _ = app.emit("op-result", result);
     Ok(())
 }
@@ -331,6 +348,11 @@ async fn run_uninstall(
         log_path: None,
     });
 
+    // Release the "op running" guard BEFORE telling the window the op is
+    // over: emitting op-result is what the UI acts on to re-enable
+    // Install/Advanced, so a click landing in the instant right after that
+    // emit must never be refused as "already running".
+    drop(_guard);
     let _ = app.emit("op-result", result);
     Ok(())
 }
@@ -381,9 +403,18 @@ async fn save_diagnostics(
 /// lives under (a real risk on Windows). Opens, appends, and closes on
 /// every single write -- the GUI's version of the CLI's
 /// `init_stderr_logging`/`init_logging` per-process posture
-/// (`cli/src/main.rs`), just per-write instead of per-process. An
-/// unwritable/missing/just-uninstalled `logs/` degrades to dropping the
-/// line, never a panic.
+/// (`cli/src/main.rs`), just per-write instead of per-process.
+///
+/// `logs_dir` is never created inside `write` -- only `run_install`
+/// creates it (once, before `ops::install` runs, since install's own
+/// steps are what the log exists to capture). NOT at startup either: this
+/// directory sits inside `BLK`, which a PRIOR process's `uninstall` may
+/// have deleted, and re-creating it the moment this window opens would
+/// silently put `BLK` back on a machine that was supposed to be clean --
+/// the same failure one layer out from recreating it mid-run. A missing/
+/// unwritable `logs/` (including "uninstalled, never reinstalled since")
+/// is exactly the case this must degrade out of: drop the line, never
+/// panic, and never recreate what uninstall removed.
 #[derive(Clone)]
 struct PerWriteFileWriter {
     logs_dir: PathBuf,
@@ -391,9 +422,6 @@ struct PerWriteFileWriter {
 
 impl std::io::Write for PerWriteFileWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if std::fs::create_dir_all(&self.logs_dir).is_err() {
-            return Ok(buf.len());
-        }
         let path = self.logs_dir.join("installer.log");
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
@@ -427,6 +455,9 @@ fn init_logging() {
     else {
         return;
     };
+    // No create_dir_all here -- see PerWriteFileWriter's own doc comment
+    // for why startup is exactly the wrong place for it too, not just
+    // inside write().
     let writer = PerWriteFileWriter { logs_dir };
     let _ = tracing_subscriber::fmt()
         .with_writer(writer)
@@ -439,6 +470,18 @@ fn main() {
 
     let op_running = Arc::new(AtomicBool::new(false));
     let op_running_for_close = op_running.clone();
+    // Guards the two real RunEvent::ExitRequested producers: the last
+    // window being destroyed (pre-empted anyway by the CloseRequested
+    // guard above while an op runs) and a future AppHandle::exit/restart
+    // call, should one ever be added. NOT a guard against macOS Cmd+Q /
+    // the app menu's Quit: Tauri's default macOS Quit item goes straight
+    // to the OS `terminate:` selector, which this stack never intercepts,
+    // so it reaches RunEvent::Exit (unpreventable) without ever visiting
+    // ExitRequested. Closing that specific gap needs a custom Quit
+    // MenuItem routed through AppHandle::exit -- not done here; the
+    // window's own close button is what scope's review focus actually
+    // names, and that path stays fully guarded above.
+    let op_running_for_exit = op_running.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -459,8 +502,15 @@ fn main() {
             run_uninstall,
             save_diagnostics
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(move |_app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                if op_running_for_exit.load(Ordering::SeqCst) {
+                    api.prevent_exit();
+                }
+            }
+        });
 }
 
 #[cfg(test)]
@@ -492,6 +542,38 @@ mod tests {
         );
     }
 
+    /// Regression test for the round-1 finding: `write` used to
+    /// `create_dir_all` the log directory on every call, which silently
+    /// put `BLK` back on disk the moment anything logged after
+    /// `ops::uninstall` had already removed it. A write against a
+    /// directory that does not exist must be dropped, not recreate it.
+    #[test]
+    fn a_write_after_the_logs_dir_is_gone_drops_the_line_and_never_recreates_it() {
+        use std::sync::atomic::AtomicU64;
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let logs_dir = std::env::temp_dir().join(format!(
+            "blockless-installer-gui-writer-test-{}-{n}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&logs_dir);
+        assert!(!logs_dir.exists(), "test setup: must start absent");
+
+        let mut writer = PerWriteFileWriter {
+            logs_dir: logs_dir.clone(),
+        };
+        let written = std::io::Write::write(&mut writer, b"a log line\n").unwrap();
+
+        assert_eq!(
+            written, 11,
+            "must report the full buffer written even on drop"
+        );
+        assert!(
+            !logs_dir.exists(),
+            "a write against a missing logs/ must never recreate it"
+        );
+    }
+
     #[test]
     fn uninstall_outcome_message_matches_cli_wording_for_every_variant() {
         assert_eq!(
@@ -509,10 +591,7 @@ mod tests {
                 "could not confirm VS Code is closed; nothing was removed.".to_string()
             )
         );
-        assert_eq!(
-            uninstall_outcome_message(&UninstallOutcome::AbortedUnreadableState).0,
-            false
-        );
+        assert!(!uninstall_outcome_message(&UninstallOutcome::AbortedUnreadableState).0);
 
         let guard_tripped = UninstallOutcome::Finished {
             profile_removed: false,

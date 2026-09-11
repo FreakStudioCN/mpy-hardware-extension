@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Webview needs core:event only: ui/main.js calls listen() for progress/op-result/close-refused. The three custom commands (run_install, run_uninstall, save_diagnostics) are not ACL-gated -- there is no app/permissions/ directory, so has_app_acl_manifest stays false and they are allowed unconditionally, same as before this file existed. The save dialog is invoked from Rust (DialogExt, never crosses IPC), so no dialog:* permission belongs here.",
+  "windows": ["main"],
+  "permissions": ["core:event:default"]
+}

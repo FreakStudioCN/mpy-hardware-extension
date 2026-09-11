@@ -21,10 +21,6 @@
       <section id="screen-running" class="screen hidden">
         <h1>Installing&hellip;</h1>
         <ul id="step-list"></ul>
-        <p id="close-notice" class="muted hidden">
-          An operation is in progress. Please wait for it to finish before
-          closing.
-        </p>
       </section>
 
       <section id="screen-success" class="screen hidden">
@@ -37,7 +33,17 @@
         <p id="failure-message"></p>
         <p id="failure-log-path" class="muted"></p>
         <button id="save-diagnostics-btn">Save diagnostics bundle</button>
+        <p id="save-diagnostics-error" class="error hidden"></p>
       </section>
+
+      <!-- Not inside any .screen: closing is refused while an op runs
+           regardless of which screen is currently shown (install's running
+           screen, or an uninstall in flight on the ready screen), so this
+           notice has to be visible independent of the screen swap. -->
+      <p id="close-notice" class="muted hidden">
+        An operation is in progress. Please wait for it to finish before
+        closing.
+      </p>
 
       <div id="uninstall-modal" class="modal hidden">
         <div class="modal-content">

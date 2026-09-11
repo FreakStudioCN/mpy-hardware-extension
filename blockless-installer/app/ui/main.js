@@ -37,7 +37,12 @@ function renderStepList() {
     li.textContent = step.label;
     list.appendChild(li);
   }
-  document.getElementById("close-notice").classList.add("hidden");
+  // Deliberately does NOT touch close-notice: a close refused during the
+  // gap between clicking Install and this OpStarted arriving is still
+  // true right now (the op is genuinely running) -- clearing it here
+  // would erase real feedback about a close that just got refused.
+  // clearCloseNotice() (via setBusy(false)) is the only place that's
+  // actually correct to clear it, once the op is truly over.
 }
 
 function setStepState(stepNumber, state, skipped) {
@@ -63,6 +68,9 @@ function showFailure(message, logPath) {
   document.getElementById("failure-log-path").textContent = logPath
     ? `Log: ${logPath}`
     : "";
+  const errEl = document.getElementById("save-diagnostics-error");
+  errEl.textContent = "";
+  errEl.classList.add("hidden");
   showScreen("failure");
 }
 
@@ -72,9 +80,21 @@ function setReadyStatus(text) {
   status.classList.toggle("hidden", !text);
 }
 
+// close-notice is a sibling of every screen (see index.html), not reset by
+// any screen swap -- every one of the three commands that acquire the
+// Rust-side OpGuard (run_install, run_uninstall, save_diagnostics) must
+// clear it once IT is done, or a notice shown once during that op's run
+// stays stuck, now falsely, on whatever renders after it.
+function clearCloseNotice() {
+  document.getElementById("close-notice").classList.add("hidden");
+}
+
 function setBusy(busy) {
   document.getElementById("install-btn").disabled = busy;
   document.getElementById("advanced-link").classList.toggle("hidden", busy);
+  if (!busy) {
+    clearCloseNotice();
+  }
 }
 
 listen("progress", (event) => {
@@ -105,10 +125,13 @@ listen("op-result", (event) => {
   const result = event.payload;
   setBusy(false);
   if (result.op === "uninstall") {
-    setReadyStatus(result.ok ? "Uninstalled." : "");
     if (!result.ok) {
       showFailure(result.message, result.logPath);
     } else {
+      // result.message carries the CLI-parity outcome string, including
+      // the blk_removal_partial / vscode_kept_but_owned nuances a flat
+      // "Uninstalled." would hide from the user of a destructive op.
+      setReadyStatus(result.message);
       showScreen("ready");
     }
     return;
@@ -166,15 +189,30 @@ document
   .addEventListener("click", async () => {
     const btn = document.getElementById("save-diagnostics-btn");
     const original = btn.textContent;
+    const errEl = document.getElementById("save-diagnostics-error");
     try {
       const path = await invoke("save_diagnostics");
       if (path) {
+        errEl.textContent = "";
+        errEl.classList.add("hidden");
         btn.textContent = "Saved";
         setTimeout(() => {
           btn.textContent = original;
         }, 2000);
       }
     } catch (e) {
-      document.getElementById("failure-message").textContent = String(e);
+      // A dedicated element, not #failure-message: that already holds the
+      // OpsError string the user came to this screen to read, and a
+      // diagnostics-save failure must not overwrite it.
+      errEl.textContent = `Could not save diagnostics: ${e}`;
+      errEl.classList.remove("hidden");
+    } finally {
+      // save_diagnostics holds the same Rust-side OpGuard as install/
+      // uninstall and can trigger the same close-refused notice while its
+      // dialog/zip-write is in flight; this command has no setBusy call of
+      // its own (the ready/running/success/failure screens don't apply to
+      // it), so it must clear the notice itself on every exit -- success,
+      // a cancelled dialog (path is null), or an error.
+      clearCloseNotice();
     }
   });

@@ -2,11 +2,18 @@
   color-scheme: dark;
   --bg: #1e1e1e;
   --fg: #cccccc;
-  --muted: #8a8a8a;
+  /* #8a8a8a cleared AA (4.83:1) on --bg but not on --surface (4.44:1,
+     the .step.done case) -- one value used on both backgrounds, so it
+     has to clear the darker pairing. */
+  --muted: #8f8f8f;
   --accent: #0e70c0;
   --accent-hover: #1177bb;
   --danger: #c72e2e;
   --danger-hover: #d94343;
+  /* Lighter than --danger-hover: that button-background red is ~3.8:1
+     against --bg at text size, below WCAG AA's 4.5:1 -- this is for text,
+     not a button fill, so it needs to actually be legible on its own. */
+  --error-text: #f08a8a;
   --border: #3c3c3c;
   --surface: #252526;
   --success: #4caf50;
@@ -63,6 +70,18 @@ p {
 
 .muted {
   color: var(--muted);
+  font-size: 12px;
+}
+
+/* uninstall_outcome_message (app/src/main.rs) embeds a literal \n before
+   its "vscode_kept_but_owned" note; a plain <p>'s default white-space
+   would collapse that to a space and run the note into the summary line. */
+#ready-status {
+  white-space: pre-line;
+}
+
+.error {
+  color: var(--error-text);
   font-size: 12px;
 }
 

@@ -1051,6 +1051,123 @@ fn a_failing_step_never_emits_its_own_step_finished_or_any_op_finished() {
     );
 }
 
+/// A recording [`ProgressSink`] that reads `state.json` off disk at the
+/// exact moment each `StepFinished` fires and records whether that step's
+/// own flag was ALREADY persisted -- the event-sequence tests above only
+/// prove the events arrive in the right ORDER, which a hoisted
+/// `ctx.progress.emit(&ProgressEvent::StepFinished { .. })` moved above its
+/// `stamp_and_write` call would still pass. This is what actually catches
+/// that mutation: at emit time, a hoisted call would read the journal
+/// BEFORE the write, so the flag would still be `false`.
+#[derive(Default)]
+struct JournalCheckingSink {
+    already_persisted: std::sync::Mutex<Vec<(u8, bool)>>,
+}
+
+impl JournalCheckingSink {
+    fn check(&self, state_path: &Path, step: u8) {
+        let flag = State::read(state_path)
+            .ok()
+            .flatten()
+            .map(|s| match step {
+                1 => s.steps.vscode,
+                2 => s.steps.extension,
+                3 => s.steps.python,
+                4 => s.steps.settings,
+                _ => false,
+            })
+            .unwrap_or(false);
+        self.already_persisted.lock().unwrap().push((step, flag));
+    }
+}
+
+/// A [`ProgressSink`] wrapping [`JournalCheckingSink`] plus the state path
+/// it needs to check against -- kept separate so the checking sink itself
+/// stays a plain recorder, matching this module's other fakes.
+struct JournalCheckingContext<'a> {
+    inner: &'a JournalCheckingSink,
+    state_path: PathBuf,
+}
+
+impl ProgressSink for JournalCheckingContext<'_> {
+    fn emit(&self, event: &ProgressEvent) {
+        if let ProgressEvent::StepFinished { step, .. } = event {
+            self.inner.check(&self.state_path, *step);
+        }
+    }
+}
+
+#[test]
+fn step_finished_never_outruns_its_own_journal_write() {
+    let dir = temp_dir("progress-journal-order");
+    let manifest = test_manifest_matching(b"vsix contents");
+    let vsix = write_vsix(&dir, b"vsix contents");
+    let checker = JournalCheckingSink::default();
+    let state_path = dir.join("Blockless").join("state.json");
+    let sink = JournalCheckingContext {
+        inner: &checker,
+        state_path: state_path.clone(),
+    };
+    let ctx = make_ctx_with_progress(&dir, &manifest, &vsix, &sink);
+    assert_eq!(
+        ctx.paths.state, state_path,
+        "test setup: the sink must check the SAME path ops.rs writes to"
+    );
+    let env = FakeEnvironment::new(&ctx.code_candidates[0], &vsix);
+
+    install(&env, &ctx).unwrap();
+
+    let checks = checker.already_persisted.lock().unwrap();
+    assert_eq!(
+        checks.len(),
+        4,
+        "expected one StepFinished per install step: {checks:?}"
+    );
+    for (step, already_persisted) in checks.iter() {
+        assert!(
+            *already_persisted,
+            "step {step}'s StepFinished fired before its own stamp_and_write \
+             reached disk -- an event that outruns the journal lies to the user"
+        );
+    }
+}
+
+/// Same invariant, `repair` (steps 1, 2, 4 -- never 3): install's own copy
+/// of every `stamp_and_write`/`StepFinished` pair is independent source
+/// (`ops.rs` has no shared helper between the two ops beyond
+/// `stamp_and_write` itself), so a hoist in `repair` specifically would
+/// pass the test above without this one.
+#[test]
+fn repair_step_finished_never_outruns_its_own_journal_write() {
+    let dir = temp_dir("progress-journal-order-repair");
+    let manifest = test_manifest_matching(b"vsix contents");
+    let vsix = write_vsix(&dir, b"vsix contents");
+    let checker = JournalCheckingSink::default();
+    let state_path = dir.join("Blockless").join("state.json");
+    let sink = JournalCheckingContext {
+        inner: &checker,
+        state_path: state_path.clone(),
+    };
+    let ctx = make_ctx_with_progress(&dir, &manifest, &vsix, &sink);
+    let env = FakeEnvironment::new(&ctx.code_candidates[0], &vsix);
+
+    repair(&env, &ctx).unwrap();
+
+    let checks = checker.already_persisted.lock().unwrap();
+    assert_eq!(
+        checks.len(),
+        3,
+        "expected one StepFinished per repair step (1, 2, 4): {checks:?}"
+    );
+    for (step, already_persisted) in checks.iter() {
+        assert!(
+            *already_persisted,
+            "repair step {step}'s StepFinished fired before its own \
+             stamp_and_write reached disk"
+        );
+    }
+}
+
 #[path = "ops/diagnostics.rs"]
 mod diagnostics;
 #[path = "ops/uninstall.rs"]
