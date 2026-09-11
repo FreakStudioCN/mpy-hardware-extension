@@ -104,6 +104,10 @@ pub enum RegisterOfflineOutcome {
     /// would clobber our edit on its own next save. Do nothing; the window
     /// fallback ([`register_profile`]) covers this case.
     SkippedVscodeRunning,
+    /// The process check itself failed, so we could not tell whether VS
+    /// Code is running. Distinct from `SkippedVscodeRunning`: nothing was
+    /// confirmed running here, only unconfirmed as not-running.
+    SkippedProcessCheckFailed,
     /// `storage.json` exists but could not be read/parsed. Never replace an
     /// unparseable file (it may hold other profiles' window state); the
     /// window fallback covers this case too.
@@ -127,11 +131,12 @@ pub fn register_profile_offline(
     if profile_registered(storage_path, profile_name) {
         return Ok(RegisterOfflineOutcome::AlreadyRegistered);
     }
-    if runner
-        .running_vscode_pids()
-        .map_or(true, |pids| !pids.is_empty())
-    {
-        return Ok(RegisterOfflineOutcome::SkippedVscodeRunning);
+    match runner.running_vscode_pids() {
+        Ok(pids) if !pids.is_empty() => {
+            return Ok(RegisterOfflineOutcome::SkippedVscodeRunning);
+        }
+        Ok(_) => {}
+        Err(_) => return Ok(RegisterOfflineOutcome::SkippedProcessCheckFailed),
     }
 
     let mut root = match std::fs::read(storage_path) {
@@ -204,6 +209,9 @@ pub enum RegisterProfileOutcome {
     AlreadyRegistered,
     Registered,
     TimedOut,
+    /// The process check before spawning failed, so nothing was spawned.
+    /// Distinct from `SpawnFailed`: `spawn()` itself was never called.
+    ProcessCheckFailed,
     SpawnFailed,
 }
 
@@ -241,7 +249,7 @@ pub fn register_profile(
     }
     let before = match runner.running_vscode_pids() {
         Ok(pids) => pids,
-        Err(_) => return RegisterProfileOutcome::SpawnFailed,
+        Err(_) => return RegisterProfileOutcome::ProcessCheckFailed,
     };
     if runner
         .spawn(code_cli, &["--profile", profile_name, "--new-window"])

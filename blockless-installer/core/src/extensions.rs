@@ -271,8 +271,12 @@ pub fn ensure_extensions(
     if ext_result.is_err() || py_result.is_err() {
         // Window-registration fallback: a never-launched (or seed-ignoring)
         // VS Code may still lack the profile, and a headless
-        // --install-extension into a missing profile fails.
-        profile::register_profile(command_runner, code_cli, storage_path, profile_name);
+        // --install-extension into a missing profile fails. Best-effort --
+        // the outcome is logged, not propagated: the install_ext calls
+        // below report their own failure if the profile still isn't there.
+        let outcome =
+            profile::register_profile(command_runner, code_cli, storage_path, profile_name);
+        tracing::info!(?outcome, "window-registration fallback");
         install_ext(
             ext_runner,
             code_cli,
