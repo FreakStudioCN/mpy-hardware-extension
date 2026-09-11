@@ -25,6 +25,21 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// `SO_KEEPALIVE`, so a connection that opens and then dies is detected by the
 /// OS rather than by a clock that cannot tell "dead" from "slow".
 const TCP_KEEPALIVE: Duration = Duration::from_secs(30);
+/// Default for [`FetchOptions::read_timeout`]: bound the gap BETWEEN reads,
+/// not the transfer as a whole. A peer that keeps answering ACKs but never
+/// sends another body byte -- a stalled proxy, a hung server -- is otherwise
+/// invisible to `tcp_keepalive`, which only detects a peer that stops
+/// ACKing.
+///
+/// This is enforced by [`fetch_with_retry`]'s own watchdog, not by the
+/// `reqwest::blocking::Client` config: `reqwest::blocking::ClientBuilder`
+/// has no `read_timeout` (only the async `reqwest::ClientBuilder` does), and
+/// wiring one in through `From<async_impl::ClientBuilder>` compiles but
+/// panics on the first body byte ("there is no reactor running") -- the
+/// timer it installs needs `tokio::time::sleep`, and the blocking client's
+/// `Response::read()` drives that future with its own thread-parking poll
+/// loop that never enters a real Tokio runtime.
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The client every download goes through.
 ///
@@ -39,7 +54,9 @@ const TCP_KEEPALIVE: Duration = Duration::from_secs(30);
 /// `curl --retry 3` sets no total timeout and is unaffected.
 ///
 /// So: no total timeout, a bounded connect, and keepalive to notice a peer
-/// that has gone away. A slow link takes as long as it takes.
+/// that has gone away. A slow link that keeps delivering bytes takes as long
+/// as it takes; one that stops delivering them is caught separately, by the
+/// idle-read watchdog in [`fetch_with_retry`] (see [`READ_TIMEOUT`]).
 pub fn download_client() -> Result<reqwest::blocking::Client, reqwest::Error> {
     reqwest::blocking::Client::builder()
         // Proxy detection stays at its default, never `.no_proxy()`, so
@@ -84,10 +101,15 @@ pub enum FetchError {
 /// `--retry 3` = up to 4 total attempts): `max_attempts: 4` retries three
 /// times after an initial failure. Backoff is exponential from
 /// `backoff_base`, doubling each subsequent attempt.
+///
+/// `read_timeout` bounds the gap between body reads within a single
+/// attempt (see [`READ_TIMEOUT`]); it is unrelated to `max_attempts` and
+/// `backoff_base`, which govern retrying a failed attempt.
 #[derive(Debug, Clone)]
 pub struct FetchOptions {
     pub max_attempts: u32,
     pub backoff_base: Duration,
+    pub read_timeout: Duration,
 }
 
 impl Default for FetchOptions {
@@ -95,6 +117,7 @@ impl Default for FetchOptions {
         FetchOptions {
             max_attempts: 4,
             backoff_base: Duration::from_millis(500),
+            read_timeout: READ_TIMEOUT,
         }
     }
 }
@@ -179,6 +202,61 @@ fn replace_atomic(tmp: &Path, dest: &Path) -> std::io::Result<()> {
     }
 }
 
+/// A body-read chunk, or the final outcome, from the watchdog thread in
+/// [`read_body_with_idle_timeout`].
+enum ReadEvent {
+    Chunk,
+    Done(std::io::Result<String>),
+}
+
+/// Reads `response`'s body to `file` on a background thread, hashing as it
+/// goes, and bounds the gap between chunks with `read_timeout` from the
+/// CALLING thread -- `response.read()` itself cannot be bounded (see
+/// [`READ_TIMEOUT`]'s doc comment for why the reqwest-level knob does not
+/// work here). On timeout the background thread is abandoned still blocked
+/// in its read call, rather than joined: it holds nothing but this one
+/// connection and exits whenever the OS eventually reclaims it, and a
+/// short-lived installer process outlives it by, at most, its own exit.
+fn read_body_with_idle_timeout(
+    mut response: reqwest::blocking::Response,
+    mut file: std::fs::File,
+    read_timeout: Duration,
+) -> std::io::Result<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = (|| -> std::io::Result<String> {
+            let mut hasher = Sha256::new();
+            let mut buffer = [0u8; 64 * 1024];
+            loop {
+                let count = response.read(&mut buffer)?;
+                if count == 0 {
+                    break;
+                }
+                file.write_all(&buffer[..count])?;
+                hasher.update(&buffer[..count]);
+                let _ = tx.send(ReadEvent::Chunk);
+            }
+            file.flush()?;
+            let digest = hasher.finalize();
+            Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
+        })();
+        let _ = tx.send(ReadEvent::Done(result));
+    });
+
+    loop {
+        match rx.recv_timeout(read_timeout) {
+            Ok(ReadEvent::Chunk) => continue,
+            Ok(ReadEvent::Done(result)) => return result,
+            Err(_timeout_or_disconnected) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("no data received for {read_timeout:?}"),
+                ));
+            }
+        }
+    }
+}
+
 fn fetch_with_retry(
     client: &reqwest::blocking::Client,
     url: &str,
@@ -196,7 +274,7 @@ fn fetch_with_retry(
             .get(url)
             .send()
             .and_then(|resp| resp.error_for_status());
-        let mut response = match response {
+        let response = match response {
             Ok(response) => response,
             Err(e) => {
                 last_err = Some(AttemptError::Request(e));
@@ -206,34 +284,12 @@ fn fetch_with_retry(
                 continue;
             }
         };
-        let mut file = std::fs::File::create(tmp).map_err(|source| FetchError::Io {
+        let file = std::fs::File::create(tmp).map_err(|source| FetchError::Io {
             path: tmp.to_path_buf(),
             source,
         })?;
-        let mut hasher = Sha256::new();
-        let mut buffer = [0u8; 64 * 1024];
-        let body_result = loop {
-            let count = match response.read(&mut buffer) {
-                Ok(0) => break Ok(()),
-                Ok(count) => count,
-                Err(error) => break Err(error),
-            };
-            file.write_all(&buffer[..count])
-                .map_err(|source| FetchError::Io {
-                    path: tmp.to_path_buf(),
-                    source,
-                })?;
-            hasher.update(&buffer[..count]);
-        };
-        match body_result {
-            Ok(()) => {
-                file.flush().map_err(|source| FetchError::Io {
-                    path: tmp.to_path_buf(),
-                    source,
-                })?;
-                let digest = hasher.finalize();
-                return Ok(digest.iter().map(|b| format!("{b:02x}")).collect());
-            }
+        match read_body_with_idle_timeout(response, file, opts.read_timeout) {
+            Ok(actual) => return Ok(actual),
             Err(error) => {
                 last_err = Some(AttemptError::Body(error));
                 let _ = std::fs::remove_file(tmp);

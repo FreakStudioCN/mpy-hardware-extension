@@ -220,6 +220,7 @@ fn make_ctx<'a>(dir: &Path, manifest: &'a Manifest, vsix: &Path) -> OpsContext<'
         fetch_opts: FetchOptions {
             max_attempts: 1,
             backoff_base: Duration::from_millis(1),
+            read_timeout: Duration::from_secs(5),
         },
         code_candidates: vec![code_cli],
         mac_install_targets: vec![dir.join("Applications")],

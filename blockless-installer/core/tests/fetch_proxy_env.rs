@@ -77,6 +77,7 @@ fn proxy_env_is_honored_for_the_download() {
     let opts = FetchOptions {
         max_attempts: 1,
         backoff_base: Duration::from_millis(1),
+        read_timeout: Duration::from_secs(5),
     };
 
     let result = fetch_and_verify(&client, TARGET_URL, &expected_sha256, &dest, &opts);

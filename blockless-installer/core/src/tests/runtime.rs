@@ -25,6 +25,7 @@ fn fast_opts() -> FetchOptions {
     FetchOptions {
         max_attempts: 1,
         backoff_base: Duration::from_millis(1),
+        read_timeout: Duration::from_secs(5),
     }
 }
 
