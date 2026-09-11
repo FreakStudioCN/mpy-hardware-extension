@@ -143,6 +143,34 @@ def is_partial_rollout_rejection(status: int, body: str) -> bool:
     return status == 400 and bool(_MISSING_HEADER_REJECTION.search(body or ""))
 
 
+# The 51-minute trap: a 429 whose body says "recharge the account" reads identically to rate
+# limiting if you only look at the status. Retrying it burns calls against a dry account that
+# will reject every one of them until someone tops it up.
+_QUOTA_REJECTION = re.compile(r"insufficient balance|exceeded_current_quota|suspended|quota", re.IGNORECASE)
+
+
+def classify_upstream_rejection(status: int, body: str) -> str:
+    """Classify a rejected upstream request so the caller can pick a retry budget and the
+    client can get an actionable reason instead of a bare status code. Body-first wherever
+    the body disambiguates a status that alone is ambiguous -- a 429 that means "recharge
+    the account" is not the same failure as a 429 that means "slow down"."""
+    # 408 belongs here rather than in the 4xx fallthrough: a request timeout is transient in
+    # exactly the way an outage is, and the status-based rule this classifier replaces on the
+    # client already auto-retried it. Leaving it to fall through to "rejected" would quietly
+    # turn a retryable timeout into a terminal "the provider refused the request".
+    if status == 0 or status == 408 or status >= 500:
+        return "outage"
+    if status in (429, 402) and _QUOTA_REJECTION.search(body or ""):
+        return "quota"
+    if status == 429:
+        return "rate_limited"
+    if is_partial_rollout_rejection(status, body):
+        return "provider_rollout"
+    if status in (401, 403):
+        return "auth"
+    return "rejected"
+
+
 def _log_upstream_rejection(error, body: str | None = None) -> None:
     """Bounded upstream error-body log — the only diagnostic for a rejected payload
     (e.g. an unsupported-parameter 400). Lives here, not in sse_translate, purely

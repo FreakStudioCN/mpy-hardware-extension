@@ -410,6 +410,27 @@ test("a non-200 from the LLM endpoint is not retried and surfaces as a thrown er
   assert.equal(calls, 1); // thrown from sseClient(), no retry
 });
 
+test("a non-retryable quota kind propagates out instead of consuming connect retries", async () => {
+  // llm-client marks kind:"quota" as NOT retryable (even though the nested status is a
+  // 429 that would have looked transient before classification existed) so it must land
+  // on session-controller's catch as session_error, not burn the connect-retry ladder on
+  // its way to the wrong terminal (llm_unreachable).
+  let calls = 0;
+  await assert.rejects(
+    runAgentLoop({
+      state: baseState(),
+      connectRetryDelaysMs: [0, 0, 0],
+      sseClient: async () => {
+        calls++;
+        throw new Error("llm_upstream_quota");
+      },
+      dispatchTool: async () => ({ ok: true }),
+    }),
+    /llm_upstream_quota/,
+  );
+  assert.equal(calls, 1); // no connect retry for a non-retryable error
+});
+
 test("a retryable connect failure is retried and the turn still succeeds", async () => {
   // The production failure (trace session-mq9457jo-38vb1gaq): the POST to
   // /v1/llm/messages failed at the connection level (undici "fetch failed") before

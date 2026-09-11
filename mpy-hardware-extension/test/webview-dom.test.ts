@@ -1792,6 +1792,62 @@ test("a device_unavailable session_error renders a friendly sentence, not the ra
   assert.doesNotMatch(feed, /device_unavailable/, "the raw machine kind is never shown");
 });
 
+test("a llm_upstream_quota session_error renders the recharge copy, not the raw token", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "session_error", error: "llm_upstream_quota" });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.match(feed, /out of balance/, "the friendly err_llm_upstream_quota copy shows");
+  assert.doesNotMatch(feed, /llm_upstream_quota/, "the raw machine kind is never shown");
+});
+
+test("a llm_upstream_unavailable session_error renders friendly copy, not the raw breaker string", async () => {
+  // The exact raw string a user saw when the breaker 503 reached the webview unmapped.
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "session_error", error: "llm_upstream_unavailable" });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.match(feed, /temporarily unavailable/, "the friendly err_llm_upstream_unavailable copy shows");
+  assert.doesNotMatch(feed, /llm_upstream_unavailable/, "the raw machine kind is never shown");
+});
+
+test("a llm_upstream_auth session_error renders the operator copy, not the raw token", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "session_error", error: "llm_upstream_auth" });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.match(feed, /needs the operator, not a retry/, "the friendly err_llm_upstream_auth copy shows");
+  assert.doesNotMatch(feed, /llm_upstream_auth/, "the raw machine kind is never shown");
+});
+
+test("a llm_upstream_rejected session_error renders friendly copy, not the raw token", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "session_error", error: "llm_upstream_rejected" });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.match(feed, /provider refused the request/, "the friendly err_llm_upstream_rejected copy shows");
+  assert.doesNotMatch(feed, /llm_upstream_rejected/, "the raw machine kind is never shown");
+});
+
+test("a generic llm_upstream_error session_error renders friendly fallback copy", async () => {
+  const dom = await loadWebview();
+  const { document } = dom.window;
+
+  post(dom, { type: "session_error", error: "llm_upstream_error" });
+
+  const feed = document.getElementById("activity")!.textContent!;
+  assert.match(feed, /upstream failed/, "the friendly err_llm_upstream_error copy shows");
+  assert.doesNotMatch(feed, /\bllm_upstream_error\b/, "the raw machine kind is never shown verbatim");
+});
+
 test("a daily_cap_reached session_error shows the dedicated message and disables Start, like out_of_credits", async () => {
   const dom = await loadWebview();
   const { document } = dom.window;

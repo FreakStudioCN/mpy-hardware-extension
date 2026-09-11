@@ -176,6 +176,13 @@
           err_github_token_exchange_failed: "GitHub sign-in reached the API, but token exchange failed",
           err_github_token_exchange_unreachable: "Cannot reach the auth API",
           err_github_token_missing: "Auth API returned no session token",
+          // Server-classified upstream rejections (kind). quota/auth/rejected are not
+          // retryable — the copy says so instead of implying a retry will help.
+          err_llm_upstream_quota: "The AI provider account is out of balance — this is on the service side; retrying won't help. Report it via the Support panel.",
+          err_llm_upstream_auth: "The AI service's provider credentials were rejected — this needs the operator, not a retry.",
+          err_llm_upstream_rejected: "The AI provider refused the request — this is on the service side; retry later or report it.",
+          err_llm_upstream_error: "The AI service upstream failed — try again shortly.",
+          err_llm_upstream_unavailable: "The AI upstream is temporarily unavailable — try again in a minute.",
         },
         zh: {
           credits: "额度", lowCredits: "今日额度快用完了。", creditsExhausted: "今日额度已用完。",
@@ -330,6 +337,11 @@
           err_github_token_exchange_failed: "GitHub 登录已到达 API，但令牌交换失败",
           err_github_token_exchange_unreachable: "无法连接鉴权 API",
           err_github_token_missing: "鉴权 API 未返回会话令牌",
+          err_llm_upstream_quota: "AI 服务商账户余额不足——这是服务端问题，重试没有用，请通过支持面板反馈。",
+          err_llm_upstream_auth: "AI 服务的提供商凭证被拒绝——这是服务端问题，需要维护人员处理。",
+          err_llm_upstream_rejected: "AI 服务商拒绝了这次请求——这是服务端问题，请稍后重试或反馈。",
+          err_llm_upstream_error: "AI 服务上游调用失败——请稍后重试。",
+          err_llm_upstream_unavailable: "AI 上游暂时不可用——请一分钟后再试。",
         },
       };
       function tr(key, vars) {
