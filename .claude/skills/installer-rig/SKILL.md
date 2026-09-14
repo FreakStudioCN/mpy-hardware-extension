@@ -156,6 +156,15 @@ Build a release binary and copy binary, stamped manifest and VSIX into the VM. T
 read from alongside the binary unless `--manifest` says otherwise; pass `--vsix` explicitly
 because `components/` is not populated.
 
+**The GUI has the same sidecar contract and no escape hatch.** It reads the manifest from beside
+its own executable exactly as the CLI does, but it has no `--manifest` or `--vsix` override, so
+the three files must be co-located or nothing installs. The failure is visible rather than silent:
+you reach the failure screen on the first Install click, naming the path it looked at. A
+`cargo tauri build` bundle does not carry them at all, because `tauri.conf.json` declares no
+`bundle.resources` and macOS would place resources in `Contents/Resources/` rather than beside the
+executable. So the GUI half of the rig runs from a plain release binary plus its two sidecar files,
+not from a bundle.
+
 ### The sequence
 
     blockless-installer --vsix <path> install      # no admin prompt, no stray window, panel opens

@@ -58,9 +58,15 @@ jobs:
       # Every other workflow here caches what it installs (`cache: npm`,
       # `cache: pip`). Without this one, all three platforms recompile the whole
       # dependency tree on every run. actions/cache is first-party, so this adds
-      # no third-party action to vet. The key covers both lock files and the
-      # toolchain pin: a bump to any of them must not restore objects built by
-      # the old one.
+      # no third-party action to vet.
+      #
+      # The exact key covers both lock files and the toolchain pin, so a bump to
+      # any of them misses and rebuilds. `restore-keys` then DOES hand back the
+      # previous cache, stale objects included -- it is a prefix match and knows
+      # nothing about toolchains. That is safe, but not because of the key:
+      # cargo's own fingerprints embed the rustc version, so anything built by
+      # the old toolchain is recompiled rather than linked. The cost is that a
+      # restored-and-rebuilt target directory grows across bumps.
       - name: cache cargo registry and build output
         uses: actions/cache@v4
         with:

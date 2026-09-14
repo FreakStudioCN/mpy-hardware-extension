@@ -248,9 +248,15 @@ enum AttemptOutcome {
 /// `read_timeout` later, removes that same path, so no file survives on
 /// disk even then.
 /// The only unrecoverable cost is the blocked thread itself, for the life
-/// of the process; this CLI process outlives it by, at most, its own exit,
-/// but a long-lived host (e.g. a future GUI shell) would need this
-/// re-argued.
+/// of the process. A CLI process outlives it by, at most, its own exit.
+///
+/// The GUI shell is the long-lived host this used to say would need the
+/// cost re-argued, and it has been: `app/src/main.rs` caps installs at
+/// `MAX_INSTALL_ATTEMPTS_PER_PROCESS`, so a window left open cannot
+/// accumulate abandoned threads without bound. The worst case is that cap
+/// times `FetchOptions::max_attempts` threads and file descriptors for one
+/// process's life, since an install aborts on its first failed fetch.
+/// Anything else long-lived that calls this has to make the same argument.
 fn run_attempt_with_idle_timeout(
     client: reqwest::blocking::Client,
     url: String,

@@ -29,7 +29,33 @@ cargo run
 ```
 
 A plain `cargo build`/`cargo run` produces a working dev binary without any extra
-tooling. Producing an installable bundle (`.app`/`.dmg` on macOS, the NSIS installer
+tooling.
+
+**It will not install anything on its own.** Like the CLI, the GUI reads
+`installer.manifest.json` from the directory holding its own executable, and resolves
+the bundled VSIX relative to that manifest. Neither file is produced by a build, so a
+bare `cargo run` reaches the failure screen as soon as you press Install, naming the
+path it looked at. The same applies to the diagnostics button, which loads the manifest
+too.
+
+So the GUI ships as a sidecar set, three things in one directory:
+
+```
+blockless-installer-gui            # or the .app / installed exe
+installer.manifest.json            # stamped, NOT the committed zero-sha copy
+components/<extension>.vsix        # the exact VSIX that manifest's sha256 covers
+```
+
+The committed `manifest/installer.manifest.json` carries all-zero hashes on purpose, so
+an unstamped set fails closed at the verification step rather than installing something
+unverified. Assemble the set the way the rig does before testing an install.
+
+A `cargo tauri build` bundle does NOT carry those files today: `tauri.conf.json`
+declares no `bundle.resources`, and on macOS Tauri would place declared resources in
+`Contents/Resources/` rather than beside the executable in `Contents/MacOS/`, which is
+where the lookup goes. Treat bundles as unusable for installing until that is fixed.
+
+Producing an installable bundle (`.app`/`.dmg` on macOS, the NSIS installer
 on Windows) needs `tauri-cli`, which is local/rig-only -- never installed or invoked
 in CI:
 

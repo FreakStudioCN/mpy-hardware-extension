@@ -10,7 +10,20 @@
 //! step finished that `state.json` does not yet reflect. There is no
 //! `OpFailed` variant: on error an op returns `Err` (or, for `uninstall`,
 //! its outcome enum) and the caller renders failure from that `Result`
-//! directly -- `OpFinished` only ever fires on the success path.
+//! directly.
+//!
+//! So the rule for `OpFinished`, in one sentence: it fires when the op
+//! function RETURNS rather than propagating `Err`, which means the verdict
+//! travels only in the return value and never in the event stream. Read it
+//! as "the op ended", not "the op succeeded". `install`, `repair`,
+//! `repair_runtime`, `update_extension` and `diagnostics` skip it on the
+//! error path because `?` returns first. `verify` and `uninstall` are
+//! infallible by signature and so always emit it: a 3-of-7 verify and an
+//! uninstall that refused because VS Code was running have both ENDED, and
+//! their verdicts live in `Vec<CheckResult>` and `UninstallOutcome`. An
+//! earlier wording here said "only ever fires on the success path", which
+//! reads as a promise the two infallible ops cannot keep, and was twice
+//! misread as a defect in them.
 
 use serde::Serialize;
 
