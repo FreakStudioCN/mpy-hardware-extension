@@ -1,7 +1,12 @@
-name: installer-ci
+name: Installer CI
 
 on:
+  # Matches ci.yml: a branch push runs nothing, the pull request is the gate,
+  # and main is re-checked after a merge. Before this, a push to any branch
+  # started all three platforms, so a branch pushed and then opened as a pull
+  # request paid for two full runs of the same commit.
   push:
+    branches: [main]
     paths:
       - "blockless-installer/**"
       # A change to the workflow, or to the line-ending rules the tests depend
@@ -34,13 +39,37 @@ permissions:
 
 jobs:
   ubuntu:
+    name: installer core (lint + tests)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: blockless-installer
     steps:
+      # Submodules are deliberately NOT fetched. Nothing under
+      # blockless-installer/ reads one, so this build does not need the cost --
+      # but state it rather than leaning on checkout's default, because a test
+      # that later reaches a submodule path would find an empty directory and
+      # fail for a reason nobody would look for here. The extension workflow
+      # does the opposite, on purpose: it needs them.
       - uses: actions/checkout@v4
+        with:
+          submodules: false
+      # Every other workflow here caches what it installs (`cache: npm`,
+      # `cache: pip`). Without this one, all three platforms recompile the whole
+      # dependency tree on every run. actions/cache is first-party, so this adds
+      # no third-party action to vet. The key covers both lock files and the
+      # toolchain pin: a bump to any of them must not restore objects built by
+      # the old one.
+      - name: cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            blockless-installer/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('blockless-installer/Cargo.lock', 'blockless-installer/app/Cargo.lock', 'blockless-installer/rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
       # rustup auto-installs the pinned toolchain (rust-toolchain.toml, incl. the
       # clippy/rustfmt components) the first time cargo/rustup runs in this dir.
       - name: show pinned toolchain
@@ -60,13 +89,27 @@ jobs:
         run: cargo test --workspace
 
   macos:
+    name: installer core + gui (macos)
     runs-on: macos-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: blockless-installer
     steps:
+      # See the ubuntu job: submodules are deliberately not fetched.
       - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            blockless-installer/target
+            blockless-installer/app/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('blockless-installer/Cargo.lock', 'blockless-installer/app/Cargo.lock', 'blockless-installer/rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
       - name: show pinned toolchain
         run: rustup show
       # macOS is half the acceptance rig and the primary dev platform, and two
@@ -92,13 +135,27 @@ jobs:
         run: cargo test --manifest-path app/Cargo.toml
 
   windows:
+    name: installer core + gui (windows)
     runs-on: windows-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: blockless-installer
     steps:
+      # See the ubuntu job: submodules are deliberately not fetched.
       - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            blockless-installer/target
+            blockless-installer/app/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('blockless-installer/Cargo.lock', 'blockless-installer/app/Cargo.lock', 'blockless-installer/rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
       - name: show pinned toolchain
         run: rustup show
       # pwsh path joins (Join-Path etc.) don't behave the same under a
