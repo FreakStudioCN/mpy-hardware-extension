@@ -156,14 +156,16 @@ Build a release binary and copy binary, stamped manifest and VSIX into the VM. T
 read from alongside the binary unless `--manifest` says otherwise; pass `--vsix` explicitly
 because `components/` is not populated.
 
-**The GUI has the same sidecar contract and no escape hatch.** It reads the manifest from beside
-its own executable exactly as the CLI does, but it has no `--manifest` or `--vsix` override, so
-the three files must be co-located or nothing installs. The failure is visible rather than silent:
-you reach the failure screen on the first Install click, naming the path it looked at. A
-`cargo tauri build` bundle does not carry them at all, because `tauri.conf.json` declares no
-`bundle.resources` and macOS would place resources in `Contents/Resources/` rather than beside the
-executable. So the GUI half of the rig runs from a plain release binary plus its two sidecar files,
-not from a bundle.
+**The GUI has the same sidecar contract and no escape hatch.** It has no `--manifest` or `--vsix`
+override, so the files must be co-located or nothing installs. The failure is visible rather than
+silent: you reach the failure screen on the first Install click, naming every path it looked at.
+
+It searches exe-adjacent first, then its bundle's resource directory, so a manifest you stamped and
+placed yourself always beats a bundled copy. A bundle does carry the manifest, declared under
+`bundle.resources`, but it carries the COMMITTED one, whose hashes are zeros. So a bundle built
+with no stamping step fails the hash check and installs nothing, on purpose. **Run the GUI half of
+the rig from a release binary plus its two sidecar files, not from a bundle**, until a
+stamp-and-inject packaging step exists.
 
 ### The sequence
 

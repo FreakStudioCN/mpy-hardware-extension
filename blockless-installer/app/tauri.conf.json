@@ -20,6 +20,9 @@
   },
   "bundle": {
     "active": true,
+    "resources": {
+      "../manifest/installer.manifest.json": "installer.manifest.json"
+    },
     "targets": ["app", "dmg", "nsis"],
     "icon": [
       "icons/32x32.png",

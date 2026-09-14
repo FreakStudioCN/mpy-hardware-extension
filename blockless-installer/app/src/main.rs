@@ -11,7 +11,9 @@
 //! is excluded from the root Cargo workspace precisely so nothing on Linux
 //! ever tries to build it (see `../Cargo.toml`'s `exclude`).
 
-use blockless_installer_core::bootstrap::{self, default_manifest_path, resolve_vsix_path};
+use blockless_installer_core::bootstrap::{
+    self, default_manifest_path, resolve_vsix_path, MANIFEST_FILE_NAME,
+};
 use blockless_installer_core::fetch::{download_client, FetchOptions};
 use blockless_installer_core::manifest::Manifest;
 use blockless_installer_core::ops;
@@ -23,7 +25,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 /// A user who repeatedly hits Install into a stalled download accumulates
@@ -99,16 +101,81 @@ struct OpResult {
     log_path: Option<String>,
 }
 
-fn load_manifest_and_vsix() -> Result<(Manifest, PathBuf), String> {
-    let manifest_path = default_manifest_path();
-    let manifest_json = std::fs::read_to_string(&manifest_path).map_err(|e| {
-        format!(
-            "could not read manifest at {}: {e}",
-            manifest_path.display()
-        )
-    })?;
+/// The bundle's own resource directory, or `None` outside a bundle (a plain
+/// `cargo run`) or when Tauri cannot resolve one. Only Tauri knows where its
+/// bundle put things, which is why this needs the `AppHandle` and why it is
+/// read here rather than inside the worker thread.
+fn bundle_resource_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().resource_dir().ok()
+}
+
+/// Where `installer.manifest.json` may live, in the order it is looked for.
+///
+/// Exe-adjacent FIRST, always. That is the sidecar contract the rig and the
+/// CLI both use -- a release binary with a freshly stamped manifest and the
+/// VSIX it covers beside it -- and a stamped manifest an operator just put
+/// there must beat anything baked into a bundle, or a stale bundled copy
+/// silently wins and the run verifies the wrong artifact.
+///
+/// The bundle resource directory is the fallback, and it exists because the
+/// two platforms disagree. On Windows the resource directory IS the
+/// executable's directory, so a declared resource is already found by the
+/// first candidate. On macOS it is `Contents/Resources` while the executable
+/// sits in `Contents/MacOS`, so without this second candidate a bundle can
+/// never find a manifest at all, whatever `tauri.conf.json` declares.
+///
+/// Deduplicated, so the Windows and development cases do not report the same
+/// path twice when a lookup fails.
+///
+/// `tauri.conf.json` declares the manifest under `bundle.resources` in MAP
+/// form. It has to be a map: a list mangles a leading `../` into `_up_/`,
+/// which would break the manifest-relative path the VSIX resolves through.
+/// That config file rejects unknown keys, so this note lives here.
+///
+/// What a bundle gets today is the COMMITTED manifest, whose hashes are all
+/// zeros on purpose. So a bundle built without a stamping step finds a
+/// manifest, fails the sha check and installs nothing. That is the honest
+/// outcome and it is deliberate: the VSIX is not reproducible, so a stamped
+/// manifest is only valid for the exact VSIX beside it, and baking a real
+/// hash in would be a lie the moment the VSIX is rebuilt. A bundle that can
+/// install needs a stamp-and-inject packaging step, which does not exist
+/// yet.
+fn manifest_candidates(exe_adjacent: PathBuf, resource_dir: Option<PathBuf>) -> Vec<PathBuf> {
+    let mut candidates = vec![exe_adjacent];
+    if let Some(dir) = resource_dir {
+        let bundled = dir.join(MANIFEST_FILE_NAME);
+        if bundled != candidates[0] {
+            candidates.push(bundled);
+        }
+    }
+    candidates
+}
+
+/// Read the first manifest that exists among [`manifest_candidates`], and
+/// resolve the VSIX relative to THAT manifest's own directory, so a bundled
+/// manifest looks for a bundled VSIX and a sidecar manifest looks beside
+/// itself.
+///
+/// On failure the error names every location searched. Naming only the first
+/// sends the reader to the wrong place on the platform where the first is not
+/// where the file was shipped.
+fn load_manifest_and_vsix(resource_dir: Option<PathBuf>) -> Result<(Manifest, PathBuf), String> {
+    let candidates = manifest_candidates(default_manifest_path(), resource_dir);
+    let found = candidates
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok().map(|json| (path, json)));
+    let Some((manifest_path, manifest_json)) = found else {
+        let searched = candidates
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "could not read {MANIFEST_FILE_NAME}; searched: {searched}"
+        ));
+    };
     let manifest = Manifest::parse(&manifest_json).map_err(|e| e.to_string())?;
-    let vsix_path = resolve_vsix_path(None, &manifest_path, &manifest.components.extension.path);
+    let vsix_path = resolve_vsix_path(None, manifest_path, &manifest.components.extension.path);
     Ok((manifest, vsix_path))
 }
 
@@ -230,10 +297,11 @@ async fn run_install(
         ));
     }
 
+    let resource_dir = bundle_resource_dir(&app);
     let worker_app = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> OpResult {
         let sink = WindowProgressSink { app: worker_app };
-        let (manifest, vsix_path) = match load_manifest_and_vsix() {
+        let (manifest, vsix_path) = match load_manifest_and_vsix(resource_dir) {
             Ok(v) => v,
             Err(message) => {
                 return OpResult {
@@ -304,10 +372,11 @@ async fn run_uninstall(
     let _guard = OpGuard::try_acquire(&state.op_running)
         .ok_or_else(|| "an operation is already running".to_string())?;
 
+    let resource_dir = bundle_resource_dir(&app);
     let worker_app = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> OpResult {
         let sink = WindowProgressSink { app: worker_app };
-        let (manifest, vsix_path) = match load_manifest_and_vsix() {
+        let (manifest, vsix_path) = match load_manifest_and_vsix(resource_dir) {
             Ok(v) => v,
             Err(message) => {
                 return OpResult {
@@ -384,11 +453,12 @@ async fn save_diagnostics(
     // a no-op for the `Url` variant a save dialog can't actually return.
     let target_path = picked.simplified().into_path().map_err(|e| e.to_string())?;
 
+    let resource_dir = bundle_resource_dir(&app);
     let worker_app = app.clone();
     let target_for_worker = target_path.clone();
     let result: Result<(), String> = tauri::async_runtime::spawn_blocking(move || {
         let sink = WindowProgressSink { app: worker_app };
-        let (manifest, vsix_path) = load_manifest_and_vsix()?;
+        let (manifest, vsix_path) = load_manifest_and_vsix(resource_dir)?;
         let ctx = build_context(&manifest, vsix_path, &sink)?;
         ops::diagnostics(&ctx, &target_for_worker).map_err(|e| e.to_string())
     })
@@ -692,5 +762,66 @@ mod tests {
         assert_eq!(json["ok"], false);
         assert_eq!(json["message"], "boom");
         assert_eq!(json["logPath"], "/tmp/installer.log");
+    }
+
+    /// The ordering is the whole point. A stamped manifest an operator just
+    /// placed beside the executable must beat a copy baked into the bundle,
+    /// or a stale bundled manifest silently decides which artifact gets
+    /// verified.
+    #[test]
+    fn an_exe_adjacent_manifest_is_searched_before_a_bundled_one() {
+        let candidates = manifest_candidates(
+            PathBuf::from("/app/Contents/MacOS/installer.manifest.json"),
+            Some(PathBuf::from("/app/Contents/Resources")),
+        );
+        assert_eq!(
+            candidates,
+            vec![
+                PathBuf::from("/app/Contents/MacOS/installer.manifest.json"),
+                PathBuf::from("/app/Contents/Resources/installer.manifest.json"),
+            ]
+        );
+    }
+
+    /// Windows puts resources in the executable's own directory, so both
+    /// candidates resolve to one path. Reporting it twice in a failure
+    /// message reads as two places having been tried.
+    #[test]
+    fn one_directory_serving_both_roles_is_listed_once() {
+        let candidates = manifest_candidates(
+            PathBuf::from("/install/installer.manifest.json"),
+            Some(PathBuf::from("/install")),
+        );
+        assert_eq!(
+            candidates,
+            vec![PathBuf::from("/install/installer.manifest.json")]
+        );
+    }
+
+    /// A plain `cargo run` has no bundle, so there is nothing to fall back
+    /// to and the sidecar path is the only one.
+    #[test]
+    fn without_a_bundle_only_the_exe_adjacent_path_is_searched() {
+        let candidates =
+            manifest_candidates(PathBuf::from("/target/debug/installer.manifest.json"), None);
+        assert_eq!(
+            candidates,
+            vec![PathBuf::from("/target/debug/installer.manifest.json")]
+        );
+    }
+
+    /// The failure a user actually sees. Naming only the first candidate
+    /// sends them to `Contents/MacOS` when the file was shipped to
+    /// `Contents/Resources`.
+    #[test]
+    fn a_missing_manifest_names_every_location_searched() {
+        let missing = std::env::temp_dir().join("blockless-nonexistent-bundle");
+        let err = load_manifest_and_vsix(Some(missing.clone()))
+            .expect_err("no manifest exists at either candidate");
+        assert!(err.contains(MANIFEST_FILE_NAME), "{err}");
+        assert!(
+            err.contains(&missing.join(MANIFEST_FILE_NAME).display().to_string()),
+            "the bundle candidate must appear in the error, got: {err}"
+        );
     }
 }

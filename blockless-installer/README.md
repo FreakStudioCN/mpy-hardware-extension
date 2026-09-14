@@ -32,11 +32,14 @@ A plain `cargo build`/`cargo run` produces a working dev binary without any extr
 tooling.
 
 **It will not install anything on its own.** Like the CLI, the GUI reads
-`installer.manifest.json` from the directory holding its own executable, and resolves
-the bundled VSIX relative to that manifest. Neither file is produced by a build, so a
-bare `cargo run` reaches the failure screen as soon as you press Install, naming the
-path it looked at. The same applies to the diagnostics button, which loads the manifest
-too.
+`installer.manifest.json` and resolves the bundled VSIX relative to that manifest.
+Neither file is produced by a build, so a bare `cargo run` reaches the failure screen
+as soon as you press Install, naming every path it looked at. The same applies to the
+diagnostics button, which loads the manifest too.
+
+It looks in two places, in this order: beside its own executable first, then its
+bundle's resource directory. Exe-adjacent wins deliberately, so a manifest you stamped
+and placed yourself always beats a copy baked into a bundle.
 
 So the GUI ships as a sidecar set, three things in one directory:
 
@@ -50,10 +53,18 @@ The committed `manifest/installer.manifest.json` carries all-zero hashes on purp
 an unstamped set fails closed at the verification step rather than installing something
 unverified. Assemble the set the way the rig does before testing an install.
 
-A `cargo tauri build` bundle does NOT carry those files today: `tauri.conf.json`
-declares no `bundle.resources`, and on macOS Tauri would place declared resources in
-`Contents/Resources/` rather than beside the executable in `Contents/MacOS/`, which is
-where the lookup goes. Treat bundles as unusable for installing until that is fixed.
+A `cargo tauri build` bundle carries the manifest: `tauri.conf.json` declares it under
+`bundle.resources`, in map form, and the resource-directory fallback is what finds it on
+macOS, where Tauri puts resources in `Contents/Resources/` while the executable sits in
+`Contents/MacOS/`.
+
+What a bundle does NOT carry is a usable one. The declared file is the committed
+manifest, whose hashes are zeros, so a bundle built with no stamping step finds a
+manifest, fails the hash check and installs nothing. That is the honest outcome rather
+than a bug: the VSIX is not reproducible, so a stamped manifest is only valid for the
+exact VSIX beside it, and a real hash committed here would be wrong as soon as the VSIX
+is rebuilt. A bundle that can install needs a stamp-and-inject packaging step, which
+does not exist yet. Until it does, install from a release binary and its sidecar files.
 
 Producing an installable bundle (`.app`/`.dmg` on macOS, the NSIS installer
 on Windows) needs `tauri-cli`, which is local/rig-only -- never installed or invoked

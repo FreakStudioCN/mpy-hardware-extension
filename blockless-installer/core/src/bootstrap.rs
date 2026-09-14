@@ -8,13 +8,19 @@
 use crate::platform::{Os, RawEnv};
 use std::path::{Path, PathBuf};
 
-/// `installer.manifest.json`, exe-adjacent. Falls back to a bare relative
+/// The manifest's file name, wherever it is looked for. Public because a
+/// shell that searches more than one directory (the GUI looks exe-adjacent
+/// first, then in its bundle's resource directory) has to build the other
+/// candidates itself, and must not spell this a second time.
+pub const MANIFEST_FILE_NAME: &str = "installer.manifest.json";
+
+/// [`MANIFEST_FILE_NAME`], exe-adjacent. Falls back to a bare relative
 /// path only if the current exe's own location can't be determined.
 pub fn default_manifest_path() -> PathBuf {
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|dir| dir.join("installer.manifest.json")))
-        .unwrap_or_else(|| PathBuf::from("installer.manifest.json"))
+        .and_then(|p| p.parent().map(|dir| dir.join(MANIFEST_FILE_NAME)))
+        .unwrap_or_else(|| PathBuf::from(MANIFEST_FILE_NAME))
 }
 
 /// The bundled VSIX path: an explicit override wins outright; otherwise the
