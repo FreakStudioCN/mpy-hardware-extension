@@ -18,9 +18,24 @@ on:
       - ".github/workflows/installer-ci.yml"
       - ".gitattributes"
 
+# A newer push to the same ref supersedes in-flight runs, so minutes are not
+# spent on stale commits. This matters more here than in the extension
+# workflow: three platforms, and the macOS and Windows jobs compile the whole
+# Tauri dependency tree. `github.workflow` is part of the group, so an
+# installer run can never cancel an extension run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: this workflow builds and tests. It publishes nothing and
+# writes nothing back to the repository, so read is sufficient.
+permissions:
+  contents: read
+
 jobs:
   ubuntu:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: blockless-installer
@@ -46,6 +61,7 @@ jobs:
 
   macos:
     runs-on: macos-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: blockless-installer
@@ -77,6 +93,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: blockless-installer
