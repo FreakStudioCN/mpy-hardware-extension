@@ -159,21 +159,40 @@ fn manifest_candidates(exe_adjacent: PathBuf, resource_dir: Option<PathBuf>) -> 
 /// On failure the error names every location searched. Naming only the first
 /// sends the reader to the wrong place on the platform where the first is not
 /// where the file was shipped.
+/// Read the first manifest that EXISTS, in `candidates` order.
+///
+/// Only `NotFound` moves on to the next candidate. Every other error stops
+/// here and surfaces, because a sidecar that exists but cannot be read is
+/// not the same fact as one that was never placed. Treating the two alike
+/// would let a damaged or unreadable sidecar fall through to the bundled
+/// zero-hash manifest, which silently inverts the precedence rule the
+/// candidate order exists to enforce: the operator's stamped file would
+/// lose to a baked-in one, and the run would verify the wrong artifact
+/// while reporting nothing.
+///
+/// Invalid UTF-8 arrives as `InvalidData` and surfaces here too, which is
+/// right: that file was meant to be the manifest.
+fn read_first_manifest(candidates: &[PathBuf]) -> Result<(&PathBuf, String), String> {
+    for path in candidates {
+        match std::fs::read_to_string(path) {
+            Ok(json) => return Ok((path, json)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(format!("could not read {}: {e}", path.display())),
+        }
+    }
+    let searched = candidates
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "could not read {MANIFEST_FILE_NAME}; searched: {searched}"
+    ))
+}
+
 fn load_manifest_and_vsix(resource_dir: Option<PathBuf>) -> Result<(Manifest, PathBuf), String> {
     let candidates = manifest_candidates(default_manifest_path(), resource_dir);
-    let found = candidates
-        .iter()
-        .find_map(|path| std::fs::read_to_string(path).ok().map(|json| (path, json)));
-    let Some((manifest_path, manifest_json)) = found else {
-        let searched = candidates
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(format!(
-            "could not read {MANIFEST_FILE_NAME}; searched: {searched}"
-        ));
-    };
+    let (manifest_path, manifest_json) = read_first_manifest(&candidates)?;
     let manifest = Manifest::parse(&manifest_json).map_err(|e| e.to_string())?;
     let vsix_path = resolve_vsix_path(None, manifest_path, &manifest.components.extension.path);
     Ok((manifest, vsix_path))
@@ -808,6 +827,56 @@ mod tests {
             candidates,
             vec![PathBuf::from("/target/debug/installer.manifest.json")]
         );
+    }
+
+    /// An absent sidecar is a different fact from an unreadable one. Only
+    /// the first may fall through to the bundle: letting the second through
+    /// would hand precedence to the baked-in zero-hash manifest and verify
+    /// the wrong artifact, reporting nothing.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_sidecar_fails_rather_than_falling_through_to_the_bundle() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join("blockless-unreadable-sidecar");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sidecar = dir.join(MANIFEST_FILE_NAME);
+        let bundled = dir.join("bundle").join(MANIFEST_FILE_NAME);
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&sidecar, "{}").unwrap();
+        std::fs::write(&bundled, "{}").unwrap();
+        std::fs::set_permissions(&sidecar, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let err = read_first_manifest(&[sidecar.clone(), bundled])
+            .expect_err("an unreadable sidecar must stop the search, not be skipped");
+        assert!(
+            err.contains(&sidecar.display().to_string()),
+            "the error must name the sidecar that could not be read, got: {err}"
+        );
+
+        std::fs::set_permissions(&sidecar, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The ordinary case the fall-through exists for: nothing beside the
+    /// executable, so the bundled copy is used.
+    #[test]
+    fn an_absent_sidecar_falls_through_to_the_bundled_manifest() {
+        let dir = std::env::temp_dir().join("blockless-absent-sidecar");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = dir.join(MANIFEST_FILE_NAME);
+        let bundled = dir.join("bundle").join(MANIFEST_FILE_NAME);
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&bundled, "{\"marker\":1}").unwrap();
+
+        let candidates = [missing, bundled.clone()];
+        let (found, json) = read_first_manifest(&candidates).expect("the bundled copy is readable");
+        assert_eq!(found, &bundled);
+        assert!(json.contains("marker"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The failure a user actually sees. Naming only the first candidate
