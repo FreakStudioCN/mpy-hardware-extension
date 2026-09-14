@@ -33,9 +33,16 @@ tooling.
 
 **It will not install anything on its own.** Like the CLI, the GUI reads
 `installer.manifest.json` and resolves the bundled VSIX relative to that manifest.
-Neither file is produced by a build, so a bare `cargo run` reaches the failure screen
-as soon as you press Install, naming every path it looked at. The same applies to the
-diagnostics button, which loads the manifest too.
+
+`tauri_build::build()` honours `bundle.resources` on every plain `cargo build`, so a
+build DOES place the committed manifest beside the dev executable. That manifest carries
+all-zero hashes and no VSIX is copied with it, so pressing Install in a `cargo run`
+window stops at the missing-VSIX check and mutates nothing.
+
+**Uninstall and Diagnostics are a different matter in a dev window.** Neither needs the
+VSIX, so both run for real against the machine you are sitting at. Do not confirm the
+uninstall dialog on a machine whose VS Code or Blockless install you care about. That is
+what the virtual machine is for.
 
 It looks in two places, in this order: beside its own executable first, then its
 bundle's resource directory. Exe-adjacent wins deliberately, so a manifest you stamped
@@ -52,6 +59,11 @@ components/<extension>.vsix        # the exact VSIX that manifest's sha256 cover
 The committed `manifest/installer.manifest.json` carries all-zero hashes on purpose, so
 an unstamped set fails closed at the verification step rather than installing something
 unverified. Assemble the set the way the rig does before testing an install.
+
+**Never assemble that set inside a cargo target directory.** The build copies the
+committed manifest over anything at that path, so a manifest you stamped into
+`app/target/release/` is silently reverted to the zero-hash copy by the next
+`cargo build`. Assemble it somewhere else and copy the binary to it.
 
 A `cargo tauri build` bundle carries the manifest: `tauri.conf.json` declares it under
 `bundle.resources`, in map form, and the resource-directory fallback is what finds it on

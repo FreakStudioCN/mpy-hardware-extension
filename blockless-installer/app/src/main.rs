@@ -101,10 +101,18 @@ struct OpResult {
     log_path: Option<String>,
 }
 
-/// The bundle's own resource directory, or `None` outside a bundle (a plain
-/// `cargo run`) or when Tauri cannot resolve one. Only Tauri knows where its
-/// bundle put things, which is why this needs the `AppHandle` and why it is
-/// read here rather than inside the worker thread.
+/// The bundle's own resource directory, or `None` when Tauri cannot resolve
+/// one. Only Tauri knows where its bundle put things, which is why this
+/// needs the `AppHandle` and why it is read here rather than inside the
+/// worker thread.
+///
+/// `None` is rarer than it looks, and NOT the development case: a binary
+/// under a cargo target directory resolves to its own directory, as does
+/// any binary on Windows, so the usual answer there is `Some(exe_dir)`,
+/// which [`manifest_candidates`] then deduplicates away. The case that
+/// really reaches `None` is a bare macOS release binary sitting outside a
+/// bundle, where `<exe_dir>/../Resources` does not resolve -- which is
+/// exactly how the rig runs this.
 fn bundle_resource_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path().resource_dir().ok()
 }
