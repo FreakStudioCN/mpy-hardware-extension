@@ -606,6 +606,25 @@ fn main() {
 mod tests {
     use super::*;
 
+    /// A unique path for one test's fixture, NOT created: some of these
+    /// tests need their directory to start absent. The process id and the
+    /// counter together keep two concurrent test binaries, and two tests in
+    /// one binary, off each other's fixtures. Same shape as the core
+    /// suites' own helper.
+    ///
+    /// A fixed name under the system temp directory looks harmless and is
+    /// not: a second process removing, rewriting or chmod-ing the same path
+    /// makes a test fail intermittently, or pass against the wrong state.
+    fn temp_path(name: &str) -> PathBuf {
+        use std::sync::atomic::AtomicU64;
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "blockless-installer-gui-test-{name}-{}-{n}",
+            std::process::id()
+        ))
+    }
+
     #[test]
     fn install_attempts_are_allowed_up_to_the_limit_then_refused() {
         for attempt in 1..=MAX_INSTALL_ATTEMPTS_PER_PROCESS {
@@ -638,13 +657,7 @@ mod tests {
     /// directory that does not exist must be dropped, not recreate it.
     #[test]
     fn a_write_after_the_logs_dir_is_gone_drops_the_line_and_never_recreates_it() {
-        use std::sync::atomic::AtomicU64;
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let logs_dir = std::env::temp_dir().join(format!(
-            "blockless-installer-gui-writer-test-{}-{n}",
-            std::process::id()
-        ));
+        let logs_dir = temp_path("writer");
         let _ = std::fs::remove_dir_all(&logs_dir);
         assert!(!logs_dir.exists(), "test setup: must start absent");
 
@@ -838,7 +851,7 @@ mod tests {
     fn an_unreadable_sidecar_fails_rather_than_falling_through_to_the_bundle() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join("blockless-unreadable-sidecar");
+        let dir = temp_path("unreadable-sidecar");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let sidecar = dir.join(MANIFEST_FILE_NAME);
@@ -863,7 +876,7 @@ mod tests {
     /// executable, so the bundled copy is used.
     #[test]
     fn an_absent_sidecar_falls_through_to_the_bundled_manifest() {
-        let dir = std::env::temp_dir().join("blockless-absent-sidecar");
+        let dir = temp_path("absent-sidecar");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let missing = dir.join(MANIFEST_FILE_NAME);
@@ -884,7 +897,7 @@ mod tests {
     /// `Contents/Resources`.
     #[test]
     fn a_missing_manifest_names_every_location_searched() {
-        let missing = std::env::temp_dir().join("blockless-nonexistent-bundle");
+        let missing = temp_path("nonexistent-bundle");
         let err = load_manifest_and_vsix(Some(missing.clone()))
             .expect_err("no manifest exists at either candidate");
         assert!(err.contains(MANIFEST_FILE_NAME), "{err}");
