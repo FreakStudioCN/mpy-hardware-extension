@@ -1,0 +1,38 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "FT6x06(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ft6x06.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ft6x06"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ft6x06_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "const",
+    "deinit",
+    "get_coords_for_p",
+    "get_reg",
+    "get_touch_coords",
+    "get_touch_count"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,0 +1,41 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SHT25(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "sht25.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "sht25"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sht25_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "deinit",
+    "getHumidity",
+    "getTemperature",
+    "humidity",
+    "read_user_register",
+    "reset",
+    "temperature_c",
+    "temperature_f",
+    "write_user_register"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

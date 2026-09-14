@@ -1,0 +1,38 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "LM75A(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "lm75a.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "lm75a"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/lm75a_driver/0.0.3/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "check",
+    "config",
+    "deinit",
+    "temp",
+    "thyst",
+    "tos"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,0 +1,45 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "LSM6DSOX(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "lsm6dsox.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "lsm6dsox",
+    "i2c_helpers",
+    "typing"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/lsm6dsox_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "acceleration_data_rate",
+    "acceleration_range",
+    "deinit",
+    "gyro",
+    "gyro_data_rate",
+    "gyro_range",
+    "high_pass_filter",
+    "reset"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

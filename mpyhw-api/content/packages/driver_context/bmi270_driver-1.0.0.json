@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMI270(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bmi270.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bmi270",
+    "config_file",
+    "i2c_helpers",
+    "typing"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bmi270_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "acceleration_operation_mode",
+    "acceleration_range",
+    "deinit",
+    "error_code",
+    "gyro",
+    "gyro_range",
+    "load_config_file",
+    "soft_reset"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

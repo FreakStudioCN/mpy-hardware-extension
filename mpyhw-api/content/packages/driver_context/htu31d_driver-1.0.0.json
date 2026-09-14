@@ -1,0 +1,43 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "HTU31D(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "__init__.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "__init__",
+    ""
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/htu31d_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "deinit",
+    "heater",
+    "humidity_resolution",
+    "measurements",
+    "reset",
+    "serial_number",
+    "temp_resolution"
+  ],
+  "read_properties": [
+    "temperature",
+    "relative_humidity"
+  ],
+  "support_level": "generatable"
+}

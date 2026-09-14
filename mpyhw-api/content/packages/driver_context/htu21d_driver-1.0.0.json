@@ -1,0 +1,36 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "HTU21D(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "htu21d.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "htu21d"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/htu21d_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "deinit",
+    "humidity"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}
