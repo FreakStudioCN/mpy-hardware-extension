@@ -4,6 +4,9 @@ use super::*;
 /// venv. Steps 1/2/4 are untouched.
 pub fn repair_runtime(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsError> {
     info!("repair-runtime: starting");
+    ctx.progress.emit(&ProgressEvent::OpStarted {
+        op: "repair-runtime",
+    });
     let prior = read_prior_state_lenient(&ctx.paths.state);
     let mut current = prior.unwrap_or_default();
 
@@ -18,6 +21,11 @@ pub fn repair_runtime(env: &dyn Environment, ctx: &OpsContext) -> Result<State, 
         info!("repair-runtime: removed existing env/");
     }
 
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "repair-runtime",
+        step: 3,
+        name: "runtime",
+    });
     runtime::ensure_runtime(
         env,
         &ctx.client,
@@ -37,6 +45,15 @@ pub fn repair_runtime(env: &dyn Environment, ctx: &OpsContext) -> Result<State, 
     current.steps.python = true;
     stamp_and_write(&mut current, &ctx.paths.state)?;
     info!("repair-runtime: step 3 (runtime) done");
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "repair-runtime",
+        step: 3,
+        name: "runtime",
+        skipped: None,
+    });
+    ctx.progress.emit(&ProgressEvent::OpFinished {
+        op: "repair-runtime",
+    });
 
     Ok(current)
 }

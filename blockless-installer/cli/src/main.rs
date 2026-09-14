@@ -27,24 +27,20 @@ fn main() {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod real_main {
-    use crate::cli::{resolve_vsix_path, Cli, Command};
+    use crate::cli::{Cli, Command};
+    use blockless_installer_core::bootstrap::{
+        default_manifest_path, mac_install_targets, resolve_vsix_path,
+    };
     use blockless_installer_core::fetch::{download_client, FetchOptions};
     use blockless_installer_core::manifest::Manifest;
     use blockless_installer_core::platform::{Arch, Os, Paths, RawEnv};
+    use blockless_installer_core::progress::NoopSink;
     use blockless_installer_core::state::State;
     use blockless_installer_core::system::SystemEnvironment;
     use blockless_installer_core::uninstall::{UninstallFlags, UninstallOutcome};
     use blockless_installer_core::verify::CheckResult;
     use blockless_installer_core::{ops, verify};
     use clap::Parser;
-    use std::path::PathBuf;
-
-    fn default_manifest_path() -> PathBuf {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|dir| dir.join("installer.manifest.json")))
-            .unwrap_or_else(|| PathBuf::from("installer.manifest.json"))
-    }
 
     fn die(msg: impl std::fmt::Display) -> ! {
         eprintln!("blockless-installer: {msg}");
@@ -110,19 +106,6 @@ mod real_main {
             .with_writer(std::io::stderr)
             .with_ansi(false)
             .try_init();
-    }
-
-    fn mac_install_targets(os: Os, raw: &RawEnv) -> Vec<PathBuf> {
-        match os {
-            Os::MacOs => {
-                let home = raw.home.as_deref().unwrap_or_default();
-                vec![
-                    PathBuf::from("/Applications"),
-                    PathBuf::from(home).join("Applications"),
-                ]
-            }
-            Os::Windows => vec![],
-        }
     }
 
     fn print_verify_results(results: &[CheckResult]) -> bool {
@@ -200,6 +183,7 @@ mod real_main {
             code_candidates,
             mac_install_targets: targets,
             vsix_path: Some(vsix_path),
+            progress: &NoopSink,
         };
 
         let env = SystemEnvironment;
@@ -240,13 +224,25 @@ mod real_main {
                         blk_removal_partial,
                         vscode_removed,
                         invariant_guard_tripped,
+                        vscode_kept_but_owned,
+                        vscode_removal_failed,
                     } => {
                         if invariant_guard_tripped {
                             die("could not confirm the profile was fully removed; the ownership journal was left intact so a re-run can finish. Nothing else was removed.");
                         }
+                        if vscode_removal_failed {
+                            die(format!(
+                                "VS Code could not be fully removed; the ownership journal was kept so a re-run can finish. profile_removed={profile_removed}; BLK was left in place."
+                            ));
+                        }
                         println!(
                             "done: profile_removed={profile_removed} blk_removed={blk_removed} blk_removal_partial={blk_removal_partial} vscode_removed={vscode_removed}"
                         );
+                        if vscode_kept_but_owned {
+                            println!(
+                                "note: VS Code was installed by this installer and is being left in place; it is no longer tracked, and --all is the only way to remove it later."
+                            );
+                        }
                     }
                 }
             }

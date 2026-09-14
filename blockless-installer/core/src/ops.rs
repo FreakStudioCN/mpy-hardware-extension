@@ -20,6 +20,7 @@ use crate::fetch::FetchOptions;
 use crate::manifest::Manifest;
 use crate::platform::{Arch, Os, Paths};
 use crate::profile;
+use crate::progress::{ProgressEvent, ProgressSink};
 use crate::runtime::{self, RuntimeError};
 use crate::settings::{self, SettingsError};
 use crate::state::{self, State};
@@ -88,6 +89,10 @@ pub struct OpsContext<'a> {
     /// never come from anywhere else (extensions.rs), so ops that touch
     /// extensions require this to be `Some` and pointing at a real file.
     pub vsix_path: Option<PathBuf>,
+    /// Where each op reports its progress (see `progress.rs`). The CLI
+    /// passes `&NoopSink`; a future GUI shell forwards events to its
+    /// window.
+    pub progress: &'a dyn ProgressSink,
 }
 
 impl OpsContext<'_> {
@@ -151,12 +156,19 @@ fn require_vsix(ctx: &OpsContext) -> Result<(), OpsError> {
 /// detect-skip-do on VS Code, the extension, and settings.
 pub fn repair(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsError> {
     info!("repair: starting");
+    ctx.progress
+        .emit(&ProgressEvent::OpStarted { op: "repair" });
     require_vsix(ctx)?;
     let prior = read_prior_state_lenient(&ctx.paths.state);
     let seed = state::seed_from_prior(prior.as_ref(), "blockless");
     let mut current = prior.unwrap_or_default();
     current.profile_location = seed.profile_location.clone();
 
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "repair",
+        step: 1,
+        name: "vscode",
+    });
     let vscode_outcome = vscode::ensure_vscode(
         env,
         &ctx.client,
@@ -177,7 +189,18 @@ pub fn repair(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsError
         skipped = !vscode_outcome.installed_by_us,
         "repair: step 1 (vscode) done"
     );
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "repair",
+        step: 1,
+        name: "vscode",
+        skipped: Some(!vscode_outcome.installed_by_us),
+    });
 
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "repair",
+        step: 2,
+        name: "extension",
+    });
     let ext_outcome = extensions::ensure_extensions(
         env,
         env,
@@ -206,7 +229,18 @@ pub fn repair(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsError
     }
     stamp_and_write(&mut current, &ctx.paths.state)?;
     info!("repair: step 2 (extension) done");
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "repair",
+        step: 2,
+        name: "extension",
+        skipped: None,
+    });
 
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "repair",
+        step: 4,
+        name: "settings",
+    });
     let settings_outcome = settings::ensure_settings(
         env,
         &vscode_outcome.code_cli,
@@ -226,6 +260,14 @@ pub fn repair(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsError
         applied = settings_outcome.applied,
         "repair: step 4 (settings) done, repair finished"
     );
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "repair",
+        step: 4,
+        name: "settings",
+        skipped: Some(!settings_outcome.applied),
+    });
+    ctx.progress
+        .emit(&ProgressEvent::OpFinished { op: "repair" });
 
     Ok(current)
 }
@@ -236,6 +278,8 @@ pub fn repair(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsError
 /// exists by the time step 4 writes `mpyhw.pythonPath`.
 pub fn install(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsError> {
     info!("install: starting");
+    ctx.progress
+        .emit(&ProgressEvent::OpStarted { op: "install" });
     require_vsix(ctx)?;
     let prior = read_prior_state_lenient(&ctx.paths.state);
     let seed = state::seed_from_prior(prior.as_ref(), "blockless");
@@ -252,6 +296,11 @@ pub fn install(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsErro
     current.mpremote_version = ctx.manifest.components.mpremote.version.clone();
     current.env_python = ctx.paths.env_python.to_string_lossy().into_owned();
 
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "install",
+        step: 1,
+        name: "vscode",
+    });
     let vscode_outcome = vscode::ensure_vscode(
         env,
         &ctx.client,
@@ -272,7 +321,18 @@ pub fn install(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsErro
         skipped = !vscode_outcome.installed_by_us,
         "install: step 1 (vscode) done"
     );
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "install",
+        step: 1,
+        name: "vscode",
+        skipped: Some(!vscode_outcome.installed_by_us),
+    });
 
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "install",
+        step: 2,
+        name: "extension",
+    });
     let ext_outcome = extensions::ensure_extensions(
         env,
         env,
@@ -301,7 +361,18 @@ pub fn install(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsErro
     }
     stamp_and_write(&mut current, &ctx.paths.state)?;
     info!("install: step 2 (extension) done");
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "install",
+        step: 2,
+        name: "extension",
+        skipped: None,
+    });
 
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "install",
+        step: 3,
+        name: "runtime",
+    });
     runtime::ensure_runtime(
         env,
         &ctx.client,
@@ -319,7 +390,18 @@ pub fn install(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsErro
     current.steps.python = true;
     stamp_and_write(&mut current, &ctx.paths.state)?;
     info!("install: step 3 (runtime) done");
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "install",
+        step: 3,
+        name: "runtime",
+        skipped: None,
+    });
 
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "install",
+        step: 4,
+        name: "settings",
+    });
     let settings_outcome = settings::ensure_settings(
         env,
         &vscode_outcome.code_cli,
@@ -339,6 +421,12 @@ pub fn install(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsErro
         applied = settings_outcome.applied,
         "install: step 4 (settings) done"
     );
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "install",
+        step: 4,
+        name: "settings",
+        skipped: Some(!settings_outcome.applied),
+    });
 
     // Final: foreground open into the profile. Every earlier step that
     // spawned a child of its own (register_profile's window fallback) has
@@ -352,6 +440,8 @@ pub fn install(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsErro
         warn!(error = %e, "install: final foreground open failed to spawn");
     }
     info!("install: finished");
+    ctx.progress
+        .emit(&ProgressEvent::OpFinished { op: "install" });
 
     Ok(current)
 }
