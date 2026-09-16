@@ -29,11 +29,10 @@ fn main() {
 mod real_main {
     use crate::cli::{Cli, Command};
     use blockless_installer_core::bootstrap::{
-        default_manifest_path, mac_install_targets, resolve_vsix_path,
+        build_ops_context, default_manifest_path, resolve_vsix_path, Machine,
     };
-    use blockless_installer_core::fetch::{download_client, FetchOptions};
     use blockless_installer_core::manifest::Manifest;
-    use blockless_installer_core::platform::{Arch, Os, Paths, RawEnv};
+    use blockless_installer_core::platform::RawEnv;
     use blockless_installer_core::progress::NoopSink;
     use blockless_installer_core::state::State;
     use blockless_installer_core::system::SystemEnvironment;
@@ -51,12 +50,10 @@ mod real_main {
     /// repeat run's steps land alongside the first rather than overwriting
     /// them -- ops.rs's own `install`/`repair` step 1 and step 4 lines carry
     /// a `skipped`/`applied` field, so a support engineer reading the file
-    /// can tell a skip from a re-do on those two steps (§13); steps 2/3
-    /// expose no skip signal from their own step modules, so they log a
-    /// bare "done" either way. Synchronous (a `Mutex<File>` writer, no
-    /// background-thread appender crate): every
-    /// line is on disk
-    /// before the `info!`/`warn!` call returns, so a line can never be lost
+    /// can tell a skip from a re-do on every step (§13). Synchronous (a
+    /// `Mutex<File>` writer, no background-thread appender crate): every
+    /// line is on disk before the `info!`/`warn!` call returns, so a line
+    /// can never be lost
     /// to `std::process::exit` -- every failure path in this binary
     /// (`die`, the verify-failure exit) calls it directly, with no `Drop`
     /// to flush a buffered writer first.
@@ -157,9 +154,7 @@ mod real_main {
         );
 
         let raw = RawEnv::from_process();
-        let os = Os::detect(&raw).unwrap_or_else(|e| die(e));
-        let arch = Arch::detect(os, &raw).unwrap_or_else(|e| die(e));
-        let paths = Paths::resolve(os, &raw).unwrap_or_else(|e| die(e));
+        let machine = Machine::detect(&raw).unwrap_or_else(|e| die(e));
         // Uninstall may delete BLK (which owns logs/) this run -- never hold
         // an open log file handle inside a tree we're about to remove (a
         // real risk on Windows, where a still-open file can block or
@@ -167,24 +162,10 @@ mod real_main {
         if matches!(cli.command, Command::Uninstall { .. }) {
             init_stderr_logging();
         } else {
-            init_logging(&paths.logs);
+            init_logging(&machine.paths.logs);
         }
-        let code_candidates = blockless_installer_core::platform::code_cli_candidates(os, &raw)
-            .unwrap_or_else(|e| die(e));
-        let targets = mac_install_targets(os, &raw);
-
-        let ctx = ops::OpsContext {
-            os,
-            arch,
-            paths,
-            manifest: &manifest,
-            client: download_client().unwrap_or_else(|e| die(e)),
-            fetch_opts: FetchOptions::default(),
-            code_candidates,
-            mac_install_targets: targets,
-            vsix_path: Some(vsix_path),
-            progress: &NoopSink,
-        };
+        let ctx =
+            build_ops_context(machine, &manifest, vsix_path, &NoopSink).unwrap_or_else(|e| die(e));
 
         let env = SystemEnvironment;
 
@@ -208,42 +189,17 @@ mod real_main {
                     all: *all,
                     keep_vscode: *keep_vscode,
                 };
-                match ops::uninstall(&env, &ctx, &flags) {
-                    UninstallOutcome::VscodeRunning => {
-                        println!("VS Code is running; quit it and re-run to uninstall. Nothing was removed.");
-                    }
-                    UninstallOutcome::ProcessCheckFailed => {
-                        die("could not confirm VS Code is closed; nothing was removed.");
-                    }
-                    UninstallOutcome::AbortedUnreadableState => {
-                        die("state.json exists but is unreadable/incomplete; cannot determine what to remove. Nothing was removed.");
-                    }
-                    UninstallOutcome::Finished {
-                        profile_removed,
-                        blk_removed,
-                        blk_removal_partial,
-                        vscode_removed,
-                        invariant_guard_tripped,
-                        vscode_kept_but_owned,
-                        vscode_removal_failed,
-                    } => {
-                        if invariant_guard_tripped {
-                            die("could not confirm the profile was fully removed; the ownership journal was left intact so a re-run can finish. Nothing else was removed.");
-                        }
-                        if vscode_removal_failed {
-                            die(format!(
-                                "VS Code could not be fully removed; the ownership journal was kept so a re-run can finish. profile_removed={profile_removed}; BLK was left in place."
-                            ));
-                        }
-                        println!(
-                            "done: profile_removed={profile_removed} blk_removed={blk_removed} blk_removal_partial={blk_removal_partial} vscode_removed={vscode_removed}"
-                        );
-                        if vscode_kept_but_owned {
-                            println!(
-                                "note: VS Code was installed by this installer and is being left in place; it is no longer tracked, and --all is the only way to remove it later."
-                            );
-                        }
-                    }
+                let outcome = ops::uninstall(&env, &ctx, &flags);
+                // The wording lives on the outcome itself (core), shared
+                // with the GUI; only the exit status is this shell's.
+                let summary = outcome.summary("--all is the only way to remove it later");
+                if summary.ok || matches!(outcome, UninstallOutcome::VscodeRunning) {
+                    // A running VS Code is a refusal the user was told how
+                    // to clear, before anything was touched -- not a failure
+                    // of this program. Exit 0, as this binary always has.
+                    println!("{}", summary.message);
+                } else {
+                    die(summary.message);
                 }
             }
         }
