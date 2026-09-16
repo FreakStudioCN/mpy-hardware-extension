@@ -89,6 +89,15 @@ useful lines in the rig logs.
 VS Code. It ends up orphaned, removable only with `--all`, which deletes
 regardless of ownership. Test `--keep-vscode` last, or on its own machine.
 
+**Made loud in M1, 2026-09-11.** The door itself is unchanged on purpose:
+keeping `state.json` alive outside a removed `BLK` would let `verify`/`install`
+read a half-install as a real one, trading a documented one-way door for an
+undocumented lie. What changed is that M1 now SAYS so where M0 exits silently:
+`UninstallOutcome::Finished::vscode_kept_but_owned` is `true` exactly when this
+run removed `BLK` while `--keep-vscode` left an owned VS Code in place, and the
+CLI prints that it is no longer tracked and `--all` is the only way to remove
+it later.
+
 **An M0 tree upgrades cleanly.** `verify` returned 7/7 against a real M0 install
 from 2026-08-05, and the ownership flags carried forward correctly: sticky
 `vscodeInstalledByUs: true` and `profileCreatedByUs: false`, so uninstall removed
@@ -127,6 +136,14 @@ could not have worked on those machines anyway, no capability is lost.
 The alternative considered and rejected was pre-installing CLT on the rig. It
 would have made the demo pass by no longer being a fresh Mac, while every real
 user still hit the dialog.
+
+**Hardened further, 2026-09-11.** Two pathological-environment edge cases in
+the shim's own `PATH` entry, unreachable by M0 because M0 never manipulates
+`PATH` for this at all: a shim directory whose own path contains `:` (which
+would split PATH's own entry separator in half) now refuses the shim outright
+instead of emitting a broken entry, and joining onto an empty inherited `PATH`
+no longer leaves a trailing `:` -- which Unix reads as the current directory.
+Both fall back to the same dialog M0 always shows.
 
 **UTM shared folders serve the guest stale copies.** A file changed on the host
 can still read as its old content in the VM, and two processes appending to one

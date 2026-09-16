@@ -4,6 +4,9 @@ use super::*;
 /// venv. Steps 1/2/4 are untouched.
 pub fn repair_runtime(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsError> {
     info!("repair-runtime: starting");
+    ctx.progress.emit(&ProgressEvent::OpStarted {
+        op: "repair-runtime",
+    });
     let prior = read_prior_state_lenient(&ctx.paths.state);
     let mut current = prior.unwrap_or_default();
 
@@ -18,7 +21,12 @@ pub fn repair_runtime(env: &dyn Environment, ctx: &OpsContext) -> Result<State, 
         info!("repair-runtime: removed existing env/");
     }
 
-    runtime::ensure_runtime(
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "repair-runtime",
+        step: 3,
+        name: "runtime",
+    });
+    let runtime_outcome = runtime::ensure_runtime(
         env,
         &ctx.client,
         ctx.os,
@@ -36,7 +44,23 @@ pub fn repair_runtime(env: &dyn Environment, ctx: &OpsContext) -> Result<State, 
     current.env_python = ctx.paths.env_python.to_string_lossy().into_owned();
     current.steps.python = true;
     stamp_and_write(&mut current, &ctx.paths.state)?;
-    info!("repair-runtime: step 3 (runtime) done");
+    // Always `false` in practice: env/ was just removed, so nothing can be
+    // already present. Reported from the outcome anyway, never hard-coded,
+    // so this op cannot drift from what step 3 actually did.
+    let runtime_skipped = runtime_outcome == RuntimeStepOutcome::AlreadyPresent;
+    info!(
+        skipped = runtime_skipped,
+        "repair-runtime: step 3 (runtime) done"
+    );
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "repair-runtime",
+        step: 3,
+        name: "runtime",
+        skipped: Some(runtime_skipped),
+    });
+    ctx.progress.emit(&ProgressEvent::OpFinished {
+        op: "repair-runtime",
+    });
 
     Ok(current)
 }

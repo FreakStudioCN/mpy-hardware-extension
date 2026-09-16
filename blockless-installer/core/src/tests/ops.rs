@@ -1,5 +1,6 @@
 use super::*;
 use crate::manifest::Manifest;
+use crate::progress::{NoopSink, ProgressEvent, ProgressSink};
 use crate::uninstall::UninstallFlags;
 use crate::uninstall::UninstallOutcome;
 use std::cell::RefCell;
@@ -202,6 +203,15 @@ fn test_manifest_matching(vsix_bytes: &[u8]) -> Manifest {
 }
 
 fn make_ctx<'a>(dir: &Path, manifest: &'a Manifest, vsix: &Path) -> OpsContext<'a> {
+    make_ctx_with_progress(dir, manifest, vsix, &NoopSink)
+}
+
+fn make_ctx_with_progress<'a>(
+    dir: &Path,
+    manifest: &'a Manifest,
+    vsix: &Path,
+    progress: &'a dyn ProgressSink,
+) -> OpsContext<'a> {
     let code_cli = dir.join("code");
     OpsContext {
         os: Os::MacOs,
@@ -220,10 +230,31 @@ fn make_ctx<'a>(dir: &Path, manifest: &'a Manifest, vsix: &Path) -> OpsContext<'
         fetch_opts: FetchOptions {
             max_attempts: 1,
             backoff_base: Duration::from_millis(1),
+            read_timeout: Duration::from_secs(5),
         },
         code_candidates: vec![code_cli],
         mac_install_targets: vec![dir.join("Applications")],
         vsix_path: Some(vsix.to_path_buf()),
+        progress,
+    }
+}
+
+/// A recording [`ProgressSink`]: collects every event in call order, so a
+/// test can assert on the exact sequence an op emits. A `Mutex`, not a
+/// `RefCell` -- `ProgressSink: Sync` (an `OpsContext` may be shared with a
+/// future multi-threaded host), so the sink itself must be.
+#[derive(Default)]
+struct RecordingSink(std::sync::Mutex<Vec<ProgressEvent>>);
+
+impl ProgressSink for RecordingSink {
+    fn emit(&self, event: &ProgressEvent) {
+        self.0.lock().unwrap().push(event.clone());
+    }
+}
+
+impl RecordingSink {
+    fn events(&self) -> Vec<ProgressEvent> {
+        self.0.lock().unwrap().clone()
     }
 }
 
@@ -246,92 +277,6 @@ fn install_happy_path_journals_all_four_steps_and_opens_foreground() {
             .any(|args| args.contains(&"--new-window".to_string())),
         "install must end with a foreground open"
     );
-}
-
-/// A `tracing` writer that captures formatted output into a shared
-/// buffer, so a test can assert on log content.
-#[derive(Clone, Default)]
-struct CapturingWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-impl std::io::Write for CapturingWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturingWriter {
-    type Writer = CapturingWriter;
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-/// The one `tracing` subscriber every log-capturing test in this module
-/// shares, installed at most once process-wide.
-///
-/// `cargo test`'s default parallel runner has many OTHER tests calling
-/// `install`/`repair` concurrently on other threads, sharing these same
-/// `info!`/`warn!` callsites. A THREAD-LOCAL subscriber
-/// (`tracing::subscriber::with_default`) loses this race: a callsite's
-/// process-wide interest is cached on first-ever use, and a concurrent
-/// thread still running under the no-op default can win that race and
-/// cache it "not interested" out from under a test -- empirically,
-/// roughly 1 run in 3 under the full suite. A single global default
-/// instead makes every callsite's interest resolve once, globally, with
-/// no thread-local toggling and thus no window for the race.
-///
-/// Only the FIRST caller's `try_init` actually succeeds (global default
-/// can only be set once per process); every caller gets back a clone of
-/// the SAME shared writer regardless of which one won, via `OnceLock`,
-/// so which log-capturing test happens to run first doesn't matter --
-/// they all observe the one real subscriber. Other, non-capturing
-/// parallel tests free-ride on it harmlessly (their lines just add
-/// noise a `contains` check ignores).
-fn capturing_log_writer() -> CapturingWriter {
-    static WRITER: std::sync::OnceLock<CapturingWriter> = std::sync::OnceLock::new();
-    WRITER
-        .get_or_init(|| {
-            let writer = CapturingWriter::default();
-            let _ = tracing_subscriber::fmt()
-                .with_writer(writer.clone())
-                .with_ansi(false)
-                .try_init();
-            writer
-        })
-        .clone()
-}
-
-#[test]
-fn install_logs_every_step() {
-    // Proves ops.rs actually emits a log line per step (the reviewer's
-    // finding: nothing logged, so diagnostics bundled an empty logs/),
-    // not just that the tracing macro calls compile.
-    let writer = capturing_log_writer();
-
-    let dir = temp_dir("install-logs");
-    let manifest = test_manifest_matching(b"vsix contents");
-    let vsix = write_vsix(&dir, b"vsix contents");
-    let ctx = make_ctx(&dir, &manifest, &vsix);
-    let env = FakeEnvironment::new(&ctx.code_candidates[0], &vsix);
-
-    let before = writer.0.lock().unwrap().len();
-    install(&env, &ctx).unwrap();
-    let logged = String::from_utf8(writer.0.lock().unwrap()[before..].to_vec()).unwrap();
-    for expected in [
-        "install: starting",
-        "install: step 1 (vscode) done skipped=true",
-        "install: step 2 (extension) done",
-        "install: step 3 (runtime) done",
-        "install: step 4 (settings) done applied=true",
-        "install: finished",
-    ] {
-        assert!(
-            logged.contains(expected),
-            "missing {expected:?} in:\n{logged}"
-        );
-    }
 }
 
 #[test]
@@ -767,5 +712,10 @@ fn windows_uninstall_locations_include_a_candidate_that_fails_version() {
 
 #[path = "ops/diagnostics.rs"]
 mod diagnostics;
+#[path = "ops/logging.rs"]
+mod logging;
+use logging::capturing_log_writer;
+#[path = "ops/progress.rs"]
+mod progress;
 #[path = "ops/uninstall.rs"]
 mod uninstall_tests;

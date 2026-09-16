@@ -1,6 +1,9 @@
 use super::*;
 pub fn update_extension(env: &dyn Environment, ctx: &OpsContext) -> Result<State, OpsError> {
     info!("update-extension: starting");
+    ctx.progress.emit(&ProgressEvent::OpStarted {
+        op: "update-extension",
+    });
     require_vsix(ctx)?;
     let prior = read_prior_state_lenient(&ctx.paths.state);
     let seed = state::seed_from_prior(prior.as_ref(), "blockless");
@@ -13,6 +16,11 @@ pub fn update_extension(env: &dyn Environment, ctx: &OpsContext) -> Result<State
         .cloned()
         .unwrap_or_else(|| ctx.code_candidates[0].clone());
 
+    ctx.progress.emit(&ProgressEvent::StepStarted {
+        op: "update-extension",
+        step: 2,
+        name: "extension",
+    });
     let ext_outcome = extensions::ensure_extensions(
         env,
         env,
@@ -35,7 +43,21 @@ pub fn update_extension(env: &dyn Environment, ctx: &OpsContext) -> Result<State
     current.ext_vsix_sha256 = ext_outcome.ext_vsix_sha256;
     current.steps.extension = true;
     stamp_and_write(&mut current, &ctx.paths.state)?;
-    info!("update-extension: step 2 (extension) done");
+    // Always `false` in practice (force bypasses the currency skip), but
+    // read from the outcome rather than asserted here.
+    info!(
+        skipped = ext_outcome.already_current,
+        "update-extension: step 2 (extension) done"
+    );
+    ctx.progress.emit(&ProgressEvent::StepFinished {
+        op: "update-extension",
+        step: 2,
+        name: "extension",
+        skipped: Some(ext_outcome.already_current),
+    });
+    ctx.progress.emit(&ProgressEvent::OpFinished {
+        op: "update-extension",
+    });
 
     Ok(current)
 }

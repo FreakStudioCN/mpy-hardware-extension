@@ -85,11 +85,19 @@ struct FakeUninstallRunner {
     remove_dir_calls: RefCell<Vec<std::path::PathBuf>>,
     fail_remove_for: RefCell<Vec<std::path::PathBuf>>,
     uninstaller_result: RefCell<Option<Result<bool, String>>>,
+    /// Removed for real, immediately before returning the injected failure
+    /// for the SAME call -- simulates `remove_dir_all` not being atomic: a
+    /// real recursive delete can visit and remove this path before hitting
+    /// whatever else under the tree is locked.
+    delete_before_failing: RefCell<Option<std::path::PathBuf>>,
 }
 impl UninstallRunner for FakeUninstallRunner {
     fn remove_dir_all(&self, path: &Path) -> Result<(), String> {
         self.remove_dir_calls.borrow_mut().push(path.to_path_buf());
         if self.fail_remove_for.borrow().contains(&path.to_path_buf()) {
+            if let Some(victim) = self.delete_before_failing.borrow().as_ref() {
+                let _ = std::fs::remove_file(victim);
+            }
             return Err("locked".to_string());
         }
         let _ = std::fs::remove_dir_all(path);
@@ -659,42 +667,7 @@ fn all_flag_forces_removal_even_when_not_installed_by_us() {
     }
 }
 
-// --- BLK removal honesty ---
+// --- vscode reporting honesty ---
 
-#[test]
-fn blk_partial_removal_is_reported_honestly() {
-    let l = layout("blk-partial");
-    let mut state = default_state();
-    state.profile_created_by_us = false;
-    write_state(&l.state_path, &state);
-    let runner = FakeUninstallRunner::default();
-    runner.fail_remove_for.borrow_mut().push(l.blk.clone());
-
-    let outcome = uninstall(
-        &not_running(),
-        &runner,
-        &l.state_path,
-        &l.storage_path,
-        &l.profiles_dir,
-        "Blockless",
-        &l.blk,
-        std::slice::from_ref(&l.vscode_dir),
-        &UninstallFlags::default(),
-    );
-
-    match outcome {
-        UninstallOutcome::Finished {
-            blk_removed,
-            blk_removal_partial,
-            ..
-        } => {
-            assert!(!blk_removed);
-            assert!(blk_removal_partial);
-        }
-        other => panic!("expected Finished, got {other:?}"),
-    }
-    assert!(
-        l.blk.exists(),
-        "a failed remove_dir_all must leave the directory as evidence, not lie about it"
-    );
-}
+#[path = "uninstall/flags.rs"]
+mod flags;

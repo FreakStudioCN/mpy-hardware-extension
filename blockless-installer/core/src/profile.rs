@@ -97,13 +97,21 @@ pub fn profile_registered(storage_path: &Path, profile_name: &str) -> bool {
     resolve_profile_location(storage_path, profile_name).is_some()
 }
 
+/// `#[must_use]`: a skipped-and-not-logged outcome here is exactly how the
+/// process-check-failed / spawn-failed mislabelling this replaced went
+/// unnoticed at its only two call sites.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub enum RegisterOfflineOutcome {
     AlreadyRegistered,
     /// A VS Code instance is running: it owns `storage.json` in memory and
     /// would clobber our edit on its own next save. Do nothing; the window
     /// fallback ([`register_profile`]) covers this case.
     SkippedVscodeRunning,
+    /// The process check itself failed, so we could not tell whether VS
+    /// Code is running. Distinct from `SkippedVscodeRunning`: nothing was
+    /// confirmed running here, only unconfirmed as not-running.
+    SkippedProcessCheckFailed,
     /// `storage.json` exists but could not be read/parsed. Never replace an
     /// unparseable file (it may hold other profiles' window state); the
     /// window fallback covers this case too.
@@ -127,11 +135,12 @@ pub fn register_profile_offline(
     if profile_registered(storage_path, profile_name) {
         return Ok(RegisterOfflineOutcome::AlreadyRegistered);
     }
-    if runner
-        .running_vscode_pids()
-        .map_or(true, |pids| !pids.is_empty())
-    {
-        return Ok(RegisterOfflineOutcome::SkippedVscodeRunning);
+    match runner.running_vscode_pids() {
+        Ok(pids) if !pids.is_empty() => {
+            return Ok(RegisterOfflineOutcome::SkippedVscodeRunning);
+        }
+        Ok(_) => {}
+        Err(_) => return Ok(RegisterOfflineOutcome::SkippedProcessCheckFailed),
     }
 
     let mut root = match std::fs::read(storage_path) {
@@ -199,11 +208,17 @@ fn write_atomic(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, dest)
 }
 
+/// `#[must_use]`: see `RegisterOfflineOutcome`'s doc comment -- the same
+/// class of bug, at `register_profile`'s own only two call sites.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub enum RegisterProfileOutcome {
     AlreadyRegistered,
     Registered,
     TimedOut,
+    /// The process check before spawning failed, so nothing was spawned.
+    /// Distinct from `SpawnFailed`: `spawn()` itself was never called.
+    ProcessCheckFailed,
     SpawnFailed,
 }
 
@@ -241,7 +256,7 @@ pub fn register_profile(
     }
     let before = match runner.running_vscode_pids() {
         Ok(pids) => pids,
-        Err(_) => return RegisterProfileOutcome::SpawnFailed,
+        Err(_) => return RegisterProfileOutcome::ProcessCheckFailed,
     };
     if runner
         .spawn(code_cli, &["--profile", profile_name, "--new-window"])

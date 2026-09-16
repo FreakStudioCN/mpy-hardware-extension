@@ -1,0 +1,25 @@
+[package]
+name = "blockless-installer-gui"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "blockless-installer-gui"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+blockless-installer-core = { path = "../core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# step-level logging, same posture as the CLI (cli/Cargo.toml): a
+# synchronous, per-write-open-and-close file writer (see src/main.rs), no
+# background-thread appender crate. Only tracing_subscriber is used
+# directly here -- core/src/ops.rs is what emits the info!/warn! calls
+# this subscriber captures, same division as cli/Cargo.toml.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }

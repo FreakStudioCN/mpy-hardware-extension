@@ -161,6 +161,12 @@ pub struct ExtensionsStepOutcome {
     /// ends up being what actually registers it.
     pub profile_created_by_us: bool,
     pub ext_vsix_sha256: String,
+    /// Every extension was already present at the expected version, so this
+    /// run installed nothing (the currency skip). `false` whenever any
+    /// install command ran, including a forced reinstall. This is the
+    /// step's skip signal for a progress listener; the journal does not
+    /// need it.
+    pub already_current: bool,
 }
 
 /// The full step. `seed_profile_created_by_us` is the sticky carry-forward
@@ -228,6 +234,7 @@ pub fn ensure_extensions(
         return Ok(ExtensionsStepOutcome {
             profile_created_by_us,
             ext_vsix_sha256: vsix_sha256,
+            already_current: true,
         });
     }
 
@@ -236,13 +243,14 @@ pub fn ensure_extensions(
     // fix). Errors here are non-fatal at this layer (a seed failure just
     // means the window fallback below has to do the work); genuine I/O
     // failures (can't create the profile dir) still propagate.
-    profile::register_profile_offline(
+    let offline_outcome = profile::register_profile_offline(
         command_runner,
         storage_path,
         profiles_dir,
         profile_name,
         seed_location,
     )?;
+    tracing::info!(outcome = ?offline_outcome, "offline profile seed");
 
     let ext_result = install_ext(
         ext_runner,
@@ -271,8 +279,12 @@ pub fn ensure_extensions(
     if ext_result.is_err() || py_result.is_err() {
         // Window-registration fallback: a never-launched (or seed-ignoring)
         // VS Code may still lack the profile, and a headless
-        // --install-extension into a missing profile fails.
-        profile::register_profile(command_runner, code_cli, storage_path, profile_name);
+        // --install-extension into a missing profile fails. Best-effort --
+        // the outcome is logged, not propagated: the install_ext calls
+        // below report their own failure if the profile still isn't there.
+        let outcome =
+            profile::register_profile(command_runner, code_cli, storage_path, profile_name);
+        tracing::info!(?outcome, "window-registration fallback");
         install_ext(
             ext_runner,
             code_cli,
@@ -315,6 +327,7 @@ pub fn ensure_extensions(
     Ok(ExtensionsStepOutcome {
         profile_created_by_us,
         ext_vsix_sha256: vsix_sha256,
+        already_current: false,
     })
 }
 

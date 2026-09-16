@@ -38,6 +38,13 @@ criterion is "the panel opens".
 `Cargo.toml` is in `blockless-installer/`, not the repo root. Running cargo from the repo root
 fails with "could not find Cargo.toml".
 
+Build from inside `blockless-installer/`, never via `--manifest-path` from the root: Cargo
+discovers `.cargo/config.toml` (which sets `+crt-static` for the msvc targets) by walking up from
+the CURRENT DIRECTORY, not from `--manifest-path`, so a `--manifest-path`-from-root invocation
+compiles successfully but silently drops that flag -- both build scripts (`cli/build.rs` and
+`app/build.rs`, sharing `build-support/crt_static_guard.rs`) refuse to link an msvc binary
+missing it, but only if you ever build for msvc from the wrong place to find out.
+
 ## The ladder
 
 | rung | cost | answers |
@@ -149,6 +156,17 @@ keeping exact values for the uv pins, which are reproducible upstream release as
 Build a release binary and copy binary, stamped manifest and VSIX into the VM. The manifest is
 read from alongside the binary unless `--manifest` says otherwise; pass `--vsix` explicitly
 because `components/` is not populated.
+
+**The GUI has the same sidecar contract and no escape hatch.** It has no `--manifest` or `--vsix`
+override, so the files must be co-located or nothing installs. The failure is visible rather than
+silent: you reach the failure screen on the first Install click, naming every path it looked at.
+
+It searches exe-adjacent first, then its bundle's resource directory, so a manifest you stamped and
+placed yourself always beats a bundled copy. A bundle does carry the manifest, declared under
+`bundle.resources`, but it carries the COMMITTED one, whose hashes are zeros. So a bundle built
+with no stamping step fails the hash check and installs nothing, on purpose. **Run the GUI half of
+the rig from a release binary plus its two sidecar files, not from a bundle**, until a
+stamp-and-inject packaging step exists.
 
 ### The sequence
 

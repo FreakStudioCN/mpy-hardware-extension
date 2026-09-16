@@ -137,17 +137,20 @@ pub fn ensure_settings(
 ) -> Result<SettingsStepOutcome, SettingsError> {
     let mut loc = profile::resolve_profile_location(storage_path, profile_name);
     if loc.is_none() {
-        profile::register_profile_offline(
+        let outcome = profile::register_profile_offline(
             command_runner,
             storage_path,
             profiles_dir,
             profile_name,
             seed_location,
         )?;
+        tracing::info!(?outcome, "offline profile seed");
         loc = profile::resolve_profile_location(storage_path, profile_name);
     }
     if loc.is_none() {
-        profile::register_profile(command_runner, code_cli, storage_path, profile_name);
+        let outcome =
+            profile::register_profile(command_runner, code_cli, storage_path, profile_name);
+        tracing::info!(?outcome, "window-registration fallback");
         loc = profile::resolve_profile_location(storage_path, profile_name);
     }
     let loc = loc.ok_or_else(|| SettingsError::ProfileNotResolved(profile_name.to_string()))?;

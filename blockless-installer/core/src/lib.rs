@@ -1,9 +1,11 @@
+pub mod bootstrap;
 pub mod extensions;
 pub mod fetch;
 pub mod manifest;
 pub mod ops;
 pub mod platform;
 pub mod profile;
+pub mod progress;
 pub mod runtime;
 pub mod settings;
 pub mod state;

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Blockless Installer</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <section id="screen-ready" class="screen">
+        <h1>Blockless Installer</h1>
+        <p>
+          Installs VS Code, the Blockless extension, and a contained Python
+          runtime for MicroPython hardware education.
+        </p>
+        <button id="install-btn">Install</button>
+        <p id="ready-status" class="muted hidden"></p>
+        <!-- Shown only after an uninstall that did not finish: the user
+             stays on this screen to re-run it, so the diagnostics offer
+             the failure screen would have made has to live here too. -->
+        <button id="ready-diagnostics-btn" class="secondary hidden">
+          Save diagnostics bundle
+        </button>
+        <p id="ready-diagnostics-error" class="error hidden"></p>
+        <a href="#" id="advanced-link">Advanced</a>
+      </section>
+
+      <section id="screen-running" class="screen hidden">
+        <h1>Installing&hellip;</h1>
+        <ul id="step-list"></ul>
+      </section>
+
+      <section id="screen-success" class="screen hidden">
+        <h1>Done</h1>
+        <p>Blockless is ready. VS Code should now be open.</p>
+      </section>
+
+      <section id="screen-failure" class="screen hidden">
+        <h1>Something went wrong</h1>
+        <p id="failure-message"></p>
+        <p id="failure-log-path" class="muted"></p>
+        <button id="save-diagnostics-btn">Save diagnostics bundle</button>
+        <p id="save-diagnostics-error" class="error hidden"></p>
+      </section>
+
+      <!-- Not inside any .screen: closing is refused while an op runs
+           regardless of which screen is currently shown (install's running
+           screen, or an uninstall in flight on the ready screen), so this
+           notice has to be visible independent of the screen swap. -->
+      <p id="close-notice" class="muted hidden">
+        An operation is in progress. Please wait for it to finish before
+        closing.
+      </p>
+
+      <div id="uninstall-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>Uninstall Blockless?</h2>
+          <p>
+            This removes the Blockless VS Code profile and the contained
+            Python runtime. VS Code itself is removed only if this installer
+            put it there.
+          </p>
+          <div class="modal-actions">
+            <button id="uninstall-cancel-btn">Cancel</button>
+            <button id="uninstall-confirm-btn" class="danger">
+              Uninstall
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script src="main.js"></script>
+  </body>
+</html>

@@ -19,8 +19,15 @@ struct FakeRunner {
     /// PID is a short-lived wrapper; DIFFERENT PID(s) are what actually
     /// show up in the process list."
     running_pids: RefCell<Vec<u32>>,
+    /// When set, `running_vscode_pids()` returns this `Err` instead of
+    /// `Ok(running_pids)` -- simulates the process check itself failing,
+    /// distinct from a successful check that finds nothing running.
+    process_check_error: bool,
     pids_on_spawn: Vec<u32>,
     spawn_result: std::io::Result<u32>,
+    /// How many times `spawn()` was actually called -- lets a test assert
+    /// "never spawned" on the call count, not just on the outcome variant.
+    spawn_calls: RefCell<u32>,
     graceful_close_calls: RefCell<Vec<u32>>,
     force_kill_calls: RefCell<Vec<u32>>,
     /// Index into `alive_sequence` advanced by each `is_alive` call.
@@ -35,8 +42,10 @@ impl FakeRunner {
     fn new(running_before: Vec<u32>, spawn_result: std::io::Result<u32>) -> FakeRunner {
         FakeRunner {
             running_pids: RefCell::new(running_before),
+            process_check_error: false,
             pids_on_spawn: Vec::new(),
             spawn_result,
+            spawn_calls: RefCell::new(0),
             graceful_close_calls: RefCell::new(Vec::new()),
             force_kill_calls: RefCell::new(Vec::new()),
             alive_sequence: RefCell::new(Vec::new().into_iter()),
@@ -56,13 +65,22 @@ impl FakeRunner {
         self.pids_on_spawn = pids;
         self
     }
+
+    fn with_process_check_error(mut self) -> Self {
+        self.process_check_error = true;
+        self
+    }
 }
 
 impl CommandRunner for FakeRunner {
     fn running_vscode_pids(&self) -> Result<Vec<u32>, String> {
+        if self.process_check_error {
+            return Err("process query failed".to_string());
+        }
         Ok(self.running_pids.borrow().clone())
     }
     fn spawn(&self, _code_cli: &Path, _args: &[&str]) -> std::io::Result<u32> {
+        *self.spawn_calls.borrow_mut() += 1;
         match &self.spawn_result {
             Ok(pid) => {
                 self.running_pids
@@ -225,13 +243,32 @@ fn skips_when_vscode_is_running() {
 }
 
 #[test]
+fn skips_with_process_check_failed_when_check_itself_errors() {
+    let dir = temp_dir("process-check-failed");
+    let storage = dir.join("storage.json");
+    let profiles_dir = dir.join("profiles");
+    let runner = FakeRunner::new(vec![], Ok(1)).with_process_check_error();
+
+    let outcome =
+        register_profile_offline(&runner, &storage, &profiles_dir, "Blockless", "blockless")
+            .unwrap();
+
+    assert_eq!(outcome, RegisterOfflineOutcome::SkippedProcessCheckFailed);
+    assert!(
+        !storage.exists(),
+        "must not create storage.json when we cannot confirm VS Code is closed"
+    );
+}
+
+#[test]
 fn write_is_atomic_no_tmp_left_behind() {
     let dir = temp_dir("atomic");
     let storage = dir.join("storage.json");
     let profiles_dir = dir.join("profiles");
     let runner = FakeRunner::new(vec![], Ok(1));
 
-    register_profile_offline(&runner, &storage, &profiles_dir, "Blockless", "blockless").unwrap();
+    let _ = register_profile_offline(&runner, &storage, &profiles_dir, "Blockless", "blockless")
+        .unwrap();
 
     assert!(storage.exists());
     assert!(!dir.join("storage.json.tmp").exists());
@@ -355,6 +392,24 @@ fn register_profile_already_registered_never_spawns() {
 
     let outcome = register_profile(&runner, &code_cli, &storage, "Blockless");
     assert_eq!(outcome, RegisterProfileOutcome::AlreadyRegistered);
+}
+
+#[test]
+fn register_profile_never_spawns_when_process_check_fails() {
+    let dir = temp_dir("register-process-check-failed");
+    let storage = dir.join("storage.json");
+    let code_cli = dir.join("code");
+    let runner = FakeRunner::new(vec![], Err(std::io::Error::other("must not be called")))
+        .with_process_check_error();
+
+    let outcome = register_profile(&runner, &code_cli, &storage, "Blockless");
+
+    assert_eq!(outcome, RegisterProfileOutcome::ProcessCheckFailed);
+    assert_eq!(
+        *runner.spawn_calls.borrow(),
+        0,
+        "the process check happens before spawn(); a failed check must never spawn"
+    );
 }
 
 // --- stop_and_wait: graceful-then-force teardown ---
