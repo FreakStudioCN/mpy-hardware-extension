@@ -37,7 +37,8 @@ tooling.
 `tauri_build::build()` honours `bundle.resources` on every plain `cargo build`, so a
 build DOES place the committed manifest beside the dev executable. That manifest carries
 all-zero hashes and no VSIX is copied with it, so pressing Install in a `cargo run`
-window stops at the missing-VSIX check and mutates nothing.
+window stops at the missing-VSIX check and mutates nothing: the check runs before the
+window creates `logs/`, so not even the log directory appears.
 
 **Uninstall and Diagnostics are a different matter in a dev window.** Neither needs the
 VSIX, so both run for real against the machine you are sitting at. Do not confirm the

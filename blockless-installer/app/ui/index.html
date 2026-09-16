@@ -15,6 +15,13 @@
         </p>
         <button id="install-btn">Install</button>
         <p id="ready-status" class="muted hidden"></p>
+        <!-- Shown only after an uninstall that did not finish: the user
+             stays on this screen to re-run it, so the diagnostics offer
+             the failure screen would have made has to live here too. -->
+        <button id="ready-diagnostics-btn" class="secondary hidden">
+          Save diagnostics bundle
+        </button>
+        <p id="ready-diagnostics-error" class="error hidden"></p>
         <a href="#" id="advanced-link">Advanced</a>
       </section>
 

@@ -103,6 +103,18 @@ button:hover {
   background: var(--accent-hover);
 }
 
+/* The ready screen's diagnostics button must not compete with Install,
+   the one primary action: an outlined secondary, same size. */
+button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+button.secondary:hover {
+  background: var(--surface);
+}
+
 button.danger {
   background: var(--danger);
 }

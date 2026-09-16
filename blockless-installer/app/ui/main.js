@@ -63,21 +63,26 @@ function setStepState(stepNumber, state, skipped) {
   }
 }
 
+function hideError(id) {
+  const errEl = document.getElementById(id);
+  errEl.textContent = "";
+  errEl.classList.add("hidden");
+}
+
 function showFailure(message, logPath) {
   document.getElementById("failure-message").textContent = message;
   document.getElementById("failure-log-path").textContent = logPath
     ? `Log: ${logPath}`
     : "";
-  const errEl = document.getElementById("save-diagnostics-error");
-  errEl.textContent = "";
-  errEl.classList.add("hidden");
+  hideError("save-diagnostics-error");
   showScreen("failure");
 }
 
-function setReadyStatus(text) {
+function setReadyStatus(text, isError) {
   const status = document.getElementById("ready-status");
   status.textContent = text;
   status.classList.toggle("hidden", !text);
+  status.classList.toggle("error", Boolean(isError));
 }
 
 // close-notice is a sibling of every screen (see index.html), not reset by
@@ -125,15 +130,28 @@ listen("op-result", (event) => {
   const result = event.payload;
   setBusy(false);
   if (result.op === "uninstall") {
-    if (!result.ok) {
-      showFailure(result.message, result.logPath);
-    } else {
-      // result.message carries the CLI-parity outcome string, including
-      // the blk_removal_partial / vscode_kept_but_owned nuances a flat
-      // "Uninstalled." would hide from the user of a destructive op.
-      setReadyStatus(result.message);
-      showScreen("ready");
+    // Uninstall always ends back on the ready screen, ok or not. Every
+    // non-ok outcome core can report ("VS Code is running", "could not
+    // confirm VS Code is closed", a kept journal after a partial removal)
+    // tells the user to clear something and re-run -- and the re-run is
+    // the Uninstall control on THIS screen. The failure screen is a dead
+    // end with no way back to it, which turned "quit VS Code and re-run"
+    // into "kill the app and relaunch".
+    //
+    // result.message carries the same outcome string the CLI prints,
+    // including the blk_removal_partial / vscode_kept_but_owned nuances a
+    // flat "Uninstalled." would hide from the user of a destructive op.
+    setReadyStatus(result.message, !result.ok);
+    // A failed uninstall still deserves the diagnostics bundle the failure
+    // screen would have offered; it appears here instead, and goes away
+    // again once an uninstall succeeds.
+    document
+      .getElementById("ready-diagnostics-btn")
+      .classList.toggle("hidden", result.ok);
+    if (result.ok) {
+      hideError("ready-diagnostics-error");
     }
+    showScreen("ready");
     return;
   }
   if (result.ok) {
@@ -184,35 +202,46 @@ document
     }
   });
 
+// One handler for both diagnostics buttons: the failure screen's, and the
+// ready screen's (shown only after a failed uninstall).
+async function saveDiagnostics(btnId, errId) {
+  const btn = document.getElementById(btnId);
+  const original = btn.textContent;
+  const errEl = document.getElementById(errId);
+  try {
+    const path = await invoke("save_diagnostics");
+    if (path) {
+      hideError(errId);
+      btn.textContent = "Saved";
+      setTimeout(() => {
+        btn.textContent = original;
+      }, 2000);
+    }
+  } catch (e) {
+    // A dedicated element, not #failure-message / #ready-status: those
+    // already hold the outcome string the user came to read, and a
+    // diagnostics-save failure must not overwrite it.
+    errEl.textContent = `Could not save diagnostics: ${e}`;
+    errEl.classList.remove("hidden");
+  } finally {
+    // save_diagnostics holds the same Rust-side OpGuard as install/
+    // uninstall and can trigger the same close-refused notice while its
+    // dialog/zip-write is in flight; this command has no setBusy call of
+    // its own (the ready/running/success/failure screens don't apply to
+    // it), so it must clear the notice itself on every exit -- success,
+    // a cancelled dialog (path is null), or an error.
+    clearCloseNotice();
+  }
+}
+
 document
   .getElementById("save-diagnostics-btn")
-  .addEventListener("click", async () => {
-    const btn = document.getElementById("save-diagnostics-btn");
-    const original = btn.textContent;
-    const errEl = document.getElementById("save-diagnostics-error");
-    try {
-      const path = await invoke("save_diagnostics");
-      if (path) {
-        errEl.textContent = "";
-        errEl.classList.add("hidden");
-        btn.textContent = "Saved";
-        setTimeout(() => {
-          btn.textContent = original;
-        }, 2000);
-      }
-    } catch (e) {
-      // A dedicated element, not #failure-message: that already holds the
-      // OpsError string the user came to this screen to read, and a
-      // diagnostics-save failure must not overwrite it.
-      errEl.textContent = `Could not save diagnostics: ${e}`;
-      errEl.classList.remove("hidden");
-    } finally {
-      // save_diagnostics holds the same Rust-side OpGuard as install/
-      // uninstall and can trigger the same close-refused notice while its
-      // dialog/zip-write is in flight; this command has no setBusy call of
-      // its own (the ready/running/success/failure screens don't apply to
-      // it), so it must clear the notice itself on every exit -- success,
-      // a cancelled dialog (path is null), or an error.
-      clearCloseNotice();
-    }
-  });
+  .addEventListener("click", () =>
+    saveDiagnostics("save-diagnostics-btn", "save-diagnostics-error"),
+  );
+
+document
+  .getElementById("ready-diagnostics-btn")
+  .addEventListener("click", () =>
+    saveDiagnostics("ready-diagnostics-btn", "ready-diagnostics-error"),
+  );
