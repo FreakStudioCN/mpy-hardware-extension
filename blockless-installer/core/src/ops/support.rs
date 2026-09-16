@@ -5,6 +5,30 @@ pub fn diagnostics(ctx: &OpsContext, target_zip: &Path) -> Result<(), OpsError> 
     info!(target = %target_zip.display(), "diagnostics: starting");
     ctx.progress
         .emit(&ProgressEvent::OpStarted { op: "diagnostics" });
+    write_diagnostics_bundle(&ctx.paths, ctx.os, ctx.arch, Ok(ctx.manifest), target_zip)?;
+    info!("diagnostics: finished");
+    ctx.progress
+        .emit(&ProgressEvent::OpFinished { op: "diagnostics" });
+    Ok(())
+}
+
+/// The bundle itself, without an [`OpsContext`]: `logs/`, `state.json`,
+/// the manifest and the machine facts. Public so a shell whose manifest
+/// could not be loaded at all can still export what support actually needs
+/// -- the logs and the journal need no manifest, and "the manifest is
+/// missing or damaged" is the failure a diagnostics bundle exists to
+/// explain, not a reason to refuse one.
+///
+/// `manifest` is `Err(reason)` in that case: no `manifest.json` entry is
+/// written, and `facts.json` carries the load error as `manifestError`
+/// instead of `installerVersion`.
+pub fn write_diagnostics_bundle(
+    paths: &Paths,
+    os: Os,
+    arch: Arch,
+    manifest: Result<&Manifest, &str>,
+    target_zip: &Path,
+) -> Result<(), OpsError> {
     let file = std::fs::File::create(target_zip).map_err(|e| {
         OpsError::Diagnostics(format!("could not create {}: {e}", target_zip.display()))
     })?;
@@ -14,8 +38,8 @@ pub fn diagnostics(ctx: &OpsContext, target_zip: &Path) -> Result<(), OpsError> 
     let zip_err = |e: zip::result::ZipError| OpsError::Diagnostics(e.to_string());
     let io_err = |e: std::io::Error| OpsError::Diagnostics(e.to_string());
 
-    if ctx.paths.logs.is_dir() {
-        let entries = std::fs::read_dir(&ctx.paths.logs).map_err(io_err)?;
+    if paths.logs.is_dir() {
+        let entries = std::fs::read_dir(&paths.logs).map_err(io_err)?;
         for entry in entries {
             let entry = entry.map_err(io_err)?;
             if !entry.file_type().map_err(io_err)?.is_file() {
@@ -30,33 +54,36 @@ pub fn diagnostics(ctx: &OpsContext, target_zip: &Path) -> Result<(), OpsError> 
         }
     }
 
-    if ctx.paths.state.is_file() {
+    if paths.state.is_file() {
         writer.start_file("state.json", options).map_err(zip_err)?;
-        let bytes = std::fs::read(&ctx.paths.state).map_err(io_err)?;
+        let bytes = std::fs::read(&paths.state).map_err(io_err)?;
         std::io::Write::write_all(&mut writer, &bytes).map_err(io_err)?;
     }
 
-    writer
-        .start_file("manifest.json", options)
-        .map_err(zip_err)?;
-    let manifest_bytes = serde_json::to_vec_pretty(ctx.manifest)
-        .map_err(|e| OpsError::Diagnostics(e.to_string()))?;
-    std::io::Write::write_all(&mut writer, &manifest_bytes).map_err(io_err)?;
-
-    let facts = serde_json::json!({
-        "os": match ctx.os { Os::MacOs => "macos", Os::Windows => "windows" },
-        "arch": match ctx.arch { Arch::X64 => "x64", Arch::Arm64 => "arm64" },
-        "installerVersion": ctx.manifest.installer_version,
+    let mut facts = serde_json::json!({
+        "os": match os { Os::MacOs => "macos", Os::Windows => "windows" },
+        "arch": match arch { Arch::X64 => "x64", Arch::Arm64 => "arm64" },
     });
+    match manifest {
+        Ok(manifest) => {
+            writer
+                .start_file("manifest.json", options)
+                .map_err(zip_err)?;
+            let manifest_bytes = serde_json::to_vec_pretty(manifest)
+                .map_err(|e| OpsError::Diagnostics(e.to_string()))?;
+            std::io::Write::write_all(&mut writer, &manifest_bytes).map_err(io_err)?;
+            facts["installerVersion"] = serde_json::Value::from(manifest.installer_version.clone());
+        }
+        Err(reason) => {
+            facts["manifestError"] = serde_json::Value::from(reason);
+        }
+    }
     writer.start_file("facts.json", options).map_err(zip_err)?;
     let facts_bytes =
         serde_json::to_vec_pretty(&facts).map_err(|e| OpsError::Diagnostics(e.to_string()))?;
     std::io::Write::write_all(&mut writer, &facts_bytes).map_err(io_err)?;
 
     writer.finish().map_err(zip_err)?;
-    info!("diagnostics: finished");
-    ctx.progress
-        .emit(&ProgressEvent::OpFinished { op: "diagnostics" });
     Ok(())
 }
 

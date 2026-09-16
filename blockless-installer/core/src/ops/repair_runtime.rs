@@ -26,7 +26,7 @@ pub fn repair_runtime(env: &dyn Environment, ctx: &OpsContext) -> Result<State, 
         step: 3,
         name: "runtime",
     });
-    runtime::ensure_runtime(
+    let runtime_outcome = runtime::ensure_runtime(
         env,
         &ctx.client,
         ctx.os,
@@ -44,12 +44,19 @@ pub fn repair_runtime(env: &dyn Environment, ctx: &OpsContext) -> Result<State, 
     current.env_python = ctx.paths.env_python.to_string_lossy().into_owned();
     current.steps.python = true;
     stamp_and_write(&mut current, &ctx.paths.state)?;
-    info!("repair-runtime: step 3 (runtime) done");
+    // Always `false` in practice: env/ was just removed, so nothing can be
+    // already present. Reported from the outcome anyway, never hard-coded,
+    // so this op cannot drift from what step 3 actually did.
+    let runtime_skipped = runtime_outcome == RuntimeStepOutcome::AlreadyPresent;
+    info!(
+        skipped = runtime_skipped,
+        "repair-runtime: step 3 (runtime) done"
+    );
     ctx.progress.emit(&ProgressEvent::StepFinished {
         op: "repair-runtime",
         step: 3,
         name: "runtime",
-        skipped: None,
+        skipped: Some(runtime_skipped),
     });
     ctx.progress.emit(&ProgressEvent::OpFinished {
         op: "repair-runtime",

@@ -161,6 +161,12 @@ pub struct ExtensionsStepOutcome {
     /// ends up being what actually registers it.
     pub profile_created_by_us: bool,
     pub ext_vsix_sha256: String,
+    /// Every extension was already present at the expected version, so this
+    /// run installed nothing (the currency skip). `false` whenever any
+    /// install command ran, including a forced reinstall. This is the
+    /// step's skip signal for a progress listener; the journal does not
+    /// need it.
+    pub already_current: bool,
 }
 
 /// The full step. `seed_profile_created_by_us` is the sticky carry-forward
@@ -228,6 +234,7 @@ pub fn ensure_extensions(
         return Ok(ExtensionsStepOutcome {
             profile_created_by_us,
             ext_vsix_sha256: vsix_sha256,
+            already_current: true,
         });
     }
 
@@ -320,6 +327,7 @@ pub fn ensure_extensions(
     Ok(ExtensionsStepOutcome {
         profile_created_by_us,
         ext_vsix_sha256: vsix_sha256,
+        already_current: false,
     })
 }
 

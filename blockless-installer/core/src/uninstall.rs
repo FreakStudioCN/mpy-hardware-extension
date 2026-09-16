@@ -159,6 +159,10 @@ pub enum UninstallOutcome {
     },
 }
 
+#[path = "uninstall/summary.rs"]
+mod summary;
+pub use summary::OutcomeSummary;
+
 #[allow(clippy::too_many_arguments)]
 pub fn uninstall(
     command_runner: &dyn profile::CommandRunner,
@@ -303,7 +307,15 @@ pub fn uninstall(
         // BLK can still leave blk_removed: false while state.json itself
         // is already gone -- inferring from blk_removed would then wrongly
         // skip telling the operator that tracking really was lost.
-        vscode_kept_but_owned: flags.keep_vscode && vscode_installed_by_us && !state_path.exists(),
+        //
+        // And only when an owned install is actually still THERE: a journal
+        // that says "installed by us" for an editor the user already removed
+        // by hand describes nothing left in place, and the note would send
+        // them to remove something that does not exist.
+        vscode_kept_but_owned: flags.keep_vscode
+            && vscode_installed_by_us
+            && !state_path.exists()
+            && vscode_dirs.iter().any(|dir| dir.exists()),
         vscode_removal_failed: false,
     }
 }

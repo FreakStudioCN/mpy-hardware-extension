@@ -43,12 +43,17 @@ pub fn update_extension(env: &dyn Environment, ctx: &OpsContext) -> Result<State
     current.ext_vsix_sha256 = ext_outcome.ext_vsix_sha256;
     current.steps.extension = true;
     stamp_and_write(&mut current, &ctx.paths.state)?;
-    info!("update-extension: step 2 (extension) done");
+    // Always `false` in practice (force bypasses the currency skip), but
+    // read from the outcome rather than asserted here.
+    info!(
+        skipped = ext_outcome.already_current,
+        "update-extension: step 2 (extension) done"
+    );
     ctx.progress.emit(&ProgressEvent::StepFinished {
         op: "update-extension",
         step: 2,
         name: "extension",
-        skipped: None,
+        skipped: Some(ext_outcome.already_current),
     });
     ctx.progress.emit(&ProgressEvent::OpFinished {
         op: "update-extension",
